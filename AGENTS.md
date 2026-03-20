@@ -8,6 +8,10 @@ Clawrium is a CLI tool (`clm`) for managing AI Claw fleets (ZeroClaw, NemoClaw, 
 3. track token usage across different agents and build guardrails
 4. experiment with different models across your agent fleet
 
+## Resources
+
+- Repository: https://github.com/ric03uec/clawrium
+- Project Board: https://github.com/users/ric03uec/projects/1
 
 ## Version
 
