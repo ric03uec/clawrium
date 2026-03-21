@@ -28,10 +28,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. User runs `clm init` and configuration directory is created at ~/.config/clawrium/
   2. User sees clear status of all dependencies (Python, Ansible, ansible-runner)
   3. User receives actionable install instructions for any missing dependencies
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD
+- [ ] 01-01-PLAN.md — Project scaffolding and clm init command (creates config directory)
+- [ ] 01-02-PLAN.md — Dependency detection with install instructions
 
 ### Phase 2: Host Management
 **Goal**: Users can manage hosts with automatic hardware capability detection
@@ -96,7 +97,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation Setup | 0/0 | Not started | - |
+| 1. Foundation Setup | 0/2 | Planning complete | - |
 | 2. Host Management | 0/0 | Not started | - |
 | 3. Registry & Compatibility | 0/0 | Not started | - |
 | 4. Secrets Management | 0/0 | Not started | - |
