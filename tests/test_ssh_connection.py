@@ -4,7 +4,8 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch, mock_open
 import paramiko
-from clawrium.core.ssh_connection import get_ssh_config, test_ssh_connection
+from clawrium.core.ssh_connection import get_ssh_config
+from clawrium.core.ssh_connection import test_ssh_connection as ssh_test_connection
 
 
 def test_get_ssh_config_no_file():
@@ -58,7 +59,7 @@ def test_ssh_connection_success():
     mock_client.exec_command.return_value = (Mock(), mock_stdout, Mock())
 
     with patch('paramiko.SSHClient', return_value=mock_client):
-        success, message = test_ssh_connection("testhost", 22, "xclm")
+        success, message = ssh_test_connection("testhost", 22, "xclm")
 
         assert success is True
         assert "success" in message.lower()
@@ -72,7 +73,7 @@ def test_ssh_connection_auth_failure():
     mock_client.connect.side_effect = paramiko.AuthenticationException("Auth failed")
 
     with patch('paramiko.SSHClient', return_value=mock_client):
-        success, message = test_ssh_connection("testhost", 22, "xclm")
+        success, message = ssh_test_connection("testhost", 22, "xclm")
 
         assert success is False
         assert "authentication" in message.lower()
@@ -88,7 +89,7 @@ def test_ssh_connection_network_error():
     mock_client.connect.side_effect = socket.error("Connection refused")
 
     with patch('paramiko.SSHClient', return_value=mock_client):
-        success, message = test_ssh_connection("testhost", 22, "xclm")
+        success, message = ssh_test_connection("testhost", 22, "xclm")
 
         assert success is False
         assert "network error" in message.lower()
