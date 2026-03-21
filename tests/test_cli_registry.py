@@ -1,0 +1,38 @@
+"""Tests for registry CLI commands."""
+
+from typer.testing import CliRunner
+from clawrium.cli.main import app
+
+runner = CliRunner()
+
+
+def test_registry_list_shows_table():
+    """Test that registry list shows available claws."""
+    result = runner.invoke(app, ["registry", "list"])
+    assert result.exit_code == 0
+    assert "openclaw" in result.output.lower()
+    assert "Available Claws" in result.output
+
+
+def test_registry_list_shows_version():
+    """Test that registry list includes version."""
+    result = runner.invoke(app, ["registry", "list"])
+    assert result.exit_code == 0
+    # Should show version from manifest
+    assert "0.1.0" in result.output
+
+
+def test_registry_show_openclaw():
+    """Test registry show displays claw details."""
+    result = runner.invoke(app, ["registry", "show", "openclaw"])
+    assert result.exit_code == 0
+    assert "openclaw" in result.output.lower()
+    assert "Supported Platforms" in result.output
+    assert "ubuntu" in result.output.lower()
+
+
+def test_registry_show_not_found():
+    """Test registry show with unknown claw shows error."""
+    result = runner.invoke(app, ["registry", "show", "nonexistent"])
+    assert result.exit_code == 1
+    assert "not found" in result.output.lower()
