@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: "Completed quick task 260321-iqu: Fix issue #1 key lookup mismatch"
-last_updated: "2026-03-21T20:39:59.053Z"
-last_activity: "2026-03-21 - Completed quick task 260321-fna: Implement per-host SSH key storage with clm host init command"
+stopped_at: "Completed quick task 260321-jld: Fix hardware detection ansible-runner issue #3"
+last_updated: "2026-03-21T21:12:38Z"
+last_activity: "2026-03-21 - Completed quick task 260321-jld: Fix hardware detection ansible-runner issue #3"
 progress:
   total_phases: 5
   completed_phases: 2
@@ -85,9 +85,11 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260321-fna | Implement per-host SSH key storage with clm host init command | 2026-03-21 | 61aaee0 | [260321-fna-implement-per-host-ssh-key-storage-with-](./quick/260321-fna-implement-per-host-ssh-key-storage-with-/) |
 | 260321-iqu | Fix issue #1: Key lookup mismatch. Add key_id field to host records | 2026-03-21 | 1262959 | [260321-iqu-fix-issue-1-key-lookup-mismatch-add-key-](./quick/260321-iqu-fix-issue-1-key-lookup-mismatch-add-key-/) |
+| 260321-jld | Fix hardware detection ansible-runner issue #3 | 2026-03-21 | fe4561d | [260321-jld-fix-hardware-detection-ansible-runner-ne](./quick/260321-jld-fix-hardware-detection-ansible-runner-ne/) |
+| 260321-jux | ATX review fixes: SSH key validation, test coverage, GPU detection | 2026-03-21 | 397640b | [260321-jux-atx-review-fixes-ssh-key-validation-test](./quick/260321-jux-atx-review-fixes-ssh-key-validation-test/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-21 - Completed quick task 260321-fna: Implement per-host SSH key storage with clm host init command
-Stopped at: Completed quick task 260321-iqu: Fix issue #1 key lookup mismatch
+Last activity: 2026-03-21 - Completed quick task 260321-jux: ATX review fixes
+Stopped at: Completed quick task 260321-jux: ATX review fixes
 Resume file: None
