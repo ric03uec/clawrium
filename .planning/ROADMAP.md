@@ -47,7 +47,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Test scaffolding with SSH and Ansible mock fixtures
+- [x] 02-01-PLAN.md — Test scaffolding with SSH and Ansible mock fixtures
 - [x] 02-02-PLAN.md — Host storage and SSH connection testing modules
 - [x] 02-03-PLAN.md — Hardware capability detection via ansible-runner
 - [ ] 02-04-PLAN.md — CLI host commands (add, list, remove, status)

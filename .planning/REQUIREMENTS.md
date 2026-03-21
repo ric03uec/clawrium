@@ -14,10 +14,10 @@ Requirements for initial release: OpenClaw on single Ubuntu host.
 
 ### Host Management
 
-- [ ] **HOST-01**: User can add a host with SSH details (`clm host add`)
-- [ ] **HOST-02**: User can list all hosts with hardware info (`clm host list`)
-- [ ] **HOST-03**: User can remove a host (`clm host remove`)
-- [ ] **HOST-04**: User can check host status (`clm host status`)
+- [x] **HOST-01**: User can add a host with SSH details (`clm host add`)
+- [x] **HOST-02**: User can list all hosts with hardware info (`clm host list`)
+- [x] **HOST-03**: User can remove a host (`clm host remove`)
+- [x] **HOST-04**: User can check host status (`clm host status`)
 - [x] **HOST-05**: System detects hardware capabilities (arch, GPU, memory, disk)
 
 ### Claw Registry
@@ -91,10 +91,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | INIT-01 | Phase 1 | Complete |
 | INIT-02 | Phase 1 | Complete |
-| HOST-01 | Phase 2 | Pending |
-| HOST-02 | Phase 2 | Pending |
-| HOST-03 | Phase 2 | Pending |
-| HOST-04 | Phase 2 | Pending |
+| HOST-01 | Phase 2 | Complete |
+| HOST-02 | Phase 2 | Complete |
+| HOST-03 | Phase 2 | Complete |
+| HOST-04 | Phase 2 | Complete |
 | HOST-05 | Phase 2 | Complete |
 | REG-01 | Phase 3 | Pending |
 | REG-02 | Phase 3 | Pending |
