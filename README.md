@@ -1,10 +1,10 @@
 # Clawrium
 
-<p align="center">
-  <img src="docs/assets/clawrium-logo.png" alt="Clawrium Logo" width="300">
-</p>
-
 **An aquarium for your claws.**
+
+<p align="center">
+  <img src="docs/assets/clawrium-logo.png" alt="Clawrium Logo" width="600">
+</p>
 
 CLI tool for managing AI assistant fleets on local networks. Deploy and manage multiple claw instances (ZeroClaw, NemoClaw, OpenClaw) across hosts from a single command center.
 
