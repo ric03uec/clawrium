@@ -193,9 +193,11 @@ def init(
         console.print("sudo mkdir -p /home/xclm/.ssh")
         console.print("sudo chmod 700 /home/xclm/.ssh")
         # Shell-escape public key to prevent injection and escape Rich markup
+        # Use soft_wrap=False to keep command on one line for easy copy-paste
         escaped_key = shlex.quote(public_key_content) if public_key_content else "''"
         console.print(
-            f"echo {rich_escape(escaped_key)} | sudo tee /home/xclm/.ssh/authorized_keys"
+            f"echo {rich_escape(escaped_key)} | sudo tee /home/xclm/.ssh/authorized_keys",
+            soft_wrap=False,
         )
         console.print("sudo chmod 600 /home/xclm/.ssh/authorized_keys")
         console.print("sudo chown -R xclm:xclm /home/xclm/.ssh")
