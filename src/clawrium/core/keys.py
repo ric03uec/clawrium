@@ -82,7 +82,7 @@ def get_host_key_dir(key_id: str) -> Path:
     try:
         resolved = key_dir.resolve()
         keys_base_resolved = keys_base.resolve()
-        if not str(resolved).startswith(str(keys_base_resolved) + os.sep):
+        if not resolved.is_relative_to(keys_base_resolved):
             raise InvalidKeyIdError(
                 f"Invalid key_id '{key_id}': path escapes keys directory"
             )

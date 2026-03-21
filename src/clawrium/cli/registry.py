@@ -43,12 +43,14 @@ def list_registry() -> None:
         try:
             info = get_claw_info(claw_name)
             table.add_row(
-                info["name"],
-                info["latest_version"],
-                info["description"],
+                escape(info["name"]),
+                escape(info["latest_version"]),
+                escape(info["description"]),
             )
         except ManifestNotFoundError:
-            table.add_row(claw_name, "?", "Error loading manifest")
+            table.add_row(escape(claw_name), "?", "Manifest not found")
+        except ManifestParseError:
+            table.add_row(escape(claw_name), "?", "[red]Corrupted manifest[/red]")
 
     console.print(table)
 
