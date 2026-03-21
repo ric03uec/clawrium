@@ -67,7 +67,8 @@ def init(
 
     client = paramiko.SSHClient()
     client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    # Use RejectPolicy - we'll handle unknown hosts via HostKeyVerificationRequired
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
     auto_setup_success = False
     try:
@@ -83,24 +84,29 @@ def init(
             console.print("[green]Connection successful![/green]")
             console.print("Setting up xclm management user...")
 
-            # Execute setup commands
+            # Execute setup commands (no shell injection - public key written via stdin)
             setup_commands = [
-                "sudo useradd -m -s /bin/bash xclm 2>/dev/null || true",
-                'echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm',
-                "sudo chmod 440 /etc/sudoers.d/xclm",
-                "sudo mkdir -p /home/xclm/.ssh",
-                "sudo chmod 700 /home/xclm/.ssh",
-                f'echo "{public_key_content}" | sudo tee /home/xclm/.ssh/authorized_keys',
-                "sudo chmod 600 /home/xclm/.ssh/authorized_keys",
-                "sudo chown -R xclm:xclm /home/xclm/.ssh",
+                ("sudo useradd -m -s /bin/bash xclm 2>/dev/null || true", None),
+                ('echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm', None),
+                ("sudo chmod 440 /etc/sudoers.d/xclm", None),
+                ("sudo mkdir -p /home/xclm/.ssh", None),
+                ("sudo chmod 700 /home/xclm/.ssh", None),
+                ("sudo tee /home/xclm/.ssh/authorized_keys", public_key_content),  # Write via stdin
+                ("sudo chmod 600 /home/xclm/.ssh/authorized_keys", None),
+                ("sudo chown -R xclm:xclm /home/xclm/.ssh", None),
             ]
 
-            for cmd in setup_commands:
+            for cmd, stdin_data in setup_commands:
                 stdin, stdout, stderr = client.exec_command(cmd)
+                if stdin_data:
+                    stdin.write(stdin_data + "\n")
+                    stdin.channel.shutdown_write()
+                # Drain stdout before checking exit status to prevent buffer hangs
+                stdout.read()
                 exit_status = stdout.channel.recv_exit_status()
                 if exit_status != 0 and "useradd" not in cmd:
                     error = stderr.read().decode().strip()
-                    console.print(f"[yellow]Warning:[/yellow] Command failed: {cmd}")
+                    console.print(f"[yellow]Warning:[/yellow] Setup step failed (exit {exit_status})")
                     if error:
                         console.print(f"  {error}")
 
@@ -125,6 +131,7 @@ def init(
         console.print(f"\n[yellow]Unknown host key for {e.hostname}[/yellow]")
         console.print(f"  Key type: {e.key_type}")
         console.print(f"  Fingerprint: {e.fingerprint}")
+        console.print("\n[yellow]Warning:[/yellow] Verify this fingerprint matches the host's actual key.")
 
         if typer.confirm("\nAccept this host key and retry?"):
             accept_host_key(hostname, 22, expected_fingerprint=e.fingerprint)
@@ -132,6 +139,15 @@ def init(
         else:
             console.print("Connection cancelled.")
         raise typer.Exit(code=1)
+    except paramiko.SSHException as e:
+        # Handle unknown host key from RejectPolicy
+        if "not found in known_hosts" in str(e) or "Server" in str(e):
+            console.print(f"\n[yellow]Unknown host key for {hostname}[/yellow]")
+            console.print("Run 'ssh-keyscan' or connect manually first to add the host key.")
+        else:
+            console.print(f"[yellow]SSH error:[/yellow] {e}")
+    except paramiko.AuthenticationException as e:
+        console.print(f"[yellow]Authentication failed:[/yellow] {e}")
     except Exception as e:
         console.print(f"[yellow]Could not connect:[/yellow] {e}")
     finally:
@@ -404,7 +420,11 @@ def status(
     # Get per-host key
     actual_hostname = host['hostname']
     host_key = get_host_private_key(actual_hostname)
-    ssh_key = str(host_key) if host_key else None
+    if host_key is None:
+        console.print(f"[red]Error:[/red] No keypair found for '{actual_hostname}'")
+        console.print(f"Run 'clm host init {actual_hostname}' to regenerate keys")
+        raise typer.Exit(code=1)
+    ssh_key = str(host_key)
 
     # Test connection
     try:

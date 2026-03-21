@@ -228,9 +228,14 @@ def test_host_init_generates_keypair(isolated_config: Path):
     mock_client = MagicMock()
     mock_client.connect = MagicMock(side_effect=Exception("Connection failed"))
     mock_client.close = MagicMock()
+    mock_client.load_system_host_keys = MagicMock()
+    mock_client.set_missing_host_key_policy = MagicMock()
 
-    with patch('clawrium.core.ssh_connection.paramiko.SSHClient', return_value=mock_client):
+    with patch('clawrium.cli.host.paramiko.SSHClient', return_value=mock_client):
         result = runner.invoke(app, ["host", "init", "192.168.1.100"], env=os.environ)
+
+        # Should exit 0 (keypair generated, manual instructions shown)
+        assert result.exit_code == 0, f"Unexpected exit code: {result.exit_code}, output: {result.output}"
 
         # Should generate keypair
         key_dir = isolated_config / "keys" / "192.168.1.100"
@@ -282,18 +287,20 @@ def test_host_init_manual_fallback(isolated_config: Path):
     mock_client.load_system_host_keys = MagicMock()
     mock_client.set_missing_host_key_policy = MagicMock()
 
-    with patch('clawrium.core.ssh_connection.paramiko.SSHClient', return_value=mock_client):
-        with patch('clawrium.cli.host.paramiko.SSHClient', return_value=mock_client):
-            result = runner.invoke(
-                app,
-                ["host", "init", "192.168.1.100", "--user", "admin"],
-                env=os.environ
-            )
+    with patch('clawrium.cli.host.paramiko.SSHClient', return_value=mock_client):
+        result = runner.invoke(
+            app,
+            ["host", "init", "192.168.1.100", "--user", "admin"],
+            env=os.environ
+        )
 
-            # Should show manual setup commands
-            assert "useradd" in result.output.lower() or "manual" in result.output.lower()
-            # Should show public key
-            assert "ssh-ed25519" in result.output
+        # Should exit 0 (keypair generated, manual instructions shown is not an error)
+        assert result.exit_code == 0, f"Unexpected exit code: {result.exit_code}, output: {result.output}"
+
+        # Should show manual setup commands
+        assert "useradd" in result.output.lower() or "manual" in result.output.lower()
+        # Should show public key
+        assert "ssh-ed25519" in result.output
 
 
 def test_host_init_existing_keypair_not_regenerated(isolated_config: Path):

@@ -136,6 +136,42 @@ class TestGenerateHostKeypair:
         assert private_key == expected_dir / "xclm_ed25519"
         assert public_key == expected_dir / "xclm_ed25519.pub"
 
+    def test_raises_if_keypair_exists_and_overwrite_false(self, isolated_config: Path):
+        """generate_host_keypair raises ValueError if keys exist and overwrite=False."""
+        import pytest
+        from clawrium.core.keys import generate_host_keypair
+
+        # First call succeeds
+        generate_host_keypair("testhost")
+
+        # Second call without overwrite raises
+        with pytest.raises(ValueError, match="already exists"):
+            generate_host_keypair("testhost")
+
+    def test_overwrites_if_overwrite_true(self, isolated_config: Path):
+        """generate_host_keypair overwrites existing keys when overwrite=True."""
+        from clawrium.core.keys import generate_host_keypair
+
+        # Generate initial keypair
+        private_key1, _ = generate_host_keypair("testhost")
+        original_content = private_key1.read_bytes()
+
+        # Regenerate with overwrite=True
+        private_key2, _ = generate_host_keypair("testhost", overwrite=True)
+        new_content = private_key2.read_bytes()
+
+        # Keys should be different (new generation)
+        assert original_content != new_content
+
+    def test_public_key_has_correct_permissions(self, isolated_config: Path):
+        """generate_host_keypair sets 0644 on public key."""
+        from clawrium.core.keys import generate_host_keypair
+
+        _, public_key = generate_host_keypair("testhost")
+
+        mode = public_key.stat().st_mode & 0o777
+        assert mode == 0o644
+
 
 class TestDeleteHostKeys:
     """Tests for delete_host_keys function."""

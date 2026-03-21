@@ -59,7 +59,7 @@ def get_host_public_key(hostname: str) -> Path | None:
     return key_path if key_path.exists() else None
 
 
-def generate_host_keypair(hostname: str) -> tuple[Path, Path]:
+def generate_host_keypair(hostname: str, overwrite: bool = False) -> tuple[Path, Path]:
     """Generate an ed25519 keypair for a host.
 
     Creates the key directory with 0700 permissions and the private key
@@ -67,15 +67,23 @@ def generate_host_keypair(hostname: str) -> tuple[Path, Path]:
 
     Args:
         hostname: The hostname or IP address.
+        overwrite: If True, overwrite existing keys. If False (default),
+            raise ValueError if keys already exist.
 
     Returns:
         Tuple of (private_key_path, public_key_path).
+
+    Raises:
+        ValueError: If keys already exist and overwrite is False.
     """
     # Ensure config directory exists
     init_config_dir()
 
-    # Create key directory with restrictive permissions
+    # Check for existing keys
     key_dir = get_host_key_dir(hostname)
+    private_key_path = key_dir / KEY_FILENAME
+    if private_key_path.exists() and not overwrite:
+        raise ValueError(f"Keypair already exists for '{hostname}'. Use overwrite=True to replace.")
     old_umask = os.umask(0o077)
     try:
         key_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -111,11 +119,12 @@ def generate_host_keypair(hostname: str) -> tuple[Path, Path]:
         os.umask(old_umask)
     private_key_path.chmod(0o600)
 
-    # Write public key with comment
+    # Write public key with comment and explicit permissions
     public_key_path = key_dir / f"{KEY_FILENAME}.pub"
     public_key_str = public_key_bytes.decode("utf-8") + " clawrium\n"
     with open(public_key_path, "w") as f:
         f.write(public_key_str)
+    public_key_path.chmod(0o644)
 
     return private_key_path, public_key_path
 
