@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from clawrium.cli.main import app
@@ -51,3 +52,66 @@ class TestCliInit:
         # Second run should not fail
         result = runner.invoke(app, ["init"], env=os.environ)
         assert result.exit_code == 0
+
+    def test_init_shows_dependency_table(self, isolated_config: Path) -> None:
+        """clm init should show dependency status table."""
+        result = runner.invoke(app, ["init"])
+
+        assert "Dependency Status" in result.output
+        assert "python" in result.output.lower()
+        assert "ansible" in result.output.lower()
+
+    def test_init_shows_ok_for_found_deps(self, isolated_config: Path) -> None:
+        """clm init should show OK for found dependencies."""
+        result = runner.invoke(app, ["init"])
+
+        # Python and ansible-runner should always be found (project deps)
+        assert "OK" in result.output
+
+    def test_init_exits_1_when_deps_missing(
+        self, isolated_config: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """clm init should exit 1 if any dependency is missing."""
+        from clawrium.core import deps
+
+        # Mock ansible as missing
+        original_check = deps.check_ansible
+
+        def mock_check_ansible():
+            return deps.DependencyStatus(
+                name="ansible",
+                found=False,
+                version=None,
+                path=None,
+                install_hint="Install via: pipx install ansible",
+            )
+
+        monkeypatch.setattr(deps, "check_ansible", mock_check_ansible)
+
+        result = runner.invoke(app, ["init"])
+
+        assert result.exit_code == 1
+        assert "MISSING" in result.output
+
+    def test_init_shows_install_hint_for_missing(
+        self, isolated_config: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """clm init should show install instructions for missing deps."""
+        from clawrium.core import deps
+
+        def mock_check_ansible():
+            return deps.DependencyStatus(
+                name="ansible",
+                found=False,
+                version=None,
+                path=None,
+                install_hint="Install via: pipx install ansible",
+            )
+
+        monkeypatch.setattr(deps, "check_ansible", mock_check_ansible)
+
+        result = runner.invoke(app, ["init"])
+
+        # Table may wrap text, so check for parts separately
+        assert "pipx" in result.output
+        assert "install ansible" in result.output
