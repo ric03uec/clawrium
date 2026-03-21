@@ -1,7 +1,6 @@
 """Tests for CLI host commands."""
 
 import os
-import pytest
 from pathlib import Path
 from typer.testing import CliRunner
 from unittest.mock import patch, MagicMock
@@ -11,8 +10,20 @@ from clawrium.cli.main import app
 runner = CliRunner()
 
 
+def create_test_keypair(config_dir: Path, hostname: str) -> None:
+    """Create a test keypair for a host (required before host add)."""
+    key_dir = config_dir / "keys" / hostname
+    key_dir.mkdir(parents=True, exist_ok=True)
+    (key_dir / "xclm_ed25519").write_text("test-private-key")
+    (key_dir / "xclm_ed25519").chmod(0o600)
+    (key_dir / "xclm_ed25519.pub").write_text("ssh-ed25519 AAAA... clawrium")
+
+
 def test_host_add_success(isolated_config: Path, mock_ssh_client, mock_ansible_runner):
     """clm host add with valid connection saves host."""
+    # Setup: create keypair (required before host add)
+    create_test_keypair(isolated_config, "192.168.1.100")
+
     with patch('clawrium.core.ssh_connection.paramiko.SSHClient', return_value=mock_ssh_client):
         with patch('clawrium.core.hardware.ansible_runner.run', return_value=mock_ansible_runner):
             result = runner.invoke(app, ["host", "add", "192.168.1.100"], env=os.environ)
@@ -23,6 +34,9 @@ def test_host_add_success(isolated_config: Path, mock_ssh_client, mock_ansible_r
 
 def test_host_add_with_flags(isolated_config: Path, mock_ssh_client, mock_ansible_runner):
     """clm host add with flags uses provided values."""
+    # Setup: create keypair (required before host add)
+    create_test_keypair(isolated_config, "192.168.1.100")
+
     with patch('clawrium.core.ssh_connection.paramiko.SSHClient', return_value=mock_ssh_client):
         with patch('clawrium.core.hardware.ansible_runner.run', return_value=mock_ansible_runner):
             result = runner.invoke(
@@ -36,6 +50,9 @@ def test_host_add_with_flags(isolated_config: Path, mock_ssh_client, mock_ansibl
 
 def test_host_add_connection_failed(isolated_config: Path, mock_ssh_client_fail):
     """clm host add with connection failure shows error, exits 1."""
+    # Setup: create keypair (required before host add)
+    create_test_keypair(isolated_config, "badhost")
+
     with patch('clawrium.core.ssh_connection.paramiko.SSHClient', return_value=mock_ssh_client_fail):
         result = runner.invoke(app, ["host", "add", "badhost"], env=os.environ)
 
@@ -45,8 +62,8 @@ def test_host_add_connection_failed(isolated_config: Path, mock_ssh_client_fail)
 
 def test_host_add_duplicate(isolated_config: Path, sample_host_data: dict):
     """Adding same hostname twice shows error, exits 1."""
-    # Setup: create hosts.json with existing host
-    isolated_config.mkdir(parents=True, exist_ok=True)
+    # Setup: create keypair and hosts.json with existing host
+    create_test_keypair(isolated_config, "192.168.1.100")
     import json
     hosts_file = isolated_config / "hosts.json"
     hosts_file.write_text(json.dumps([sample_host_data]))
@@ -55,6 +72,17 @@ def test_host_add_duplicate(isolated_config: Path, sample_host_data: dict):
 
     assert result.exit_code == 1
     assert "already" in result.output.lower() or "exists" in result.output.lower()
+
+
+def test_host_add_requires_keypair(isolated_config: Path):
+    """clm host add without keypair shows error and suggests init."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+
+    result = runner.invoke(app, ["host", "add", "192.168.1.100"], env=os.environ)
+
+    assert result.exit_code == 1
+    assert "no keypair" in result.output.lower()
+    assert "host init" in result.output.lower()
 
 
 def test_host_list_empty(isolated_config: Path):
@@ -114,6 +142,24 @@ def test_host_remove_force(isolated_config: Path, sample_host_data: dict):
     assert "removed" in result.output.lower() or "success" in result.output.lower()
 
 
+def test_host_remove_deletes_keys(isolated_config: Path, sample_host_data: dict):
+    """clm host remove also deletes per-host keys."""
+    # Setup: create hosts.json and keypair
+    create_test_keypair(isolated_config, "192.168.1.100")
+    import json
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    key_dir = isolated_config / "keys" / "192.168.1.100"
+    assert key_dir.exists()
+
+    result = runner.invoke(app, ["host", "remove", "192.168.1.100", "--force"], env=os.environ)
+
+    assert result.exit_code == 0
+    assert not key_dir.exists(), "Key directory should be deleted"
+    assert "keypair" in result.output.lower() or "deleted" in result.output.lower()
+
+
 def test_host_remove_not_found(isolated_config: Path):
     """clm host remove nonexistent shows error, exits 1."""
     # Ensure config dir exists but no hosts
@@ -127,8 +173,8 @@ def test_host_remove_not_found(isolated_config: Path):
 
 def test_host_status_connected(isolated_config: Path, sample_host_data: dict, mock_ssh_client):
     """clm host status with reachable host shows 'Connected'."""
-    # Setup: create hosts.json with sample data
-    isolated_config.mkdir(parents=True, exist_ok=True)
+    # Setup: create hosts.json with sample data and keypair
+    create_test_keypair(isolated_config, "192.168.1.100")
     import json
     hosts_file = isolated_config / "hosts.json"
     hosts_file.write_text(json.dumps([sample_host_data]))
@@ -142,8 +188,8 @@ def test_host_status_connected(isolated_config: Path, sample_host_data: dict, mo
 
 def test_host_status_disconnected(isolated_config: Path, sample_host_data: dict, mock_ssh_client_fail):
     """clm host status with unreachable host shows 'Disconnected'."""
-    # Setup: create hosts.json with sample data
-    isolated_config.mkdir(parents=True, exist_ok=True)
+    # Setup: create hosts.json with sample data and keypair
+    create_test_keypair(isolated_config, "192.168.1.100")
     import json
     hosts_file = isolated_config / "hosts.json"
     hosts_file.write_text(json.dumps([sample_host_data]))
@@ -157,8 +203,8 @@ def test_host_status_disconnected(isolated_config: Path, sample_host_data: dict,
 
 def test_host_status_refresh(isolated_config: Path, sample_host_data: dict, mock_ssh_client, mock_ansible_runner):
     """clm host status --refresh updates hardware info."""
-    # Setup: create hosts.json with sample data
-    isolated_config.mkdir(parents=True, exist_ok=True)
+    # Setup: create hosts.json with sample data and keypair
+    create_test_keypair(isolated_config, "192.168.1.100")
     import json
     hosts_file = isolated_config / "hosts.json"
     hosts_file.write_text(json.dumps([sample_host_data]))
@@ -268,7 +314,7 @@ def test_host_init_existing_keypair_not_regenerated(isolated_config: Path):
 
     with patch('clawrium.core.ssh_connection.paramiko.SSHClient', return_value=mock_client):
         with patch('clawrium.cli.host.paramiko.SSHClient', return_value=mock_client):
-            result = runner.invoke(app, ["host", "init", "192.168.1.100"], env=os.environ)
+            runner.invoke(app, ["host", "init", "192.168.1.100"], env=os.environ)
 
             # Key should not be regenerated
             assert private_key.read_text() == "existing-key-content"

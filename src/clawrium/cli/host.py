@@ -1,7 +1,6 @@
 """Host management commands for Clawrium."""
 
 import getpass
-import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -14,7 +13,6 @@ from clawrium.core.hosts import add_host, get_host, load_hosts, remove_host, sav
 from clawrium.core.keys import (
     generate_host_keypair,
     get_host_private_key,
-    get_host_public_key,
     read_public_key,
     delete_host_keys,
 )
@@ -166,14 +164,21 @@ def add(
     port: Optional[int] = typer.Option(None, "--port", "-p", help="SSH port (default: 22)"),
     user: Optional[str] = typer.Option(None, "--user", "-u", help="SSH user (default: xclm)"),
     alias: Optional[str] = typer.Option(None, "--alias", "-a", help="Friendly name for this host"),
-    key_path: Optional[str] = typer.Option(None, "--key", "-k", help="Path to SSH private key (used for this connection only; add to ~/.ssh/config for persistence)"),
     tags: Optional[str] = typer.Option(None, "--tags", "-t", help="Comma-separated tags"),
 ) -> None:
     """Add a new host to the fleet.
 
+    Requires keypair to exist (run 'clm host init' first).
     Tests SSH connection before saving. Detects hardware capabilities
     automatically after successful connection.
     """
+    # Check for per-host keypair (enforces init-first workflow)
+    host_key = get_host_private_key(hostname)
+    if not host_key:
+        console.print(f"[red]Error:[/red] No keypair found for '{hostname}'")
+        console.print(f"Run 'clm host init {hostname}' first to generate keys")
+        raise typer.Exit(code=1)
+
     # Check for duplicate
     try:
         existing = get_host(hostname)
@@ -190,15 +195,14 @@ def add(
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
 
-    # Load SSH config and merge with provided values (per D-09)
+    # Load SSH config for hostname resolution
     ssh_config = get_ssh_config(hostname)
 
-    # CLI flags override SSH config (per D-07 hybrid input)
-    # Use 'is not None' to allow explicit --port 0 or --user ''
+    # CLI flags override defaults
     final_hostname = ssh_config.get('hostname', hostname)  # Resolve HostName from SSH config
     final_port = port if port is not None else int(ssh_config.get('port', 22))
-    final_user = user if user is not None else ssh_config.get('user', 'xclm')  # Default per D-11
-    final_key = key_path if key_path is not None else (ssh_config.get('identityfile', [None])[0] if 'identityfile' in ssh_config else None)
+    final_user = user if user is not None else 'xclm'  # Always default to xclm
+    final_key = str(host_key)  # Use per-host key
 
     console.print(f"Testing connection to {final_hostname}:{final_port} as {final_user}...")
 
@@ -288,11 +292,6 @@ def add(
     add_host(host)
     console.print(f"[green]Host '{display_alias or hostname}' added successfully![/green]")
 
-    # Warn if --key was used but no SSH config entry exists for future lookups
-    if key_path and 'identityfile' not in ssh_config:
-        console.print(f"[yellow]Note:[/yellow] Key path '{key_path}' was used for this connection but is not stored.")
-        console.print(f"  Add to ~/.ssh/config for persistence: IdentityFile {key_path}")
-
 
 @host_app.command(name="list")
 def list_hosts() -> None:
@@ -367,9 +366,14 @@ def remove(
     # Remove by actual hostname
     success = remove_host(host['hostname'])
     if success:
+        # Also delete per-host keys
+        actual_hostname = host['hostname']
+        keys_deleted = delete_host_keys(actual_hostname)
         console.print(f"[green]Host '{display_name}' removed successfully.[/green]")
+        if keys_deleted:
+            console.print(f"[dim]Keypair for '{actual_hostname}' deleted.[/dim]")
     else:
-        console.print(f"[red]Error:[/red] Failed to remove host")
+        console.print("[red]Error:[/red] Failed to remove host")
         raise typer.Exit(code=1)
 
 
@@ -397,10 +401,10 @@ def status(
     display_name = host.get('alias') or host['hostname']
     console.print(f"Checking status of '{display_name}'...")
 
-    # Get SSH config for key lookup (key_path not stored for security)
-    ssh_config_host = host.get('ssh_config_host') or host['hostname']
-    ssh_config = get_ssh_config(ssh_config_host)
-    ssh_key = ssh_config.get('identityfile', [None])[0] if 'identityfile' in ssh_config else None
+    # Get per-host key
+    actual_hostname = host['hostname']
+    host_key = get_host_private_key(actual_hostname)
+    ssh_key = str(host_key) if host_key else None
 
     # Test connection
     try:
@@ -411,7 +415,7 @@ def status(
             key_filename=ssh_key
         )
         success, message = result
-    except HostKeyVerificationRequired as e:
+    except HostKeyVerificationRequired:
         success = False
         message = "Host key verification required"
         console.print(f"[yellow]Note:[/yellow] Run 'clm host remove {hostname} && clm host add {host['hostname']}' to re-verify the host key.")

@@ -1,7 +1,5 @@
 """Tests for keys module - per-host SSH key management."""
 
-import os
-import pytest
 from pathlib import Path
 
 
