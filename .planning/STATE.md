@@ -78,8 +78,14 @@ None yet.
 
 None yet.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260321-fna | Implement per-host SSH key storage with clm host init command | 2026-03-21 | 61aaee0 | [260321-fna-implement-per-host-ssh-key-storage-with-](./quick/260321-fna-implement-per-host-ssh-key-storage-with-/) |
+
 ## Session Continuity
 
-Last session: 2026-03-21T03:45:11.864Z
-Stopped at: Completed 02-04-PLAN.md
+Last activity: 2026-03-21 - Completed quick task 260321-fna: Implement per-host SSH key storage with clm host init command
+Stopped at: Quick task complete
 Resume file: None
