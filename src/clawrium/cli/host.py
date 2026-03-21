@@ -1,13 +1,23 @@
 """Host management commands for Clawrium."""
 
+import getpass
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
+import paramiko
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from clawrium.core.hosts import add_host, get_host, load_hosts, remove_host, save_hosts, HostsFileCorruptedError
+from clawrium.core.keys import (
+    generate_host_keypair,
+    get_host_private_key,
+    get_host_public_key,
+    read_public_key,
+    delete_host_keys,
+)
 from clawrium.core.ssh_connection import (
     get_ssh_config,
     test_ssh_connection,
@@ -25,6 +35,129 @@ host_app = typer.Typer(
     help="Manage hosts in your fleet",
     no_args_is_help=True,
 )
+
+
+@host_app.command()
+def init(
+    hostname: str = typer.Argument(..., help="Host IP or hostname to initialize"),
+    user: Optional[str] = typer.Option(None, "--user", "-u", help="SSH user for initial connection (default: current user)"),
+) -> None:
+    """Initialize a host for Clawrium management.
+
+    Generates a per-host SSH keypair and attempts to configure the xclm
+    management user on the remote host. If SSH access fails, displays
+    manual setup commands.
+    """
+    # Step 1: Generate keypair if not exists
+    private_key = get_host_private_key(hostname)
+    if private_key:
+        console.print(f"Using existing keypair for '{hostname}'")
+    else:
+        console.print(f"Generating SSH keypair for '{hostname}'...")
+        private_key_path, public_key_path = generate_host_keypair(hostname)
+        console.print(f"[green]Keypair created:[/green] {public_key_path}")
+        private_key = private_key_path
+
+    # Read the public key for display/setup
+    public_key_content = read_public_key(hostname)
+
+    # Step 2: Determine connection user
+    connection_user = user or getpass.getuser()
+
+    # Step 3: Try to connect to host
+    console.print(f"\nAttempting connection to {hostname} as {connection_user}...")
+
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    auto_setup_success = False
+    try:
+        # Try to connect with current user's default keys
+        client.connect(
+            hostname=hostname,
+            username=connection_user,
+            timeout=10
+        )
+
+        transport = client.get_transport()
+        if transport and transport.is_active():
+            console.print("[green]Connection successful![/green]")
+            console.print("Setting up xclm management user...")
+
+            # Execute setup commands
+            setup_commands = [
+                "sudo useradd -m -s /bin/bash xclm 2>/dev/null || true",
+                'echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm',
+                "sudo chmod 440 /etc/sudoers.d/xclm",
+                "sudo mkdir -p /home/xclm/.ssh",
+                "sudo chmod 700 /home/xclm/.ssh",
+                f'echo "{public_key_content}" | sudo tee /home/xclm/.ssh/authorized_keys',
+                "sudo chmod 600 /home/xclm/.ssh/authorized_keys",
+                "sudo chown -R xclm:xclm /home/xclm/.ssh",
+            ]
+
+            for cmd in setup_commands:
+                stdin, stdout, stderr = client.exec_command(cmd)
+                exit_status = stdout.channel.recv_exit_status()
+                if exit_status != 0 and "useradd" not in cmd:
+                    error = stderr.read().decode().strip()
+                    console.print(f"[yellow]Warning:[/yellow] Command failed: {cmd}")
+                    if error:
+                        console.print(f"  {error}")
+
+            # Verify xclm connection works
+            console.print("\nVerifying xclm access...")
+            success, message = test_ssh_connection(
+                hostname=hostname,
+                port=22,
+                user="xclm",
+                key_filename=str(private_key)
+            )
+
+            if success:
+                console.print("[green]xclm user configured successfully![/green]")
+                console.print(f"\nNext step: [cyan]clm host add {hostname}[/cyan]")
+                auto_setup_success = True
+            else:
+                console.print(f"[yellow]Warning:[/yellow] xclm verification failed: {message}")
+                console.print("You may need to complete setup manually.")
+
+    except HostKeyVerificationRequired as e:
+        console.print(f"\n[yellow]Unknown host key for {e.hostname}[/yellow]")
+        console.print(f"  Key type: {e.key_type}")
+        console.print(f"  Fingerprint: {e.fingerprint}")
+
+        if typer.confirm("\nAccept this host key and retry?"):
+            accept_host_key(hostname, 22, expected_fingerprint=e.fingerprint)
+            console.print("Host key saved. Please run 'clm host init' again.")
+        else:
+            console.print("Connection cancelled.")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[yellow]Could not connect:[/yellow] {e}")
+    finally:
+        client.close()
+
+    # Step 4: If auto-setup failed, show manual commands
+    if not auto_setup_success:
+        console.print("\n[yellow]Manual setup required.[/yellow]")
+        console.print("\nRun these commands on the target host:\n")
+        console.print("[dim]# Create xclm user[/dim]")
+        console.print("sudo useradd -m -s /bin/bash xclm")
+        console.print("")
+        console.print("[dim]# Grant passwordless sudo[/dim]")
+        console.print('echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm')
+        console.print("sudo chmod 440 /etc/sudoers.d/xclm")
+        console.print("")
+        console.print("[dim]# Setup SSH access[/dim]")
+        console.print("sudo mkdir -p /home/xclm/.ssh")
+        console.print("sudo chmod 700 /home/xclm/.ssh")
+        console.print(f'echo "{public_key_content}" | sudo tee /home/xclm/.ssh/authorized_keys')
+        console.print("sudo chmod 600 /home/xclm/.ssh/authorized_keys")
+        console.print("sudo chown -R xclm:xclm /home/xclm/.ssh")
+        console.print("")
+        console.print(f"Then run: [cyan]clm host add {hostname}[/cyan]")
 
 
 @host_app.command()
