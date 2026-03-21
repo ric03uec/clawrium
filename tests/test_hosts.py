@@ -10,6 +10,7 @@ from clawrium.core.hosts import (
     remove_host,
     get_host,
     HOSTS_FILE,
+    HostsFileCorruptedError,
 )
 
 

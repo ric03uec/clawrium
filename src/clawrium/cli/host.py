@@ -7,7 +7,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from clawrium.core.hosts import add_host, get_host, load_hosts, remove_host
+from clawrium.core.hosts import add_host, get_host, load_hosts, remove_host, save_hosts
 from clawrium.core.ssh_connection import get_ssh_config, test_ssh_connection
 from clawrium.core.hardware import gather_hardware
 
@@ -52,8 +52,9 @@ def add(
     ssh_config = get_ssh_config(hostname)
 
     # CLI flags override SSH config (per D-07 hybrid input)
-    final_port = port or int(ssh_config.get('port', 22))
-    final_user = user or ssh_config.get('user', 'xclm')  # Default per D-11
+    # Use 'is not None' to allow explicit --port 0 or --user ''
+    final_port = port if port is not None else int(ssh_config.get('port', 22))
+    final_user = user if user is not None else ssh_config.get('user', 'xclm')  # Default per D-11
     final_key = key_path or (ssh_config.get('identityfile', [None])[0] if 'identityfile' in ssh_config else None)
 
     console.print(f"Testing connection to {hostname}:{final_port} as {final_user}...")
@@ -109,8 +110,8 @@ def add(
     console.print(f"[green]Host '{alias or hostname}' added successfully![/green]")
 
 
-@host_app.command()
-def list() -> None:
+@host_app.command(name="list")
+def list_hosts() -> None:
     """List all registered hosts."""
     hosts = load_hosts()
 
@@ -168,7 +169,7 @@ def remove(
         confirmed = typer.confirm(f"Remove host '{display_name}'? This cannot be undone.")
         if not confirmed:
             console.print("Cancelled.")
-            raise typer.Abort()
+            raise typer.Exit(code=0)  # Clean exit on user cancel, not error
 
     # Remove by actual hostname
     success = remove_host(host['hostname'])
@@ -252,12 +253,11 @@ def status(
             # Update host record
             hosts = load_hosts()
             for h in hosts:
-                if h['hostname'] == host['hostname']:
+                if h.get('hostname') == host['hostname']:
                     h['hardware'] = new_hardware
                     h['metadata']['last_seen'] = datetime.now(timezone.utc).isoformat()
                     break
 
-            from clawrium.core.hosts import save_hosts
             save_hosts(hosts)
 
             console.print(f"[green]Hardware information updated.[/green]")

@@ -1,6 +1,8 @@
 """Host storage operations for Clawrium."""
 
 import json
+import os
+import tempfile
 from pathlib import Path
 from clawrium.core.config import get_config_dir, init_config_dir
 
@@ -9,24 +11,45 @@ __all__ = ["load_hosts", "save_hosts", "add_host", "remove_host", "get_host", "H
 HOSTS_FILE = "hosts.json"
 
 
+class HostsFileCorruptedError(Exception):
+    """Raised when hosts.json cannot be parsed."""
+    pass
+
+
 def load_hosts() -> list[dict]:
     """Load hosts from JSON file.
 
     Returns:
         List of host dictionaries. Empty list if file doesn't exist.
+
+    Raises:
+        HostsFileCorruptedError: If hosts.json exists but cannot be parsed.
     """
     hosts_path = get_config_dir() / HOSTS_FILE
     if not hosts_path.exists():
         return []
 
-    with open(hosts_path) as f:
-        return json.load(f)
+    try:
+        with open(hosts_path) as f:
+            data = json.load(f)
+            # Validate it's a list
+            if not isinstance(data, list):
+                raise HostsFileCorruptedError(
+                    f"hosts.json is not a list: {hosts_path}"
+                )
+            return data
+    except json.JSONDecodeError as e:
+        raise HostsFileCorruptedError(
+            f"hosts.json is corrupted: {e}. "
+            f"Backup the file and delete it to recover: {hosts_path}"
+        ) from e
 
 
 def save_hosts(hosts: list[dict]) -> None:
-    """Save hosts to JSON file.
+    """Save hosts to JSON file atomically.
 
     Creates config directory if it doesn't exist.
+    Uses atomic write (temp file + rename) to prevent data loss on crash.
 
     Args:
         hosts: List of host dictionaries to save.
@@ -35,8 +58,19 @@ def save_hosts(hosts: list[dict]) -> None:
     config_dir = init_config_dir()
     hosts_path = config_dir / HOSTS_FILE
 
-    with open(hosts_path, 'w') as f:
-        json.dump(hosts, f, indent=2)
+    # Atomic write: write to temp file, then rename (atomic on POSIX)
+    fd, tmp_path = tempfile.mkstemp(dir=config_dir, suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(hosts, f, indent=2)
+        os.replace(tmp_path, hosts_path)
+    except Exception:
+        # Clean up temp file on failure
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def add_host(host: dict) -> None:
@@ -60,7 +94,7 @@ def remove_host(hostname: str) -> bool:
         True if host was found and removed, False otherwise.
     """
     hosts = load_hosts()
-    filtered = [h for h in hosts if h["hostname"] != hostname]
+    filtered = [h for h in hosts if h.get("hostname") != hostname]
 
     if len(filtered) == len(hosts):
         # No host was removed
@@ -81,7 +115,7 @@ def get_host(identifier: str) -> dict | None:
     """
     hosts = load_hosts()
     for host in hosts:
-        if host["hostname"] == identifier:
+        if host.get("hostname") == identifier:
             return host
         if host.get("alias") == identifier:
             return host

@@ -1,10 +1,13 @@
 """SSH connection testing for Clawrium."""
 
+import logging
 import socket
 import paramiko
 from pathlib import Path
 
 __all__ = ["get_ssh_config", "test_ssh_connection"]
+
+logger = logging.getLogger(__name__)
 
 
 def get_ssh_config(hostname: str) -> dict:
@@ -44,6 +47,24 @@ def get_ssh_config(hostname: str) -> dict:
     return result
 
 
+class WarningHostKeyPolicy(paramiko.MissingHostKeyPolicy):
+    """Host key policy that warns user but allows first connection.
+
+    For local network use, we warn about MITM risks but allow the connection.
+    The host key is saved after first connection for future verification.
+    """
+
+    def missing_host_key(self, client, hostname, key):
+        logger.warning(
+            f"Unknown host key for {hostname}. Fingerprint: {key.get_fingerprint().hex()}. "
+            "Accepting for first connection - verify this is your intended host."
+        )
+        # Add key to known_hosts for future verification
+        client._host_keys.add(hostname, key.get_name(), key)
+        if client._host_keys_filename is not None:
+            client.save_host_keys(client._host_keys_filename)
+
+
 def test_ssh_connection(
     hostname: str,
     port: int = 22,
@@ -53,7 +74,7 @@ def test_ssh_connection(
     """Test SSH connection and return (success, message).
 
     Attempts to connect to the specified host via SSH and execute
-    a simple test command. Auto-adds missing host keys.
+    a simple test command.
 
     Args:
         hostname: The hostname or IP address to connect to.
@@ -66,8 +87,8 @@ def test_ssh_connection(
     """
     client = paramiko.SSHClient()
     client.load_system_host_keys()
-    # Auto-add missing host keys (for new hosts)
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    # Use warning policy that logs fingerprint but allows first connection
+    client.set_missing_host_key_policy(WarningHostKeyPolicy())
 
     try:
         connect_kwargs = {
@@ -83,17 +104,23 @@ def test_ssh_connection(
 
         # Test command execution
         stdin, stdout, stderr = client.exec_command('echo "Connection OK"')
-        stdout.read().decode().strip()
+        result = stdout.read().decode().strip()
+        if result != "Connection OK":
+            logger.debug(f"Unexpected test command output: {result}")
 
         return (True, "Connection successful")
 
     except paramiko.BadHostKeyException:
-        return (False, "Host key verification failed")
+        return (False, "Host key verification failed - host key changed since last connection")
     except paramiko.AuthenticationException:
         return (False, "Authentication failed - check SSH keys")
     except socket.error as e:
-        return (False, f"Network error: {e}")
+        # Log raw error for debugging, return sanitized message
+        logger.debug(f"Socket error connecting to {hostname}:{port}: {e}")
+        return (False, f"Network error: could not reach {hostname}:{port}")
     except paramiko.SSHException as e:
-        return (False, f"SSH error: {e}")
+        # Log raw error for debugging, return sanitized message
+        logger.debug(f"SSH error connecting to {hostname}:{port}: {e}")
+        return (False, "SSH connection failed - check host availability and SSH configuration")
     finally:
         client.close()

@@ -107,14 +107,17 @@ def gather_hardware(
         inv_path.mkdir()
         (inv_path / 'hosts.json').write_text(json.dumps(inventory))
 
-        # Gather standard facts
+        # Gather standard facts (30s timeout to prevent indefinite blocking)
         result = ansible_runner.run(
             private_data_dir=tmpdir,
             host_pattern=hostname,
             module='setup',
-            quiet=True
+            quiet=True,
+            timeout=30
         )
 
+        if result.status == 'timeout':
+            raise RuntimeError("Fact gathering timed out after 30 seconds")
         if result.status != 'successful':
             raise RuntimeError(f"Fact gathering failed: {result.status}")
 
@@ -125,13 +128,14 @@ def gather_hardware(
         # Extract hardware from facts
         hardware = extract_hardware_from_facts(facts)
 
-        # GPU detection via lspci
+        # GPU detection via lspci (use shell module for pipe support)
         gpu_result = ansible_runner.run(
             private_data_dir=tmpdir,
             host_pattern=hostname,
-            module='command',
-            module_args='lspci | grep -i vga',
-            quiet=True
+            module='shell',
+            module_args='lspci | grep -i vga || true',
+            quiet=True,
+            timeout=15
         )
 
         # Parse GPU output from events
