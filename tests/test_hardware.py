@@ -66,6 +66,44 @@ def test_parse_ansible_facts_all_missing():
     assert hardware["mounts"] == []
 
 
+def test_parse_ansible_facts_os_detection():
+    """Test extracting OS information from Ansible facts."""
+    from clawrium.core.hardware import extract_hardware_from_facts
+
+    facts = {
+        "ansible_architecture": "x86_64",
+        "ansible_processor_cores": 4,
+        "ansible_processor_count": 1,
+        "ansible_memtotal_mb": 16384,
+        "ansible_mounts": [],
+        "ansible_distribution": "Ubuntu",
+        "ansible_distribution_version": "24.04",
+    }
+
+    hardware = extract_hardware_from_facts(facts)
+
+    assert hardware["os"] == "ubuntu"
+    assert hardware["os_version"] == "24.04"
+
+
+def test_parse_ansible_facts_os_missing():
+    """Test extracting hardware when OS facts are missing."""
+    from clawrium.core.hardware import extract_hardware_from_facts
+
+    facts = {
+        "ansible_architecture": "x86_64",
+        "ansible_processor_cores": 4,
+        "ansible_processor_count": 1,
+        "ansible_memtotal_mb": 16384,
+        "ansible_mounts": [],
+    }
+
+    hardware = extract_hardware_from_facts(facts)
+
+    assert hardware["os"] == "unknown"
+    assert hardware["os_version"] == "unknown"
+
+
 def test_detect_gpu_nvidia():
     """Test GPU detection for NVIDIA cards."""
     from clawrium.core.hardware import parse_gpu_output
@@ -181,6 +219,8 @@ def test_gather_hardware_full(monkeypatch):
                                     "size_available": 500000000000,
                                 }
                             ],
+                            "ansible_distribution": "Ubuntu",
+                            "ansible_distribution_version": "24.04",
                         }
                     }
                 },
@@ -226,6 +266,8 @@ def test_gather_hardware_full(monkeypatch):
     assert len(hardware["mounts"]) == 1
     assert hardware["gpu"]["present"] is True
     assert hardware["gpu"]["vendor"] == "nvidia"
+    assert hardware["os"] == "ubuntu"
+    assert hardware["os_version"] == "24.04"
 
 
 def test_gather_hardware_passes_inventory_to_runner(monkeypatch, tmp_path):
