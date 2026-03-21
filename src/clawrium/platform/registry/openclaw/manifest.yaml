@@ -1,0 +1,21 @@
+name: openclaw
+description: "Open-source AI assistant framework"
+entries:
+  - version: "0.1.0"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=20.0.0"
+  - version: "0.1.0"
+    os: ubuntu
+    os_version: "22.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=18.0.0"
