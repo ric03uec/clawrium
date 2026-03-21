@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Project scaffolding and clm init command (creates config directory)
+- [x] 01-01-PLAN.md — Project scaffolding and clm init command (creates config directory)
 - [ ] 01-02-PLAN.md — Dependency detection with install instructions
 
 ### Phase 2: Host Management

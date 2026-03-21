@@ -9,7 +9,7 @@ Requirements for initial release: OpenClaw on single Ubuntu host.
 
 ### Initialization
 
-- [ ] **INIT-01**: User can initialize Clawrium config directory (`clm init`)
+- [x] **INIT-01**: User can initialize Clawrium config directory (`clm init`)
 - [ ] **INIT-02**: User sees dependency check (Python, Ansible) with install instructions
 
 ### Host Management
@@ -89,7 +89,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INIT-01 | Phase 1 | Pending |
+| INIT-01 | Phase 1 | Complete |
 | INIT-02 | Phase 1 | Pending |
 | HOST-01 | Phase 2 | Pending |
 | HOST-02 | Phase 2 | Pending |
