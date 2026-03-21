@@ -3,8 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-03-21T03:49:55.330Z"
+stopped_at: "Completed quick task 260321-iqu: Fix issue #1 key lookup mismatch"
+last_updated: "2026-03-21T20:39:59.053Z"
+last_activity: "2026-03-21 - Completed quick task 260321-fna: Implement per-host SSH key storage with clm host init command"
 progress:
   total_phases: 5
   completed_phases: 2
@@ -83,9 +84,10 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260321-fna | Implement per-host SSH key storage with clm host init command | 2026-03-21 | 61aaee0 | [260321-fna-implement-per-host-ssh-key-storage-with-](./quick/260321-fna-implement-per-host-ssh-key-storage-with-/) |
+| 260321-iqu | Fix issue #1: Key lookup mismatch. Add key_id field to host records | 2026-03-21 | 1262959 | [260321-iqu-fix-issue-1-key-lookup-mismatch-add-key-](./quick/260321-iqu-fix-issue-1-key-lookup-mismatch-add-key-/) |
 
 ## Session Continuity
 
 Last activity: 2026-03-21 - Completed quick task 260321-fna: Implement per-host SSH key storage with clm host init command
-Stopped at: Quick task complete
+Stopped at: Completed quick task 260321-iqu: Fix issue #1 key lookup mismatch
 Resume file: None
