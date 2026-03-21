@@ -53,9 +53,9 @@ Host otherhost
     with patch.object(Path, 'exists', return_value=True):
         with patch('builtins.open', mock_open(read_data=ssh_config_content)):
             config = get_ssh_config("testhost")
-            # Should return empty or minimal config for non-matching host
-            # Paramiko SSHConfig.lookup returns some defaults even for unknown hosts
-            assert isinstance(config, dict)
+            # Should not contain keys from the non-matching stanza
+            assert 'user' not in config
+            assert config.get('hostname') != '192.168.1.20'
 
 
 def test_ssh_connection_success():
@@ -113,6 +113,20 @@ def test_ssh_connection_inactive_transport():
 
         assert success is False
         assert "transport not active" in message.lower()
+        mock_client.close.assert_called_once()
+
+
+def test_ssh_connection_null_transport():
+    """test_ssh_connection returns (False, transport not active) when get_transport returns None."""
+    mock_client = Mock(spec=paramiko.SSHClient)
+    mock_client.get_transport.return_value = None
+
+    with patch('paramiko.SSHClient', return_value=mock_client):
+        success, message = ssh_test_connection("testhost", 22, "xclm")
+
+        assert success is False
+        assert "transport not active" in message.lower()
+        mock_client.close.assert_called_once()
 
 
 def test_ssh_connection_bad_host_key():
@@ -130,6 +144,7 @@ def test_ssh_connection_bad_host_key():
         assert success is False
         assert "host key" in message.lower()
         assert "changed" in message.lower()
+        mock_client.close.assert_called_once()
 
 
 def test_ssh_connection_ssh_exception():
