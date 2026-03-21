@@ -34,6 +34,7 @@ def init_config_dir() -> Path:
         Path to the created configuration directory.
     """
     import os
+
     config_dir = get_config_dir()
     # Set restrictive umask before mkdir to protect any created parent dirs
     old_umask = os.umask(0o077)

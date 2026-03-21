@@ -106,7 +106,10 @@ class TestCheckAnsibleRunner:
                 result = check_ansible_runner()
 
                 assert result.found is False
-                assert "uv add" in result.install_hint or "pip install" in result.install_hint
+                assert (
+                    "uv add" in result.install_hint
+                    or "pip install" in result.install_hint
+                )
 
 
 class TestCheckAllDependencies:

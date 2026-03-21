@@ -6,7 +6,12 @@ import socket
 import paramiko
 from pathlib import Path
 
-__all__ = ["get_ssh_config", "test_ssh_connection", "accept_host_key", "HostKeyVerificationRequired"]
+__all__ = [
+    "get_ssh_config",
+    "test_ssh_connection",
+    "accept_host_key",
+    "HostKeyVerificationRequired",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +41,14 @@ def get_ssh_config(hostname: str) -> dict:
 
     # Normalize config to standard dict with only relevant keys
     result = {}
-    if 'hostname' in config:
-        result['hostname'] = config['hostname']
-    if 'user' in config:
-        result['user'] = config['user']
-    if 'port' in config:
-        result['port'] = config['port']
-    if 'identityfile' in config:
-        result['identityfile'] = config['identityfile']
+    if "hostname" in config:
+        result["hostname"] = config["hostname"]
+    if "user" in config:
+        result["user"] = config["user"]
+    if "port" in config:
+        result["port"] = config["port"]
+    if "identityfile" in config:
+        result["identityfile"] = config["identityfile"]
 
     return result
 
@@ -67,19 +72,16 @@ class StrictHostKeyPolicy(paramiko.MissingHostKeyPolicy):
 
     def missing_host_key(self, client, hostname, key):
         fingerprint = key.get_fingerprint().hex()
-        formatted_fp = ':'.join(fingerprint[i:i+2] for i in range(0, len(fingerprint), 2))
+        formatted_fp = ":".join(
+            fingerprint[i : i + 2] for i in range(0, len(fingerprint), 2)
+        )
         raise HostKeyVerificationRequired(
-            hostname=hostname,
-            key_type=key.get_name(),
-            fingerprint=formatted_fp
+            hostname=hostname, key_type=key.get_name(), fingerprint=formatted_fp
         )
 
 
 def test_ssh_connection(
-    hostname: str,
-    port: int = 22,
-    user: str = "xclm",
-    key_filename: str | None = None
+    hostname: str, port: int = 22, user: str = "xclm", key_filename: str | None = None
 ) -> tuple[bool, str]:
     """Test SSH connection and return (success, message) or host key verification request.
 
@@ -103,13 +105,13 @@ def test_ssh_connection(
 
     try:
         connect_kwargs = {
-            'hostname': hostname,
-            'port': port,
-            'username': user,
-            'timeout': 10
+            "hostname": hostname,
+            "port": port,
+            "username": user,
+            "timeout": 10,
         }
         if key_filename:
-            connect_kwargs['key_filename'] = key_filename
+            connect_kwargs["key_filename"] = key_filename
 
         client.connect(**connect_kwargs)
 
@@ -124,7 +126,10 @@ def test_ssh_connection(
         # Re-raise for CLI to handle with user confirmation
         raise
     except paramiko.BadHostKeyException:
-        return (False, "Host key verification failed - host key changed since last connection")
+        return (
+            False,
+            "Host key verification failed - host key changed since last connection",
+        )
     except paramiko.AuthenticationException:
         return (False, "Authentication failed - check SSH keys")
     except socket.error as e:
@@ -134,7 +139,10 @@ def test_ssh_connection(
     except paramiko.SSHException as e:
         # Log raw error for debugging, return sanitized message
         logger.debug(f"SSH error connecting to {hostname}:{port}: {e}")
-        return (False, "SSH connection failed - check host availability and SSH configuration")
+        return (
+            False,
+            "SSH connection failed - check host availability and SSH configuration",
+        )
     finally:
         client.close()
 
@@ -148,7 +156,9 @@ class VerifyingHostKeyPolicy(paramiko.MissingHostKeyPolicy):
 
     def missing_host_key(self, client, hostname, key):
         fingerprint = key.get_fingerprint().hex()
-        formatted_fp = ':'.join(fingerprint[i:i+2] for i in range(0, len(fingerprint), 2))
+        formatted_fp = ":".join(
+            fingerprint[i : i + 2] for i in range(0, len(fingerprint), 2)
+        )
 
         if formatted_fp != self.expected_fingerprint:
             raise paramiko.SSHException(
@@ -160,7 +170,9 @@ class VerifyingHostKeyPolicy(paramiko.MissingHostKeyPolicy):
         self.key_accepted = True
 
 
-def accept_host_key(hostname: str, port: int = 22, expected_fingerprint: str = "") -> bool:
+def accept_host_key(
+    hostname: str, port: int = 22, expected_fingerprint: str = ""
+) -> bool:
     """Accept and save a host key to known_hosts after verifying fingerprint.
 
     Called after user confirms the host key fingerprint. Re-verifies that the

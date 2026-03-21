@@ -40,7 +40,9 @@ def check_python() -> DependencyStatus:
     Returns:
         DependencyStatus for Python (always found since we're running in it).
     """
-    version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    version = (
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    )
     return DependencyStatus(
         name="python",
         found=True,

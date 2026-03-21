@@ -17,7 +17,7 @@ from clawrium.core.ssh_connection import (
 
 def test_get_ssh_config_no_file():
     """get_ssh_config returns {} when no SSH config file exists."""
-    with patch.object(Path, 'exists', return_value=False):
+    with patch.object(Path, "exists", return_value=False):
         config = get_ssh_config("testhost")
         assert config == {}
 
@@ -31,16 +31,16 @@ Host testhost
     Port 2222
     IdentityFile ~/.ssh/custom_key
 """
-    with patch.object(Path, 'exists', return_value=True):
-        with patch('builtins.open', mock_open(read_data=ssh_config_content)):
+    with patch.object(Path, "exists", return_value=True):
+        with patch("builtins.open", mock_open(read_data=ssh_config_content)):
             config = get_ssh_config("testhost")
 
-            assert 'hostname' in config
-            assert config['hostname'] == '192.168.1.10'
-            assert 'user' in config
-            assert config['user'] == 'customuser'
-            assert 'port' in config
-            assert 'identityfile' in config
+            assert "hostname" in config
+            assert config["hostname"] == "192.168.1.10"
+            assert "user" in config
+            assert config["user"] == "customuser"
+            assert "port" in config
+            assert "identityfile" in config
 
 
 def test_get_ssh_config_with_non_matching_host():
@@ -50,12 +50,12 @@ Host otherhost
     HostName 192.168.1.20
     User otheruser
 """
-    with patch.object(Path, 'exists', return_value=True):
-        with patch('builtins.open', mock_open(read_data=ssh_config_content)):
+    with patch.object(Path, "exists", return_value=True):
+        with patch("builtins.open", mock_open(read_data=ssh_config_content)):
             config = get_ssh_config("testhost")
             # Should not contain keys from the non-matching stanza
-            assert 'user' not in config
-            assert config.get('hostname') != '192.168.1.20'
+            assert "user" not in config
+            assert config.get("hostname") != "192.168.1.20"
 
 
 def test_ssh_connection_success():
@@ -65,7 +65,7 @@ def test_ssh_connection_success():
     mock_transport.is_active.return_value = True
     mock_client.get_transport.return_value = mock_transport
 
-    with patch('paramiko.SSHClient', return_value=mock_client):
+    with patch("paramiko.SSHClient", return_value=mock_client):
         success, message = ssh_test_connection("testhost", 22, "xclm")
 
         assert success is True
@@ -79,7 +79,7 @@ def test_ssh_connection_auth_failure():
     mock_client = Mock(spec=paramiko.SSHClient)
     mock_client.connect.side_effect = paramiko.AuthenticationException("Auth failed")
 
-    with patch('paramiko.SSHClient', return_value=mock_client):
+    with patch("paramiko.SSHClient", return_value=mock_client):
         success, message = ssh_test_connection("testhost", 22, "xclm")
 
         assert success is False
@@ -93,7 +93,7 @@ def test_ssh_connection_network_error():
     mock_client = Mock(spec=paramiko.SSHClient)
     mock_client.connect.side_effect = socket.error("Connection refused")
 
-    with patch('paramiko.SSHClient', return_value=mock_client):
+    with patch("paramiko.SSHClient", return_value=mock_client):
         success, message = ssh_test_connection("testhost", 22, "xclm")
 
         assert success is False
@@ -108,7 +108,7 @@ def test_ssh_connection_inactive_transport():
     mock_transport.is_active.return_value = False
     mock_client.get_transport.return_value = mock_transport
 
-    with patch('paramiko.SSHClient', return_value=mock_client):
+    with patch("paramiko.SSHClient", return_value=mock_client):
         success, message = ssh_test_connection("testhost", 22, "xclm")
 
         assert success is False
@@ -121,7 +121,7 @@ def test_ssh_connection_null_transport():
     mock_client = Mock(spec=paramiko.SSHClient)
     mock_client.get_transport.return_value = None
 
-    with patch('paramiko.SSHClient', return_value=mock_client):
+    with patch("paramiko.SSHClient", return_value=mock_client):
         success, message = ssh_test_connection("testhost", 22, "xclm")
 
         assert success is False
@@ -138,7 +138,7 @@ def test_ssh_connection_bad_host_key():
         "testhost", mock_key, mock_key
     )
 
-    with patch('paramiko.SSHClient', return_value=mock_client):
+    with patch("paramiko.SSHClient", return_value=mock_client):
         success, message = ssh_test_connection("testhost", 22, "xclm")
 
         assert success is False
@@ -152,7 +152,7 @@ def test_ssh_connection_ssh_exception():
     mock_client = Mock(spec=paramiko.SSHClient)
     mock_client.connect.side_effect = paramiko.SSHException("Protocol error")
 
-    with patch('paramiko.SSHClient', return_value=mock_client):
+    with patch("paramiko.SSHClient", return_value=mock_client):
         success, message = ssh_test_connection("testhost", 22, "xclm")
 
         assert success is False
@@ -169,7 +169,7 @@ def test_ssh_connection_raises_host_key_verification_required():
 
     mock_client.connect.side_effect = raise_verification
 
-    with patch('paramiko.SSHClient', return_value=mock_client):
+    with patch("paramiko.SSHClient", return_value=mock_client):
         with pytest.raises(HostKeyVerificationRequired) as exc_info:
             ssh_test_connection("testhost", 22, "xclm")
 
@@ -187,12 +187,12 @@ def test_ssh_connection_forwards_key_filename():
     mock_transport.is_active.return_value = True
     mock_client.get_transport.return_value = mock_transport
 
-    with patch('paramiko.SSHClient', return_value=mock_client):
+    with patch("paramiko.SSHClient", return_value=mock_client):
         ssh_test_connection("testhost", 22, "xclm", key_filename="/path/to/key")
 
         # Verify key_filename was passed to connect
         call_kwargs = mock_client.connect.call_args.kwargs
-        assert call_kwargs.get('key_filename') == "/path/to/key"
+        assert call_kwargs.get("key_filename") == "/path/to/key"
 
 
 class TestStrictHostKeyPolicy:
@@ -261,10 +261,14 @@ class TestAcceptHostKey:
         """accept_host_key swallows AuthenticationException and saves accepted key."""
         # First client for connect, second for save
         mock_connect_client = Mock(spec=paramiko.SSHClient)
-        mock_connect_client.connect.side_effect = paramiko.AuthenticationException("Auth failed")
+        mock_connect_client.connect.side_effect = paramiko.AuthenticationException(
+            "Auth failed"
+        )
         mock_connect_client._host_keys = Mock()
-        mock_connect_client._host_keys.keys.return_value = ['testhost']
-        mock_connect_client._host_keys.__getitem__ = Mock(return_value={'ssh-rsa': Mock()})
+        mock_connect_client._host_keys.keys.return_value = ["testhost"]
+        mock_connect_client._host_keys.__getitem__ = Mock(
+            return_value={"ssh-rsa": Mock()}
+        )
 
         mock_save_client = Mock(spec=paramiko.SSHClient)
         mock_save_client._host_keys = Mock()
@@ -276,11 +280,16 @@ class TestAcceptHostKey:
         mock_policy = Mock()
         mock_policy.key_accepted = True
 
-        with patch('paramiko.SSHClient', side_effect=lambda: next(client_iter)):
-            with patch('clawrium.core.ssh_connection.VerifyingHostKeyPolicy', return_value=mock_policy):
-                with patch('clawrium.core.ssh_connection.os.umask', return_value=0o022):
-                    with patch('clawrium.core.ssh_connection.os.chmod'):
-                        result = accept_host_key("testhost", 22, expected_fingerprint="aa:bb:cc:dd")
+        with patch("paramiko.SSHClient", side_effect=lambda: next(client_iter)):
+            with patch(
+                "clawrium.core.ssh_connection.VerifyingHostKeyPolicy",
+                return_value=mock_policy,
+            ):
+                with patch("clawrium.core.ssh_connection.os.umask", return_value=0o022):
+                    with patch("clawrium.core.ssh_connection.os.chmod"):
+                        result = accept_host_key(
+                            "testhost", 22, expected_fingerprint="aa:bb:cc:dd"
+                        )
                         assert result is True
                         mock_save_client.save_host_keys.assert_called_once()
 
@@ -289,7 +298,7 @@ class TestAcceptHostKey:
         mock_client = Mock(spec=paramiko.SSHClient)
         mock_client.connect.side_effect = paramiko.SSHException("fingerprint mismatch")
 
-        with patch('paramiko.SSHClient', return_value=mock_client):
+        with patch("paramiko.SSHClient", return_value=mock_client):
             result = accept_host_key("testhost", 22, expected_fingerprint="aa:bb:cc:dd")
             assert result is False
 
@@ -304,7 +313,12 @@ class TestAcceptHostKey:
         mock_policy = Mock()
         mock_policy.key_accepted = False
 
-        with patch('paramiko.SSHClient', return_value=mock_client):
-            with patch('clawrium.core.ssh_connection.VerifyingHostKeyPolicy', return_value=mock_policy):
-                result = accept_host_key("testhost", 22, expected_fingerprint="aa:bb:cc:dd")
+        with patch("paramiko.SSHClient", return_value=mock_client):
+            with patch(
+                "clawrium.core.ssh_connection.VerifyingHostKeyPolicy",
+                return_value=mock_policy,
+            ):
+                result = accept_host_key(
+                    "testhost", 22, expected_fingerprint="aa:bb:cc:dd"
+                )
                 assert result is False

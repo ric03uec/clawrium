@@ -52,5 +52,7 @@ def init() -> None:
 
     if not all_found:
         console.print()
-        console.print("[yellow]Some dependencies are missing. Please install them before continuing.[/yellow]")
+        console.print(
+            "[yellow]Some dependencies are missing. Please install them before continuing.[/yellow]"
+        )
         raise typer.Exit(code=1)

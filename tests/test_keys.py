@@ -1,6 +1,56 @@
 """Tests for keys module - per-host SSH key management."""
 
+import pytest
 from pathlib import Path
+
+
+class TestValidateKeyId:
+    """Tests for validate_key_id function - security validation."""
+
+    def test_accepts_valid_hostname(self, isolated_config: Path):
+        """validate_key_id accepts alphanumeric hostnames."""
+        from clawrium.core.keys import validate_key_id
+
+        assert validate_key_id("myhost") == "myhost"
+        assert validate_key_id("host-123") == "host-123"
+        assert validate_key_id("host_name") == "host_name"
+        assert validate_key_id("192.168.1.100") == "192.168.1.100"
+
+    def test_rejects_path_traversal(self, isolated_config: Path):
+        """validate_key_id rejects path traversal attempts."""
+        from clawrium.core.keys import validate_key_id, InvalidKeyIdError
+
+        with pytest.raises(InvalidKeyIdError):
+            validate_key_id("../../../etc/passwd")
+
+        with pytest.raises(InvalidKeyIdError):
+            validate_key_id("..%2F..%2Fetc")
+
+        with pytest.raises(InvalidKeyIdError):
+            validate_key_id("/etc/passwd")
+
+    def test_rejects_special_characters(self, isolated_config: Path):
+        """validate_key_id rejects shell special characters."""
+        from clawrium.core.keys import validate_key_id, InvalidKeyIdError
+
+        with pytest.raises(InvalidKeyIdError):
+            validate_key_id("host;rm -rf /")
+
+        with pytest.raises(InvalidKeyIdError):
+            validate_key_id("host`id`")
+
+        with pytest.raises(InvalidKeyIdError):
+            validate_key_id("host$(whoami)")
+
+        with pytest.raises(InvalidKeyIdError):
+            validate_key_id("host name")  # spaces not allowed
+
+    def test_rejects_empty_key_id(self, isolated_config: Path):
+        """validate_key_id rejects empty string."""
+        from clawrium.core.keys import validate_key_id, InvalidKeyIdError
+
+        with pytest.raises(InvalidKeyIdError):
+            validate_key_id("")
 
 
 class TestGetHostKeyDir:
@@ -21,6 +71,13 @@ class TestGetHostKeyDir:
         result = get_host_key_dir("host.example.com")
 
         assert result == isolated_config / "keys" / "host.example.com"
+
+    def test_rejects_path_traversal(self, isolated_config: Path):
+        """get_host_key_dir raises error on path traversal."""
+        from clawrium.core.keys import get_host_key_dir, InvalidKeyIdError
+
+        with pytest.raises(InvalidKeyIdError):
+            get_host_key_dir("../../../etc")
 
 
 class TestGetHostPrivateKey:

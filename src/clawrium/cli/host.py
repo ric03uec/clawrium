@@ -1,20 +1,31 @@
 """Host management commands for Clawrium."""
 
 import getpass
+import shlex
 from datetime import datetime, timezone
 from typing import Optional
 
 import paramiko
 import typer
 from rich.console import Console
+from rich.markup import escape as rich_escape
 from rich.table import Table
 
-from clawrium.core.hosts import add_host, get_host, load_hosts, remove_host, save_hosts, HostsFileCorruptedError
+from clawrium.core.hosts import (
+    add_host,
+    get_host,
+    get_host_by_key_id,
+    load_hosts,
+    remove_host,
+    save_hosts,
+    HostsFileCorruptedError,
+)
 from clawrium.core.keys import (
     generate_host_keypair,
     get_host_private_key,
     read_public_key,
     delete_host_keys,
+    InvalidKeyIdError,
 )
 from clawrium.core.ssh_connection import (
     get_ssh_config,
@@ -38,7 +49,12 @@ host_app = typer.Typer(
 @host_app.command()
 def init(
     hostname: str = typer.Argument(..., help="Host IP or hostname to initialize"),
-    user: Optional[str] = typer.Option(None, "--user", "-u", help="SSH user for initial connection (default: current user)"),
+    user: Optional[str] = typer.Option(
+        None,
+        "--user",
+        "-u",
+        help="SSH user for initial connection (default: current user)",
+    ),
 ) -> None:
     """Initialize a host for Clawrium management.
 
@@ -73,11 +89,7 @@ def init(
     auto_setup_success = False
     try:
         # Try to connect with current user's default keys
-        client.connect(
-            hostname=hostname,
-            username=connection_user,
-            timeout=10
-        )
+        client.connect(hostname=hostname, username=connection_user, timeout=10)
 
         transport = client.get_transport()
         if transport and transport.is_active():
@@ -87,11 +99,17 @@ def init(
             # Execute setup commands (no shell injection - public key written via stdin)
             setup_commands = [
                 ("sudo useradd -m -s /bin/bash xclm 2>/dev/null || true", None),
-                ('echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm', None),
+                (
+                    'echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm',
+                    None,
+                ),
                 ("sudo chmod 440 /etc/sudoers.d/xclm", None),
                 ("sudo mkdir -p /home/xclm/.ssh", None),
                 ("sudo chmod 700 /home/xclm/.ssh", None),
-                ("sudo tee /home/xclm/.ssh/authorized_keys", public_key_content),  # Write via stdin
+                (
+                    "sudo tee /home/xclm/.ssh/authorized_keys",
+                    public_key_content,
+                ),  # Write via stdin
                 ("sudo chmod 600 /home/xclm/.ssh/authorized_keys", None),
                 ("sudo chown -R xclm:xclm /home/xclm/.ssh", None),
             ]
@@ -106,17 +124,16 @@ def init(
                 exit_status = stdout.channel.recv_exit_status()
                 if exit_status != 0 and "useradd" not in cmd:
                     error = stderr.read().decode().strip()
-                    console.print(f"[yellow]Warning:[/yellow] Setup step failed (exit {exit_status})")
+                    console.print(
+                        f"[yellow]Warning:[/yellow] Setup step failed (exit {exit_status})"
+                    )
                     if error:
                         console.print(f"  {error}")
 
             # Verify xclm connection works
             console.print("\nVerifying xclm access...")
             success, message = test_ssh_connection(
-                hostname=hostname,
-                port=22,
-                user="xclm",
-                key_filename=str(private_key)
+                hostname=hostname, port=22, user="xclm", key_filename=str(private_key)
             )
 
             if success:
@@ -124,14 +141,18 @@ def init(
                 console.print(f"\nNext step: [cyan]clm host add {hostname}[/cyan]")
                 auto_setup_success = True
             else:
-                console.print(f"[yellow]Warning:[/yellow] xclm verification failed: {message}")
+                console.print(
+                    f"[yellow]Warning:[/yellow] xclm verification failed: {message}"
+                )
                 console.print("You may need to complete setup manually.")
 
     except HostKeyVerificationRequired as e:
         console.print(f"\n[yellow]Unknown host key for {e.hostname}[/yellow]")
         console.print(f"  Key type: {e.key_type}")
         console.print(f"  Fingerprint: {e.fingerprint}")
-        console.print("\n[yellow]Warning:[/yellow] Verify this fingerprint matches the host's actual key.")
+        console.print(
+            "\n[yellow]Warning:[/yellow] Verify this fingerprint matches the host's actual key."
+        )
 
         if typer.confirm("\nAccept this host key and retry?"):
             accept_host_key(hostname, 22, expected_fingerprint=e.fingerprint)
@@ -143,7 +164,9 @@ def init(
         # Handle unknown host key from RejectPolicy
         if "not found in known_hosts" in str(e) or "Server" in str(e):
             console.print(f"\n[yellow]Unknown host key for {hostname}[/yellow]")
-            console.print("Run 'ssh-keyscan' or connect manually first to add the host key.")
+            console.print(
+                "Run 'ssh-keyscan' or connect manually first to add the host key."
+            )
         else:
             console.print(f"[yellow]SSH error:[/yellow] {e}")
     except paramiko.AuthenticationException as e:
@@ -161,13 +184,19 @@ def init(
         console.print("sudo useradd -m -s /bin/bash xclm")
         console.print("")
         console.print("[dim]# Grant passwordless sudo[/dim]")
-        console.print('echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm')
+        console.print(
+            'echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm'
+        )
         console.print("sudo chmod 440 /etc/sudoers.d/xclm")
         console.print("")
         console.print("[dim]# Setup SSH access[/dim]")
         console.print("sudo mkdir -p /home/xclm/.ssh")
         console.print("sudo chmod 700 /home/xclm/.ssh")
-        console.print(f'echo "{public_key_content}" | sudo tee /home/xclm/.ssh/authorized_keys')
+        # Shell-escape public key to prevent injection and escape Rich markup
+        escaped_key = shlex.quote(public_key_content) if public_key_content else "''"
+        console.print(
+            f"echo {rich_escape(escaped_key)} | sudo tee /home/xclm/.ssh/authorized_keys"
+        )
         console.print("sudo chmod 600 /home/xclm/.ssh/authorized_keys")
         console.print("sudo chown -R xclm:xclm /home/xclm/.ssh")
         console.print("")
@@ -177,10 +206,18 @@ def init(
 @host_app.command()
 def add(
     hostname: str = typer.Argument(..., help="Host IP address or hostname"),
-    port: Optional[int] = typer.Option(None, "--port", "-p", help="SSH port (default: 22)"),
-    user: Optional[str] = typer.Option(None, "--user", "-u", help="SSH user (default: xclm)"),
-    alias: Optional[str] = typer.Option(None, "--alias", "-a", help="Friendly name for this host"),
-    tags: Optional[str] = typer.Option(None, "--tags", "-t", help="Comma-separated tags"),
+    port: Optional[int] = typer.Option(
+        None, "--port", "-p", help="SSH port (default: 22)"
+    ),
+    user: Optional[str] = typer.Option(
+        None, "--user", "-u", help="SSH user (default: xclm)"
+    ),
+    alias: Optional[str] = typer.Option(
+        None, "--alias", "-a", help="Friendly name for this host"
+    ),
+    tags: Optional[str] = typer.Option(
+        None, "--tags", "-t", help="Comma-separated tags"
+    ),
 ) -> None:
     """Add a new host to the fleet.
 
@@ -188,14 +225,27 @@ def add(
     Tests SSH connection before saving. Detects hardware capabilities
     automatically after successful connection.
     """
-    # Check for per-host keypair (enforces init-first workflow)
-    host_key = get_host_private_key(hostname)
-    if not host_key:
-        console.print(f"[red]Error:[/red] No keypair found for '{hostname}'")
-        console.print(f"Run 'clm host init {hostname}' first to generate keys")
+    # Determine key_id: use alias if provided, else hostname argument
+    # key_id is what user provided to 'clm host init'
+    key_lookup_id = alias if alias else hostname
+
+    # Validate key_id to prevent path traversal
+    try:
+        from clawrium.core.keys import validate_key_id
+
+        validate_key_id(key_lookup_id)
+    except InvalidKeyIdError as e:
+        console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
 
-    # Check for duplicate
+    # Check for per-host keypair (enforces init-first workflow)
+    host_key = get_host_private_key(key_lookup_id)
+    if not host_key:
+        console.print(f"[red]Error:[/red] No keypair found for '{key_lookup_id}'")
+        console.print(f"Run 'clm host init {key_lookup_id}' first to generate keys")
+        raise typer.Exit(code=1)
+
+    # Check for duplicate hostname, alias, or key_id
     try:
         existing = get_host(hostname)
         if existing:
@@ -207,6 +257,14 @@ def add(
             if existing_alias:
                 console.print(f"[red]Error:[/red] Alias '{alias}' already in use")
                 raise typer.Exit(code=1)
+
+        # Check key_id uniqueness to prevent cross-host key collision
+        existing_key_id = get_host_by_key_id(key_lookup_id)
+        if existing_key_id:
+            console.print(
+                f"[red]Error:[/red] key_id '{key_lookup_id}' already in use by host '{existing_key_id.get('hostname')}'"
+            )
+            raise typer.Exit(code=1)
     except HostsFileCorruptedError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
@@ -215,12 +273,16 @@ def add(
     ssh_config = get_ssh_config(hostname)
 
     # CLI flags override defaults
-    final_hostname = ssh_config.get('hostname', hostname)  # Resolve HostName from SSH config
-    final_port = port if port is not None else int(ssh_config.get('port', 22))
-    final_user = user if user is not None else 'xclm'  # Always default to xclm
+    final_hostname = ssh_config.get(
+        "hostname", hostname
+    )  # Resolve HostName from SSH config
+    final_port = port if port is not None else int(ssh_config.get("port", 22))
+    final_user = user if user is not None else "xclm"  # Always default to xclm
     final_key = str(host_key)  # Use per-host key
 
-    console.print(f"Testing connection to {final_hostname}:{final_port} as {final_user}...")
+    console.print(
+        f"Testing connection to {final_hostname}:{final_port} as {final_user}..."
+    )
 
     # Test connection (per D-10)
     try:
@@ -228,7 +290,7 @@ def add(
             hostname=final_hostname,
             port=final_port,
             user=final_user,
-            key_filename=final_key
+            key_filename=final_key,
         )
         success, message = result
     except HostKeyVerificationRequired as e:
@@ -236,16 +298,24 @@ def add(
         console.print(f"\n[yellow]Unknown host key for {e.hostname}[/yellow]")
         console.print(f"  Key type: {e.key_type}")
         console.print(f"  Fingerprint: {e.fingerprint}")
-        console.print("\n[yellow]Warning:[/yellow] Verify this fingerprint matches the host's actual key.")
-        console.print("If this is your first connection to this host, this is expected.")
+        console.print(
+            "\n[yellow]Warning:[/yellow] Verify this fingerprint matches the host's actual key."
+        )
+        console.print(
+            "If this is your first connection to this host, this is expected."
+        )
 
         if not typer.confirm("\nAccept this host key and continue?"):
             console.print("Connection cancelled.")
             raise typer.Exit(code=1)
 
         # Accept the host key with fingerprint verification
-        if not accept_host_key(final_hostname, final_port, expected_fingerprint=e.fingerprint):
-            console.print("[red]Error:[/red] Failed to save host key (fingerprint may have changed)")
+        if not accept_host_key(
+            final_hostname, final_port, expected_fingerprint=e.fingerprint
+        ):
+            console.print(
+                "[red]Error:[/red] Failed to save host key (fingerprint may have changed)"
+            )
             raise typer.Exit(code=1)
 
         # Retry connection
@@ -253,7 +323,7 @@ def add(
             hostname=final_hostname,
             port=final_port,
             user=final_user,
-            key_filename=final_key
+            key_filename=final_key,
         )
         success, message = result
 
@@ -267,14 +337,13 @@ def add(
     console.print("Detecting hardware capabilities...")
     try:
         hardware = gather_hardware(
-            hostname=final_hostname,
-            user=final_user,
-            port=final_port,
-            ssh_key=final_key
+            hostname=final_hostname, user=final_user, port=final_port, ssh_key=final_key
         )
-        console.print(f"[green]Hardware detected:[/green] {hardware['architecture']}, "
-                     f"{hardware['processor_cores']} cores, "
-                     f"{hardware['memtotal_mb']}MB RAM")
+        console.print(
+            f"[green]Hardware detected:[/green] {hardware['architecture']}, "
+            f"{hardware['processor_cores']} cores, "
+            f"{hardware['memtotal_mb']}MB RAM"
+        )
     except Exception as e:
         console.print(f"[yellow]Warning:[/yellow] Could not detect hardware: {e}")
         hardware = {}
@@ -289,6 +358,7 @@ def add(
 
     host = {
         "hostname": final_hostname,  # Resolved hostname for direct connections
+        "key_id": key_lookup_id,  # Key storage identifier (alias, hostname, or generated name)
         "port": final_port,
         "user": final_user,
         "auth_method": "key",
@@ -296,8 +366,8 @@ def add(
         "metadata": {
             "added_at": now,
             "last_seen": now,
-            "tags": [t.strip() for t in tags.split(",")] if tags else []
-        }
+            "tags": [t.strip() for t in tags.split(",")] if tags else [],
+        },
     }
     # Only add optional fields if they have values (avoid null pollution)
     if hostname != final_hostname:
@@ -306,7 +376,9 @@ def add(
         host["alias"] = display_alias
 
     add_host(host)
-    console.print(f"[green]Host '{display_alias or hostname}' added successfully![/green]")
+    console.print(
+        f"[green]Host '{display_alias or hostname}' added successfully![/green]"
+    )
 
 
 @host_app.command(name="list")
@@ -332,19 +404,21 @@ def list_hosts() -> None:
     table.add_column("Tags", style="dim")
 
     for host in hosts:
-        hw = host.get('hardware', {})
-        meta = host.get('metadata', {})
+        hw = host.get("hardware", {})
+        meta = host.get("metadata", {})
 
         # Format memory as GB with 1 decimal
-        mem_gb = round(hw.get('memtotal_mb', 0) / 1024, 1) if hw.get('memtotal_mb') else '-'
+        mem_gb = (
+            round(hw.get("memtotal_mb", 0) / 1024, 1) if hw.get("memtotal_mb") else "-"
+        )
 
         table.add_row(
-            host.get('alias') or '-',
-            host['hostname'],
-            hw.get('architecture', '?'),
-            str(hw.get('processor_cores', '?')),
+            host.get("alias") or "-",
+            host["hostname"],
+            hw.get("architecture", "?"),
+            str(hw.get("processor_cores", "?")),
             str(mem_gb),
-            ', '.join(meta.get('tags', [])) or '-'
+            ", ".join(meta.get("tags", [])) or "-",
         )
 
     console.print(table)
@@ -370,24 +444,26 @@ def remove(
         console.print(f"[red]Error:[/red] Host '{hostname}' not found")
         raise typer.Exit(code=1)
 
-    display_name = host.get('alias') or host['hostname']
+    display_name = host.get("alias") or host["hostname"]
 
     # Confirmation (per D-18)
     if not force:
-        confirmed = typer.confirm(f"Remove host '{display_name}'? This cannot be undone.")
+        confirmed = typer.confirm(
+            f"Remove host '{display_name}'? This cannot be undone."
+        )
         if not confirmed:
             console.print("Cancelled.")
             raise typer.Exit(code=0)  # Clean exit on user cancel, not error
 
     # Remove by actual hostname
-    success = remove_host(host['hostname'])
+    success = remove_host(host["hostname"])
     if success:
-        # Also delete per-host keys
-        actual_hostname = host['hostname']
-        keys_deleted = delete_host_keys(actual_hostname)
+        # Also delete per-host keys using key_id
+        key_id = host.get("key_id") or host["hostname"]  # Fallback for old records
+        keys_deleted = delete_host_keys(key_id)
         console.print(f"[green]Host '{display_name}' removed successfully.[/green]")
         if keys_deleted:
-            console.print(f"[dim]Keypair for '{actual_hostname}' deleted.[/dim]")
+            console.print(f"[dim]Keypair for '{key_id}' deleted.[/dim]")
     else:
         console.print("[red]Error:[/red] Failed to remove host")
         raise typer.Exit(code=1)
@@ -396,7 +472,9 @@ def remove(
 @host_app.command()
 def status(
     hostname: str = typer.Argument(..., help="Host hostname or alias to check"),
-    refresh: bool = typer.Option(False, "--refresh", "-r", help="Re-detect hardware capabilities"),
+    refresh: bool = typer.Option(
+        False, "--refresh", "-r", help="Re-detect hardware capabilities"
+    ),
 ) -> None:
     """Check status of a host.
 
@@ -414,51 +492,55 @@ def status(
         console.print(f"[red]Error:[/red] Host '{hostname}' not found")
         raise typer.Exit(code=1)
 
-    display_name = host.get('alias') or host['hostname']
+    display_name = host.get("alias") or host["hostname"]
     console.print(f"Checking status of '{display_name}'...")
 
-    # Get per-host key
-    actual_hostname = host['hostname']
-    host_key = get_host_private_key(actual_hostname)
+    # Get per-host key using key_id
+    key_id = host.get("key_id") or host["hostname"]  # Fallback for old records
+    host_key = get_host_private_key(key_id)
     if host_key is None:
-        console.print(f"[red]Error:[/red] No keypair found for '{actual_hostname}'")
-        console.print(f"Run 'clm host init {actual_hostname}' to regenerate keys")
+        console.print(f"[red]Error:[/red] No keypair found for '{key_id}'")
+        console.print(f"Run 'clm host init {key_id}' to regenerate keys")
         raise typer.Exit(code=1)
     ssh_key = str(host_key)
 
     # Test connection
     try:
         result = test_ssh_connection(
-            hostname=host['hostname'],
-            port=host.get('port', 22),
-            user=host.get('user', 'xclm'),
-            key_filename=ssh_key
+            hostname=host["hostname"],
+            port=host.get("port", 22),
+            user=host.get("user", "xclm"),
+            key_filename=ssh_key,
         )
         success, message = result
     except HostKeyVerificationRequired:
         success = False
         message = "Host key verification required"
-        console.print(f"[yellow]Note:[/yellow] Run 'clm host remove {hostname} && clm host add {host['hostname']}' to re-verify the host key.")
+        console.print(
+            f"[yellow]Note:[/yellow] Run 'clm host remove {hostname} && clm host add {host['hostname']}' to re-verify the host key."
+        )
 
     # Refresh hardware BEFORE building table if requested (per D-06)
-    hw = host.get('hardware', {})
+    hw = host.get("hardware", {})
     if refresh and success:
         console.print("Refreshing hardware information...")
         try:
             hw = gather_hardware(
-                hostname=host['hostname'],
-                user=host.get('user', 'xclm'),
-                port=host.get('port', 22),
-                ssh_key=ssh_key
+                hostname=host["hostname"],
+                user=host.get("user", "xclm"),
+                port=host.get("port", 22),
+                ssh_key=ssh_key,
             )
 
             # Update host record - separate error handling
             try:
                 hosts = load_hosts()
                 for h in hosts:
-                    if h.get('hostname') == host['hostname']:
-                        h['hardware'] = hw
-                        h['metadata']['last_seen'] = datetime.now(timezone.utc).isoformat()
+                    if h.get("hostname") == host["hostname"]:
+                        h["hardware"] = hw
+                        h["metadata"]["last_seen"] = datetime.now(
+                            timezone.utc
+                        ).isoformat()
                         break
                 save_hosts(hosts)
                 console.print("[green]Hardware information updated.[/green]\n")
@@ -468,9 +550,13 @@ def status(
         except typer.Exit:
             raise
         except Exception as e:
-            console.print(f"[yellow]Warning:[/yellow] Could not refresh hardware: {e}\n")
+            console.print(
+                f"[yellow]Warning:[/yellow] Could not refresh hardware: {e}\n"
+            )
     elif refresh and not success:
-        console.print("[yellow]Cannot refresh hardware: host is not connected[/yellow]\n")
+        console.print(
+            "[yellow]Cannot refresh hardware: host is not connected[/yellow]\n"
+        )
 
     # Display status table
     table = Table(title=f"Host Status: {display_name}")
@@ -482,24 +568,24 @@ def status(
     else:
         table.add_row("Connection", f"[red]Disconnected[/red] ({message})")
 
-    table.add_row("Hostname", host['hostname'])
-    if host.get('ssh_config_host'):
-        table.add_row("SSH Config", host['ssh_config_host'])
-    table.add_row("Port", str(host.get('port', 22)))
-    table.add_row("User", host.get('user', 'xclm'))
+    table.add_row("Hostname", host["hostname"])
+    if host.get("ssh_config_host"):
+        table.add_row("SSH Config", host["ssh_config_host"])
+    table.add_row("Port", str(host.get("port", 22)))
+    table.add_row("User", host.get("user", "xclm"))
 
-    meta = host.get('metadata', {})
-    table.add_row("Added", meta.get('added_at', 'Unknown'))
-    table.add_row("Last Seen", meta.get('last_seen', 'Unknown'))
-    table.add_row("Tags", ', '.join(meta.get('tags', [])) or '-')
+    meta = host.get("metadata", {})
+    table.add_row("Added", meta.get("added_at", "Unknown"))
+    table.add_row("Last Seen", meta.get("last_seen", "Unknown"))
+    table.add_row("Tags", ", ".join(meta.get("tags", [])) or "-")
 
     if hw:
-        table.add_row("Architecture", hw.get('architecture', '?'))
-        table.add_row("CPU Cores", str(hw.get('processor_cores', '?')))
+        table.add_row("Architecture", hw.get("architecture", "?"))
+        table.add_row("CPU Cores", str(hw.get("processor_cores", "?")))
         table.add_row("Memory", f"{round(hw.get('memtotal_mb', 0) / 1024, 1)} GB")
-        gpu = hw.get('gpu', {})
-        if gpu.get('present'):
-            table.add_row("GPU", gpu.get('vendor') or 'Unknown')
+        gpu = hw.get("gpu", {})
+        if gpu.get("present"):
+            table.add_row("GPU", gpu.get("vendor") or "Unknown")
         else:
             table.add_row("GPU", "None detected")
 

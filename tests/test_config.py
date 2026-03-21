@@ -61,7 +61,9 @@ class TestInitConfigDir:
         assert result == isolated_config
         assert isolated_config.is_dir()
 
-    def test_creates_directory_with_0700_permissions(self, isolated_config: Path) -> None:
+    def test_creates_directory_with_0700_permissions(
+        self, isolated_config: Path
+    ) -> None:
         """Should create directory with restrictive 0700 permissions."""
         assert not isolated_config.exists()
         init_config_dir()

@@ -41,7 +41,9 @@ class TestCliInit:
         """clm init should show a success message."""
         result = runner.invoke(app, ["init"], env=os.environ)
 
-        assert "initialized" in result.output.lower() or "created" in result.output.lower()
+        assert (
+            "initialized" in result.output.lower() or "created" in result.output.lower()
+        )
 
     def test_init_idempotent(self, isolated_config: Path) -> None:
         """clm init should work even if directory exists."""

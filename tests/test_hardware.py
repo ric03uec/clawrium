@@ -8,19 +8,19 @@ def test_parse_ansible_facts_basic():
     from clawrium.core.hardware import extract_hardware_from_facts
 
     facts = {
-        'ansible_architecture': 'x86_64',
-        'ansible_processor_cores': 4,
-        'ansible_processor_count': 1,
-        'ansible_memtotal_mb': 16384,
-        'ansible_mounts': []
+        "ansible_architecture": "x86_64",
+        "ansible_processor_cores": 4,
+        "ansible_processor_count": 1,
+        "ansible_memtotal_mb": 16384,
+        "ansible_mounts": [],
     }
 
     hardware = extract_hardware_from_facts(facts)
 
-    assert hardware['architecture'] == 'x86_64'
-    assert hardware['processor_cores'] == 4
-    assert hardware['processor_count'] == 1
-    assert hardware['memtotal_mb'] == 16384
+    assert hardware["architecture"] == "x86_64"
+    assert hardware["processor_cores"] == 4
+    assert hardware["processor_count"] == 1
+    assert hardware["memtotal_mb"] == 16384
 
 
 def test_parse_ansible_facts_mounts():
@@ -28,27 +28,27 @@ def test_parse_ansible_facts_mounts():
     from clawrium.core.hardware import extract_hardware_from_facts
 
     facts = {
-        'ansible_architecture': 'x86_64',
-        'ansible_processor_cores': 4,
-        'ansible_processor_count': 1,
-        'ansible_memtotal_mb': 16384,
-        'ansible_mounts': [
+        "ansible_architecture": "x86_64",
+        "ansible_processor_cores": 4,
+        "ansible_processor_count": 1,
+        "ansible_memtotal_mb": 16384,
+        "ansible_mounts": [
             {
-                'mount': '/',
-                'size_total': 500000000000,
-                'size_available': 200000000000,
-                'fstype': 'ext4',
-                'device': '/dev/sda1'
+                "mount": "/",
+                "size_total": 500000000000,
+                "size_available": 200000000000,
+                "fstype": "ext4",
+                "device": "/dev/sda1",
             }
-        ]
+        ],
     }
 
     hardware = extract_hardware_from_facts(facts)
 
-    assert len(hardware['mounts']) == 1
-    assert hardware['mounts'][0]['mount'] == '/'
-    assert hardware['mounts'][0]['size_total'] == 500000000000
-    assert hardware['mounts'][0]['size_available'] == 200000000000
+    assert len(hardware["mounts"]) == 1
+    assert hardware["mounts"][0]["mount"] == "/"
+    assert hardware["mounts"][0]["size_total"] == 500000000000
+    assert hardware["mounts"][0]["size_available"] == 200000000000
 
 
 def test_detect_gpu_nvidia():
@@ -59,8 +59,8 @@ def test_detect_gpu_nvidia():
 
     result = parse_gpu_output(lspci_output)
 
-    assert result['present'] is True
-    assert result['vendor'] == 'nvidia'
+    assert result["present"] is True
+    assert result["vendor"] == "nvidia"
 
 
 def test_detect_gpu_amd():
@@ -71,20 +71,22 @@ def test_detect_gpu_amd():
 
     result = parse_gpu_output(lspci_output)
 
-    assert result['present'] is True
-    assert result['vendor'] == 'amd'
+    assert result["present"] is True
+    assert result["vendor"] == "amd"
 
 
 def test_detect_gpu_intel():
     """Test GPU detection for Intel integrated graphics."""
     from clawrium.core.hardware import parse_gpu_output
 
-    lspci_output = "00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 630"
+    lspci_output = (
+        "00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 630"
+    )
 
     result = parse_gpu_output(lspci_output)
 
-    assert result['present'] is True
-    assert result['vendor'] == 'intel'
+    assert result["present"] is True
+    assert result["vendor"] == "intel"
 
 
 def test_detect_gpu_none():
@@ -95,8 +97,8 @@ def test_detect_gpu_none():
 
     result = parse_gpu_output(lspci_output)
 
-    assert result['present'] is False
-    assert result['vendor'] is None
+    assert result["present"] is False
+    assert result["vendor"] is None
 
 
 def test_gather_hardware_full(monkeypatch):
@@ -105,45 +107,46 @@ def test_gather_hardware_full(monkeypatch):
 
     # Mock ansible_runner.run
     class MockResult:
-        status = 'successful'
+        status = "successful"
         events = [
             {
-                'event': 'runner_on_ok',
-                'event_data': {
-                    'res': {
-                        'stdout': '01:00.0 VGA compatible controller: NVIDIA Corporation'
+                "event": "runner_on_ok",
+                "event_data": {
+                    "res": {
+                        "stdout": "01:00.0 VGA compatible controller: NVIDIA Corporation"
                     }
-                }
+                },
             }
         ]
 
         def get_fact_cache(self, hostname):
             return {
-                'ansible_architecture': 'x86_64',
-                'ansible_processor_cores': 8,
-                'ansible_processor_count': 1,
-                'ansible_memtotal_mb': 32768,
-                'ansible_mounts': [
+                "ansible_architecture": "x86_64",
+                "ansible_processor_cores": 8,
+                "ansible_processor_count": 1,
+                "ansible_memtotal_mb": 32768,
+                "ansible_mounts": [
                     {
-                        'mount': '/',
-                        'size_total': 1000000000000,
-                        'size_available': 500000000000
+                        "mount": "/",
+                        "size_total": 1000000000000,
+                        "size_available": 500000000000,
                     }
-                ]
+                ],
             }
 
     def mock_run(*args, **kwargs):
         return MockResult()
 
     import ansible_runner
-    monkeypatch.setattr(ansible_runner, 'run', mock_run)
 
-    hardware = gather_hardware('192.168.1.100', user='xclm')
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
 
-    assert hardware['architecture'] == 'x86_64'
-    assert hardware['processor_cores'] == 8
-    assert hardware['processor_count'] == 1
-    assert hardware['memtotal_mb'] == 32768
-    assert len(hardware['mounts']) == 1
-    assert hardware['gpu']['present'] is True
-    assert hardware['gpu']['vendor'] == 'nvidia'
+    hardware = gather_hardware("192.168.1.100", user="xclm")
+
+    assert hardware["architecture"] == "x86_64"
+    assert hardware["processor_cores"] == 8
+    assert hardware["processor_count"] == 1
+    assert hardware["memtotal_mb"] == 32768
+    assert len(hardware["mounts"]) == 1
+    assert hardware["gpu"]["present"] is True
+    assert hardware["gpu"]["vendor"] == "nvidia"

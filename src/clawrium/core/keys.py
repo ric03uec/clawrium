@@ -1,6 +1,7 @@
 """Per-host SSH key management for Clawrium."""
 
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -16,21 +17,79 @@ __all__ = [
     "generate_host_keypair",
     "delete_host_keys",
     "read_public_key",
+    "validate_key_id",
 ]
 
 KEY_FILENAME = "xclm_ed25519"
 
+# Valid key_id: alphanumeric, dots, underscores, hyphens only
+KEY_ID_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
 
-def get_host_key_dir(hostname: str) -> Path:
+
+class InvalidKeyIdError(ValueError):
+    """Raised when key_id contains invalid characters."""
+
+    pass
+
+
+def validate_key_id(key_id: str) -> str:
+    """Validate key_id to prevent path traversal attacks.
+
+    Args:
+        key_id: The key identifier to validate.
+
+    Returns:
+        The validated key_id.
+
+    Raises:
+        InvalidKeyIdError: If key_id contains invalid characters.
+    """
+    if not key_id:
+        raise InvalidKeyIdError("key_id cannot be empty")
+
+    if not KEY_ID_PATTERN.match(key_id):
+        raise InvalidKeyIdError(
+            f"Invalid key_id '{key_id}': only alphanumeric, dots, underscores, and hyphens allowed"
+        )
+
+    # Extra safety: reject any path traversal attempts
+    if ".." in key_id or key_id.startswith("/"):
+        raise InvalidKeyIdError(
+            f"Invalid key_id '{key_id}': path traversal not allowed"
+        )
+
+    return key_id
+
+
+def get_host_key_dir(key_id: str) -> Path:
     """Get the directory for a host's SSH keys.
 
     Args:
-        hostname: The hostname or IP address.
+        key_id: The key identifier (validated for safety).
 
     Returns:
-        Path to keys/<hostname>/ directory.
+        Path to keys/<key_id>/ directory.
+
+    Raises:
+        InvalidKeyIdError: If key_id contains invalid characters.
     """
-    return get_config_dir() / "keys" / hostname
+    validate_key_id(key_id)
+
+    keys_base = get_config_dir() / "keys"
+    key_dir = keys_base / key_id
+
+    # Defense in depth: verify resolved path is within keys directory
+    try:
+        resolved = key_dir.resolve()
+        keys_base_resolved = keys_base.resolve()
+        if not str(resolved).startswith(str(keys_base_resolved) + os.sep):
+            raise InvalidKeyIdError(
+                f"Invalid key_id '{key_id}': path escapes keys directory"
+            )
+    except (OSError, ValueError) as e:
+        raise InvalidKeyIdError(f"Invalid key_id '{key_id}': {e}")
+
+    return key_dir
 
 
 def get_host_private_key(hostname: str) -> Path | None:
@@ -83,7 +142,9 @@ def generate_host_keypair(hostname: str, overwrite: bool = False) -> tuple[Path,
     key_dir = get_host_key_dir(hostname)
     private_key_path = key_dir / KEY_FILENAME
     if private_key_path.exists() and not overwrite:
-        raise ValueError(f"Keypair already exists for '{hostname}'. Use overwrite=True to replace.")
+        raise ValueError(
+            f"Keypair already exists for '{hostname}'. Use overwrite=True to replace."
+        )
     old_umask = os.umask(0o077)
     try:
         key_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -100,13 +161,13 @@ def generate_host_keypair(hostname: str, overwrite: bool = False) -> tuple[Path,
     private_key_bytes = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.OpenSSH,
-        encryption_algorithm=serialization.NoEncryption()
+        encryption_algorithm=serialization.NoEncryption(),
     )
 
     # Serialize public key in OpenSSH format
     public_key_bytes = public_key.public_bytes(
         encoding=serialization.Encoding.OpenSSH,
-        format=serialization.PublicFormat.OpenSSH
+        format=serialization.PublicFormat.OpenSSH,
     )
 
     # Write private key with 0600 permissions
@@ -129,18 +190,22 @@ def generate_host_keypair(hostname: str, overwrite: bool = False) -> tuple[Path,
     return private_key_path, public_key_path
 
 
-def delete_host_keys(hostname: str) -> bool:
+def delete_host_keys(key_id: str) -> bool:
     """Delete all SSH keys for a host.
 
-    Removes the entire keys/<hostname>/ directory.
+    Removes the entire keys/<key_id>/ directory.
 
     Args:
-        hostname: The hostname or IP address.
+        key_id: The key identifier.
 
     Returns:
         True if keys were deleted, False if directory didn't exist.
+
+    Raises:
+        InvalidKeyIdError: If key_id contains invalid characters.
     """
-    key_dir = get_host_key_dir(hostname)
+    # validate_key_id is called by get_host_key_dir
+    key_dir = get_host_key_dir(key_id)
     if not key_dir.exists():
         return False
 

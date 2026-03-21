@@ -6,13 +6,23 @@ import tempfile
 from pathlib import Path
 from clawrium.core.config import get_config_dir, init_config_dir
 
-__all__ = ["load_hosts", "save_hosts", "add_host", "remove_host", "get_host", "HOSTS_FILE", "HostsFileCorruptedError"]
+__all__ = [
+    "load_hosts",
+    "save_hosts",
+    "add_host",
+    "remove_host",
+    "get_host",
+    "get_host_by_key_id",
+    "HOSTS_FILE",
+    "HostsFileCorruptedError",
+]
 
 HOSTS_FILE = "hosts.json"
 
 
 class HostsFileCorruptedError(Exception):
     """Raised when hosts.json cannot be parsed."""
+
     pass
 
 
@@ -34,9 +44,7 @@ def load_hosts() -> list[dict]:
             data = json.load(f)
             # Validate it's a list of dicts
             if not isinstance(data, list):
-                raise HostsFileCorruptedError(
-                    f"hosts.json is not a list: {hosts_path}"
-                )
+                raise HostsFileCorruptedError(f"hosts.json is not a list: {hosts_path}")
             if not all(isinstance(h, dict) for h in data):
                 raise HostsFileCorruptedError(
                     f"hosts.json contains invalid entries (expected list of objects): {hosts_path}"
@@ -63,11 +71,11 @@ def save_hosts(hosts: list[dict]) -> None:
     hosts_path = config_dir / HOSTS_FILE
 
     # Atomic write: write to temp file, then rename (atomic on POSIX)
-    fd, tmp_path = tempfile.mkstemp(dir=config_dir, suffix='.tmp')
+    fd, tmp_path = tempfile.mkstemp(dir=config_dir, suffix=".tmp")
     try:
         # Set restrictive permissions on temp file before writing (survives rename)
         os.fchmod(fd, 0o600)
-        with os.fdopen(fd, 'w') as f:
+        with os.fdopen(fd, "w") as f:
             json.dump(hosts, f, indent=2)
         os.replace(tmp_path, hosts_path)
     except Exception:
@@ -124,5 +132,21 @@ def get_host(identifier: str) -> dict | None:
         if host.get("hostname") == identifier:
             return host
         if host.get("alias") == identifier:
+            return host
+    return None
+
+
+def get_host_by_key_id(key_id: str) -> dict | None:
+    """Get a host by its key_id.
+
+    Args:
+        key_id: Key identifier to search for.
+
+    Returns:
+        Host dictionary if found, None otherwise.
+    """
+    hosts = load_hosts()
+    for host in hosts:
+        if host.get("key_id") == key_id:
             return host
     return None
