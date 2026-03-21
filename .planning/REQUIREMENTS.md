@@ -22,7 +22,7 @@ Requirements for initial release: OpenClaw on single Ubuntu host.
 
 ### Claw Registry
 
-- [ ] **REG-01**: System loads claw manifests from registry
+- [x] **REG-01**: System loads claw manifests from registry
 - [ ] **REG-02**: User can list available claw types (`clm registry list`)
 - [ ] **REG-03**: System validates claw compatibility against host capabilities
 
@@ -96,7 +96,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | HOST-03 | Phase 2 | Complete |
 | HOST-04 | Phase 2 | Complete |
 | HOST-05 | Phase 2 | Complete |
-| REG-01 | Phase 3 | Pending |
+| REG-01 | Phase 3 | Complete |
 | REG-02 | Phase 3 | Pending |
 | REG-03 | Phase 3 | Pending |
 | SEC-01 | Phase 4 | Pending |
