@@ -12,7 +12,7 @@ Clawrium v1 delivers a CLI tool for managing OpenClaw instances on single Ubuntu
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation Setup** - Initialize Clawrium configuration and verify dependencies
+- [x] **Phase 1: Foundation Setup** - Initialize Clawrium configuration and verify dependencies (completed 2026-03-21)
 - [ ] **Phase 2: Host Management** - Add, list, remove hosts with hardware capability detection
 - [ ] **Phase 3: Registry & Compatibility** - Load claw manifests and validate hardware compatibility
 - [ ] **Phase 4: Secrets Management** - Secure storage and retrieval of API keys and credentials
@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md — Project scaffolding and clm init command (creates config directory)
-- [ ] 01-02-PLAN.md — Dependency detection with install instructions
+- [x] 01-02-PLAN.md — Dependency detection with install instructions
 
 ### Phase 2: Host Management
 **Goal**: Users can manage hosts with automatic hardware capability detection
@@ -97,7 +97,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation Setup | 0/2 | Planning complete | - |
+| 1. Foundation Setup | 2/2 | Complete   | 2026-03-21 |
 | 2. Host Management | 0/0 | Not started | - |
 | 3. Registry & Compatibility | 0/0 | Not started | - |
 | 4. Secrets Management | 0/0 | Not started | - |
