@@ -142,6 +142,19 @@ def test_detect_gpu_3d_controller():
     assert result["vendor"] == "nvidia"
 
 
+def test_detect_gpu_lspci_not_installed():
+    """Test GPU detection when lspci is not installed."""
+    from clawrium.core.hardware import parse_gpu_output
+
+    lspci_output = "__NO_LSPCI__"
+
+    result = parse_gpu_output(lspci_output)
+
+    assert result["present"] is None
+    assert result["vendor"] is None
+    assert result["error"] == "lspci not installed"
+
+
 def test_gather_hardware_full(monkeypatch):
     """Test full hardware gathering via ansible-runner."""
     from unittest.mock import Mock
@@ -151,22 +164,28 @@ def test_gather_hardware_full(monkeypatch):
     # Create distinct mock results for setup and GPU calls
     class SetupResult:
         status = "successful"
-        events = []
-
-        def get_fact_cache(self, hostname):
-            return {
-                "ansible_architecture": "x86_64",
-                "ansible_processor_cores": 8,
-                "ansible_processor_count": 1,
-                "ansible_memtotal_mb": 32768,
-                "ansible_mounts": [
-                    {
-                        "mount": "/",
-                        "size_total": 1000000000000,
-                        "size_available": 500000000000,
+        events = [
+            {
+                "event": "runner_on_ok",
+                "event_data": {
+                    "res": {
+                        "ansible_facts": {
+                            "ansible_architecture": "x86_64",
+                            "ansible_processor_cores": 8,
+                            "ansible_processor_count": 1,
+                            "ansible_memtotal_mb": 32768,
+                            "ansible_mounts": [
+                                {
+                                    "mount": "/",
+                                    "size_total": 1000000000000,
+                                    "size_available": 500000000000,
+                                }
+                            ],
+                        }
                     }
-                ],
+                },
             }
+        ]
 
     class GpuResult:
         status = "successful"
@@ -227,23 +246,26 @@ def test_gather_hardware_passes_inventory_to_runner(monkeypatch, tmp_path):
 
     class SetupResult:
         status = "successful"
-        events = []
-
-        def get_fact_cache(self, hostname):
-            return {
-                "ansible_architecture": "x86_64",
-                "ansible_processor_cores": 4,
-                "ansible_processor_count": 1,
-                "ansible_memtotal_mb": 16384,
-                "ansible_mounts": [],
+        events = [
+            {
+                "event": "runner_on_ok",
+                "event_data": {
+                    "res": {
+                        "ansible_facts": {
+                            "ansible_architecture": "x86_64",
+                            "ansible_processor_cores": 4,
+                            "ansible_processor_count": 1,
+                            "ansible_memtotal_mb": 16384,
+                            "ansible_mounts": [],
+                        }
+                    }
+                },
             }
+        ]
 
     class GpuResult:
         status = "successful"
         events = []
-
-        def get_fact_cache(self, hostname):
-            return None
 
     mock_run = Mock(side_effect=[SetupResult(), GpuResult()])
 
@@ -283,23 +305,26 @@ def test_gather_hardware_no_ssh_key(monkeypatch):
 
     class SetupResult:
         status = "successful"
-        events = []
-
-        def get_fact_cache(self, hostname):
-            return {
-                "ansible_architecture": "x86_64",
-                "ansible_processor_cores": 4,
-                "ansible_processor_count": 1,
-                "ansible_memtotal_mb": 16384,
-                "ansible_mounts": [],
+        events = [
+            {
+                "event": "runner_on_ok",
+                "event_data": {
+                    "res": {
+                        "ansible_facts": {
+                            "ansible_architecture": "x86_64",
+                            "ansible_processor_cores": 4,
+                            "ansible_processor_count": 1,
+                            "ansible_memtotal_mb": 16384,
+                            "ansible_mounts": [],
+                        }
+                    }
+                },
             }
+        ]
 
     class GpuResult:
         status = "successful"
         events = []
-
-        def get_fact_cache(self, hostname):
-            return None
 
     mock_run = Mock(side_effect=[SetupResult(), GpuResult()])
 
@@ -368,15 +393,13 @@ def test_gather_hardware_failed_raises(monkeypatch):
 
 
 def test_gather_hardware_no_facts_raises(monkeypatch):
-    """Test that empty fact cache raises RuntimeError."""
+    """Test that empty events (no ansible_facts) raises RuntimeError."""
     from unittest.mock import Mock
 
     class NoFactsResult:
         status = "successful"
+        # Empty events means no ansible_facts found
         events = []
-
-        def get_fact_cache(self, hostname):
-            return None  # No facts returned
 
     mock_run = Mock(return_value=NoFactsResult())
 
@@ -398,23 +421,26 @@ def test_gather_hardware_gpu_failure_logged(monkeypatch, caplog):
 
     class SetupResult:
         status = "successful"
-        events = []
-
-        def get_fact_cache(self, hostname):
-            return {
-                "ansible_architecture": "x86_64",
-                "ansible_processor_cores": 4,
-                "ansible_processor_count": 1,
-                "ansible_memtotal_mb": 16384,
-                "ansible_mounts": [],
+        events = [
+            {
+                "event": "runner_on_ok",
+                "event_data": {
+                    "res": {
+                        "ansible_facts": {
+                            "ansible_architecture": "x86_64",
+                            "ansible_processor_cores": 4,
+                            "ansible_processor_count": 1,
+                            "ansible_memtotal_mb": 16384,
+                            "ansible_mounts": [],
+                        }
+                    }
+                },
             }
+        ]
 
     class GpuFailedResult:
         status = "failed"
         events = []
-
-        def get_fact_cache(self, hostname):
-            return None
 
     mock_run = Mock(side_effect=[SetupResult(), GpuFailedResult()])
 
@@ -451,6 +477,29 @@ def test_ssh_key_outside_allowed_dir_raises(monkeypatch, tmp_path):
 
     from clawrium.core.hardware import gather_hardware
 
+    with pytest.raises(ValueError, match="outside allowed directories"):
+        gather_hardware("192.168.1.100", ssh_key=str(key_file))
+
+
+def test_ssh_key_path_boundary_attack_blocked(monkeypatch, tmp_path):
+    """Test that path boundary attacks like .sshmalicious are blocked."""
+    # Create mock home
+    mock_home = tmp_path / "home"
+    mock_home.mkdir()
+    (mock_home / ".ssh").mkdir()
+
+    # Create .sshmalicious directory (would pass naive startswith check)
+    malicious_dir = mock_home / ".sshmalicious"
+    malicious_dir.mkdir()
+    key_file = malicious_dir / "key"
+    key_file.write_text("fake key")
+    key_file.chmod(0o600)
+
+    monkeypatch.setattr("clawrium.core.hardware.Path.home", lambda: mock_home)
+
+    from clawrium.core.hardware import gather_hardware
+
+    # Should be blocked - .sshmalicious is not inside .ssh
     with pytest.raises(ValueError, match="outside allowed directories"):
         gather_hardware("192.168.1.100", ssh_key=str(key_file))
 

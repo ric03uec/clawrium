@@ -76,6 +76,10 @@ def parse_gpu_output(lspci_output: str) -> GpuInfo:
     if not lspci_output or not lspci_output.strip():
         return {"present": False, "vendor": None, "error": None}
 
+    # Check for lspci not installed sentinel
+    if "__NO_LSPCI__" in lspci_output:
+        return {"present": None, "vendor": None, "error": "lspci not installed"}
+
     output_lower = lspci_output.lower()
 
     if "nvidia" in output_lower:
@@ -105,11 +109,8 @@ def _validate_ssh_key(ssh_key: str) -> Path:
     ssh_dir = Path.home() / ".ssh"
     config_dir = Path.home() / ".config" / "clawrium"
 
-    # Allow keys in ~/.ssh or ~/.config/clawrium
-    if not (
-        str(key_path).startswith(str(ssh_dir))
-        or str(key_path).startswith(str(config_dir))
-    ):
+    # Allow keys in ~/.ssh or ~/.config/clawrium (use is_relative_to for path boundary safety)
+    if not (key_path.is_relative_to(ssh_dir) or key_path.is_relative_to(config_dir)):
         raise ValueError(
             f"SSH key path {ssh_key} is outside allowed directories (~/.ssh or ~/.config/clawrium)"
         )
@@ -189,7 +190,16 @@ def gather_hardware(
         if result.status != "successful":
             raise RuntimeError(f"Fact gathering failed: {result.status}")
 
-        facts = result.get_fact_cache(hostname)
+        # Extract facts from runner events (more reliable than get_fact_cache with in-memory inventory)
+        facts = None
+        for event in result.events:
+            if event.get("event") == "runner_on_ok":
+                res = event.get("event_data", {}).get("res", {})
+                ansible_facts = res.get("ansible_facts")
+                if ansible_facts:
+                    facts = ansible_facts
+                    break
+
         if not facts:
             raise RuntimeError("No facts returned from host")
 
@@ -198,12 +208,18 @@ def gather_hardware(
 
         # GPU detection via lspci (use shell module for pipe support)
         # Include "3d controller" for compute GPUs (A100, H100, etc.)
+        # Distinguish between "lspci not installed" and "no GPU found"
+        gpu_cmd = (
+            'if command -v lspci >/dev/null 2>&1; then '
+            'lspci | grep -iE "vga|3d controller|display" || true; '
+            'else echo "__NO_LSPCI__"; fi'
+        )
         gpu_result = ansible_runner.run(
             private_data_dir=tmpdir,
             inventory=inventory,
             host_pattern=hostname,
             module="shell",
-            module_args='lspci | grep -iE "vga|3d controller|display" || true',
+            module_args=gpu_cmd,
             quiet=True,
             timeout=15,
         )
