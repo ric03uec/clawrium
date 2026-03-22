@@ -114,7 +114,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Refactor core secrets module for per-instance scoping (PSEC-01, PSEC-05)
+- [x] 06-01-PLAN.md — Refactor core secrets module for per-instance scoping (PSEC-01, PSEC-05)
 - [ ] 06-02-PLAN.md — Update CLI commands for per-claw secrets (PSEC-02, PSEC-03)
 - [ ] 06-03-PLAN.md — Update status display for degraded state (PSEC-04)
 
@@ -130,4 +130,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Registry & Compatibility | 4/4 | Complete | 2026-03-21 |
 | 4. Installation & Fleet Status | 4/4 | Complete | 2026-03-22 |
 | 5. Secrets Management | 2/2 | Complete | 2026-03-22 |
-| 6. Per-Instance Secrets | 0/3 | Planning complete | - |
+| 6. Per-Instance Secrets | 1/3 | In Progress|  |
