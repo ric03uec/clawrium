@@ -41,7 +41,7 @@ Requirements for initial release: OpenClaw on single Ubuntu host.
 
 ### Fleet Status
 
-- [ ] **STAT-01**: User can view fleet status (`clm status`)
+- [x] **STAT-01**: User can view fleet status (`clm status`)
 
 ## v2 Requirements
 
@@ -103,7 +103,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INST-02 | Phase 4 | Complete |
 | INST-03 | Phase 4 | Complete |
 | INST-04 | Phase 4 | Complete |
-| STAT-01 | Phase 4 | Pending |
+| STAT-01 | Phase 4 | Complete |
 | SEC-01 | Phase 5 | Pending |
 | SEC-02 | Phase 5 | Pending |
 | SEC-03 | Phase 5 | Pending |
