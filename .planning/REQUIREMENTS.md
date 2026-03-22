@@ -99,14 +99,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REG-01 | Phase 3 | Complete |
 | REG-02 | Phase 3 | Complete |
 | REG-03 | Phase 3 | Complete |
-| SEC-01 | Phase 4 | Pending |
-| SEC-02 | Phase 4 | Pending |
-| SEC-03 | Phase 4 | Pending |
-| INST-01 | Phase 5 | Pending |
-| INST-02 | Phase 5 | Pending |
-| INST-03 | Phase 5 | Pending |
-| INST-04 | Phase 5 | Pending |
-| STAT-01 | Phase 5 | Pending |
+| INST-01 | Phase 4 | Pending |
+| INST-02 | Phase 4 | Pending |
+| INST-03 | Phase 4 | Pending |
+| INST-04 | Phase 4 | Pending |
+| STAT-01 | Phase 4 | Pending |
+| SEC-01 | Phase 5 | Pending |
+| SEC-02 | Phase 5 | Pending |
+| SEC-03 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 17 total
@@ -115,4 +115,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-20 after initial definition*
+*Last updated: 2026-03-21 after phase 4 planning*
