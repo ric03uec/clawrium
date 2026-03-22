@@ -6,7 +6,7 @@ entries:
     os: debian
     os_version: "13"
     arch: armv7l
-    sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    sha256: "a294a8caac8304c3b895f80334f9750fba5fbf4787ca7675857e112c04914585"
     requirements:
       min_memory_mb: 512  # Pi 2 has ~920MB usable (1GB - video mem)
       gpu_required: false
@@ -17,7 +17,7 @@ entries:
     os: ubuntu
     os_version: "22.04"
     arch: aarch64
-    sha256: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+    sha256: "33e3838ff86c1cbf423bdd9ce539bf1794f9b9641cbf75fa2d5d02cf466bc849"
     requirements:
       min_memory_mb: 1024
       gpu_required: false
@@ -27,7 +27,7 @@ entries:
     os: ubuntu
     os_version: "24.04"
     arch: aarch64
-    sha256: "b2c3d4e5f67890123456789012345678901234567890123456789012345abcde"
+    sha256: "33e3838ff86c1cbf423bdd9ce539bf1794f9b9641cbf75fa2d5d02cf466bc849"
     requirements:
       min_memory_mb: 1024
       gpu_required: false
@@ -38,7 +38,7 @@ entries:
     os: ubuntu
     os_version: "22.04"
     arch: x86_64
-    sha256: "c3d4e5f678901234567890123456789012345678901234567890123456abcdef"
+    sha256: "c0ab82725795d97e08542b9475aa31db27a3fa76e8e5b1e3c8ec43fbbd3c4ecd"
     requirements:
       min_memory_mb: 1024
       gpu_required: false
@@ -48,7 +48,7 @@ entries:
     os: ubuntu
     os_version: "24.04"
     arch: x86_64
-    sha256: "d4e5f6789012345678901234567890123456789012345678901234567abcdef0"
+    sha256: "c0ab82725795d97e08542b9475aa31db27a3fa76e8e5b1e3c8ec43fbbd3c4ecd"
     requirements:
       min_memory_mb: 1024
       gpu_required: false
