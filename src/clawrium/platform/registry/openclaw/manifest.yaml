@@ -1,5 +1,16 @@
 name: openclaw
 description: "Open-source AI assistant framework"
+
+# Secrets required for this claw (install will fail if missing)
+required_secrets:
+  - key: OPENAI_API_KEY
+    description: "OpenAI API key for LLM requests"
+
+# Optional secrets (claw works without them but with reduced functionality)
+optional_secrets:
+  - key: ANTHROPIC_API_KEY
+    description: "Anthropic API key for Claude models"
+
 entries:
   - version: "0.1.0"
     os: ubuntu

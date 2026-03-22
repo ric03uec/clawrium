@@ -8,6 +8,7 @@ from clawrium.cli.init import init as init_command
 from clawrium.cli.host import host_app
 from clawrium.cli.install import install as install_command
 from clawrium.cli.registry import registry_app
+from clawrium.cli.secret import secret_app
 from clawrium.cli.status import status as status_command
 
 __all__ = ["app"]
@@ -57,6 +58,9 @@ app.add_typer(host_app, name="host")
 
 # Register registry subcommands
 app.add_typer(registry_app, name="registry")
+
+# Register secret subcommands
+app.add_typer(secret_app, name="secret")
 
 
 if __name__ == "__main__":

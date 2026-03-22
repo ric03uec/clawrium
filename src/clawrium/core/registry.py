@@ -54,6 +54,13 @@ class Requirements(TypedDict):
     dependencies: dict[str, str]
 
 
+class SecretDefinition(TypedDict):
+    """Secret definition in manifest."""
+
+    key: str
+    description: str
+
+
 class ManifestEntry(TypedDict):
     """Single platform entry in a claw manifest."""
 
@@ -71,6 +78,8 @@ class ClawManifest(TypedDict):
     name: str
     description: str
     entries: list[ManifestEntry]
+    required_secrets: NotRequired[list[SecretDefinition]]
+    optional_secrets: NotRequired[list[SecretDefinition]]
 
 
 class CompatibilityResult(TypedDict):
@@ -220,6 +229,38 @@ def get_claw_info(claw_name: str) -> dict:
         "latest_version": latest_version,
         "supported_platforms": sorted(platforms),
     }
+
+
+def get_required_secrets(claw_name: str) -> list[SecretDefinition]:
+    """Get list of required secrets for a claw.
+
+    Args:
+        claw_name: Name of the claw
+
+    Returns:
+        List of SecretDefinition dicts. Empty list if claw has no required_secrets field.
+
+    Raises:
+        ManifestNotFoundError: If claw manifest doesn't exist
+    """
+    manifest = load_manifest(claw_name)
+    return manifest.get("required_secrets", [])
+
+
+def get_optional_secrets(claw_name: str) -> list[SecretDefinition]:
+    """Get list of optional secrets for a claw.
+
+    Args:
+        claw_name: Name of the claw
+
+    Returns:
+        List of SecretDefinition dicts. Empty list if claw has no optional_secrets field.
+
+    Raises:
+        ManifestNotFoundError: If claw manifest doesn't exist
+    """
+    manifest = load_manifest(claw_name)
+    return manifest.get("optional_secrets", [])
 
 
 def check_compatibility(

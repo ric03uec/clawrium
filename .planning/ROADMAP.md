@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation Setup** - Initialize Clawrium configuration and verify dependencies (completed 2026-03-21)
 - [x] **Phase 2: Host Management** - Add, list, remove hosts with hardware capability detection (completed 2026-03-21)
 - [x] **Phase 3: Registry & Compatibility** - Load claw manifests and validate hardware compatibility (completed 2026-03-21)
-- [ ] **Phase 4: Installation & Fleet Status** - Install OpenClaw instances and view fleet status
+- [x] **Phase 4: Installation & Fleet Status** - Install OpenClaw instances and view fleet status (completed 2026-03-22)
 - [ ] **Phase 5: Secrets Management** - Secure storage and retrieval of API keys and credentials
 
 ## Phase Details
@@ -94,10 +94,11 @@ Plans:
   1. User can set a secret with `clm secret set` and it's stored with mode 600
   2. User can list secret keys with `clm secret list` and values are never displayed
   3. Secrets file is created with correct permissions (600) on first write
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: TBD
+- [x] 05-01-PLAN.md — Core secrets storage module and manifest schema extension (SEC-01, SEC-03)
+- [x] 05-02-PLAN.md — CLI secret commands (set, list, remove) (SEC-01, SEC-02, SEC-03)
 
 ## Progress
 
@@ -109,5 +110,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Foundation Setup | 2/2 | Complete   | 2026-03-21 |
 | 2. Host Management | 4/4 | Complete | 2026-03-21 |
 | 3. Registry & Compatibility | 4/4 | Complete | 2026-03-21 |
-| 4. Installation & Fleet Status | 0/4 | Planning complete | - |
-| 5. Secrets Management | 0/0 | Not started | - |
+| 4. Installation & Fleet Status | 4/4 | Complete | 2026-03-22 |
+| 5. Secrets Management | 0/2 | Planning complete | - |
