@@ -97,7 +97,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Core secrets storage module and manifest schema extension (SEC-01, SEC-03)
+- [x] 05-01-PLAN.md — Core secrets storage module and manifest schema extension (SEC-01, SEC-03)
 - [ ] 05-02-PLAN.md — CLI secret commands (set, list, remove) (SEC-01, SEC-02, SEC-03)
 
 ## Progress
