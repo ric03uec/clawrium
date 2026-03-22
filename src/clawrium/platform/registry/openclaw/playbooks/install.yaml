@@ -1,0 +1,31 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: Create claw user
+      ansible.builtin.user:
+        name: "opc-{{ inventory_hostname }}"
+        state: present
+        create_home: yes
+        shell: /bin/bash
+
+    - name: Clone OpenClaw repository
+      ansible.builtin.git:
+        repo: https://github.com/openclaw/openclaw.git
+        dest: "/home/opc-{{ inventory_hostname }}/openclaw"
+        version: main
+      become_user: "opc-{{ inventory_hostname }}"
+
+    - name: Install npm dependencies
+      ansible.builtin.command:
+        cmd: npm install
+        chdir: "/home/opc-{{ inventory_hostname }}/openclaw"
+      become_user: "opc-{{ inventory_hostname }}"
+
+    - name: Create workspace directory
+      ansible.builtin.file:
+        path: "/home/opc-{{ inventory_hostname }}/workspace"
+        state: directory
+        owner: "opc-{{ inventory_hostname }}"
+        group: "opc-{{ inventory_hostname }}"
+        mode: "0755"
