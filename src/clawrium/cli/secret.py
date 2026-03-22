@@ -14,6 +14,13 @@ from clawrium.core.secrets import (
     load_secrets,
     SecretsFileCorruptedError,
     InvalidSecretKeyError,
+    get_installed_claw,
+    get_instance_key,
+    get_instance_secrets,
+    set_instance_secret,
+    remove_instance_secret,
+    list_instances_with_secrets,
+    ClawNotFoundError,
 )
 from clawrium.core.registry import (
     get_required_secrets,
@@ -33,27 +40,38 @@ secret_app = typer.Typer(
 
 @secret_app.command(name="set")
 def set_cmd(
+    claw_name: str = typer.Argument(..., help="Claw name (e.g., opc-work)"),
     key: str = typer.Argument(..., help="Secret key name (e.g., OPENAI_API_KEY)"),
     description: Optional[str] = typer.Option(
         None, "--description", "-d", help="Description of the secret"
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip overwrite confirmation"),
 ) -> None:
-    """Set a secret value.
+    """Set a secret value for a claw instance.
 
     Prompts for the value using masked input (not visible on screen).
     """
-    # Check if secret already exists (per D-10)
-    existing = get_secret(key)
+    # Validate claw exists
+    try:
+        hostname, claw_type, name = get_installed_claw(claw_name)
+    except ClawNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    instance_key = get_instance_key(hostname, claw_type, name)
+
+    # Check if secret already exists for this instance
+    instance_secrets = get_instance_secrets(instance_key)
+    existing = instance_secrets.get(key)
     if existing and not yes:
-        console.print(f"[yellow]Secret '{key}' already exists[/yellow]")
+        console.print(f"[yellow]Secret '{key}' already exists for '{claw_name}'[/yellow]")
         console.print(f"  Description: {existing.get('description') or '-'}")
         console.print(f"  Last updated: {existing.get('updated_at', 'Unknown')}")
         if not typer.confirm("Overwrite this secret?"):
             console.print("Cancelled.")
             raise typer.Exit(code=0)
 
-    # Prompt for value with masked input (per D-09)
+    # Prompt for value with masked input
     try:
         value = getpass.getpass(prompt=f"Enter value for {key}: ")
     except (KeyboardInterrupt, EOFError):
@@ -64,18 +82,18 @@ def set_cmd(
         console.print("[red]Error:[/red] Secret value cannot be empty")
         raise typer.Exit(code=1)
 
-    # Set the secret
+    # Set the secret for this instance
     try:
-        is_new = set_secret(key, value, description or "")
+        is_new = set_instance_secret(instance_key, key, value, description or "")
     except InvalidSecretKeyError as e:
         console.print(f"[red]Error:[/red] {e}")
         console.print("[dim]Hint: Keys must be uppercase letters, digits, and underscores (e.g., OPENAI_API_KEY)[/dim]")
         raise typer.Exit(code=1)
 
     if is_new:
-        console.print(f"[green]Secret '{key}' created.[/green]")
+        console.print(f"[green]Secret '{key}' created for '{claw_name}'.[/green]")
     else:
-        console.print(f"[green]Secret '{key}' updated.[/green]")
+        console.print(f"[green]Secret '{key}' updated for '{claw_name}'.[/green]")
 
 
 @secret_app.command(name="list")

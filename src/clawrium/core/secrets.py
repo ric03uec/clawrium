@@ -20,6 +20,7 @@ __all__ = [
     "SecretsFileCorruptedError",
     "InvalidSecretKeyError",
     "get_instance_key",
+    "get_installed_claw",
     "get_instance_secrets",
     "set_instance_secret",
     "remove_instance_secret",
@@ -188,6 +189,35 @@ def get_instance_key(host: str, claw_type: str, claw_name: str) -> str:
         Instance key in format "host:claw_type:claw_name".
     """
     return f"{host}:{claw_type}:{claw_name}"
+
+
+def get_installed_claw(claw_name: str) -> tuple[str, str, str]:
+    """Get installed claw details from hosts registry.
+
+    Searches all hosts for a claw with matching name.
+
+    Args:
+        claw_name: Name of the claw instance (e.g., "opc-work").
+
+    Returns:
+        Tuple of (hostname, claw_type, claw_name).
+
+    Raises:
+        ClawNotFoundError: If claw with this name is not found in any host.
+    """
+    from clawrium.core.hosts import load_hosts
+
+    hosts = load_hosts()
+    for host in hosts:
+        hostname = host.get("hostname", "")
+        claws = host.get("claws", {})
+        for claw_type, claw_data in claws.items():
+            if claw_data.get("name") == claw_name:
+                return (hostname, claw_type, claw_name)
+
+    raise ClawNotFoundError(
+        f"Claw '{claw_name}' not found. Only installed claws can have secrets."
+    )
 
 
 def get_instance_secrets(instance_key: str) -> dict[str, SecretEntry]:

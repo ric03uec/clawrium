@@ -12,120 +12,227 @@ runner = CliRunner()
 
 
 def test_secret_set_creates_new(isolated_config: Path):
-    """clm secret set KEY prompts for value and creates secret."""
+    """clm secret set <claw_name> KEY prompts for value and creates secret."""
     isolated_config.mkdir(parents=True, exist_ok=True)
+
+    # Create a host with installed claw
+    hosts_file = isolated_config / "hosts.json"
+    hosts_data = [
+        {
+            "hostname": "testhost",
+            "alias": "testhost",
+            "claws": {
+                "openclaw": {
+                    "name": "test-claw",
+                    "status": "installed",
+                    "user": "test-user",
+                }
+            },
+        }
+    ]
+    hosts_file.write_text(json.dumps(hosts_data, indent=2))
 
     with patch("clawrium.cli.secret.getpass.getpass", return_value="my-secret-value"):
         result = runner.invoke(
-            app, ["secret", "set", "TEST_KEY"], env=os.environ
+            app, ["secret", "set", "test-claw", "TEST_KEY"], env=os.environ
         )
 
     assert result.exit_code == 0
     assert "created" in result.output.lower()
 
-    # Verify secret was stored (in __global__ namespace for backward compatibility)
+    # Verify secret was stored under instance key
     secrets_file = isolated_config / "secrets.json"
     assert secrets_file.exists()
     secrets = json.loads(secrets_file.read_text())
-    assert "__global__" in secrets
-    assert "TEST_KEY" in secrets["__global__"]
-    assert secrets["__global__"]["TEST_KEY"]["value"] == "my-secret-value"
+    instance_key = "testhost:openclaw:test-claw"
+    assert instance_key in secrets
+    assert "TEST_KEY" in secrets[instance_key]
+    assert secrets[instance_key]["TEST_KEY"]["value"] == "my-secret-value"
 
 
 def test_secret_set_with_description(isolated_config: Path):
-    """clm secret set KEY --description saves description."""
+    """clm secret set <claw_name> KEY --description saves description."""
     isolated_config.mkdir(parents=True, exist_ok=True)
+
+    # Create a host with installed claw
+    hosts_file = isolated_config / "hosts.json"
+    hosts_data = [
+        {
+            "hostname": "testhost",
+            "alias": "testhost",
+            "claws": {
+                "openclaw": {
+                    "name": "test-claw",
+                    "status": "installed",
+                    "user": "test-user",
+                }
+            },
+        }
+    ]
+    hosts_file.write_text(json.dumps(hosts_data, indent=2))
 
     with patch("clawrium.cli.secret.getpass.getpass", return_value="my-value"):
         result = runner.invoke(
             app,
-            ["secret", "set", "API_KEY", "--description", "My API key"],
+            ["secret", "set", "test-claw", "API_KEY", "--description", "My API key"],
             env=os.environ,
         )
 
     assert result.exit_code == 0
 
-    # Verify description was stored (in __global__ namespace)
+    # Verify description was stored
     secrets_file = isolated_config / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    assert secrets["__global__"]["API_KEY"]["description"] == "My API key"
+    instance_key = "testhost:openclaw:test-claw"
+    assert secrets[instance_key]["API_KEY"]["description"] == "My API key"
 
 
 def test_secret_set_update_existing(isolated_config: Path):
-    """clm secret set KEY on existing key prompts for confirmation."""
+    """clm secret set <claw_name> KEY on existing key prompts for confirmation."""
     isolated_config.mkdir(parents=True, exist_ok=True)
+
+    # Create a host with installed claw
+    hosts_file = isolated_config / "hosts.json"
+    hosts_data = [
+        {
+            "hostname": "testhost",
+            "alias": "testhost",
+            "claws": {
+                "openclaw": {
+                    "name": "test-claw",
+                    "status": "installed",
+                    "user": "test-user",
+                }
+            },
+        }
+    ]
+    hosts_file.write_text(json.dumps(hosts_data, indent=2))
 
     # Create existing secret
     with patch("clawrium.cli.secret.getpass.getpass", return_value="old-value"):
-        runner.invoke(app, ["secret", "set", "EXISTING_KEY"], env=os.environ)
+        runner.invoke(app, ["secret", "set", "test-claw", "EXISTING_KEY"], env=os.environ)
 
     # Try to update - cancel confirmation
     with patch("clawrium.cli.secret.getpass.getpass", return_value="new-value"):
         result = runner.invoke(
-            app, ["secret", "set", "EXISTING_KEY"], input="n\n", env=os.environ
+            app, ["secret", "set", "test-claw", "EXISTING_KEY"], input="n\n", env=os.environ
         )
 
     assert result.exit_code == 0
     assert "cancelled" in result.output.lower()
 
-    # Verify value unchanged (in __global__ namespace)
+    # Verify value unchanged
     secrets_file = isolated_config / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    assert secrets["__global__"]["EXISTING_KEY"]["value"] == "old-value"
+    instance_key = "testhost:openclaw:test-claw"
+    assert secrets[instance_key]["EXISTING_KEY"]["value"] == "old-value"
 
 
 def test_secret_set_update_confirmed(isolated_config: Path):
-    """clm secret set KEY on existing key with confirmation updates value."""
+    """clm secret set <claw_name> KEY on existing key with confirmation updates value."""
     isolated_config.mkdir(parents=True, exist_ok=True)
+
+    # Create a host with installed claw
+    hosts_file = isolated_config / "hosts.json"
+    hosts_data = [
+        {
+            "hostname": "testhost",
+            "alias": "testhost",
+            "claws": {
+                "openclaw": {
+                    "name": "test-claw",
+                    "status": "installed",
+                    "user": "test-user",
+                }
+            },
+        }
+    ]
+    hosts_file.write_text(json.dumps(hosts_data, indent=2))
 
     # Create existing secret
     with patch("clawrium.cli.secret.getpass.getpass", return_value="old-value"):
-        runner.invoke(app, ["secret", "set", "EXISTING_KEY"], env=os.environ)
+        runner.invoke(app, ["secret", "set", "test-claw", "EXISTING_KEY"], env=os.environ)
 
     # Update with confirmation
     with patch("clawrium.cli.secret.getpass.getpass", return_value="new-value"):
         result = runner.invoke(
-            app, ["secret", "set", "EXISTING_KEY"], input="y\n", env=os.environ
+            app, ["secret", "set", "test-claw", "EXISTING_KEY"], input="y\n", env=os.environ
         )
 
     assert result.exit_code == 0
     assert "updated" in result.output.lower()
 
-    # Verify value changed (in __global__ namespace)
+    # Verify value changed
     secrets_file = isolated_config / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    assert secrets["__global__"]["EXISTING_KEY"]["value"] == "new-value"
+    instance_key = "testhost:openclaw:test-claw"
+    assert secrets[instance_key]["EXISTING_KEY"]["value"] == "new-value"
 
 
 def test_secret_set_yes_flag_skips_confirmation(isolated_config: Path):
-    """clm secret set KEY --yes skips overwrite confirmation."""
+    """clm secret set <claw_name> KEY --yes skips overwrite confirmation."""
     isolated_config.mkdir(parents=True, exist_ok=True)
+
+    # Create a host with installed claw
+    hosts_file = isolated_config / "hosts.json"
+    hosts_data = [
+        {
+            "hostname": "testhost",
+            "alias": "testhost",
+            "claws": {
+                "openclaw": {
+                    "name": "test-claw",
+                    "status": "installed",
+                    "user": "test-user",
+                }
+            },
+        }
+    ]
+    hosts_file.write_text(json.dumps(hosts_data, indent=2))
 
     # Create existing secret
     with patch("clawrium.cli.secret.getpass.getpass", return_value="old-value"):
-        runner.invoke(app, ["secret", "set", "KEY"], env=os.environ)
+        runner.invoke(app, ["secret", "set", "test-claw", "KEY"], env=os.environ)
 
     # Update with --yes flag (no input needed)
     with patch("clawrium.cli.secret.getpass.getpass", return_value="new-value"):
         result = runner.invoke(
-            app, ["secret", "set", "KEY", "--yes"], env=os.environ
+            app, ["secret", "set", "test-claw", "KEY", "--yes"], env=os.environ
         )
 
     assert result.exit_code == 0
     assert "updated" in result.output.lower()
 
-    # Verify value changed (in __global__ namespace)
+    # Verify value changed
     secrets_file = isolated_config / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    assert secrets["__global__"]["KEY"]["value"] == "new-value"
+    instance_key = "testhost:openclaw:test-claw"
+    assert secrets[instance_key]["KEY"]["value"] == "new-value"
 
 
 def test_secret_set_empty_value_rejected(isolated_config: Path):
-    """clm secret set KEY with empty value shows error."""
+    """clm secret set <claw_name> KEY with empty value shows error."""
     isolated_config.mkdir(parents=True, exist_ok=True)
 
+    # Create a host with installed claw
+    hosts_file = isolated_config / "hosts.json"
+    hosts_data = [
+        {
+            "hostname": "testhost",
+            "alias": "testhost",
+            "claws": {
+                "openclaw": {
+                    "name": "test-claw",
+                    "status": "installed",
+                    "user": "test-user",
+                }
+            },
+        }
+    ]
+    hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
     with patch("clawrium.cli.secret.getpass.getpass", return_value=""):
-        result = runner.invoke(app, ["secret", "set", "EMPTY_KEY"], env=os.environ)
+        result = runner.invoke(app, ["secret", "set", "test-claw", "EMPTY_KEY"], env=os.environ)
 
     assert result.exit_code == 1
     assert "cannot be empty" in result.output.lower()
@@ -278,3 +385,100 @@ def test_secret_remove_nonexistent_shows_error(isolated_config: Path):
 
     assert result.exit_code == 1
     assert "not found" in result.output.lower()
+
+
+# Per-claw secret tests (Phase 06 Plan 02)
+
+
+def test_secret_set_with_claw(isolated_config: Path):
+    """clm secret set <claw_name> KEY prompts for value and stores for that claw."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+
+    # Create a host with installed claw
+    hosts_file = isolated_config / "hosts.json"
+    hosts_data = [
+        {
+            "hostname": "wolf",
+            "alias": "wolf",
+            "claws": {
+                "openclaw": {
+                    "name": "opc-work",
+                    "status": "installed",
+                    "user": "opc-work",
+                }
+            },
+        }
+    ]
+    hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+    with patch("clawrium.cli.secret.getpass.getpass", return_value="my-secret-value"):
+        result = runner.invoke(
+            app, ["secret", "set", "opc-work", "OPENAI_API_KEY"], env=os.environ
+        )
+
+    assert result.exit_code == 0
+    assert "created" in result.output.lower()
+
+    # Verify secret was stored under instance key
+    secrets_file = isolated_config / "secrets.json"
+    assert secrets_file.exists()
+    secrets = json.loads(secrets_file.read_text())
+    instance_key = "wolf:openclaw:opc-work"
+    assert instance_key in secrets
+    assert "OPENAI_API_KEY" in secrets[instance_key]
+    assert secrets[instance_key]["OPENAI_API_KEY"]["value"] == "my-secret-value"
+
+
+def test_secret_set_claw_not_found(isolated_config: Path):
+    """clm secret set <claw_name> KEY shows error when claw doesn't exist."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+
+    with patch("clawrium.cli.secret.getpass.getpass", return_value="my-value"):
+        result = runner.invoke(
+            app, ["secret", "set", "nonexistent-claw", "API_KEY"], env=os.environ
+        )
+
+    assert result.exit_code == 1
+    assert "not found" in result.output.lower()
+    assert "nonexistent-claw" in result.output
+
+
+def test_secret_set_with_claw_update_confirmed(isolated_config: Path):
+    """clm secret set <claw_name> KEY with confirmation updates value for that claw."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+
+    # Create a host with installed claw
+    hosts_file = isolated_config / "hosts.json"
+    hosts_data = [
+        {
+            "hostname": "wolf",
+            "alias": "wolf",
+            "claws": {
+                "openclaw": {
+                    "name": "opc-work",
+                    "status": "installed",
+                    "user": "opc-work",
+                }
+            },
+        }
+    ]
+    hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+    # Create existing secret
+    with patch("clawrium.cli.secret.getpass.getpass", return_value="old-value"):
+        runner.invoke(app, ["secret", "set", "opc-work", "API_KEY"], env=os.environ)
+
+    # Update with confirmation
+    with patch("clawrium.cli.secret.getpass.getpass", return_value="new-value"):
+        result = runner.invoke(
+            app, ["secret", "set", "opc-work", "API_KEY"], input="y\n", env=os.environ
+        )
+
+    assert result.exit_code == 0
+    assert "updated" in result.output.lower()
+
+    # Verify value changed
+    secrets_file = isolated_config / "secrets.json"
+    secrets = json.loads(secrets_file.read_text())
+    instance_key = "wolf:openclaw:opc-work"
+    assert secrets[instance_key]["API_KEY"]["value"] == "new-value"
