@@ -1,12 +1,13 @@
 name: zeroclaw
 description: "Lightweight AI assistant for edge devices and Raspberry Pi"
 entries:
+  # Raspberry Pi 2/3 (armv7l) - Debian/Raspbian
   - version: "0.2.0"
     os: debian
     os_version: "11"
     arch: armv7l
     requirements:
-      min_memory_mb: 1024
+      min_memory_mb: 512  # Pi 2 has ~920MB usable (1GB - video mem)
       gpu_required: false
       dependencies:
         python: ">=3.9"
@@ -16,17 +17,39 @@ entries:
     os_version: "12"
     arch: armv7l
     requirements:
-      min_memory_mb: 1024
+      min_memory_mb: 512
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"
+        nodejs: ">=18.0.0"
+  # Raspberry Pi OS (based on Debian, reports as "debian")
+  - version: "0.2.0"
+    os: raspbian
+    os_version: "11"
+    arch: armv7l
+    requirements:
+      min_memory_mb: 512
       gpu_required: false
       dependencies:
         python: ">=3.9"
         nodejs: ">=18.0.0"
   - version: "0.2.0"
+    os: raspbian
+    os_version: "12"
+    arch: armv7l
+    requirements:
+      min_memory_mb: 512
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"
+        nodejs: ">=18.0.0"
+  # Raspberry Pi 4/5 (aarch64) - Ubuntu
+  - version: "0.2.0"
     os: ubuntu
     os_version: "22.04"
     arch: aarch64
     requirements:
-      min_memory_mb: 2048
+      min_memory_mb: 1024
       gpu_required: false
       dependencies:
         python: ">=3.9"
@@ -36,7 +59,7 @@ entries:
     os_version: "24.04"
     arch: aarch64
     requirements:
-      min_memory_mb: 2048
+      min_memory_mb: 1024
       gpu_required: false
       dependencies:
         python: ">=3.9"
