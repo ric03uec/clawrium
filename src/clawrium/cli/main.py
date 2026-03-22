@@ -4,6 +4,7 @@ import typer
 
 from clawrium.cli.init import init as init_command
 from clawrium.cli.host import host_app
+from clawrium.cli.registry import registry_app
 
 __all__ = ["app"]
 
@@ -31,6 +32,9 @@ def init() -> None:
 
 # Register host subcommands
 app.add_typer(host_app, name="host")
+
+# Register registry subcommands
+app.add_typer(registry_app, name="registry")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ Clawrium v1 delivers a CLI tool for managing OpenClaw instances on single Ubuntu
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation Setup** - Initialize Clawrium configuration and verify dependencies (completed 2026-03-21)
-- [ ] **Phase 2: Host Management** - Add, list, remove hosts with hardware capability detection
+- [x] **Phase 2: Host Management** - Add, list, remove hosts with hardware capability detection (completed 2026-03-21)
 - [ ] **Phase 3: Registry & Compatibility** - Load claw manifests and validate hardware compatibility
 - [ ] **Phase 4: Secrets Management** - Secure storage and retrieval of API keys and credentials
 - [ ] **Phase 5: Installation & Fleet Status** - Install OpenClaw instances and view fleet status
@@ -60,10 +60,13 @@ Plans:
   1. User runs `clm registry list` and sees OpenClaw with version and requirements
   2. System loads OpenClaw manifest from platform/registry/openclaw/ directory
   3. System validates host capabilities against claw requirements and reports compatibility (supported/unsupported with specific reasons)
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 03-01: TBD
+- [x] 03-01-PLAN.md — Create OpenClaw manifest and registry loading module (REG-01)
+- [x] 03-02-PLAN.md — Extend HardwareInfo with OS detection (REG-03 foundation)
+- [x] 03-03-PLAN.md — Implement compatibility checking function (REG-03)
+- [x] 03-04-PLAN.md — Registry CLI commands (list, show) (REG-02)
 
 ### Phase 4: Secrets Management
 **Goal**: Users can securely store and manage secrets for claw instances
@@ -101,7 +104,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation Setup | 2/2 | Complete   | 2026-03-21 |
-| 2. Host Management | 0/4 | Planned | - |
-| 3. Registry & Compatibility | 0/0 | Not started | - |
+| 2. Host Management | 4/4 | Complete | 2026-03-21 |
+| 3. Registry & Compatibility | 0/4 | Planned | - |
 | 4. Secrets Management | 0/0 | Not started | - |
 | 5. Installation & Fleet Status | 0/0 | Not started | - |

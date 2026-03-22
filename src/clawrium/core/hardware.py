@@ -32,6 +32,8 @@ class HardwareInfo(TypedDict):
     memtotal_mb: int
     mounts: list[dict]
     gpu: GpuInfo
+    os: str  # lowercase distribution name (e.g., "ubuntu", "debian")
+    os_version: str  # distribution version (e.g., "24.04", "12")
 
 
 def extract_hardware_from_facts(facts: dict) -> dict:
@@ -41,7 +43,7 @@ def extract_hardware_from_facts(facts: dict) -> dict:
         facts: Ansible fact dictionary from setup module
 
     Returns:
-        Hardware dict with architecture, cores, memory, mounts
+        Hardware dict with architecture, cores, memory, mounts, os, os_version
     """
     hardware = {
         "architecture": facts.get("ansible_architecture", "unknown"),
@@ -49,6 +51,8 @@ def extract_hardware_from_facts(facts: dict) -> dict:
         "processor_count": facts.get("ansible_processor_count", 0),
         "memtotal_mb": facts.get("ansible_memtotal_mb", 0),
         "mounts": [],
+        "os": (facts.get("ansible_distribution") or "unknown").lower(),
+        "os_version": str(facts.get("ansible_distribution_version", "unknown")),
     }
 
     # Extract mount information (only relevant fields)

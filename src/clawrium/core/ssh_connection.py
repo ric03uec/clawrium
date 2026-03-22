@@ -202,18 +202,18 @@ def accept_host_key(
     fingerprint_mismatch = False
 
     try:
-        # Connect briefly to get and verify the key
-        client.connect(hostname, port=port, timeout=5, auth_timeout=1)
+        # Connect briefly to get and verify the key (auth_timeout >= 5s for reliability)
+        client.connect(hostname, port=port, timeout=5, auth_timeout=5)
     except paramiko.AuthenticationException:
         # Auth failure is expected - we just want the host key saved
         pass
     except paramiko.SSHException as e:
         # Fingerprint mismatch - don't save
-        logger.debug("SSH error during host key verification")
+        logger.debug("SSH error during host key verification: %s", e)
         fingerprint_mismatch = True
-    except Exception as e:
-        # Network error etc - but key may have been accepted before error
-        logger.debug("Connection error during host key verification")
+    except (socket.timeout, OSError) as e:
+        # Network error - but key may have been accepted before error
+        logger.debug("Connection error during host key verification: %s", e)
     finally:
         client.close()
 

@@ -1,0 +1,1 @@
+# ZeroClaw registry package
