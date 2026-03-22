@@ -5,11 +5,27 @@ This module handles the end-to-end installation flow:
 2. Check host compatibility
 3. Run base playbook (system dependencies)
 4. Run claw-specific playbook
+
+Host record schema (extended):
+{
+    "hostname": str,
+    "claws": {
+        "openclaw": {
+            "version": "0.1.0",
+            "status": "installed" | "failed" | "installing",
+            "installed_at": "ISO timestamp",
+            "error": str | None,
+            "user": "opc-hostname"  # per D-07
+        }
+    },
+    ...existing fields...
+}
 """
 
 import logging
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, TypedDict
 
@@ -108,13 +124,31 @@ def run_installation(
     matched_version = compat["matched_entry"]["version"]
     emit("validate", f"Compatible with {claw_name} v{matched_version}")
 
-    # Step 4: Get SSH credentials
+    # Step 4: Set installing status
+    def set_installing(h: dict) -> dict:
+        if "claws" not in h:
+            h["claws"] = {}
+        # Simple hostname extraction: use first part before first dot
+        hostname_short = h["hostname"].split('.')[0]
+        h["claws"][claw_name] = {
+            "version": matched_version,
+            "status": "installing",
+            "installed_at": None,
+            "error": None,
+            "user": f"opc-{hostname_short}"
+        }
+        return h
+
+    update_host(host["hostname"], set_installing)
+    emit("validate", "Installation state tracked")
+
+    # Step 5: Get SSH credentials
     key_id = host.get("key_id") or host["hostname"]
     ssh_key = get_host_private_key(key_id)
     if not ssh_key:
         raise InstallationError(f"No SSH key found for host. Run 'clm host init {key_id}'.")
 
-    # Step 5: Build inventory
+    # Step 6: Build inventory
     inventory = {
         "all": {
             "hosts": {
@@ -127,64 +161,97 @@ def run_installation(
         }
     }
 
-    # Step 6: Run base playbook
-    base_playbook = _get_base_playbook_path()
-    if not base_playbook.exists():
-        raise InstallationError(f"Base playbook not found: {base_playbook}")
+    try:
+        # Step 7: Run base playbook
+        base_playbook = _get_base_playbook_path()
+        if not base_playbook.exists():
+            raise InstallationError(f"Base playbook not found: {base_playbook}")
 
-    emit("base", "Installing system dependencies...")
-    playbooks_run = []
+        emit("base", "Installing system dependencies...")
+        playbooks_run = []
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        os.chmod(tmpdir, 0o700)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.chmod(tmpdir, 0o700)
 
-        result = ansible_runner.run(
-            private_data_dir=tmpdir,
-            inventory=inventory,
-            playbook=str(base_playbook),
-            quiet=True,
-            timeout=300,  # 5 min timeout for base install
-        )
-
-        if result.status != "successful":
-            raise InstallationError(
-                f"Base playbook failed: {result.status}. "
-                f"Check logs at {tmpdir}/artifacts/"
+            result = ansible_runner.run(
+                private_data_dir=tmpdir,
+                inventory=inventory,
+                playbook=str(base_playbook),
+                quiet=True,
+                timeout=300,  # 5 min timeout for base install
             )
-        playbooks_run.append(str(base_playbook))
-        emit("base", "System dependencies installed")
 
-    # Step 7: Run claw playbook
-    claw_playbook = _get_claw_playbook_path(claw_name)
-    if not claw_playbook.exists():
-        raise InstallationError(f"Claw playbook not found: {claw_playbook}")
+            if result.status != "successful":
+                raise InstallationError(
+                    f"Base playbook failed: {result.status}. "
+                    f"Check logs at {tmpdir}/artifacts/"
+                )
+            playbooks_run.append(str(base_playbook))
+            emit("base", "System dependencies installed")
 
-    emit("claw", f"Installing {claw_name}...")
+        # Step 8: Run claw playbook
+        claw_playbook = _get_claw_playbook_path(claw_name)
+        if not claw_playbook.exists():
+            raise InstallationError(f"Claw playbook not found: {claw_playbook}")
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        os.chmod(tmpdir, 0o700)
+        emit("claw", f"Installing {claw_name}...")
 
-        result = ansible_runner.run(
-            private_data_dir=tmpdir,
-            inventory=inventory,
-            playbook=str(claw_playbook),
-            quiet=True,
-            timeout=600,  # 10 min timeout for claw install
-        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.chmod(tmpdir, 0o700)
 
-        if result.status != "successful":
-            raise InstallationError(
-                f"Claw playbook failed: {result.status}. "
-                f"Check logs at {tmpdir}/artifacts/"
+            result = ansible_runner.run(
+                private_data_dir=tmpdir,
+                inventory=inventory,
+                playbook=str(claw_playbook),
+                quiet=True,
+                timeout=600,  # 10 min timeout for claw install
             )
-        playbooks_run.append(str(claw_playbook))
-        emit("claw", f"{claw_name} installed successfully")
 
-    return {
-        "success": True,
-        "claw": claw_name,
-        "version": matched_version,
-        "host": host["hostname"],
-        "playbooks_run": playbooks_run,
-        "error": None,
-    }
+            if result.status != "successful":
+                raise InstallationError(
+                    f"Claw playbook failed: {result.status}. "
+                    f"Check logs at {tmpdir}/artifacts/"
+                )
+            playbooks_run.append(str(claw_playbook))
+            emit("claw", f"{claw_name} installed successfully")
+
+        # Step 9: Update host with success status
+        def set_installed(h: dict) -> dict:
+            if "claws" in h and claw_name in h["claws"]:
+                h["claws"][claw_name]["status"] = "installed"
+                h["claws"][claw_name]["installed_at"] = datetime.now(timezone.utc).isoformat()
+            return h
+
+        update_host(host["hostname"], set_installed)
+        emit("complete", "Installation state updated")
+
+        return {
+            "success": True,
+            "claw": claw_name,
+            "version": matched_version,
+            "host": host["hostname"],
+            "playbooks_run": playbooks_run,
+            "error": None,
+        }
+
+    except Exception as e:
+        # Step 10: Update host with failure status
+        def set_failed(h: dict) -> dict:
+            if "claws" not in h:
+                h["claws"] = {}
+            if claw_name not in h["claws"]:
+                hostname_short = h["hostname"].split('.')[0]
+                h["claws"][claw_name] = {
+                    "version": matched_version,
+                    "user": f"opc-{hostname_short}"
+                }
+            h["claws"][claw_name]["status"] = "failed"
+            h["claws"][claw_name]["error"] = str(e)
+            h["claws"][claw_name]["installed_at"] = datetime.now(timezone.utc).isoformat()
+            return h
+
+        update_host(host["hostname"], set_failed)
+        emit("error", f"Installation failed, state updated: {e}")
+
+        # Re-raise the exception
+        raise

@@ -9,6 +9,7 @@ from clawrium.core.hosts import (
     add_host,
     remove_host,
     get_host,
+    update_host,
     HOSTS_FILE,
     HostsFileCorruptedError,
 )
@@ -212,3 +213,75 @@ def test_load_hosts_list_with_non_dict_items(isolated_config):
     with pytest.raises(HostsFileCorruptedError) as exc_info:
         load_hosts()
     assert "invalid entries" in str(exc_info.value).lower()
+
+
+def test_host_claw_tracking_installed(isolated_config):
+    """After successful install, host record contains claws[claw_name] with status='installed'."""
+    # Setup: create host
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "user": "xclm",
+        "key_id": "testhost",
+    }
+    save_hosts([test_host])
+
+    # Simulate install success by updating host with claw tracking
+    def add_claw_tracking(h: dict) -> dict:
+        if "claws" not in h:
+            h["claws"] = {}
+        h["claws"]["openclaw"] = {
+            "version": "0.1.0",
+            "status": "installed",
+            "installed_at": "2024-01-01T00:00:00Z",
+            "error": None,
+            "user": "opc-testhost",
+        }
+        return h
+
+    result = update_host("192.168.1.10", add_claw_tracking)
+    assert result is True
+
+    # Verify host record contains claw tracking
+    hosts = load_hosts()
+    assert len(hosts) == 1
+    assert "claws" in hosts[0]
+    assert "openclaw" in hosts[0]["claws"]
+    assert hosts[0]["claws"]["openclaw"]["status"] == "installed"
+    assert hosts[0]["claws"]["openclaw"]["version"] == "0.1.0"
+    assert hosts[0]["claws"]["openclaw"]["installed_at"] == "2024-01-01T00:00:00Z"
+    assert hosts[0]["claws"]["openclaw"]["error"] is None
+    assert hosts[0]["claws"]["openclaw"]["user"] == "opc-testhost"
+
+
+def test_host_claw_tracking_failed(isolated_config):
+    """After failed install, host record contains claws[claw_name] with status='failed' and error message."""
+    # Setup: create host
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {"hostname": "192.168.1.10", "port": 22, "user": "xclm"}
+    save_hosts([test_host])
+
+    # Simulate install failure by updating host with failed status
+    def add_failed_claw(h: dict) -> dict:
+        if "claws" not in h:
+            h["claws"] = {}
+        h["claws"]["openclaw"] = {
+            "version": "0.1.0",
+            "status": "failed",
+            "installed_at": "2024-01-01T00:00:00Z",
+            "error": "Base playbook failed: timeout",
+            "user": None,
+        }
+        return h
+
+    result = update_host("192.168.1.10", add_failed_claw)
+    assert result is True
+
+    # Verify host record contains failure tracking
+    hosts = load_hosts()
+    assert len(hosts) == 1
+    assert "claws" in hosts[0]
+    assert "openclaw" in hosts[0]["claws"]
+    assert hosts[0]["claws"]["openclaw"]["status"] == "failed"
+    assert hosts[0]["claws"]["openclaw"]["error"] == "Base playbook failed: timeout"

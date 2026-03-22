@@ -381,3 +381,215 @@ def test_install_missing_ssh_key_raises(monkeypatch):
 
     with pytest.raises(InstallationError, match="No SSH key found"):
         run_installation("openclaw", "test-host")
+
+
+def test_install_updates_host_on_success(monkeypatch, tmp_path):
+    """Test that install.py calls update_host with installed status on success."""
+    from clawrium.core.install import run_installation
+
+    # Mock dependencies
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"nodejs": ">=20.0.0"},
+                },
+            }
+        ],
+    }
+
+    import clawrium.core.install
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compatible_host = {
+        "hostname": "test-host",
+        "user": "xclm",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
+
+    compat_result = {
+        "compatible": True,
+        "matched_entry": mock_manifest["entries"][0],
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install, "check_compatibility", lambda *args, **kwargs: compat_result
+    )
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    class SuccessfulResult:
+        status = "successful"
+
+    mock_run = Mock(return_value=SuccessfulResult())
+
+    import ansible_runner
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    # Mock update_host to track calls and simulate persistent state
+    update_calls = []
+    persistent_host = compatible_host.copy()
+
+    def mock_update_host(hostname, updater):
+        nonlocal persistent_host
+        # Capture before state
+        before_status = None
+        if "claws" in persistent_host and "openclaw" in persistent_host.get("claws", {}):
+            before_status = persistent_host["claws"]["openclaw"].get("status")
+
+        # Apply updater to persistent host state (simulates real update_host behavior)
+        persistent_host = updater(persistent_host)
+
+        # Capture after state
+        after_status = None
+        if "claws" in persistent_host and "openclaw" in persistent_host.get("claws", {}):
+            after_status = persistent_host["claws"]["openclaw"].get("status")
+
+        # Store the before/after snapshot
+        update_calls.append((hostname, before_status, after_status, persistent_host.copy()))
+        return True
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", mock_update_host)
+
+    # Run installation
+    run_installation("openclaw", "test-host")
+
+    # Verify update_host was called with installing and installed status
+    assert len(update_calls) >= 2
+
+    # Extract after-statuses from calls (what was set by each update)
+    after_statuses = [call[2] for call in update_calls]
+
+    # Should have: installing -> installed
+    assert after_statuses[0] == "installing", f"First update should set 'installing', got {after_statuses}"
+    assert after_statuses[-1] == "installed", f"Last update should set 'installed', got {after_statuses}"
+
+    # Verify final state has all required fields
+    last_call = update_calls[-1]
+    last_hostname = last_call[0]
+    last_updated = last_call[3]
+
+    assert last_hostname == "test-host"
+    assert "claws" in last_updated
+    assert "openclaw" in last_updated["claws"]
+    assert last_updated["claws"]["openclaw"]["status"] == "installed"
+    assert last_updated["claws"]["openclaw"]["version"] == "0.1.0"
+    assert last_updated["claws"]["openclaw"]["installed_at"] is not None
+
+
+def test_install_updates_host_on_failure(monkeypatch, tmp_path):
+    """Test that install.py calls update_host with failed status on failure."""
+    from clawrium.core.install import run_installation, InstallationError
+
+    # Mock dependencies
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"nodejs": ">=20.0.0"},
+                },
+            }
+        ],
+    }
+
+    import clawrium.core.install
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compatible_host = {
+        "hostname": "test-host",
+        "user": "xclm",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
+
+    compat_result = {
+        "compatible": True,
+        "matched_entry": mock_manifest["entries"][0],
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install, "check_compatibility", lambda *args, **kwargs: compat_result
+    )
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    # Mock ansible_runner.run to fail
+    class FailedResult:
+        status = "failed"
+
+    mock_run = Mock(return_value=FailedResult())
+
+    import ansible_runner
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    # Mock update_host to track calls
+    update_calls = []
+
+    def mock_update_host(hostname, updater):
+        # Call the updater to capture the update
+        test_host = compatible_host.copy()
+        if "claws" not in test_host:
+            test_host["claws"] = {}
+        updated = updater(test_host)
+        update_calls.append((hostname, updated))
+        return True
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", mock_update_host)
+
+    # Run installation (should fail and update host with error)
+    with pytest.raises(InstallationError):
+        run_installation("openclaw", "test-host")
+
+    # Verify update_host was called with failed status
+    assert len(update_calls) >= 1
+
+    # Check if any call has failed status
+    found_failed = False
+    for hostname, updated in update_calls:
+        if "claws" in updated and "openclaw" in updated["claws"]:
+            if updated["claws"]["openclaw"]["status"] == "failed":
+                found_failed = True
+                assert updated["claws"]["openclaw"]["error"] is not None
+                assert "failed" in updated["claws"]["openclaw"]["error"].lower()
+                break
+
+    assert found_failed, "Expected update_host to be called with failed status"
