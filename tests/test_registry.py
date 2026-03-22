@@ -2,7 +2,6 @@
 
 import pytest
 from clawrium.core.registry import (
-    ClawManifest,
     ManifestNotFoundError,
     ManifestParseError,
     get_claw_info,
@@ -42,12 +41,46 @@ def test_load_manifest_nonexistent():
         load_manifest("nonexistent")
 
 
-def test_load_manifest_malformed():
-    """Test loading malformed manifest raises ManifestParseError."""
+def test_load_manifest_path_traversal():
+    """Test path traversal attempt triggers InvalidClawNameError."""
     from clawrium.core.registry import InvalidClawNameError
-    # Test path traversal attempt triggers InvalidClawNameError
     with pytest.raises(InvalidClawNameError):
         load_manifest("../etc/passwd")
+
+
+def test_load_manifest_malformed_yaml(monkeypatch):
+    """Test loading malformed YAML raises ManifestParseError."""
+    import yaml as yaml_module
+
+    def raise_yaml_error(*args, **kwargs):
+        raise yaml_module.YAMLError("test parse error")
+
+    # Monkeypatch yaml.safe_load in the registry module
+    from clawrium.core import registry
+    monkeypatch.setattr(registry.yaml, "safe_load", raise_yaml_error)
+
+    with pytest.raises(ManifestParseError, match="Failed to parse"):
+        load_manifest("openclaw")
+
+
+def test_load_manifest_not_dict(monkeypatch):
+    """Test manifest that parses to non-dict raises ManifestParseError."""
+    # Monkeypatch yaml.safe_load to return a list instead of dict
+    from clawrium.core import registry
+    monkeypatch.setattr(registry.yaml, "safe_load", lambda x: ["item1", "item2"])
+
+    with pytest.raises(ManifestParseError, match="not a valid YAML dict"):
+        load_manifest("openclaw")
+
+
+def test_load_manifest_missing_required_fields(monkeypatch):
+    """Test manifest missing name/entries raises ManifestParseError."""
+    # Monkeypatch yaml.safe_load to return dict missing 'entries'
+    from clawrium.core import registry
+    monkeypatch.setattr(registry.yaml, "safe_load", lambda x: {"name": "incomplete"})
+
+    with pytest.raises(ManifestParseError, match="missing required fields"):
+        load_manifest("openclaw")
 
 
 def test_list_claws():
@@ -288,12 +321,12 @@ def test_load_manifest_zeroclaw():
 
 
 def test_check_compatibility_zeroclaw_armv7l():
-    """Test zeroclaw compatibility with Raspberry Pi 2 hardware."""
+    """Test zeroclaw compatibility with Raspberry Pi 2 hardware (Debian 13)."""
     from clawrium.core.registry import check_compatibility
 
     hardware = {
         "os": "debian",
-        "os_version": "12",
+        "os_version": "13",
         "architecture": "armv7l",
         "memtotal_mb": 921,  # Pi 2 has ~920MB usable
         "gpu": {"present": False, "vendor": None, "error": None},
@@ -315,7 +348,7 @@ def test_check_compatibility_zeroclaw_low_memory():
 
     hardware = {
         "os": "debian",
-        "os_version": "12",
+        "os_version": "13",
         "architecture": "armv7l",
         "memtotal_mb": 256,  # Below 512MB minimum
         "gpu": {"present": False, "vendor": None, "error": None},
@@ -328,3 +361,70 @@ def test_check_compatibility_zeroclaw_low_memory():
 
     assert result["compatible"] is False
     assert any("memory" in r.lower() or "ram" in r.lower() for r in result["reasons"])
+
+
+def test_check_compatibility_zeroclaw_debian12_incompatible():
+    """Test zeroclaw does not match Debian 12 (only 13 supported)."""
+    from clawrium.core.registry import check_compatibility
+
+    hardware = {
+        "os": "debian",
+        "os_version": "12",
+        "architecture": "armv7l",
+        "memtotal_mb": 921,
+        "gpu": {"present": False, "vendor": None, "error": None},
+        "processor_cores": 4,
+        "processor_count": 1,
+        "mounts": [],
+    }
+
+    result = check_compatibility("zeroclaw", hardware)
+
+    assert result["compatible"] is False
+    assert any("debian 13" in r.lower() and "debian 12" in r.lower() for r in result["reasons"])
+
+
+def test_check_compatibility_zeroclaw_ubuntu_aarch64():
+    """Test zeroclaw compatibility with Ubuntu aarch64 (Pi 4/5)."""
+    from clawrium.core.registry import check_compatibility
+
+    hardware = {
+        "os": "ubuntu",
+        "os_version": "24.04",
+        "architecture": "aarch64",
+        "memtotal_mb": 4096,
+        "gpu": {"present": False, "vendor": None, "error": None},
+        "processor_cores": 4,
+        "processor_count": 1,
+        "mounts": [],
+    }
+
+    result = check_compatibility("zeroclaw", hardware)
+
+    assert result["compatible"] is True
+    assert result["matched_entry"] is not None
+    assert result["matched_entry"]["arch"] == "aarch64"
+    assert result["matched_entry"]["os"] == "ubuntu"
+
+
+def test_check_compatibility_zeroclaw_ubuntu_x86_64():
+    """Test zeroclaw compatibility with Ubuntu x86_64."""
+    from clawrium.core.registry import check_compatibility
+
+    hardware = {
+        "os": "ubuntu",
+        "os_version": "22.04",
+        "architecture": "x86_64",
+        "memtotal_mb": 8192,
+        "gpu": {"present": False, "vendor": None, "error": None},
+        "processor_cores": 8,
+        "processor_count": 1,
+        "mounts": [],
+    }
+
+    result = check_compatibility("zeroclaw", hardware)
+
+    assert result["compatible"] is True
+    assert result["matched_entry"] is not None
+    assert result["matched_entry"]["arch"] == "x86_64"
+    assert result["matched_entry"]["os"] == "ubuntu"

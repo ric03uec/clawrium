@@ -13,7 +13,7 @@ Clawrium is a CLI/TUI tool for managing AI assistant fleets on local networks. I
 
 - **Tech stack**: Python + Typer CLI, ansible-runner for execution, uv/uvx for packaging
 - **Security**: No sudo permissions — Clawrium prompts user when privileged commands needed
-- **Platform**: Ubuntu only for v1
+- **Platform**: Ubuntu and Debian for v1
 - **Claw support**: OpenClaw only for v1
 - **Deployment**: Fully local, no cloud dependencies
 <!-- GSD:project-end -->

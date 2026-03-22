@@ -2,7 +2,6 @@
 
 import json
 import pytest
-from pathlib import Path
 from clawrium.core.hosts import (
     load_hosts,
     save_hosts,

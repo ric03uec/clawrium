@@ -23,7 +23,7 @@ def init() -> None:
     """
     # Create config directory
     config_dir = init_config_dir()
-    console.print(f"[green]Clawrium initialized![/green]")
+    console.print("[green]Clawrium initialized![/green]")
     console.print(f"Config directory: {config_dir}")
     console.print()
 

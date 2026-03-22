@@ -1,8 +1,6 @@
 """Tests for clawrium.core.names module."""
 
-import re
 
-import pytest
 
 from clawrium.core.names import generate_random_name, is_ip_address
 

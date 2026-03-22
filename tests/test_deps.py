@@ -1,9 +1,7 @@
 """Tests for dependency detection."""
 
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from clawrium.core.deps import (
     DependencyStatus,

@@ -198,7 +198,7 @@ def test_status_shows_installing_status():
 
     # Health check not called for installing status - skip health check
     with patch("clawrium.cli.status.load_hosts", return_value=hosts):
-        with patch("clawrium.cli.status.check_claw_health") as mock_health:
+        with patch("clawrium.cli.status.check_claw_health"):
             result = runner.invoke(app, ["status"])
 
     assert result.exit_code == 0

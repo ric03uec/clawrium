@@ -1,7 +1,7 @@
 """Tests for installation orchestration."""
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 
 def test_install_invalid_claw_raises():

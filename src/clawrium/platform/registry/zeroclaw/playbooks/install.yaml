@@ -1,31 +1,54 @@
 ---
 - hosts: all
   become: yes
+  vars:
+    # Map ansible architecture to zeroclaw release naming
+    arch_map:
+      armv7l: "armv7-unknown-linux-gnueabihf"
+      aarch64: "aarch64-unknown-linux-gnu"
+      x86_64: "x86_64-unknown-linux-gnu"
+    release_arch: "{{ arch_map[ansible_architecture] }}"
+    release_url: "https://github.com/zeroclaw-labs/zeroclaw/releases/download/{{ claw_version }}/zeroclaw-{{ release_arch }}.tar.gz"
+
   tasks:
     - name: Create claw user
       ansible.builtin.user:
-        name: "zc-{{ inventory_hostname }}"
+        name: "{{ claw_user }}"
         state: present
         create_home: yes
         shell: /bin/bash
 
-    - name: Clone ZeroClaw repository
-      ansible.builtin.git:
-        repo: https://github.com/zeroclaw/zeroclaw.git
-        dest: "/home/zc-{{ inventory_hostname }}/zeroclaw"
-        version: "{{ claw_version | default('v0.2.0') }}"
-      become_user: "zc-{{ inventory_hostname }}"
+    - name: Create bin directory
+      ansible.builtin.file:
+        path: "/home/{{ claw_user }}/bin"
+        state: directory
+        owner: "{{ claw_user }}"
+        group: "{{ claw_user }}"
+        mode: "0755"
 
-    - name: Install npm dependencies
-      ansible.builtin.command:
-        cmd: npm install
-        chdir: "/home/zc-{{ inventory_hostname }}/zeroclaw"
-      become_user: "zc-{{ inventory_hostname }}"
+    - name: Download zeroclaw binary
+      ansible.builtin.get_url:
+        url: "{{ release_url }}"
+        dest: "/tmp/zeroclaw-{{ release_arch }}.tar.gz"
+        mode: "0644"
+
+    - name: Extract zeroclaw binary
+      ansible.builtin.unarchive:
+        src: "/tmp/zeroclaw-{{ release_arch }}.tar.gz"
+        dest: "/home/{{ claw_user }}/bin"
+        remote_src: yes
+        owner: "{{ claw_user }}"
+        group: "{{ claw_user }}"
+
+    - name: Cleanup tarball
+      ansible.builtin.file:
+        path: "/tmp/zeroclaw-{{ release_arch }}.tar.gz"
+        state: absent
 
     - name: Create workspace directory
       ansible.builtin.file:
-        path: "/home/zc-{{ inventory_hostname }}/workspace"
+        path: "/home/{{ claw_user }}/workspace"
         state: directory
-        owner: "zc-{{ inventory_hostname }}"
-        group: "zc-{{ inventory_hostname }}"
+        owner: "{{ claw_user }}"
+        group: "{{ claw_user }}"
         mode: "0700"

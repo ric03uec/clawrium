@@ -1,6 +1,5 @@
 """Tests for config directory management."""
 
-import os
 from pathlib import Path
 
 import pytest
@@ -44,7 +43,7 @@ class TestInitConfigDir:
     def test_creates_directory(self, isolated_config: Path) -> None:
         """Should create the config directory."""
         assert not isolated_config.exists()
-        result = init_config_dir()
+        init_config_dir()
         assert isolated_config.exists()
         assert isolated_config.is_dir()
 

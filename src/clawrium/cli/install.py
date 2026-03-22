@@ -98,7 +98,7 @@ def install(
 
     # Step 2: Validate claw exists
     try:
-        claw_info = get_claw_info(selected_claw)
+        get_claw_info(selected_claw)  # Validates claw exists
     except ManifestNotFoundError:
         console.print(f"[red]Error:[/red] Claw '{escape(selected_claw)}' not found in registry")
         raise typer.Exit(code=1)

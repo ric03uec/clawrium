@@ -112,7 +112,7 @@ def status(
             # Also show install state if failed
             install_status = claw_record.get("status", "")
             if install_status == "failed":
-                status_display = f"[red]install failed[/red]"
+                status_display = "[red]install failed[/red]"
             elif install_status == "installing":
                 status_display = "[yellow]installing...[/yellow]"
 

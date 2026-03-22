@@ -77,8 +77,6 @@ class TestCliInit:
         from clawrium.core import deps
 
         # Mock ansible as missing
-        original_check = deps.check_ansible
-
         def mock_check_ansible():
             return deps.DependencyStatus(
                 name="ansible",

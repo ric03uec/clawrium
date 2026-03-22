@@ -29,7 +29,7 @@ Users can manage all their AI assistants from one place with consistent configur
 ### Out of Scope
 
 - Cloud services — fully local, no external dependencies
-- Non-Ubuntu distros — Ubuntu only for v1, other distros later
+- Non-Debian-based distros — Ubuntu and Debian for v1, other distros later
 - Other claw types — OpenClaw only for v1, ZeroClaw/NemoClaw later
 - GUI — CLI/TUI only, no web interface
 - Multi-user/auth — single user for v1
@@ -59,7 +59,7 @@ Users can manage all their AI assistants from one place with consistent configur
 
 - **Tech stack**: Python + Typer CLI, ansible-runner for execution, uv/uvx for packaging
 - **Security**: No sudo permissions — Clawrium prompts user when privileged commands needed
-- **Platform**: Ubuntu only for v1
+- **Platform**: Ubuntu and Debian for v1
 - **Claw support**: OpenClaw only for v1
 - **Deployment**: Fully local, no cloud dependencies
 

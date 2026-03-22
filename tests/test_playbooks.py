@@ -1,12 +1,10 @@
 """Tests for Ansible playbooks structure and content."""
 
-import pytest
 from pathlib import Path
 
 
 def test_base_playbook_exists():
     """Test that base playbook exists."""
-    from importlib.resources import files
 
     # Base playbook is at platform/playbooks/base.yaml (project root)
     project_root = Path(__file__).parent.parent
@@ -17,7 +15,6 @@ def test_base_playbook_exists():
 
 def test_base_playbook_structure():
     """Test that base playbook has required structure."""
-    from importlib.resources import files
     import yaml
 
     project_root = Path(__file__).parent.parent
