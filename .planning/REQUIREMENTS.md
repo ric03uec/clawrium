@@ -33,11 +33,19 @@ Requirements for initial release: OpenClaw on single Ubuntu host.
 - [x] **INST-03**: Installation streams progress in real-time
 - [x] **INST-04**: Installation fails fast with clear error messages
 
-### Secrets Management
+### Secrets Management (Global - Phase 5)
 
 - [x] **SEC-01**: User can set secrets (`clm secret set`)
 - [x] **SEC-02**: User can list secret keys (`clm secret list`)
 - [x] **SEC-03**: Secrets stored with mode 600, never displayed
+
+### Per-Instance Secrets (Phase 6)
+
+- [ ] **PSEC-01**: Secrets are scoped to installed claw instances, not global
+- [ ] **PSEC-02**: User sets secrets per claw (`clm secret set <clawname> KEY`)
+- [ ] **PSEC-03**: User lists secrets grouped by claw with missing required secrets shown
+- [ ] **PSEC-04**: Status shows degraded state for claws with missing required secrets
+- [ ] **PSEC-05**: Secrets only settable for installed/initialized claws
 
 ### Fleet Status
 
@@ -107,12 +115,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEC-01 | Phase 5 | Complete |
 | SEC-02 | Phase 5 | Complete |
 | SEC-03 | Phase 5 | Complete |
+| PSEC-01 | Phase 6 | Planned |
+| PSEC-02 | Phase 6 | Planned |
+| PSEC-03 | Phase 6 | Planned |
+| PSEC-04 | Phase 6 | Planned |
+| PSEC-05 | Phase 6 | Planned |
 
 **Coverage:**
-- v1 requirements: 17 total
-- Mapped to phases: 17
-- Unmapped: 0 ✓
+- v1 requirements: 22 total
+- Mapped to phases: 22
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-20*
-*Last updated: 2026-03-21 after phase 4 planning*
+*Last updated: 2026-03-22 after phase 6 planning*

@@ -16,7 +16,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Host Management** - Add, list, remove hosts with hardware capability detection (completed 2026-03-21)
 - [x] **Phase 3: Registry & Compatibility** - Load claw manifests and validate hardware compatibility (completed 2026-03-21)
 - [x] **Phase 4: Installation & Fleet Status** - Install OpenClaw instances and view fleet status (completed 2026-03-22)
-- [ ] **Phase 5: Secrets Management** - Secure storage and retrieval of API keys and credentials
+- [x] **Phase 5: Secrets Management** - Secure storage and retrieval of API keys and credentials (completed 2026-03-22)
+- [ ] **Phase 6: Per-Instance Secrets** - Refactor secrets from global scope to per-claw-instance scope
 
 ## Phase Details
 
@@ -100,15 +101,33 @@ Plans:
 - [x] 05-01-PLAN.md — Core secrets storage module and manifest schema extension (SEC-01, SEC-03)
 - [x] 05-02-PLAN.md — CLI secret commands (set, list, remove) (SEC-01, SEC-02, SEC-03)
 
+### Phase 6: Per-Instance Secrets
+**Goal**: Each installed claw has its own set of secrets; secrets are no longer global
+**Depends on**: Phase 5
+**Requirements**: PSEC-01, PSEC-02, PSEC-03, PSEC-04, PSEC-05
+**Success Criteria** (what must be TRUE):
+  1. User runs `clm secret set <clawname> KEY` and secret is stored for that specific claw instance
+  2. User runs `clm secret list` and sees secrets grouped by claw with missing required secrets per claw
+  3. Same secret key can have different values per claw instance (e.g., different OPENAI_API_KEY per claw)
+  4. Secrets can only be set for installed claws (validation enforced)
+  5. `clm status` shows degraded state for claws with missing required secrets
+**Plans**: 3 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Refactor core secrets module for per-instance scoping (PSEC-01, PSEC-05)
+- [ ] 06-02-PLAN.md — Update CLI commands for per-claw secrets (PSEC-02, PSEC-03)
+- [ ] 06-03-PLAN.md — Update status display for degraded state (PSEC-04)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation Setup | 2/2 | Complete   | 2026-03-21 |
+| 1. Foundation Setup | 2/2 | Complete | 2026-03-21 |
 | 2. Host Management | 4/4 | Complete | 2026-03-21 |
 | 3. Registry & Compatibility | 4/4 | Complete | 2026-03-21 |
 | 4. Installation & Fleet Status | 4/4 | Complete | 2026-03-22 |
-| 5. Secrets Management | 0/2 | Planning complete | - |
+| 5. Secrets Management | 2/2 | Complete | 2026-03-22 |
+| 6. Per-Instance Secrets | 0/3 | Planning complete | - |
