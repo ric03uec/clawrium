@@ -6,6 +6,7 @@ on remote hosts via SSH. Per D-13, this performs live checks, not cached data.
 
 import logging
 import os
+import re
 import tempfile
 from enum import Enum
 from typing import TypedDict
@@ -15,6 +16,10 @@ import ansible_runner
 from clawrium.core.keys import get_host_private_key
 
 logger = logging.getLogger(__name__)
+
+# Valid Linux username pattern: starts with lowercase letter, followed by
+# lowercase letters, digits, underscores, or hyphens. Max 32 chars total.
+VALID_USERNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
 class ClawStatus(str, Enum):
@@ -75,6 +80,16 @@ def check_claw_health(
             "status": ClawStatus.UNKNOWN,
             "user": None,
             "error": "No claw user recorded",
+        }
+
+    # Validate username to prevent command injection
+    if not VALID_USERNAME_PATTERN.match(claw_user):
+        return {
+            "claw": claw_name,
+            "host": hostname,
+            "status": ClawStatus.UNKNOWN,
+            "user": claw_user,
+            "error": f"Invalid claw user format: {claw_user}",
         }
 
     # Get SSH key
@@ -140,7 +155,17 @@ def check_claw_health(
         # Parse output from events
         output = ""
         for event in result.events:
-            if event.get("event") == "runner_on_ok":
+            event_type = event.get("event")
+            if event_type == "runner_on_unreachable":
+                # Host unreachable - network issue, not process status
+                return {
+                    "claw": claw_name,
+                    "host": hostname,
+                    "status": ClawStatus.UNKNOWN,
+                    "user": claw_user,
+                    "error": "Host unreachable",
+                }
+            if event_type == "runner_on_ok":
                 output = event.get("event_data", {}).get("res", {}).get("stdout", "")
                 break
 
@@ -152,13 +177,22 @@ def check_claw_health(
                 "user": claw_user,
                 "error": None,
             }
-        else:
+        elif "STOPPED" in output:
             return {
                 "claw": claw_name,
                 "host": hostname,
                 "status": ClawStatus.STOPPED,
                 "user": claw_user,
                 "error": None,
+            }
+        else:
+            # Unexpected output - treat as unknown
+            return {
+                "claw": claw_name,
+                "host": hostname,
+                "status": ClawStatus.UNKNOWN,
+                "user": claw_user,
+                "error": f"Unexpected output: {output[:50]}" if output else "No output",
             }
 
 

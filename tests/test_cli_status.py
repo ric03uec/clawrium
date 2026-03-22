@@ -180,3 +180,37 @@ def test_status_shows_failed_install():
             result = runner.invoke(app, ["status"])
 
     assert "install failed" in result.output
+
+
+def test_status_shows_installing_status():
+    """Installing status shows installing indicator."""
+    hosts = [{
+        "hostname": "192.168.1.100",
+        "alias": "server1",
+        "claws": {
+            "openclaw": {
+                "version": "0.1.0",
+                "status": "installing",
+                "user": "opc-server1",
+            }
+        },
+    }]
+
+    # Health check not called for installing status - skip health check
+    with patch("clawrium.cli.status.load_hosts", return_value=hosts):
+        with patch("clawrium.cli.status.check_claw_health") as mock_health:
+            result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "installing" in result.output.lower()
+
+
+def test_status_hosts_file_corrupted():
+    """HostsFileCorruptedError shows error and exits 1."""
+    from clawrium.core.hosts import HostsFileCorruptedError
+
+    with patch("clawrium.cli.status.load_hosts", side_effect=HostsFileCorruptedError("JSON parse error")):
+        result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 1
+    assert "corrupted" in result.output.lower() or "error" in result.output.lower()

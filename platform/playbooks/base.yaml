@@ -15,14 +15,21 @@
           - gnupg
         state: present
 
-    - name: Add NodeSource GPG key
-      ansible.builtin.apt_key:
+    - name: Create keyrings directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Download NodeSource GPG key
+      ansible.builtin.get_url:
         url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
-        state: present
+        dest: /etc/apt/keyrings/nodesource.asc
+        mode: "0644"
 
     - name: Add NodeSource repository for Node.js 20
       ansible.builtin.apt_repository:
-        repo: "deb https://deb.nodesource.com/node_20.x nodistro main"
+        repo: "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_20.x nodistro main"
         state: present
         filename: nodesource
 

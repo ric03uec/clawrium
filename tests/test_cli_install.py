@@ -254,3 +254,18 @@ def test_install_incompatible_exits_1(isolated_config: Path):
 
     assert result.exit_code == 1
     assert "incompatible" in result.output.lower() or "architecture" in result.output.lower()
+
+
+def test_install_hosts_file_corrupted(isolated_config: Path):
+    """HostsFileCorruptedError shows error and exits 1."""
+    from clawrium.core.hosts import HostsFileCorruptedError
+
+    with patch("clawrium.cli.install.load_hosts", side_effect=HostsFileCorruptedError("JSON parse error")):
+        result = runner.invoke(
+            app,
+            ["install", "--claw", "openclaw", "--host", "testhost"],
+            env=os.environ,
+        )
+
+    assert result.exit_code == 1
+    assert "corrupted" in result.output.lower() or "error" in result.output.lower()

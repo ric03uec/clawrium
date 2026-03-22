@@ -107,7 +107,12 @@ def install(
     selected_host = host or _select_host()
 
     # Step 4: Load host and check compatibility
-    host_record = get_host(selected_host)
+    try:
+        host_record = get_host(selected_host)
+    except HostsFileCorruptedError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
     if not host_record:
         console.print(f"[red]Error:[/red] Host '{escape(selected_host)}' not found")
         raise typer.Exit(code=1)

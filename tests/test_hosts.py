@@ -9,9 +9,11 @@ from clawrium.core.hosts import (
     add_host,
     remove_host,
     get_host,
+    get_host_by_key_id,
     update_host,
     HOSTS_FILE,
     HostsFileCorruptedError,
+    DuplicateHostError,
 )
 
 
@@ -285,3 +287,66 @@ def test_host_claw_tracking_failed(isolated_config):
     assert "openclaw" in hosts[0]["claws"]
     assert hosts[0]["claws"]["openclaw"]["status"] == "failed"
     assert hosts[0]["claws"]["openclaw"]["error"] == "Base playbook failed: timeout"
+
+
+def test_update_host_not_found(isolated_config):
+    """update_host returns False when hostname not found."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    save_hosts(test_hosts)
+
+    def noop(h: dict) -> dict:
+        return h
+
+    result = update_host("nonexistent-host", noop)
+
+    assert result is False
+    # Original hosts unchanged
+    hosts = load_hosts()
+    assert len(hosts) == 1
+    assert hosts[0]["hostname"] == "192.168.1.10"
+
+
+def test_add_host_duplicate_raises(isolated_config):
+    """add_host raises DuplicateHostError when hostname already exists."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    save_hosts(test_hosts)
+
+    # Try to add duplicate hostname
+    duplicate = {"hostname": "192.168.1.10", "port": 22, "user": "different"}
+
+    with pytest.raises(DuplicateHostError) as exc_info:
+        add_host(duplicate)
+
+    assert "already exists" in str(exc_info.value).lower()
+    # Original hosts unchanged
+    hosts = load_hosts()
+    assert len(hosts) == 1
+
+
+def test_get_host_by_key_id_found(isolated_config):
+    """get_host_by_key_id finds host by key_id field."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_hosts = [
+        {"hostname": "192.168.1.10", "port": 22, "user": "xclm", "key_id": "server1-key"},
+        {"hostname": "192.168.1.20", "port": 22, "user": "xclm", "key_id": "server2-key"},
+    ]
+    save_hosts(test_hosts)
+
+    host = get_host_by_key_id("server1-key")
+
+    assert host is not None
+    assert host["hostname"] == "192.168.1.10"
+    assert host["key_id"] == "server1-key"
+
+
+def test_get_host_by_key_id_not_found(isolated_config):
+    """get_host_by_key_id returns None when key_id not found."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm", "key_id": "known-key"}]
+    save_hosts(test_hosts)
+
+    host = get_host_by_key_id("unknown-key")
+
+    assert host is None

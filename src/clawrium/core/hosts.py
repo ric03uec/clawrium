@@ -19,6 +19,7 @@ __all__ = [
     "update_host",
     "HOSTS_FILE",
     "HostsFileCorruptedError",
+    "DuplicateHostError",
 ]
 
 HOSTS_FILE = "hosts.json"
@@ -155,19 +156,57 @@ def update_host(hostname: str, updater: Callable[[dict], dict]) -> bool:
         return found
 
 
+class DuplicateHostError(Exception):
+    """Raised when trying to add a host that already exists."""
+
+    pass
+
+
 def add_host(host: dict) -> None:
-    """Add a host to the registry.
+    """Add a host to the registry atomically.
+
+    Acquires exclusive lock for the entire load-modify-save operation
+    to prevent TOCTOU races from concurrent add_host calls.
 
     Args:
         host: Host dictionary to add.
+
+    Raises:
+        DuplicateHostError: If hostname already exists in registry.
     """
-    hosts = load_hosts()
-    hosts.append(host)
-    save_hosts(hosts)
+    hostname = host.get("hostname")
+    with _hosts_lock():
+        hosts = load_hosts()
+
+        # Check for duplicate
+        for existing in hosts:
+            if existing.get("hostname") == hostname:
+                raise DuplicateHostError(f"Host '{hostname}' already exists")
+
+        hosts.append(host)
+
+        # Save without re-acquiring lock
+        config_dir = init_config_dir()
+        hosts_path = config_dir / HOSTS_FILE
+        fd, tmp_path = tempfile.mkstemp(dir=config_dir, suffix=".tmp")
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump(hosts, f, indent=2)
+            os.replace(tmp_path, hosts_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
 
 def remove_host(hostname: str) -> bool:
-    """Remove a host by hostname.
+    """Remove a host by hostname atomically.
+
+    Acquires exclusive lock for the entire load-modify-save operation
+    to prevent TOCTOU races from concurrent remove_host calls.
 
     Args:
         hostname: The hostname to remove.
@@ -175,15 +214,31 @@ def remove_host(hostname: str) -> bool:
     Returns:
         True if host was found and removed, False otherwise.
     """
-    hosts = load_hosts()
-    filtered = [h for h in hosts if h.get("hostname") != hostname]
+    with _hosts_lock():
+        hosts = load_hosts()
+        filtered = [h for h in hosts if h.get("hostname") != hostname]
 
-    if len(filtered) == len(hosts):
-        # No host was removed
-        return False
+        if len(filtered) == len(hosts):
+            # No host was removed
+            return False
 
-    save_hosts(filtered)
-    return True
+        # Save without re-acquiring lock
+        config_dir = init_config_dir()
+        hosts_path = config_dir / HOSTS_FILE
+        fd, tmp_path = tempfile.mkstemp(dir=config_dir, suffix=".tmp")
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump(filtered, f, indent=2)
+            os.replace(tmp_path, hosts_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+        return True
 
 
 def get_host(identifier: str) -> dict | None:

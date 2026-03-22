@@ -13,7 +13,7 @@
       ansible.builtin.git:
         repo: https://github.com/openclaw/openclaw.git
         dest: "/home/opc-{{ inventory_hostname }}/openclaw"
-        version: main
+        version: "{{ claw_version | default('v1.0.0') }}"
       become_user: "opc-{{ inventory_hostname }}"
 
     - name: Install npm dependencies
@@ -28,4 +28,4 @@
         state: directory
         owner: "opc-{{ inventory_hostname }}"
         group: "opc-{{ inventory_hostname }}"
-        mode: "0755"
+        mode: "0700"
