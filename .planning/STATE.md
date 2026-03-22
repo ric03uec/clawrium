@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-03-22T21:15:36.607Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-03-22T21:21:51.589Z"
 last_activity: 2026-03-22
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 16
-  completed_plans: 15
+  completed_plans: 16
 ---
 
 # Project State
@@ -56,6 +56,7 @@ Plan: 2 of 2
 | Phase 04 P03 | 336 | 2 tasks | 5 files |
 | Phase 04-installation-fleet-status P04 | 128 | 1 tasks | 3 files |
 | Phase 05 P01 | 189 | 2 tasks | 4 files |
+| Phase 05 P02 | 209 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,7 @@ Recent decisions affecting current work:
 - [Phase 04-installation-fleet-status]: Rich Progress spinner for health checks provides UX feedback on potentially slow SSH operations
 - [Phase 05]: Use same locking and atomic write patterns as hosts.py for consistency
 - [Phase 05]: Secrets stored as dict[str, SecretEntry] for O(1) key lookup
+- [Phase 05]: Named CLI functions set_cmd/list_cmd/remove_cmd to avoid shadowing Python builtins
 
 ### Pending Todos
 
@@ -113,5 +115,5 @@ None yet.
 ## Session Continuity
 
 Last activity: 2026-03-22
-Stopped at: Completed 05-01-PLAN.md
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None

@@ -36,7 +36,7 @@ Requirements for initial release: OpenClaw on single Ubuntu host.
 ### Secrets Management
 
 - [x] **SEC-01**: User can set secrets (`clm secret set`)
-- [ ] **SEC-02**: User can list secret keys (`clm secret list`)
+- [x] **SEC-02**: User can list secret keys (`clm secret list`)
 - [x] **SEC-03**: Secrets stored with mode 600, never displayed
 
 ### Fleet Status
@@ -105,7 +105,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INST-04 | Phase 4 | Complete |
 | STAT-01 | Phase 4 | Complete |
 | SEC-01 | Phase 5 | Complete |
-| SEC-02 | Phase 5 | Pending |
+| SEC-02 | Phase 5 | Complete |
 | SEC-03 | Phase 5 | Complete |
 
 **Coverage:**
