@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 from typer.testing import CliRunner
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from clawrium.cli.main import app
 
@@ -23,12 +23,13 @@ def test_secret_set_creates_new(isolated_config: Path):
     assert result.exit_code == 0
     assert "created" in result.output.lower()
 
-    # Verify secret was stored
+    # Verify secret was stored (in __global__ namespace for backward compatibility)
     secrets_file = isolated_config / "secrets.json"
     assert secrets_file.exists()
     secrets = json.loads(secrets_file.read_text())
-    assert "TEST_KEY" in secrets
-    assert secrets["TEST_KEY"]["value"] == "my-secret-value"
+    assert "__global__" in secrets
+    assert "TEST_KEY" in secrets["__global__"]
+    assert secrets["__global__"]["TEST_KEY"]["value"] == "my-secret-value"
 
 
 def test_secret_set_with_description(isolated_config: Path):
@@ -44,10 +45,10 @@ def test_secret_set_with_description(isolated_config: Path):
 
     assert result.exit_code == 0
 
-    # Verify description was stored
+    # Verify description was stored (in __global__ namespace)
     secrets_file = isolated_config / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    assert secrets["API_KEY"]["description"] == "My API key"
+    assert secrets["__global__"]["API_KEY"]["description"] == "My API key"
 
 
 def test_secret_set_update_existing(isolated_config: Path):
@@ -67,10 +68,10 @@ def test_secret_set_update_existing(isolated_config: Path):
     assert result.exit_code == 0
     assert "cancelled" in result.output.lower()
 
-    # Verify value unchanged
+    # Verify value unchanged (in __global__ namespace)
     secrets_file = isolated_config / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    assert secrets["EXISTING_KEY"]["value"] == "old-value"
+    assert secrets["__global__"]["EXISTING_KEY"]["value"] == "old-value"
 
 
 def test_secret_set_update_confirmed(isolated_config: Path):
@@ -90,10 +91,10 @@ def test_secret_set_update_confirmed(isolated_config: Path):
     assert result.exit_code == 0
     assert "updated" in result.output.lower()
 
-    # Verify value changed
+    # Verify value changed (in __global__ namespace)
     secrets_file = isolated_config / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    assert secrets["EXISTING_KEY"]["value"] == "new-value"
+    assert secrets["__global__"]["EXISTING_KEY"]["value"] == "new-value"
 
 
 def test_secret_set_yes_flag_skips_confirmation(isolated_config: Path):
@@ -113,10 +114,10 @@ def test_secret_set_yes_flag_skips_confirmation(isolated_config: Path):
     assert result.exit_code == 0
     assert "updated" in result.output.lower()
 
-    # Verify value changed
+    # Verify value changed (in __global__ namespace)
     secrets_file = isolated_config / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    assert secrets["KEY"]["value"] == "new-value"
+    assert secrets["__global__"]["KEY"]["value"] == "new-value"
 
 
 def test_secret_set_empty_value_rejected(isolated_config: Path):
@@ -219,10 +220,10 @@ def test_secret_remove_prompts_confirmation(isolated_config: Path):
     assert result.exit_code == 0
     assert "cancelled" in result.output.lower()
 
-    # Verify secret still exists
+    # Verify secret still exists (in __global__ namespace)
     secrets_file = isolated_config / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    assert "TO_REMOVE" in secrets
+    assert "TO_REMOVE" in secrets["__global__"]
 
 
 def test_secret_remove_confirmed(isolated_config: Path):

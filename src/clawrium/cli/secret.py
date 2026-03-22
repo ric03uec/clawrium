@@ -11,7 +11,6 @@ from clawrium.core.secrets import (
     get_secret,
     set_secret,
     remove_secret,
-    list_secrets,
     load_secrets,
     SecretsFileCorruptedError,
     InvalidSecretKeyError,
@@ -92,15 +91,16 @@ def list_cmd() -> None:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
 
-    # Display stored secrets
-    if secrets:
+    # Display stored secrets (legacy __global__ namespace)
+    global_secrets = secrets.get("__global__", {})
+    if global_secrets:
         table = Table(title="Stored Secrets")
         table.add_column("Key", style="cyan")
         table.add_column("Description")
         table.add_column("Updated", style="dim")
 
-        for key in sorted(secrets.keys()):
-            entry = secrets[key]
+        for key in sorted(global_secrets.keys()):
+            entry = global_secrets[key]
             # Format updated_at as date only for readability
             updated = entry.get("updated_at", "")
             if updated:
@@ -116,7 +116,7 @@ def list_cmd() -> None:
         console.print("No secrets stored. Use 'clm secret set KEY' to add a secret.")
 
     # Check for missing required secrets per claw (per D-08)
-    stored_keys = set(secrets.keys())
+    stored_keys = set(global_secrets.keys())
     missing_by_claw: dict[str, list[dict]] = {}
 
     for claw_name in list_claws():
@@ -161,5 +161,5 @@ def remove_cmd(
     if success:
         console.print(f"[green]Secret '{key}' removed.[/green]")
     else:
-        console.print(f"[red]Error:[/red] Failed to remove secret")
+        console.print("[red]Error:[/red] Failed to remove secret")
         raise typer.Exit(code=1)
