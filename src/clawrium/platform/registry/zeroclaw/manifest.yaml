@@ -1,5 +1,7 @@
 name: zeroclaw
 description: "Lightweight AI assistant for edge devices and Raspberry Pi"
+# Note: Same statically-linked binary is used across OS versions (Ubuntu 22.04/24.04)
+# so SHA256 checksums are identical per architecture.
 entries:
   # Raspberry Pi 2/3 (armv7l) - Debian 13 (trixie)
   - version: "0.5.7"

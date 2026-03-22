@@ -6,7 +6,7 @@ manifests and extract their requirements and platform compatibility.
 
 import logging
 import re
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import yaml
 from packaging.version import Version, InvalidVersion
@@ -62,6 +62,7 @@ class ManifestEntry(TypedDict):
     os_version: str
     arch: str
     requirements: Requirements
+    sha256: NotRequired[str]  # SHA256 checksum for binary verification
 
 
 class ClawManifest(TypedDict):
