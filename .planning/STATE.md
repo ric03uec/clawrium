@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 06-03-PLAN.md
-last_updated: "2026-03-22T22:38:31.015Z"
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-03-22T22:39:27.645Z"
 last_activity: 2026-03-22
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 19
-  completed_plans: 18
+  completed_plans: 19
 ---
 
 # Project State
@@ -59,6 +59,7 @@ Plan: 3 of 3
 | Phase 05 P02 | 209 | 2 tasks | 3 files |
 | Phase 06-make-secrets-specific-to-installed-claws-not-global P01 | 427 | 1 tasks | 4 files |
 | Phase 06 P03 | 336 | 2 tasks | 4 files |
+| Phase 06 P02 | 411 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -101,6 +102,7 @@ Recent decisions affecting current work:
 - [Phase 06-make-secrets-specific-to-installed-claws-not-global]: Legacy __global__ namespace for backward compatibility with Phase 05 CLI commands
 - [Phase 06-03]: DEGRADED status added to ClawStatus enum for running claws with missing required secrets
 - [Phase 06-03]: Degraded state displayed in yellow to indicate warning (not critical failure)
+- [Phase 06-02]: CLI commands now require claw_name as first positional argument for per-instance scoping
 
 ### Pending Todos
 
@@ -126,5 +128,5 @@ None yet.
 ## Session Continuity
 
 Last activity: 2026-03-22
-Stopped at: Completed 06-03-PLAN.md
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None
