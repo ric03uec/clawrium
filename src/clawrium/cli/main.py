@@ -8,6 +8,7 @@ from clawrium.cli.init import init as init_command
 from clawrium.cli.host import host_app
 from clawrium.cli.install import install as install_command
 from clawrium.cli.registry import registry_app
+from clawrium.cli.status import status as status_command
 
 __all__ = ["app"]
 
@@ -41,6 +42,14 @@ def install(
 ) -> None:
     """Install a claw on a host."""
     install_command(claw=claw, host=host, yes=yes)
+
+
+@app.command()
+def status(
+    host: Optional[str] = typer.Option(None, "--host", "-H", help="Filter to specific host"),
+) -> None:
+    """Show fleet status across all hosts."""
+    status_command(host=host)
 
 
 # Register host subcommands
