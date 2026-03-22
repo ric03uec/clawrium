@@ -28,7 +28,7 @@ def test_install_host_not_found_raises(monkeypatch):
                 "requirements": {
                     "min_memory_mb": 2048,
                     "gpu_required": False,
-                    "dependencies": {"nodejs": ">=20.0.0"},
+                    "dependencies": {"python": ">=3.9"},
                 },
             }
         ],
@@ -60,7 +60,7 @@ def test_install_incompatible_host_raises(monkeypatch):
                 "requirements": {
                     "min_memory_mb": 2048,
                     "gpu_required": False,
-                    "dependencies": {"nodejs": ">=20.0.0"},
+                    "dependencies": {"python": ">=3.9"},
                 },
             }
         ],
@@ -101,6 +101,9 @@ def test_install_success(monkeypatch, tmp_path):
     """Test successful installation flow."""
     from clawrium.core.install import run_installation
 
+    # Isolate test from real filesystem
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
     # Mock load_manifest
     mock_manifest = {
         "name": "openclaw",
@@ -110,10 +113,11 @@ def test_install_success(monkeypatch, tmp_path):
                 "os": "ubuntu",
                 "os_version": "24.04",
                 "arch": "x86_64",
+                "sha256": "abc123",
                 "requirements": {
                     "min_memory_mb": 2048,
                     "gpu_required": False,
-                    "dependencies": {"nodejs": ">=20.0.0"},
+                    "dependencies": {"python": ">=3.9"},
                 },
             }
         ],
@@ -156,6 +160,9 @@ def test_install_success(monkeypatch, tmp_path):
         clawrium.core.install, "get_host_private_key", lambda x: key_file
     )
 
+    # Mock update_host to avoid real filesystem access
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+
     # Mock ansible_runner.run
     class SuccessfulResult:
         status = "successful"
@@ -184,6 +191,9 @@ def test_install_emits_events(monkeypatch, tmp_path):
     """Test that installation emits progress events."""
     from clawrium.core.install import run_installation
 
+    # Isolate test from real filesystem
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
     # Mock dependencies (same as test_install_success)
     mock_manifest = {
         "name": "openclaw",
@@ -193,10 +203,11 @@ def test_install_emits_events(monkeypatch, tmp_path):
                 "os": "ubuntu",
                 "os_version": "24.04",
                 "arch": "x86_64",
+                "sha256": "abc123",
                 "requirements": {
                     "min_memory_mb": 2048,
                     "gpu_required": False,
-                    "dependencies": {"nodejs": ">=20.0.0"},
+                    "dependencies": {"python": ">=3.9"},
                 },
             }
         ],
@@ -234,6 +245,9 @@ def test_install_emits_events(monkeypatch, tmp_path):
     monkeypatch.setattr(
         clawrium.core.install, "get_host_private_key", lambda x: key_file
     )
+
+    # Mock update_host to avoid real filesystem access
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
 
     class SuccessfulResult:
         status = "successful"
@@ -264,6 +278,9 @@ def test_install_base_playbook_fails(monkeypatch, tmp_path):
     """Test that base playbook failure raises InstallationError."""
     from clawrium.core.install import run_installation, InstallationError
 
+    # Isolate test from real filesystem
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
     # Mock dependencies
     mock_manifest = {
         "name": "openclaw",
@@ -273,10 +290,11 @@ def test_install_base_playbook_fails(monkeypatch, tmp_path):
                 "os": "ubuntu",
                 "os_version": "24.04",
                 "arch": "x86_64",
+                "sha256": "abc123",
                 "requirements": {
                     "min_memory_mb": 2048,
                     "gpu_required": False,
-                    "dependencies": {"nodejs": ">=20.0.0"},
+                    "dependencies": {"python": ">=3.9"},
                 },
             }
         ],
@@ -315,6 +333,9 @@ def test_install_base_playbook_fails(monkeypatch, tmp_path):
         clawrium.core.install, "get_host_private_key", lambda x: key_file
     )
 
+    # Mock update_host to avoid real filesystem access
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+
     # Mock ansible_runner.run to fail
     class FailedResult:
         status = "failed"
@@ -328,9 +349,12 @@ def test_install_base_playbook_fails(monkeypatch, tmp_path):
         run_installation("openclaw", "test-host")
 
 
-def test_install_missing_ssh_key_raises(monkeypatch):
+def test_install_missing_ssh_key_raises(monkeypatch, tmp_path):
     """Test that missing SSH key raises InstallationError."""
     from clawrium.core.install import run_installation, InstallationError
+
+    # Isolate test from real filesystem
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
     # Mock dependencies
     mock_manifest = {
@@ -341,10 +365,11 @@ def test_install_missing_ssh_key_raises(monkeypatch):
                 "os": "ubuntu",
                 "os_version": "24.04",
                 "arch": "x86_64",
+                "sha256": "abc123",
                 "requirements": {
                     "min_memory_mb": 2048,
                     "gpu_required": False,
-                    "dependencies": {"nodejs": ">=20.0.0"},
+                    "dependencies": {"python": ">=3.9"},
                 },
             }
         ],
@@ -376,6 +401,9 @@ def test_install_missing_ssh_key_raises(monkeypatch):
         clawrium.core.install, "check_compatibility", lambda *args, **kwargs: compat_result
     )
 
+    # Mock update_host to avoid real filesystem access
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+
     # Mock get_host_private_key to return None
     monkeypatch.setattr(clawrium.core.install, "get_host_private_key", lambda x: None)
 
@@ -387,6 +415,9 @@ def test_install_updates_host_on_success(monkeypatch, tmp_path):
     """Test that install.py calls update_host with installed status on success."""
     from clawrium.core.install import run_installation
 
+    # Isolate test from real filesystem
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
     # Mock dependencies
     mock_manifest = {
         "name": "openclaw",
@@ -396,10 +427,11 @@ def test_install_updates_host_on_success(monkeypatch, tmp_path):
                 "os": "ubuntu",
                 "os_version": "24.04",
                 "arch": "x86_64",
+                "sha256": "abc123",
                 "requirements": {
                     "min_memory_mb": 2048,
                     "gpu_required": False,
-                    "dependencies": {"nodejs": ">=20.0.0"},
+                    "dependencies": {"python": ">=3.9"},
                 },
             }
         ],
@@ -501,6 +533,9 @@ def test_install_updates_host_on_failure(monkeypatch, tmp_path):
     """Test that install.py calls update_host with failed status on failure."""
     from clawrium.core.install import run_installation, InstallationError
 
+    # Isolate test from real filesystem
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
     # Mock dependencies
     mock_manifest = {
         "name": "openclaw",
@@ -510,10 +545,11 @@ def test_install_updates_host_on_failure(monkeypatch, tmp_path):
                 "os": "ubuntu",
                 "os_version": "24.04",
                 "arch": "x86_64",
+                "sha256": "abc123",
                 "requirements": {
                     "min_memory_mb": 2048,
                     "gpu_required": False,
-                    "dependencies": {"nodejs": ">=20.0.0"},
+                    "dependencies": {"python": ">=3.9"},
                 },
             }
         ],

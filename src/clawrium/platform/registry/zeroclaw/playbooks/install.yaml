@@ -7,8 +7,18 @@
       armv7l: "armv7-unknown-linux-gnueabihf"
       aarch64: "aarch64-unknown-linux-gnu"
       x86_64: "x86_64-unknown-linux-gnu"
+    supported_architectures:
+      - armv7l
+      - aarch64
+      - x86_64
     release_arch: "{{ arch_map[ansible_architecture] }}"
     release_url: "https://github.com/zeroclaw-labs/zeroclaw/releases/download/{{ claw_version }}/zeroclaw-{{ release_arch }}.tar.gz"
+
+  pre_tasks:
+    - name: Validate architecture is supported
+      ansible.builtin.fail:
+        msg: "Unsupported architecture: {{ ansible_architecture }}. Supported: {{ supported_architectures | join(', ') }}"
+      when: ansible_architecture not in supported_architectures
 
   tasks:
     - name: Create claw user
@@ -31,6 +41,7 @@
         url: "{{ release_url }}"
         dest: "/tmp/zeroclaw-{{ release_arch }}.tar.gz"
         mode: "0644"
+        checksum: "sha256:{{ claw_sha256 }}"
 
     - name: Extract zeroclaw binary
       ansible.builtin.unarchive:

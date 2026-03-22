@@ -6,9 +6,9 @@ from pathlib import Path
 def test_base_playbook_exists():
     """Test that base playbook exists."""
 
-    # Base playbook is at platform/playbooks/base.yaml (project root)
+    # Base playbook is at src/clawrium/platform/playbooks/base.yaml
     project_root = Path(__file__).parent.parent
-    base_playbook = project_root / "platform" / "playbooks" / "base.yaml"
+    base_playbook = project_root / "src" / "clawrium" / "platform" / "playbooks" / "base.yaml"
 
     assert base_playbook.exists(), "base.yaml playbook should exist"
 
@@ -18,7 +18,7 @@ def test_base_playbook_structure():
     import yaml
 
     project_root = Path(__file__).parent.parent
-    base_playbook = project_root / "platform" / "playbooks" / "base.yaml"
+    base_playbook = project_root / "src" / "clawrium" / "platform" / "playbooks" / "base.yaml"
 
     content = base_playbook.read_text()
 

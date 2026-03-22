@@ -59,9 +59,9 @@ class InstallResult(TypedDict):
 
 def _get_base_playbook_path() -> Path:
     """Get path to base system playbook."""
-    # Base playbook is at project root/platform/playbooks/base.yaml
-    # From src/clawrium/core/install.py: parent.parent.parent.parent gets to project root
-    return Path(__file__).parent.parent.parent.parent / "platform" / "playbooks" / "base.yaml"
+    # Base playbook is at src/clawrium/platform/playbooks/base.yaml
+    # From src/clawrium/core/install.py: parent.parent gets to src/clawrium
+    return Path(__file__).parent.parent / "platform" / "playbooks" / "base.yaml"
 
 
 def _get_claw_playbook_path(claw_name: str) -> Path:
@@ -179,6 +179,8 @@ def run_installation(
         raise InstallationError(f"No SSH key found for host. Run 'clm host init {key_id}'.")
 
     # Step 6: Build inventory with extra vars for playbook
+    matched_entry = compat["matched_entry"]
+    claw_sha256 = matched_entry.get("sha256", "")
     inventory = {
         "all": {
             "hosts": {
@@ -191,6 +193,7 @@ def run_installation(
             "vars": {
                 "claw_user": claw_user,
                 "claw_version": f"v{matched_version}",
+                "claw_sha256": claw_sha256,
             }
         }
     }

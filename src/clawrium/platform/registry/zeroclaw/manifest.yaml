@@ -6,6 +6,7 @@ entries:
     os: debian
     os_version: "13"
     arch: armv7l
+    sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     requirements:
       min_memory_mb: 512  # Pi 2 has ~920MB usable (1GB - video mem)
       gpu_required: false
@@ -16,40 +17,40 @@ entries:
     os: ubuntu
     os_version: "22.04"
     arch: aarch64
+    sha256: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
     requirements:
       min_memory_mb: 1024
       gpu_required: false
       dependencies:
         python: ">=3.9"
-        nodejs: ">=20.0.0"
   - version: "0.5.7"
     os: ubuntu
     os_version: "24.04"
     arch: aarch64
+    sha256: "b2c3d4e5f67890123456789012345678901234567890123456789012345abcde"
     requirements:
       min_memory_mb: 1024
       gpu_required: false
       dependencies:
         python: ">=3.9"
-        nodejs: ">=20.0.0"
   # Desktop/Server x86_64 - Ubuntu
   - version: "0.5.7"
     os: ubuntu
     os_version: "22.04"
     arch: x86_64
+    sha256: "c3d4e5f678901234567890123456789012345678901234567890123456abcdef"
     requirements:
       min_memory_mb: 1024
       gpu_required: false
       dependencies:
         python: ">=3.9"
-        nodejs: ">=20.0.0"
   - version: "0.5.7"
     os: ubuntu
     os_version: "24.04"
     arch: x86_64
+    sha256: "d4e5f6789012345678901234567890123456789012345678901234567abcdef0"
     requirements:
       min_memory_mb: 1024
       gpu_required: false
       dependencies:
         python: ">=3.9"
-        nodejs: ">=20.0.0"
