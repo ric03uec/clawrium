@@ -82,7 +82,7 @@ Plans:
 
 Plans:
 - [x] 04-01-PLAN.md — Core install module and Ansible playbooks (INST-02, INST-04)
-- [ ] 04-02-PLAN.md — Install CLI with interactive flow and progress (INST-01, INST-03)
+- [x] 04-02-PLAN.md — Install CLI with interactive flow and progress (INST-01, INST-03)
 - [ ] 04-03-PLAN.md — Install state tracking and health check module (INST-04, STAT-01)
 - [ ] 04-04-PLAN.md — Fleet status CLI command (STAT-01)
 

@@ -28,9 +28,9 @@ Requirements for initial release: OpenClaw on single Ubuntu host.
 
 ### Claw Installation
 
-- [ ] **INST-01**: User can install OpenClaw via interactive flow (`clm install`)
+- [x] **INST-01**: User can install OpenClaw via interactive flow (`clm install`)
 - [x] **INST-02**: Installation validates compatibility before proceeding
-- [ ] **INST-03**: Installation streams progress in real-time
+- [x] **INST-03**: Installation streams progress in real-time
 - [x] **INST-04**: Installation fails fast with clear error messages
 
 ### Secrets Management
@@ -99,9 +99,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REG-01 | Phase 3 | Complete |
 | REG-02 | Phase 3 | Complete |
 | REG-03 | Phase 3 | Complete |
-| INST-01 | Phase 4 | Pending |
+| INST-01 | Phase 4 | Complete |
 | INST-02 | Phase 4 | Complete |
-| INST-03 | Phase 4 | Pending |
+| INST-03 | Phase 4 | Complete |
 | INST-04 | Phase 4 | Complete |
 | STAT-01 | Phase 4 | Pending |
 | SEC-01 | Phase 5 | Pending |
