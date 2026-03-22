@@ -63,6 +63,7 @@ def test_health_check_stopped(mock_host):
             result = check_claw_health("openclaw", mock_host)
 
     assert result["status"] == ClawStatus.STOPPED
+    assert result["missing_secrets"] is None  # B2 ATX fix: STOPPED should not check secrets
 
 
 def test_health_check_ssh_fails(mock_host):

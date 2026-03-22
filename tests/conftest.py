@@ -133,3 +133,41 @@ def sample_host_data():
             "tags": ["dev", "gpu"],
         },
     }
+
+
+@pytest.fixture
+def hosts_with_installed_claw(isolated_config):
+    """Set up hosts.json with one installed openclaw claw.
+
+    This is the canonical host setup for CLI secret tests.
+    Returns the config directory path.
+
+    Host record:
+        - hostname: 192.168.1.100
+        - alias: server1
+        - openclaw installed with name "work", user "opc-work"
+    """
+    import json
+
+    hosts_data = [
+        {
+            "hostname": "192.168.1.100",
+            "alias": "server1",
+            "port": 22,
+            "user": "xclm",
+            "claws": {
+                "openclaw": {
+                    "version": "0.1.0",
+                    "status": "installed",
+                    "name": "work",
+                    "user": "opc-work",
+                }
+            },
+        }
+    ]
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_path = isolated_config / "hosts.json"
+    hosts_path.write_text(json.dumps(hosts_data))
+
+    return isolated_config
