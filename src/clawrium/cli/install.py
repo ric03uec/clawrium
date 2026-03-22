@@ -141,11 +141,6 @@ def install(
         raise typer.Exit(code=0)
 
     # Step 6: Run installation with progress spinner (per D-02)
-    current_stage = [""]  # Mutable to update from callback
-
-    def on_event(stage: str, message: str) -> None:
-        current_stage[0] = f"[{stage}] {message}"
-
     console.print()  # Blank line before progress
 
     try:
