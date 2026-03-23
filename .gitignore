@@ -214,3 +214,6 @@ __marimo__/
 ## AI Stuff
 
 .claude/
+
+# Execution tracking (ephemeral, not checked in)
+.spec/**/execute/

@@ -1,63 +1,67 @@
-# Execution Log: {{TITLE}}
+# Execution: {{TITLE}}
 
-> **Issue**: #{{ISSUE}}
+> **Issue**: {{ISSUE_ID}}
 > **Plan**: [plan.md](./plan.md)
-> **Started**: {{DATE}}
-> **Status**: in-progress | blocked | complete
 
-## Progress
+## Execution Principles
 
-| Task | Status | Notes |
-|------|--------|-------|
-| Task 1 | pending / in-progress / done / blocked | |
-| Task 2 | pending | |
+1. **Atomic steps**: Each step is independently executable, verifiable, and committable
+2. **No breakage**: Product must run and pass tests after each step (use stubs if needed)
+3. **Full test suite**: `make test` must pass before moving to next step
+4. **Step files**: Each step tracked in `execute/step<N>.md` (not checked in)
 
-## Execution Notes
+## Steps Overview
 
-### Task 1: {{TASK_NAME}}
+| Step | Description | Status | Commit |
+|------|-------------|--------|--------|
+| 1 | | pending | |
+| 2 | | pending | |
+| 3 | | pending | |
 
-**Started**: {{TIMESTAMP}}
-**Completed**: {{TIMESTAMP}}
+## How to Execute
 
-**What was done**:
-- Action taken 1
-- Action taken 2
-
-**Deviations from plan**:
-- None / Description of deviation and why
-
-**Verification result**:
+```bash
+# For each step:
+1. Read execute/step<N>.md
+2. Implement the step
+3. Run verification: make test
+4. Commit with message: "<issue>: step <N> - <description>"
+5. Update step<N>.md with status and results
+6. Move to next step
 ```
-$ make test
-... output ...
-```
+
+## Step Files
+
+Step files are created in `.spec/{{ISSUE_ID}}/execute/` and are gitignored.
+Delete the execute folder when done if desired.
 
 ---
 
-### Task 2: {{TASK_NAME}}
+## Final Summary
 
-**Started**: 
-**Completed**: 
+_Completed after all steps are done_
 
-**What was done**:
-- 
+### Completion Status
 
-**Deviations from plan**:
-- 
-
----
-
-## Blockers Encountered
-
-| Blocker | Resolution | Time Lost |
-|---------|------------|-----------|
-| None | | |
-
-## Final Status
-
-- [ ] All tasks complete
-- [ ] All verifications pass
+- [ ] All steps completed
+- [ ] All tests passing
 - [ ] Ready for review
+
+### Step Results
+
+| Step | Result | Notes |
+|------|--------|-------|
+| 1 | | |
+| 2 | | |
+| 3 | | |
+
+### Deviations from Plan
+
+_Document any changes from the original plan_
+
+### Learnings
+
+_What worked well, what didn't_
 
 ---
 
@@ -67,8 +71,7 @@ $ make test
 ```yaml
 - model: {{MODEL}}
   date: {{DATE}}
-  type: execution
-  task: 1
+  type: execution-start
   prompt: |
     {{PROMPT}}
 ```
