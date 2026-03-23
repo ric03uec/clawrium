@@ -31,6 +31,11 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+!.spec/
+
+# Local editor commands (created by make setup-dev)
+.claude/
+.opencode/
 
 # Installer logs
 pip-log.txt
@@ -209,3 +214,6 @@ __marimo__/
 ## AI Stuff
 
 .claude/
+
+# Execution tracking (ephemeral, not checked in)
+.spec/**/execute/
