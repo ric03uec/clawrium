@@ -11,6 +11,8 @@ You are creating or updating the specification for issue $ARGUMENTS.
 ## Template
 @.spec/templates/spec.md
 
+The template contains a writing guide in HTML comments. Follow it.
+
 ## Existing Content (read these if they exist)
 
 Check for existing files in `.spec/$ARGUMENTS/`:
@@ -24,16 +26,6 @@ Check for existing files in `.spec/$ARGUMENTS/`:
 3. Fill in ALL sections of the template
 4. Make acceptance criteria specific and testable
 5. Identify files that will need modification
-
-## Quality Checklist
-
-Before finalizing, ensure:
-- [ ] Summary is one clear paragraph
-- [ ] Motivation explains WHO has this problem and WHY now
-- [ ] Design includes concrete API/interface examples
-- [ ] Acceptance criteria are testable (can be verified with commands)
-- [ ] Alternatives considered with clear rationale
-- [ ] Dependencies identified
 
 ## Codebase Context
 
@@ -52,7 +44,7 @@ Status: draft
 
 Next steps:
 1. Review the spec
-2. When approved, create plan: /clawrium:plan $ARGUMENTS
+2. When approved, create plan: /clawrium:write-plan $ARGUMENTS
 ```
 
 ## Prompt Log

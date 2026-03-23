@@ -1,6 +1,5 @@
 ---
 description: Generate execution plan from specification
-model: anthropic/claude-sonnet-4-20250514
 ---
 
 You are creating an execution plan for issue $ARGUMENTS.

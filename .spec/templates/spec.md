@@ -7,52 +7,57 @@
 
 ## Summary
 
-One paragraph: what this is and why we're doing it.
+One sentence: what this does.
 
 ## Motivation
 
-Problem statement. Who has this problem? Why now?
+What's broken now. Who has this problem. Why fix it.
 
 ## Design
 
-### Overview
+### Data Model
 
-High-level approach.
+What data exists? How is it organized? What are the access patterns?
 
-### API / Interface Changes
+Get this right and the code writes itself. If the algorithm is complex, the data structure is probably wrong. (Pike: "Data dominates.")
+
+### Interface
 
 ```python
-# Example interface
-def new_function(arg: str) -> Result:
-    """Description."""
-    pass
+# Concrete example - what users will actually type/call
+```
+
+### Output
+
+```
+# What users will actually see
 ```
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/clawrium/...` | Add new module |
-| `tests/...` | Add tests |
+| `src/clawrium/...` | What changes |
+| `tests/...` | What tests |
 
 ## Acceptance Criteria
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] All tests pass
-- [ ] Documentation updated
+Testable with commands. Not vague goals.
+
+- [ ] Criterion 1 (verify: `command to run`)
+- [ ] Criterion 2 (verify: `command to run`)
+- [ ] `make test` passes
 
 ## Alternatives Considered
 
-| Alternative | Why Not |
+| Alternative | Problem |
 |-------------|---------|
-| Option A | Reason |
-| Option B | Reason |
+| Simpler approach X | Why it doesn't work |
+| Fancier approach Y | Why it's overkill |
 
 ## Unresolved Questions
 
-- [ ] Question 1?
-- [ ] Question 2?
+- [ ] Question that blocks implementation?
 
 ## Dependencies
 
@@ -60,6 +65,37 @@ def new_function(arg: str) -> Result:
 - Blocks: (none | #issue)
 
 ---
+
+<!--
+## Spec Writing Guide
+
+A good spec makes the right solution obvious. A bad spec makes any solution look reasonable.
+
+### Start with the Data
+Before algorithms or APIs: what's the right data structure? If you're struggling with complex logic, the data structure is probably wrong.
+
+### Design for the Actual Problem
+- What's the actual n? (Pike: "n is usually small")
+- Is brute force good enough? (Thompson: "When in doubt, use brute force")
+- Red flags: "This will be useful when...", "For flexibility..."
+
+### Eliminate Special Cases  
+Good design makes edge cases disappear. If you need `--force`, `--skip-validation`, the abstraction is wrong.
+
+### Make it Debuggable
+- What gets logged?
+- Is there a dry-run mode?
+- How do you inspect state after failure?
+
+### Keep it Simple
+Every feature is a liability. Can you explain the design in 30 seconds?
+
+### Don't Break Existing Users
+If you must break compatibility: document what breaks, why it's worth it, migration path.
+
+### Writing Style
+Direct. Precise. No fluff. No jargon. No hedging. No expletives.
+-->
 
 <details>
 <summary>Prompt Log</summary>

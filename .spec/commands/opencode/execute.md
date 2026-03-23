@@ -1,6 +1,5 @@
 ---
 description: Execute plan tasks for an issue
-model: deepseek/deepseek-chat
 ---
 
 You are executing the plan for issue $ARGUMENTS.
