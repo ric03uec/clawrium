@@ -33,6 +33,10 @@ MANIFEST
 *.spec
 !.spec/
 
+# Local editor commands (created by make setup-dev)
+.claude/
+.opencode/
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
