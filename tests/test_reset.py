@@ -232,6 +232,32 @@ class TestExecuteReset:
         assert isinstance(result, ResetResult)
         assert result.success is True
 
+    def test_execute_reset_no_ssh_key(self, monkeypatch, tmp_path):
+        """execute_reset returns error when SSH key is missing."""
+        from clawrium.core.reset import execute_reset, ResetTargets
+
+        # Mock get_host to return valid host
+        mock_host = {
+            "hostname": "192.168.1.100",
+            "user": "xclm",
+            "port": 22,
+            "key_id": "192.168.1.100",
+        }
+        monkeypatch.setattr("clawrium.core.reset.get_host", lambda x: mock_host)
+        # Return None for SSH key
+        monkeypatch.setattr("clawrium.core.reset.get_host_private_key", lambda x: None)
+
+        targets = ResetTargets(
+            users=["opc-work"],
+            services=["openclaw-opc-work.service"],
+            paths=["/etc/clawrium/"],
+        )
+
+        result = execute_reset("192.168.1.100", targets)
+
+        assert result.success is False
+        assert "SSH key" in result.errors[0] or "key" in result.errors[0].lower()
+
 
 class TestCliReset:
     """Tests for CLI reset command."""
@@ -452,6 +478,13 @@ class TestCliReset:
         hosts = json.loads(hosts_file.read_text())
         host = hosts[0]
         assert host.get("claws", {}) == {}
+        # Verify last_reset timestamp was set
+        assert "metadata" in host
+        assert "last_reset" in host["metadata"]
+        # Verify it's a valid ISO timestamp
+        from datetime import datetime
+
+        datetime.fromisoformat(host["metadata"]["last_reset"])
 
 
 class TestResetEdgeCases:

@@ -201,6 +201,12 @@ def execute_reset(hostname: str, targets: ResetTargets) -> ResetResult:
     # Get SSH key path
     key_id = host.get("key_id", host.get("hostname"))
     ssh_key = get_host_private_key(key_id)
+    if ssh_key is None:
+        return ResetResult(
+            success=False,
+            removed={"users": 0, "services": 0, "paths": 0},
+            errors=[f"No SSH key found for host {hostname} (key_id: {key_id})"],
+        )
 
     # Get playbook path
     playbook = _get_reset_playbook_path()

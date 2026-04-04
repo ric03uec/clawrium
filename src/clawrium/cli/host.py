@@ -703,9 +703,14 @@ def reset(
         console.print(f"  Services removed: {result.removed['services']}")
         console.print(f"  Paths cleaned: {result.removed['paths']}")
 
-        # Clear claws from host record
+        # Clear claws from host record and set last_reset timestamp
         def clear_claws(h: dict) -> dict:
+            from datetime import datetime, timezone
+
             h["claws"] = {}
+            if "metadata" not in h:
+                h["metadata"] = {}
+            h["metadata"]["last_reset"] = datetime.now(timezone.utc).isoformat()
             return h
 
         update_host(hostname, clear_claws)
