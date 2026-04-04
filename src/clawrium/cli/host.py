@@ -19,6 +19,7 @@ from clawrium.core.hosts import (
     remove_host,
     update_host,
     HostsFileCorruptedError,
+    DuplicateHostError,
 )
 from clawrium.core.keys import (
     generate_host_keypair,
@@ -389,7 +390,13 @@ def add(
     if display_alias:
         host["alias"] = display_alias
 
-    add_host(host)
+    # B3: Handle DuplicateHostError from race condition
+    try:
+        add_host(host)
+    except DuplicateHostError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
     console.print(
         f"[green]Host '{display_alias or hostname}' added successfully![/green]"
     )
@@ -658,20 +665,21 @@ def reset(
         raise typer.Exit(code=1)
 
     # Display targets
+    # W1: Use rich_escape for user-controlled strings from remote host
     if targets.users:
         console.print(f"\n[bold]Users to remove ({len(targets.users)}):[/bold]")
         for user in targets.users:
-            console.print(f"  - {user}")
+            console.print(f"  - {rich_escape(user)}")
 
     if targets.services:
         console.print(f"\n[bold]Services to remove ({len(targets.services)}):[/bold]")
         for service in targets.services:
-            console.print(f"  - {service}")
+            console.print(f"  - {rich_escape(service)}")
 
     if targets.paths:
         console.print(f"\n[bold]Paths to clean ({len(targets.paths)}):[/bold]")
         for path in targets.paths:
-            console.print(f"  - {path}")
+            console.print(f"  - {rich_escape(path)}")
 
     total_items = len(targets.users) + len(targets.services) + len(targets.paths)
     if total_items == 0:
@@ -713,7 +721,11 @@ def reset(
             h["metadata"]["last_reset"] = datetime.now(timezone.utc).isoformat()
             return h
 
-        update_host(hostname, clear_claws)
+        # W4: Check return value of update_host
+        if not update_host(hostname, clear_claws):
+            console.print(
+                "[yellow]Warning:[/yellow] Could not update host record (host may have been removed)"
+            )
 
         # Optionally untrack
         if untrack:

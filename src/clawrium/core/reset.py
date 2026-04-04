@@ -10,6 +10,7 @@ Flow:
 
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -32,6 +33,31 @@ __all__ = [
 
 # Static paths to clean on reset
 CLAWRIUM_PATHS = ["/etc/clawrium/", "/var/log/clawrium/"]
+
+# Validation patterns to prevent injection attacks (B1)
+# Username: standard Linux username format
+USERNAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+# Service name: systemd unit name format
+SERVICE_PATTERN = re.compile(r"^[a-zA-Z0-9@._-]+\.service$")
+# Max items to prevent DoS
+MAX_USERS = 50
+MAX_SERVICES = 50
+
+
+def _validate_username(username: str) -> bool:
+    """Validate username matches safe pattern."""
+    return bool(USERNAME_PATTERN.match(username))
+
+
+def _validate_service_name(service: str) -> bool:
+    """Validate service name matches safe pattern."""
+    return bool(SERVICE_PATTERN.match(service))
+
+
+def _sanitize_for_path(name: str) -> str:
+    """Sanitize a string for use in filesystem paths (B2)."""
+    # Only allow alphanumeric, dots, dashes, underscores
+    return re.sub(r"[^a-zA-Z0-9._-]", "_", name)
 
 
 @dataclass
@@ -130,7 +156,15 @@ def enumerate_targets(hostname: str) -> ResetTargets:
                     for user in stdout.strip().split("\n"):
                         user = user.strip()
                         if user and user != "xclm":
-                            users.append(user)
+                            # B1: Validate username to prevent injection
+                            if _validate_username(user):
+                                users.append(user)
+                            else:
+                                logger.warning(f"Skipping invalid username: {user!r}")
+            # B1: Cap number of users to prevent DoS
+            if len(users) > MAX_USERS:
+                logger.warning(f"Truncating users list from {len(users)} to {MAX_USERS}")
+                users = users[:MAX_USERS]
 
         # Get claw services
         services_result = ansible_runner.run(
@@ -153,7 +187,17 @@ def enumerate_targets(hostname: str) -> ResetTargets:
                     for service in stdout.strip().split("\n"):
                         service = service.strip()
                         if service and "claw" in service:
-                            services.append(service)
+                            # B1: Validate service name to prevent injection
+                            if _validate_service_name(service):
+                                services.append(service)
+                            else:
+                                logger.warning(f"Skipping invalid service: {service!r}")
+            # B1: Cap number of services to prevent DoS
+            if len(services) > MAX_SERVICES:
+                logger.warning(
+                    f"Truncating services list from {len(services)} to {MAX_SERVICES}"
+                )
+                services = services[:MAX_SERVICES]
 
         return ResetTargets(
             users=users,
@@ -218,9 +262,23 @@ def execute_reset(hostname: str, targets: ResetTargets) -> ResetResult:
         )
 
     # Create timestamped log directory
+    # B2: Sanitize hostname to prevent path traversal attacks
+    safe_hostname = _sanitize_for_path(hostname)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    log_dir = _get_logs_dir() / f"reset-{hostname}-{timestamp}"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    logs_base = _get_logs_dir()
+    log_dir = logs_base / f"reset-{safe_hostname}-{timestamp}"
+
+    # B2: Verify log_dir is inside logs_base (defense in depth)
+    if not log_dir.resolve().is_relative_to(logs_base.resolve()):
+        return ResetResult(
+            success=False,
+            removed={"users": 0, "services": 0, "paths": 0},
+            errors=[f"Invalid log directory path for hostname: {hostname}"],
+        )
+
+    # W2: Create with restrictive permissions (contains inventory with key paths)
+    log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    log_dir.chmod(0o700)  # Ensure permissions even if dir existed
 
     # Build inventory
     inventory = {

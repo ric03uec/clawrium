@@ -192,6 +192,111 @@ class TestEnumerateTargets:
         assert "openclaw-opc-work.service" in targets.services
 
 
+class TestInputValidation:
+    """Tests for security input validation (B1)."""
+
+    def test_validate_username_valid(self):
+        """Valid usernames should pass validation."""
+        from clawrium.core.reset import _validate_username
+
+        assert _validate_username("testuser") is True
+        assert _validate_username("test-user") is True
+        assert _validate_username("test_user") is True
+        assert _validate_username("_service") is True
+        assert _validate_username("user123") is True
+
+    def test_validate_username_invalid(self):
+        """Invalid usernames should fail validation."""
+        from clawrium.core.reset import _validate_username
+
+        # Jinja2 template injection attempts
+        assert _validate_username("{{ lookup('pipe', 'id') }}") is False
+        assert _validate_username("test{{ var }}") is False
+        # Shell metacharacters
+        assert _validate_username("user;rm -rf /") is False
+        assert _validate_username("user|cat /etc/passwd") is False
+        # Path traversal
+        assert _validate_username("../../../etc") is False
+        # Too long
+        assert _validate_username("a" * 33) is False
+        # Starting with number
+        assert _validate_username("123user") is False
+        # Empty
+        assert _validate_username("") is False
+
+    def test_validate_service_name_valid(self):
+        """Valid service names should pass validation."""
+        from clawrium.core.reset import _validate_service_name
+
+        assert _validate_service_name("zeroclaw-zc-test.service") is True
+        assert _validate_service_name("openclaw-opc-work.service") is True
+        assert _validate_service_name("my_claw@user.service") is True
+
+    def test_validate_service_name_invalid(self):
+        """Invalid service names should fail validation."""
+        from clawrium.core.reset import _validate_service_name
+
+        # Jinja2 template injection
+        assert _validate_service_name("{{ lookup('pipe', 'id') }}.service") is False
+        # Shell metacharacters
+        assert _validate_service_name("test;rm -rf /.service") is False
+        # Missing .service suffix
+        assert _validate_service_name("zeroclaw-test") is False
+        # Path traversal
+        assert _validate_service_name("../../../etc.service") is False
+
+    def test_sanitize_for_path(self):
+        """Path sanitization should replace unsafe characters."""
+        from clawrium.core.reset import _sanitize_for_path
+
+        assert _sanitize_for_path("simple-host") == "simple-host"
+        assert _sanitize_for_path("192.168.1.100") == "192.168.1.100"
+        # Path traversal characters replaced with underscores
+        sanitized = _sanitize_for_path("../../../etc")
+        assert "/" not in sanitized  # No path separators
+        sanitized2 = _sanitize_for_path("host;rm -rf /")
+        assert ";" not in sanitized2
+        assert "/" not in sanitized2
+
+    def test_enumerate_targets_filters_invalid_usernames(self, monkeypatch):
+        """enumerate_targets should skip invalid usernames."""
+        from clawrium.core.reset import enumerate_targets
+
+        mock_host = {
+            "hostname": "192.168.1.100",
+            "user": "xclm",
+            "port": 22,
+            "key_id": "192.168.1.100",
+        }
+        monkeypatch.setattr("clawrium.core.reset.get_host", lambda x: mock_host)
+        monkeypatch.setattr(
+            "clawrium.core.reset.get_host_private_key", lambda x: "/tmp/fake_key"
+        )
+
+        # Mock ansible to return mix of valid and invalid usernames
+        mock_result = MagicMock()
+        mock_result.status = "successful"
+        mock_result.events = [
+            {
+                "event": "runner_on_ok",
+                "event_data": {
+                    "res": {
+                        "stdout": "validuser\n{{ lookup('pipe', 'id') }}\ninvalid;rm"
+                    }
+                },
+            },
+            {"event": "runner_on_ok", "event_data": {"res": {"stdout": ""}}},
+        ]
+
+        with patch("clawrium.core.reset.ansible_runner.run", return_value=mock_result):
+            targets = enumerate_targets("192.168.1.100")
+
+        # Only valid username should be included
+        assert "validuser" in targets.users
+        assert "{{ lookup('pipe', 'id') }}" not in targets.users
+        assert "invalid;rm" not in targets.users
+
+
 class TestExecuteReset:
     """Tests for execute_reset function."""
 
@@ -305,12 +410,9 @@ class TestCliReset:
         # Run without --yes and answer 'n' to cancel
         result = runner.invoke(app, ["host", "reset", "192.168.1.100"], input="n\n")
 
-        # Should abort without confirmation
-        assert (
-            result.exit_code == 1
-            or "abort" in result.output.lower()
-            or "cancelled" in result.output.lower()
-        )
+        # W6: Fixed - should abort with exit code 1 AND show abort message
+        assert result.exit_code == 1
+        assert "aborted" in result.output.lower()
 
     def test_reset_dry_run_shows_targets(self, isolated_config, monkeypatch):
         """Reset --dry-run shows targets without executing."""
@@ -640,3 +742,112 @@ class TestResetEdgeCases:
         result = runner.invoke(app, ["host", "reset", "myhost", "--yes"])
 
         assert result.exit_code == 0
+
+    def test_reset_untrack_removes_host(self, isolated_config, monkeypatch):
+        """Reset --untrack should remove host from registry after reset."""
+        from typer.testing import CliRunner
+        from clawrium.cli.main import app
+        from clawrium.core.reset import ResetTargets, ResetResult
+        import json
+
+        runner = CliRunner()
+
+        # Create host
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_file = isolated_config / "hosts.json"
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "192.168.1.100",
+            "port": 22,
+            "user": "xclm",
+        }
+        hosts_file.write_text(json.dumps([host]))
+
+        # Create keypair
+        key_dir = isolated_config / "keys" / "192.168.1.100"
+        key_dir.mkdir(parents=True, exist_ok=True)
+        (key_dir / "xclm_ed25519").write_text("fake-key")
+        (key_dir / "xclm_ed25519").chmod(0o600)
+
+        # Mock enumerate_targets and execute_reset
+        mock_targets = ResetTargets(users=["test"], services=[], paths=[])
+        mock_result = ResetResult(
+            success=True,
+            removed={"users": 1, "services": 0, "paths": 0},
+            errors=[],
+        )
+        monkeypatch.setattr(
+            "clawrium.cli.host.enumerate_targets", lambda x: mock_targets
+        )
+        monkeypatch.setattr("clawrium.cli.host.execute_reset", lambda x, y: mock_result)
+
+        # Run with --yes and --untrack
+        result = runner.invoke(
+            app, ["host", "reset", "192.168.1.100", "--yes", "--untrack"]
+        )
+
+        assert result.exit_code == 0
+        assert "untracking" in result.output.lower() or "removed from tracking" in result.output.lower()
+
+        # Verify host was removed
+        hosts = json.loads(hosts_file.read_text())
+        assert len(hosts) == 0
+
+    def test_execute_reset_path_traversal_protection(self, monkeypatch, tmp_path):
+        """execute_reset should block path traversal in hostname (B2)."""
+        from clawrium.core.reset import execute_reset, ResetTargets
+
+        # Mock get_host to return host with path traversal hostname
+        mock_host = {
+            "hostname": "../../../etc/passwd",
+            "user": "xclm",
+            "port": 22,
+            "key_id": "../../../etc/passwd",
+        }
+        monkeypatch.setattr("clawrium.core.reset.get_host", lambda x: mock_host)
+        monkeypatch.setattr(
+            "clawrium.core.reset.get_host_private_key", lambda x: "/tmp/fake_key"
+        )
+        monkeypatch.setattr("clawrium.core.reset.get_config_dir", lambda: tmp_path)
+
+        targets = ResetTargets(users=["test"], services=[], paths=[])
+
+        # The sanitized path should not escape logs directory
+        # This tests the _sanitize_for_path function and is_relative_to check
+        with patch("clawrium.core.reset.ansible_runner.run") as mock_run:
+            mock_run.return_value = MagicMock(status="successful", events=[])
+            execute_reset("../../../etc/passwd", targets)
+
+        # Should succeed because path is sanitized
+        # Verify log directory was created inside tmp_path/logs
+        log_dirs = list((tmp_path / "logs").glob("reset-*"))
+        assert len(log_dirs) == 1
+        # Key security check: log dir is inside logs base (no escape)
+        logs_base = tmp_path / "logs"
+        assert log_dirs[0].resolve().is_relative_to(logs_base.resolve())
+
+    def test_execute_reset_playbook_not_found(self, monkeypatch, tmp_path):
+        """execute_reset should return error if playbook not found."""
+        from clawrium.core.reset import execute_reset, ResetTargets
+
+        mock_host = {
+            "hostname": "192.168.1.100",
+            "user": "xclm",
+            "port": 22,
+            "key_id": "192.168.1.100",
+        }
+        monkeypatch.setattr("clawrium.core.reset.get_host", lambda x: mock_host)
+        monkeypatch.setattr(
+            "clawrium.core.reset.get_host_private_key", lambda x: "/tmp/fake_key"
+        )
+        # Return non-existent path for playbook
+        monkeypatch.setattr(
+            "clawrium.core.reset._get_reset_playbook_path",
+            lambda: tmp_path / "nonexistent.yaml",
+        )
+
+        targets = ResetTargets(users=["test"], services=[], paths=[])
+        result = execute_reset("192.168.1.100", targets)
+
+        assert result.success is False
+        assert any("playbook" in err.lower() for err in result.errors)
