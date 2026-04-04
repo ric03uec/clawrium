@@ -2,6 +2,7 @@
 
 from typer.testing import CliRunner
 from clawrium.cli.main import app
+from clawrium.core.registry import get_claw_info
 
 runner = CliRunner()
 
@@ -15,11 +16,12 @@ def test_registry_list_shows_table():
 
 
 def test_registry_list_shows_version():
-    """Test that registry list includes version."""
+    """Test that registry list includes latest version from manifest."""
     result = runner.invoke(app, ["registry", "list"])
     assert result.exit_code == 0
-    # Should show version from manifest
-    assert "0.1.0" in result.output
+    # Dynamically get expected version from registry
+    claw_info = get_claw_info("openclaw")
+    assert claw_info["latest_version"] in result.output
 
 
 def test_registry_show_openclaw():
