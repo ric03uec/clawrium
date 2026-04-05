@@ -68,22 +68,105 @@ New Issue → /clm:triage → /clm:plan → /clm:execute → /clm:verify → /cl
 
 ## Review
 
-When @atx-ci provides a review, the caller MUST fix all issues and iterate until:
-1. Rating is >3/5
-2. No blocking issues remain
+<atx-review-requirements>
+**MANDATORY**: All code changes MUST include @atx-ci review before merging.
 
-All @atx-ci generated reviews and feedback MUST be updated in the commit. Use the format
+### Iteration Requirements
+1. Request review using `mcp__atx__review_changes` or `mcp__atx__request_review`
+2. Fix ALL blocking issues (B1, B2, etc.)
+3. Iterate until: Rating > 3/5 AND no blocking issues remain
+4. Document each review iteration in commit message and PR body
+
+### When to Request Review
+- Before creating a commit with code changes
+- After fixing issues from previous review
+- Before marking PR as ready for merge
+</atx-review-requirements>
+
+<commit-format>
+### Commit Message Format
+
+Include ATX review summary after the commit body:
+
 ```
+feat(component): short description
+
+Detailed explanation of changes.
+
+Closes #XX
+
 ATX Review Summary
-Review <number>: Rating <1/5>
+Review 1: Rating 2/5
 Blocking issues:
-<table with blocking issues, reasoning, and recommendations>
+| # | Status | Issue |
+|---|--------|-------|
+| B1 | Fixed | Description of issue and fix |
+| B2 | Out-of-scope | Pre-existing issue, tracked in #YY |
 
 Warnings:
-<table with warnings and recommendations>
+| # | Status | Warning |
+|---|--------|---------|
+| W1 | Fixed | Description |
+| W2 | Acknowledged | Will address in follow-up |
 
-Suggestions:
-<good to have improvements>
+Co-Authored-By: Claude <noreply@anthropic.com>
+Co-Authored-By: @atx-ci <269048218+atx-ci@users.noreply.github.com>
+```
+</commit-format>
+
+<pr-format>
+### PR Body Format
+
+Include detailed ATX review after Summary and Testing sections:
+
+```markdown
+## ATX Review Summary
+
+**Final Review: Rating 4/5**
+
+| Review | Rating | Blocking Issues | Status |
+|--------|--------|-----------------|--------|
+| 1 | 2/5 | B1, B2, B3 | All fixed |
+| 2 | 4/5 | None | Ready |
+
+<details>
+<summary>Review 1 Details (Rating 2/5)</summary>
+
+**Blocking Issues:**
+
+| # | File | Issue | Resolution |
+|---|------|-------|------------|
+| B1 | `module.py:42` | SQL injection risk | Fixed - parameterized query |
+| B2 | `test_module.py` | Missing edge case test | Fixed - added test |
+
+**Warnings:**
+
+| # | File | Warning | Action |
+|---|------|---------|--------|
+| W1 | `module.py:15` | Consider adding timeout | Added 30s timeout |
+| W2 | `config.py` | Magic number | Deferred to #XX |
+
+**Suggestions:**
+
+| # | Suggestion | Action |
+|---|------------|--------|
+| S1 | Add docstring | Added |
+| S2 | Consider caching | Deferred |
+
+</details>
 
 Co-Authored-By: @atx-ci <269048218+atx-ci@users.noreply.github.com>
 ```
+
+See PRs #19 and #21 for real examples of this format.
+</pr-format>
+
+<enforcement>
+### Enforcement Rules
+
+1. **No merge without review**: PRs lacking ATX review section will be rejected
+2. **No unresolved blockers**: All `B#` issues must be `Fixed` or `Out-of-scope` with justification
+3. **Rating threshold**: Final review must be > 3/5
+4. **Attribution required**: `Co-Authored-By: @atx-ci` must appear in both commit and PR
+5. **Iteration tracking**: Each review round must be documented with its rating
+</enforcement>
