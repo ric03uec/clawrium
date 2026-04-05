@@ -1,13 +1,77 @@
 ---
 name: clm:execute
 description: Execute the plan for an issue (parent or subtask)
-argument-hint: "<issue-number>"
+argument-hint: "<issue-number> [in a subtree|--worktree]"
 ---
 name: clm:execute
 
 # Issue Execution
 
 Execute the implementation plan for a GitHub issue.
+
+## Worktree Mode (Recommended for Parallel Execution)
+
+Triggered by `in a subtree` or `--worktree` in arguments. Enables working on multiple issues simultaneously.
+
+### Worktree Naming Convention
+```
+<repo-parent>/<repo-name>-issue-<number>/
+```
+
+Example:
+```
+~/projects/clawrium/           # Main repo
+~/projects/clawrium-issue-35/  # Worktree for issue 35
+~/projects/clawrium-issue-42/  # Worktree for issue 42
+```
+
+### Worktree Execution Steps
+
+1. **Create Worktree**:
+   ```bash
+   REPO_NAME=$(basename $(git rev-parse --show-toplevel))
+   REPO_PARENT=$(dirname $(git rev-parse --show-toplevel))
+   WORKTREE_PATH="${REPO_PARENT}/${REPO_NAME}-issue-${NUMBER}"
+
+   git worktree add "${WORKTREE_PATH}" -b issue-${NUMBER}-<slug> main
+   ```
+
+2. **Launch Execution**:
+
+   **If tmux available** (autonomous execution):
+   ```bash
+   # Create session if not exists
+   tmux has-session -t "clm/exec" 2>/dev/null || tmux new-session -d -s "clm/exec"
+
+   # Create window and run claude autonomously
+   tmux new-window -t "clm/exec" -n "issue-${NUMBER}" -c "${WORKTREE_PATH}"
+   tmux send-keys -t "clm/exec:issue-${NUMBER}" \
+     "claude --dangerously-skip-permissions -p '/clm:execute ${NUMBER}'" Enter
+
+   echo "Spawned in tmux 'clm/exec:issue-${NUMBER}'"
+   echo "Attach: tmux attach -t clm/exec"
+   ```
+
+   **If tmux not available** (fallback):
+   Use `AskUserQuestion` to ask:
+   - **Subagent**: Spawn Task agent in worktree (non-interactive)
+   - **Same session**: Continue in current session (interactive, will ask permissions)
+
+3. **Exit**: After spawning tmux window, exit current execution (work continues in tmux)
+
+### Worktree Cleanup
+
+After PR is merged:
+```bash
+# Remove worktree
+git worktree remove ../clawrium-issue-35
+
+# Or force remove if dirty
+git worktree remove --force ../clawrium-issue-35
+
+# Clean up tmux window
+tmux kill-window -t "clm/exec:issue-35"
+```
 
 ## Instructions
 

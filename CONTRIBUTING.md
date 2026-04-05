@@ -224,6 +224,101 @@ Parent Issue #100: "User can manage multiple hosts in batch"
 - Subtask done = PR merged for that subtask
 - Parent done = ALL subtasks done
 
+## Parallel Execution (Recommended)
+
+Work on multiple issues simultaneously using git worktrees and tmux.
+
+### Why Parallel Execution?
+
+- **Speed**: Work on independent issues concurrently
+- **No conflicts**: Each issue gets its own isolated directory
+- **Autonomous**: Claude runs without permission prompts in tmux
+
+### Quick Start
+
+```bash
+# In main repo, spawn parallel executions
+/clm:execute 35 in a subtree
+/clm:execute 42 in a subtree
+/clm:execute 48 in a subtree
+
+# Attach to see progress
+tmux attach -t clm/exec
+```
+
+### How It Works
+
+```
+/clm:execute 35 in a subtree
+       │
+       ▼
+┌──────────────────────────────┐
+│ 1. Create worktree           │
+│    clawrium-issue-35/        │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ 2. Spawn tmux window         │
+│    Session: clm/exec         │
+│    Window: issue-35          │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ 3. Run claude autonomously   │
+│    --dangerously-skip-       │
+│    permissions               │
+└──────────────────────────────┘
+```
+
+### Worktree Layout
+
+```
+~/projects/
+├── clawrium/                  # Main repo (you are here)
+├── clawrium-issue-35/         # Worktree for issue 35
+├── clawrium-issue-42/         # Worktree for issue 42
+└── clawrium-issue-48/         # Worktree for issue 48
+```
+
+### tmux Session Management
+
+```bash
+# View all execution windows
+tmux list-windows -t clm/exec
+
+# Attach to session
+tmux attach -t clm/exec
+
+# Switch between windows (inside tmux)
+# Ctrl-a n    (next window)
+# Ctrl-a p    (previous window)
+# Ctrl-a 0-9  (window by number)
+
+# Kill a specific window
+tmux kill-window -t "clm/exec:issue-35"
+```
+
+### Cleanup After Merge
+
+```bash
+# Remove worktree
+git worktree remove ../clawrium-issue-35
+
+# List remaining worktrees
+git worktree list
+
+# Clean up stale worktree references
+git worktree prune
+```
+
+### Without tmux
+
+If tmux is not available, you'll be prompted:
+- **Subagent**: Run as background task (non-interactive)
+- **Same session**: Continue interactively (will ask for permissions)
+
 ## Code Review
 
 All PRs use ATX automated review. Requirements:

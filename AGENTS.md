@@ -48,6 +48,22 @@ make test-cov   # Run tests with coverage
 
 GitHub Issues are the single source of truth. See [CONTRIBUTING.md](CONTRIBUTING.md) for full workflow documentation.
 
+### Worktree Convention
+
+For parallel issue execution, use git worktrees with this naming:
+
+```
+<repo-parent>/<repo-name>-issue-<number>/
+```
+
+Example:
+```
+~/projects/clawrium/           # Main repo
+~/projects/clawrium-issue-35/  # Worktree for issue 35
+```
+
+Trigger with: `/clm:execute 35 in a subtree` or `/clm:execute 35 --worktree`
+
 ### Quick Reference
 
 ```
