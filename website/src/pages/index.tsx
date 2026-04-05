@@ -13,15 +13,29 @@ function HomepageHeader() {
   return (
     <header className={clsx('hero hero--primary', styles.heroBanner)}>
       <div className="container">
+        <img
+          src="/clawrium/img/clawrium-logo.png"
+          alt="Clawrium Logo"
+          className={styles.heroLogo}
+        />
         <Heading as="h1" className="hero__title">
           {siteConfig.title}
         </Heading>
         <p className="hero__subtitle">{siteConfig.tagline}</p>
+        <p className={styles.heroDescription}>
+          CLI tool for managing AI assistant fleets on local networks.
+          Deploy and manage multiple claw instances across hosts from a single command center.
+        </p>
         <div className={styles.buttons}>
           <Link
             className="button button--secondary button--lg"
             to="/docs/intro">
-            Docusaurus Tutorial - 5min ⏱️
+            Get Started
+          </Link>
+          <Link
+            className="button button--outline button--secondary button--lg"
+            to="https://github.com/ric03uec/clawrium">
+            View on GitHub
           </Link>
         </div>
       </div>
@@ -33,8 +47,8 @@ export default function Home(): ReactNode {
   const {siteConfig} = useDocusaurusContext();
   return (
     <Layout
-      title={`Hello from ${siteConfig.title}`}
-      description="Description will go into a meta tag in <head />">
+      title="Manage Your AI Claw Fleet"
+      description="CLI tool for managing AI assistant fleets on local networks. Deploy and manage multiple claw instances across hosts from a single command center.">
       <HomepageHeader />
       <main>
         <HomepageFeatures />
