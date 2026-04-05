@@ -1,202 +1,336 @@
 # Contributing to Clawrium
 
-## Development Workflow
+This guide explains how to contribute to Clawrium using the `/clm:*` workflow skills.
 
-GitHub Issues are the single source of truth. This document describes the issue lifecycle and how to contribute.
-
-## Issue Lifecycle
-
-```
-┌──���──────────────────────────────────────────────────────────────────────────┐
-│                              ISSUE LIFECYCLE                                 │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-    New Issue                                    New Bug
-        │                                           │
-        ▼                                           ▼
-  ┌───────────┐                             ┌─────────────────┐
-  │   INBOX   │                             │  NEEDS TRIAGE   │
-  │ (no label)│                             │ (needs-triage)  │
-  └─────┬─────┘                             └────────┬────────┘
-        │                                            │
-        │ /clm:triage                                │
-        │ Assign workflow label                      │
-        ▼                                            │
-  ┌─────────────────┐                               │
-  │    PLANNING     │◄──────────────────────────────┘
-  │   (planning)    │
-  └────────┬────────┘
-           │
-           │ /clm:plan
-           │ - Create implementation plan
-           │ - Optionally create subtask issues
-           ▼
-  ┌─────────────────┐
-  │      READY      │
-  │     (ready)     │
-  └────────┬────────┘
-           │
-           │ /clm:execute
-           ▼
-  ┌─────────────────┐
-  │   IN PROGRESS   │
-  │  (in-progress)  │
-  └────────┬────────┘
-           │
-           │ /clm:verify
-           │ Open PR
-           ▼
-  ┌─────────────────┐
-  │    IN REVIEW    │
-  │   (in-review)   │
-  └────────┬────────┘
-           │
-           │ PR merged
-           ▼
-  ┌─────────────────┐
-  │      DONE       │
-  │    (closed)     │
-  └─────────────────┘
-```
-
-## Issue States
-
-| State | Label | Description | Entry | Exit |
-|-------|-------|-------------|-------|------|
-| **INBOX** | (none) | New issues without workflow labels | Issue created | `/clm:triage` |
-| **NEEDS TRIAGE** | `needs-triage` | Needs more information or clarification | Bug created, or needs info | Clarified → `planning` |
-| **PLANNING** | `planning` | Being planned | Ready for planning | `/clm:plan` |
-| **READY** | `ready` | Plan complete, ready to execute | Plan approved | `/clm:execute` |
-| **IN PROGRESS** | `in-progress` | Currently being worked on | Execution started | PR opened |
-| **IN REVIEW** | `in-review` | PR open for review | PR created | PR merged |
-| **DONE** | (closed) | Complete | PR merged | - |
-
-## Workflow Labels
-
-These labels control the workflow state:
-
-| Label | Color | Description |
-|-------|-------|-------------|
-| `needs-triage` | Red | Needs more information or clarification |
-| `planning` | Green | Being planned |
-| `ready` | Blue | Plan complete, ready for execution |
-| `in-progress` | Yellow | Currently being worked on |
-| `in-review` | Purple | PR open for review |
-
-## Type Labels
-
-These labels categorize the issue type:
-
-| Label | Description |
-|-------|-------------|
-| `bug` | Something isn't working |
-| `enhancement` | New feature or request |
-| `documentation` | Improvements to documentation |
-
-## Skills Reference
-
-Use these Claude Code skills to manage the workflow:
-
-| Skill | Purpose |
-|-------|---------|
-| `/clm:bug-new` | Create bug issue (asks for customer outcome) |
-| `/clm:bug-update <n> <text>` | Add comment to bug |
-| `/clm:issue-new` | Create feature issue (asks for customer outcome) |
-| `/clm:issue-update <n> <text>` | Add comment to issue |
-| `/clm:triage` | Review issues without workflow labels |
-| `/clm:plan <n>` | Create implementation plan for issue |
-| `/clm:execute <n>` | Execute issue (parent or subtask) |
-| `/clm:verify` | Run tests and lint |
-| `/clm:review-pr [n]` | Request ATX code review |
-| `/clm:pr-status` | Check status of open PRs |
-| `/clm:note [text]` | Quick note to NOTES.md |
-
-## Parent/Subtask Pattern
-
-Complex issues can be broken into subtasks:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         PARENT/SUBTASK PATTERN                               │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-                    ┌─────────────────┐
-                    │  PARENT ISSUE   │
-                    │     #100        │
-                    │    (ready)      │
-                    └────────┬────────┘
-                             │
-               ┌─────────────┼─────────────┐
-               │             │             │
-               ▼             ▼             ▼
-        ┌───────────┐ ┌───────────┐ ┌───────────┐
-        │ [#100]    │ │ [#100]    │ │ [#100]    │
-        │ Subtask 1 │ │ Subtask 2 │ │ Subtask 3 │
-        │  (done)   │ │  (done)   │ │(in-progress)│
-        └───────────┘ └───────────┘ └───────────┘
-
-    - Subtask title format: [Parent #N] <description>
-    - /clm:execute on parent executes subtasks sequentially
-    - Parent closes when ALL subtasks are done
-```
-
-### Rules
-
-1. `/clm:plan` decides if subtasks are needed based on complexity
-2. Subtask issues are created with `ready` label
-3. Each subtask can be executed independently with `/clm:execute <subtask>`
-4. Running `/clm:execute <parent>` executes all subtasks in sequence
-5. Parent issue closes automatically when all subtasks complete
-
-## Development Setup
+## Quick Start
 
 ```bash
-# Clone the repository
+# 1. Clone and setup
+git clone https://github.com/ric03uec/clawrium.git
+cd clawrium
+make install
+
+# 2. Find an issue to work on
+gh issue list --label ready
+
+# 3. Start working (in Claude Code)
+/clm:execute 42
+
+# 4. Verify your changes
+/clm:verify
+
+# 5. Get review
+/clm:review-pr
+```
+
+## Core Concepts
+
+### GitHub as Source of Truth
+
+All work is tracked in GitHub Issues. No separate planning directories or files - issues move through states via labels.
+
+### Customer Outcome Titles
+
+Issue titles describe what the user can do, not what you'll implement:
+
+| Type | Bad | Good |
+|------|-----|------|
+| Bug | "Fix registry validation" | "User can install claws without version errors" |
+| Feature | "Add backup command" | "User can backup claw configurations" |
+
+### Workflow Skills
+
+Claude Code skills (`/clm:*`) automate the workflow. They handle label transitions, create structured comments, and maintain prompt logs for reproducibility.
+
+## Setup
+
+### Prerequisites
+
+- Python 3.11+
+- [uv](https://github.com/astral-sh/uv) package manager
+- [gh](https://cli.github.com/) GitHub CLI (authenticated)
+- [Claude Code](https://claude.ai/claude-code) CLI
+
+### Installation
+
+```bash
+# Clone repository
 git clone https://github.com/ric03uec/clawrium.git
 cd clawrium
 
 # Install dependencies
 make install
 
-# Run tests
+# Verify setup
 make test
-
-# Run linter
 make lint
-
-# Format code
-make format
 ```
 
-## Making Changes
+### Verify Skills are Available
 
-1. **Find or create an issue** - All work should be tracked in GitHub Issues
-2. **Plan the work** - Use `/clm:plan <issue>` to create an implementation plan
-3. **Execute** - Use `/clm:execute <issue>` or work manually
-4. **Verify** - Run `make test && make lint` or `/clm:verify`
-5. **Create PR** - Reference the issue with "Closes #N"
-6. **Review** - Use `/clm:review-pr` for ATX review
+In Claude Code, run `/help` to see available skills. You should see:
+- `/clm:bug-new`
+- `/clm:issue-new`
+- `/clm:plan`
+- `/clm:execute`
+- `/clm:verify`
+- etc.
+
+## Workflow
+
+### Overview
+
+```
+┌─────────┐    ┌──────────┐    ┌───────┐    ┌─────────────┐    ┌───────────┐    ┌──────┐
+│  INBOX  │───▶│ PLANNING │───▶│ READY │───▶│ IN PROGRESS │───▶│ IN REVIEW │───▶│ DONE │
+│(no label)    │(planning)│    │(ready)│    │(in-progress)│    │(in-review)│    │(closed)
+└─────────┘    └──────────┘    └───────┘    └─────────────┘    └───────────┘    └──────┘
+      │              │              │               │                 │
+      │              │              │               │                 │
+  /clm:triage   /clm:plan    /clm:execute    /clm:verify      PR merged
+```
+
+### Step-by-Step Example
+
+#### 1. Report a Bug
+
+```
+You: I tried to install zeroclaw but got a version mismatch error
+
+/clm:bug-new
+```
+
+Claude asks: "What should the user be able to do when this bug is fixed?"
+
+You: "User can install zeroclaw without version mismatch errors"
+
+Result: Issue #42 created with title "User can install zeroclaw without version mismatch errors"
+
+#### 2. Plan the Work
+
+```
+/clm:plan 42
+```
+
+Claude:
+- Reads the issue
+- Explores the codebase
+- Posts implementation plan as comment
+- Creates subtasks if needed
+- Moves issue: `planning` → `ready`
+
+#### 3. Execute
+
+```
+/clm:execute 42
+```
+
+Claude:
+- Reads the plan from issue comments
+- Implements the changes
+- Moves issue: `ready` → `in-progress`
+
+#### 4. Verify
+
+```
+/clm:verify
+```
+
+Claude runs:
+```bash
+make test   # All tests must pass
+make lint   # No lint errors
+```
+
+#### 5. Create PR and Review
+
+```
+/clm:review-pr
+```
+
+Claude:
+- Creates PR if not exists
+- Requests ATX code review
+- Moves issue: `in-progress` → `in-review`
+
+#### 6. Merge
+
+After review passes and PR merges, issue closes automatically.
+
+## Issue States
+
+| State | Label | Description |
+|-------|-------|-------------|
+| **INBOX** | (none) | New issues awaiting triage |
+| **NEEDS TRIAGE** | `needs-triage` | Bugs or issues needing clarification |
+| **PLANNING** | `planning` | Ready to be planned |
+| **READY** | `ready` | Plan complete, ready to execute |
+| **IN PROGRESS** | `in-progress` | Currently being implemented |
+| **IN REVIEW** | `in-review` | PR open, awaiting review |
+| **DONE** | (closed) | Complete |
+
+## Skills Reference
+
+### Issue Management
+
+| Skill | When to Use |
+|-------|-------------|
+| `/clm:bug-new` | Found a bug during development |
+| `/clm:bug-update 42 <text>` | Add context to existing bug |
+| `/clm:issue-new` | Have a feature idea |
+| `/clm:issue-update 42 <text>` | Add context to existing issue |
+
+### Workflow
+
+| Skill | When to Use |
+|-------|-------------|
+| `/clm:triage` | Review issues without workflow labels |
+| `/clm:plan 42` | Create implementation plan for issue |
+| `/clm:execute 42` | Start working on a ready issue |
+| `/clm:verify` | Before creating PR |
+| `/clm:review-pr` | Request code review |
+| `/clm:pr-status` | Check status of open PRs |
+
+### Utilities
+
+| Skill | When to Use |
+|-------|-------------|
+| `/clm:note <text>` | Quick capture idea to NOTES.md |
+
+## Complex Issues: Parent/Subtask Pattern
+
+For large issues, `/clm:plan` may create subtasks:
+
+```
+Parent Issue #100: "User can manage multiple hosts in batch"
+    │
+    ├── #101: [#100] Add batch host validation
+    ├── #102: [#100] Implement parallel execution
+    └── #103: [#100] Add progress reporting
+```
+
+### Working with Subtasks
+
+```bash
+# Execute parent (runs all subtasks sequentially)
+/clm:execute 100
+
+# Or execute individual subtask
+/clm:execute 101
+```
+
+### Completion Rules
+
+- Subtask done = PR merged for that subtask
+- Parent done = ALL subtasks done
 
 ## Code Review
 
-All PRs are reviewed using ATX agents. Reviews must meet:
-- Rating > 3/5
-- No blocking issues
+All PRs use ATX automated review. Requirements:
 
-See [AGENTS.md](AGENTS.md) for review format requirements.
+- **Rating**: Must be > 3/5
+- **Blocking issues**: Must be zero
 
-## Issue Title Convention
+If review fails, fix issues and re-run `/clm:review-pr`.
 
-Issue titles should describe the **customer outcome**:
+See [AGENTS.md](AGENTS.md) for review format.
 
-**Good titles** (outcome-focused):
-- "User can install claws without version mismatch errors"
-- "User can see token usage across all agents"
-- "User can backup claw configurations automatically"
+## Manual Workflow
 
-**Avoid** (implementation-focused):
-- "Fix version check in registry.py"
-- "Add token tracking feature"
-- "Implement backup command"
+You can work without skills too:
 
-The `/clm:bug-new` and `/clm:issue-new` skills will prompt you for the customer outcome.
+```bash
+# 1. Pick an issue
+gh issue view 42
+
+# 2. Create branch
+git checkout -b issue-42-fix-version-check
+
+# 3. Make changes
+# ... edit files ...
+
+# 4. Verify
+make test && make lint
+
+# 5. Commit
+git add -A
+git commit -m "fix: resolve version mismatch in registry
+
+Closes #42"
+
+# 6. Push and create PR
+git push -u origin issue-42-fix-version-check
+gh pr create --title "fix: resolve version mismatch" --body "Closes #42"
+
+# 7. Update labels manually
+gh issue edit 42 --remove-label ready --add-label in-progress
+gh issue edit 42 --remove-label in-progress --add-label in-review
+```
+
+## Prompt Logging
+
+Skills automatically log prompts in issue comments:
+
+```markdown
+<details>
+<summary>Prompt Log</summary>
+
+**Stage**: planning
+**Skill**: /clm:plan
+**Timestamp**: 2026-04-04T10:30:00Z
+**Model**: claude-opus-4-5-20251101
+
+```prompt
+<the prompt that triggered this action>
+```
+
+</details>
+```
+
+This enables:
+- **Reproducibility**: Re-run the same prompt
+- **Learning**: See what prompts led to what plans
+- **Debugging**: Trace decisions to original intent
+
+## FAQ
+
+### How do I find issues to work on?
+
+```bash
+# Issues ready for execution
+gh issue list --label ready
+
+# All open issues
+gh issue list
+
+# Issues I created
+gh issue list --author @me
+```
+
+### What if I discover a bug while working?
+
+```
+/clm:bug-new Found null pointer in host validation
+```
+
+This creates a separate tracked issue without derailing your current work.
+
+### Can I skip the planning phase?
+
+For trivial fixes, you can manually move an issue from `planning` to `ready`:
+
+```bash
+gh issue edit 42 --remove-label planning --add-label ready
+```
+
+### How do I update my PR after review feedback?
+
+```bash
+# Make fixes
+git add -A
+git commit -m "fix: address review feedback"
+git push
+
+# Re-request review
+/clm:review-pr
+```
