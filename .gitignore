@@ -212,3 +212,9 @@ marimo/_lsp/
 __marimo__/
 
 ## AI Stuff
+
+# Website (Docusaurus)
+website/node_modules/
+website/build/
+website/.docusaurus/
+website/.cache-loader/
