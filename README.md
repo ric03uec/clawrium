@@ -8,6 +8,8 @@
 
 CLI tool for managing AI assistant fleets on local networks. Deploy and manage multiple claw instances across hosts from a single command center.
 
+**[Documentation](https://ric03uec.github.io/clawrium/)** | **[GitHub](https://github.com/ric03uec/clawrium)**
+
 ## Features
 
 ### Universal Claw Support

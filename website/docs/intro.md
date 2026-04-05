@@ -2,46 +2,68 @@
 sidebar_position: 1
 ---
 
-# Tutorial Intro
+# Introduction
 
-Let's discover **Docusaurus in less than 5 minutes**.
+Clawrium is a CLI tool for managing AI assistant fleets on local networks. Deploy and manage multiple claw instances across hosts from a single command center.
 
-## Getting Started
+## Why Clawrium?
 
-Get started by **creating a new site**.
+Running AI assistants across multiple machines means dealing with:
+- Different configuration formats for each claw type
+- Manual SSH access to each host
+- Scattered secrets and credentials
+- No unified view of your fleet
 
-Or **try Docusaurus immediately** with **[docusaurus.new](https://docusaurus.new)**.
+Clawrium solves this by providing a single interface to manage any number of claws across any number of hosts.
 
-### What you'll need
+## Features
 
-- [Node.js](https://nodejs.org/en/download/) version 20.0 or above:
-  - When installing Node.js, you are recommended to check all checkboxes related to dependencies.
+### Universal Claw Support
 
-## Generate a new site
+Manage any claw from a single command center:
+- [ZeroClaw](https://github.com/zeroclaw/zeroclaw)
+- [OpenClaw](https://github.com/openclaw/openclaw)
+- [NemoClaw](https://github.com/nemoclaw/nemoclaw)
+- [NanoClaw](https://github.com/nanoclaw/nanoclaw)
+- [IronClaw](https://github.com/ironclaw/ironclaw)
 
-Generate a new Docusaurus site using the **classic template**.
+### Normalized Configuration
 
-The classic template will automatically be added to your project after you run the command:
+One config format, every claw. Define your preferences once and Clawrium translates them for each claw's native format.
+
+### Multi-Model Freedom
+
+Run any model across your fleet:
+- **Open models**: NVIDIA Nemotron, GLM-4, MiniMax
+- **Big labs**: OpenAI, Anthropic, Google, Mistral
+- **Local**: Ollama, llama.cpp, vLLM
+
+## Quick Start
 
 ```bash
-npm init docusaurus@latest my-website classic
+# Install Clawrium
+git clone https://github.com/ric03uec/clawrium.git
+cd clawrium && uv sync && uv pip install -e .
+
+# Initialize Clawrium
+clm init
+
+# Prepare and add a host
+clm host init 192.168.1.100 --user myuser
+clm host add 192.168.1.100 --alias myhost
+
+# Check your fleet
+clm host list
+clm host status myhost
 ```
 
-You can type this command into Command Prompt, Powershell, Terminal, or any other integrated terminal of your code editor.
+## Prerequisites
 
-The command also installs all necessary dependencies you need to run Docusaurus.
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) package manager
+- SSH access to target hosts
 
-## Start your site
+## Next Steps
 
-Run the development server:
-
-```bash
-cd my-website
-npm run start
-```
-
-The `cd` command changes the directory you're working with. In order to work with your newly created Docusaurus site, you'll need to navigate the terminal there.
-
-The `npm run start` command builds your website locally and serves it through a development server, ready for you to view at http://localhost:3000/.
-
-Open `docs/intro.md` (this page) and edit some lines: the site **reloads automatically** and displays your changes.
+- [Architecture](./architecture.md) - Understand how Clawrium works
+- [Host Preparation](./guides/host-setup.md) - Detailed host setup guide
