@@ -80,7 +80,15 @@ const config: Config = {
           items: [
             {
               label: 'Getting Started',
-              to: '/docs/intro',
+              to: '/docs/',
+            },
+            {
+              label: 'Installation',
+              to: '/docs/installation',
+            },
+            {
+              label: 'Quickstart',
+              to: '/docs/guides/quickstart',
             },
             {
               label: 'Architecture',

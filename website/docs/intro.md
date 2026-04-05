@@ -1,5 +1,6 @@
 ---
 sidebar_position: 1
+slug: /
 ---
 
 # Introduction
@@ -38,32 +39,56 @@ Run any model across your fleet:
 - **Big labs**: OpenAI, Anthropic, Google, Mistral
 - **Local**: Ollama, llama.cpp, vLLM
 
-## Quick Start
+## Quick Reference
 
 ```bash
-# Install Clawrium
-git clone https://github.com/ric03uec/clawrium.git
-cd clawrium && uv sync && uv pip install -e .
-
-# Initialize Clawrium
+# Initialize Clawrium (check dependencies)
 clm init
 
-# Prepare and add a host
+# Initialize a host (generates keypair, sets up management user)
 clm host init 192.168.1.100 --user myuser
+
+# Add an initialized host to the fleet
 clm host add 192.168.1.100 --alias myhost
 
-# Check your fleet
+# List all hosts
 clm host list
+
+# Check host status
 clm host status myhost
+
+# Browse available claw types
+clm registry list
+
+# Install a claw on a host
+clm install --claw zeroclaw --host myhost
+
+# Set a secret for a claw
+clm secret set zc-myhost OPENAI_API_KEY
 ```
 
-## Prerequisites
+## Key Concepts
 
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) package manager
-- SSH access to target hosts
+| Concept | Description |
+|---------|-------------|
+| **Host** | A machine in your network that runs one or more claws |
+| **Claw** | An AI assistant instance (zeroclaw, openclaw, etc.) |
+| **Registry** | Platform-defined claw types with versions, dependencies, and requirements |
+
+## User Data
+
+Clawrium stores configuration in `~/.config/clawrium/` (or `$XDG_CONFIG_HOME/clawrium/`):
+
+| Path | Description |
+|------|-------------|
+| `hosts.json` | Registered hosts and metadata (0600 permissions) |
+| `keys/<hostname>/xclm_ed25519` | Private key for SSH to host |
+| `keys/<hostname>/xclm_ed25519.pub` | Public key added to host's authorized_keys |
+| `secrets/<claw-name>/<key>` | Encrypted secrets for claw instances |
 
 ## Next Steps
 
+- [Installation](./installation.md) - Install Clawrium
+- [Quickstart](./guides/quickstart.md) - Deploy your first claw
+- [Host Setup](./guides/host-setup.md) - Detailed host preparation guide
 - [Architecture](./architecture.md) - Understand how Clawrium works
-- [Host Preparation](./guides/host-setup.md) - Detailed host setup guide
