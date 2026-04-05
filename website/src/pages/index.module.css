@@ -14,10 +14,29 @@
   .heroBanner {
     padding: 2rem;
   }
+
+  .heroLogo {
+    max-width: 200px;
+  }
+}
+
+.heroLogo {
+  max-width: 300px;
+  height: auto;
+  margin-bottom: 1.5rem;
+}
+
+.heroDescription {
+  max-width: 600px;
+  margin: 1rem auto 2rem;
+  font-size: 1.1rem;
+  opacity: 0.9;
 }
 
 .buttons {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
 }

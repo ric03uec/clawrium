@@ -58,7 +58,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/clawrium-social-card.jpg',
+    image: 'img/clawrium-logo.png',
     colorMode: {
       respectPrefersColorScheme: true,
     },
