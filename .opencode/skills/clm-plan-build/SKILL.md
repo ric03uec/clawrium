@@ -32,13 +32,26 @@ Create a high-level implementation plan for a GitHub issue with product output a
    - **Simple issue** (< 3 files, single concern): No subtasks needed
    - **Complex issue** (multiple files, multiple concerns): Create subtasks
 
-5. **If Subtasks Needed**: Create subtask issues
-   ```bash
-   gh issue create \
-     --title "[Parent #<parent>] <subtask description>" \
-     --label "ready" \
-     --body "<subtask details>"
-   ```
+5. **If Subtasks Needed**: Create subtask issues and link as sub-issues
+    ```bash
+    # Create subtask
+    CHILD_URL=$(gh issue create \
+      --title "[Parent #<parent>] <subtask description>" \
+      --label "ready" \
+      --body "<subtask details>")
+    CHILD_NUM=$(basename $CHILD_URL)
+    
+    # Link as sub-issue using GraphQL
+    gh api graphql -f query='
+      mutation($parentId: ID!, $childId: ID!) {
+        addSubIssue(input: {issueId: $parentId, subIssueId: $childId}) {
+          issue { number }
+          subIssue { number }
+        }
+      }' \
+      -f parentId=$(gh api graphql -f query='query($owner: String!, $repo: String!, $issue: Int!) { repository(owner: $owner, name: $repo) { issue(number: $issue) { id } } }' -f owner=OWNER -f repo=REPO -F issue=$PARENT_NUM | jq -r '.data.repository.issue.id') \
+      -f childId=$(gh api graphql -f query='query($owner: String!, $repo: String!, $issue: Int!) { repository(owner: $owner, name: $repo) { issue(number: $issue) { id } } }' -f owner=OWNER -f repo=REPO -F issue=$CHILD_NUM | jq -r '.data.repository.issue.id')
+    ```
 
 6. **Post Plan**: Add plan as comment on parent issue
    ```markdown

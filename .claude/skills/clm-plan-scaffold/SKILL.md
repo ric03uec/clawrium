@@ -71,13 +71,26 @@ Create a phased execution plan from a plan-build output, defining entry/exit cri
    </details>
    ```
 
-7. **Create Subtasks (if multi-phase)**:
-   ```bash
-   gh issue create \
-     --title "[Parent #<parent>] Phase N: <name>" \
-     --label "ready" \
-     --body "<phase details>"
-   ```
+7. **Create Subtasks (if multi-phase)** and link as sub-issues:
+    ```bash
+    # Create subtask
+    CHILD_URL=$(gh issue create \
+      --title "[Parent #<parent>] Phase N: <name>" \
+      --label "ready" \
+      --body "<phase details>")
+    CHILD_NUM=$(basename $CHILD_URL)
+    
+    # Link as sub-issue using GraphQL
+    gh api graphql -f query='
+      mutation($parentId: ID!, $childId: ID!) {
+        addSubIssue(input: {issueId: $parentId, subIssueId: $childId}) {
+          issue { number }
+          subIssue { number }
+        }
+      }' \
+      -f parentId=$(gh api graphql -f query='query($owner: String!, $repo: String!, $issue: Int!) { repository(owner: $owner, name: $repo) { issue(number: $issue) { id } } }' -f owner=OWNER -f repo=REPO -F issue=$PARENT_NUM | jq -r '.data.repository.issue.id') \
+      -f childId=$(gh api graphql -f query='query($owner: String!, $repo: String!, $issue: Int!) { repository(owner: $owner, name: $repo) { issue(number: $issue) { id } } }' -f owner=OWNER -f repo=REPO -F issue=$CHILD_NUM | jq -r '.data.repository.issue.id')
+    ```
 
 8. **Update Labels**:
    ```bash
