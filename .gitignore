@@ -34,7 +34,7 @@ MANIFEST
 !.spec/
 
 # Local editor commands (created by make setup-dev)
-.claude/
+.claude/settings.local.json
 .opencode/
 
 # Installer logs
@@ -212,8 +212,3 @@ marimo/_lsp/
 __marimo__/
 
 ## AI Stuff
-
-.claude/
-
-# Execution tracking (ephemeral, not checked in)
-.spec/**/execute/

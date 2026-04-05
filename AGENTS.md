@@ -44,6 +44,51 @@ make format     # Format code
 make test-cov   # Run tests with coverage
 ```
 
+## Development Workflow
+
+GitHub Issues are the single source of truth. Use `/clm:*` skills to manage the workflow.
+
+### Issue States
+
+| State | Label | Description |
+|-------|-------|-------------|
+| INBOX | (none) | New issues without workflow labels |
+| TRIAGE | `needs-triage` | Needs more information |
+| PLANNING | `planning` | Being planned |
+| READY | `ready` | Plan complete, ready to execute |
+| IN PROGRESS | `in-progress` | Currently being worked on |
+| REVIEW | `in-review` | PR open for review |
+| DONE | (closed) | Complete |
+
+### Skills Reference
+
+| Skill | Purpose |
+|-------|---------|
+| `/clm:bug-new` | Create bug issue from context |
+| `/clm:bug-update <n> <text>` | Add comment to bug |
+| `/clm:issue-new` | Create feature/improvement issue |
+| `/clm:issue-update <n> <text>` | Add comment to issue |
+| `/clm:triage` | Review unlabeled issues |
+| `/clm:plan <n>` | Create implementation plan |
+| `/clm:execute <n>` | Execute issue (parent or subtask) |
+| `/clm:verify` | Run tests and lint |
+| `/clm:review-pr [n]` | ATX review of PR |
+| `/clm:pr-status` | Check open PRs |
+| `/clm:note [text]` | Quick note to NOTES.md |
+
+### Workflow
+
+```
+New Issue → /clm:triage → /clm:plan → /clm:execute → /clm:verify → /clm:review-pr → Merge
+```
+
+### Parent/Subtask Pattern
+
+Complex issues can be broken into subtasks by `/clm:plan`:
+- Subtask title format: `[Parent #N] <description>`
+- `/clm:execute` on parent spawns subagents for each subtask
+- Parent closes when all subtasks complete
+
 ## Review
 
 When @atx-ci provides a review, the caller MUST fix all issues and iterate until:
