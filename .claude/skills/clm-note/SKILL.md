@@ -1,7 +1,9 @@
 ---
+name: clm:note
 description: Quick capture of ideas or observations to NOTES.md
 argument-hint: "[text]"
 ---
+name: clm:note
 
 # Quick Note
 
@@ -44,6 +46,7 @@ Output in NOTES.md:
 The registry validation should check semver compatibility
 
 ---
+name: clm:note
 ```
 
 ## Notes

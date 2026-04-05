@@ -1,7 +1,9 @@
 ---
+name: clm:pr-status
 description: Check status of open pull requests
 argument-hint: ""
 ---
+name: clm:pr-status
 
 # PR Status
 

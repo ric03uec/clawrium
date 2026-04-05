@@ -1,7 +1,9 @@
 ---
+name: clm:execute
 description: Execute the plan for an issue (parent or subtask)
 argument-hint: "<issue-number>"
 ---
+name: clm:execute
 
 # Issue Execution
 

@@ -1,7 +1,9 @@
 ---
+name: clm:triage
 description: Review issues without workflow labels and assign appropriate labels
 argument-hint: ""
 ---
+name: clm:triage
 
 # Issue Triage
 

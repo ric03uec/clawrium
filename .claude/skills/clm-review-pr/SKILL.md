@@ -1,7 +1,9 @@
 ---
+name: clm:review-pr
 description: Review a pull request using ATX agents
 argument-hint: "[pr-number]"
 ---
+name: clm:review-pr
 
 # PR Review
 

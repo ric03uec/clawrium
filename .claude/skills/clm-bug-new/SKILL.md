@@ -1,7 +1,9 @@
 ---
+name: clm:bug-new
 description: Create a GitHub bug report from current context
 argument-hint: "[optional: brief description]"
 ---
+name: clm:bug-new
 
 # Bug Report Creation
 

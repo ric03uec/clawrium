@@ -1,7 +1,9 @@
 ---
+name: clm:plan
 description: Create implementation plan for a GitHub issue
 argument-hint: "<issue-number>"
 ---
+name: clm:plan
 
 # Implementation Planning
 

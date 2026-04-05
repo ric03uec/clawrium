@@ -1,7 +1,9 @@
 ---
+name: clm:verify
 description: Run tests, lint, and validate current changes
 argument-hint: ""
 ---
+name: clm:verify
 
 # Verification
 

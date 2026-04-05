@@ -1,7 +1,9 @@
 ---
+name: clm:issue-new
 description: Create a feature or improvement issue
 argument-hint: "[optional: brief description]"
 ---
+name: clm:issue-new
 
 # Issue Creation
 

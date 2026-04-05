@@ -1,11 +1,13 @@
 ---
-description: Add a comment to an existing bug issue
+name: clm:issue-update
+description: Add a comment to an existing issue
 argument-hint: "<issue-number> <comment text>"
 ---
+name: clm:issue-update
 
-# Bug Update
+# Issue Update
 
-Add a comment to an existing GitHub bug issue.
+Add a comment to an existing GitHub issue.
 
 ## Instructions
 
@@ -13,9 +15,9 @@ Add a comment to an existing GitHub bug issue.
    - First argument: issue number (required)
    - Remaining text: comment content (required)
 
-2. **Validate Issue**: Verify the issue exists and has `bug` label
+2. **Validate Issue**: Verify the issue exists
    ```bash
-   gh issue view <number> --json number,title,labels
+   gh issue view <number> --json number,title,state
    ```
 
 3. **Add Comment**: Post the comment with prompt log
@@ -32,8 +34,8 @@ Add a comment to an existing GitHub bug issue.
    <details>
    <summary>Prompt Log</summary>
 
-   **Stage**: bug-update
-   **Skill**: /clm:bug-update
+   **Stage**: issue-update
+   **Skill**: /clm:issue-update
    **Timestamp**: <ISO timestamp>
    **Model**: <model>
 
@@ -49,10 +51,10 @@ Add a comment to an existing GitHub bug issue.
 ## Examples
 
 ```
-/clm:bug-update 42 Added debug logging, the error occurs in registry.py line 156
+/clm:issue-update 28 Updated the plan to include prompt logging requirement
 ```
 
 ## Notes
 
-- Warn if the issue doesn't have a `bug` label (may be wrong issue type)
-- Include relevant technical details from the conversation
+- Works for any issue type (bug, feature, etc.)
+- Warn if the issue is closed
