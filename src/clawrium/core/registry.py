@@ -183,7 +183,7 @@ def list_claws() -> list[str]:
 
         return sorted(claws)
 
-    except Exception as e:
+    except (ModuleNotFoundError, FileNotFoundError) as e:
         logger.error("Failed to list claws: %s", e)
         return []
 
@@ -263,6 +263,14 @@ def get_optional_secrets(claw_name: str) -> list[SecretDefinition]:
     return manifest.get("optional_secrets", [])
 
 
+def _parse_version_safe(version_str: str) -> Version:
+    """Parse version string to Version object, returning 0.0.0 for invalid versions."""
+    try:
+        return Version(version_str)
+    except InvalidVersion:
+        return Version("0.0.0")
+
+
 def check_compatibility(
     claw_name: str,
     hardware: dict,
@@ -290,16 +298,34 @@ def check_compatibility(
     """
     manifest = load_manifest(claw_name)
 
-    # Filter entries by version if specified
+    # Filter entries by version if specified (using semver comparison)
     entries = manifest["entries"]
     if version:
-        entries = [e for e in entries if e["version"] == version]
+        try:
+            requested_version = Version(version)
+        except InvalidVersion:
+            return {
+                "compatible": False,
+                "matched_entry": None,
+                "reasons": [f"Invalid version format: {version}"],
+            }
+        entries = [
+            e for e in entries
+            if _parse_version_safe(e["version"]) == requested_version
+        ]
         if not entries:
             return {
                 "compatible": False,
                 "matched_entry": None,
                 "reasons": [f"Version {version} not found in manifest"],
             }
+    else:
+        # Sort entries by version descending so latest version is preferred
+        entries = sorted(
+            entries,
+            key=lambda e: _parse_version_safe(e["version"]),
+            reverse=True,
+        )
 
     # Collect all failure reasons across all entries
     all_reasons = []
@@ -308,22 +334,17 @@ def check_compatibility(
     for entry in entries:
         reasons = []
 
-        # Check OS match
-        if entry["os"] != hardware.get("os"):
+        # Check platform match (OS, version, arch) - only one reason per entry
+        os_match = entry["os"] == hardware.get("os")
+        version_match = entry["os_version"] == hardware.get("os_version")
+        arch_match = entry["arch"] == hardware.get("architecture")
+
+        if not os_match or not version_match:
             reasons.append(
                 f"Requires {entry['os']} {entry['os_version']}, "
                 f"host has {hardware.get('os', 'unknown')} {hardware.get('os_version', 'unknown')}"
             )
-
-        # Check OS version match
-        elif entry["os_version"] != hardware.get("os_version"):
-            reasons.append(
-                f"Requires {entry['os']} {entry['os_version']}, "
-                f"host has {hardware.get('os', 'unknown')} {hardware.get('os_version', 'unknown')}"
-            )
-
-        # Check architecture match
-        if entry["arch"] != hardware.get("architecture"):
+        elif not arch_match:
             reasons.append(
                 f"Requires {entry['arch']}, host has {hardware.get('architecture', 'unknown')}"
             )
@@ -340,8 +361,11 @@ def check_compatibility(
         # Check GPU requirement (use .get() for safety)
         if requirements.get("gpu_required", False):
             gpu = hardware.get("gpu", {})
-            if not gpu.get("present"):
+            gpu_present = gpu.get("present")
+            if gpu_present is False:
                 reasons.append("Requires GPU, host has none")
+            elif gpu_present is None:
+                reasons.append("Requires GPU, but GPU detection failed")
 
         # TODO: Dependency checking deferred to future phase
         # Hardware dict doesn't include installed package versions yet

@@ -428,3 +428,281 @@ def test_check_compatibility_zeroclaw_ubuntu_x86_64():
     assert result["matched_entry"] is not None
     assert result["matched_entry"]["arch"] == "x86_64"
     assert result["matched_entry"]["os"] == "ubuntu"
+
+
+def test_check_compatibility_prefers_latest_version():
+    """Test that check_compatibility returns latest version when multiple match."""
+    from clawrium.core.registry import check_compatibility, get_claw_info
+
+    hardware = {
+        "os": "ubuntu",
+        "os_version": "24.04",
+        "architecture": "x86_64",
+        "memtotal_mb": 4096,
+        "gpu": {"present": False, "vendor": None, "error": None},
+        "processor_cores": 4,
+        "processor_count": 1,
+        "mounts": [],
+    }
+
+    result = check_compatibility("openclaw", hardware)
+
+    assert result["compatible"] is True
+    assert result["matched_entry"] is not None
+
+    # The matched version should be the latest version
+    info = get_claw_info("openclaw")
+    assert result["matched_entry"]["version"] == info["latest_version"]
+
+
+# Secret function tests
+
+
+def test_get_required_secrets_returns_list():
+    """Test get_required_secrets returns list of SecretDefinition dicts."""
+    from clawrium.core.registry import get_required_secrets
+
+    secrets = get_required_secrets("openclaw")
+
+    assert isinstance(secrets, list)
+    assert len(secrets) > 0
+    # Each secret should have key and description
+    for secret in secrets:
+        assert "key" in secret
+        assert "description" in secret
+
+
+def test_get_required_secrets_zeroclaw():
+    """Test get_required_secrets for zeroclaw returns expected secrets."""
+    from clawrium.core.registry import get_required_secrets
+
+    secrets = get_required_secrets("zeroclaw")
+
+    assert isinstance(secrets, list)
+    assert len(secrets) >= 2
+    keys = [s["key"] for s in secrets]
+    assert "LLM_PROVIDER_URL" in keys
+    assert "LLM_MODEL" in keys
+
+
+def test_get_optional_secrets_returns_list():
+    """Test get_optional_secrets returns list of SecretDefinition dicts."""
+    from clawrium.core.registry import get_optional_secrets
+
+    secrets = get_optional_secrets("openclaw")
+
+    assert isinstance(secrets, list)
+    # openclaw has optional secrets defined
+    for secret in secrets:
+        assert "key" in secret
+        assert "description" in secret
+
+
+def test_get_required_secrets_nonexistent_raises():
+    """Test get_required_secrets with nonexistent claw raises ManifestNotFoundError."""
+    from clawrium.core.registry import get_required_secrets
+
+    with pytest.raises(ManifestNotFoundError, match="not found"):
+        get_required_secrets("nonexistent")
+
+
+def test_get_optional_secrets_nonexistent_raises():
+    """Test get_optional_secrets with nonexistent claw raises ManifestNotFoundError."""
+    from clawrium.core.registry import get_optional_secrets
+
+    with pytest.raises(ManifestNotFoundError, match="not found"):
+        get_optional_secrets("nonexistent")
+
+
+# validate_claw_name tests
+
+
+def test_validate_claw_name_empty_raises():
+    """Test validate_claw_name with empty string raises InvalidClawNameError."""
+    from clawrium.core.registry import validate_claw_name, InvalidClawNameError
+
+    with pytest.raises(InvalidClawNameError, match="cannot be empty"):
+        validate_claw_name("")
+
+
+def test_validate_claw_name_with_slash_raises():
+    """Test validate_claw_name with slash raises InvalidClawNameError."""
+    from clawrium.core.registry import validate_claw_name, InvalidClawNameError
+
+    with pytest.raises(InvalidClawNameError, match="invalid characters"):
+        validate_claw_name("foo/bar")
+
+
+def test_validate_claw_name_with_backslash_raises():
+    """Test validate_claw_name with backslash raises InvalidClawNameError."""
+    from clawrium.core.registry import validate_claw_name, InvalidClawNameError
+
+    with pytest.raises(InvalidClawNameError, match="invalid characters"):
+        validate_claw_name("foo\\bar")
+
+
+def test_validate_claw_name_valid():
+    """Test validate_claw_name with valid names passes."""
+    from clawrium.core.registry import validate_claw_name
+
+    # These should not raise
+    validate_claw_name("openclaw")
+    validate_claw_name("zero-claw")
+    validate_claw_name("claw_v2")
+    validate_claw_name("Claw123")
+
+
+# check_compatibility version parameter tests
+
+
+def test_check_compatibility_specific_version_match():
+    """Test check_compatibility with specific version that exists."""
+    from clawrium.core.registry import check_compatibility
+
+    hardware = {
+        "os": "ubuntu",
+        "os_version": "24.04",
+        "architecture": "x86_64",
+        "memtotal_mb": 4096,
+        "gpu": {"present": False, "vendor": None, "error": None},
+        "processor_cores": 4,
+        "processor_count": 1,
+        "mounts": [],
+    }
+
+    # openclaw has version 0.1.0 for Ubuntu 24.04
+    result = check_compatibility("openclaw", hardware, version="0.1.0")
+
+    assert result["compatible"] is True
+    assert result["matched_entry"]["version"] == "0.1.0"
+
+
+def test_check_compatibility_specific_version_not_found():
+    """Test check_compatibility with specific version that doesn't exist."""
+    from clawrium.core.registry import check_compatibility
+
+    hardware = {
+        "os": "ubuntu",
+        "os_version": "24.04",
+        "architecture": "x86_64",
+        "memtotal_mb": 4096,
+        "gpu": {"present": False, "vendor": None, "error": None},
+        "processor_cores": 4,
+        "processor_count": 1,
+        "mounts": [],
+    }
+
+    result = check_compatibility("openclaw", hardware, version="99.99.99")
+
+    assert result["compatible"] is False
+    assert result["matched_entry"] is None
+    assert any("not found" in r for r in result["reasons"])
+
+
+def test_check_compatibility_invalid_version_format():
+    """Test check_compatibility with invalid version format."""
+    from clawrium.core.registry import check_compatibility
+
+    hardware = {
+        "os": "ubuntu",
+        "os_version": "24.04",
+        "architecture": "x86_64",
+        "memtotal_mb": 4096,
+        "gpu": {"present": False, "vendor": None, "error": None},
+        "processor_cores": 4,
+        "processor_count": 1,
+        "mounts": [],
+    }
+
+    result = check_compatibility("openclaw", hardware, version="not-a-version")
+
+    assert result["compatible"] is False
+    assert any("invalid version" in r.lower() for r in result["reasons"])
+
+
+# GPU requirement tests
+
+
+def test_check_compatibility_gpu_required_but_missing(monkeypatch):
+    """Test compatibility check when GPU required but not present."""
+    from clawrium.core.registry import check_compatibility
+    from clawrium.core import registry
+
+    # Create a fake manifest with GPU required
+    fake_manifest = {
+        "name": "gpuclaw",
+        "description": "GPU-requiring claw",
+        "entries": [
+            {
+                "version": "1.0.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": True,
+                    "dependencies": {},
+                },
+            }
+        ],
+    }
+
+    monkeypatch.setattr(registry, "load_manifest", lambda x: fake_manifest)
+
+    hardware = {
+        "os": "ubuntu",
+        "os_version": "24.04",
+        "architecture": "x86_64",
+        "memtotal_mb": 4096,
+        "gpu": {"present": False, "vendor": None, "error": None},
+        "processor_cores": 4,
+        "processor_count": 1,
+        "mounts": [],
+    }
+
+    result = check_compatibility("gpuclaw", hardware)
+
+    assert result["compatible"] is False
+    assert any("gpu" in r.lower() for r in result["reasons"])
+
+
+def test_check_compatibility_gpu_detection_failed(monkeypatch):
+    """Test compatibility check when GPU detection failed (present=None)."""
+    from clawrium.core.registry import check_compatibility
+    from clawrium.core import registry
+
+    fake_manifest = {
+        "name": "gpuclaw",
+        "description": "GPU-requiring claw",
+        "entries": [
+            {
+                "version": "1.0.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": True,
+                    "dependencies": {},
+                },
+            }
+        ],
+    }
+
+    monkeypatch.setattr(registry, "load_manifest", lambda x: fake_manifest)
+
+    hardware = {
+        "os": "ubuntu",
+        "os_version": "24.04",
+        "architecture": "x86_64",
+        "memtotal_mb": 4096,
+        "gpu": {"present": None, "vendor": None, "error": "detection failed"},
+        "processor_cores": 4,
+        "processor_count": 1,
+        "mounts": [],
+    }
+
+    result = check_compatibility("gpuclaw", hardware)
+
+    assert result["compatible"] is False
+    assert any("detection failed" in r.lower() for r in result["reasons"])
