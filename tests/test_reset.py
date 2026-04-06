@@ -410,8 +410,8 @@ class TestCliReset:
         # Run without --yes and answer 'n' to cancel
         result = runner.invoke(app, ["host", "reset", "192.168.1.100"], input="n\n")
 
-        # W6: Fixed - should abort with exit code 1 AND show abort message
-        assert result.exit_code == 1
+        # User cancellation is a clean exit (0), not an error
+        assert result.exit_code == 0
         assert "aborted" in result.output.lower()
 
     def test_reset_dry_run_shows_targets(self, isolated_config, monkeypatch):

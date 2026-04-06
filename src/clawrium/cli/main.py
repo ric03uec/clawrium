@@ -1,21 +1,32 @@
-"""Main CLI entry point for Clawrium."""
+"""Main CLI entry point for Clawrium.
+
+Clawrium is an assistant-first CLI. Use 'clm agent' for agent management.
+
+Quick start:
+    clm init                    # Initialize Clawrium
+    clm agent registry list     # Browse available agents
+    clm agent install           # Install an agent
+    clm agent ps                # View agent status
+    clm ps                      # Quick fleet overview
+"""
 
 from typing import Optional
 
 import typer
+from rich.console import Console
 
 from clawrium.cli.init import init as init_command
+from clawrium.cli.agent import agent_app
 from clawrium.cli.host import host_app
-from clawrium.cli.install import install as install_command
-from clawrium.cli.registry import registry_app
-from clawrium.cli.secret import secret_app
 from clawrium.cli.status import status as status_command
 
 __all__ = ["app"]
 
+console = Console()
+
 app = typer.Typer(
     name="clm",
-    help="Clawrium - Manage your AI assistant fleet",
+    help="Clawrium - Manage your AI assistant fleet. Use 'clm agent' for agent management.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -36,31 +47,29 @@ def init() -> None:
 
 
 @app.command()
-def install(
-    claw: Optional[str] = typer.Option(None, "--claw", "-c", help="Claw type to install"),
-    host: Optional[str] = typer.Option(None, "--host", "-H", help="Target host"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
-) -> None:
-    """Install a claw on a host."""
-    install_command(claw=claw, host=host, yes=yes)
-
-
-@app.command()
-def status(
+def ps(
     host: Optional[str] = typer.Option(None, "--host", "-H", help="Filter to specific host"),
 ) -> None:
-    """Show fleet status across all hosts."""
+    """Quick fleet overview - show agents and hosts status."""
     status_command(host=host)
 
 
-# Register host subcommands
+@app.command()
+def snapshot() -> None:
+    """Backup full system state.
+
+    [Not yet implemented]
+    """
+    console.print("[yellow]Not implemented:[/yellow] snapshot")
+    console.print("This command will backup your fleet configuration in a future release.")
+    raise typer.Exit(code=0)
+
+
+# Register agent subcommands (primary interface)
+app.add_typer(agent_app, name="agent")
+
+# Register host subcommands (secondary/infrastructure)
 app.add_typer(host_app, name="host")
-
-# Register registry subcommands
-app.add_typer(registry_app, name="registry")
-
-# Register secret subcommands
-app.add_typer(secret_app, name="secret")
 
 
 if __name__ == "__main__":
