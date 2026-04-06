@@ -18,6 +18,7 @@ from rich.console import Console
 from clawrium.cli.init import init as init_command
 from clawrium.cli.agent import agent_app
 from clawrium.cli.host import host_app
+from clawrium.cli.provider import provider_app
 from clawrium.cli.status import status as status_command
 
 __all__ = ["app"]
@@ -70,6 +71,9 @@ app.add_typer(agent_app, name="agent")
 
 # Register host subcommands (secondary/infrastructure)
 app.add_typer(host_app, name="host")
+
+# Register provider subcommands (inference provider management)
+app.add_typer(provider_app, name="provider")
 
 
 if __name__ == "__main__":
