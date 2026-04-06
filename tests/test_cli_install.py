@@ -69,7 +69,7 @@ def test_install_prompts_for_claw(isolated_config: Path):
     create_host(isolated_config, "192.168.1.100", alias="testhost", key_id="testhost")
 
     # Run without --claw, answer prompts with EOF to cancel
-    result = runner.invoke(app, ["install", "--host", "testhost"], input="\n", env=os.environ)
+    result = runner.invoke(app, ["agent", "install", "--host", "testhost"], input="\n", env=os.environ)
 
     # Should show claw selection prompt
     assert "available claw" in result.output.lower() or "select claw" in result.output.lower()
@@ -82,7 +82,7 @@ def test_install_prompts_for_host(isolated_config: Path):
     create_host(isolated_config, "192.168.1.100", alias="testhost", key_id="testhost")
 
     # Run without --host, answer prompts with EOF to cancel
-    result = runner.invoke(app, ["install", "--claw", "openclaw"], input="\n", env=os.environ)
+    result = runner.invoke(app, ["agent", "install", "--claw", "openclaw"], input="\n", env=os.environ)
 
     # Should show host selection prompt
     assert "available host" in result.output.lower() or "select host" in result.output.lower()
@@ -108,7 +108,7 @@ def test_install_with_flags_skips_prompts(isolated_config: Path):
         # Run with both flags, cancel at confirmation
         result = runner.invoke(
             app,
-            ["install", "--claw", "openclaw", "--host", "testhost"],
+            ["agent", "install", "--claw", "openclaw", "--host", "testhost"],
             input="n\n",
             env=os.environ
         )
@@ -129,7 +129,7 @@ def test_install_shows_confirmation(isolated_config: Path):
     # Run with flags, cancel at confirmation
     result = runner.invoke(
         app,
-        ["install", "--claw", "openclaw", "--host", "testhost"],
+        ["agent", "install", "--claw", "openclaw", "--host", "testhost"],
         input="n\n",
         env=os.environ,
     )
@@ -160,7 +160,7 @@ def test_install_yes_skips_confirmation(isolated_config: Path):
         # Run with --yes flag
         result = runner.invoke(
             app,
-            ["install", "--claw", "openclaw", "--host", "testhost", "--yes"],
+            ["agent", "install", "--claw", "openclaw", "--host", "testhost", "--yes"],
             env=os.environ,
         )
 
@@ -179,7 +179,7 @@ def test_install_cancelled_exits_0(isolated_config: Path):
     # Run and decline confirmation
     result = runner.invoke(
         app,
-        ["install", "--claw", "openclaw", "--host", "testhost"],
+        ["agent", "install", "--claw", "openclaw", "--host", "testhost"],
         input="n\n",
         env=os.environ,
     )
@@ -203,7 +203,7 @@ def test_install_error_exits_1(isolated_config: Path):
         # Run with --yes to skip confirmation
         result = runner.invoke(
             app,
-            ["install", "--claw", "openclaw", "--host", "testhost", "--yes"],
+            ["agent", "install", "--claw", "openclaw", "--host", "testhost", "--yes"],
             env=os.environ,
         )
 
@@ -247,7 +247,7 @@ def test_install_incompatible_exits_1(isolated_config: Path):
     # Try to install openclaw (requires x86_64)
     result = runner.invoke(
         app,
-        ["install", "--claw", "openclaw", "--host", "armhost"],
+        ["agent", "install", "--claw", "openclaw", "--host", "armhost"],
         env=os.environ,
     )
 
@@ -262,7 +262,7 @@ def test_install_hosts_file_corrupted(isolated_config: Path):
     with patch("clawrium.cli.install.load_hosts", side_effect=HostsFileCorruptedError("JSON parse error")):
         result = runner.invoke(
             app,
-            ["install", "--claw", "openclaw", "--host", "testhost"],
+            ["agent", "install", "--claw", "openclaw", "--host", "testhost"],
             env=os.environ,
         )
 

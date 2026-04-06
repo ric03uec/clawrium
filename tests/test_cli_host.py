@@ -216,10 +216,10 @@ def test_host_remove_not_found(isolated_config: Path):
     assert "not found" in result.output.lower() or "error" in result.output.lower()
 
 
-def test_host_status_connected(
+def test_host_ps_connected(
     isolated_config: Path, sample_host_data: dict, mock_ssh_client
 ):
-    """clm host status with reachable host shows 'Connected'."""
+    """clm host ps with reachable host shows 'Connected'."""
     # Setup: create hosts.json with sample data and keypair
     create_test_keypair(isolated_config, "192.168.1.100")
     import json
@@ -230,16 +230,16 @@ def test_host_status_connected(
     with patch(
         "clawrium.core.ssh_connection.paramiko.SSHClient", return_value=mock_ssh_client
     ):
-        result = runner.invoke(app, ["host", "status", "192.168.1.100"], env=os.environ)
+        result = runner.invoke(app, ["host", "ps", "192.168.1.100"], env=os.environ)
 
         assert result.exit_code == 0
         assert "connected" in result.output.lower()
 
 
-def test_host_status_disconnected(
+def test_host_ps_disconnected(
     isolated_config: Path, sample_host_data: dict, mock_ssh_client_fail
 ):
-    """clm host status with unreachable host shows 'Disconnected'."""
+    """clm host ps with unreachable host shows 'Disconnected'."""
     # Setup: create hosts.json with sample data and keypair
     create_test_keypair(isolated_config, "192.168.1.100")
     import json
@@ -251,7 +251,7 @@ def test_host_status_disconnected(
         "clawrium.core.ssh_connection.paramiko.SSHClient",
         return_value=mock_ssh_client_fail,
     ):
-        result = runner.invoke(app, ["host", "status", "192.168.1.100"], env=os.environ)
+        result = runner.invoke(app, ["host", "ps", "192.168.1.100"], env=os.environ)
 
         # May exit 0 and show "disconnected" status, or exit 1 depending on design
         assert (
@@ -311,8 +311,8 @@ def test_host_add_stores_key_id_from_hostname(
             assert hosts[0].get("key_id") == "webserver"
 
 
-def test_host_status_uses_key_id(isolated_config: Path, mock_ssh_client):
-    """clm host status looks up keys by key_id, not hostname."""
+def test_host_ps_uses_key_id(isolated_config: Path, mock_ssh_client):
+    """clm host ps looks up keys by key_id, not hostname."""
     # Create keypair under alias name, not IP
     create_test_keypair(isolated_config, "myserver")
 
@@ -336,7 +336,7 @@ def test_host_status_uses_key_id(isolated_config: Path, mock_ssh_client):
     with patch(
         "clawrium.core.ssh_connection.paramiko.SSHClient", return_value=mock_ssh_client
     ):
-        result = runner.invoke(app, ["host", "status", "myserver"], env=os.environ)
+        result = runner.invoke(app, ["host", "ps", "myserver"], env=os.environ)
 
         # Should succeed because key lookup uses key_id "myserver", not hostname "192.168.1.100"
         assert result.exit_code == 0
@@ -383,10 +383,10 @@ def test_host_remove_uses_key_id(isolated_config: Path):
     assert "keypair" in result.output.lower() or "deleted" in result.output.lower()
 
 
-def test_host_status_refresh(
+def test_host_ps_refresh(
     isolated_config: Path, sample_host_data: dict, mock_ssh_client, mock_ansible_runner
 ):
-    """clm host status --refresh updates hardware info."""
+    """clm host ps --refresh updates hardware info."""
     # Setup: create hosts.json with sample data and keypair
     create_test_keypair(isolated_config, "192.168.1.100")
     import json
@@ -402,7 +402,7 @@ def test_host_status_refresh(
             return_value=mock_ansible_runner,
         ):
             result = runner.invoke(
-                app, ["host", "status", "192.168.1.100", "--refresh"], env=os.environ
+                app, ["host", "ps", "192.168.1.100", "--refresh"], env=os.environ
             )
 
             assert result.exit_code == 0

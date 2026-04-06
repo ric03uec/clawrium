@@ -43,7 +43,7 @@ console = Console()
 
 host_app = typer.Typer(
     name="host",
-    help="Manage hosts in your fleet",
+    help="Manage hosts in your fleet (infrastructure management)",
     no_args_is_help=True,
 )
 
@@ -491,7 +491,7 @@ def remove(
 
 
 @host_app.command()
-def status(
+def ps(
     hostname: str = typer.Argument(..., help="Host hostname or alias to check"),
     refresh: bool = typer.Option(
         False, "--refresh", "-r", help="Re-detect hardware capabilities"
@@ -699,7 +699,7 @@ def reset(
         confirmed = typer.confirm("Continue?")
         if not confirmed:
             console.print("Aborted.")
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=0)  # Clean exit on user cancel, not error
 
     # Execute reset
     console.print(f"\nResetting '{display_name}'...")
@@ -730,8 +730,12 @@ def reset(
         # Optionally untrack
         if untrack:
             console.print(f"\nUntracking '{display_name}'...")
-            remove_host(hostname)
-            console.print("[green]Host removed from tracking.[/green]")
+            if remove_host(hostname):
+                console.print("[green]Host removed from tracking.[/green]")
+            else:
+                console.print(
+                    "[yellow]Warning:[/yellow] Could not remove host from tracking"
+                )
     else:
         console.print("[red]Reset failed![/red]")
         for error in result.errors:

@@ -51,7 +51,7 @@ def mock_hosts_with_claws():
 def test_status_no_hosts():
     """No hosts shows message to add hosts."""
     with patch("clawrium.cli.status.load_hosts", return_value=[]):
-        result = runner.invoke(app, ["status"])
+        result = runner.invoke(app, ["ps"])
 
     assert result.exit_code == 0
     assert "No hosts registered" in result.output
@@ -62,7 +62,7 @@ def test_status_no_claws():
     hosts = [{"hostname": "192.168.1.100", "claws": {}}]
 
     with patch("clawrium.cli.status.load_hosts", return_value=hosts):
-        result = runner.invoke(app, ["status"])
+        result = runner.invoke(app, ["ps"])
 
     assert result.exit_code == 0
     assert "No claws installed" in result.output
@@ -81,7 +81,7 @@ def test_status_shows_claw_table(mock_hosts_with_claws):
 
     with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
         with patch("clawrium.cli.status.check_claw_health", mock_health):
-            result = runner.invoke(app, ["status"])
+            result = runner.invoke(app, ["ps"])
 
     assert result.exit_code == 0
     assert "openclaw" in result.output
@@ -102,7 +102,7 @@ def test_status_shows_running_status(mock_hosts_with_claws):
 
     with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
         with patch("clawrium.cli.status.check_claw_health", mock_health):
-            result = runner.invoke(app, ["status"])
+            result = runner.invoke(app, ["ps"])
 
     assert "running" in result.output
 
@@ -120,7 +120,7 @@ def test_status_shows_stopped_status(mock_hosts_with_claws):
 
     with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
         with patch("clawrium.cli.status.check_claw_health", mock_health):
-            result = runner.invoke(app, ["status"])
+            result = runner.invoke(app, ["ps"])
 
     assert "stopped" in result.output
 
@@ -138,7 +138,7 @@ def test_status_host_filter(mock_hosts_with_claws):
 
     with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
         with patch("clawrium.cli.status.check_claw_health", mock_health):
-            result = runner.invoke(app, ["status", "--host", "server1"])
+            result = runner.invoke(app, ["ps", "--host", "server1"])
 
     assert result.exit_code == 0
     assert "server1" in result.output
@@ -149,7 +149,7 @@ def test_status_host_filter(mock_hosts_with_claws):
 def test_status_host_filter_not_found(mock_hosts_with_claws):
     """--host with unknown host shows error."""
     with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
-        result = runner.invoke(app, ["status", "--host", "unknown"])
+        result = runner.invoke(app, ["ps", "--host", "unknown"])
 
     assert result.exit_code == 1
     assert "not found" in result.output
@@ -182,7 +182,7 @@ def test_status_shows_failed_install():
 
     with patch("clawrium.cli.status.load_hosts", return_value=hosts):
         with patch("clawrium.cli.status.check_claw_health", mock_health):
-            result = runner.invoke(app, ["status"])
+            result = runner.invoke(app, ["ps"])
 
     assert "install failed" in result.output
 
@@ -204,7 +204,7 @@ def test_status_shows_installing_status():
     # Health check not called for installing status - skip health check
     with patch("clawrium.cli.status.load_hosts", return_value=hosts):
         with patch("clawrium.cli.status.check_claw_health"):
-            result = runner.invoke(app, ["status"])
+            result = runner.invoke(app, ["ps"])
 
     assert result.exit_code == 0
     assert "installing" in result.output.lower()
@@ -215,7 +215,7 @@ def test_status_hosts_file_corrupted():
     from clawrium.core.hosts import HostsFileCorruptedError
 
     with patch("clawrium.cli.status.load_hosts", side_effect=HostsFileCorruptedError("JSON parse error")):
-        result = runner.invoke(app, ["status"])
+        result = runner.invoke(app, ["ps"])
 
     assert result.exit_code == 1
     assert "corrupted" in result.output.lower() or "error" in result.output.lower()
@@ -234,7 +234,7 @@ def test_status_shows_degraded_with_missing_secrets(mock_hosts_with_claws):
 
     with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
         with patch("clawrium.cli.status.check_claw_health", mock_health):
-            result = runner.invoke(app, ["status"])
+            result = runner.invoke(app, ["ps"])
 
     assert result.exit_code == 0
     assert "degraded" in result.output
@@ -255,7 +255,7 @@ def test_status_degraded_truncates_long_list(mock_hosts_with_claws):
 
     with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
         with patch("clawrium.cli.status.check_claw_health", mock_health):
-            result = runner.invoke(app, ["status"])
+            result = runner.invoke(app, ["ps"])
 
     assert result.exit_code == 0
     assert "degraded" in result.output
