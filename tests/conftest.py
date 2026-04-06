@@ -136,6 +136,34 @@ def sample_host_data():
 
 
 @pytest.fixture
+def sample_provider_data():
+    """Return sample provider data for testing."""
+    return {
+        "name": "test-openai",
+        "type": "openai",
+        "default_model": "gpt-4o",
+        "api_key": "sk-test123456789",
+        "created_at": "2026-04-05T12:00:00+00:00",
+        "updated_at": "2026-04-05T12:00:00+00:00",
+    }
+
+
+@pytest.fixture
+def sample_ollama_provider():
+    """Return sample Ollama provider data for testing."""
+    return {
+        "name": "local-llm",
+        "type": "ollama",
+        "endpoint": "http://localhost:11434",
+        "default_model": "llama3:latest",
+        "available_models": ["llama3:latest", "mistral:latest", "codellama:latest"],
+        "api_key": None,
+        "created_at": "2026-04-05T12:00:00+00:00",
+        "updated_at": "2026-04-05T12:00:00+00:00",
+    }
+
+
+@pytest.fixture
 def hosts_with_installed_claw(isolated_config):
     """Set up hosts.json with one installed openclaw claw.
 
