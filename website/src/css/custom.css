@@ -1,118 +1,146 @@
-/**
- * Any CSS included here will be global. The classic template
- * bundles Infima by default. Infima is a CSS framework designed to
- * work well for content-centric websites.
- */
+/* Clawrium Ocean Theme */
 
-/* Clawrium brand colors - aquarium/teal theme */
 :root {
-  --ifm-color-primary: #0891b2;
-  --ifm-color-primary-dark: #0782a0;
-  --ifm-color-primary-darker: #077a97;
-  --ifm-color-primary-darkest: #06657c;
-  --ifm-color-primary-light: #09a0c4;
-  --ifm-color-primary-lighter: #0aa8cd;
-  --ifm-color-primary-lightest: #0bc0e8;
+  --ifm-color-primary: #0D9488;
+  --ifm-color-primary-dark: #0F766E;
+  --ifm-color-primary-darker: #115E59;
+  --ifm-color-primary-darkest: #134E4A;
+  --ifm-color-primary-light: #14B8A6;
+  --ifm-color-primary-lighter: #2DD4BF;
+  --ifm-color-primary-lightest: #5EEAD4;
   --ifm-code-font-size: 95%;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  --docusaurus-highlighted-code-line-bg: rgba(13, 148, 136, 0.1);
   
-  /* Spacing variables */
   --ifm-spacing-horizontal: 1rem;
   --ifm-spacing-vertical: 1.5rem;
   
-  /* Typography */
   --ifm-font-family-base: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
   --ifm-heading-font-family: var(--ifm-font-family-base);
   --ifm-heading-font-weight: 600;
   
-  /* Border radius */
   --ifm-global-radius: 0.5rem;
   --ifm-button-border-radius: var(--ifm-global-radius);
   --ifm-card-border-radius: var(--ifm-global-radius);
 }
 
-/* Dark mode palette */
 [data-theme='dark'] {
-  --ifm-color-primary: #22d3ee;
-  --ifm-color-primary-dark: #0ec9e6;
-  --ifm-color-primary-darker: #0ebeda;
-  --ifm-color-primary-darkest: #0b9cb3;
-  --ifm-color-primary-light: #42daf1;
-  --ifm-color-primary-lighter: #4eddf2;
-  --ifm-color-primary-lightest: #7ae7f6;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  --ifm-color-primary: #2DD4BF;
+  --ifm-color-primary-dark: #14B8A6;
+  --ifm-color-primary-darker: #0D9488;
+  --ifm-color-primary-darkest: #0F766E;
+  --ifm-color-primary-light: #5EEAD4;
+  --ifm-color-primary-lighter: #99F6E4;
+  --ifm-color-primary-lightest: #CCFBF1;
+  --docusaurus-highlighted-code-line-bg: rgba(45, 212, 191, 0.15);
 }
 
-/* Hero section enhancements */
-.hero--primary {
-  background: linear-gradient(135deg, var(--ifm-color-primary-darkest) 0%, var(--ifm-color-primary) 100%);
+/* Hero section */
+.hero {
+  background: linear-gradient(135deg, #0B1120 0%, #0C3547 40%, #065F56 100%);
+  color: #E2E8F0;
+  padding: 4rem 0;
 }
 
-[data-theme='dark'] .hero--primary {
-  background: linear-gradient(135deg, #0c4a6e 0%, var(--ifm-color-primary-dark) 100%);
+.hero__title {
+  color: #F0FDFA;
 }
 
-/* Button hover effects */
-.button--secondary {
-  transition: all 0.2s ease-in-out;
+.hero__subtitle {
+  color: #94A3B8;
 }
 
-.button--secondary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(8, 145, 178, 0.3);
+/* Hero buttons */
+.hero .button--primary {
+  background: #14B8A6;
+  border-color: #14B8A6;
+  color: #022C22;
 }
 
-[data-theme='dark'] .button--secondary:hover {
-  box-shadow: 0 4px 12px rgba(34, 211, 238, 0.3);
+.hero .button--primary:hover {
+  background: #0D9488;
+  border-color: #0D9488;
+  color: #022C22;
 }
 
-/* Card enhancements */
-.card {
-  transition: all 0.2s ease-in-out;
+.hero .button--secondary {
+  border-color: #5EEAD4;
+  color: #5EEAD4;
+  background: transparent;
 }
 
-.card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+.hero .button--secondary:hover {
+  background: rgba(94, 234, 212, 0.1);
+  border-color: #5EEAD4;
+  color: #5EEAD4;
 }
 
-[data-theme='dark'] .card:hover {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+/* Navbar */
+.navbar {
+  background: #0B1120;
+  border-bottom: 1px solid rgba(94, 234, 212, 0.1);
 }
 
-/* Navigation link hover */
+.navbar__title {
+  color: #F0FDFA;
+}
+
 .navbar__link {
-  transition: color 0.2s ease;
+  color: #94A3B8;
 }
 
-.navbar__link:hover {
-  color: var(--ifm-color-primary);
-}
-
-/* Code blocks */
-code {
-  border-radius: var(--ifm-global-radius);
-}
-
-/* Tables */
-table {
-  border-radius: var(--ifm-global-radius);
-  overflow: hidden;
-}
-
-/* Mermaid diagrams */
-.mermaid {
-  text-align: center;
-  margin: var(--ifm-spacing-vertical) 0;
+.navbar__link:hover,
+.navbar__link--active {
+  color: #2DD4BF;
 }
 
 /* Footer */
 .footer {
-  background-color: var(--ifm-color-primary-darkest);
+  background: #0B1120;
+  border-top: 1px solid rgba(94, 234, 212, 0.1);
 }
 
-[data-theme='dark'] .footer {
-  background-color: #0c4a6e;
+.footer__title {
+  color: #5EEAD4;
+}
+
+.footer__link-item {
+  color: #94A3B8;
+}
+
+.footer__link-item:hover {
+  color: #2DD4BF;
+}
+
+.footer__copyright {
+  color: #475569;
+}
+
+/* Links */
+a {
+  color: var(--ifm-color-primary);
+}
+
+a:hover {
+  color: var(--ifm-color-primary-light);
+}
+
+/* Sidebar active item accent */
+.menu__link--active:not(.menu__link--sublist) {
+  border-left-color: var(--ifm-color-primary);
+}
+
+/* Code blocks */
+.prism-code {
+  background: #0F172A !important;
+}
+
+[data-theme='dark'] .prism-code {
+  background: #0B1120 !important;
+}
+
+/* Table of contents active link */
+.table-of-contents__link--active {
+  color: var(--ifm-color-primary);
 }
 
 /* Scrollbar styling */

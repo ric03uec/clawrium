@@ -8,11 +8,11 @@
   text-align: center;
   position: relative;
   overflow: hidden;
-  background: linear-gradient(135deg, #06657c 0%, #0891b2 100%);
+  background: linear-gradient(135deg, #0B1120 0%, #0C3547 40%, #065F56 100%);
 }
 
 [data-theme='dark'] .heroBanner {
-  background: linear-gradient(135deg, #0c4a6e 0%, #0ec9e6 100%);
+  background: linear-gradient(135deg, #0B1120 0%, #0C3547 40%, #065F56 100%);
 }
 
 @media screen and (max-width: 996px) {
@@ -21,12 +21,12 @@
   }
 
   .heroLogo {
-    max-width: 200px;
+    max-width: 280px;
   }
 }
 
 .heroLogo {
-  max-width: 300px;
+  max-width: 450px;
   height: auto;
   margin-bottom: 1.5rem;
   filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2));

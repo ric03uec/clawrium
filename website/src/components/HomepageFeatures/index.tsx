@@ -9,10 +9,15 @@ type FeatureItem = {
   description: ReactNode;
 };
 
-function CrabIcon() {
+function ClawIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" width="64" height="64">
-      <path d="M8.5 7C5.5 7 3 9.5 3 12.5C3 15.5 5.5 18 8.5 18H15.5C18.5 18 21 15.5 21 12.5C21 9.5 18.5 7 15.5 7H8.5ZM8.5 9C6 9 4 11 4 13.5C4 16 6 17.5 8.5 17.5C11 17.5 13 16 13 13.5C13 11 11 9 8.5 9ZM15.5 9C13 9 11 11 11 13.5C11 16 13 17.5 15.5 17.5C18 17.5 20 16 20 13.5C20 11 18 9 15.5 9Z"/>
+    <svg viewBox="0 0 64 64" fill="currentColor" width="64" height="64">
+      <ellipse cx="32" cy="40" rx="18" ry="14" fill="currentColor" opacity="0.9"/>
+      <circle cx="24" cy="38" r="4" fill="white"/>
+      <circle cx="40" cy="38" r="4" fill="white"/>
+      <path d="M28 44 Q32 48 36 44" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round"/>
+      <path d="M14 28 L8 14 L14 22 L18 8 L20 24 L32 6 L32 22 L44 8 L44 24 L50 14 L50 28" 
+            stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
@@ -36,7 +41,7 @@ function UnlockIcon() {
 const FeatureList: FeatureItem[] = [
   {
     title: 'Universal Claw Support',
-    icon: <CrabIcon />,
+    icon: <ClawIcon />,
     description: (
       <>
         Manage any claw from a single command center: OpenClaw, ZeroClaw,
