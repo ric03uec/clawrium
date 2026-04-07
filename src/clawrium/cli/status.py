@@ -111,16 +111,30 @@ def status(
             elif live_status == ClawStatus.DEGRADED:
                 # Show degraded with missing secret keys
                 if missing_secrets:
-                    missing_str = ", ".join(missing_secrets[:3])
+                    # B7: Escape secret keys to prevent Rich markup injection
+                    escaped_keys = [escape(k) for k in missing_secrets[:3]]
+                    missing_str = ", ".join(escaped_keys)
                     if len(missing_secrets) > 3:
                         missing_str += f" +{len(missing_secrets) - 3} more"
                     status_display = f"[yellow]degraded (missing: {missing_str})[/yellow]"
                 else:
                     status_display = "[yellow]degraded[/yellow]"
             elif live_status == ClawStatus.STOPPED:
+                # Deprecated: check_claw_health() no longer returns STOPPED for stopped processes
+                # Kept for backward compatibility with any external callers
                 status_display = "[red]stopped[/red]"
             elif live_status == ClawStatus.NOT_INSTALLED:
                 status_display = "[yellow]not installed[/yellow]"
+            elif live_status == ClawStatus.PENDING_ONBOARD:
+                # B5: Handle PENDING_ONBOARD status
+                status_display = "[yellow]pending onboard[/yellow]"
+            elif live_status == ClawStatus.ONBOARDING:
+                # B5/B6: Handle ONBOARDING status with step progress
+                step = result.get("onboarding_step") or "?/?"
+                status_display = f"[cyan]onboarding ({step})[/cyan]"
+            elif live_status == ClawStatus.READY:
+                # B5: Handle READY status (onboarding complete, process stopped)
+                status_display = "[blue]ready (stopped)[/blue]"
             else:
                 status_display = "[yellow]unknown[/yellow]"
 

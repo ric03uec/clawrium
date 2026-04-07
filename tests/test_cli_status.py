@@ -263,3 +263,93 @@ def test_status_degraded_truncates_long_list(mock_hosts_with_claws):
     assert "KEY2" in result.output
     assert "KEY3" in result.output
     assert "+2 more" in result.output
+
+
+# Tests for onboarding-aware statuses - Issue #70 / B5/B6 fix
+
+
+def test_status_shows_pending_onboard(mock_hosts_with_claws):
+    """B5: PENDING_ONBOARD shows 'pending onboard' status."""
+    mock_health = MagicMock(return_value={
+        "claw": "openclaw",
+        "host": "192.168.1.100",
+        "status": ClawStatus.PENDING_ONBOARD,
+        "user": "opc-server1",
+        "error": None,
+        "missing_secrets": None,
+        "onboarding_step": None,
+        "process_running": False,
+    })
+
+    with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
+        with patch("clawrium.cli.status.check_claw_health", mock_health):
+            result = runner.invoke(app, ["ps"])
+
+    assert result.exit_code == 0
+    assert "pending onboard" in result.output
+
+
+def test_status_shows_onboarding_with_step(mock_hosts_with_claws):
+    """B5/B6: ONBOARDING shows status with step progress."""
+    mock_health = MagicMock(return_value={
+        "claw": "openclaw",
+        "host": "192.168.1.100",
+        "status": ClawStatus.ONBOARDING,
+        "user": "opc-server1",
+        "error": None,
+        "missing_secrets": None,
+        "onboarding_step": "2/4",
+        "process_running": False,
+    })
+
+    with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
+        with patch("clawrium.cli.status.check_claw_health", mock_health):
+            result = runner.invoke(app, ["ps"])
+
+    assert result.exit_code == 0
+    assert "onboarding" in result.output
+    assert "2/4" in result.output
+
+
+def test_status_shows_onboarding_without_step(mock_hosts_with_claws):
+    """B6: ONBOARDING with None step shows fallback '?/?'."""
+    mock_health = MagicMock(return_value={
+        "claw": "openclaw",
+        "host": "192.168.1.100",
+        "status": ClawStatus.ONBOARDING,
+        "user": "opc-server1",
+        "error": None,
+        "missing_secrets": None,
+        "onboarding_step": None,
+        "process_running": False,
+    })
+
+    with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
+        with patch("clawrium.cli.status.check_claw_health", mock_health):
+            result = runner.invoke(app, ["ps"])
+
+    assert result.exit_code == 0
+    assert "onboarding" in result.output
+    assert "?/?" in result.output
+
+
+def test_status_shows_ready_stopped(mock_hosts_with_claws):
+    """B5: READY shows 'ready (stopped)' status."""
+    mock_health = MagicMock(return_value={
+        "claw": "openclaw",
+        "host": "192.168.1.100",
+        "status": ClawStatus.READY,
+        "user": "opc-server1",
+        "error": None,
+        "missing_secrets": None,
+        "onboarding_step": None,
+        "process_running": False,
+    })
+
+    with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
+        with patch("clawrium.cli.status.check_claw_health", mock_health):
+            result = runner.invoke(app, ["ps"])
+
+    assert result.exit_code == 0
+    assert "ready" in result.output
+    assert "stopped" in result.output
