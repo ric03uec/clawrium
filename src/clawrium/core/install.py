@@ -42,6 +42,7 @@ from clawrium.core.secrets import (
     get_instance_key,
     get_instance_secrets,
 )
+from clawrium.core.onboarding import initialize_onboarding
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +285,26 @@ def run_installation(
             return h
 
         update_host(host["hostname"], set_installed)
-        emit("complete", f"Installation complete. Logs at {install_log_dir}")
+
+        # Step 11: Initialize onboarding record (non-fatal if it fails)
+        try:
+            if not initialize_onboarding(host["hostname"], claw_name):
+                try:
+                    emit("warn", f"Onboarding setup incomplete — run `clm onboard init {host['hostname']} {claw_name}` to retry")
+                except Exception:
+                    logger.warning("Failed to emit onboarding warning event", exc_info=True)
+        except Exception as e:
+            logger.warning("Onboarding init failed: %s", e, exc_info=True)
+            try:
+                emit("warn", f"Onboarding setup failed — run `clm onboard init {host['hostname']} {claw_name}` to retry")
+            except Exception:
+                logger.warning("Failed to emit onboarding warning event", exc_info=True)
+
+        # Step 12: Emit completion event (non-fatal if callback fails)
+        try:
+            emit("complete", f"Installation complete. Logs at {install_log_dir}")
+        except Exception:
+            logger.warning("Failed to emit completion event", exc_info=True)
 
         return {
             "success": True,
@@ -296,7 +316,7 @@ def run_installation(
         }
 
     except Exception as e:
-        # Step 11: Update host with failure status
+        # Step 13: Update host with failure status
         error_msg = str(e)
 
         def set_failed(h: dict) -> dict:

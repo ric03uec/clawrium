@@ -163,6 +163,9 @@ def test_install_success(monkeypatch, tmp_path):
     # Mock update_host to avoid real filesystem access
     monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
 
+    # Mock initialize_onboarding to avoid real filesystem access
+    monkeypatch.setattr(clawrium.core.install, "initialize_onboarding", lambda h, c: True)
+
     # Mock ansible_runner.run
     class SuccessfulResult:
         status = "successful"
@@ -248,6 +251,9 @@ def test_install_emits_events(monkeypatch, tmp_path):
 
     # Mock update_host to avoid real filesystem access
     monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+
+    # Mock initialize_onboarding to avoid real filesystem access
+    monkeypatch.setattr(clawrium.core.install, "initialize_onboarding", lambda h, c: True)
 
     class SuccessfulResult:
         status = "successful"
@@ -503,6 +509,9 @@ def test_install_updates_host_on_success(monkeypatch, tmp_path):
 
     monkeypatch.setattr(clawrium.core.install, "update_host", mock_update_host)
 
+    # Mock initialize_onboarding to avoid real filesystem access
+    monkeypatch.setattr(clawrium.core.install, "initialize_onboarding", lambda h, c: True)
+
     # Run installation
     run_installation("openclaw", "test-host")
 
@@ -629,3 +638,434 @@ def test_install_updates_host_on_failure(monkeypatch, tmp_path):
                 break
 
     assert found_failed, "Expected update_host to be called with failed status"
+
+
+def test_install_initializes_onboarding(monkeypatch, tmp_path):
+    """Test that successful install initializes onboarding record after host update."""
+    from clawrium.core.install import run_installation
+
+    # Isolate test from real filesystem
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    # Mock dependencies
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.9"},
+                },
+            }
+        ],
+    }
+
+    import clawrium.core.install
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compatible_host = {
+        "hostname": "test-host",
+        "user": "xclm",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
+
+    compat_result = {
+        "compatible": True,
+        "matched_entry": mock_manifest["entries"][0],
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install, "check_compatibility", lambda *args, **kwargs: compat_result
+    )
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    class SuccessfulResult:
+        status = "successful"
+
+    mock_run = Mock(return_value=SuccessfulResult())
+
+    import ansible_runner
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    # Track call ordering with accumulated state
+    call_order = []
+    persistent_host = compatible_host.copy()
+
+    def mock_update_host(hostname, updater):
+        nonlocal persistent_host
+        persistent_host = updater(persistent_host)
+        status = persistent_host.get("claws", {}).get("openclaw", {}).get("status")
+        call_order.append(("update_host", status))
+        return True
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", mock_update_host)
+
+    def mock_initialize_onboarding(host, claw_name):
+        call_order.append(("initialize_onboarding", claw_name))
+        return True
+
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", mock_initialize_onboarding
+    )
+
+    # Run installation
+    result = run_installation("openclaw", "test-host")
+
+    # Verify installation succeeded
+    assert result["success"] is True
+
+    # Verify exact sequence: update_host(installing) -> update_host(installed) -> initialize_onboarding
+    assert len(call_order) == 3, f"Expected exactly 3 calls, got {len(call_order)}: {call_order}"
+    assert call_order[0] == ("update_host", "installing"), f"First call should be update_host(installing), got {call_order[0]}"
+    assert call_order[1] == ("update_host", "installed"), f"Second call should be update_host(installed), got {call_order[1]}"
+    assert call_order[2][0] == "initialize_onboarding", f"Third call should be initialize_onboarding, got {call_order[2]}"
+    assert call_order[2][1] == "openclaw", "initialize_onboarding should be called with claw_name='openclaw'"
+
+
+def test_install_failure_does_not_initialize_onboarding(monkeypatch, tmp_path):
+    """Test that failed install does NOT initialize onboarding record."""
+    from clawrium.core.install import run_installation, InstallationError
+
+    # Isolate test from real filesystem
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    # Mock dependencies
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.9"},
+                },
+            }
+        ],
+    }
+
+    import clawrium.core.install
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compatible_host = {
+        "hostname": "test-host",
+        "user": "xclm",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
+
+    compat_result = {
+        "compatible": True,
+        "matched_entry": mock_manifest["entries"][0],
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install, "check_compatibility", lambda *args, **kwargs: compat_result
+    )
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    # Mock update_host to avoid real filesystem access
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+
+    # Mock ansible_runner.run to fail
+    class FailedResult:
+        status = "failed"
+
+    mock_run = Mock(return_value=FailedResult())
+
+    import ansible_runner
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    # Track initialize_onboarding calls
+    onboarding_calls = []
+
+    def mock_initialize_onboarding(host, claw_name):
+        onboarding_calls.append((host, claw_name))
+        return True
+
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", mock_initialize_onboarding
+    )
+
+    # Run installation (should fail)
+    with pytest.raises(InstallationError):
+        run_installation("openclaw", "test-host")
+
+    # Verify initialize_onboarding was NOT called
+    assert len(onboarding_calls) == 0, "initialize_onboarding should not be called on failure"
+
+
+def test_install_onboarding_raises_does_not_corrupt_state(monkeypatch, tmp_path):
+    """Test that onboarding failure does not mark successful install as failed.
+
+    When initialize_onboarding raises an exception, the install should still
+    report success because the claw was actually installed successfully.
+    Uses generic Exception to prove the catch is general (not narrowed to specific types).
+    """
+    from clawrium.core.install import run_installation
+
+    # Isolate test from real filesystem
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    # Mock dependencies
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.9"},
+                },
+            }
+        ],
+    }
+
+    import clawrium.core.install
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compatible_host = {
+        "hostname": "test-host",
+        "user": "xclm",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
+
+    compat_result = {
+        "compatible": True,
+        "matched_entry": mock_manifest["entries"][0],
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install, "check_compatibility", lambda *args, **kwargs: compat_result
+    )
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    class SuccessfulResult:
+        status = "successful"
+
+    mock_run = Mock(return_value=SuccessfulResult())
+
+    import ansible_runner
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    # Track update_host calls to verify host status
+    update_calls = []
+    persistent_host = compatible_host.copy()
+
+    def mock_update_host(hostname, updater):
+        nonlocal persistent_host
+        persistent_host = updater(persistent_host)
+        status = None
+        if "claws" in persistent_host and "openclaw" in persistent_host.get("claws", {}):
+            status = persistent_host["claws"]["openclaw"].get("status")
+        update_calls.append((hostname, status))
+        return True
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", mock_update_host)
+
+    # Mock initialize_onboarding to raise a generic exception (B4 - tests general catch)
+    def mock_initialize_onboarding_fails(host, claw_name):
+        raise Exception(f"Generic onboarding failure for {claw_name} on {host}")
+
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", mock_initialize_onboarding_fails
+    )
+
+    # Capture emitted events
+    events = []
+
+    def on_event(stage, message):
+        events.append((stage, message))
+
+    # Run installation - should succeed despite onboarding failure
+    result = run_installation("openclaw", "test-host", on_event=on_event)
+
+    # Verify installation succeeded (onboarding failure should not corrupt state)
+    assert result["success"] is True, "Install should succeed even if onboarding init fails"
+    assert result["error"] is None
+
+    # B7: Verify exactly 2 update_host calls (installing + installed), no spurious set_failed
+    assert len(update_calls) == 2, f"Expected exactly 2 update_host calls, got {len(update_calls)}: {update_calls}"
+
+    # Verify statuses: installing -> installed (no 'failed')
+    statuses = [s for _, s in update_calls]
+    assert statuses == ["installing", "installed"], f"Expected ['installing', 'installed'], got {statuses}"
+    assert "failed" not in statuses, "Host should never be marked as 'failed'"
+
+    # Verify warning event was emitted about onboarding failure
+    warn_events = [e for e in events if e[0] == "warn"]
+    assert len(warn_events) >= 1, "Should emit warning when onboarding fails"
+    assert "clm onboard init" in warn_events[0][1], "Warning should include retry command"
+
+
+def test_install_onboarding_record_structure(monkeypatch, tmp_path):
+    """Test that onboarding record has correct structure after successful install.
+
+    This test verifies the full integration by NOT mocking initialize_onboarding,
+    allowing the real function to create the onboarding record.
+    """
+    import json
+    from clawrium.core.install import run_installation
+    from clawrium.core.hosts import get_host
+
+    # Isolate test from real filesystem
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    # Create clawrium config directory and hosts.json
+    config_dir = tmp_path / "clawrium"
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    # Pre-create host with claw in "installing" state (will be updated)
+    hosts_data = [
+        {
+            "hostname": "test-host",
+            "user": "xclm",
+            "port": 22,
+            "key_id": "test-host",
+            "hardware": {
+                "architecture": "x86_64",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "memtotal_mb": 4096,
+            },
+            "claws": {},
+        }
+    ]
+    hosts_path = config_dir / "hosts.json"
+    hosts_path.write_text(json.dumps(hosts_data))
+
+    # Mock dependencies
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.9"},
+                },
+            }
+        ],
+    }
+
+    import clawrium.core.install
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compat_result = {
+        "compatible": True,
+        "matched_entry": mock_manifest["entries"][0],
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install, "check_compatibility", lambda *args, **kwargs: compat_result
+    )
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    class SuccessfulResult:
+        status = "successful"
+
+    mock_run = Mock(return_value=SuccessfulResult())
+
+    import ansible_runner
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    # Run installation (uses real update_host and initialize_onboarding)
+    result = run_installation("openclaw", "test-host")
+
+    # Verify installation succeeded
+    assert result["success"] is True
+
+    # Get updated host record
+    host = get_host("test-host")
+    assert host is not None
+
+    # Verify claw record exists
+    assert "claws" in host
+    assert "openclaw" in host["claws"]
+
+    claw = host["claws"]["openclaw"]
+    assert claw["status"] == "installed"
+    assert claw["installed_at"] is not None
+
+    # Verify onboarding record structure
+    assert "onboarding" in claw, "Onboarding record should exist after install"
+
+    onboarding = claw["onboarding"]
+    assert onboarding["state"] == "pending"
+    assert onboarding["started_at"] is not None
+
+    # Verify all stages exist and are pending
+    assert "stages" in onboarding
+    expected_stages = {"providers", "identity", "channels", "validate"}
+    assert set(onboarding["stages"].keys()) == expected_stages
+
+    for stage_name, stage_data in onboarding["stages"].items():
+        assert stage_data["status"] == "pending", f"Stage {stage_name} should be pending"
+        assert stage_data["completed_at"] is None, f"Stage {stage_name} completed_at should be None"
