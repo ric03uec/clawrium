@@ -54,6 +54,7 @@ class HealthResult(TypedDict):
     error: str | None
     missing_secrets: list[str] | None  # List of missing required secret keys
     onboarding_step: str | None  # Current onboarding step (e.g., "1/4", "2/4")
+    process_running: bool | None  # True if running, False if stopped, None if unknown
 
 
 def get_onboarding_status(claw_record: dict) -> tuple[ClawStatus, str | None]:
@@ -64,13 +65,24 @@ def get_onboarding_status(claw_record: dict) -> tuple[ClawStatus, str | None]:
 
     Returns:
         Tuple of (ClawStatus, onboarding_step or None)
+
+    Note:
+        Missing onboarding record returns PENDING_ONBOARD for backward compatibility.
+        This conflates "never initialized" with "not yet started" - a deliberate
+        tradeoff to avoid breaking existing installations during migration.
     """
     onboarding = claw_record.get("onboarding")
     if onboarding is None:
         # No onboarding record - treat as pending onboard for backward compatibility
         return ClawStatus.PENDING_ONBOARD, None
 
-    state = onboarding.get("state", "pending")
+    # B3 fix: Type guard for corrupted records (non-dict values)
+    if not isinstance(onboarding, dict):
+        logger.warning("Invalid onboarding record type: %s", type(onboarding).__name__)
+        return ClawStatus.PENDING_ONBOARD, None
+
+    # B4 fix: Handle explicit null state - use `or` to treat None as "pending"
+    state = onboarding.get("state") or "pending"
 
     if state == "pending":
         return ClawStatus.PENDING_ONBOARD, None
@@ -79,6 +91,9 @@ def get_onboarding_status(claw_record: dict) -> tuple[ClawStatus, str | None]:
     else:
         # In progress - map state to step
         step = ONBOARDING_STEP_MAP.get(state)
+        if step is None:
+            # W1 fix: Log unknown states
+            logger.warning("Unknown onboarding state: %s", state)
         return ClawStatus.ONBOARDING, step
 
 
@@ -146,6 +161,7 @@ def check_claw_health(
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
+            "process_running": None,
         }
 
     claw_user = claw_record.get("user")
@@ -159,6 +175,7 @@ def check_claw_health(
             "error": "No claw user recorded",
             "missing_secrets": None,
             "onboarding_step": None,
+            "process_running": None,
         }
 
     # Validate username to prevent command injection
@@ -171,6 +188,7 @@ def check_claw_health(
             "error": f"Invalid claw user format: {claw_user}",
             "missing_secrets": None,
             "onboarding_step": None,
+            "process_running": None,
         }
 
     # Get SSH key
@@ -185,6 +203,7 @@ def check_claw_health(
             "error": "SSH key not found",
             "missing_secrets": None,
             "onboarding_step": None,
+            "process_running": None,
         }
 
     # Build inventory
@@ -227,6 +246,7 @@ def check_claw_health(
                 "error": "Health check timed out",
                 "missing_secrets": None,
                 "onboarding_step": None,
+                "process_running": None,
             }
 
         if result.status != "successful":
@@ -238,6 +258,7 @@ def check_claw_health(
                 "error": f"SSH failed: {result.status}",
                 "missing_secrets": None,
                 "onboarding_step": None,
+                "process_running": None,
             }
 
         # Parse output from events
@@ -254,6 +275,7 @@ def check_claw_health(
                     "error": "Host unreachable",
                     "missing_secrets": None,
                     "onboarding_step": None,
+                    "process_running": None,
                 }
             if event_type == "runner_on_ok":
                 output = event.get("event_data", {}).get("res", {}).get("stdout", "")
@@ -272,6 +294,7 @@ def check_claw_health(
                     "error": None,
                     "missing_secrets": missing,
                     "onboarding_step": None,
+                    "process_running": True,
                 }
             else:
                 # Claw is running with all required secrets
@@ -283,9 +306,11 @@ def check_claw_health(
                     "error": None,
                     "missing_secrets": None,
                     "onboarding_step": None,
+                    "process_running": True,
                 }
         elif "STOPPED" in output:
             # Process not running - check onboarding state
+            # B1/B2 fix: process_running=False distinguishes "ready but stopped" from "running"
             status, step = get_onboarding_status(claw_record)
             return {
                 "claw": claw_name,
@@ -295,6 +320,7 @@ def check_claw_health(
                 "error": None,
                 "missing_secrets": None,
                 "onboarding_step": step,
+                "process_running": False,
             }
         else:
             # Unexpected output - treat as unknown
@@ -306,6 +332,7 @@ def check_claw_health(
                 "error": f"Unexpected output: {output[:50]}" if output else "No output",
                 "missing_secrets": None,
                 "onboarding_step": None,
+                "process_running": None,
             }
 
 
