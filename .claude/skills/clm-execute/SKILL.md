@@ -73,6 +73,15 @@ git worktree remove --force ../clawrium-issue-35
 tmux kill-window -t "clm/exec:issue-35"
 ```
 
+## Branch Protection
+
+**NEVER push directly to the `main` branch.**
+
+Always:
+1. Work on a feature branch: `issue-<number>-<slug>`
+2. Push to the feature branch
+3. Create a PR targeting `main`
+
 ## Instructions
 
 1. **Fetch Issue**: Get full issue details
@@ -121,9 +130,13 @@ tmux kill-window -t "clm/exec:issue-35"
    </details>
    ```
 
-2. **Update Label**:
+2. **Update Status to Executing**:
    ```bash
-   gh issue edit <number> --remove-label "ready" --add-label "in-progress"
+   # Get the project item ID for this issue
+   ITEM_ID=$(gh project item-list 1 --owner ric03uec --format json | jq -r '.items[] | select(.content.number == <number>) | .id')
+
+   # Set status to "Executing"
+   gh project item-edit --project-id PVT_kwHOABDzzM4BSDdU --id "$ITEM_ID" --field-id PVTSSF_lAHOABDzzM4BSDdUzg_s1SU --single-select-option-id 47fc9ee4
    ```
 
 3. **Read Plan**: Find the implementation plan in issue comments
@@ -135,7 +148,17 @@ tmux kill-window -t "clm/exec:issue-35"
 
 5. **Verify**: Run `/clm:verify` to ensure quality
 
-6. **Create Branch and PR**:
+6. **Create PR**:
+
+   **If in worktree mode**: Branch already exists (created during worktree setup)
+   ```bash
+   git add <files>
+   git commit -m "<message>"
+   git push -u origin issue-<number>-<slug>
+   gh pr create --title "<title>" --body "Closes #<number>"
+   ```
+
+   **If in regular mode**: Create branch first
    ```bash
    git checkout -b issue-<number>-<slug>
    git add <files>
@@ -144,10 +167,7 @@ tmux kill-window -t "clm/exec:issue-35"
    gh pr create --title "<title>" --body "Closes #<number>"
    ```
 
-7. **Update Label**:
-   ```bash
-   gh issue edit <number> --remove-label "in-progress" --add-label "in-review"
-   ```
+   **WARNING**: Never push to `main`. Always push to feature branch and create PR.
 
 ## Subagent Spawning (for Parent with Subtasks)
 
