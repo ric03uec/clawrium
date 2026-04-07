@@ -1,0 +1,344 @@
+"""Onboarding state machine for claw instances.
+
+This module manages the onboarding workflow for newly installed claws,
+tracking progress through a fixed set of universal stages.
+"""
+
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any
+
+from clawrium.core.hosts import get_host, update_host
+from clawrium.core.registry import load_manifest
+
+__all__ = [
+    "OnboardingState",
+    "StageStatus",
+    "TRANSITIONS",
+    "get_onboarding_state",
+    "transition_state",
+    "complete_stage",
+    "initialize_onboarding",
+    "can_skip_stage",
+    "get_stage_tasks",
+    "run_stage",
+    "InvalidTransitionError",
+    "OnboardingNotFoundError",
+    "ClawNotFoundError",
+]
+
+
+class OnboardingState(str, Enum):
+    """States in the onboarding workflow."""
+
+    PENDING = "pending"  # After install, before onboarding
+    PROVIDERS = "providers"  # Configuring inference provider
+    IDENTITY = "identity"  # Configuring agent persona
+    CHANNELS = "channels"  # Configuring communication
+    VALIDATE = "validate"  # Running verification
+    READY = "ready"  # Onboarding complete
+
+
+class StageStatus(str, Enum):
+    """Status of an individual onboarding stage."""
+
+    PENDING = "pending"
+    COMPLETE = "complete"
+    SKIPPED = "skipped"
+
+
+# Valid state transitions
+TRANSITIONS: dict[str, list[str]] = {
+    "pending": ["providers"],
+    "providers": ["identity"],
+    "identity": ["channels"],
+    "channels": ["validate"],
+    "validate": ["ready", "channels"],  # Fail → back to fix
+    "ready": [],
+}
+
+
+class InvalidTransitionError(Exception):
+    """Raised when attempting an invalid state transition."""
+
+    pass
+
+
+class OnboardingNotFoundError(Exception):
+    """Raised when onboarding record does not exist for a claw."""
+
+    pass
+
+
+class ClawNotFoundError(Exception):
+    """Raised when claw is not found on the host."""
+
+    pass
+
+
+def _get_claw_record(host: str, claw_name: str) -> dict | None:
+    """Get claw record from host.
+
+    Args:
+        host: Hostname or alias
+        claw_name: Name of the claw (e.g., "openclaw")
+
+    Returns:
+        Claw record dict or None if not found
+    """
+    host_data = get_host(host)
+    if not host_data:
+        return None
+    claws = host_data.get("claws", {})
+    return claws.get(claw_name)
+
+
+def get_onboarding_state(host: str, claw_name: str) -> OnboardingState:
+    """Get current onboarding state for a claw.
+
+    Args:
+        host: Hostname or alias
+        claw_name: Name of the claw
+
+    Returns:
+        Current OnboardingState
+
+    Raises:
+        ClawNotFoundError: If claw is not installed on host
+        OnboardingNotFoundError: If onboarding has not been initialized
+    """
+    claw = _get_claw_record(host, claw_name)
+    if claw is None:
+        raise ClawNotFoundError(f"Claw '{claw_name}' not found on host '{host}'")
+
+    onboarding = claw.get("onboarding")
+    if onboarding is None:
+        raise OnboardingNotFoundError(
+            f"Onboarding not initialized for '{claw_name}' on '{host}'"
+        )
+
+    state_value = onboarding.get("state", "pending")
+    return OnboardingState(state_value)
+
+
+def transition_state(host: str, claw_name: str, to_state: OnboardingState) -> bool:
+    """Transition claw to a new onboarding state.
+
+    Validates that the transition is allowed according to TRANSITIONS.
+
+    Args:
+        host: Hostname or alias
+        claw_name: Name of the claw
+        to_state: Target state to transition to
+
+    Returns:
+        True if transition succeeded
+
+    Raises:
+        ClawNotFoundError: If claw is not installed on host
+        OnboardingNotFoundError: If onboarding has not been initialized
+        InvalidTransitionError: If transition is not allowed
+    """
+    current_state = get_onboarding_state(host, claw_name)
+    allowed = TRANSITIONS.get(current_state.value, [])
+
+    if to_state.value not in allowed:
+        raise InvalidTransitionError(
+            f"Cannot transition from '{current_state.value}' to '{to_state.value}'. "
+            f"Allowed transitions: {allowed}"
+        )
+
+    host_data = get_host(host)
+    if not host_data:
+        raise ClawNotFoundError(f"Host '{host}' not found")
+
+    hostname = host_data["hostname"]
+
+    def updater(h: dict) -> dict:
+        h["claws"][claw_name]["onboarding"]["state"] = to_state.value
+        return h
+
+    return update_host(hostname, updater)
+
+
+def complete_stage(
+    host: str,
+    claw_name: str,
+    stage: str,
+    status: StageStatus,
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    """Mark an onboarding stage as complete or skipped.
+
+    Args:
+        host: Hostname or alias
+        claw_name: Name of the claw
+        stage: Stage name (providers, identity, channels, validate)
+        status: Status to set (complete or skipped)
+        metadata: Optional metadata to store with the stage
+
+    Returns:
+        True if update succeeded
+
+    Raises:
+        ClawNotFoundError: If claw is not installed on host
+        OnboardingNotFoundError: If onboarding has not been initialized
+        ValueError: If stage is not a valid stage name
+    """
+    valid_stages = {"providers", "identity", "channels", "validate"}
+    if stage not in valid_stages:
+        raise ValueError(f"Invalid stage '{stage}'. Valid stages: {valid_stages}")
+
+    claw = _get_claw_record(host, claw_name)
+    if claw is None:
+        raise ClawNotFoundError(f"Claw '{claw_name}' not found on host '{host}'")
+
+    onboarding = claw.get("onboarding")
+    if onboarding is None:
+        raise OnboardingNotFoundError(
+            f"Onboarding not initialized for '{claw_name}' on '{host}'"
+        )
+
+    host_data = get_host(host)
+    if not host_data:
+        raise ClawNotFoundError(f"Host '{host}' not found")
+
+    hostname = host_data["hostname"]
+    now = datetime.now(timezone.utc).isoformat()
+
+    def updater(h: dict) -> dict:
+        stage_data = h["claws"][claw_name]["onboarding"]["stages"][stage]
+        stage_data["status"] = status.value
+        stage_data["completed_at"] = now
+        if metadata:
+            for key, value in metadata.items():
+                stage_data[key] = value
+        return h
+
+    return update_host(hostname, updater)
+
+
+def initialize_onboarding(host: str, claw_name: str) -> bool:
+    """Initialize onboarding record for a claw.
+
+    Creates the onboarding data structure with state=PENDING and all
+    stages initialized to pending status.
+
+    Args:
+        host: Hostname or alias
+        claw_name: Name of the claw
+
+    Returns:
+        True if initialization succeeded
+
+    Raises:
+        ClawNotFoundError: If claw is not installed on host
+    """
+    claw = _get_claw_record(host, claw_name)
+    if claw is None:
+        raise ClawNotFoundError(f"Claw '{claw_name}' not found on host '{host}'")
+
+    host_data = get_host(host)
+    if not host_data:
+        raise ClawNotFoundError(f"Host '{host}' not found")
+
+    hostname = host_data["hostname"]
+    now = datetime.now(timezone.utc).isoformat()
+
+    def updater(h: dict) -> dict:
+        h["claws"][claw_name]["onboarding"] = {
+            "state": OnboardingState.PENDING.value,
+            "started_at": now,
+            "stages": {
+                "providers": {"status": StageStatus.PENDING.value, "completed_at": None, "provider_id": None},
+                "identity": {"status": StageStatus.PENDING.value, "completed_at": None},
+                "channels": {"status": StageStatus.PENDING.value, "completed_at": None},
+                "validate": {"status": StageStatus.PENDING.value, "completed_at": None},
+            },
+        }
+        return h
+
+    return update_host(hostname, updater)
+
+
+def can_skip_stage(claw_type: str, stage: str) -> bool:
+    """Check if a stage can be auto-skipped for a claw type.
+
+    Some claw types may not need certain stages (e.g., a claw without
+    communication features doesn't need the channels stage).
+
+    Args:
+        claw_type: Type of claw (e.g., "openclaw", "zeroclaw")
+        stage: Stage name to check
+
+    Returns:
+        True if the stage can be skipped for this claw type
+    """
+    try:
+        manifest = load_manifest(claw_type)
+    except Exception:
+        return False
+
+    # Check if manifest has skip_stages configuration
+    skip_stages = manifest.get("skip_stages", [])
+    return stage in skip_stages
+
+
+def get_stage_tasks(claw_type: str, stage: str) -> list[dict]:
+    """Get tasks for a stage from the claw manifest.
+
+    Args:
+        claw_type: Type of claw (e.g., "openclaw", "zeroclaw")
+        stage: Stage name
+
+    Returns:
+        List of task dictionaries for the stage. Empty list if no tasks defined.
+    """
+    try:
+        manifest = load_manifest(claw_type)
+    except Exception:
+        return []
+
+    # Check if manifest has onboarding.stages configuration
+    onboarding_config = manifest.get("onboarding", {})
+    stages_config = onboarding_config.get("stages", {})
+    stage_config = stages_config.get(stage, {})
+
+    return stage_config.get("tasks", [])
+
+
+def run_stage(claw_type: str, host: str, claw_name: str, stage: str) -> bool:
+    """Execute tasks for an onboarding stage.
+
+    This is a placeholder for stage execution logic. In practice, this would:
+    1. Get tasks from manifest
+    2. Execute each task (possibly via Ansible)
+    3. Update stage status
+
+    Args:
+        claw_type: Type of claw (e.g., "openclaw", "zeroclaw")
+        host: Hostname or alias
+        claw_name: Name of the claw instance
+        stage: Stage name to execute
+
+    Returns:
+        True if stage completed successfully
+    """
+    # Check if stage can be skipped
+    if can_skip_stage(claw_type, stage):
+        complete_stage(host, claw_name, stage, StageStatus.SKIPPED)
+        return True
+
+    # Get tasks for this stage
+    tasks = get_stage_tasks(claw_type, stage)
+
+    if not tasks:
+        # No tasks defined - mark as complete
+        complete_stage(host, claw_name, stage, StageStatus.COMPLETE)
+        return True
+
+    # Execute tasks (placeholder - actual implementation would run Ansible or similar)
+    # For now, we just mark the stage as complete
+    # Future implementation will iterate through tasks and execute them
+    complete_stage(host, claw_name, stage, StageStatus.COMPLETE)
+    return True
