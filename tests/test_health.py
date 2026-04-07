@@ -7,7 +7,9 @@ from clawrium.core.health import (
     check_claw_health,
     check_all_claws_on_host,
     get_missing_secrets,
+    get_onboarding_status,
     ClawStatus,
+    ONBOARDING_STEP_MAP,
 )
 
 
@@ -48,10 +50,11 @@ def test_health_check_running(mock_host):
     assert result["user"] == "opc-testhost"
     assert result["error"] is None
     assert result["missing_secrets"] is None
+    assert result["onboarding_step"] is None
 
 
-def test_health_check_stopped(mock_host):
-    """Process not running returns STOPPED status."""
+def test_health_check_stopped_no_onboarding(mock_host):
+    """Process not running without onboarding returns PENDING_ONBOARD status."""
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
@@ -62,8 +65,10 @@ def test_health_check_stopped(mock_host):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
             result = check_claw_health("openclaw", mock_host)
 
-    assert result["status"] == ClawStatus.STOPPED
-    assert result["missing_secrets"] is None  # B2 ATX fix: STOPPED should not check secrets
+    # Without onboarding record, should return PENDING_ONBOARD for backward compatibility
+    assert result["status"] == ClawStatus.PENDING_ONBOARD
+    assert result["missing_secrets"] is None
+    assert result["onboarding_step"] is None
 
 
 def test_health_check_ssh_fails(mock_host):
@@ -127,6 +132,7 @@ def test_check_all_claws_on_host(mock_host):
     assert len(results) == 1
     assert results[0]["claw"] == "openclaw"
     assert results[0]["status"] == ClawStatus.RUNNING
+    assert results[0]["onboarding_step"] is None
 
 
 def test_health_check_no_claw_user():
@@ -322,8 +328,8 @@ def test_check_claw_health_degraded_partial_secrets(mock_host):
     assert result["missing_secrets"] == ["ANTHROPIC_API_KEY"]
 
 
-def test_missing_secrets_none_for_stopped_status(mock_host):
-    """STOPPED status has missing_secrets as None."""
+def test_missing_secrets_none_for_non_running_status(mock_host):
+    """Non-running status has missing_secrets as None."""
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
@@ -334,7 +340,8 @@ def test_missing_secrets_none_for_stopped_status(mock_host):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
             result = check_claw_health("openclaw", mock_host)
 
-    assert result["status"] == ClawStatus.STOPPED
+    # Without onboarding record, stopped process returns PENDING_ONBOARD
+    assert result["status"] == ClawStatus.PENDING_ONBOARD
     assert result["missing_secrets"] is None
 
 
@@ -478,3 +485,270 @@ def test_degraded_status_verifies_instance_key_argument(mock_host):
     call_args = mock_get_secrets.call_args[0][0]
     assert call_args == "192.168.1.100:openclaw:testhost"
     assert result["status"] == ClawStatus.DEGRADED
+
+
+# Tests for onboarding-aware statuses - Issue #70
+
+
+class TestClawStatusOnboardingEnums:
+    """Tests for new ClawStatus enum values."""
+
+    def test_pending_onboard_status_exists(self):
+        """ClawStatus.PENDING_ONBOARD enum value exists."""
+        assert hasattr(ClawStatus, "PENDING_ONBOARD")
+        assert ClawStatus.PENDING_ONBOARD == "pending_onboard"
+
+    def test_onboarding_status_exists(self):
+        """ClawStatus.ONBOARDING enum value exists."""
+        assert hasattr(ClawStatus, "ONBOARDING")
+        assert ClawStatus.ONBOARDING == "onboarding"
+
+    def test_ready_status_exists(self):
+        """ClawStatus.READY enum value exists."""
+        assert hasattr(ClawStatus, "READY")
+        assert ClawStatus.READY == "ready"
+
+
+class TestGetOnboardingStatus:
+    """Tests for get_onboarding_status helper function."""
+
+    def test_no_onboarding_record_returns_pending_onboard(self):
+        """Missing onboarding record returns PENDING_ONBOARD for backward compatibility."""
+        claw_record = {"version": "0.1.0", "user": "opc-test"}
+        status, step = get_onboarding_status(claw_record)
+        assert status == ClawStatus.PENDING_ONBOARD
+        assert step is None
+
+    def test_pending_state_returns_pending_onboard(self):
+        """Onboarding state 'pending' returns PENDING_ONBOARD."""
+        claw_record = {"onboarding": {"state": "pending"}}
+        status, step = get_onboarding_status(claw_record)
+        assert status == ClawStatus.PENDING_ONBOARD
+        assert step is None
+
+    def test_ready_state_returns_ready(self):
+        """Onboarding state 'ready' returns READY."""
+        claw_record = {"onboarding": {"state": "ready"}}
+        status, step = get_onboarding_status(claw_record)
+        assert status == ClawStatus.READY
+        assert step is None
+
+    def test_providers_state_returns_onboarding_step_1(self):
+        """Onboarding state 'providers' returns ONBOARDING with step 1/4."""
+        claw_record = {"onboarding": {"state": "providers"}}
+        status, step = get_onboarding_status(claw_record)
+        assert status == ClawStatus.ONBOARDING
+        assert step == "1/4"
+
+    def test_identity_state_returns_onboarding_step_2(self):
+        """Onboarding state 'identity' returns ONBOARDING with step 2/4."""
+        claw_record = {"onboarding": {"state": "identity"}}
+        status, step = get_onboarding_status(claw_record)
+        assert status == ClawStatus.ONBOARDING
+        assert step == "2/4"
+
+    def test_channels_state_returns_onboarding_step_3(self):
+        """Onboarding state 'channels' returns ONBOARDING with step 3/4."""
+        claw_record = {"onboarding": {"state": "channels"}}
+        status, step = get_onboarding_status(claw_record)
+        assert status == ClawStatus.ONBOARDING
+        assert step == "3/4"
+
+    def test_validate_state_returns_onboarding_step_4(self):
+        """Onboarding state 'validate' returns ONBOARDING with step 4/4."""
+        claw_record = {"onboarding": {"state": "validate"}}
+        status, step = get_onboarding_status(claw_record)
+        assert status == ClawStatus.ONBOARDING
+        assert step == "4/4"
+
+    def test_unknown_state_returns_onboarding_no_step(self):
+        """Unknown onboarding state returns ONBOARDING with None step."""
+        claw_record = {"onboarding": {"state": "unknown_state"}}
+        status, step = get_onboarding_status(claw_record)
+        assert status == ClawStatus.ONBOARDING
+        assert step is None
+
+
+class TestOnboardingStepMap:
+    """Tests for ONBOARDING_STEP_MAP constant."""
+
+    def test_step_map_has_four_stages(self):
+        """Step map contains all four onboarding stages."""
+        assert len(ONBOARDING_STEP_MAP) == 4
+
+    def test_step_map_values(self):
+        """Step map has correct values."""
+        assert ONBOARDING_STEP_MAP["providers"] == "1/4"
+        assert ONBOARDING_STEP_MAP["identity"] == "2/4"
+        assert ONBOARDING_STEP_MAP["channels"] == "3/4"
+        assert ONBOARDING_STEP_MAP["validate"] == "4/4"
+
+
+class TestHealthCheckOnboardingIntegration:
+    """Integration tests for health check with onboarding states."""
+
+    @pytest.fixture
+    def mock_host_with_onboarding(self):
+        """Host with installed claw that has onboarding state."""
+        return {
+            "hostname": "192.168.1.100",
+            "port": 22,
+            "user": "xclm",
+            "key_id": "testhost",
+            "claws": {
+                "openclaw": {
+                    "version": "0.1.0",
+                    "status": "installed",
+                    "user": "opc-testhost",
+                    "onboarding": {
+                        "state": "providers",
+                        "started_at": "2026-04-06T00:00:00+00:00",
+                    },
+                }
+            },
+        }
+
+    def test_stopped_claw_in_providers_state(self, mock_host_with_onboarding):
+        """Stopped claw in providers state returns ONBOARDING with step 1/4."""
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+        ]
+
+        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+                result = check_claw_health("openclaw", mock_host_with_onboarding)
+
+        assert result["status"] == ClawStatus.ONBOARDING
+        assert result["onboarding_step"] == "1/4"
+        assert result["error"] is None
+
+    def test_stopped_claw_in_identity_state(self, mock_host_with_onboarding):
+        """Stopped claw in identity state returns ONBOARDING with step 2/4."""
+        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = "identity"
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+        ]
+
+        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+                result = check_claw_health("openclaw", mock_host_with_onboarding)
+
+        assert result["status"] == ClawStatus.ONBOARDING
+        assert result["onboarding_step"] == "2/4"
+
+    def test_stopped_claw_in_channels_state(self, mock_host_with_onboarding):
+        """Stopped claw in channels state returns ONBOARDING with step 3/4."""
+        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = "channels"
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+        ]
+
+        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+                result = check_claw_health("openclaw", mock_host_with_onboarding)
+
+        assert result["status"] == ClawStatus.ONBOARDING
+        assert result["onboarding_step"] == "3/4"
+
+    def test_stopped_claw_in_validate_state(self, mock_host_with_onboarding):
+        """Stopped claw in validate state returns ONBOARDING with step 4/4."""
+        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = "validate"
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+        ]
+
+        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+                result = check_claw_health("openclaw", mock_host_with_onboarding)
+
+        assert result["status"] == ClawStatus.ONBOARDING
+        assert result["onboarding_step"] == "4/4"
+
+    def test_stopped_claw_in_ready_state(self, mock_host_with_onboarding):
+        """Stopped claw in ready state returns READY."""
+        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = "ready"
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+        ]
+
+        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+                result = check_claw_health("openclaw", mock_host_with_onboarding)
+
+        assert result["status"] == ClawStatus.READY
+        assert result["onboarding_step"] is None
+
+    def test_stopped_claw_in_pending_state(self, mock_host_with_onboarding):
+        """Stopped claw in pending state returns PENDING_ONBOARD."""
+        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = "pending"
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+        ]
+
+        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+                result = check_claw_health("openclaw", mock_host_with_onboarding)
+
+        assert result["status"] == ClawStatus.PENDING_ONBOARD
+        assert result["onboarding_step"] is None
+
+    def test_running_claw_ignores_onboarding_state(self, mock_host_with_onboarding):
+        """Running claw returns RUNNING regardless of onboarding state."""
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        ]
+
+        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+                    result = check_claw_health("openclaw", mock_host_with_onboarding)
+
+        assert result["status"] == ClawStatus.RUNNING
+        assert result["onboarding_step"] is None
+
+
+class TestHealthResultOnboardingStepField:
+    """Tests for onboarding_step field in HealthResult."""
+
+    def test_not_installed_has_onboarding_step_none(self):
+        """NOT_INSTALLED status has onboarding_step as None."""
+        host = {
+            "hostname": "192.168.1.100",
+            "claws": {},
+        }
+        result = check_claw_health("openclaw", host)
+        assert result["status"] == ClawStatus.NOT_INSTALLED
+        assert "onboarding_step" in result
+        assert result["onboarding_step"] is None
+
+    def test_unknown_has_onboarding_step_none(self):
+        """UNKNOWN status has onboarding_step as None."""
+        host = {
+            "hostname": "192.168.1.100",
+            "claws": {
+                "openclaw": {"version": "0.1.0", "status": "installed"}
+                # Missing user field
+            },
+        }
+        result = check_claw_health("openclaw", host)
+        assert result["status"] == ClawStatus.UNKNOWN
+        assert result["onboarding_step"] is None
