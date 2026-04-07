@@ -230,13 +230,26 @@ def test_status_shows_installing_status():
         }
     ]
 
-    # Health check not called for installing status - skip health check
+    mock_health = MagicMock(
+        return_value={
+            "claw": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.UNKNOWN,
+            "user": "opc-server1",
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": None,
+            "onboarding_stages": None,
+        }
+    )
     with patch("clawrium.cli.status.load_hosts", return_value=hosts):
-        with patch("clawrium.cli.status.check_claw_health"):
+        with patch("clawrium.cli.status.check_claw_health", mock_health):
             result = runner.invoke(app, ["ps"])
 
     assert result.exit_code == 0
     assert "installing" in result.output.lower()
+    assert mock_health.call_count == 1
 
 
 def test_status_hosts_file_corrupted():
@@ -424,7 +437,7 @@ def test_status_shows_ready_stopped(mock_hosts_with_claws):
 
 
 def test_status_verbose_flag_accepted(mock_hosts_with_claws):
-    """--verbose flag is accepted without error."""
+    """--verbose flag is accepted; running claws show no stage breakdown."""
     mock_health = MagicMock(
         return_value={
             "claw": "openclaw",
@@ -444,6 +457,10 @@ def test_status_verbose_flag_accepted(mock_hosts_with_claws):
             result = runner.invoke(app, ["ps", "--verbose"])
 
     assert result.exit_code == 0
+    assert "running" in result.output
+    # Running claws do not trigger verbose onboarding breakdown
+    assert "No onboarding data available" not in result.output
+    assert "providers" not in result.output
 
 
 def test_status_verbose_shows_onboarding_stages(mock_hosts_with_claws):

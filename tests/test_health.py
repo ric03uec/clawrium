@@ -37,7 +37,7 @@ def test_health_check_running(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
@@ -58,9 +58,9 @@ def test_health_check_running(mock_host):
 def test_health_check_stopped_no_onboarding(mock_host):
     """Process not running without onboarding returns PENDING_ONBOARD status."""
     mock_runner = MagicMock()
-    mock_runner.status = "successful"
+    mock_runner.status = "failed"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
@@ -123,7 +123,7 @@ def test_check_all_claws_on_host(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
@@ -192,15 +192,12 @@ def test_health_check_host_unreachable(mock_host):
     assert "unreachable" in result["error"].lower()
 
 
-def test_health_check_unexpected_output(mock_host):
-    """Unexpected output returns UNKNOWN status."""
+def test_health_check_unexpected_exit_code(mock_host):
+    """Unexpected pgrep exit code returns UNKNOWN status."""
     mock_runner = MagicMock()
-    mock_runner.status = "successful"
+    mock_runner.status = "failed"
     mock_runner.events = [
-        {
-            "event": "runner_on_ok",
-            "event_data": {"res": {"stdout": "UNEXPECTED_OUTPUT"}},
-        }
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 2}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
@@ -208,7 +205,7 @@ def test_health_check_unexpected_output(mock_host):
             result = check_claw_health("openclaw", mock_host)
 
     assert result["status"] == ClawStatus.UNKNOWN
-    assert "Unexpected output" in result["error"]
+    assert "Unexpected exit code" in result["error"]
 
 
 def test_claw_status_degraded_exists():
@@ -222,7 +219,7 @@ def test_health_result_has_missing_secrets_field(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
@@ -245,7 +242,7 @@ def test_check_claw_health_degraded_when_missing_secrets(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     # Mock required secrets for openclaw
@@ -281,7 +278,7 @@ def test_check_claw_health_running_when_all_secrets_present(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     # Mock required secrets for openclaw
@@ -321,7 +318,7 @@ def test_check_claw_health_degraded_partial_secrets(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     # Mock required secrets for openclaw
@@ -360,9 +357,9 @@ def test_check_claw_health_degraded_partial_secrets(mock_host):
 def test_missing_secrets_none_for_non_running_status(mock_host):
     """Non-running status has missing_secrets as None."""
     mock_runner = MagicMock()
-    mock_runner.status = "successful"
+    mock_runner.status = "failed"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
@@ -511,7 +508,7 @@ def test_degraded_status_verifies_instance_key_argument(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     # Mock required secrets
@@ -685,7 +682,7 @@ class TestHealthCheckOnboardingIntegration:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
         with patch(
@@ -712,7 +709,7 @@ class TestHealthCheckOnboardingIntegration:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
         with patch(
@@ -739,7 +736,7 @@ class TestHealthCheckOnboardingIntegration:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
         with patch(
@@ -766,7 +763,7 @@ class TestHealthCheckOnboardingIntegration:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
         with patch(
@@ -791,7 +788,7 @@ class TestHealthCheckOnboardingIntegration:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
         with patch(
@@ -816,7 +813,7 @@ class TestHealthCheckOnboardingIntegration:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
         with patch(
@@ -837,7 +834,7 @@ class TestHealthCheckOnboardingIntegration:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+            {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
         ]
 
         with patch(
@@ -910,7 +907,7 @@ class TestProcessRunningField:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+            {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
         ]
 
         with patch(
@@ -932,7 +929,7 @@ class TestProcessRunningField:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+            {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
         ]
 
         required = [{"key": "OPENAI_API_KEY", "description": "test"}]
@@ -960,7 +957,7 @@ class TestProcessRunningField:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
         with patch(
@@ -980,7 +977,7 @@ class TestProcessRunningField:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
         with patch(

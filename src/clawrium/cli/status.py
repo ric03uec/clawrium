@@ -114,22 +114,26 @@ def status(
         tuple[str, str], HealthResult
     ] = {}  # (claw, hostname) -> result
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-        transient=True,
-    ) as progress:
-        task = progress.add_task("Checking fleet health...", total=None)
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Checking fleet health...", total=None)
 
-        for claw_name, instances in claws_by_type.items():
-            for h, claw_record in instances:
-                progress.update(
-                    task,
-                    description=f"Checking {claw_name} on {h.get('alias') or h['hostname']}...",
-                )
-                result = check_claw_health(claw_name, h)
-                health_results[(claw_name, h["hostname"])] = result  # Store full result
+            for claw_name, instances in claws_by_type.items():
+                for h, claw_record in instances:
+                    progress.update(
+                        task,
+                        description=f"Checking {escape(claw_name)} on {escape(h.get('alias') or h['hostname'])}...",
+                    )
+                    result = check_claw_health(claw_name, h)
+                    health_results[(claw_name, h["hostname"])] = result
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Interrupted[/yellow]")
+        raise typer.Exit(code=1)
 
     console.print()  # Blank line after progress
 
@@ -203,7 +207,11 @@ def status(
             elif live_status == ClawStatus.READY:
                 status_display = "[blue]ready (stopped)[/blue]"
             else:
-                status_display = "[yellow]unknown[/yellow]"
+                error_detail = result.get("error") if result else None
+                if error_detail and isinstance(error_detail, str):
+                    status_display = f"[yellow]unknown ({escape(error_detail[:40])})[/yellow]"
+                else:
+                    status_display = "[yellow]unknown[/yellow]"
 
             # Also show install state if failed
             install_status = claw_record.get("status", "")

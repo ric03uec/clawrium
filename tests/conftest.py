@@ -5,6 +5,12 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 
+@pytest.fixture(autouse=True)
+def _isolate_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent tests from reading or writing to ~/.config/clawrium/."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+
 @pytest.fixture
 def tmp_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create a temporary config directory and set XDG_CONFIG_HOME."""
