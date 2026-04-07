@@ -7,7 +7,6 @@ on remote hosts via SSH. Per D-13, this performs live checks, not cached data.
 import logging
 import os
 import re
-import shlex
 import tempfile
 from enum import Enum
 from typing import TypedDict
@@ -15,7 +14,11 @@ from typing import TypedDict
 import ansible_runner
 
 from clawrium.core.keys import get_host_private_key
-from clawrium.core.secrets import get_instance_key, get_instance_secrets
+from clawrium.core.secrets import (
+    get_instance_key,
+    get_instance_secrets,
+    InvalidInstanceKeyComponentError,
+)
 from clawrium.core.registry import get_required_secrets
 
 logger = logging.getLogger(__name__)
@@ -35,6 +38,7 @@ ONBOARDING_STEP_MAP: dict[str, str] = {
 
 class ClawStatus(str, Enum):
     """Status of a claw instance."""
+
     RUNNING = "running"
     STOPPED = "stopped"
     UNKNOWN = "unknown"
@@ -47,14 +51,16 @@ class ClawStatus(str, Enum):
 
 class HealthResult(TypedDict):
     """Result of health check for a claw on a host."""
+
     claw: str
     host: str
     status: ClawStatus
     user: str | None
     error: str | None
-    missing_secrets: list[str] | None  # List of missing required secret keys
-    onboarding_step: str | None  # Current onboarding step (e.g., "1/4", "2/4")
-    process_running: bool | None  # True if running, False if stopped, None if unknown
+    missing_secrets: list[str] | None
+    onboarding_step: str | None
+    process_running: bool | None
+    onboarding_stages: dict[str, dict[str, str | None]] | None
 
 
 def get_onboarding_status(claw_record: dict) -> tuple[ClawStatus, str | None]:
@@ -97,6 +103,31 @@ def get_onboarding_status(claw_record: dict) -> tuple[ClawStatus, str | None]:
         return ClawStatus.ONBOARDING, step
 
 
+def count_completed_stages(claw_record: dict) -> tuple[int, int]:
+    """Count completed onboarding stages.
+
+    Args:
+        claw_record: Claw installation record from host
+
+    Returns:
+        Tuple of (completed_count, total_stages)
+    """
+    onboarding = claw_record.get("onboarding")
+    if not onboarding or not isinstance(onboarding, dict):
+        return 0, 4
+
+    stages = onboarding.get("stages", {})
+    if not stages:
+        return 0, 4
+
+    completed = sum(
+        1
+        for s in stages.values()
+        if isinstance(s, dict) and s.get("status") in ("complete", "skipped")
+    )
+    return completed, len(stages)
+
+
 def get_missing_secrets(claw_type: str, host: dict, claw_record: dict) -> list[str]:
     """Check which required secrets are missing for a claw instance.
 
@@ -120,7 +151,17 @@ def get_missing_secrets(claw_type: str, host: dict, claw_record: dict) -> list[s
         # Cannot determine claw name - return empty (no secrets can be checked)
         return []
 
-    instance_key = get_instance_key(host["hostname"], claw_type, claw_name)
+    try:
+        instance_key = get_instance_key(host["hostname"], claw_type, claw_name)
+    except InvalidInstanceKeyComponentError:
+        logger.warning(
+            "Invalid instance key component for %s/%s/%s — skipping secret check",
+            host.get("hostname"),
+            claw_type,
+            claw_name,
+        )
+        return []
+
     instance_secrets = get_instance_secrets(instance_key)
 
     required = get_required_secrets(claw_type)
@@ -162,11 +203,11 @@ def check_claw_health(
             "missing_secrets": None,
             "onboarding_step": None,
             "process_running": None,
+            "onboarding_stages": None,
         }
 
     claw_user = claw_record.get("user")
     if not claw_user:
-        # No user set - can't check
         return {
             "claw": claw_name,
             "host": hostname,
@@ -176,9 +217,9 @@ def check_claw_health(
             "missing_secrets": None,
             "onboarding_step": None,
             "process_running": None,
+            "onboarding_stages": None,
         }
 
-    # Validate username to prevent command injection
     if not VALID_USERNAME_PATTERN.match(claw_user):
         return {
             "claw": claw_name,
@@ -189,9 +230,9 @@ def check_claw_health(
             "missing_secrets": None,
             "onboarding_step": None,
             "process_running": None,
+            "onboarding_stages": None,
         }
 
-    # Get SSH key
     key_id = host.get("key_id") or hostname
     ssh_key = get_host_private_key(key_id)
     if not ssh_key:
@@ -204,6 +245,7 @@ def check_claw_health(
             "missing_secrets": None,
             "onboarding_step": None,
             "process_running": None,
+            "onboarding_stages": None,
         }
 
     # Build inventory
@@ -219,10 +261,11 @@ def check_claw_health(
         }
     }
 
-    # Check for node process owned by claw user
-    # OpenClaw runs as a Node.js process
-    # Use shlex.quote for defense-in-depth (user already validated by regex)
-    check_cmd = f"pgrep -u {shlex.quote(claw_user)} node >/dev/null 2>&1 && echo RUNNING || echo STOPPED"
+    # Check for node process owned by claw user using pgrep.
+    # claw_user is already validated by VALID_USERNAME_PATTERN (alphanumeric/hyphen/underscore).
+    # Using module='command' avoids shell interpretation entirely.
+    # pgrep exits 0 (process found) → runner_on_ok; exits 1 (not found) → runner_on_failed rc=1.
+    check_cmd = f"pgrep -u {claw_user} node"
 
     with tempfile.TemporaryDirectory() as tmpdir:
         os.chmod(tmpdir, 0o700)
@@ -231,7 +274,7 @@ def check_claw_health(
             private_data_dir=tmpdir,
             inventory=inventory,
             host_pattern=hostname,
-            module="shell",
+            module="command",
             module_args=check_cmd,
             quiet=True,
             timeout=15,
@@ -247,26 +290,21 @@ def check_claw_health(
                 "missing_secrets": None,
                 "onboarding_step": None,
                 "process_running": None,
+                "onboarding_stages": None,
             }
 
-        if result.status != "successful":
-            return {
-                "claw": claw_name,
-                "host": hostname,
-                "status": ClawStatus.UNKNOWN,
-                "user": claw_user,
-                "error": f"SSH failed: {result.status}",
-                "missing_secrets": None,
-                "onboarding_step": None,
-                "process_running": None,
-            }
+        # Parse events to determine process state.
+        # runner_on_ok  → pgrep found the process (rc=0) → RUNNING
+        # runner_on_failed rc=1 → pgrep found nothing → STOPPED
+        # runner_on_failed rc!=1 → unexpected pgrep error → UNKNOWN
+        # runner_on_unreachable → SSH unreachable → UNKNOWN
+        # no relevant event → SSH-level failure → UNKNOWN
+        process_running: bool | None = None
+        error_msg: str | None = None
 
-        # Parse output from events
-        output = ""
         for event in result.events:
             event_type = event.get("event")
             if event_type == "runner_on_unreachable":
-                # Host unreachable - network issue, not process status
                 return {
                     "claw": claw_name,
                     "host": hostname,
@@ -276,16 +314,35 @@ def check_claw_health(
                     "missing_secrets": None,
                     "onboarding_step": None,
                     "process_running": None,
+                    "onboarding_stages": None,
                 }
             if event_type == "runner_on_ok":
-                output = event.get("event_data", {}).get("res", {}).get("stdout", "")
+                process_running = True
+                break
+            if event_type == "runner_on_failed":
+                rc = event.get("event_data", {}).get("res", {}).get("rc", -1)
+                if rc == 1:
+                    process_running = False
+                else:
+                    error_msg = f"Unexpected exit code: {rc}"
                 break
 
-        if "RUNNING" in output:
-            # Check for missing required secrets
+        if process_running is None:
+            return {
+                "claw": claw_name,
+                "host": hostname,
+                "status": ClawStatus.UNKNOWN,
+                "user": claw_user,
+                "error": error_msg or f"SSH failed: {result.status}",
+                "missing_secrets": None,
+                "onboarding_step": None,
+                "process_running": None,
+                "onboarding_stages": None,
+            }
+
+        if process_running:
             missing = get_missing_secrets(claw_name, host, claw_record)
             if missing:
-                # Claw is running but missing required secrets - degraded state
                 return {
                     "claw": claw_name,
                     "host": hostname,
@@ -295,9 +352,9 @@ def check_claw_health(
                     "missing_secrets": missing,
                     "onboarding_step": None,
                     "process_running": True,
+                    "onboarding_stages": None,
                 }
             else:
-                # Claw is running with all required secrets
                 return {
                     "claw": claw_name,
                     "host": hostname,
@@ -307,11 +364,18 @@ def check_claw_health(
                     "missing_secrets": None,
                     "onboarding_step": None,
                     "process_running": True,
+                    "onboarding_stages": None,
                 }
-        elif "STOPPED" in output:
-            # Process not running - check onboarding state
-            # B1/B2 fix: process_running=False distinguishes "ready but stopped" from "running"
+        else:
             status, step = get_onboarding_status(claw_record)
+            onboarding_stages = None
+            if status in (
+                ClawStatus.ONBOARDING,
+                ClawStatus.READY,
+            ):
+                onboarding = claw_record.get("onboarding")
+                if onboarding and isinstance(onboarding, dict):
+                    onboarding_stages = onboarding.get("stages")
             return {
                 "claw": claw_name,
                 "host": hostname,
@@ -321,18 +385,7 @@ def check_claw_health(
                 "missing_secrets": None,
                 "onboarding_step": step,
                 "process_running": False,
-            }
-        else:
-            # Unexpected output - treat as unknown
-            return {
-                "claw": claw_name,
-                "host": hostname,
-                "status": ClawStatus.UNKNOWN,
-                "user": claw_user,
-                "error": f"Unexpected output: {output[:50]}" if output else "No output",
-                "missing_secrets": None,
-                "onboarding_step": None,
-                "process_running": None,
+                "onboarding_stages": onboarding_stages,
             }
 
 

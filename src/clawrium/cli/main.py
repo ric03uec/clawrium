@@ -49,10 +49,15 @@ def init() -> None:
 
 @app.command()
 def ps(
-    host: Optional[str] = typer.Option(None, "--host", "-H", help="Filter to specific host"),
+    host: Optional[str] = typer.Option(
+        None, "--host", "-H", help="Filter to specific host"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show detailed onboarding stages"
+    ),
 ) -> None:
     """Quick fleet overview - show agents and hosts status."""
-    status_command(host=host)
+    status_command(host=host, verbose=verbose)
 
 
 @app.command()
@@ -62,7 +67,9 @@ def snapshot() -> None:
     [Not yet implemented]
     """
     console.print("[yellow]Not implemented:[/yellow] snapshot")
-    console.print("This command will backup your fleet configuration in a future release.")
+    console.print(
+        "This command will backup your fleet configuration in a future release."
+    )
     raise typer.Exit(code=0)
 
 

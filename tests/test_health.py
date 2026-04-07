@@ -8,6 +8,7 @@ from clawrium.core.health import (
     check_all_claws_on_host,
     get_missing_secrets,
     get_onboarding_status,
+    count_completed_stages,
     ClawStatus,
     ONBOARDING_STEP_MAP,
 )
@@ -36,7 +37,7 @@ def test_health_check_running(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
@@ -57,9 +58,9 @@ def test_health_check_running(mock_host):
 def test_health_check_stopped_no_onboarding(mock_host):
     """Process not running without onboarding returns PENDING_ONBOARD status."""
     mock_runner = MagicMock()
-    mock_runner.status = "successful"
+    mock_runner.status = "failed"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
@@ -122,7 +123,7 @@ def test_check_all_claws_on_host(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
@@ -178,10 +179,10 @@ def test_health_check_invalid_claw_user():
 def test_health_check_host_unreachable(mock_host):
     """Host unreachable returns UNKNOWN status."""
     mock_runner = MagicMock()
-    mock_runner.status = "successful"  # ansible-runner returns successful even for unreachable
-    mock_runner.events = [
-        {"event": "runner_on_unreachable", "event_data": {}}
-    ]
+    mock_runner.status = (
+        "successful"  # ansible-runner returns successful even for unreachable
+    )
+    mock_runner.events = [{"event": "runner_on_unreachable", "event_data": {}}]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
@@ -191,12 +192,12 @@ def test_health_check_host_unreachable(mock_host):
     assert "unreachable" in result["error"].lower()
 
 
-def test_health_check_unexpected_output(mock_host):
-    """Unexpected output returns UNKNOWN status."""
+def test_health_check_unexpected_exit_code(mock_host):
+    """Unexpected pgrep exit code returns UNKNOWN status."""
     mock_runner = MagicMock()
-    mock_runner.status = "successful"
+    mock_runner.status = "failed"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "UNEXPECTED_OUTPUT"}}}
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 2}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
@@ -204,7 +205,7 @@ def test_health_check_unexpected_output(mock_host):
             result = check_claw_health("openclaw", mock_host)
 
     assert result["status"] == ClawStatus.UNKNOWN
-    assert "Unexpected output" in result["error"]
+    assert "Unexpected exit code" in result["error"]
 
 
 def test_claw_status_degraded_exists():
@@ -218,13 +219,18 @@ def test_health_result_has_missing_secrets_field(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
-            with patch("clawrium.core.health.get_instance_secrets", return_value={"OPENAI_API_KEY": {}}):
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+            with patch(
+                "clawrium.core.health.get_instance_secrets",
+                return_value={"OPENAI_API_KEY": {}},
+            ):
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     result = check_claw_health("openclaw", mock_host)
 
     # Check field exists
@@ -236,7 +242,7 @@ def test_check_claw_health_degraded_when_missing_secrets(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     # Mock required secrets for openclaw
@@ -250,8 +256,14 @@ def test_check_claw_health_degraded_when_missing_secrets(mock_host):
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
-            with patch("clawrium.core.health.get_instance_secrets", return_value=instance_secrets):
-                with patch("clawrium.core.health.get_required_secrets", return_value=required_secrets):
+            with patch(
+                "clawrium.core.health.get_instance_secrets",
+                return_value=instance_secrets,
+            ):
+                with patch(
+                    "clawrium.core.health.get_required_secrets",
+                    return_value=required_secrets,
+                ):
                     result = check_claw_health("openclaw", mock_host)
 
     assert result["status"] == ClawStatus.DEGRADED
@@ -266,7 +278,7 @@ def test_check_claw_health_running_when_all_secrets_present(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     # Mock required secrets for openclaw
@@ -287,8 +299,14 @@ def test_check_claw_health_running_when_all_secrets_present(mock_host):
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
-            with patch("clawrium.core.health.get_instance_secrets", return_value=instance_secrets):
-                with patch("clawrium.core.health.get_required_secrets", return_value=required_secrets):
+            with patch(
+                "clawrium.core.health.get_instance_secrets",
+                return_value=instance_secrets,
+            ):
+                with patch(
+                    "clawrium.core.health.get_required_secrets",
+                    return_value=required_secrets,
+                ):
                     result = check_claw_health("openclaw", mock_host)
 
     assert result["status"] == ClawStatus.RUNNING
@@ -300,7 +318,7 @@ def test_check_claw_health_degraded_partial_secrets(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     # Mock required secrets for openclaw
@@ -322,8 +340,14 @@ def test_check_claw_health_degraded_partial_secrets(mock_host):
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
-            with patch("clawrium.core.health.get_instance_secrets", return_value=instance_secrets):
-                with patch("clawrium.core.health.get_required_secrets", return_value=required_secrets):
+            with patch(
+                "clawrium.core.health.get_instance_secrets",
+                return_value=instance_secrets,
+            ):
+                with patch(
+                    "clawrium.core.health.get_required_secrets",
+                    return_value=required_secrets,
+                ):
                     result = check_claw_health("openclaw", mock_host)
 
     assert result["status"] == ClawStatus.DEGRADED
@@ -333,9 +357,9 @@ def test_check_claw_health_degraded_partial_secrets(mock_host):
 def test_missing_secrets_none_for_non_running_status(mock_host):
     """Non-running status has missing_secrets as None."""
     mock_runner = MagicMock()
-    mock_runner.status = "successful"
+    mock_runner.status = "failed"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
     ]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
@@ -361,7 +385,9 @@ class TestGetMissingSecrets:
         with patch("clawrium.core.health.get_instance_key") as mock_key:
             mock_key.return_value = "192.168.1.100:openclaw:work"
             with patch("clawrium.core.health.get_instance_secrets", return_value={}):
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     get_missing_secrets("openclaw", host, claw_record)
 
         # Verify instance key was built with correct claw_name
@@ -375,7 +401,9 @@ class TestGetMissingSecrets:
         with patch("clawrium.core.health.get_instance_key") as mock_key:
             mock_key.return_value = "192.168.1.100:openclaw:work"
             with patch("clawrium.core.health.get_instance_secrets", return_value={}):
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     get_missing_secrets("openclaw", host, claw_record)
 
         # Verify derived name was used
@@ -389,7 +417,9 @@ class TestGetMissingSecrets:
         with patch("clawrium.core.health.get_instance_key") as mock_key:
             mock_key.return_value = "192.168.1.100:openclaw:my-claw"
             with patch("clawrium.core.health.get_instance_secrets", return_value={}):
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     get_missing_secrets("openclaw", host, claw_record)
 
         # Verify multi-hyphen name handled correctly (split on first hyphen only)
@@ -403,7 +433,9 @@ class TestGetMissingSecrets:
         with patch("clawrium.core.health.get_instance_key") as mock_key:
             mock_key.return_value = "192.168.1.100:openclaw:simpleuser"
             with patch("clawrium.core.health.get_instance_secrets", return_value={}):
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     get_missing_secrets("openclaw", host, claw_record)
 
         # Verify full username used when no hyphen
@@ -440,8 +472,12 @@ class TestGetMissingSecrets:
             "OPENAI_API_KEY": {"key": "OPENAI_API_KEY", "value": "sk-test"}
         }
 
-        with patch("clawrium.core.health.get_instance_secrets", return_value=instance_secrets):
-            with patch("clawrium.core.health.get_required_secrets", return_value=required):
+        with patch(
+            "clawrium.core.health.get_instance_secrets", return_value=instance_secrets
+        ):
+            with patch(
+                "clawrium.core.health.get_required_secrets", return_value=required
+            ):
                 result = get_missing_secrets("openclaw", host, claw_record)
 
         assert result == ["ANTHROPIC_API_KEY"]
@@ -456,8 +492,12 @@ class TestGetMissingSecrets:
             "OPENAI_API_KEY": {"key": "OPENAI_API_KEY", "value": "sk-test"}
         }
 
-        with patch("clawrium.core.health.get_instance_secrets", return_value=instance_secrets):
-            with patch("clawrium.core.health.get_required_secrets", return_value=required):
+        with patch(
+            "clawrium.core.health.get_instance_secrets", return_value=instance_secrets
+        ):
+            with patch(
+                "clawrium.core.health.get_required_secrets", return_value=required
+            ):
                 result = get_missing_secrets("openclaw", host, claw_record)
 
         assert result == []
@@ -468,7 +508,7 @@ def test_degraded_status_verifies_instance_key_argument(mock_host):
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
     ]
 
     # Mock required secrets
@@ -478,7 +518,10 @@ def test_degraded_status_verifies_instance_key_argument(mock_host):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
             with patch("clawrium.core.health.get_instance_secrets") as mock_get_secrets:
                 mock_get_secrets.return_value = {}  # All missing
-                with patch("clawrium.core.health.get_required_secrets", return_value=required_secrets):
+                with patch(
+                    "clawrium.core.health.get_required_secrets",
+                    return_value=required_secrets,
+                ):
                     result = check_claw_health("openclaw", mock_host)
 
     # Verify correct instance key was passed
@@ -639,11 +682,15 @@ class TestHealthCheckOnboardingIntegration:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
                 result = check_claw_health("openclaw", mock_host_with_onboarding)
 
         assert result["status"] == ClawStatus.ONBOARDING
@@ -651,19 +698,26 @@ class TestHealthCheckOnboardingIntegration:
         assert result["error"] is None
         assert result["missing_secrets"] is None
         assert result["process_running"] is False
+        assert result["onboarding_stages"] is None
 
     def test_stopped_claw_in_identity_state(self, mock_host_with_onboarding):
         """Stopped claw in identity state returns ONBOARDING with step 2/4."""
-        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = "identity"
+        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = (
+            "identity"
+        )
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
                 result = check_claw_health("openclaw", mock_host_with_onboarding)
 
         assert result["status"] == ClawStatus.ONBOARDING
@@ -671,19 +725,26 @@ class TestHealthCheckOnboardingIntegration:
         assert result["error"] is None
         assert result["missing_secrets"] is None
         assert result["process_running"] is False
+        assert result["onboarding_stages"] is None
 
     def test_stopped_claw_in_channels_state(self, mock_host_with_onboarding):
         """Stopped claw in channels state returns ONBOARDING with step 3/4."""
-        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = "channels"
+        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = (
+            "channels"
+        )
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
                 result = check_claw_health("openclaw", mock_host_with_onboarding)
 
         assert result["status"] == ClawStatus.ONBOARDING
@@ -691,19 +752,26 @@ class TestHealthCheckOnboardingIntegration:
         assert result["error"] is None
         assert result["missing_secrets"] is None
         assert result["process_running"] is False
+        assert result["onboarding_stages"] is None
 
     def test_stopped_claw_in_validate_state(self, mock_host_with_onboarding):
         """Stopped claw in validate state returns ONBOARDING with step 4/4."""
-        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = "validate"
+        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = (
+            "validate"
+        )
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
                 result = check_claw_health("openclaw", mock_host_with_onboarding)
 
         assert result["status"] == ClawStatus.ONBOARDING
@@ -711,6 +779,7 @@ class TestHealthCheckOnboardingIntegration:
         assert result["error"] is None
         assert result["missing_secrets"] is None
         assert result["process_running"] is False
+        assert result["onboarding_stages"] is None
 
     def test_stopped_claw_in_ready_state(self, mock_host_with_onboarding):
         """Stopped claw in ready state returns READY."""
@@ -719,51 +788,70 @@ class TestHealthCheckOnboardingIntegration:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
                 result = check_claw_health("openclaw", mock_host_with_onboarding)
 
         assert result["status"] == ClawStatus.READY
         assert result["onboarding_step"] is None
         assert result["process_running"] is False
+        assert result["onboarding_stages"] is None
 
     def test_stopped_claw_in_pending_state(self, mock_host_with_onboarding):
         """Stopped claw in pending state returns PENDING_ONBOARD."""
-        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = "pending"
+        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = (
+            "pending"
+        )
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
                 result = check_claw_health("openclaw", mock_host_with_onboarding)
 
         assert result["status"] == ClawStatus.PENDING_ONBOARD
         assert result["onboarding_step"] is None
         assert result["process_running"] is False
+        assert result["onboarding_stages"] is None
 
     def test_running_claw_ignores_onboarding_state(self, mock_host_with_onboarding):
         """Running claw returns RUNNING regardless of onboarding state."""
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+            {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     result = check_claw_health("openclaw", mock_host_with_onboarding)
 
         assert result["status"] == ClawStatus.RUNNING
         assert result["onboarding_step"] is None
         assert result["process_running"] is True
+        assert result["onboarding_stages"] is None
 
 
 class TestHealthResultOnboardingStepField:
@@ -819,12 +907,18 @@ class TestProcessRunningField:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+            {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     result = check_claw_health("openclaw", mock_host)
 
         assert result["status"] == ClawStatus.RUNNING
@@ -835,15 +929,24 @@ class TestProcessRunningField:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "RUNNING"}}}
+            {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
         ]
 
         required = [{"key": "OPENAI_API_KEY", "description": "test"}]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
-                with patch("clawrium.core.health.get_instance_secrets", return_value={}):
-                    with patch("clawrium.core.health.get_required_secrets", return_value=required):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
+                with patch(
+                    "clawrium.core.health.get_instance_secrets", return_value={}
+                ):
+                    with patch(
+                        "clawrium.core.health.get_required_secrets",
+                        return_value=required,
+                    ):
                         result = check_claw_health("openclaw", mock_host)
 
         assert result["status"] == ClawStatus.DEGRADED
@@ -854,11 +957,15 @@ class TestProcessRunningField:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
                 result = check_claw_health("openclaw", mock_host)
 
         assert result["process_running"] is False
@@ -870,11 +977,15 @@ class TestProcessRunningField:
         mock_runner = MagicMock()
         mock_runner.status = "successful"
         mock_runner.events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"stdout": "STOPPED"}}}
+            {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
                 result = check_claw_health("openclaw", mock_host)
 
         # B2 fix: Can distinguish "ready but stopped" from "running"
@@ -907,8 +1018,12 @@ class TestProcessRunningField:
         mock_runner.status = "timeout"
         mock_runner.events = []
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
                 result = check_claw_health("openclaw", mock_host)
 
         assert result["status"] == ClawStatus.UNKNOWN
@@ -920,8 +1035,12 @@ class TestProcessRunningField:
         mock_runner.status = "failed"
         mock_runner.events = []
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
                 result = check_claw_health("openclaw", mock_host)
 
         assert result["status"] == ClawStatus.UNKNOWN
@@ -933,9 +1052,157 @@ class TestProcessRunningField:
         mock_runner.status = "successful"
         mock_runner.events = [{"event": "runner_on_unreachable", "event_data": {}}]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ):
                 result = check_claw_health("openclaw", mock_host)
 
         assert result["status"] == ClawStatus.UNKNOWN
         assert result["process_running"] is None
+
+
+class TestCountCompletedStages:
+    """Tests for count_completed_stages function - Issue #73."""
+
+    def test_no_onboarding_returns_zero_four(self):
+        """Missing onboarding record returns (0, 4)."""
+        claw_record = {"version": "0.1.0", "user": "opc-test"}
+        completed, total = count_completed_stages(claw_record)
+        assert completed == 0
+        assert total == 4
+
+    def test_non_dict_onboarding_returns_zero_four(self):
+        """Non-dict onboarding value returns (0, 4)."""
+        claw_record = {"onboarding": "invalid"}
+        completed, total = count_completed_stages(claw_record)
+        assert completed == 0
+        assert total == 4
+
+    def test_no_stages_returns_zero_four(self):
+        """Missing stages dict returns (0, 4)."""
+        claw_record = {"onboarding": {"state": "pending"}}
+        completed, total = count_completed_stages(claw_record)
+        assert completed == 0
+        assert total == 4
+
+    def test_all_stages_pending_returns_zero_four(self):
+        """All stages pending returns (0, 4)."""
+        claw_record = {
+            "onboarding": {
+                "state": "pending",
+                "stages": {
+                    "providers": {"status": "pending"},
+                    "identity": {"status": "pending"},
+                    "channels": {"status": "pending"},
+                    "validate": {"status": "pending"},
+                },
+            }
+        }
+        completed, total = count_completed_stages(claw_record)
+        assert completed == 0
+        assert total == 4
+
+    def test_one_stage_complete_returns_one_four(self):
+        """One stage complete returns (1, 4)."""
+        claw_record = {
+            "onboarding": {
+                "state": "identity",
+                "stages": {
+                    "providers": {"status": "complete"},
+                    "identity": {"status": "pending"},
+                    "channels": {"status": "pending"},
+                    "validate": {"status": "pending"},
+                },
+            }
+        }
+        completed, total = count_completed_stages(claw_record)
+        assert completed == 1
+        assert total == 4
+
+    def test_two_stages_complete_returns_two_four(self):
+        """Two stages complete returns (2, 4)."""
+        claw_record = {
+            "onboarding": {
+                "state": "channels",
+                "stages": {
+                    "providers": {"status": "complete"},
+                    "identity": {"status": "complete"},
+                    "channels": {"status": "pending"},
+                    "validate": {"status": "pending"},
+                },
+            }
+        }
+        completed, total = count_completed_stages(claw_record)
+        assert completed == 2
+        assert total == 4
+
+    def test_all_stages_complete_returns_four_four(self):
+        """All stages complete returns (4, 4)."""
+        claw_record = {
+            "onboarding": {
+                "state": "ready",
+                "stages": {
+                    "providers": {"status": "complete"},
+                    "identity": {"status": "complete"},
+                    "channels": {"status": "complete"},
+                    "validate": {"status": "complete"},
+                },
+            }
+        }
+        completed, total = count_completed_stages(claw_record)
+        assert completed == 4
+        assert total == 4
+
+    def test_skipped_stage_counts_as_complete(self):
+        """Skipped stages count toward completed count."""
+        claw_record = {
+            "onboarding": {
+                "state": "validate",
+                "stages": {
+                    "providers": {"status": "complete"},
+                    "identity": {"status": "skipped"},
+                    "channels": {"status": "complete"},
+                    "validate": {"status": "pending"},
+                },
+            }
+        }
+        completed, total = count_completed_stages(claw_record)
+        assert completed == 3
+        assert total == 4
+
+    def test_mixed_complete_and_skipped(self):
+        """Mixed complete and skipped stages count correctly."""
+        claw_record = {
+            "onboarding": {
+                "state": "ready",
+                "stages": {
+                    "providers": {"status": "skipped"},
+                    "identity": {"status": "skipped"},
+                    "channels": {"status": "skipped"},
+                    "validate": {"status": "skipped"},
+                },
+            }
+        }
+        completed, total = count_completed_stages(claw_record)
+        assert completed == 4
+        assert total == 4
+
+    def test_non_dict_stage_value_ignored(self):
+        """Non-dict stage values are ignored in count."""
+        claw_record = {
+            "onboarding": {
+                "state": "identity",
+                "stages": {
+                    "providers": {"status": "complete"},
+                    "identity": "invalid",  # Non-dict value
+                    "channels": {"status": "pending"},
+                    "validate": {"status": "pending"},
+                },
+            }
+        }
+        completed, total = count_completed_stages(claw_record)
+        assert completed == 1
+        assert total == 4
