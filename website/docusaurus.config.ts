@@ -136,12 +136,12 @@ const config: Config = {
       },
       options: {
         themeVariables: {
-          primaryColor: '#ea580c',
+          primaryColor: '#0D9488',
           primaryTextColor: '#fff',
-          primaryBorderColor: '#c2410c',
-          lineColor: '#f97316',
-          secondaryColor: '#fbbf24',
-          tertiaryColor: '#fff7ed',
+          primaryBorderColor: '#0F766E',
+          lineColor: '#14B8A6',
+          secondaryColor: '#5EEAD4',
+          tertiaryColor: '#F0FDFA',
         },
       },
     },
