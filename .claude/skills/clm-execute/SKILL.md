@@ -73,6 +73,39 @@ git worktree remove --force ../clawrium-issue-35
 tmux kill-window -t "clm/exec:issue-35"
 ```
 
+## GitHub Project Board
+
+Project ID: `PVT_kwHOABDzzM4BSDdU`
+Status Field ID: `PVTSSF_lAHOABDzzM4BSDdUzg_s1SU`
+
+Status Options:
+- Backlog: `d1b8c82d`
+- Ready: `e68a5cf4`
+- Executing: `47fc9ee4`
+- In Review: `e78b7dd8`
+- Done: `4aea9290`
+
+### Add Issue to Project & Set Status
+
+```bash
+# Get issue node ID
+NODE_ID=$(gh api repos/ric03uec/clawrium/issues/<number> --jq '.node_id')
+
+# Add to project (returns item ID)
+ITEM_ID=$(gh api graphql -f query='
+  mutation {
+    addProjectV2ItemById(input: {
+      projectId: "PVT_kwHOABDzzM4BSDdU"
+      contentId: "'"$NODE_ID"'"
+    }) { item { id } }
+  }
+' --jq '.data.addProjectV2ItemById.item.id')
+
+# Set status to Executing
+gh project item-edit --project-id PVT_kwHOABDzzM4BSDdU --id "$ITEM_ID" \
+  --field-id PVTSSF_lAHOABDzzM4BSDdUzg_s1SU --single-select-option-id 47fc9ee4
+```
+
 ## Branch Protection
 
 **NEVER push directly to the `main` branch.**
@@ -130,14 +163,7 @@ Always:
    </details>
    ```
 
-2. **Update Status to Executing**:
-   ```bash
-   # Get the project item ID for this issue
-   ITEM_ID=$(gh project item-list 1 --owner ric03uec --format json | jq -r '.items[] | select(.content.number == <number>) | .id')
-
-   # Set status to "Executing"
-   gh project item-edit --project-id PVT_kwHOABDzzM4BSDdU --id "$ITEM_ID" --field-id PVTSSF_lAHOABDzzM4BSDdUzg_s1SU --single-select-option-id 47fc9ee4
-   ```
+2. **Update Status to Executing**: Use the project board commands at top of file
 
 3. **Read Plan**: Find the implementation plan in issue comments
 

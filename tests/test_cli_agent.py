@@ -97,7 +97,10 @@ def test_agent_install_prompts_for_claw(isolated_config: Path):
         app, ["agent", "install", "--host", "testhost"], input="\n", env=os.environ
     )
 
-    assert "available claw" in result.output.lower() or "select claw" in result.output.lower()
+    assert (
+        "available claw" in result.output.lower()
+        or "select claw" in result.output.lower()
+    )
 
 
 def test_agent_install_with_flags(isolated_config: Path):
@@ -147,12 +150,12 @@ def test_agent_ps_no_claws():
 
 
 # Tests for placeholder commands
-def test_agent_configure_placeholder():
-    """clm agent configure shows not implemented message."""
+def test_agent_configure_requires_valid_name():
+    """clm agent configure requires valid claw name format."""
     result = runner.invoke(app, ["agent", "configure", "opc-work"])
 
-    assert result.exit_code == 0
-    assert "not implemented" in result.output.lower()
+    assert result.exit_code == 1
+    assert "host" in result.output.lower() and "not found" in result.output.lower()
 
 
 def test_agent_remove_placeholder():
@@ -200,7 +203,9 @@ def test_agent_secret_help():
 
 def test_agent_secret_import_placeholder():
     """clm agent secret import shows not implemented message."""
-    result = runner.invoke(app, ["agent", "secret", "import", "source-claw", "target-claw"])
+    result = runner.invoke(
+        app, ["agent", "secret", "import", "source-claw", "target-claw"]
+    )
 
     assert result.exit_code == 0
     assert "not implemented" in result.output.lower()
