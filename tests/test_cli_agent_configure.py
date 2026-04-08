@@ -477,9 +477,149 @@ class TestRunValidateStage:
         """Returns False when complete_stage fails."""
         from clawrium.cli.agent import _run_validate_stage
 
-        with patch(
-            "clawrium.cli.agent.complete_stage", side_effect=Exception("failed")
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config, onboarding_state="validate")
+        create_provider(isolated_config)
+
+        hosts_file = isolated_config / "hosts.json"
+        hosts_data = json.loads(hosts_file.read_text())
+        hosts_data[0]["claws"]["openclaw"]["onboarding"]["stages"]["providers"][
+            "provider_id"
+        ] = "test-openai"
+        hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+        soul_dir = isolated_config / "claws" / "openclaw"
+        soul_dir.mkdir(parents=True)
+        (soul_dir / "SOUL.md").write_text("Test personality")
+
+        secrets_file = isolated_config / "secrets.json"
+        secrets_file.write_text(
+            json.dumps(
+                {
+                    "provider:test-openai": {
+                        "API_KEY": {
+                            "key": "API_KEY",
+                            "value": "sk-test-key",
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-01T00:00:00Z",
+                            "description": "",
+                        }
+                    }
+                }
+            )
+        )
+
+        with (
+            patch(
+                "clawrium.core.validation._make_request", return_value=(200, {}, None)
+            ),
+            patch("clawrium.cli.agent.complete_stage", side_effect=Exception("failed")),
         ):
+            result = _run_validate_stage("work", "openclaw", True)
+
+        assert result is False
+
+    def test_soul_md_missing_fails(self, isolated_config: Path):
+        """Returns False when SOUL.md is missing."""
+        from clawrium.cli.agent import _run_validate_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config, onboarding_state="validate")
+        create_provider(isolated_config)
+
+        hosts_file = isolated_config / "hosts.json"
+        hosts_data = json.loads(hosts_file.read_text())
+        hosts_data[0]["claws"]["openclaw"]["onboarding"]["stages"]["providers"][
+            "provider_id"
+        ] = "test-openai"
+        hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+        with patch("clawrium.cli.agent.complete_stage"):
+            result = _run_validate_stage("work", "openclaw", True)
+
+        assert result is False
+
+    def test_validation_passes_with_all_checks(self, isolated_config: Path):
+        """Returns True when all validation checks pass."""
+        from clawrium.cli.agent import _run_validate_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config, onboarding_state="validate")
+        create_provider(isolated_config)
+
+        hosts_file = isolated_config / "hosts.json"
+        hosts_data = json.loads(hosts_file.read_text())
+        hosts_data[0]["claws"]["openclaw"]["onboarding"]["stages"]["providers"][
+            "provider_id"
+        ] = "test-openai"
+        hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+        soul_dir = isolated_config / "claws" / "openclaw"
+        soul_dir.mkdir(parents=True)
+        (soul_dir / "SOUL.md").write_text("Test personality")
+
+        secrets_file = isolated_config / "secrets.json"
+        secrets_file.write_text(
+            json.dumps(
+                {
+                    "provider:test-openai": {
+                        "API_KEY": {
+                            "key": "API_KEY",
+                            "value": "sk-test-key",
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-01T00:00:00Z",
+                            "description": "",
+                        }
+                    }
+                }
+            )
+        )
+
+        with (
+            patch(
+                "clawrium.core.validation._make_request", return_value=(200, {}, None)
+            ),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            result = _run_validate_stage("work", "openclaw", True)
+
+        assert result is True
+
+    def test_provider_not_configured_fails(self, isolated_config: Path):
+        """Returns False when provider is not configured."""
+        from clawrium.cli.agent import _run_validate_stage
+
+        create_test_keypair(isolated_config, "work")
+        hosts_file = isolated_config / "hosts.json"
+        hosts_data = [
+            {
+                "hostname": "192.168.1.100",
+                "key_id": "work",
+                "alias": "work",
+                "claws": {
+                    "openclaw": {
+                        "version": "0.1.0",
+                        "status": "installed",
+                        "onboarding": {
+                            "state": "validate",
+                            "stages": {
+                                "providers": {"status": "pending", "provider_id": None},
+                                "identity": {"status": "complete"},
+                                "channels": {"status": "complete"},
+                                "validate": {"status": "pending"},
+                            },
+                        },
+                    }
+                },
+            }
+        ]
+        hosts_file.write_text(json.dumps(hosts_data))
+
+        soul_dir = isolated_config / "claws" / "openclaw"
+        soul_dir.mkdir(parents=True)
+        (soul_dir / "SOUL.md").write_text("Test personality")
+
+        with patch("clawrium.cli.agent.complete_stage"):
             result = _run_validate_stage("work", "openclaw", True)
 
         assert result is False

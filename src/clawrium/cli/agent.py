@@ -414,6 +414,12 @@ def _run_channels_stage(host: str, claw_type: str, yes: bool) -> bool:
 def _run_validate_stage(host: str, claw_type: str, yes: bool) -> bool:
     """Run the VALIDATE onboarding stage.
 
+    Performs comprehensive validation of agent configuration:
+    1. Verify SOUL.md personality file exists
+    2. Check provider is configured
+    3. Validate API key exists
+    4. Test provider connectivity
+
     Args:
         host: Host alias
         claw_type: Claw type
@@ -422,11 +428,101 @@ def _run_validate_stage(host: str, claw_type: str, yes: bool) -> bool:
     Returns:
         True if stage completed successfully
     """
-    console.print("[yellow]Validation not yet implemented - skipped[/yellow]")
-    console.print()
-    console.print(
-        "Future validation will verify configuration files and run agent self-test."
+    from clawrium.core.validation import (
+        validate_soul_md,
+        validate_provider_config,
+        validate_provider_api_key,
+        verify_provider_connectivity,
+        validate_agent_installation,
     )
+
+    all_errors = []
+    all_warnings = []
+
+    console.print("[1/4] Validating agent installation...")
+    install_result = validate_agent_installation(host, claw_type)
+    if install_result.passed:
+        console.print("  [green]✓[/green] Agent installed")
+    else:
+        console.print("  [red]✗[/red] Agent installation check failed")
+        for error in install_result.errors:
+            console.print(f"    [red]Error:[/red] {rich_escape(error)}")
+        all_errors.extend(install_result.errors)
+
+    console.print("[2/4] Validating personality file (SOUL.md)...")
+    soul_result = validate_soul_md(claw_type)
+    if soul_result.passed:
+        console.print("  [green]✓[/green] SOUL.md exists and readable")
+        for warning in soul_result.warnings:
+            console.print(f"    [yellow]Warning:[/yellow] {rich_escape(warning)}")
+            all_warnings.append(warning)
+    else:
+        console.print("  [red]✗[/red] SOUL.md validation failed")
+        for error in soul_result.errors:
+            console.print(f"    [red]Error:[/red] {rich_escape(error)}")
+        all_errors.extend(soul_result.errors)
+
+    console.print("[3/4] Validating provider configuration...")
+    provider_result = validate_provider_config(host, claw_type)
+    if provider_result.passed:
+        provider_id = provider_result.details.get("provider_id", "unknown")
+        provider_type = provider_result.details.get("provider_type", "unknown")
+        console.print(
+            f"  [green]✓[/green] Provider: {rich_escape(provider_id)} ({rich_escape(provider_type)})"
+        )
+
+        console.print("  Checking API key...")
+        key_result = validate_provider_api_key(provider_id)
+        if key_result.passed:
+            if key_result.details.get("key_configured") or key_result.details.get(
+                "uses_cloud_auth"
+            ):
+                console.print("  [green]✓[/green] API credentials configured")
+            else:
+                console.print(
+                    "  [green]✓[/green] Provider configured (no API key needed)"
+                )
+        else:
+            console.print("  [red]✗[/red] API key validation failed")
+            for error in key_result.errors:
+                console.print(f"    [red]Error:[/red] {rich_escape(error)}")
+            all_errors.extend(key_result.errors)
+    else:
+        console.print("  [red]✗[/red] Provider configuration missing")
+        for error in provider_result.errors:
+            console.print(f"    [red]Error:[/red] {rich_escape(error)}")
+        all_errors.extend(provider_result.errors)
+
+    console.print("[4/4] Testing provider connectivity...")
+    if provider_result.passed:
+        provider_id = provider_result.details.get("provider_id")
+        conn_result = verify_provider_connectivity(provider_id)
+        if conn_result.passed:
+            console.print("  [green]✓[/green] Provider connectivity OK")
+            for warning in conn_result.warnings:
+                console.print(f"    [yellow]Warning:[/yellow] {rich_escape(warning)}")
+                all_warnings.append(warning)
+        else:
+            console.print("  [red]✗[/red] Provider connectivity test failed")
+            for error in conn_result.errors:
+                console.print(f"    [red]Error:[/red] {rich_escape(error)}")
+            all_errors.extend(conn_result.errors)
+    else:
+        console.print("  [dim]Skipped (no provider configured)[/dim]")
+
+    console.print()
+    if all_errors:
+        console.print(f"[red]Validation failed with {len(all_errors)} error(s)[/red]")
+        if all_warnings:
+            console.print(f"[yellow]Warnings: {len(all_warnings)}[/yellow]")
+        return False
+
+    if all_warnings:
+        console.print(
+            f"[yellow]Validation passed with {len(all_warnings)} warning(s)[/yellow]"
+        )
+    else:
+        console.print("[green]Validation passed[/green]")
 
     try:
         complete_stage(host, claw_type, "validate", StageStatus.COMPLETE)
