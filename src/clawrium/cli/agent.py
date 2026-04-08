@@ -36,6 +36,13 @@ console = Console()
 
 VALID_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
 
+STAGE_TO_CURRENT_STATE = {
+    "providers": OnboardingState.PROVIDERS,
+    "identity": OnboardingState.IDENTITY,
+    "channels": OnboardingState.CHANNELS,
+    "validate": OnboardingState.VALIDATE,
+}
+
 STAGE_TO_NEXT_STATE = {
     "providers": OnboardingState.IDENTITY,
     "identity": OnboardingState.CHANNELS,
@@ -397,8 +404,11 @@ def _run_validate_stage(host: str, claw_type: str, yes: bool) -> bool:
     Returns:
         True if stage completed successfully
     """
-    console.print("[1/2] Verify configuration files... [green]✓[/green]")
-    console.print("[2/2] Run agent self-test... [green]✓[/green]")
+    console.print("[yellow]Validation not yet implemented - skipped[/yellow]")
+    console.print()
+    console.print(
+        "Future validation will verify configuration files and run agent self-test."
+    )
 
     try:
         complete_stage(host, claw_type, "validate", StageStatus.COMPLETE)
@@ -571,6 +581,16 @@ def configure(
                 stage_name, i + 1, total_stages, stage_descriptions[stage_name]
             )
 
+            # Transition to the stage's state before running it
+            current_stage_state = STAGE_TO_CURRENT_STATE.get(stage_name)
+            current_state = get_onboarding_state(host_alias, claw_type)
+            if current_stage_state and current_state != current_stage_state:
+                try:
+                    transition_state(host_alias, claw_type, current_stage_state)
+                except InvalidTransitionError as e:
+                    console.print(f"[red]Error:[/red] {e}")
+                    raise typer.Exit(code=1)
+
             success = stage_functions[stage_name](host_alias, claw_type, yes)
 
             if not success:
@@ -583,7 +603,8 @@ def configure(
             try:
                 transition_state(host_alias, claw_type, next_state)
             except InvalidTransitionError as e:
-                console.print(f"[yellow]Warning:[/yellow] {e}")
+                console.print(f"[red]Error:[/red] {e}")
+                raise typer.Exit(code=1)
 
             _stage_complete(stage_name)
 
@@ -603,7 +624,11 @@ def configure(
 
 
 def _show_start_blocked_error(
-    claw_name: str, host_alias: str, claw_type: str, current_state: OnboardingState
+    claw_name: str,
+    host_alias: str,
+    claw_type: str,
+    current_state: OnboardingState,
+    claw_record: dict,
 ) -> None:
     """Display error when start is blocked by incomplete onboarding."""
     STAGES = [
@@ -623,14 +648,6 @@ def _show_start_blocked_error(
             f"Run 'clm agent configure {rich_escape(claw_name)}' to begin onboarding."
         )
         console.print()
-        return
-
-    host_data = get_host(host_alias)
-    if not host_data:
-        return
-
-    claw_record = _get_installed_claw(host_alias, claw_type)
-    if not claw_record:
         return
 
     onboarding = claw_record.get("onboarding", {})
@@ -686,14 +703,14 @@ def remove(
         f"[yellow]Not implemented:[/yellow] remove '{rich_escape(claw_name)}'"
     )
     console.print("This command will allow removing agents in a future release.")
-    raise typer.Exit(code=0)
+    raise typer.Exit(code=1)
 
 
 @agent_app.command()
 def start(
     claw_name: str = typer.Argument(..., help="Claw name to start"),
     force: bool = typer.Option(
-        False, "--force", help="Force start even if onboarding incomplete"
+        False, "--force", "-f", help="Force start even if onboarding incomplete"
     ),
 ) -> None:
     """Start an agent.
@@ -758,7 +775,9 @@ def start(
             console.print("[dim]Agent start functionality coming soon.[/dim]")
             raise typer.Exit(code=0)
 
-        _show_start_blocked_error(claw_name, host_alias, claw_type, current_state)
+        _show_start_blocked_error(
+            claw_name, host_alias, claw_type, current_state, claw_record
+        )
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         console.print("\nCancelled.")

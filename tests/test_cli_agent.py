@@ -162,7 +162,7 @@ def test_agent_remove_placeholder():
     """clm agent remove shows not implemented message."""
     result = runner.invoke(app, ["agent", "remove", "opc-work"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "not implemented" in result.output.lower()
 
 

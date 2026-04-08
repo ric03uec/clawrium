@@ -118,7 +118,12 @@ def get_onboarding_state(host: str, claw_name: str) -> OnboardingState:
         )
 
     state_value = onboarding.get("state", "pending")
-    return OnboardingState(state_value)
+    try:
+        return OnboardingState(state_value)
+    except ValueError:
+        raise OnboardingNotFoundError(
+            f"Unknown onboarding state '{state_value}' for '{claw_name}' on '{host}'"
+        )
 
 
 def transition_state(host: str, claw_name: str, to_state: OnboardingState) -> bool:
@@ -184,6 +189,7 @@ def complete_stage(
         ClawNotFoundError: If claw is not installed on host
         OnboardingNotFoundError: If onboarding has not been initialized
         ValueError: If stage is not a valid stage name
+        InvalidTransitionError: If completing this stage is not permitted in current state
     """
     valid_stages = {"providers", "identity", "channels", "validate"}
     if stage not in valid_stages:
@@ -198,6 +204,29 @@ def complete_stage(
         raise OnboardingNotFoundError(
             f"Onboarding not initialized for '{claw_name}' on '{host}'"
         )
+
+    # Verify current state permits completing this stage
+    # Skip validation for SKIPPED status (stages can be skipped at any time)
+    if status != StageStatus.SKIPPED:
+        # State-to-stage mapping: current state -> stages that can be completed
+        # States represent "currently working on" so a state can complete its own stage
+        state_to_allowed_stages = {
+            "pending": ["providers"],  # Can start providers from pending
+            "providers": ["providers"],  # Can complete providers while in providers state
+            "identity": ["identity"],  # Can complete identity while in identity state
+            "channels": ["channels"],  # Can complete channels while in channels state
+            "validate": ["validate"],  # Can complete validate while in validate state
+            "ready": [],  # No stages to complete when ready
+        }
+
+        current_state = get_onboarding_state(host, claw_name)
+        allowed_stages = state_to_allowed_stages.get(current_state.value, [])
+
+        if stage not in allowed_stages:
+            raise InvalidTransitionError(
+                f"Cannot complete stage '{stage}' while in state '{current_state.value}'. "
+                f"Allowed stages in this state: {allowed_stages}"
+            )
 
     host_data = get_host(host)
     if not host_data:

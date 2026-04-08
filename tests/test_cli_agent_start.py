@@ -2,10 +2,12 @@
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
 from clawrium.cli.main import app
+from clawrium.core.onboarding import ClawNotFoundError
 
 runner = CliRunner()
 
@@ -130,14 +132,14 @@ def test_start_providers_state_blocked(isolated_config: Path):
 
 
 def test_start_identity_state_blocked(isolated_config: Path):
-    """Start when state=IDENTITY (2/4) shows correct stage count."""
+    """Start when state=IDENTITY (1/4) shows correct stage count."""
     create_host_with_claw(isolated_config, onboarding_state="identity")
 
     result = runner.invoke(app, ["agent", "start", "opc-work"])
 
     assert result.exit_code == 1
     assert "Cannot start" in result.output
-    assert "IDENTITY (1/4)" in result.output or "IDENTITY" in result.output
+    assert "IDENTITY (1/4)" in result.output
     assert "Incomplete stages" in result.output
     assert "channels" in result.output
     assert "validate" in result.output
@@ -246,7 +248,7 @@ def test_start_corrupted_hosts_file_fails(isolated_config: Path):
     result = runner.invoke(app, ["agent", "start", "opc-work"])
 
     assert result.exit_code == 1
-    assert "hosts.json" in result.output.lower() or "corrupted" in result.output.lower()
+    assert "clm host list" in result.output
 
 
 def test_start_missing_onboarding_initializes(isolated_config: Path):
@@ -295,3 +297,68 @@ def test_start_missing_onboarding_initializes(isolated_config: Path):
     assert result.exit_code == 1
     assert "Cannot start" in result.output
     assert "onboarding not started" in result.output
+
+
+def test_start_keyboard_interrupt_during_execution(isolated_config: Path):
+    """Start handles KeyboardInterrupt gracefully."""
+    create_host_with_claw(isolated_config, onboarding_state="ready")
+
+    with patch("clawrium.cli.agent.get_host", side_effect=KeyboardInterrupt):
+        result = runner.invoke(app, ["agent", "start", "opc-work"])
+
+    assert result.exit_code == 1
+    assert "Cancelled" in result.output
+
+
+def test_start_claw_not_found_during_initialization(isolated_config: Path):
+    """Start handles ClawNotFoundError when initialize_onboarding fails."""
+    hosts_file = isolated_config / "hosts.json"
+    isolated_config.mkdir(parents=True, exist_ok=True)
+
+    # Create host with claw but no onboarding record
+    hosts_data = [
+        {
+            "hostname": "192.168.1.100",
+            "alias": "work",
+            "key_id": "work",
+            "port": 22,
+            "user": "xclm",
+            "auth_method": "key",
+            "hardware": {
+                "architecture": "x86_64",
+                "processor_cores": 4,
+                "memtotal_mb": 8192,
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "distribution": "ubuntu",
+                "distribution_version": "24.04",
+                "gpu": {"present": False},
+            },
+            "metadata": {
+                "added_at": "2026-04-06T00:00:00Z",
+                "last_seen": "2026-04-06T00:00:00Z",
+                "tags": [],
+            },
+            "claws": {
+                "opc": {
+                    "version": "0.1.0",
+                    "status": "installed",
+                    "name": "assistant",
+                    "user": "opc-assistant",
+                }
+            },
+        }
+    ]
+
+    hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+    # Mock initialize_onboarding to raise ClawNotFoundError
+    with patch(
+        "clawrium.cli.agent.initialize_onboarding",
+        side_effect=ClawNotFoundError("Claw 'opc' not found on host 'work'"),
+    ):
+        result = runner.invoke(app, ["agent", "start", "opc-work"])
+
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+    assert "not found" in result.output
