@@ -36,6 +36,12 @@ console = Console()
 
 VALID_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
 
+ALIAS_GROUPS = [
+    {"opc", "openclaw"},
+    {"zc", "zeroclaw"},
+    {"nc", "nemoclaw"},
+]
+
 STAGE_TO_CURRENT_STATE = {
     "providers": OnboardingState.PROVIDERS,
     "identity": OnboardingState.IDENTITY,
@@ -147,7 +153,22 @@ def _parse_claw_name(claw_name: str) -> tuple[str, str]:
     return host_alias, claw_type
 
 
-def _get_installed_claw(host_alias: str, claw_type: str) -> dict | None:
+def _resolve_alias_group(claw_type: str) -> set[str]:
+    """Resolve claw type to its alias group.
+
+    Args:
+        claw_type: Claw type (e.g., "opc", "openclaw", "zc")
+
+    Returns:
+        Set of aliases for this claw type (e.g., {"opc", "openclaw"})
+    """
+    for group in ALIAS_GROUPS:
+        if claw_type in group:
+            return group
+    return {claw_type}
+
+
+def _get_installed_claw(host_alias: str, claw_type: str) -> tuple[str, dict] | None:
     """Get installed claw record from host.
 
     Args:
@@ -155,27 +176,24 @@ def _get_installed_claw(host_alias: str, claw_type: str) -> dict | None:
         claw_type: Type of claw (e.g., "opc", "zc", "openclaw")
 
     Returns:
-        Claw record dict or None if not found
+        Tuple of (installed_name, claw_record) or None if not found
 
     Raises:
         HostsFileCorruptedError: If hosts.json is corrupted
     """
     host_data = get_host(host_alias)
-
     if not host_data:
         return None
 
     claws = host_data.get("claws", {})
+    alias_group = _resolve_alias_group(claw_type)
 
     for installed_name, claw_record in claws.items():
-        if installed_name == claw_type or installed_name.startswith(f"{claw_type}-"):
-            return claw_record
-        if claw_type in ["opc", "openclaw"] and installed_name in ["opc", "openclaw"]:
-            return claw_record
-        if claw_type in ["zc", "zeroclaw"] and installed_name in ["zc", "zeroclaw"]:
-            return claw_record
+        base = installed_name.split("-")[0]
+        if base in alias_group:
+            return (installed_name, claw_record)
 
-    return claws.get(claw_type)
+    return None
 
 
 def _stage_header(
@@ -463,12 +481,12 @@ def configure(
     display_host = host_data.get("alias") or host_data["hostname"]
 
     try:
-        installed_claw = _get_installed_claw(host_alias, claw_type)
+        result = _get_installed_claw(host_alias, claw_type)
     except HostsFileCorruptedError as e:
         console.print(f"[red]Error:[/red] Hosts file corrupted: {e}")
         raise typer.Exit(code=1)
 
-    if not installed_claw:
+    if not result:
         console.print(
             f"[red]Error:[/red] Claw '{rich_escape(claw_type)}' not installed on '{rich_escape(display_host)}'"
         )
@@ -477,12 +495,14 @@ def configure(
         )
         raise typer.Exit(code=1)
 
+    installed_name, _ = result
+
     try:
-        current_state = get_onboarding_state(host_alias, claw_type)
+        current_state = get_onboarding_state(host_alias, installed_name)
     except OnboardingNotFoundError:
         try:
-            initialize_onboarding(host_alias, claw_type)
-            current_state = get_onboarding_state(host_alias, claw_type)
+            initialize_onboarding(host_alias, installed_name)
+            current_state = get_onboarding_state(host_alias, installed_name)
         except ClawNotFoundError as e:
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(code=1)
@@ -492,7 +512,7 @@ def configure(
 
     console.print(
         Panel(
-            f"[bold]Onboarding:[/bold] {rich_escape(claw_type)} on {rich_escape(display_host)}\n"
+            f"[bold]Onboarding:[/bold] {rich_escape(installed_name)} on {rich_escape(display_host)}\n"
             f"[bold]Current state:[/bold] {current_state.value.upper()}",
             title="Agent Configuration",
             border_style="cyan",
@@ -527,7 +547,7 @@ def configure(
         }[stage]
 
         try:
-            success = stage_func(host_alias, claw_type, yes)
+            success = stage_func(host_alias, installed_name, yes)
         except KeyboardInterrupt:
             console.print("\nCancelled.")
             raise typer.Exit(code=1)
@@ -565,10 +585,10 @@ def configure(
             if i < start_idx:
                 continue
 
-            if can_skip_stage(claw_type, stage_name):
+            if can_skip_stage(installed_name, stage_name):
                 try:
                     complete_stage(
-                        host_alias, claw_type, stage_name, StageStatus.SKIPPED
+                        host_alias, installed_name, stage_name, StageStatus.SKIPPED
                     )
                 except Exception as e:
                     console.print(
@@ -583,15 +603,15 @@ def configure(
 
             # Transition to the stage's state before running it
             current_stage_state = STAGE_TO_CURRENT_STATE.get(stage_name)
-            current_state = get_onboarding_state(host_alias, claw_type)
+            current_state = get_onboarding_state(host_alias, installed_name)
             if current_stage_state and current_state != current_stage_state:
                 try:
-                    transition_state(host_alias, claw_type, current_stage_state)
+                    transition_state(host_alias, installed_name, current_stage_state)
                 except InvalidTransitionError as e:
                     console.print(f"[red]Error:[/red] {e}")
                     raise typer.Exit(code=1)
 
-            success = stage_functions[stage_name](host_alias, claw_type, yes)
+            success = stage_functions[stage_name](host_alias, installed_name, yes)
 
             if not success:
                 console.print(
@@ -601,7 +621,7 @@ def configure(
 
             next_state = STAGE_TO_NEXT_STATE[stage_name]
             try:
-                transition_state(host_alias, claw_type, next_state)
+                transition_state(host_alias, installed_name, next_state)
             except InvalidTransitionError as e:
                 console.print(f"[red]Error:[/red] {e}")
                 raise typer.Exit(code=1)
@@ -626,7 +646,7 @@ def configure(
 def _show_start_blocked_error(
     claw_name: str,
     host_alias: str,
-    claw_type: str,
+    installed_name: str,
     current_state: OnboardingState,
     claw_record: dict,
 ) -> None:
@@ -654,7 +674,8 @@ def _show_start_blocked_error(
     stages_data = onboarding.get("stages", {})
 
     completed_count = sum(
-        1 for stage_name in [s[0] for s in STAGES]
+        1
+        for stage_name in [s[0] for s in STAGES]
         if stages_data.get(stage_name, {}).get("status") == "complete"
     )
 
@@ -738,8 +759,8 @@ def start(
 
         display_host = host_data.get("alias", host_data.get("hostname", host_alias))
 
-        claw_record = _get_installed_claw(host_alias, claw_type)
-        if not claw_record:
+        result = _get_installed_claw(host_alias, claw_type)
+        if not result:
             console.print(
                 f"[red]Error:[/red] Claw '{rich_escape(claw_type)}' not installed on {rich_escape(display_host)}"
             )
@@ -748,19 +769,21 @@ def start(
             )
             raise typer.Exit(code=1)
 
+        installed_name, claw_record = result
+
         try:
-            current_state = get_onboarding_state(host_alias, claw_type)
+            current_state = get_onboarding_state(host_alias, installed_name)
         except OnboardingNotFoundError:
             try:
-                initialize_onboarding(host_alias, claw_type)
-                current_state = get_onboarding_state(host_alias, claw_type)
+                initialize_onboarding(host_alias, installed_name)
+                current_state = get_onboarding_state(host_alias, installed_name)
             except ClawNotFoundError as e:
                 console.print(f"[red]Error:[/red] {e}")
                 raise typer.Exit(code=1)
 
         if current_state == OnboardingState.READY:
             console.print(
-                f"[green]Starting agent:[/green] {rich_escape(claw_type)} on {rich_escape(display_host)}"
+                f"[green]Starting agent:[/green] {rich_escape(installed_name)} on {rich_escape(display_host)}"
             )
             console.print("[dim]Agent start functionality coming soon.[/dim]")
             raise typer.Exit(code=0)
@@ -770,13 +793,13 @@ def start(
                 "[yellow]Warning: Starting agent with incomplete onboarding[/yellow]"
             )
             console.print(
-                f"[green]Starting agent:[/green] {rich_escape(claw_type)} on {rich_escape(display_host)}"
+                f"[green]Starting agent:[/green] {rich_escape(installed_name)} on {rich_escape(display_host)}"
             )
             console.print("[dim]Agent start functionality coming soon.[/dim]")
             raise typer.Exit(code=0)
 
         _show_start_blocked_error(
-            claw_name, host_alias, claw_type, current_state, claw_record
+            claw_name, host_alias, installed_name, current_state, claw_record
         )
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
