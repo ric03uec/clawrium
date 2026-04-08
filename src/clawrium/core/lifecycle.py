@@ -6,6 +6,7 @@ running on remote hosts via systemd service management.
 
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, TypedDict
@@ -13,7 +14,7 @@ from typing import Callable, TypedDict
 import ansible_runner
 
 from clawrium.core.config import get_config_dir
-from clawrium.core.hosts import get_host, update_host
+from clawrium.core.hosts import get_host, update_host, remove_claw_from_host
 from clawrium.core import keys as core_keys
 from clawrium.core.onboarding import OnboardingState
 from clawrium.core.secrets import get_instance_key, get_instance_secrets
@@ -24,6 +25,7 @@ __all__ = [
     "start_claw",
     "stop_claw",
     "restart_claw",
+    "remove_claw",
     "LifecycleError",
     "LifecycleResult",
 ]
@@ -140,6 +142,14 @@ def _run_lifecycle_playbook(
 
     claw_record = host.get("claws", {}).get(claw_name, {})
     claw_user = claw_record.get("user", f"{claw_name[:3]}-{hostname}")
+
+    # Validate claw_user to prevent path traversal/injection in Ansible playbooks
+    # Expected format: <prefix>-<identifier> where prefix is 2-3 lowercase letters
+    if not re.match(r"^[a-z]{2,3}-[a-z0-9_-]+$", claw_user):
+        return (
+            False,
+            f"Invalid claw_user format: '{claw_user}'. Expected pattern: <prefix>-<identifier>",
+        )
 
     instance_key = None
     secret_vars = {}
@@ -412,3 +422,124 @@ def restart_claw(
     start_result["operation"] = "restart"
 
     return start_result
+
+
+def remove_claw(
+    hostname: str,
+    claw_name: str,
+    force: bool = False,
+    on_event: Callable[[str, str], None] | None = None,
+) -> LifecycleResult:
+    """Remove a claw instance from a remote host.
+
+    Stops the claw if running, removes all artifacts from the remote host,
+    and removes the claw from local configuration.
+
+    Args:
+        hostname: Hostname or alias of target host
+        claw_name: Type of claw to remove (e.g., "openclaw")
+        force: Skip confirmation prompts (not used here, handled by CLI)
+        on_event: Optional callback for progress events
+
+    Returns:
+        LifecycleResult with success status and details
+    """
+
+    def emit(stage: str, message: str) -> None:
+        if on_event:
+            on_event(stage, message)
+        logger.info("[%s] %s", stage, message)
+
+    emit("validate", f"Checking {claw_name} on {hostname}...")
+
+    host = get_host(hostname)
+    if not host:
+        raise LifecycleError(f"Host '{hostname}' not found")
+
+    claw_record = host.get("claws", {}).get(claw_name)
+    if not claw_record:
+        raise LifecycleError(f"Claw '{claw_name}' not installed on '{hostname}'")
+
+    # Check if claw is running and stop it first
+    runtime = claw_record.get("runtime", {})
+    status = runtime.get("status", "stopped")
+
+    if status == "running":
+        emit("remove", f"Stopping {claw_name} before removal...")
+        try:
+            stop_result = stop_claw(hostname, claw_name, on_event=on_event)
+            if not stop_result["success"]:
+                logger.warning(
+                    "Failed to stop %s cleanly: %s", claw_name, stop_result["error"]
+                )
+                emit(
+                    "remove",
+                    "Warning: Failed to stop cleanly, continuing with removal...",
+                )
+        except Exception as e:
+            logger.warning("Error stopping %s: %s", claw_name, e)
+            emit("remove", "Warning: Error stopping, continuing with removal...")
+
+    emit("remove", f"Removing {claw_name} from {hostname}...")
+
+    success, error = _run_lifecycle_playbook(
+        claw_name, host["hostname"], "remove", host, timeout=120
+    )
+
+    if not success:
+        return {
+            "success": False,
+            "claw": claw_name,
+            "host": hostname,
+            "operation": "remove",
+            "pid": None,
+            "started_at": None,
+            "error": error,
+        }
+
+    emit("remove", "Removing from local configuration...")
+
+    # Remove claw from hosts.json
+    # NOTE: remove_claw_from_host returns True if host was found (not if claw was found)
+    # An exception here means the local config could not be updated after remote cleanup
+    try:
+        removed = remove_claw_from_host(host["hostname"], claw_name)
+        if not removed:
+            # Host not found - this shouldn't happen since we validated it earlier
+            logger.error(
+                "Host %s not found in configuration after remote cleanup", hostname
+            )
+            return {
+                "success": False,
+                "claw": claw_name,
+                "host": hostname,
+                "operation": "remove",
+                "pid": None,
+                "started_at": None,
+                "error": f"Remote removal succeeded but host '{hostname}' not found in local config. State may be inconsistent.",
+            }
+    except Exception as e:
+        logger.error(
+            "Failed to update local configuration after remote cleanup: %s", e
+        )
+        return {
+            "success": False,
+            "claw": claw_name,
+            "host": hostname,
+            "operation": "remove",
+            "pid": None,
+            "started_at": None,
+            "error": f"Remote removal succeeded but local config update failed: {e}. Run 'clm host ps {hostname}' to verify or manually edit hosts.json.",
+        }
+
+    emit("remove", f"Removed {claw_name} successfully")
+
+    return {
+        "success": True,
+        "claw": claw_name,
+        "host": hostname,
+        "operation": "remove",
+        "pid": None,
+        "started_at": None,
+        "error": None,
+    }

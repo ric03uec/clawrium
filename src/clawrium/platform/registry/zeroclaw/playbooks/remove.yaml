@@ -1,0 +1,85 @@
+---
+- hosts: all
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Check if systemd service exists
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/zeroclaw-{{ claw_user }}.service"
+      register: service_file
+
+    - name: Stop zeroclaw service if running
+      ansible.builtin.systemd:
+        name: "zeroclaw-{{ claw_user }}"
+        state: stopped
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    - name: Disable zeroclaw service
+      ansible.builtin.systemd:
+        name: "zeroclaw-{{ claw_user }}"
+        enabled: no
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    - name: Remove systemd service file
+      ansible.builtin.file:
+        path: "/etc/systemd/system/zeroclaw-{{ claw_user }}.service"
+        state: absent
+      notify: Reload systemd
+
+    - name: Check if bin directory exists
+      ansible.builtin.stat:
+        path: "/home/{{ claw_user }}/bin"
+      register: bin_dir
+
+    - name: Remove bin directory
+      ansible.builtin.file:
+        path: "/home/{{ claw_user }}/bin"
+        state: absent
+      when: bin_dir.stat.exists
+
+    - name: Check if workspace directory exists
+      ansible.builtin.stat:
+        path: "/home/{{ claw_user }}/workspace"
+      register: workspace_dir
+
+    - name: Remove workspace directory
+      ansible.builtin.file:
+        path: "/home/{{ claw_user }}/workspace"
+        state: absent
+      when: workspace_dir.stat.exists
+
+    - name: Check if config directory exists
+      ansible.builtin.stat:
+        path: "/home/{{ claw_user }}/.zeroclaw"
+      register: config_dir
+
+    - name: Remove config directory
+      ansible.builtin.file:
+        path: "/home/{{ claw_user }}/.zeroclaw"
+        state: absent
+      when: config_dir.stat.exists
+
+    - name: Check if claw user exists
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ claw_user }}"
+      register: user_check
+      ignore_errors: yes
+
+    - name: Remove claw user account
+      ansible.builtin.user:
+        name: "{{ claw_user }}"
+        state: absent
+        remove: yes
+      when: user_check is succeeded
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg: "ZeroClaw removed successfully"
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes

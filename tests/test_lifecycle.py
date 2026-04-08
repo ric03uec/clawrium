@@ -9,6 +9,7 @@ from clawrium.core.lifecycle import (
     start_claw,
     stop_claw,
     restart_claw,
+    remove_claw,
     LifecycleError,
     _get_lifecycle_playbook_path,
     _run_lifecycle_playbook,
@@ -334,3 +335,306 @@ class TestRestartClaw:
 
         assert result["success"] is True
         assert result["operation"] == "restart"
+
+
+class TestRemoveClaw:
+    """Tests for remove_claw function."""
+
+    def test_raises_error_when_host_not_found(self):
+        with patch("clawrium.core.lifecycle.get_host", return_value=None):
+            with pytest.raises(LifecycleError) as exc_info:
+                remove_claw("unknown-host", "openclaw")
+
+        assert "not found" in str(exc_info.value)
+
+    def test_raises_error_when_claw_not_installed(self, tmp_path: Path):
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "claws": {},
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with pytest.raises(LifecycleError) as exc_info:
+                remove_claw("192.168.1.100", "openclaw")
+
+        assert "not installed" in str(exc_info.value)
+
+    def test_stops_running_claw_before_removal(self, tmp_path: Path):
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "user": "xclm",
+            "port": 22,
+            "claws": {
+                "openclaw": {
+                    "user": "opc-work",
+                    "runtime": {"status": "running"},
+                }
+            },
+        }
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("private key")
+
+        playbook_path = tmp_path / "test.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = []
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ):
+                with patch(
+                    "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                    return_value=playbook_path,
+                ):
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        return_value=mock_runner,
+                    ):
+                        with patch(
+                            "clawrium.core.lifecycle._update_claw_runtime",
+                            return_value=True,
+                        ):
+                            with patch(
+                                "clawrium.core.lifecycle.get_config_dir",
+                                return_value=tmp_path,
+                            ):
+                                with patch(
+                                    "clawrium.core.lifecycle.remove_claw_from_host",
+                                    return_value=True,
+                                ):
+                                    result = remove_claw(
+                                        "192.168.1.100", "openclaw"
+                                    )
+
+        assert result["success"] is True
+        assert result["operation"] == "remove"
+
+    def test_continues_removal_when_stop_fails(self, tmp_path: Path):
+        """Should continue with removal even if stop fails."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "user": "xclm",
+            "port": 22,
+            "claws": {
+                "openclaw": {
+                    "user": "opc-work",
+                    "runtime": {"status": "running"},
+                }
+            },
+        }
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("private key")
+
+        playbook_path = tmp_path / "test.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        mock_runner_fail = MagicMock()
+        mock_runner_fail.status = "failed"
+        mock_runner_fail.events = [
+            {
+                "event": "runner_on_failed",
+                "event_data": {"res": {"msg": "Stop failed"}},
+            }
+        ]
+
+        mock_runner_success = MagicMock()
+        mock_runner_success.status = "successful"
+        mock_runner_success.events = []
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ):
+                with patch(
+                    "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                    return_value=playbook_path,
+                ):
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        side_effect=[mock_runner_fail, mock_runner_success],
+                    ):
+                        with patch(
+                            "clawrium.core.lifecycle._update_claw_runtime",
+                            return_value=True,
+                        ):
+                            with patch(
+                                "clawrium.core.lifecycle.get_config_dir",
+                                return_value=tmp_path,
+                            ):
+                                with patch(
+                                    "clawrium.core.lifecycle.remove_claw_from_host",
+                                    return_value=True,
+                                ):
+                                    result = remove_claw(
+                                        "192.168.1.100", "openclaw"
+                                    )
+
+        # Should still succeed with removal
+        assert result["success"] is True
+
+    def test_returns_failure_when_playbook_fails(self, tmp_path: Path):
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "user": "xclm",
+            "port": 22,
+            "claws": {
+                "openclaw": {
+                    "user": "opc-work",
+                    "runtime": {"status": "stopped"},
+                }
+            },
+        }
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("private key")
+
+        playbook_path = tmp_path / "remove.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        mock_runner = MagicMock()
+        mock_runner.status = "failed"
+        mock_runner.events = [
+            {
+                "event": "runner_on_failed",
+                "event_data": {"res": {"msg": "Removal failed"}},
+            }
+        ]
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ):
+                with patch(
+                    "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                    return_value=playbook_path,
+                ):
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        return_value=mock_runner,
+                    ):
+                        with patch(
+                            "clawrium.core.lifecycle.get_config_dir",
+                            return_value=tmp_path,
+                        ):
+                            result = remove_claw("192.168.1.100", "openclaw")
+
+        assert result["success"] is False
+        assert "Removal failed" in result["error"]
+
+    def test_removes_claw_from_host_config(self, tmp_path: Path):
+        """Verify claw is removed from hosts.json."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "user": "xclm",
+            "port": 22,
+            "claws": {
+                "openclaw": {
+                    "user": "opc-work",
+                    "runtime": {"status": "stopped"},
+                }
+            },
+        }
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("private key")
+
+        playbook_path = tmp_path / "remove.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = []
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ):
+                with patch(
+                    "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                    return_value=playbook_path,
+                ):
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        return_value=mock_runner,
+                    ):
+                        with patch(
+                            "clawrium.core.lifecycle.get_config_dir",
+                            return_value=tmp_path,
+                        ):
+                            with patch(
+                                "clawrium.core.lifecycle.remove_claw_from_host"
+                            ) as mock_remove:
+                                mock_remove.return_value = True
+                                result = remove_claw("192.168.1.100", "openclaw")
+
+        assert result["success"] is True
+        mock_remove.assert_called_once_with("192.168.1.100", "openclaw")
+
+    def test_event_callbacks_invoked(self, tmp_path: Path):
+        """Verify on_event callback is called with appropriate messages."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "user": "xclm",
+            "port": 22,
+            "claws": {
+                "openclaw": {
+                    "user": "opc-work",
+                    "runtime": {"status": "stopped"},
+                }
+            },
+        }
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("private key")
+
+        playbook_path = tmp_path / "remove.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = []
+
+        events = []
+
+        def on_event(stage, message):
+            events.append((stage, message))
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ):
+                with patch(
+                    "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                    return_value=playbook_path,
+                ):
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        return_value=mock_runner,
+                    ):
+                        with patch(
+                            "clawrium.core.lifecycle.get_config_dir",
+                            return_value=tmp_path,
+                        ):
+                            with patch(
+                                "clawrium.core.lifecycle.remove_claw_from_host",
+                                return_value=True,
+                            ):
+                                result = remove_claw(
+                                    "192.168.1.100", "openclaw", on_event=on_event
+                                )
+
+        assert result["success"] is True
+        # Should have validate and remove events
+        assert any(stage == "validate" for stage, _ in events)
+        assert any(stage == "remove" for stage, _ in events)

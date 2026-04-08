@@ -811,16 +811,81 @@ def _show_start_blocked_error(
 @agent_app.command()
 def remove(
     claw_name: str = typer.Argument(..., help="Claw name to remove"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip confirmation prompt"
+    ),
 ) -> None:
     """Remove an agent from a host.
 
-    [Not yet implemented]
+    Stops the agent if running, removes all artifacts from the remote host,
+    and removes the agent from local configuration.
+
+    Examples:
+        clm agent remove opc-work
+        clm agent remove zc-kevin --force
     """
-    console.print(
-        f"[yellow]Not implemented:[/yellow] remove '{rich_escape(claw_name)}'"
-    )
-    console.print("This command will allow removing agents in a future release.")
-    raise typer.Exit(code=1)
+    from clawrium.core.lifecycle import remove_claw, LifecycleError
+
+    try:
+        host_alias, claw_type = _parse_claw_name(claw_name)
+
+        try:
+            host_data = get_host(host_alias)
+        except HostsFileCorruptedError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+        if not host_data:
+            console.print(
+                f"[red]Error:[/red] Host '{rich_escape(host_alias)}' not found"
+            )
+            raise typer.Exit(code=1)
+
+        display_host = host_data.get("alias", host_data.get("hostname", host_alias))
+
+        result = _get_installed_claw(host_alias, claw_type)
+        if not result:
+            console.print(
+                f"[red]Error:[/red] Claw '{rich_escape(claw_type)}' not installed on {rich_escape(display_host)}"
+            )
+            raise typer.Exit(code=1)
+
+        installed_name, _ = result
+
+        # Confirmation prompt (unless --force)
+        if not force:
+            confirmed = typer.confirm(
+                f"Remove '{rich_escape(installed_name)}' from {rich_escape(display_host)}? This will delete all agent data and cannot be undone."
+            )
+            if not confirmed:
+                console.print("Cancelled.")
+                raise typer.Exit(code=0)
+
+        console.print(
+            f"[green]Removing agent:[/green] {rich_escape(installed_name)} from {rich_escape(display_host)}"
+        )
+
+        def on_event(stage: str, message: str) -> None:
+            if stage == "validate":
+                console.print(f"  [dim]{message}[/dim]")
+            elif stage == "remove":
+                console.print(f"  {message}")
+
+        try:
+            result = remove_claw(host_alias, installed_name, on_event=on_event)
+        except LifecycleError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+        if result["success"]:
+            console.print("[green]✓[/green] Agent removed successfully")
+        else:
+            console.print(f"[red]✗[/red] Failed to remove agent: {result['error']}")
+            raise typer.Exit(code=1)
+
+    except KeyboardInterrupt:
+        console.print("\nCancelled.")
+        raise typer.Exit(code=1)
 
 
 @agent_app.command()

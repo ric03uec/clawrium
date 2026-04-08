@@ -10,6 +10,7 @@ from clawrium.core.hosts import (
     get_host,
     get_host_by_key_id,
     update_host,
+    remove_claw_from_host,
     HOSTS_FILE,
     HostsFileCorruptedError,
     DuplicateHostError,
@@ -361,3 +362,71 @@ def test_get_host_by_key_id_not_found(isolated_config):
     host = get_host_by_key_id("unknown-key")
 
     assert host is None
+
+
+def test_remove_claw_from_host_success(isolated_config):
+    """remove_claw_from_host removes claw from host's claws dict."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_hosts = [
+        {
+            "hostname": "192.168.1.10",
+            "port": 22,
+            "user": "xclm",
+            "claws": {
+                "openclaw": {"version": "1.0.0", "user": "opc-test"},
+                "zeroclaw": {"version": "2.0.0", "user": "zc-test"},
+            },
+        }
+    ]
+    save_hosts(test_hosts)
+
+    result = remove_claw_from_host("192.168.1.10", "openclaw")
+
+    assert result is True
+    hosts = load_hosts()
+    assert "openclaw" not in hosts[0]["claws"]
+    assert "zeroclaw" in hosts[0]["claws"]  # Other claws remain
+
+
+def test_remove_claw_from_host_not_found(isolated_config):
+    """remove_claw_from_host returns True even if claw not in dict."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_hosts = [
+        {
+            "hostname": "192.168.1.10",
+            "port": 22,
+            "user": "xclm",
+            "claws": {"zeroclaw": {"version": "2.0.0"}},
+        }
+    ]
+    save_hosts(test_hosts)
+
+    # Try to remove non-existent claw
+    result = remove_claw_from_host("192.168.1.10", "openclaw")
+
+    assert result is True  # Operation succeeds idempotently
+    hosts = load_hosts()
+    assert "openclaw" not in hosts[0]["claws"]
+    assert "zeroclaw" in hosts[0]["claws"]
+
+
+def test_remove_claw_from_host_no_claws_dict(isolated_config):
+    """remove_claw_from_host handles host with no claws dict."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    save_hosts(test_hosts)
+
+    result = remove_claw_from_host("192.168.1.10", "openclaw")
+
+    assert result is True  # Operation succeeds idempotently
+
+
+def test_remove_claw_from_host_unknown_host(isolated_config):
+    """remove_claw_from_host returns False for unknown host."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    save_hosts(test_hosts)
+
+    result = remove_claw_from_host("192.168.1.99", "openclaw")
+
+    assert result is False
