@@ -72,6 +72,34 @@ class ManifestEntry(TypedDict):
     sha256: NotRequired[str]  # SHA256 checksum for binary verification
 
 
+class OnboardingTask(TypedDict):
+    """Task definition within an onboarding stage."""
+
+    id: str
+    name: str
+    type: str
+    # Optional fields for different task types
+    path: NotRequired[str]
+    template: NotRequired[str]
+    prompt: NotRequired[str]
+    options: NotRequired[list[str]]
+    default: NotRequired[str | bool]
+    message: NotRequired[str]
+    command: NotRequired[str]
+    paths: NotRequired[list[str]]
+    fields: NotRequired[list[dict]]
+    min_select: NotRequired[int]
+
+
+class OnboardingStage(TypedDict):
+    """Onboarding stage configuration."""
+
+    required: NotRequired[bool]
+    description: str
+    tasks: NotRequired[list[OnboardingTask]]
+    auto_skip: NotRequired[bool]
+
+
 class ClawManifest(TypedDict):
     """Complete claw manifest with all platform entries."""
 
@@ -80,6 +108,7 @@ class ClawManifest(TypedDict):
     entries: list[ManifestEntry]
     required_secrets: NotRequired[list[SecretDefinition]]
     optional_secrets: NotRequired[list[SecretDefinition]]
+    onboarding: NotRequired[dict[str, OnboardingStage]]
 
 
 class CompatibilityResult(TypedDict):

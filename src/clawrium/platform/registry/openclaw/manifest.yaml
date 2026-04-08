@@ -11,6 +11,59 @@ optional_secrets:
   - key: ANTHROPIC_API_KEY
     description: "Anthropic API key for Claude models"
 
+# Onboarding workflow configuration
+onboarding:
+  providers:
+    required: true
+    description: "Assign inference provider"
+    tasks:
+      - id: select_provider
+        name: "Select inference provider"
+        type: provider_select
+      - id: verify_provider
+        name: "Verify provider connectivity"
+        type: provider_test
+
+  identity:
+    required: true
+    description: "Configure agent personality"
+    tasks:
+      - id: soul_file
+        name: "Create personality file"
+        type: file_create
+        path: "~/.openclaw/SOUL.md"
+        template: "templates/default-soul.md"
+        prompt: "Describe your agent's personality and purpose"
+      - id: identity_file
+        name: "Create identity file"
+        type: file_create
+        path: "~/.openclaw/IDENTITY.md"
+        template: "templates/default-identity.md"
+
+  channels:
+    required: true
+    description: "Configure communication channels"
+    tasks:
+      - id: default_channel
+        name: "Select default channel"
+        type: select
+        options: [cli, web, whatsapp, slack, discord, telegram]
+        default: cli
+
+  validate:
+    description: "Verify configuration"
+    tasks:
+      - id: config_check
+        name: "Verify configuration files"
+        type: file_exists
+        paths:
+          - "~/.openclaw/SOUL.md"
+          - "~/.openclaw/IDENTITY.md"
+      - id: self_test
+        name: "Run agent self-test"
+        type: command
+        command: "openclaw test --quick"
+
 entries:
   - version: "0.1.0"
     os: ubuntu

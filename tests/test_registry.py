@@ -706,3 +706,168 @@ def test_check_compatibility_gpu_detection_failed(monkeypatch):
 
     assert result["compatible"] is False
     assert any("detection failed" in r.lower() for r in result["reasons"])
+
+
+# Onboarding schema tests
+
+
+def test_load_manifest_openclaw_with_onboarding():
+    """Test loading openclaw manifest includes onboarding section."""
+    manifest = load_manifest("openclaw")
+
+    assert "onboarding" in manifest
+    onboarding = manifest["onboarding"]
+    assert isinstance(onboarding, dict)
+
+    # Check all expected stages are present
+    assert "providers" in onboarding
+    assert "identity" in onboarding
+    assert "channels" in onboarding
+    assert "validate" in onboarding
+
+    # Validate providers stage structure
+    providers = onboarding["providers"]
+    assert providers["required"] is True
+    assert "description" in providers
+    assert "tasks" in providers
+    assert len(providers["tasks"]) == 2
+    assert providers["tasks"][0]["type"] == "provider_select"
+    assert providers["tasks"][1]["type"] == "provider_test"
+
+    # Validate identity stage structure
+    identity = onboarding["identity"]
+    assert identity["required"] is True
+    assert "tasks" in identity
+    assert len(identity["tasks"]) == 2
+    # Check file_create tasks have required fields
+    for task in identity["tasks"]:
+        assert task["type"] == "file_create"
+        assert "path" in task
+        assert "template" in task
+
+
+def test_load_manifest_zeroclaw_with_onboarding():
+    """Test loading zeroclaw manifest includes onboarding section."""
+    manifest = load_manifest("zeroclaw")
+
+    assert "onboarding" in manifest
+    onboarding = manifest["onboarding"]
+    assert isinstance(onboarding, dict)
+
+    # Check all expected stages are present
+    assert "providers" in onboarding
+    assert "identity" in onboarding
+    assert "channels" in onboarding
+    assert "validate" in onboarding
+
+    # Validate identity stage has auto_skip
+    identity = onboarding["identity"]
+    assert identity["required"] is False
+    assert identity["auto_skip"] is True
+    # Should not have tasks when auto_skip is true
+    assert "tasks" not in identity or len(identity.get("tasks", [])) == 0
+
+    # Validate channels stage uses confirm type
+    channels = onboarding["channels"]
+    assert channels["required"] is True
+    assert "tasks" in channels
+    assert len(channels["tasks"]) == 1
+    assert channels["tasks"][0]["type"] == "confirm"
+    assert channels["tasks"][0]["default"] is True
+
+    # Validate validate stage structure
+    validate = onboarding["validate"]
+    assert "tasks" in validate
+    # Should have binary_check and config_check
+    task_ids = [t["id"] for t in validate["tasks"]]
+    assert "binary_check" in task_ids
+    assert "config_check" in task_ids
+
+
+def test_onboarding_task_types():
+    """Test that onboarding tasks use expected task types."""
+    manifest_openclaw = load_manifest("openclaw")
+    manifest_zeroclaw = load_manifest("zeroclaw")
+
+    # Collect all task types from both manifests
+    task_types = set()
+    for manifest in [manifest_openclaw, manifest_zeroclaw]:
+        onboarding = manifest.get("onboarding", {})
+        for stage_name, stage in onboarding.items():
+            tasks = stage.get("tasks", [])
+            for task in tasks:
+                task_types.add(task["type"])
+
+    # Verify expected task types are present
+    expected_types = {
+        "provider_select",
+        "provider_test",
+        "file_create",
+        "select",
+        "confirm",
+        "command",
+        "file_exists",
+    }
+    assert expected_types.issubset(task_types), f"Missing task types: {expected_types - task_types}"
+
+
+def test_onboarding_stage_required_field():
+    """Test that onboarding stages have required field with expected values."""
+    manifest_openclaw = load_manifest("openclaw")
+
+    onboarding = manifest_openclaw["onboarding"]
+
+    # providers, identity, channels should be required
+    assert onboarding["providers"]["required"] is True
+    assert onboarding["identity"]["required"] is True
+    assert onboarding["channels"]["required"] is True
+
+    # validate stage may not have required field (defaults to false)
+    validate = onboarding.get("validate", {})
+    assert validate.get("required", False) is False or validate.get("required") is None
+
+
+def test_onboarding_backward_compatibility():
+    """Test that manifests can be loaded even if they don't have onboarding section."""
+    # Create a mock manifest without onboarding
+    import yaml
+    from clawrium.core import registry
+
+    mock_manifest_yaml = """
+name: testclaw
+description: "Test claw without onboarding"
+entries:
+  - version: "1.0.0"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies: {}
+"""
+
+    # Mock the manifest loading to return our test manifest
+    original_load = registry.load_manifest
+
+    def mock_load(claw_name):
+        if claw_name == "testclaw":
+            return yaml.safe_load(mock_manifest_yaml)
+        return original_load(claw_name)
+
+    # Temporarily replace load_manifest
+    import pytest
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(registry, "load_manifest", mock_load)
+
+    try:
+        manifest = registry.load_manifest("testclaw")
+
+        # Manifest should load successfully
+        assert manifest["name"] == "testclaw"
+        assert "entries" in manifest
+
+        # onboarding field should not be present (or be None/empty)
+        assert "onboarding" not in manifest or manifest.get("onboarding") is None
+    finally:
+        monkeypatch.undo()

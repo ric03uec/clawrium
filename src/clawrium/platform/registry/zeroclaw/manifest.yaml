@@ -12,6 +12,48 @@ required_secrets:
 optional_secrets:
   - key: LLM_API_KEY
     description: "API key for LLM provider (optional for local)"
+
+# Onboarding workflow configuration
+onboarding:
+  providers:
+    required: true
+    description: "Assign inference provider"
+    tasks:
+      - id: select_provider
+        name: "Select inference provider"
+        type: provider_select
+      - id: verify_provider
+        name: "Verify provider connectivity"
+        type: provider_test
+
+  identity:
+    required: false
+    auto_skip: true
+    description: "ZeroClaw uses minimal identity"
+
+  channels:
+    required: true
+    description: "Configure communication channel"
+    tasks:
+      - id: confirm_cli
+        name: "Confirm CLI channel"
+        type: confirm
+        message: "ZeroClaw will use CLI for communication"
+        default: true
+
+  validate:
+    description: "Verify installation"
+    tasks:
+      - id: binary_check
+        name: "Verify binary installed"
+        type: command
+        command: "zeroclaw --version"
+      - id: config_check
+        name: "Verify config exists"
+        type: file_exists
+        paths:
+          - "~/.zeroclaw/config.toml"
+
 # Note: Same statically-linked binary is used across OS versions (Ubuntu 22.04/24.04)
 # so SHA256 checksums are identical per architecture.
 entries:
