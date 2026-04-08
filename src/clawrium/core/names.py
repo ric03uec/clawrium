@@ -88,6 +88,56 @@ SCIENTISTS = [
     "joliot",
     "germain",
     "chatelet",
+    "rutherford",
+    "hertz",
+    "ohm",
+    "ampere",
+    "volta",
+    "kelvin",
+    "joule",
+    "watt",
+    "becquerel",
+    "roentgen",
+    "mendeleev",
+    "pauling",
+    "lavoisier",
+    "dalton",
+    "avogadro",
+    "boyle",
+    "priestley",
+    "gauss",
+    "euler",
+    "riemann",
+    "hilbert",
+    "ramanujan",
+    "erdos",
+    "cauchy",
+    "leibniz",
+    "descartes",
+    "pasteur",
+    "lister",
+    "jenner",
+    "fleming",
+    "watson",
+    "crick",
+    "mendel",
+    "linnaeus",
+    "knuth",
+    "dijkstra",
+    "shannon",
+    "von_neumann",
+    "babbage",
+    "kaku",
+    "penrose",
+    "witten",
+    "hinton",
+    "lecun",
+    "bengio",
+    "nobel",
+    "pascal",
+    "bernoulli",
+    "lagrange",
+    "laplace",
 ]
 
 
@@ -123,3 +173,43 @@ def is_ip_address(value: str) -> bool:
         return all(0 <= octet <= 255 for octet in octets)
     except ValueError:
         return False
+
+
+def validate_claw_name(name: str) -> tuple[bool, str]:
+    """Validate a claw name for format and length.
+
+    Args:
+        name: Name to validate
+
+    Returns:
+        Tuple of (is_valid, error_message). If valid, error_message is empty.
+    """
+    if not name:
+        return (False, "Name cannot be empty")
+
+    if len(name) > 32:
+        return (False, f"Name must be 32 characters or less (got {len(name)})")
+
+    if not re.match(r"^[a-zA-Z0-9_-]+$", name):
+        return (
+            False,
+            "Name must contain only alphanumeric characters, hyphens, and underscores",
+        )
+
+    return (True, "")
+
+
+def is_name_available_on_host(name: str, host: dict) -> bool:
+    """Check if a name is available on a host (unique across all claws).
+
+    Args:
+        name: Name to check
+        host: Host record with claws
+
+    Returns:
+        True if name is available, False if already in use
+    """
+    for claw_config in host.get("claws", {}).values():
+        if claw_config.get("user") == name:
+            return False
+    return True
