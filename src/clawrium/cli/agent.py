@@ -909,8 +909,8 @@ def start(
             raise typer.Exit(code=1)
 
         if result["success"]:
-            console.print(f"[green]✓[/green] Agent started successfully")
-            console.print(f"  Run 'clm agent ps' to check status")
+            console.print("[green]✓[/green] Agent started successfully")
+            console.print("  Run 'clm agent ps' to check status")
         else:
             console.print(f"[red]✗[/red] Failed to start agent: {result['error']}")
             raise typer.Exit(code=1)
@@ -979,7 +979,7 @@ def stop(
             raise typer.Exit(code=1)
 
         if result["success"]:
-            console.print(f"[green]✓[/green] Agent stopped successfully")
+            console.print("[green]✓[/green] Agent stopped successfully")
         else:
             console.print(f"[red]✗[/red] Failed to stop agent: {result['error']}")
             raise typer.Exit(code=1)
@@ -1042,8 +1042,8 @@ def restart(
             raise typer.Exit(code=1)
 
         if result["success"]:
-            console.print(f"[green]✓[/green] Agent restarted successfully")
-            console.print(f"  Run 'clm agent ps' to check status")
+            console.print("[green]✓[/green] Agent restarted successfully")
+            console.print("  Run 'clm agent ps' to check status")
         else:
             console.print(f"[red]✗[/red] Failed to restart agent: {result['error']}")
             raise typer.Exit(code=1)

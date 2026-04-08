@@ -237,11 +237,15 @@ def get_claw_info(claw_name: str) -> dict:
         try:
             versions.append(Version(entry["version"]))
         except InvalidVersion:
-            logger.warning("Invalid version '%s' in manifest for %s", entry["version"], claw_name)
+            logger.warning(
+                "Invalid version '%s' in manifest for %s", entry["version"], claw_name
+            )
             continue
 
     if not versions:
-        raise ManifestParseError(f"No valid versions found in manifest for '{claw_name}'")
+        raise ManifestParseError(
+            f"No valid versions found in manifest for '{claw_name}'"
+        )
 
     latest_version = str(max(versions))
 
@@ -339,8 +343,7 @@ def check_compatibility(
                 "reasons": [f"Invalid version format: {version}"],
             }
         entries = [
-            e for e in entries
-            if _parse_version_safe(e["version"]) == requested_version
+            e for e in entries if _parse_version_safe(e["version"]) == requested_version
         ]
         if not entries:
             return {
@@ -383,9 +386,7 @@ def check_compatibility(
         min_memory = requirements.get("min_memory_mb", 0)
         host_memory = hardware.get("memtotal_mb", 0)
         if host_memory < min_memory:
-            reasons.append(
-                f"Requires {min_memory}MB RAM, host has {host_memory}MB"
-            )
+            reasons.append(f"Requires {min_memory}MB RAM, host has {host_memory}MB")
 
         # Check GPU requirement (use .get() for safety)
         if requirements.get("gpu_required", False):

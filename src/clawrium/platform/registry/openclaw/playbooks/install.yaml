@@ -4,7 +4,7 @@
   tasks:
     - name: Create claw user
       ansible.builtin.user:
-        name: "opc-{{ inventory_hostname }}"
+        name: "{{ claw_user }}"
         state: present
         create_home: yes
         shell: /bin/bash
@@ -12,36 +12,36 @@
     - name: Clone OpenClaw repository
       ansible.builtin.git:
         repo: https://github.com/openclaw/openclaw.git
-        dest: "/home/opc-{{ inventory_hostname }}/openclaw"
+        dest: "/home/{{ claw_user }}/openclaw"
         version: "{{ claw_version | default('v2026.4.2') }}"
-      become_user: "opc-{{ inventory_hostname }}"
+      become_user: "{{ claw_user }}"
 
     - name: Install npm dependencies
       ansible.builtin.command:
         cmd: npm install
-        chdir: "/home/opc-{{ inventory_hostname }}/openclaw"
-      become_user: "opc-{{ inventory_hostname }}"
+        chdir: "/home/{{ claw_user }}/openclaw"
+      become_user: "{{ claw_user }}"
 
     - name: Create workspace directory
       ansible.builtin.file:
-        path: "/home/opc-{{ inventory_hostname }}/workspace"
+        path: "/home/{{ claw_user }}/workspace"
         state: directory
-        owner: "opc-{{ inventory_hostname }}"
-        group: "opc-{{ inventory_hostname }}"
+        owner: "{{ claw_user }}"
+        group: "{{ claw_user }}"
         mode: "0700"
 
     - name: Create systemd service file
       ansible.builtin.copy:
-        dest: "/etc/systemd/system/openclaw-opc-{{ inventory_hostname }}.service"
+        dest: "/etc/systemd/system/openclaw-{{ claw_user }}.service"
         content: |
           [Unit]
-          Description=OpenClaw AI Assistant (opc-{{ inventory_hostname }})
+          Description=OpenClaw AI Assistant ({{ claw_user }})
           After=network.target
 
           [Service]
           Type=simple
-          User=opc-{{ inventory_hostname }}
-          WorkingDirectory=/home/opc-{{ inventory_hostname }}/openclaw
+          User={{ claw_user }}
+          WorkingDirectory=/home/{{ claw_user }}/openclaw
           ExecStart=/usr/bin/npm start
           Restart=on-failure
           RestartSec=5
@@ -53,7 +53,7 @@
 
     - name: Enable and start openclaw service
       ansible.builtin.systemd:
-        name: "openclaw-opc-{{ inventory_hostname }}"
+        name: "openclaw-{{ claw_user }}"
         enabled: yes
         state: started
         daemon_reload: yes

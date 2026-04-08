@@ -63,7 +63,9 @@ def set_cmd(
         raise typer.Exit(code=1)
     existing = instance_secrets.get(key)
     if existing and not yes:
-        console.print(f"[yellow]Secret '{key}' already exists for '{claw_name}'[/yellow]")
+        console.print(
+            f"[yellow]Secret '{key}' already exists for '{claw_name}'[/yellow]"
+        )
         console.print(f"  Description: {existing.get('description') or '-'}")
         console.print(f"  Last updated: {existing.get('updated_at', 'Unknown')}")
         if not typer.confirm("Overwrite this secret?"):
@@ -86,7 +88,9 @@ def set_cmd(
         is_new = set_instance_secret(instance_key, key, value, description or "")
     except InvalidSecretKeyError as e:
         console.print(f"[red]Error:[/red] {e}")
-        console.print("[dim]Hint: Keys must be uppercase letters, digits, and underscores (e.g., OPENAI_API_KEY)[/dim]")
+        console.print(
+            "[dim]Hint: Keys must be uppercase letters, digits, and underscores (e.g., OPENAI_API_KEY)[/dim]"
+        )
         raise typer.Exit(code=1)
 
     if is_new:
@@ -197,7 +201,9 @@ def remove_cmd(
 
     # Confirmation
     if not force:
-        confirmed = typer.confirm(f"Remove secret '{key}' from '{claw_name}'? This cannot be undone.")
+        confirmed = typer.confirm(
+            f"Remove secret '{key}' from '{claw_name}'? This cannot be undone."
+        )
         if not confirmed:
             console.print("Cancelled.")
             raise typer.Exit(code=0)

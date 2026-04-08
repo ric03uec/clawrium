@@ -50,7 +50,9 @@ class TestValidation:
             try:
                 validate_provider_name(name)  # Should not raise
             except InvalidProviderNameError:
-                pytest.fail(f"'{name}' should be valid but raised InvalidProviderNameError")
+                pytest.fail(
+                    f"'{name}' should be valid but raised InvalidProviderNameError"
+                )
 
     def test_validate_provider_name_invalid(self):
         """validate_provider_name rejects invalid names."""
@@ -124,18 +126,14 @@ class TestOllamaUrlValidation:
     def test_validate_ollama_url_valid_https(self):
         """validate_ollama_url accepts valid https URLs."""
         with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
-            mock_gai.return_value = [
-                (2, 1, 0, "", ("93.184.216.34", 0))
-            ]
+            mock_gai.return_value = [(2, 1, 0, "", ("93.184.216.34", 0))]
             url = validate_ollama_url("https://example.com:11434")
             assert url == "https://example.com:11434"
 
     def test_validate_ollama_url_strips_trailing_slash(self):
         """validate_ollama_url removes trailing slashes."""
         with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
-            mock_gai.return_value = [
-                (2, 1, 0, "", ("93.184.216.34", 0))
-            ]
+            mock_gai.return_value = [(2, 1, 0, "", ("93.184.216.34", 0))]
             url = validate_ollama_url("http://example.com:11434/")
             assert url == "http://example.com:11434"
 
@@ -154,36 +152,28 @@ class TestOllamaUrlValidation:
     def test_validate_ollama_url_allows_private_ip(self):
         """validate_ollama_url allows private IP addresses (Ollama is self-hosted)."""
         with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
-            mock_gai.return_value = [
-                (2, 1, 0, "", ("192.168.1.100", 0))
-            ]
+            mock_gai.return_value = [(2, 1, 0, "", ("192.168.1.100", 0))]
             url = validate_ollama_url("http://myserver.local:11434")
             assert url == "http://myserver.local:11434"
 
     def test_validate_ollama_url_allows_lan_ip(self):
         """validate_ollama_url allows LAN IP addresses like 192.168.x.x."""
         with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
-            mock_gai.return_value = [
-                (2, 1, 0, "", ("192.168.1.17", 0))
-            ]
+            mock_gai.return_value = [(2, 1, 0, "", ("192.168.1.17", 0))]
             url = validate_ollama_url("http://192.168.1.17:11434")
             assert url == "http://192.168.1.17:11434"
 
     def test_validate_ollama_url_allows_loopback(self):
         """validate_ollama_url allows loopback addresses (Ollama is self-hosted)."""
         with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
-            mock_gai.return_value = [
-                (2, 1, 0, "", ("127.0.0.1", 0))
-            ]
+            mock_gai.return_value = [(2, 1, 0, "", ("127.0.0.1", 0))]
             url = validate_ollama_url("http://localhost:11434")
             assert url == "http://localhost:11434"
 
     def test_validate_ollama_url_rejects_metadata_endpoint(self):
         """validate_ollama_url rejects cloud metadata endpoints (169.254.x.x)."""
         with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
-            mock_gai.return_value = [
-                (2, 1, 0, "", ("169.254.169.254", 0))
-            ]
+            mock_gai.return_value = [(2, 1, 0, "", ("169.254.169.254", 0))]
             with pytest.raises(InvalidOllamaUrlError) as exc_info:
                 validate_ollama_url("http://169.254.169.254")
             assert "metadata" in str(exc_info.value).lower()
@@ -299,7 +289,9 @@ class TestOllamaDiscovery:
         mock_response.json.return_value = {"models": []}
         mock_response.raise_for_status = MagicMock()
 
-        with patch("clawrium.core.providers.requests.get", return_value=mock_response) as mock_get:
+        with patch(
+            "clawrium.core.providers.requests.get", return_value=mock_response
+        ) as mock_get:
             fetch_ollama_models("http://example.com:11434")
             mock_get.assert_called_once()
             call_kwargs = mock_get.call_args[1]
@@ -553,12 +545,27 @@ class TestProviderModelsConstant:
 
     def test_all_expected_providers_present(self):
         """PROVIDER_MODELS contains all expected provider types."""
-        expected = {"openai", "anthropic", "openrouter", "bedrock", "vertex", "zai", "ollama"}
+        expected = {
+            "openai",
+            "anthropic",
+            "openrouter",
+            "bedrock",
+            "vertex",
+            "zai",
+            "ollama",
+        }
         assert set(PROVIDER_MODELS.keys()) == expected
 
     def test_cloud_providers_have_models(self):
         """Cloud providers have non-empty model lists."""
-        cloud_providers = ["openai", "anthropic", "openrouter", "bedrock", "vertex", "zai"]
+        cloud_providers = [
+            "openai",
+            "anthropic",
+            "openrouter",
+            "bedrock",
+            "vertex",
+            "zai",
+        ]
         for provider_type in cloud_providers:
             models = PROVIDER_MODELS[provider_type]["models"]
             assert isinstance(models, list)
@@ -572,7 +579,9 @@ class TestProviderModelsConstant:
         """Providers with fixed endpoints have them set."""
         assert PROVIDER_MODELS["openai"]["endpoint"] == "https://api.openai.com/v1"
         assert PROVIDER_MODELS["anthropic"]["endpoint"] == "https://api.anthropic.com"
-        assert PROVIDER_MODELS["openrouter"]["endpoint"] == "https://openrouter.ai/api/v1"
+        assert (
+            PROVIDER_MODELS["openrouter"]["endpoint"] == "https://openrouter.ai/api/v1"
+        )
 
     def test_sdk_providers_have_no_endpoint(self):
         """SDK-based providers have None for endpoint."""

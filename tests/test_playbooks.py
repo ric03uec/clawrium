@@ -8,7 +8,9 @@ def test_base_playbook_exists():
 
     # Base playbook is at src/clawrium/platform/playbooks/base.yaml
     project_root = Path(__file__).parent.parent
-    base_playbook = project_root / "src" / "clawrium" / "platform" / "playbooks" / "base.yaml"
+    base_playbook = (
+        project_root / "src" / "clawrium" / "platform" / "playbooks" / "base.yaml"
+    )
 
     assert base_playbook.exists(), "base.yaml playbook should exist"
 
@@ -18,7 +20,9 @@ def test_base_playbook_structure():
     import yaml
 
     project_root = Path(__file__).parent.parent
-    base_playbook = project_root / "src" / "clawrium" / "platform" / "playbooks" / "base.yaml"
+    base_playbook = (
+        project_root / "src" / "clawrium" / "platform" / "playbooks" / "base.yaml"
+    )
 
     content = base_playbook.read_text()
 
@@ -58,8 +62,7 @@ def test_openclaw_install_playbook_structure():
 
     # Check for required elements
     assert "- hosts:" in content, "Should have hosts directive"
-    assert "opc-" in content, "Should create opc- user"
-    assert "inventory_hostname" in content, "Should use inventory_hostname variable"
+    assert "claw_user" in content, "Should use claw_user variable"
     assert "npm install" in content, "Should run npm install"
     assert "openclaw" in content.lower(), "Should reference openclaw repository"
 

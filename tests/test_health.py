@@ -36,9 +36,7 @@ def test_health_check_running(mock_host):
     """Process running returns RUNNING status."""
     mock_runner = MagicMock()
     mock_runner.status = "successful"
-    mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
-    ]
+    mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
@@ -122,9 +120,7 @@ def test_check_all_claws_on_host(mock_host):
     """check_all_claws_on_host returns results for each claw."""
     mock_runner = MagicMock()
     mock_runner.status = "successful"
-    mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
-    ]
+    mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
@@ -218,9 +214,7 @@ def test_health_result_has_missing_secrets_field(mock_host):
     """HealthResult includes missing_secrets field in return."""
     mock_runner = MagicMock()
     mock_runner.status = "successful"
-    mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
-    ]
+    mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
@@ -241,9 +235,7 @@ def test_check_claw_health_degraded_when_missing_secrets(mock_host):
     """Running claw with missing required secrets returns DEGRADED status."""
     mock_runner = MagicMock()
     mock_runner.status = "successful"
-    mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
-    ]
+    mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
 
     # Mock required secrets for openclaw
     required_secrets = [
@@ -277,9 +269,7 @@ def test_check_claw_health_running_when_all_secrets_present(mock_host):
     """Running claw with all required secrets returns RUNNING status."""
     mock_runner = MagicMock()
     mock_runner.status = "successful"
-    mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
-    ]
+    mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
 
     # Mock required secrets for openclaw
     required_secrets = [
@@ -317,9 +307,7 @@ def test_check_claw_health_degraded_partial_secrets(mock_host):
     """Running claw with some missing secrets returns DEGRADED."""
     mock_runner = MagicMock()
     mock_runner.status = "successful"
-    mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
-    ]
+    mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
 
     # Mock required secrets for openclaw
     required_secrets = [
@@ -507,9 +495,7 @@ def test_degraded_status_verifies_instance_key_argument(mock_host):
     """B5: Verify instance_key argument passed to get_instance_secrets is correct."""
     mock_runner = MagicMock()
     mock_runner.status = "successful"
-    mock_runner.events = [
-        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
-    ]
+    mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
 
     # Mock required secrets
     required_secrets = [{"key": "OPENAI_API_KEY", "description": "OpenAI"}]

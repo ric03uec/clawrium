@@ -88,6 +88,56 @@ SCIENTISTS = [
     "joliot",
     "germain",
     "chatelet",
+    "rutherford",
+    "hertz",
+    "ohm",
+    "ampere",
+    "volta",
+    "kelvin",
+    "joule",
+    "watt",
+    "becquerel",
+    "roentgen",
+    "mendeleev",
+    "pauling",
+    "lavoisier",
+    "dalton",
+    "avogadro",
+    "boyle",
+    "priestley",
+    "gauss",
+    "euler",
+    "riemann",
+    "hilbert",
+    "ramanujan",
+    "erdos",
+    "cauchy",
+    "leibniz",
+    "descartes",
+    "pasteur",
+    "lister",
+    "jenner",
+    "fleming",
+    "watson",
+    "crick",
+    "mendel",
+    "linnaeus",
+    "knuth",
+    "dijkstra",
+    "shannon",
+    "von_neumann",
+    "babbage",
+    "kaku",
+    "penrose",
+    "witten",
+    "hinton",
+    "lecun",
+    "bengio",
+    "nobel",
+    "pascal",
+    "bernoulli",
+    "lagrange",
+    "laplace",
 ]
 
 
@@ -123,3 +173,46 @@ def is_ip_address(value: str) -> bool:
         return all(0 <= octet <= 255 for octet in octets)
     except ValueError:
         return False
+
+
+def validate_claw_name(name: str) -> tuple[bool, str]:
+    """Validate a claw name for format and length.
+
+    Names must be valid Unix usernames: start with a lowercase letter,
+    followed by up to 31 lowercase letters, digits, hyphens, or underscores.
+
+    Args:
+        name: Name to validate
+
+    Returns:
+        Tuple of (is_valid, error_message). If valid, error_message is empty.
+    """
+    if not name:
+        return (False, "Name cannot be empty")
+
+    if len(name) > 32:
+        return (False, f"Name must be 32 characters or less (got {len(name)})")
+
+    if not re.match(r"^[a-z][a-z0-9_-]{0,31}$", name):
+        return (
+            False,
+            "Name must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores",
+        )
+
+    return (True, "")
+
+
+def is_name_available_on_host(name: str, host: dict) -> bool:
+    """Check if a name is available on a host (unique across all claws).
+
+    Args:
+        name: Name to check
+        host: Host record with claws
+
+    Returns:
+        True if name is available, False if already in use
+    """
+    for claw_config in host.get("claws", {}).values():
+        if claw_config.get("user") == name:
+            return False
+    return True

@@ -214,7 +214,7 @@ def gather_hardware(
         # Include "3d controller" for compute GPUs (A100, H100, etc.)
         # Distinguish between "lspci not installed" and "no GPU found"
         gpu_cmd = (
-            'if command -v lspci >/dev/null 2>&1; then '
+            "if command -v lspci >/dev/null 2>&1; then "
             'lspci | grep -iE "vga|3d controller|display" || true; '
             'else echo "__NO_LSPCI__"; fi'
         )

@@ -707,7 +707,10 @@ def test_status_verbose_short_alias(mock_hosts_with_claws):
             "onboarding_step": "1/4",
             "process_running": False,
             "onboarding_stages": {
-                "providers": {"status": "complete", "completed_at": "2026-04-06T10:00:00Z"},
+                "providers": {
+                    "status": "complete",
+                    "completed_at": "2026-04-06T10:00:00Z",
+                },
                 "identity": {"status": "pending", "completed_at": None},
                 "channels": {"status": "pending", "completed_at": None},
                 "validate": {"status": "pending", "completed_at": None},

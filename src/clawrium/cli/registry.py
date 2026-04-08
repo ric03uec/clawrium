@@ -63,10 +63,14 @@ def show(
     try:
         manifest = load_manifest(claw_name)
     except ManifestNotFoundError:
-        console.print(f"[red]Error:[/red] Claw '{escape(claw_name)}' not found in registry")
+        console.print(
+            f"[red]Error:[/red] Claw '{escape(claw_name)}' not found in registry"
+        )
         raise typer.Exit(code=1)
     except ManifestParseError as e:
-        console.print(f"[red]Error:[/red] Registry manifest is corrupted: {escape(str(e))}")
+        console.print(
+            f"[red]Error:[/red] Registry manifest is corrupted: {escape(str(e))}"
+        )
         raise typer.Exit(code=1)
     except InvalidClawNameError as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")

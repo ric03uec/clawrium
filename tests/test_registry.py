@@ -44,6 +44,7 @@ def test_load_manifest_nonexistent():
 def test_load_manifest_path_traversal():
     """Test path traversal attempt triggers InvalidClawNameError."""
     from clawrium.core.registry import InvalidClawNameError
+
     with pytest.raises(InvalidClawNameError):
         load_manifest("../etc/passwd")
 
@@ -57,6 +58,7 @@ def test_load_manifest_malformed_yaml(monkeypatch):
 
     # Monkeypatch yaml.safe_load in the registry module
     from clawrium.core import registry
+
     monkeypatch.setattr(registry.yaml, "safe_load", raise_yaml_error)
 
     with pytest.raises(ManifestParseError, match="Failed to parse"):
@@ -67,6 +69,7 @@ def test_load_manifest_not_dict(monkeypatch):
     """Test manifest that parses to non-dict raises ManifestParseError."""
     # Monkeypatch yaml.safe_load to return a list instead of dict
     from clawrium.core import registry
+
     monkeypatch.setattr(registry.yaml, "safe_load", lambda x: ["item1", "item2"])
 
     with pytest.raises(ManifestParseError, match="not a valid YAML dict"):
@@ -77,6 +80,7 @@ def test_load_manifest_missing_required_fields(monkeypatch):
     """Test manifest missing name/entries raises ManifestParseError."""
     # Monkeypatch yaml.safe_load to return dict missing 'entries'
     from clawrium.core import registry
+
     monkeypatch.setattr(registry.yaml, "safe_load", lambda x: {"name": "incomplete"})
 
     with pytest.raises(ManifestParseError, match="missing required fields"):
@@ -168,7 +172,9 @@ def test_check_compatibility_wrong_os():
     assert result["compatible"] is False
     assert result["matched_entry"] is None
     assert len(result["reasons"]) > 0
-    assert any("ubuntu" in r.lower() and "debian" in r.lower() for r in result["reasons"])
+    assert any(
+        "ubuntu" in r.lower() and "debian" in r.lower() for r in result["reasons"]
+    )
 
 
 def test_check_compatibility_wrong_arch():
@@ -381,7 +387,9 @@ def test_check_compatibility_zeroclaw_debian12_incompatible():
     result = check_compatibility("zeroclaw", hardware)
 
     assert result["compatible"] is False
-    assert any("debian 13" in r.lower() and "debian 12" in r.lower() for r in result["reasons"])
+    assert any(
+        "debian 13" in r.lower() and "debian 12" in r.lower() for r in result["reasons"]
+    )
 
 
 def test_check_compatibility_zeroclaw_ubuntu_aarch64():
@@ -808,7 +816,9 @@ def test_onboarding_task_types():
         "command",
         "file_exists",
     }
-    assert expected_types.issubset(task_types), f"Missing task types: {expected_types - task_types}"
+    assert expected_types.issubset(task_types), (
+        f"Missing task types: {expected_types - task_types}"
+    )
 
 
 def test_onboarding_stage_required_field():
@@ -857,6 +867,7 @@ entries:
 
     # Temporarily replace load_manifest
     import pytest
+
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(registry, "load_manifest", mock_load)
 

@@ -21,7 +21,9 @@ def create_test_keypair(config_dir: Path, key_id: str) -> None:
     (key_dir / "xclm_ed25519.pub").write_text("ssh-ed25519 AAAA... clawrium")
 
 
-def create_host(config_dir: Path, hostname: str, alias: str | None = None, key_id: str | None = None) -> None:
+def create_host(
+    config_dir: Path, hostname: str, alias: str | None = None, key_id: str | None = None
+) -> None:
     """Create a test host entry."""
     hosts_file = config_dir / "hosts.json"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -69,10 +71,15 @@ def test_install_prompts_for_claw(isolated_config: Path):
     create_host(isolated_config, "192.168.1.100", alias="testhost", key_id="testhost")
 
     # Run without --claw, answer prompts with EOF to cancel
-    result = runner.invoke(app, ["agent", "install", "--host", "testhost"], input="\n", env=os.environ)
+    result = runner.invoke(
+        app, ["agent", "install", "--host", "testhost"], input="\n", env=os.environ
+    )
 
     # Should show claw selection prompt
-    assert "available claw" in result.output.lower() or "select claw" in result.output.lower()
+    assert (
+        "available claw" in result.output.lower()
+        or "select claw" in result.output.lower()
+    )
 
 
 def test_install_prompts_for_host(isolated_config: Path):
@@ -82,10 +89,15 @@ def test_install_prompts_for_host(isolated_config: Path):
     create_host(isolated_config, "192.168.1.100", alias="testhost", key_id="testhost")
 
     # Run without --host, answer prompts with EOF to cancel
-    result = runner.invoke(app, ["agent", "install", "--claw", "openclaw"], input="\n", env=os.environ)
+    result = runner.invoke(
+        app, ["agent", "install", "--claw", "openclaw"], input="\n", env=os.environ
+    )
 
     # Should show host selection prompt
-    assert "available host" in result.output.lower() or "select host" in result.output.lower()
+    assert (
+        "available host" in result.output.lower()
+        or "select host" in result.output.lower()
+    )
 
 
 def test_install_with_flags_skips_prompts(isolated_config: Path):
@@ -110,7 +122,7 @@ def test_install_with_flags_skips_prompts(isolated_config: Path):
             app,
             ["agent", "install", "--claw", "openclaw", "--host", "testhost"],
             input="n\n",
-            env=os.environ
+            env=os.environ,
         )
 
         # Should NOT show claw/host selection prompts
@@ -135,7 +147,10 @@ def test_install_shows_confirmation(isolated_config: Path):
     )
 
     # Should show installation summary panel
-    assert "installation summary" in result.output.lower() or "claw:" in result.output.lower()
+    assert (
+        "installation summary" in result.output.lower()
+        or "claw:" in result.output.lower()
+    )
     assert "openclaw" in result.output.lower()
     assert "cancelled" in result.output.lower()
 
@@ -252,14 +267,20 @@ def test_install_incompatible_exits_1(isolated_config: Path):
     )
 
     assert result.exit_code == 1
-    assert "incompatible" in result.output.lower() or "architecture" in result.output.lower()
+    assert (
+        "incompatible" in result.output.lower()
+        or "architecture" in result.output.lower()
+    )
 
 
 def test_install_hosts_file_corrupted(isolated_config: Path):
     """HostsFileCorruptedError shows error and exits 1."""
     from clawrium.core.hosts import HostsFileCorruptedError
 
-    with patch("clawrium.cli.install.load_hosts", side_effect=HostsFileCorruptedError("JSON parse error")):
+    with patch(
+        "clawrium.cli.install.load_hosts",
+        side_effect=HostsFileCorruptedError("JSON parse error"),
+    ):
         result = runner.invoke(
             app,
             ["agent", "install", "--claw", "openclaw", "--host", "testhost"],

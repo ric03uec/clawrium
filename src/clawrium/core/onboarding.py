@@ -212,7 +212,9 @@ def complete_stage(
         # States represent "currently working on" so a state can complete its own stage
         state_to_allowed_stages = {
             "pending": ["providers"],  # Can start providers from pending
-            "providers": ["providers"],  # Can complete providers while in providers state
+            "providers": [
+                "providers"
+            ],  # Can complete providers while in providers state
             "identity": ["identity"],  # Can complete identity while in identity state
             "channels": ["channels"],  # Can complete channels while in channels state
             "validate": ["validate"],  # Can complete validate while in validate state
@@ -279,7 +281,11 @@ def initialize_onboarding(host: str, claw_name: str) -> bool:
             "state": OnboardingState.PENDING.value,
             "started_at": now,
             "stages": {
-                "providers": {"status": StageStatus.PENDING.value, "completed_at": None, "provider_id": None},
+                "providers": {
+                    "status": StageStatus.PENDING.value,
+                    "completed_at": None,
+                    "provider_id": None,
+                },
                 "identity": {"status": StageStatus.PENDING.value, "completed_at": None},
                 "channels": {"status": StageStatus.PENDING.value, "completed_at": None},
                 "validate": {"status": StageStatus.PENDING.value, "completed_at": None},
