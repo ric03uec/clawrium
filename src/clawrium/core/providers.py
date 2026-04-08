@@ -287,7 +287,9 @@ def validate_ollama_url(url: str) -> str:
     # Resolve hostname to IP and block cloud metadata endpoints only.
     # Private/loopback IPs are allowed — Ollama runs on local networks.
     try:
-        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        addr_info = socket.getaddrinfo(
+            hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
         for family, _, _, _, sockaddr in addr_info:
             ip_str = sockaddr[0]
             if _is_metadata_endpoint(ip_str):
@@ -342,7 +344,9 @@ def fetch_ollama_models(endpoint: str, timeout: int = 10) -> list[str]:
     url = f"{endpoint}/api/tags"
 
     try:
-        response = requests.get(url, timeout=timeout, allow_redirects=False, verify=True)
+        response = requests.get(
+            url, timeout=timeout, allow_redirects=False, verify=True
+        )
         response.raise_for_status()
         data = response.json()
 
@@ -353,7 +357,9 @@ def fetch_ollama_models(endpoint: str, timeout: int = 10) -> list[str]:
                 "Invalid response from Ollama server: expected 'models' to be a list"
             )
 
-        return [m.get("name", "") for m in models if isinstance(m, dict) and m.get("name")]
+        return [
+            m.get("name", "") for m in models if isinstance(m, dict) and m.get("name")
+        ]
 
     except requests.exceptions.ConnectionError:
         raise OllamaConnectionError(
@@ -401,7 +407,12 @@ def set_provider_api_key(provider_name: str, api_key: str) -> bool:
     from clawrium.core.secrets import set_instance_secret
 
     instance_key = get_provider_instance_key(provider_name)
-    return set_instance_secret(instance_key, "API_KEY", api_key, description=f"API key for provider {provider_name}")
+    return set_instance_secret(
+        instance_key,
+        "API_KEY",
+        api_key,
+        description=f"API key for provider {provider_name}",
+    )
 
 
 def get_provider_api_key(provider_name: str) -> str | None:

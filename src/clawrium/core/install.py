@@ -15,7 +15,7 @@ Host record schema (extended):
             "status": "installed" | "failed" | "installing",
             "installed_at": "ISO timestamp",
             "error": str | None,
-            "user": "opc-hostname"  # per D-07
+            "user": "clever-einstein"  # friendly name, no prefix
         }
     },
     ...existing fields...
@@ -33,6 +33,11 @@ import ansible_runner
 from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import get_host, update_host
 from clawrium.core.keys import get_host_private_key
+from clawrium.core.names import (
+    generate_random_name,
+    is_name_available_on_host,
+    validate_claw_name,
+)
 from clawrium.core.registry import (
     check_compatibility,
     load_manifest,
@@ -49,11 +54,13 @@ logger = logging.getLogger(__name__)
 
 class InstallationError(Exception):
     """Raised when installation fails."""
+
     pass
 
 
 class InstallResult(TypedDict):
     """Result of installation operation."""
+
     success: bool
     claw: str
     version: str
@@ -88,32 +95,10 @@ def _get_logs_dir() -> Path:
     return logs_dir
 
 
-def _get_claw_user(claw_name: str, host: dict) -> str:
-    """Generate claw user name from host alias or key_id.
-
-    Uses alias if available, otherwise key_id. Never uses IP address.
-    Prefix depends on claw type (zc- for zeroclaw, opc- for openclaw, etc.)
-    """
-    # Claw prefixes
-    prefixes = {
-        "zeroclaw": "zc",
-        "openclaw": "opc",
-        "nemoclaw": "nc",
-    }
-    prefix = prefixes.get(claw_name, claw_name[:3])
-
-    # Use alias first, then key_id (which should be set during host init)
-    host_name = host.get("alias") or host.get("key_id") or host["hostname"]
-
-    # Sanitize: only allow alphanumeric and hyphen, no dots
-    sanitized = "".join(c if c.isalnum() or c == "-" else "-" for c in host_name)
-
-    return f"{prefix}-{sanitized}"
-
-
 def run_installation(
     claw_name: str,
     hostname: str,
+    name: str | None = None,
     on_event: Callable[[str, str], None] | None = None,
 ) -> InstallResult:
     """Run full installation of a claw on a host.
@@ -121,6 +106,8 @@ def run_installation(
     Args:
         claw_name: Name of claw to install (e.g., "openclaw")
         hostname: Hostname or alias of target host
+        name: Optional friendly name for the claw instance. If not provided,
+              a random Docker-style name will be generated (e.g., "clever-einstein")
         on_event: Optional callback for progress events (stage, message)
 
     Returns:
@@ -129,6 +116,7 @@ def run_installation(
     Raises:
         InstallationError: If validation fails or playbook execution fails
     """
+
     def emit(stage: str, message: str) -> None:
         if on_event:
             on_event(stage, message)
@@ -145,7 +133,9 @@ def run_installation(
     emit("validate", f"Loading host {hostname}...")
     host = get_host(hostname)
     if not host:
-        raise InstallationError(f"Host '{hostname}' not found. Run 'clm host add' first.")
+        raise InstallationError(
+            f"Host '{hostname}' not found. Run 'clm host add' first."
+        )
 
     # Step 3: Check compatibility
     emit("validate", "Checking compatibility...")
@@ -159,8 +149,22 @@ def run_installation(
     matched_version = compat["matched_entry"]["version"]
     emit("validate", f"Compatible with {claw_name} v{matched_version}")
 
-    # Step 4: Generate claw user and set installing status
-    claw_user = _get_claw_user(claw_name, host)
+    # Step 4: Determine claw name (user field)
+    if name is None:
+        claw_user = generate_random_name()
+        emit("validate", f"Generated name: {claw_user}")
+    else:
+        valid, error_msg = validate_claw_name(name)
+        if not valid:
+            raise InstallationError(f"Invalid name: {error_msg}")
+
+        if not is_name_available_on_host(name, host):
+            raise InstallationError(
+                f"Name '{name}' already in use on this host. "
+                "Names must be unique across all claws on a host."
+            )
+        claw_user = name
+        emit("validate", f"Using provided name: {claw_user}")
 
     def set_installing(h: dict) -> dict:
         if "claws" not in h:
@@ -170,7 +174,7 @@ def run_installation(
             "status": "installing",
             "installed_at": None,
             "error": None,
-            "user": claw_user
+            "user": claw_user,
         }
         return h
 
@@ -181,7 +185,9 @@ def run_installation(
     key_id = host.get("key_id") or host["hostname"]
     ssh_key = get_host_private_key(key_id)
     if not ssh_key:
-        raise InstallationError(f"No SSH key found for host. Run 'clm host init {key_id}'.")
+        raise InstallationError(
+            f"No SSH key found for host. Run 'clm host init {key_id}'."
+        )
 
     # Step 6: Build inventory with extra vars for playbook
     matched_entry = compat["matched_entry"]
@@ -211,7 +217,7 @@ def run_installation(
                 "claw_version": f"v{matched_version}",
                 "claw_sha256": claw_sha256,
                 **secret_vars,  # Inject secrets as ansible vars
-            }
+            },
         }
     }
 
@@ -281,7 +287,9 @@ def run_installation(
         def set_installed(h: dict) -> dict:
             if "claws" in h and claw_name in h["claws"]:
                 h["claws"][claw_name]["status"] = "installed"
-                h["claws"][claw_name]["installed_at"] = datetime.now(timezone.utc).isoformat()
+                h["claws"][claw_name]["installed_at"] = datetime.now(
+                    timezone.utc
+                ).isoformat()
             return h
 
         update_host(host["hostname"], set_installed)
@@ -290,13 +298,21 @@ def run_installation(
         try:
             if not initialize_onboarding(host["hostname"], claw_name):
                 try:
-                    emit("warn", f"Onboarding setup incomplete — run `clm onboard init {host['hostname']} {claw_name}` to retry")
+                    emit(
+                        "warn",
+                        f"Onboarding setup incomplete — run `clm onboard init {host['hostname']} {claw_name}` to retry",
+                    )
                 except Exception:
-                    logger.warning("Failed to emit onboarding warning event", exc_info=True)
+                    logger.warning(
+                        "Failed to emit onboarding warning event", exc_info=True
+                    )
         except Exception as e:
             logger.warning("Onboarding init failed: %s", e, exc_info=True)
             try:
-                emit("warn", f"Onboarding setup failed — run `clm onboard init {host['hostname']} {claw_name}` to retry")
+                emit(
+                    "warn",
+                    f"Onboarding setup failed — run `clm onboard init {host['hostname']} {claw_name}` to retry",
+                )
             except Exception:
                 logger.warning("Failed to emit onboarding warning event", exc_info=True)
 
@@ -323,13 +339,12 @@ def run_installation(
             if "claws" not in h:
                 h["claws"] = {}
             if claw_name not in h["claws"]:
-                h["claws"][claw_name] = {
-                    "version": matched_version,
-                    "user": claw_user
-                }
+                h["claws"][claw_name] = {"version": matched_version, "user": claw_user}
             h["claws"][claw_name]["status"] = "failed"
             h["claws"][claw_name]["error"] = error_msg
-            h["claws"][claw_name]["installed_at"] = datetime.now(timezone.utc).isoformat()
+            h["claws"][claw_name]["installed_at"] = datetime.now(
+                timezone.utc
+            ).isoformat()
             return h
 
         update_host(host["hostname"], set_failed)

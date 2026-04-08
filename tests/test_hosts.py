@@ -328,8 +328,18 @@ def test_get_host_by_key_id_found(isolated_config):
     """get_host_by_key_id finds host by key_id field."""
     isolated_config.mkdir(parents=True, exist_ok=True)
     test_hosts = [
-        {"hostname": "192.168.1.10", "port": 22, "user": "xclm", "key_id": "server1-key"},
-        {"hostname": "192.168.1.20", "port": 22, "user": "xclm", "key_id": "server2-key"},
+        {
+            "hostname": "192.168.1.10",
+            "port": 22,
+            "user": "xclm",
+            "key_id": "server1-key",
+        },
+        {
+            "hostname": "192.168.1.20",
+            "port": 22,
+            "user": "xclm",
+            "key_id": "server2-key",
+        },
     ]
     save_hosts(test_hosts)
 
@@ -343,7 +353,9 @@ def test_get_host_by_key_id_found(isolated_config):
 def test_get_host_by_key_id_not_found(isolated_config):
     """get_host_by_key_id returns None when key_id not found."""
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm", "key_id": "known-key"}]
+    test_hosts = [
+        {"hostname": "192.168.1.10", "port": 22, "user": "xclm", "key_id": "known-key"}
+    ]
     save_hosts(test_hosts)
 
     host = get_host_by_key_id("unknown-key")

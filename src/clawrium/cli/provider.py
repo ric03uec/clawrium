@@ -139,7 +139,9 @@ def add(
 
         # Select default model
         if model and model not in available_models:
-            console.print(f"[yellow]Warning:[/yellow] Model '{rich_escape(model)}' not found on server")
+            console.print(
+                f"[yellow]Warning:[/yellow] Model '{rich_escape(model)}' not found on server"
+            )
             model = None
 
         if not model:
@@ -161,7 +163,9 @@ def add(
                 model = choice
 
             if model not in available_models:
-                console.print(f"[yellow]Warning:[/yellow] '{rich_escape(model)}' not in discovered models")
+                console.print(
+                    f"[yellow]Warning:[/yellow] '{rich_escape(model)}' not in discovered models"
+                )
                 if not typer.confirm("Continue anyway?"):
                     raise typer.Exit(code=0)
 
@@ -190,7 +194,9 @@ def add(
 
         # Select default model
         if model and models and model not in models:
-            console.print(f"[yellow]Warning:[/yellow] Model '{rich_escape(model)}' not in known models for {provider_type}")
+            console.print(
+                f"[yellow]Warning:[/yellow] Model '{rich_escape(model)}' not in known models for {provider_type}"
+            )
             if not typer.confirm("Continue anyway?"):
                 raise typer.Exit(code=0)
 
@@ -245,7 +251,9 @@ def list_providers() -> None:
         raise typer.Exit(code=1)
 
     if not providers:
-        console.print("No providers configured. Use 'clm provider add' to add a provider.")
+        console.print(
+            "No providers configured. Use 'clm provider add' to add a provider."
+        )
         return
 
     table = Table(title="Configured Providers")
@@ -331,7 +339,9 @@ def edit(
 
     # Check if any changes requested
     if model is None and url is None and not update_key:
-        console.print("[yellow]No changes specified.[/yellow] Use --model, --url, or --update-key to update.")
+        console.print(
+            "[yellow]No changes specified.[/yellow] Use --model, --url, or --update-key to update."
+        )
         raise typer.Exit(code=0)
 
     # Validate URL only makes sense for Ollama
@@ -360,14 +370,18 @@ def edit(
     # Handle API key update for non-Ollama providers
     if update_key:
         if provider.get("type") == "ollama":
-            console.print("[yellow]Warning:[/yellow] Ollama providers don't use API keys")
+            console.print(
+                "[yellow]Warning:[/yellow] Ollama providers don't use API keys"
+            )
         else:
             new_api_key = typer.prompt("New API key", hide_input=True)
             if new_api_key:
                 set_provider_api_key(name, new_api_key)
                 console.print("[green]API key updated.[/green]")
             else:
-                console.print("[yellow]Warning:[/yellow] Empty API key provided, skipping update")
+                console.print(
+                    "[yellow]Warning:[/yellow] Empty API key provided, skipping update"
+                )
 
     def apply_updates(p: dict) -> dict:
         if model is not None:
@@ -415,9 +429,7 @@ def remove(
 
     # Confirmation (unless --force)
     if not force:
-        confirmed = typer.confirm(
-            f"Remove provider '{name}'? This cannot be undone."
-        )
+        confirmed = typer.confirm(f"Remove provider '{name}'? This cannot be undone.")
         if not confirmed:
             console.print("Cancelled.")
             raise typer.Exit(code=0)
@@ -442,13 +454,17 @@ def types() -> None:
         models = config.get("models")
 
         if provider_type == "ollama":
-            console.print(f"  [cyan]{provider_type}[/cyan] - Self-hosted (dynamic model discovery)")
+            console.print(
+                f"  [cyan]{provider_type}[/cyan] - Self-hosted (dynamic model discovery)"
+            )
         elif endpoint:
             model_count = len(models) if models else 0
             console.print(f"  [cyan]{provider_type}[/cyan] - {model_count} models")
         else:
             model_count = len(models) if models else 0
-            console.print(f"  [cyan]{provider_type}[/cyan] - {model_count} models (SDK-based)")
+            console.print(
+                f"  [cyan]{provider_type}[/cyan] - {model_count} models (SDK-based)"
+            )
 
 
 @provider_app.command()
@@ -478,7 +494,9 @@ def models(
                     "Add an Ollama provider first, then query by provider name."
                 )
             else:
-                console.print(f"[yellow]No hardcoded models for {provider_type}[/yellow]")
+                console.print(
+                    f"[yellow]No hardcoded models for {provider_type}[/yellow]"
+                )
             return
 
         console.print(f"[bold]Available models for {provider_type}:[/bold]\n")
@@ -511,15 +529,21 @@ def models(
         # For cloud providers, show hardcoded models
         model_list = get_models_for_type(provider_type)
         if model_list:
-            console.print(f"[bold]Available models for '{identifier}' ({provider_type}):[/bold]\n")
+            console.print(
+                f"[bold]Available models for '{identifier}' ({provider_type}):[/bold]\n"
+            )
             for m in model_list:
                 console.print(f"  {rich_escape(m)}")
         else:
-            console.print(f"[yellow]No model list for provider type {provider_type}[/yellow]")
+            console.print(
+                f"[yellow]No model list for provider type {provider_type}[/yellow]"
+            )
         return
 
     # Not found
-    console.print(f"[red]Error:[/red] '{identifier}' is not a valid provider type or configured provider")
+    console.print(
+        f"[red]Error:[/red] '{identifier}' is not a valid provider type or configured provider"
+    )
     console.print(f"\nValid provider types: {', '.join(_get_provider_types())}")
     raise typer.Exit(code=1)
 
@@ -547,7 +571,9 @@ def refresh(
         raise typer.Exit(code=1)
 
     if provider.get("type") != "ollama":
-        console.print("[yellow]Warning:[/yellow] 'refresh' only applies to Ollama providers")
+        console.print(
+            "[yellow]Warning:[/yellow] 'refresh' only applies to Ollama providers"
+        )
         console.print(f"Provider '{name}' is type '{provider.get('type')}'")
         raise typer.Exit(code=0)
 
@@ -571,7 +597,9 @@ def refresh(
         return p
 
     if update_provider(name, apply_refresh):
-        console.print(f"\n[green]Provider '{name}' updated with {len(available_models)} models:[/green]")
+        console.print(
+            f"\n[green]Provider '{name}' updated with {len(available_models)} models:[/green]"
+        )
         for m in available_models:
             console.print(f"  {rich_escape(m)}")
     else:

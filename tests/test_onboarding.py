@@ -65,7 +65,11 @@ def host_with_onboarding(isolated_config):
                         "state": "pending",
                         "started_at": "2026-04-06T00:00:00+00:00",
                         "stages": {
-                            "providers": {"status": "pending", "completed_at": None, "provider_id": None},
+                            "providers": {
+                                "status": "pending",
+                                "completed_at": None,
+                                "provider_id": None,
+                            },
                             "identity": {"status": "pending", "completed_at": None},
                             "channels": {"status": "pending", "completed_at": None},
                             "validate": {"status": "pending", "completed_at": None},
@@ -248,7 +252,9 @@ class TestCompleteStage:
 
     def test_complete_stage_success(self, host_with_onboarding):
         """Marks stage as complete with timestamp."""
-        result = complete_stage("server1", "openclaw", "providers", StageStatus.COMPLETE)
+        result = complete_stage(
+            "server1", "openclaw", "providers", StageStatus.COMPLETE
+        )
         assert result is True
 
         # Verify stage data

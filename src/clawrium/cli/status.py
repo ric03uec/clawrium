@@ -209,7 +209,9 @@ def status(
             else:
                 error_detail = result.get("error") if result else None
                 if error_detail and isinstance(error_detail, str):
-                    status_display = f"[yellow]unknown ({escape(error_detail[:40])})[/yellow]"
+                    status_display = (
+                        f"[yellow]unknown ({escape(error_detail[:40])})[/yellow]"
+                    )
                 else:
                     status_display = "[yellow]unknown[/yellow]"
 

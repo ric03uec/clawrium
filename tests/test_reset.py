@@ -787,7 +787,10 @@ class TestResetEdgeCases:
         )
 
         assert result.exit_code == 0
-        assert "untracking" in result.output.lower() or "removed from tracking" in result.output.lower()
+        assert (
+            "untracking" in result.output.lower()
+            or "removed from tracking" in result.output.lower()
+        )
 
         # Verify host was removed
         hosts = json.loads(hosts_file.read_text())

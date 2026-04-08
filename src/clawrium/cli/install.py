@@ -33,7 +33,9 @@ def _select_claw() -> str:
     for i, claw in enumerate(claws, 1):
         try:
             info = get_claw_info(claw)
-            console.print(f"  {i}. {escape(claw)} (v{info['latest_version']}) - {escape(info['description'])}")
+            console.print(
+                f"  {i}. {escape(claw)} (v{info['latest_version']}) - {escape(info['description'])}"
+            )
         except ManifestNotFoundError:
             console.print(f"  {i}. {escape(claw)} (manifest error)")
 
@@ -55,7 +57,9 @@ def _select_host() -> str:
         raise typer.Exit(code=1)
 
     if not hosts:
-        console.print("[red]Error:[/red] No hosts registered. Run 'clm host add' first.")
+        console.print(
+            "[red]Error:[/red] No hosts registered. Run 'clm host add' first."
+        )
         raise typer.Exit(code=1)
 
     console.print("\n[bold]Available hosts:[/bold]")
@@ -63,7 +67,9 @@ def _select_host() -> str:
         name = host.get("alias") or host["hostname"]
         hw = host.get("hardware", {})
         arch = hw.get("architecture", "?")
-        mem_gb = round(hw.get("memtotal_mb", 0) / 1024, 1) if hw.get("memtotal_mb") else "?"
+        mem_gb = (
+            round(hw.get("memtotal_mb", 0) / 1024, 1) if hw.get("memtotal_mb") else "?"
+        )
         console.print(f"  {i}. {escape(name)} ({arch}, {mem_gb}GB)")
 
     console.print()
@@ -84,9 +90,14 @@ def install(
     host: Optional[str] = typer.Option(
         None, "--host", "-H", help="Target host (hostname or alias)"
     ),
-    yes: bool = typer.Option(
-        False, "--yes", "-y", help="Skip confirmation prompt"
+    name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        "-n",
+        help="Friendly name for the claw instance (max 32 chars, alphanumeric/hyphens/underscores). "
+        "Names are unique per host and immutable after installation.",
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ) -> None:
     """Install a claw on a host.
 
@@ -100,7 +111,9 @@ def install(
     try:
         get_claw_info(selected_claw)  # Validates claw exists
     except ManifestNotFoundError:
-        console.print(f"[red]Error:[/red] Claw '{escape(selected_claw)}' not found in registry")
+        console.print(
+            f"[red]Error:[/red] Claw '{escape(selected_claw)}' not found in registry"
+        )
         raise typer.Exit(code=1)
 
     # Step 3: Get host (prompt if not provided per D-01)
@@ -163,11 +176,16 @@ def install(
             result = run_installation(
                 claw_name=selected_claw,
                 hostname=selected_host,
+                name=name,
                 on_event=update_progress,
             )
 
         # Success
-        console.print(f"[green]Success![/green] {selected_claw} v{result['version']} installed on {display_host}")
+        console.print(
+            f"[green]Success![/green] {selected_claw} v{result['version']} installed as '{name}' on {display_host}"
+            if name
+            else f"[green]Success![/green] {selected_claw} v{result['version']} installed on {display_host}"
+        )
 
     except InstallationError as e:
         # Error display per D-10

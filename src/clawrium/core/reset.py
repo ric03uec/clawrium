@@ -163,7 +163,9 @@ def enumerate_targets(hostname: str) -> ResetTargets:
                                 logger.warning(f"Skipping invalid username: {user!r}")
             # B1: Cap number of users to prevent DoS
             if len(users) > MAX_USERS:
-                logger.warning(f"Truncating users list from {len(users)} to {MAX_USERS}")
+                logger.warning(
+                    f"Truncating users list from {len(users)} to {MAX_USERS}"
+                )
                 users = users[:MAX_USERS]
 
         # Get claw services

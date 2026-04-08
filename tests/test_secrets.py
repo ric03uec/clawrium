@@ -397,7 +397,9 @@ def test_list_instances_with_secrets(isolated_config):
     instances = list_instances_with_secrets()
     assert len(instances) == 3
     # Should be sorted
-    assert instances == sorted(["wolf:openclaw:work", "bear:zeroclaw:personal", "wolf:openclaw:personal"])
+    assert instances == sorted(
+        ["wolf:openclaw:work", "bear:zeroclaw:personal", "wolf:openclaw:personal"]
+    )
 
 
 def test_list_instances_with_secrets_empty(isolated_config):
@@ -416,6 +418,7 @@ def test_set_instance_secret_updates_existing(isolated_config):
     created_at = secrets1["OPENAI_API_KEY"]["created_at"]
 
     import time
+
     time.sleep(0.1)  # Ensure timestamp difference
 
     # Update existing secret
@@ -475,7 +478,7 @@ def test_load_secrets_nested_structure(isolated_config):
                 "updated_at": "2024-01-02T00:00:00Z",
                 "description": "",
             }
-        }
+        },
     }
     secrets_path.write_text(json.dumps(test_data))
 

@@ -56,7 +56,9 @@ class TestProviderModels:
         assert result.exit_code == 0
         assert "gpt-4o" in result.output
 
-    def test_models_ollama_provider_shows_available(self, isolated_config, sample_ollama_provider):
+    def test_models_ollama_provider_shows_available(
+        self, isolated_config, sample_ollama_provider
+    ):
         """'clm provider models <ollama-name>' shows cached models."""
         isolated_config.mkdir(parents=True, exist_ok=True)
         save_providers([sample_ollama_provider])
@@ -130,7 +132,9 @@ class TestProviderAdd:
 
     def test_add_invalid_type(self, isolated_config):
         """'clm provider add' rejects invalid provider type."""
-        result = runner.invoke(app, ["provider", "add", "myopenai", "--type", "invalid"])
+        result = runner.invoke(
+            app, ["provider", "add", "myopenai", "--type", "invalid"]
+        )
 
         assert result.exit_code == 1
         assert "invalid provider type" in result.output.lower()
@@ -193,9 +197,13 @@ class TestProviderAdd:
             result = runner.invoke(
                 app,
                 [
-                    "provider", "add", "bad-provider",
-                    "--type", "ollama",
-                    "--url", "http://169.254.169.254",
+                    "provider",
+                    "add",
+                    "bad-provider",
+                    "--type",
+                    "ollama",
+                    "--url",
+                    "http://169.254.169.254",
                 ],
             )
 
@@ -210,19 +218,24 @@ class TestProviderAdd:
 
             # Mock the Ollama server connection
             mock_response = MagicMock()
-            mock_response.json.return_value = {
-                "models": [{"name": "llama3:latest"}]
-            }
+            mock_response.json.return_value = {"models": [{"name": "llama3:latest"}]}
             mock_response.raise_for_status = MagicMock()
 
-            with patch("clawrium.core.providers.requests.get", return_value=mock_response):
+            with patch(
+                "clawrium.core.providers.requests.get", return_value=mock_response
+            ):
                 result = runner.invoke(
                     app,
                     [
-                        "provider", "add", "local-llm",
-                        "--type", "ollama",
-                        "--url", "http://ollama.example.com:11434",
-                        "--model", "llama3:latest",
+                        "provider",
+                        "add",
+                        "local-llm",
+                        "--type",
+                        "ollama",
+                        "--url",
+                        "http://ollama.example.com:11434",
+                        "--model",
+                        "llama3:latest",
                     ],
                 )
 
@@ -238,13 +251,19 @@ class TestProviderAdd:
             mock_response.json.return_value = {"models": []}
             mock_response.raise_for_status = MagicMock()
 
-            with patch("clawrium.core.providers.requests.get", return_value=mock_response):
+            with patch(
+                "clawrium.core.providers.requests.get", return_value=mock_response
+            ):
                 result = runner.invoke(
                     app,
                     [
-                        "provider", "add", "local-llm",
-                        "--type", "ollama",
-                        "--url", "http://ollama.example.com:11434",
+                        "provider",
+                        "add",
+                        "local-llm",
+                        "--type",
+                        "ollama",
+                        "--url",
+                        "http://ollama.example.com:11434",
                     ],
                 )
 
@@ -265,9 +284,13 @@ class TestProviderAdd:
                 result = runner.invoke(
                     app,
                     [
-                        "provider", "add", "local-llm",
-                        "--type", "ollama",
-                        "--url", "http://ollama.example.com:11434",
+                        "provider",
+                        "add",
+                        "local-llm",
+                        "--type",
+                        "ollama",
+                        "--url",
+                        "http://ollama.example.com:11434",
                     ],
                 )
 
@@ -280,7 +303,9 @@ class TestProviderEdit:
 
     def test_edit_not_found(self, isolated_config):
         """'clm provider edit' fails for nonexistent provider."""
-        result = runner.invoke(app, ["provider", "edit", "nonexistent", "--model", "gpt-4"])
+        result = runner.invoke(
+            app, ["provider", "edit", "nonexistent", "--model", "gpt-4"]
+        )
 
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
@@ -341,10 +366,18 @@ class TestProviderEdit:
             }
             mock_response.raise_for_status = MagicMock()
 
-            with patch("clawrium.core.providers.requests.get", return_value=mock_response):
+            with patch(
+                "clawrium.core.providers.requests.get", return_value=mock_response
+            ):
                 result = runner.invoke(
                     app,
-                    ["provider", "edit", "local-llm", "--url", "http://newserver.example.com:11434"],
+                    [
+                        "provider",
+                        "edit",
+                        "local-llm",
+                        "--url",
+                        "http://newserver.example.com:11434",
+                    ],
                 )
 
         assert result.exit_code == 0
@@ -356,7 +389,9 @@ class TestProviderEdit:
             providers = json.load(f)
         assert providers[0]["endpoint"] == "http://newserver.example.com:11434"
 
-    def test_edit_ollama_url_connection_failure(self, isolated_config, sample_ollama_provider):
+    def test_edit_ollama_url_connection_failure(
+        self, isolated_config, sample_ollama_provider
+    ):
         """'clm provider edit --url' handles connection failure."""
         import requests
 
@@ -372,7 +407,13 @@ class TestProviderEdit:
             ):
                 result = runner.invoke(
                     app,
-                    ["provider", "edit", "local-llm", "--url", "http://newserver.example.com:11434"],
+                    [
+                        "provider",
+                        "edit",
+                        "local-llm",
+                        "--url",
+                        "http://newserver.example.com:11434",
+                    ],
                 )
 
         assert result.exit_code == 1
@@ -487,7 +528,9 @@ class TestProviderRefresh:
             providers = json.load(f)
         assert "phi3:latest" in providers[0]["available_models"]
 
-    def test_refresh_ollama_connection_failure(self, isolated_config, sample_ollama_provider):
+    def test_refresh_ollama_connection_failure(
+        self, isolated_config, sample_ollama_provider
+    ):
         """'clm provider refresh' handles connection failure."""
         import requests
 

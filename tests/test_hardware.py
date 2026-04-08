@@ -328,7 +328,9 @@ def test_gather_hardware_passes_inventory_to_runner(monkeypatch, tmp_path):
 
     # Both calls should have inventory parameter
     for call in captured_calls:
-        assert "inventory" in call, "inventory parameter must be passed to ansible_runner.run"
+        assert "inventory" in call, (
+            "inventory parameter must be passed to ansible_runner.run"
+        )
         inv = call["inventory"]
         assert "all" in inv
         assert "hosts" in inv["all"]

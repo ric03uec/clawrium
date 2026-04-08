@@ -153,7 +153,9 @@ def _secrets_lock():
         os.close(lock_fd)
 
 
-def _save_secrets_atomic(secrets: dict[str, dict[str, SecretEntry]], config_dir) -> None:
+def _save_secrets_atomic(
+    secrets: dict[str, dict[str, SecretEntry]], config_dir
+) -> None:
     """Internal: Write secrets atomically without acquiring lock.
 
     This function performs the atomic write (temp file + rename).
@@ -211,9 +213,7 @@ def _validate_instance_key_component(component: str, component_name: str) -> Non
         InvalidInstanceKeyComponentError: If component contains colons or invalid chars.
     """
     if not component:
-        raise InvalidInstanceKeyComponentError(
-            f"{component_name} cannot be empty"
-        )
+        raise InvalidInstanceKeyComponentError(f"{component_name} cannot be empty")
     if not INSTANCE_KEY_COMPONENT_PATTERN.match(component):
         raise InvalidInstanceKeyComponentError(
             f"Invalid {component_name} '{component}': must contain only "
@@ -331,7 +331,9 @@ def set_instance_secret(
                 value=value,
                 created_at=existing["created_at"],
                 updated_at=now,
-                description=description if description else existing.get("description", ""),
+                description=description
+                if description
+                else existing.get("description", ""),
             )
             created = False
         else:
@@ -419,7 +421,9 @@ def get_secret(key: str) -> SecretEntry | None:
     return secrets[global_key].get(key)
 
 
-def set_secret(key: str, value: str, description: str = "", *, strict: bool = False) -> bool:
+def set_secret(
+    key: str, value: str, description: str = "", *, strict: bool = False
+) -> bool:
     """DEPRECATED: Use set_instance_secret instead.
 
     Set or update a global secret (legacy support for CLI).
@@ -457,7 +461,9 @@ def set_secret(key: str, value: str, description: str = "", *, strict: bool = Fa
                 value=value,
                 created_at=existing["created_at"],
                 updated_at=now,
-                description=description if description else existing.get("description", ""),
+                description=description
+                if description
+                else existing.get("description", ""),
             )
             created = False
         else:
