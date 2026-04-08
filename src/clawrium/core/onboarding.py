@@ -218,7 +218,7 @@ def complete_stage(
             "identity": ["identity"],  # Can complete identity while in identity state
             "channels": ["channels"],  # Can complete channels while in channels state
             "validate": ["validate"],  # Can complete validate while in validate state
-            "ready": [],  # No stages to complete when ready
+            "ready": ["providers", "identity", "channels", "validate"],  # Allow reconfiguration when ready
         }
 
         current_state = get_onboarding_state(host, claw_name)
