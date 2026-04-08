@@ -17,6 +17,7 @@ __all__ = [
     "get_host",
     "get_host_by_key_id",
     "update_host",
+    "remove_claw_from_host",
     "HOSTS_FILE",
     "HostsFileCorruptedError",
     "DuplicateHostError",
@@ -273,3 +274,25 @@ def get_host_by_key_id(key_id: str) -> dict | None:
         if host.get("key_id") == key_id:
             return host
     return None
+
+
+def remove_claw_from_host(hostname: str, claw_name: str) -> bool:
+    """Remove a claw from a host's record atomically.
+
+    Acquires exclusive lock for the entire load-modify-save operation
+    to prevent TOCTOU races from concurrent operations.
+
+    Args:
+        hostname: The hostname of the host.
+        claw_name: Name of the claw to remove.
+
+    Returns:
+        True if claw was found and removed, False if not found.
+    """
+
+    def updater(h: dict) -> dict:
+        if "claws" in h and claw_name in h["claws"]:
+            del h["claws"][claw_name]
+        return h
+
+    return update_host(hostname, updater)

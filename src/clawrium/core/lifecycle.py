@@ -24,6 +24,7 @@ __all__ = [
     "start_claw",
     "stop_claw",
     "restart_claw",
+    "remove_claw",
     "LifecycleError",
     "LifecycleResult",
 ]
@@ -412,3 +413,99 @@ def restart_claw(
     start_result["operation"] = "restart"
 
     return start_result
+
+
+def remove_claw(
+    hostname: str,
+    claw_name: str,
+    force: bool = False,
+    on_event: Callable[[str, str], None] | None = None,
+) -> LifecycleResult:
+    """Remove a claw instance from a remote host.
+
+    Stops the claw if running, removes all artifacts from the remote host,
+    and removes the claw from local configuration.
+
+    Args:
+        hostname: Hostname or alias of target host
+        claw_name: Type of claw to remove (e.g., "openclaw")
+        force: Skip confirmation prompts (not used here, handled by CLI)
+        on_event: Optional callback for progress events
+
+    Returns:
+        LifecycleResult with success status and details
+    """
+    from clawrium.core.hosts import remove_claw_from_host
+
+    def emit(stage: str, message: str) -> None:
+        if on_event:
+            on_event(stage, message)
+        logger.info("[%s] %s", stage, message)
+
+    emit("validate", f"Checking {claw_name} on {hostname}...")
+
+    host = get_host(hostname)
+    if not host:
+        raise LifecycleError(f"Host '{hostname}' not found")
+
+    claw_record = host.get("claws", {}).get(claw_name)
+    if not claw_record:
+        raise LifecycleError(f"Claw '{claw_name}' not installed on '{hostname}'")
+
+    # Check if claw is running and stop it first
+    runtime = claw_record.get("runtime", {})
+    status = runtime.get("status", "stopped")
+
+    if status == "running":
+        emit("remove", f"Stopping {claw_name} before removal...")
+        try:
+            stop_result = stop_claw(hostname, claw_name, on_event=on_event)
+            if not stop_result["success"]:
+                logger.warning(
+                    "Failed to stop %s cleanly: %s", claw_name, stop_result["error"]
+                )
+                emit(
+                    "remove",
+                    "Warning: Failed to stop cleanly, continuing with removal...",
+                )
+        except Exception as e:
+            logger.warning("Error stopping %s: %s", claw_name, e)
+            emit("remove", "Warning: Error stopping, continuing with removal...")
+
+    emit("remove", f"Removing {claw_name} from {hostname}...")
+
+    success, error = _run_lifecycle_playbook(
+        claw_name, host["hostname"], "remove", host, timeout=120
+    )
+
+    if not success:
+        return {
+            "success": False,
+            "claw": claw_name,
+            "host": hostname,
+            "operation": "remove",
+            "pid": None,
+            "started_at": None,
+            "error": error,
+        }
+
+    emit("remove", "Removing from local configuration...")
+
+    # Remove claw from hosts.json
+    removed = remove_claw_from_host(host["hostname"], claw_name)
+    if not removed:
+        logger.warning(
+            "Claw %s not found in host %s configuration", claw_name, hostname
+        )
+
+    emit("remove", f"Removed {claw_name} successfully")
+
+    return {
+        "success": True,
+        "claw": claw_name,
+        "host": hostname,
+        "operation": "remove",
+        "pid": None,
+        "started_at": None,
+        "error": None,
+    }

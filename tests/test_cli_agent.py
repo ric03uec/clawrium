@@ -159,11 +159,11 @@ def test_agent_configure_requires_valid_name():
 
 
 def test_agent_remove_placeholder():
-    """clm agent remove shows not implemented message."""
-    result = runner.invoke(app, ["agent", "remove", "opc-work"])
+    """clm agent remove requires valid host and claw."""
+    result = runner.invoke(app, ["agent", "remove", "opc-work", "--force"])
 
     assert result.exit_code == 1
-    assert "not implemented" in result.output.lower()
+    assert "not found" in result.output.lower()
 
 
 def test_agent_start_with_missing_host():
