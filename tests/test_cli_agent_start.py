@@ -216,7 +216,7 @@ def test_start_with_force_when_not_ready_succeeds(isolated_config: Path):
     with patch("clawrium.core.config.get_config_dir", return_value=isolated_config):
         with patch("clawrium.core.hosts.get_config_dir", return_value=isolated_config):
             with patch(
-                "clawrium.core.keys.get_host_private_key", return_value=key_path
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
             ):
                 with patch(
                     "clawrium.core.lifecycle.ansible_runner.run",

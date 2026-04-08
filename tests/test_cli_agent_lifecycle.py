@@ -140,9 +140,7 @@ class TestAgentStart:
         mock_runner.status = "successful"
         mock_runner.events = []
 
-        with patch(
-            "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
-        ):
+        with patch("clawrium.core.keys.get_host_private_key", return_value=key_path):
             with patch(
                 "clawrium.core.lifecycle.ansible_runner.run", return_value=mock_runner
             ):
@@ -192,8 +190,7 @@ class TestAgentStart:
                 "clawrium.core.hosts.get_config_dir", return_value=isolated_config
             ):
                 with patch(
-                    "clawrium.core.lifecycle.get_host_private_key",
-                    return_value=key_path,
+                    "clawrium.core.keys.get_host_private_key", return_value=key_path
                 ):
                     with patch(
                         "clawrium.core.lifecycle.ansible_runner.run",
@@ -250,9 +247,7 @@ class TestAgentStop:
         mock_runner.status = "successful"
         mock_runner.events = []
 
-        with patch(
-            "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
-        ):
+        with patch("clawrium.core.keys.get_host_private_key", return_value=key_path):
             with patch(
                 "clawrium.core.lifecycle.ansible_runner.run", return_value=mock_runner
             ):
@@ -289,9 +284,7 @@ class TestAgentRestart:
         mock_runner.status = "successful"
         mock_runner.events = []
 
-        with patch(
-            "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
-        ):
+        with patch("clawrium.core.keys.get_host_private_key", return_value=key_path):
             with patch(
                 "clawrium.core.lifecycle.ansible_runner.run", return_value=mock_runner
             ):
