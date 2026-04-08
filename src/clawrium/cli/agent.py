@@ -78,10 +78,16 @@ def install(
         None, "--claw", "-c", help="Claw type to install"
     ),
     host: Optional[str] = typer.Option(None, "--host", "-H", help="Target host"),
+    name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        "-n",
+        help="Friendly name for the claw instance (max 32 chars, alphanumeric/hyphens/underscores)",
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
 ) -> None:
     """Install a claw on a host."""
-    install_command(claw=claw, host=host, yes=yes)
+    install_command(claw=claw, host=host, name=name, yes=yes)
 
 
 @agent_app.command()
