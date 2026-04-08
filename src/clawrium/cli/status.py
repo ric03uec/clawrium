@@ -139,10 +139,10 @@ def status(
 
     # Create a single flat table with all instances
     table = Table(title="[bold]Agent Fleet Status[/bold]")
-    table.add_column("Agent Type", style="cyan")
+    table.add_column("Name", style="cyan bold")
+    table.add_column("Agent Type", style="dim")
     table.add_column("Host", style="white")
     table.add_column("Version", style="green")
-    table.add_column("User", style="dim")
     table.add_column("Status", no_wrap=True)
     table.add_column("Installed", style="dim")
 
@@ -154,6 +154,7 @@ def status(
 
         for h, claw_record in instances:
             display_host = h.get("alias") or h["hostname"]
+            full_name = f"{claw_name}-{display_host}"
             version = claw_record.get("version", "?")
             user = claw_record.get("user", "-")
             installed_at = claw_record.get("installed_at", "-")
@@ -225,10 +226,10 @@ def status(
                 status_display = "[yellow]installing...[/yellow]"
 
             table.add_row(
+                escape(full_name),
                 escape(claw_name),
                 escape(display_host),
                 version,
-                escape(user) if user else "-",
                 status_display,
                 installed_at,
             )

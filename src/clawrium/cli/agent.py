@@ -962,7 +962,7 @@ def start(
             )
 
         console.print(
-            f"[green]Starting agent:[/green] {rich_escape(installed_name)} on {rich_escape(display_host)}"
+            f"[green]Starting agent:[/green] {rich_escape(claw_type)} on {rich_escape(display_host)}"
         )
 
         def on_event(stage: str, message: str) -> None:
@@ -973,7 +973,7 @@ def start(
 
         try:
             result = start_claw(
-                host_alias, installed_name, force=force, on_event=on_event
+                host_alias, claw_type, force=force, on_event=on_event
             )
         except LifecycleError as e:
             console.print(f"[red]Error:[/red] {e}")
@@ -1032,7 +1032,7 @@ def stop(
         installed_name, _ = result
 
         console.print(
-            f"[green]Stopping agent:[/green] {rich_escape(installed_name)} on {rich_escape(display_host)}"
+            f"[green]Stopping agent:[/green] {rich_escape(claw_type)} on {rich_escape(display_host)}"
         )
 
         def on_event(stage: str, message: str) -> None:
@@ -1043,7 +1043,7 @@ def stop(
 
         try:
             result = stop_claw(
-                host_alias, installed_name, timeout=timeout, on_event=on_event
+                host_alias, claw_type, timeout=timeout, on_event=on_event
             )
         except LifecycleError as e:
             console.print(f"[red]Error:[/red] {e}")
@@ -1097,7 +1097,7 @@ def restart(
         installed_name, _ = result
 
         console.print(
-            f"[green]Restarting agent:[/green] {rich_escape(installed_name)} on {rich_escape(display_host)}"
+            f"[green]Restarting agent:[/green] {rich_escape(claw_type)} on {rich_escape(display_host)}"
         )
 
         def on_event(stage: str, message: str) -> None:
@@ -1107,7 +1107,7 @@ def restart(
                 console.print(f"  {message}")
 
         try:
-            result = restart_claw(host_alias, installed_name, on_event=on_event)
+            result = restart_claw(host_alias, claw_type, on_event=on_event)
         except LifecycleError as e:
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(code=1)

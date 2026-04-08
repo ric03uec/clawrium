@@ -144,11 +144,11 @@ def _run_lifecycle_playbook(
     claw_user = claw_record.get("user", f"{claw_name[:3]}-{hostname}")
 
     # Validate claw_user to prevent path traversal/injection in Ansible playbooks
-    # Expected format: <prefix>-<identifier> where prefix is 2-3 lowercase letters
-    if not re.match(r"^[a-z]{2,3}-[a-z0-9_-]+$", claw_user):
+    # Use the same validation as claw name validation
+    if not re.match(r"^[a-z][a-z0-9_-]{0,31}$", claw_user):
         return (
             False,
-            f"Invalid claw_user format: '{claw_user}'. Expected pattern: <prefix>-<identifier>",
+            f"Invalid claw_user format: '{claw_user}'. Must start with lowercase letter and contain only lowercase letters, digits, hyphens, underscores (max 32 chars)",
         )
 
     instance_key = None

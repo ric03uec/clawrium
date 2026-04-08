@@ -72,17 +72,23 @@
         group: "{{ claw_user }}"
         mode: "0700"
 
+    - name: Calculate unique gateway port (40000-42000 range)
+      ansible.builtin.set_fact:
+        gateway_port: "{{ 40000 + ((claw_user | hash('md5') | int(base=16)) % 2000) }}"
+
     - name: Create zeroclaw config
       ansible.builtin.copy:
         dest: "/home/{{ claw_user }}/.zeroclaw/config.toml"
         content: |
-          default_provider = "custom:{{ llm_provider_url | default('http://localhost:11434') }}"
+          gateway_port = {{ gateway_port }}
+          {% if llm_provider_url is defined %}
+          default_provider = "custom:{{ llm_provider_url }}"
           default_model = "{{ llm_model | default('llama3') }}"
           api_key = "{{ llm_api_key | default('') }}"
+          {% endif %}
         owner: "{{ claw_user }}"
         group: "{{ claw_user }}"
         mode: "0600"
-      when: llm_provider_url is defined
 
     - name: Create systemd service file
       ansible.builtin.copy:
@@ -96,7 +102,7 @@
           Type=simple
           User={{ claw_user }}
           WorkingDirectory=/home/{{ claw_user }}/workspace
-          ExecStart=/home/{{ claw_user }}/bin/zeroclaw
+          ExecStart=/home/{{ claw_user }}/bin/zeroclaw daemon
           Restart=on-failure
           RestartSec=5
 
