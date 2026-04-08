@@ -151,35 +151,42 @@ class TestOllamaUrlValidation:
             validate_ollama_url("file:///etc/passwd")
         assert "only http and https" in str(exc_info.value).lower()
 
-    def test_validate_ollama_url_rejects_private_ip(self):
-        """validate_ollama_url rejects private IP addresses."""
+    def test_validate_ollama_url_allows_private_ip(self):
+        """validate_ollama_url allows private IP addresses (Ollama is self-hosted)."""
         with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [
                 (2, 1, 0, "", ("192.168.1.100", 0))
             ]
-            with pytest.raises(InvalidOllamaUrlError) as exc_info:
-                validate_ollama_url("http://myserver.local:11434")
-            assert "private" in str(exc_info.value).lower()
+            url = validate_ollama_url("http://myserver.local:11434")
+            assert url == "http://myserver.local:11434"
 
-    def test_validate_ollama_url_rejects_loopback(self):
-        """validate_ollama_url rejects loopback addresses."""
+    def test_validate_ollama_url_allows_lan_ip(self):
+        """validate_ollama_url allows LAN IP addresses like 192.168.x.x."""
+        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+            mock_gai.return_value = [
+                (2, 1, 0, "", ("192.168.1.17", 0))
+            ]
+            url = validate_ollama_url("http://192.168.1.17:11434")
+            assert url == "http://192.168.1.17:11434"
+
+    def test_validate_ollama_url_allows_loopback(self):
+        """validate_ollama_url allows loopback addresses (Ollama is self-hosted)."""
         with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [
                 (2, 1, 0, "", ("127.0.0.1", 0))
             ]
-            with pytest.raises(InvalidOllamaUrlError) as exc_info:
-                validate_ollama_url("http://localhost:11434")
-            assert "private" in str(exc_info.value).lower()
+            url = validate_ollama_url("http://localhost:11434")
+            assert url == "http://localhost:11434"
 
     def test_validate_ollama_url_rejects_metadata_endpoint(self):
-        """validate_ollama_url rejects AWS metadata endpoint."""
+        """validate_ollama_url rejects cloud metadata endpoints (169.254.x.x)."""
         with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [
                 (2, 1, 0, "", ("169.254.169.254", 0))
             ]
             with pytest.raises(InvalidOllamaUrlError) as exc_info:
                 validate_ollama_url("http://169.254.169.254")
-            assert "private" in str(exc_info.value).lower()
+            assert "metadata" in str(exc_info.value).lower()
 
     def test_validate_ollama_url_allows_unresolvable_hostname(self):
         """validate_ollama_url allows hostnames that don't resolve (let requests handle)."""

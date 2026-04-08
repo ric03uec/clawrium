@@ -186,22 +186,21 @@ class TestProviderAdd:
         assert result.exit_code == 1
         assert "already exists" in result.output.lower()
 
-    def test_add_ollama_validates_url(self, isolated_config):
-        """'clm provider add --type ollama' validates URL for security."""
-        # Try to add Ollama with a private IP (should fail validation)
+    def test_add_ollama_rejects_metadata_endpoint(self, isolated_config):
+        """'clm provider add --type ollama' rejects cloud metadata endpoints."""
         with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
-            mock_gai.return_value = [(2, 1, 0, "", ("192.168.1.100", 0))]
+            mock_gai.return_value = [(2, 1, 0, "", ("169.254.169.254", 0))]
             result = runner.invoke(
                 app,
                 [
-                    "provider", "add", "local-llm",
+                    "provider", "add", "bad-provider",
                     "--type", "ollama",
-                    "--url", "http://myserver.local:11434",
+                    "--url", "http://169.254.169.254",
                 ],
             )
 
         assert result.exit_code == 1
-        assert "private" in result.output.lower()
+        assert "metadata" in result.output.lower()
 
     def test_add_ollama_success(self, isolated_config):
         """'clm provider add --type ollama' works with valid public URL."""

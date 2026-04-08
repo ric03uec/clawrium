@@ -228,13 +228,34 @@ def _is_private_ip(ip_str: str) -> bool:
         return False
 
 
+def _is_metadata_endpoint(ip_str: str) -> bool:
+    """Check if an IP address is a cloud metadata endpoint.
+
+    Blocks the link-local range used by cloud provider metadata services
+    (AWS 169.254.169.254, GCP 169.254.169.254, etc.).
+
+    Args:
+        ip_str: IP address string.
+
+    Returns:
+        True if the IP is a cloud metadata endpoint, False otherwise.
+    """
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return ip.is_link_local
+    except ValueError:
+        return False
+
+
 def validate_ollama_url(url: str) -> str:
     """Validate Ollama server URL for security.
 
     Ensures the URL:
     - Has http or https scheme
-    - Does not point to private, loopback, link-local, or reserved IP addresses
-    - Does not point to cloud metadata endpoints (169.254.169.254)
+    - Does not point to cloud metadata endpoints (169.254.x.x)
+
+    Private and loopback addresses are allowed because Ollama is a self-hosted
+    service typically running on local networks (e.g. http://192.168.1.17:11434).
 
     Args:
         url: URL to validate.
@@ -263,16 +284,16 @@ def validate_ollama_url(url: str) -> str:
     if not hostname:
         raise InvalidOllamaUrlError("URL must include a hostname")
 
-    # Resolve hostname to IP and check if it's private/reserved
+    # Resolve hostname to IP and block cloud metadata endpoints only.
+    # Private/loopback IPs are allowed — Ollama runs on local networks.
     try:
-        # Get all IP addresses for the hostname
         addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
         for family, _, _, _, sockaddr in addr_info:
             ip_str = sockaddr[0]
-            if _is_private_ip(ip_str):
+            if _is_metadata_endpoint(ip_str):
                 raise InvalidOllamaUrlError(
-                    f"URL resolves to private/reserved IP address '{ip_str}'. "
-                    "Only publicly routable addresses are allowed for security."
+                    f"URL resolves to a cloud metadata endpoint '{ip_str}'. "
+                    "This address is not allowed for security."
                 )
     except socket.gaierror:
         # Hostname doesn't resolve - let requests.get handle this later
