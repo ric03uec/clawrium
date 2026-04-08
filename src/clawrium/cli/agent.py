@@ -836,6 +836,8 @@ def start(
     Only agents in READY state can start normally.
     Use --force to bypass this check (not recommended).
     """
+    from clawrium.core.lifecycle import start_claw, LifecycleError
+
     try:
         host_alias, claw_type = _parse_claw_name(claw_name)
 
@@ -877,27 +879,40 @@ def start(
                 console.print(f"[red]Error:[/red] {e}")
                 raise typer.Exit(code=1)
 
-        if current_state == OnboardingState.READY:
-            console.print(
-                f"[green]Starting agent:[/green] {rich_escape(installed_name)} on {rich_escape(display_host)}"
+        if current_state != OnboardingState.READY and not force:
+            _show_start_blocked_error(
+                claw_name, host_alias, installed_name, current_state, claw_record
             )
-            console.print("[dim]Agent start functionality coming soon.[/dim]")
-            raise typer.Exit(code=0)
+            raise typer.Exit(code=1)
 
-        if force:
+        if force and current_state != OnboardingState.READY:
             console.print(
                 "[yellow]Warning: Starting agent with incomplete onboarding[/yellow]"
             )
-            console.print(
-                f"[green]Starting agent:[/green] {rich_escape(installed_name)} on {rich_escape(display_host)}"
-            )
-            console.print("[dim]Agent start functionality coming soon.[/dim]")
-            raise typer.Exit(code=0)
 
-        _show_start_blocked_error(
-            claw_name, host_alias, installed_name, current_state, claw_record
+        console.print(
+            f"[green]Starting agent:[/green] {rich_escape(installed_name)} on {rich_escape(display_host)}"
         )
-        raise typer.Exit(code=1)
+
+        def on_event(stage: str, message: str) -> None:
+            if stage == "validate":
+                console.print(f"  [dim]{message}[/dim]")
+            elif stage == "start":
+                console.print(f"  {message}")
+
+        try:
+            result = start_claw(host_alias, installed_name, on_event=on_event)
+        except LifecycleError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+        if result["success"]:
+            console.print(f"[green]✓[/green] Agent started successfully")
+            console.print(f"  Run 'clm agent ps' to check status")
+        else:
+            console.print(f"[red]✗[/red] Failed to start agent: {result['error']}")
+            raise typer.Exit(code=1)
+
     except KeyboardInterrupt:
         console.print("\nCancelled.")
         raise typer.Exit(code=1)
@@ -906,14 +921,134 @@ def start(
 @agent_app.command()
 def stop(
     claw_name: str = typer.Argument(..., help="Claw name to stop"),
+    timeout: int = typer.Option(
+        30, "--timeout", "-t", help="Seconds to wait for graceful shutdown"
+    ),
 ) -> None:
     """Stop an agent.
 
-    [Not yet implemented]
+    Gracefully shuts down the agent process. If the process doesn't
+    stop within the timeout, it will be forcefully terminated.
     """
-    console.print(f"[yellow]Not implemented:[/yellow] stop '{rich_escape(claw_name)}'")
-    console.print("This command will allow stopping agents in a future release.")
-    raise typer.Exit(code=0)
+    from clawrium.core.lifecycle import stop_claw, LifecycleError
+
+    try:
+        host_alias, claw_type = _parse_claw_name(claw_name)
+
+        try:
+            host_data = get_host(host_alias)
+        except HostsFileCorruptedError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+        if not host_data:
+            console.print(
+                f"[red]Error:[/red] Host '{rich_escape(host_alias)}' not found"
+            )
+            raise typer.Exit(code=1)
+
+        display_host = host_data.get("alias", host_data.get("hostname", host_alias))
+
+        result = _get_installed_claw(host_alias, claw_type)
+        if not result:
+            console.print(
+                f"[red]Error:[/red] Claw '{rich_escape(claw_type)}' not installed on {rich_escape(display_host)}"
+            )
+            raise typer.Exit(code=1)
+
+        installed_name, _ = result
+
+        console.print(
+            f"[green]Stopping agent:[/green] {rich_escape(installed_name)} on {rich_escape(display_host)}"
+        )
+
+        def on_event(stage: str, message: str) -> None:
+            if stage == "validate":
+                console.print(f"  [dim]{message}[/dim]")
+            elif stage == "stop":
+                console.print(f"  {message}")
+
+        try:
+            result = stop_claw(
+                host_alias, installed_name, timeout=timeout, on_event=on_event
+            )
+        except LifecycleError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+        if result["success"]:
+            console.print(f"[green]✓[/green] Agent stopped successfully")
+        else:
+            console.print(f"[red]✗[/red] Failed to stop agent: {result['error']}")
+            raise typer.Exit(code=1)
+
+    except KeyboardInterrupt:
+        console.print("\nCancelled.")
+        raise typer.Exit(code=1)
+
+
+@agent_app.command()
+def restart(
+    claw_name: str = typer.Argument(..., help="Claw name to restart"),
+) -> None:
+    """Restart an agent.
+
+    Stops and starts the agent. Useful after configuration changes.
+    """
+    from clawrium.core.lifecycle import restart_claw, LifecycleError
+
+    try:
+        host_alias, claw_type = _parse_claw_name(claw_name)
+
+        try:
+            host_data = get_host(host_alias)
+        except HostsFileCorruptedError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+        if not host_data:
+            console.print(
+                f"[red]Error:[/red] Host '{rich_escape(host_alias)}' not found"
+            )
+            raise typer.Exit(code=1)
+
+        display_host = host_data.get("alias", host_data.get("hostname", host_alias))
+
+        result = _get_installed_claw(host_alias, claw_type)
+        if not result:
+            console.print(
+                f"[red]Error:[/red] Claw '{rich_escape(claw_type)}' not installed on {rich_escape(display_host)}"
+            )
+            raise typer.Exit(code=1)
+
+        installed_name, _ = result
+
+        console.print(
+            f"[green]Restarting agent:[/green] {rich_escape(installed_name)} on {rich_escape(display_host)}"
+        )
+
+        def on_event(stage: str, message: str) -> None:
+            if stage in ("validate", "restart"):
+                console.print(f"  [dim]{message}[/dim]")
+            else:
+                console.print(f"  {message}")
+
+        try:
+            result = restart_claw(host_alias, installed_name, on_event=on_event)
+        except LifecycleError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+        if result["success"]:
+            console.print(f"[green]✓[/green] Agent restarted successfully")
+            console.print(f"  Run 'clm agent ps' to check status")
+        else:
+            console.print(f"[red]✗[/red] Failed to restart agent: {result['error']}")
+            raise typer.Exit(code=1)
+
+    except KeyboardInterrupt:
+        console.print("\nCancelled.")
+        raise typer.Exit(code=1)
 
 
 @agent_app.command()

@@ -174,12 +174,12 @@ def test_agent_start_with_missing_host():
     assert "not found" in result.output.lower()
 
 
-def test_agent_stop_placeholder():
-    """clm agent stop shows not implemented message."""
-    result = runner.invoke(app, ["agent", "stop", "opc-work"])
+def test_agent_stop_unknown_host():
+    """clm agent stop fails for unknown host."""
+    result = runner.invoke(app, ["agent", "stop", "opc-unknown"])
 
-    assert result.exit_code == 0
-    assert "not implemented" in result.output.lower()
+    assert result.exit_code == 1
+    assert "not found" in result.output.lower()
 
 
 def test_agent_logs_placeholder():
