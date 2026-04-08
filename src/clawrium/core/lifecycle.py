@@ -208,6 +208,7 @@ def _run_lifecycle_playbook(
 def start_claw(
     hostname: str,
     claw_name: str,
+    force: bool = False,
     on_event: Callable[[str, str], None] | None = None,
 ) -> LifecycleResult:
     """Start a claw instance on a remote host.
@@ -215,6 +216,7 @@ def start_claw(
     Args:
         hostname: Hostname or alias of target host
         claw_name: Type of claw to start (e.g., "openclaw")
+        force: Bypass onboarding check (not recommended)
         on_event: Optional callback for progress events
 
     Returns:
@@ -244,7 +246,7 @@ def start_claw(
     except ValueError:
         state = OnboardingState.PENDING
 
-    if state != OnboardingState.READY:
+    if state != OnboardingState.READY and not force:
         raise LifecycleError(
             f"Cannot start {claw_name}: onboarding incomplete (state={state_value}). "
             f"Run 'clm agent configure {claw_name[:3]}-{hostname}' first."

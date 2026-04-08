@@ -187,17 +187,25 @@ class TestAgentStart:
         mock_runner.status = "successful"
         mock_runner.events = []
 
-        with patch("clawrium.cli.agent.get_host_private_key", return_value=key_path):
+        with patch("clawrium.core.config.get_config_dir", return_value=isolated_config):
             with patch(
-                "clawrium.core.lifecycle.ansible_runner.run", return_value=mock_runner
+                "clawrium.core.hosts.get_config_dir", return_value=isolated_config
             ):
                 with patch(
-                    "clawrium.core.lifecycle.get_config_dir",
-                    return_value=isolated_config,
+                    "clawrium.core.lifecycle.get_host_private_key",
+                    return_value=key_path,
                 ):
-                    result = runner.invoke(
-                        app, ["agent", "start", "opc-work", "--force"]
-                    )
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        return_value=mock_runner,
+                    ):
+                        with patch(
+                            "clawrium.core.lifecycle.get_config_dir",
+                            return_value=isolated_config,
+                        ):
+                            result = runner.invoke(
+                                app, ["agent", "start", "opc-work", "--force"]
+                            )
 
         assert result.exit_code == 0
         assert "Warning" in result.output or "Starting agent" in result.output
@@ -281,7 +289,9 @@ class TestAgentRestart:
         mock_runner.status = "successful"
         mock_runner.events = []
 
-        with patch("clawrium.cli.agent.get_host_private_key", return_value=key_path):
+        with patch(
+            "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+        ):
             with patch(
                 "clawrium.core.lifecycle.ansible_runner.run", return_value=mock_runner
             ):

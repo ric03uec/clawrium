@@ -901,7 +901,9 @@ def start(
                 console.print(f"  {message}")
 
         try:
-            result = start_claw(host_alias, installed_name, on_event=on_event)
+            result = start_claw(
+                host_alias, installed_name, force=force, on_event=on_event
+            )
         except LifecycleError as e:
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(code=1)
