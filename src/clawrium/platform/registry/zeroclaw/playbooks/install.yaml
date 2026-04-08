@@ -80,7 +80,9 @@
       ansible.builtin.copy:
         dest: "/home/{{ claw_user }}/.zeroclaw/config.toml"
         content: |
-          gateway_port = {{ gateway_port }}
+          [gateway]
+          port = {{ gateway_port }}
+
           {% if llm_provider_url is defined %}
           default_provider = "custom:{{ llm_provider_url }}"
           default_model = "{{ llm_model | default('llama3') }}"
