@@ -405,7 +405,7 @@ class TestRemoveClaw:
                                 return_value=tmp_path,
                             ):
                                 with patch(
-                                    "clawrium.core.hosts.remove_claw_from_host",
+                                    "clawrium.core.lifecycle.remove_claw_from_host",
                                     return_value=True,
                                 ):
                                     result = remove_claw(
@@ -470,7 +470,7 @@ class TestRemoveClaw:
                                 return_value=tmp_path,
                             ):
                                 with patch(
-                                    "clawrium.core.hosts.remove_claw_from_host",
+                                    "clawrium.core.lifecycle.remove_claw_from_host",
                                     return_value=True,
                                 ):
                                     result = remove_claw(
@@ -572,7 +572,7 @@ class TestRemoveClaw:
                             return_value=tmp_path,
                         ):
                             with patch(
-                                "clawrium.core.hosts.remove_claw_from_host"
+                                "clawrium.core.lifecycle.remove_claw_from_host"
                             ) as mock_remove:
                                 mock_remove.return_value = True
                                 result = remove_claw("192.168.1.100", "openclaw")
@@ -627,7 +627,7 @@ class TestRemoveClaw:
                             return_value=tmp_path,
                         ):
                             with patch(
-                                "clawrium.core.hosts.remove_claw_from_host",
+                                "clawrium.core.lifecycle.remove_claw_from_host",
                                 return_value=True,
                             ):
                                 result = remove_claw(

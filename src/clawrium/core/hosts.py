@@ -287,7 +287,9 @@ def remove_claw_from_host(hostname: str, claw_name: str) -> bool:
         claw_name: Name of the claw to remove.
 
     Returns:
-        True if claw was found and removed, False if not found.
+        True if the host was found (operation attempted), False if host not found.
+        Note: Returns True even if the claw was not present in the host's claws dict,
+        making the operation idempotent. Does NOT indicate whether claw was actually removed.
     """
 
     def updater(h: dict) -> dict:

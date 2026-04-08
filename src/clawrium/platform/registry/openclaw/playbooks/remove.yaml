@@ -1,6 +1,7 @@
 ---
 - hosts: all
   become: yes
+  become_method: sudo
   tasks:
     - name: Check if systemd service exists
       ansible.builtin.stat:

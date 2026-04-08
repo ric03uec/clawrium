@@ -6,6 +6,7 @@ running on remote hosts via systemd service management.
 
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, TypedDict
@@ -13,7 +14,7 @@ from typing import Callable, TypedDict
 import ansible_runner
 
 from clawrium.core.config import get_config_dir
-from clawrium.core.hosts import get_host, update_host
+from clawrium.core.hosts import get_host, update_host, remove_claw_from_host
 from clawrium.core import keys as core_keys
 from clawrium.core.onboarding import OnboardingState
 from clawrium.core.secrets import get_instance_key, get_instance_secrets
@@ -141,6 +142,14 @@ def _run_lifecycle_playbook(
 
     claw_record = host.get("claws", {}).get(claw_name, {})
     claw_user = claw_record.get("user", f"{claw_name[:3]}-{hostname}")
+
+    # Validate claw_user to prevent path traversal/injection in Ansible playbooks
+    # Expected format: <prefix>-<identifier> where prefix is 2-3 lowercase letters
+    if not re.match(r"^[a-z]{2,3}-[a-z0-9_-]+$", claw_user):
+        return (
+            False,
+            f"Invalid claw_user format: '{claw_user}'. Expected pattern: <prefix>-<identifier>",
+        )
 
     instance_key = None
     secret_vars = {}
@@ -435,7 +444,6 @@ def remove_claw(
     Returns:
         LifecycleResult with success status and details
     """
-    from clawrium.core.hosts import remove_claw_from_host
 
     def emit(stage: str, message: str) -> None:
         if on_event:
@@ -492,11 +500,37 @@ def remove_claw(
     emit("remove", "Removing from local configuration...")
 
     # Remove claw from hosts.json
-    removed = remove_claw_from_host(host["hostname"], claw_name)
-    if not removed:
-        logger.warning(
-            "Claw %s not found in host %s configuration", claw_name, hostname
+    # NOTE: remove_claw_from_host returns True if host was found (not if claw was found)
+    # An exception here means the local config could not be updated after remote cleanup
+    try:
+        removed = remove_claw_from_host(host["hostname"], claw_name)
+        if not removed:
+            # Host not found - this shouldn't happen since we validated it earlier
+            logger.error(
+                "Host %s not found in configuration after remote cleanup", hostname
+            )
+            return {
+                "success": False,
+                "claw": claw_name,
+                "host": hostname,
+                "operation": "remove",
+                "pid": None,
+                "started_at": None,
+                "error": f"Remote removal succeeded but host '{hostname}' not found in local config. State may be inconsistent.",
+            }
+    except Exception as e:
+        logger.error(
+            "Failed to update local configuration after remote cleanup: %s", e
         )
+        return {
+            "success": False,
+            "claw": claw_name,
+            "host": hostname,
+            "operation": "remove",
+            "pid": None,
+            "started_at": None,
+            "error": f"Remote removal succeeded but local config update failed: {e}. Run 'clm host ps {hostname}' to verify or manually edit hosts.json.",
+        }
 
     emit("remove", f"Removed {claw_name} successfully")
 
