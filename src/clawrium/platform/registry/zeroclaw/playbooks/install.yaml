@@ -81,7 +81,9 @@
         dest: "/home/{{ claw_user }}/.zeroclaw/config.toml"
         content: |
           [gateway]
+          host = "0.0.0.0"
           port = {{ gateway_port }}
+          allow_public_bind = true
 
           {% if llm_provider_url is defined %}
           default_provider = "custom:{{ llm_provider_url }}"

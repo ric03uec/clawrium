@@ -30,6 +30,20 @@
         group: "{{ claw_user }}"
         mode: "0700"
 
+    - name: Calculate unique port (40000-42000 range)
+      ansible.builtin.set_fact:
+        openclaw_port: "{{ 40000 + ((claw_user | hash('md5') | int(base=16)) % 2000) }}"
+
+    - name: Create OpenClaw environment file
+      ansible.builtin.copy:
+        dest: "/home/{{ claw_user }}/openclaw/.env"
+        content: |
+          OPENCLAW_GATEWAY_BIND=lan
+          OPENCLAW_GATEWAY_PORT={{ openclaw_port }}
+        owner: "{{ claw_user }}"
+        group: "{{ claw_user }}"
+        mode: "0600"
+
     - name: Create systemd service file
       ansible.builtin.copy:
         dest: "/etc/systemd/system/openclaw-{{ claw_user }}.service"
