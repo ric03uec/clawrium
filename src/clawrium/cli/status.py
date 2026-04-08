@@ -137,18 +137,20 @@ def status(
 
     console.print()  # Blank line after progress
 
-    # Display claw-centric view (per D-12)
+    # Create a single flat table with all instances
+    table = Table(title="[bold]Agent Fleet Status[/bold]")
+    table.add_column("Agent Type", style="cyan")
+    table.add_column("Host", style="white")
+    table.add_column("Version", style="green")
+    table.add_column("User", style="dim")
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Installed", style="dim")
+
+    verbose_rows: list[tuple[str, str, HealthResult]] = []
+
+    # Iterate through all claws in sorted order
     for claw_name in sorted(claws_by_type.keys()):
         instances = claws_by_type[claw_name]
-
-        table = Table(title=f"[bold cyan]{escape(claw_name)}[/bold cyan]")
-        table.add_column("Host", style="white")
-        table.add_column("Version", style="green")
-        table.add_column("User", style="dim")
-        table.add_column("Status")
-        table.add_column("Installed", style="dim")
-
-        verbose_rows: list[tuple[str, str, HealthResult]] = []
 
         for h, claw_record in instances:
             display_host = h.get("alias") or h["hostname"]
@@ -223,6 +225,7 @@ def status(
                 status_display = "[yellow]installing...[/yellow]"
 
             table.add_row(
+                escape(claw_name),
                 escape(display_host),
                 version,
                 escape(user) if user else "-",
@@ -233,8 +236,8 @@ def status(
             if verbose and result and result.get("process_running") is False:
                 verbose_rows.append((claw_name, display_host, result))
 
-        console.print(table)
-        console.print()
+    console.print(table)
+    console.print()
 
-        for vname, vhost, vresult in verbose_rows:
-            display_verbose_onboarding(vname, vhost, vresult)
+    for vname, vhost, vresult in verbose_rows:
+        display_verbose_onboarding(vname, vhost, vresult)
