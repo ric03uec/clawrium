@@ -215,6 +215,9 @@ __marimo__/
 
 ## AI Stuff
 
+# Playwright MCP session artifacts
+.playwright-mcp/
+
 # Website (Docusaurus)
 website/node_modules/
 website/build/
