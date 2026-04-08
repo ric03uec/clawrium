@@ -149,24 +149,40 @@ def run_installation(
     matched_version = compat["matched_entry"]["version"]
     emit("validate", f"Compatible with {claw_name} v{matched_version}")
 
-    # Step 4: Determine claw name (user field)
-    if name is None:
-        claw_user = generate_random_name()
-        emit("validate", f"Generated name: {claw_user}")
-    else:
+    # Step 4: Validate custom name if provided (format only, uniqueness checked in updater)
+    if name is not None:
         valid, error_msg = validate_claw_name(name)
         if not valid:
             raise InstallationError(f"Invalid name: {error_msg}")
+        emit("validate", f"Validated custom name: {name}")
 
-        if not is_name_available_on_host(name, host):
-            raise InstallationError(
-                f"Name '{name}' already in use on this host. "
-                "Names must be unique across all claws on a host."
-            )
-        claw_user = name
-        emit("validate", f"Using provided name: {claw_user}")
+    # Step 5: Set installing state with uniqueness check under lock
+    # Use a list to capture the chosen name from inside the updater
+    chosen_name = [None]
 
     def set_installing(h: dict) -> dict:
+        if name is None:
+            # Auto-generate name with retry loop for uniqueness
+            max_attempts = 10
+            for attempt in range(max_attempts):
+                candidate = generate_random_name()
+                if is_name_available_on_host(candidate, h):
+                    chosen_name[0] = candidate
+                    break
+            else:
+                raise InstallationError(
+                    f"Could not generate a unique name after {max_attempts} attempts. "
+                    "Use --name to specify one."
+                )
+        else:
+            # Use custom name, check uniqueness under lock
+            if not is_name_available_on_host(name, h):
+                raise InstallationError(
+                    f"Name '{name}' already in use on this host. "
+                    "Names must be unique across all claws on a host."
+                )
+            chosen_name[0] = name
+
         if "claws" not in h:
             h["claws"] = {}
         h["claws"][claw_name] = {
@@ -174,11 +190,20 @@ def run_installation(
             "status": "installing",
             "installed_at": None,
             "error": None,
-            "user": claw_user,
+            "user": chosen_name[0],
         }
         return h
 
     update_host(host["hostname"], set_installing)
+
+    # Extract the chosen name
+    claw_user = chosen_name[0]
+
+    # Emit message after lock is released and claw_user is set
+    if name is None:
+        emit("validate", f"Generated unique name: {claw_user}")
+    else:
+        emit("validate", f"Using provided name: {claw_user}")
     emit("validate", f"Installation state tracked (user: {claw_user})")
 
     # Step 5: Get SSH credentials

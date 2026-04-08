@@ -90,7 +90,6 @@ class TestValidateClawName:
         assert validate_claw_name("work-assistant")[0] is True
         assert validate_claw_name("clever_einstein")[0] is True
         assert validate_claw_name("name123")[0] is True
-        assert validate_claw_name("Name")[0] is True
         assert validate_claw_name("abc-123_xyz")[0] is True
 
     def test_valid_edge_cases(self):
@@ -115,15 +114,51 @@ class TestValidateClawName:
         """validate_claw_name rejects names with invalid characters."""
         valid, msg = validate_claw_name("work assistant")
         assert valid is False
-        assert "alphanumeric" in msg.lower()
+        assert "lowercase" in msg.lower()
 
         valid, msg = validate_claw_name("work.assistant")
         assert valid is False
-        assert "alphanumeric" in msg.lower()
+        assert "lowercase" in msg.lower()
 
         valid, msg = validate_claw_name("work@assistant")
         assert valid is False
-        assert "alphanumeric" in msg.lower()
+        assert "lowercase" in msg.lower()
+
+    def test_rejects_uppercase_letters(self):
+        """validate_claw_name rejects names with uppercase letters."""
+        valid, msg = validate_claw_name("Name")
+        assert valid is False
+        assert "lowercase" in msg.lower()
+
+        valid, msg = validate_claw_name("UPPER")
+        assert valid is False
+        assert "lowercase" in msg.lower()
+
+        valid, msg = validate_claw_name("MyAssistant")
+        assert valid is False
+        assert "lowercase" in msg.lower()
+
+    def test_rejects_names_starting_with_digit(self):
+        """validate_claw_name rejects names starting with a digit."""
+        valid, msg = validate_claw_name("1bad")
+        assert valid is False
+        assert "start with a lowercase letter" in msg
+
+        valid, msg = validate_claw_name("123claw")
+        assert valid is False
+        assert "start with a lowercase letter" in msg
+
+    def test_rejects_names_starting_with_hyphen(self):
+        """validate_claw_name rejects names starting with a hyphen."""
+        valid, msg = validate_claw_name("-bad")
+        assert valid is False
+        assert "start with a lowercase letter" in msg
+
+    def test_rejects_names_starting_with_underscore(self):
+        """validate_claw_name rejects names starting with an underscore."""
+        valid, msg = validate_claw_name("_bad")
+        assert valid is False
+        assert "start with a lowercase letter" in msg
 
     def test_returns_error_message(self):
         """validate_claw_name returns descriptive error messages."""

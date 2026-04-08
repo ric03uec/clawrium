@@ -178,6 +178,9 @@ def is_ip_address(value: str) -> bool:
 def validate_claw_name(name: str) -> tuple[bool, str]:
     """Validate a claw name for format and length.
 
+    Names must be valid Unix usernames: start with a lowercase letter,
+    followed by up to 31 lowercase letters, digits, hyphens, or underscores.
+
     Args:
         name: Name to validate
 
@@ -190,10 +193,10 @@ def validate_claw_name(name: str) -> tuple[bool, str]:
     if len(name) > 32:
         return (False, f"Name must be 32 characters or less (got {len(name)})")
 
-    if not re.match(r"^[a-zA-Z0-9_-]+$", name):
+    if not re.match(r"^[a-z][a-z0-9_-]{0,31}$", name):
         return (
             False,
-            "Name must contain only alphanumeric characters, hyphens, and underscores",
+            "Name must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores",
         )
 
     return (True, "")

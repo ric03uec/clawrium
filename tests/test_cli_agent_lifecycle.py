@@ -4,11 +4,9 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from clawrium.cli.main import app
-from clawrium.core.lifecycle import LifecycleError
 
 runner = CliRunner()
 

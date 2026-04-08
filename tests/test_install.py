@@ -168,7 +168,7 @@ def test_install_success(monkeypatch, tmp_path):
     )
 
     # Mock update_host to avoid real filesystem access
-    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: u(clawrium.core.install.get_host(h)))
 
     # Mock initialize_onboarding to avoid real filesystem access
     monkeypatch.setattr(
@@ -263,7 +263,7 @@ def test_install_emits_events(monkeypatch, tmp_path):
     )
 
     # Mock update_host to avoid real filesystem access
-    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: u(clawrium.core.install.get_host(h)))
 
     # Mock initialize_onboarding to avoid real filesystem access
     monkeypatch.setattr(
@@ -359,7 +359,7 @@ def test_install_base_playbook_fails(monkeypatch, tmp_path):
     )
 
     # Mock update_host to avoid real filesystem access
-    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: u(clawrium.core.install.get_host(h)))
 
     # Mock ansible_runner.run to fail
     class FailedResult:
@@ -431,7 +431,7 @@ def test_install_missing_ssh_key_raises(monkeypatch, tmp_path):
     )
 
     # Mock update_host to avoid real filesystem access
-    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: u(clawrium.core.install.get_host(h)))
 
     # Mock get_host_private_key to return None
     monkeypatch.setattr(clawrium.core.install, "get_host_private_key", lambda x: None)
@@ -862,7 +862,7 @@ def test_install_failure_does_not_initialize_onboarding(monkeypatch, tmp_path):
     )
 
     # Mock update_host to avoid real filesystem access
-    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: u(clawrium.core.install.get_host(h)))
 
     # Mock ansible_runner.run to fail
     class FailedResult:
@@ -1216,7 +1216,7 @@ def test_install_with_custom_name(monkeypatch, tmp_path):
         clawrium.core.install, "get_host_private_key", lambda x: key_file
     )
 
-    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: u(clawrium.core.install.get_host(h)))
     monkeypatch.setattr(
         clawrium.core.install, "initialize_onboarding", lambda h, c: True
     )
@@ -1302,7 +1302,7 @@ def test_install_auto_generates_name(monkeypatch, tmp_path):
         clawrium.core.install, "get_host_private_key", lambda x: key_file
     )
 
-    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: u(clawrium.core.install.get_host(h)))
     monkeypatch.setattr(
         clawrium.core.install, "initialize_onboarding", lambda h, c: True
     )
@@ -1382,6 +1382,16 @@ def test_install_rejects_duplicate_name_same_host(monkeypatch, tmp_path):
         lambda *args, **kwargs: compat_result,
     )
 
+    # Create a mock SSH key
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: u(clawrium.core.install.get_host(h)))
+
     # Try to install with duplicate name
     with pytest.raises(InstallationError, match="already in use"):
         run_installation("openclaw", "test-host", name="work-assistant")
@@ -1448,7 +1458,7 @@ def test_install_allows_same_name_different_host(monkeypatch, tmp_path):
         clawrium.core.install, "get_host_private_key", lambda x: key_file
     )
 
-    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: True)
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: u(clawrium.core.install.get_host(h)))
     monkeypatch.setattr(
         clawrium.core.install, "initialize_onboarding", lambda h, c: True
     )

@@ -1,8 +1,7 @@
 """Tests for claw lifecycle management module."""
 
-import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 

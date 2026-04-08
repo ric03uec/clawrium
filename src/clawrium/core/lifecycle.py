@@ -6,7 +6,6 @@ running on remote hosts via systemd service management.
 
 import logging
 import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, TypedDict
