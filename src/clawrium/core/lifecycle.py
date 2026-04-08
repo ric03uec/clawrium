@@ -15,7 +15,7 @@ import ansible_runner
 
 from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import get_host, update_host
-from clawrium.core.keys import get_host_private_key
+from clawrium.core import keys as core_keys
 from clawrium.core.onboarding import OnboardingState
 from clawrium.core.secrets import get_instance_key, get_instance_secrets
 
@@ -53,6 +53,14 @@ ALIAS_TO_CANONICAL = {
     "zc": "zeroclaw",
     "nc": "nemoclaw",
 }
+
+
+def get_host_private_key(key_id: str) -> Path | None:
+    """Resolve host SSH key path.
+
+    Wrapper kept in this module to preserve patch points in tests.
+    """
+    return core_keys.get_host_private_key(key_id)
 
 
 def _resolve_claw_name(claw_name: str) -> str:
