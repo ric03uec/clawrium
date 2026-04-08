@@ -239,6 +239,165 @@ def _atomic_write_file(path: str, content: str, mode: int = 0o600) -> None:
         raise
 
 
+def _sync_zeroclaw_provider_config(host: str, claw_type: str, provider: dict) -> None:
+    """Sync provider configuration to zeroclaw config file on remote host.
+
+    Args:
+        host: Host alias
+        claw_type: Claw type (zeroclaw)
+        provider: Provider dict with name, type, endpoint, model, etc.
+    """
+    import subprocess
+    from clawrium.core.providers import get_provider_api_key
+
+    host_data = get_host(host)
+    if not host_data:
+        raise ValueError(f"Host '{host}' not found")
+
+    result = _get_installed_claw(host, claw_type)
+    if not result:
+        raise ValueError(f"Claw '{claw_type}' not installed on '{host}'")
+
+    installed_name, _ = result
+    hostname = host_data["hostname"]
+
+    # Get provider details
+    provider_type = provider.get("type", "ollama")
+    default_model = provider.get("default_model", "")
+    api_key = get_provider_api_key(provider.get("name", "")) or ""
+
+    # Build provider URL
+    if provider_type == "ollama":
+        provider_url = provider.get("endpoint", "http://localhost:11434")
+        provider_name = f"custom:{provider_url}"
+    elif provider_type == "anthropic":
+        provider_name = "anthropic"
+    elif provider_type == "openai":
+        provider_name = "openai"
+    elif provider_type == "openrouter":
+        provider_name = "openrouter"
+    else:
+        provider_url = provider.get("endpoint", "")
+        provider_name = f"custom:{provider_url}"
+
+    # Calculate unique port (same logic as install playbook)
+    import hashlib
+    port_hash = int(hashlib.md5(installed_name.encode()).hexdigest(), 16)
+    gateway_port = 40000 + (port_hash % 2000)
+
+    # Build config content
+    config_lines = [
+        "[gateway]",
+        'host = "0.0.0.0"',
+        f"port = {gateway_port}",
+        "allow_public_bind = true",
+        ""
+    ]
+
+    if provider_name:
+        config_lines.append(f'default_provider = "{provider_name}"')
+    if default_model:
+        config_lines.append(f'default_model = "{default_model}"')
+    if api_key:
+        config_lines.append(f'api_key = "{api_key}"')
+
+    config_content = "\n".join(config_lines)
+
+    # Write config to remote host
+    cmd = [
+        "ssh",
+        hostname,
+        f"sudo -u {installed_name} tee /home/{installed_name}/.zeroclaw/config.toml > /dev/null"
+    ]
+
+    try:
+        subprocess.run(
+            cmd,
+            input=config_content.encode(),
+            check=True,
+            capture_output=True,
+            timeout=10
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to update config: {e.stderr.decode()}")
+
+
+def _sync_openclaw_provider_config(host: str, claw_type: str, provider: dict) -> None:
+    """Sync provider configuration to openclaw .env file on remote host.
+
+    Args:
+        host: Host alias
+        claw_type: Claw type (openclaw)
+        provider: Provider dict with name, type, endpoint, model, etc.
+    """
+    import subprocess
+    from clawrium.core.providers import get_provider_api_key
+
+    host_data = get_host(host)
+    if not host_data:
+        raise ValueError(f"Host '{host}' not found")
+
+    result = _get_installed_claw(host, claw_type)
+    if not result:
+        raise ValueError(f"Claw '{claw_type}' not installed on '{host}'")
+
+    installed_name, _ = result
+    hostname = host_data["hostname"]
+
+    # Get provider details
+    provider_type = provider.get("type", "ollama")
+    default_model = provider.get("default_model", "")
+    api_key = get_provider_api_key(provider.get("name", "")) or ""
+
+    # Calculate unique port
+    import hashlib
+    port_hash = int(hashlib.md5(installed_name.encode()).hexdigest(), 16)
+    openclaw_port = 40000 + (port_hash % 2000)
+
+    # Build env content
+    env_lines = [
+        "OPENCLAW_GATEWAY_BIND=lan",
+        f"OPENCLAW_GATEWAY_PORT={openclaw_port}",
+    ]
+
+    # Add provider-specific env vars
+    if provider_type == "anthropic":
+        if api_key:
+            env_lines.append(f"ANTHROPIC_API_KEY={api_key}")
+        if default_model:
+            env_lines.append(f"OPENCLAW_DEFAULT_MODEL={default_model}")
+    elif provider_type == "openai":
+        if api_key:
+            env_lines.append(f"OPENAI_API_KEY={api_key}")
+        if default_model:
+            env_lines.append(f"OPENCLAW_DEFAULT_MODEL={default_model}")
+    elif provider_type == "ollama":
+        endpoint = provider.get("endpoint", "http://localhost:11434")
+        env_lines.append(f"OPENCLAW_OLLAMA_URL={endpoint}")
+        if default_model:
+            env_lines.append(f"OPENCLAW_DEFAULT_MODEL={default_model}")
+
+    env_content = "\n".join(env_lines) + "\n"
+
+    # Write .env to remote host
+    cmd = [
+        "ssh",
+        hostname,
+        f"sudo -u {installed_name} tee /home/{installed_name}/openclaw/.env > /dev/null"
+    ]
+
+    try:
+        subprocess.run(
+            cmd,
+            input=env_content.encode(),
+            check=True,
+            capture_output=True,
+            timeout=10
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to update .env: {e.stderr.decode()}")
+
+
 def _run_providers_stage(host: str, claw_type: str, yes: bool) -> bool:
     """Run the PROVIDERS onboarding stage.
 
@@ -303,9 +462,25 @@ def _run_providers_stage(host: str, claw_type: str, yes: bool) -> bool:
             {"provider_id": provider_name},
         )
         console.print("[green]✓[/green]")
+    except Exception as e:
+        console.print(f"[red]✗[/red] {rich_escape(str(e))}")
+        return False
+
+    # Sync provider config to remote agent
+    console.print("Syncing config to agent... ", end="")
+    try:
+        if claw_type == "zeroclaw":
+            _sync_zeroclaw_provider_config(host, claw_type, selected)
+        elif claw_type == "openclaw":
+            _sync_openclaw_provider_config(host, claw_type, selected)
+        console.print("[green]✓[/green]")
         return True
     except Exception as e:
         console.print(f"[red]✗[/red] {rich_escape(str(e))}")
+        console.print(
+            f"[yellow]Warning:[/yellow] Provider saved locally but config sync failed. "
+            f"You may need to manually update the agent config."
+        )
         return False
 
 
