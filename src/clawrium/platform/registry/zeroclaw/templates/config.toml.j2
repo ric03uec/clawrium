@@ -1,0 +1,22 @@
+[gateway]
+host = "{{ config.gateway.host }}"
+port = {{ config.gateway.port }}
+allow_public_bind = {{ config.gateway.allow_public_bind | bool | lower }}
+
+{% if config.provider is defined and config.provider %}
+{% if config.provider.type == "ollama" %}
+default_provider = "custom:{{ config.provider.endpoint }}"
+{% elif config.provider.type == "anthropic" %}
+default_provider = "anthropic"
+{% elif config.provider.type == "openai" %}
+default_provider = "openai"
+{% elif config.provider.type == "openrouter" %}
+default_provider = "openrouter"
+{% endif %}
+{% if config.provider.default_model %}
+default_model = "{{ config.provider.default_model }}"
+{% endif %}
+{% if lookup('env', 'CLAWRIUM_PROVIDER_API_KEY') %}
+api_key = "{{ lookup('env', 'CLAWRIUM_PROVIDER_API_KEY') | replace('\\', '\\\\') | replace('"', '\\"') }}"
+{% endif %}
+{% endif %}

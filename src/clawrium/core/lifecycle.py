@@ -26,6 +26,7 @@ __all__ = [
     "stop_claw",
     "restart_claw",
     "remove_claw",
+    "configure_claw",
     "LifecycleError",
     "LifecycleResult",
 ]
@@ -422,6 +423,183 @@ def restart_claw(
     start_result["operation"] = "restart"
 
     return start_result
+
+
+def configure_claw(
+    hostname: str,
+    claw_name: str,
+    config_data: dict,
+    on_event: Callable[[str, str], None] | None = None,
+) -> tuple[bool, str | None]:
+    """Configure a claw instance on a remote host.
+
+    Updates the claw configuration in hosts.json and applies the configuration
+    to the remote host via Ansible playbook. This is the single source of truth
+    for configuration management.
+
+    Args:
+        hostname: Hostname or alias of target host
+        claw_name: Type of claw to configure (e.g., "zeroclaw", "openclaw")
+        config_data: Configuration dictionary containing gateway and provider settings
+        on_event: Optional callback for progress events
+
+    Returns:
+        Tuple of (success, error_message)
+
+    Raises:
+        LifecycleError: If host not found or claw not installed
+    """
+    from clawrium.core.providers import get_provider_api_key
+
+    def emit(stage: str, message: str) -> None:
+        if on_event:
+            on_event(stage, message)
+        logger.info("[%s] %s", stage, message)
+
+    emit("configure", f"Configuring {claw_name} on {hostname}...")
+
+    host = get_host(hostname)
+    if not host:
+        raise LifecycleError(f"Host '{hostname}' not found")
+
+    claw_record = host.get("claws", {}).get(claw_name)
+    if not claw_record:
+        raise LifecycleError(f"Claw '{claw_name}' not installed on '{hostname}'")
+
+    # Validate config data before running Ansible
+    # B7: Validate Ollama model names to prevent template injection
+    if config_data.get("provider") and config_data["provider"].get("default_model"):
+        model_name = config_data["provider"]["default_model"]
+        if not re.match(r"^[a-zA-Z0-9_.:/+-]+$", model_name):
+            return False, f"Invalid model name: '{model_name}'. Model names must contain only alphanumeric characters, dots, colons, slashes, underscores, plus, and hyphens."
+
+    # Load provider API key from secrets if provider is configured
+    provider_api_key = ""
+    if config_data.get("provider") and config_data["provider"].get("name"):
+        provider_name = config_data["provider"]["name"]
+        provider_api_key = get_provider_api_key(provider_name) or ""
+        if provider_api_key:
+            emit("configure", "Loaded provider API key from secrets")
+
+    # Get template path for this claw type
+    canonical_name = _resolve_claw_name(claw_name)
+    template_path = (
+        Path(__file__).parent.parent
+        / "platform"
+        / "registry"
+        / canonical_name
+        / "templates"
+    )
+
+    if not template_path.exists():
+        return False, f"Template directory not found: {template_path}"
+
+    # Get playbook path
+    playbook_path = _get_lifecycle_playbook_path(claw_name, "configure")
+    if not playbook_path.exists():
+        return False, f"Configure playbook not found: {playbook_path}"
+
+    # Get SSH key
+    key_id = host.get("key_id") or hostname
+    ssh_key = get_host_private_key(key_id)
+    if not ssh_key:
+        return False, "SSH key not found"
+
+    claw_user = claw_record.get("user", f"{claw_name[:3]}-{hostname}")
+
+    # Validate claw_user to prevent path traversal/injection in Ansible playbooks
+    if not re.match(r"^[a-z][a-z0-9_-]{0,31}$", claw_user):
+        return (
+            False,
+            f"Invalid claw_user format: '{claw_user}'. Must start with lowercase letter and contain only lowercase letters, digits, hyphens, underscores (max 32 chars)",
+        )
+
+    # B4: Pass API key via environment variable instead of inventory to prevent plaintext logging
+    # Build Ansible inventory without API key
+    inventory = {
+        "all": {
+            "hosts": {
+                host["hostname"]: {
+                    "ansible_user": host.get("user", "xclm"),
+                    "ansible_port": host.get("port", 22),
+                    "ansible_ssh_private_key_file": str(ssh_key),
+                }
+            },
+            "vars": {
+                "claw_user": claw_user,
+                "claw_name": claw_name,
+                "config": config_data,
+                "template_path": str(template_path),
+            },
+        }
+    }
+
+    # Set up logging
+    logs_dir = _get_logs_dir()
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    host_display = host.get("alias") or host.get("key_id") or hostname
+    operation_log_dir = logs_dir / f"configure-{claw_name}-{host_display}-{timestamp}"
+    operation_log_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(operation_log_dir, 0o700)
+
+    emit("configure", "Running Ansible playbook...")
+
+    # B4: Set API key in environment variable for Ansible to access
+    env_vars = os.environ.copy()
+    if provider_api_key:
+        env_vars["CLAWRIUM_PROVIDER_API_KEY"] = provider_api_key
+
+    try:
+        result = ansible_runner.run(
+            private_data_dir=str(operation_log_dir),
+            inventory=inventory,
+            playbook=str(playbook_path),
+            quiet=True,
+            timeout=60,
+            envvars=env_vars,
+        )
+
+        if result.status == "timeout":
+            return False, "Configure operation timed out"
+
+        if result.status != "successful":
+            error_msg = f"Configure playbook failed: {result.status}"
+            for event in result.events:
+                if event.get("event") == "runner_on_failed":
+                    event_data = event.get("event_data", {})
+                    res = event_data.get("res", {})
+                    if "msg" in res:
+                        error_msg = res["msg"]
+                        break
+                    if "stderr" in res:
+                        error_msg = res["stderr"]
+                        break
+            return False, error_msg
+
+        # B2: Only update hosts.json after Ansible succeeds
+        emit("configure", "Saving configuration to hosts.json...")
+
+        def updater(h: dict) -> dict:
+            if "claws" not in h:
+                h["claws"] = {}
+            if claw_name not in h["claws"]:
+                h["claws"][claw_name] = {}
+            h["claws"][claw_name]["config"] = config_data
+            return h
+
+        if not update_host(host["hostname"], updater):
+            logger.warning(
+                "Ansible succeeded but failed to update hosts.json for %s on %s",
+                claw_name,
+                hostname,
+            )
+            return False, f"Configuration applied but failed to update local state for {claw_name} on {hostname}"
+
+        emit("configure", f"Successfully configured {claw_name}")
+        return True, None
+
+    except Exception as e:
+        return False, str(e)
 
 
 def remove_claw(
