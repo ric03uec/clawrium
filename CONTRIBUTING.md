@@ -138,10 +138,39 @@ Claude:
 /clm:execute 42
 ```
 
-Claude:
-- Reads the plan from issue comments
-- Implements the changes
-- Moves issue: `ready` → `in-progress`
+Claude uses a structured task checklist approach:
+
+**Planning Phase**:
+1. Reads implementation plan from issue
+2. Creates task checklist:
+   - Implementation tasks (one per phase/step)
+   - Verification tasks (tests, lint, ATX review)
+3. Sets dependencies between tasks
+4. Reviews task list
+
+**Execution Phase**:
+1. Gets next pending task (`TaskList()`)
+2. Marks task in progress
+3. Implements the requirements
+4. Marks task completed
+5. Checks progress
+6. Repeats until all tasks done
+
+**Example Execution Flow**:
+```
+TaskList() shows:
+  #1 [pending] Implement: Update CLI help text
+  #2 [pending] Implement: Refactor function names
+  #3 [pending] Run test suite
+  #4 [pending] Run linter
+
+Agent marks #1 in_progress → implements changes → marks completed
+Agent marks #2 in_progress → implements changes → marks completed
+Agent marks #3 in_progress → runs tests → marks completed
+Agent marks #4 in_progress → runs lint → marks completed
+```
+
+Issue moves: `ready` → `in-progress`
 
 #### 4. Verify
 

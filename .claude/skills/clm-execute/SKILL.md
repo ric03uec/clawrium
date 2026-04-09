@@ -167,14 +167,82 @@ Always:
 
 3. **Read Plan**: Find the implementation plan in issue comments
 
-4. **Execute**: Implement the changes following the plan
-   - Make code changes
-   - Write/update tests
-   - Follow existing code patterns
+4. **Create Execution Checklist**:
 
-5. **Verify**: Run `/clm:verify` to ensure quality
+   **CRITICAL**: ALWAYS create task checklist before any execution. Do not skip this step.
 
-6. **Create PR**:
+   Parse the implementation plan and create tasks for tracking:
+
+   a. **Create Implementation Tasks**:
+      For each phase/step in the plan, create a task:
+      ```
+      TaskCreate(
+          subject="Implement: <phase/step description>",
+          description="<detailed requirements from plan>",
+          activeForm="Implementing <phase/step>"
+      )
+      ```
+
+   b. **Create Verification Tasks**:
+      ```
+      TaskCreate(
+          subject="Run test suite",
+          description="Execute 'make test' and ensure all tests pass",
+          activeForm="Running tests"
+      )
+
+      TaskCreate(
+          subject="Run linter",
+          description="Execute 'make lint' and fix any issues",
+          activeForm="Running linter"
+      )
+
+      TaskCreate(
+          subject="Verify ATX review requirements",
+          description="Request ATX review and address all blocking issues",
+          activeForm="Running ATX review"
+      )
+      ```
+
+   c. **Set Dependencies** (if needed):
+      ```
+      TaskUpdate(
+          taskId="<later-task-id>",
+          addBlockedBy=["<prerequisite-task-id>"]
+      )
+      ```
+
+   d. **Review Task List**:
+      ```
+      TaskList()  # Confirm all tasks created correctly
+      ```
+
+5. **Execute Tasks Systematically**:
+
+   a. Get Next Task: `TaskList()` - Find first pending task with no blockedBy
+
+   b. Start Task: `TaskUpdate(taskId="<task-id>", status="in_progress")`
+
+   c. Execute Changes: Implement the task requirements
+      - Make code changes
+      - Write/update tests
+      - Follow existing code patterns
+
+   d. Complete Task: `TaskUpdate(taskId="<task-id>", status="completed")`
+
+   e. Check Progress: `TaskList()` - See remaining tasks
+
+   f. Repeat until all implementation tasks are completed
+
+6. **Execute Verification Tasks**:
+
+   Follow the same pattern as implementation:
+   - Mark verification task as in_progress
+   - Run verification (tests, lint, ATX review)
+   - Mark as completed
+   - Move to next verification task
+
+7. **Create PR**:
 
    **If in worktree mode**: Branch already exists (created during worktree setup)
    ```bash
@@ -194,6 +262,52 @@ Always:
    ```
 
    **WARNING**: Never push to `main`. Always push to feature branch and create PR.
+
+## Progress Tracking with Tasks
+
+### Creating Tasks from Plan
+
+When reading the implementation plan, extract:
+- **Implementation steps**: Each becomes a task
+- **Files to modify**: Include in task descriptions
+- **Dependencies**: Set using addBlockedBy
+- **Acceptance criteria**: Include in task descriptions
+
+### Task Naming Convention
+
+```
+subject: "Implement: <what>"
+description: "<detailed requirements>"
+activeForm: "Implementing <what>"
+```
+
+Examples:
+```
+subject: "Implement: Update CLI help text for agent terminology"
+description: "Update all help text in src/clawrium/cli/agent.py to use 'agent' instead of 'claw'"
+activeForm: "Updating CLI help text"
+
+subject: "Implement: Refactor lifecycle.py function names"
+description: "Rename functions: start_claw → start_agent, stop_claw → stop_agent"
+activeForm: "Refactoring lifecycle.py"
+```
+
+### Standard Verification Checklist
+
+Always create these verification tasks:
+1. Run test suite (`make test`)
+2. Run linter (`make lint`)
+3. Request and address ATX review
+4. Verify no regressions
+
+### When You Get Lost
+
+If execution feels unclear or you lose track of progress:
+1. Run `TaskList()` to see current state
+2. Check which task is in_progress
+3. Review that task's description
+4. Complete current task before starting next
+5. Never jump ahead without marking tasks complete
 
 ## Subagent Spawning (for Parent with Subtasks)
 
@@ -219,6 +333,10 @@ After completing a subtask, check if all sibling subtasks are done:
 
 ## Notes
 
+- **ALWAYS create task checklist before execution** - Do not skip this step
+- **Use TaskList() frequently** to maintain awareness of progress
+- **Complete tasks sequentially** unless explicitly marked as parallel
+- **If you feel lost**, check TaskList() to reorient
 - Subtasks can use cheaper/faster models (Haiku)
 - Parent orchestration can use any model
 - Always verify before marking complete

@@ -83,6 +83,49 @@ New Issue → /clm:triage → /clm:plan-build → /clm:plan-scaffold → /clm:ex
 | `/clm:verify` | Run tests and lint |
 | `/clm:review-pr [n]` | ATX review of PR |
 
+### Task-Based Execution
+
+The `/clm:execute` skill uses a structured task checklist approach to prevent getting lost during execution:
+
+**Planning Phase (Mandatory)**:
+1. Read implementation plan from issue
+2. Create implementation tasks using `TaskCreate()` for each phase/step
+3. Create verification tasks (tests, lint, ATX review)
+4. Set dependencies between tasks if needed
+5. Review task list to confirm structure
+
+**Execution Phase**:
+1. Get next pending task using `TaskList()`
+2. Mark task `in_progress` using `TaskUpdate()`
+3. Execute the task requirements
+4. Mark task `completed`
+5. Check progress with `TaskList()`
+6. Repeat until all tasks done
+
+**Example Task Creation**:
+```python
+# Implementation task
+TaskCreate(
+    subject="Implement: Update CLI help text",
+    description="Update all help text in src/clawrium/cli/agent.py",
+    activeForm="Updating CLI help text"
+)
+
+# Verification task
+TaskCreate(
+    subject="Run test suite",
+    description="Execute 'make test' and ensure all tests pass",
+    activeForm="Running tests"
+)
+```
+
+**Recovery Mechanism**:
+If execution feels unclear or you lose orientation:
+- Run `TaskList()` to see current state
+- Check which task is `in_progress`
+- Review that task's description
+- Complete current task before starting next
+
 ## Review
 
 <atx-review-requirements>

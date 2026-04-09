@@ -156,7 +156,6 @@ def status(
             display_host = h.get("alias") or h["hostname"]
             full_name = f"{claw_name}-{display_host}"
             version = claw_record.get("version", "?")
-            user = claw_record.get("user", "-")
             installed_at = claw_record.get("installed_at", "-")
             if installed_at and installed_at != "-":
                 # Format as date only for readability
