@@ -63,8 +63,14 @@ def test_openclaw_install_playbook_structure():
     # Check for required elements
     assert "- hosts:" in content, "Should have hosts directive"
     assert "agent_name" in content, "Should use agent_name variable"
-    assert "npm install" in content, "Should run npm install"
-    assert "openclaw" in content.lower(), "Should reference openclaw repository"
+    assert "install-cli.sh" in content, "Should use official install-cli.sh installer"
+    assert "/.openclaw/bin/openclaw gateway run" in content, (
+        "Should start gateway from installed runtime prefix"
+    )
+    assert "--allow-unconfigured" in content, (
+        "Should allow startup before interactive setup is completed"
+    )
+    assert "EnvironmentFile=" in content, "Should load environment file in service"
 
     # Parse YAML to ensure it's valid
     data = yaml.safe_load(content)

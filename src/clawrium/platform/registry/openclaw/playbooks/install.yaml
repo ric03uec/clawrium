@@ -9,22 +9,25 @@
         create_home: yes
         shell: /bin/bash
 
-    - name: Clone OpenClaw repository
-      ansible.builtin.git:
-        repo: https://github.com/openclaw/openclaw.git
-        dest: "/home/{{ agent_name }}/openclaw"
-        version: "{{ claw_version | default('v2026.4.2') }}"
-      become_user: "{{ agent_name }}"
-
-    - name: Install npm dependencies
-      ansible.builtin.command:
-        cmd: npm install
-        chdir: "/home/{{ agent_name }}/openclaw"
+    - name: Install OpenClaw CLI runtime via install-cli.sh
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install-cli.sh | bash -s -- --prefix "/home/{{ agent_name }}/.openclaw" --install-method npm --version "{{ claw_version | default('v2026.4.2') | regex_replace('^v', '') }}" --no-onboard
+      args:
+        executable: /bin/bash
       become_user: "{{ agent_name }}"
 
     - name: Create workspace directory
       ansible.builtin.file:
         path: "/home/{{ agent_name }}/workspace"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    - name: Create OpenClaw config directory
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/openclaw"
         state: directory
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -55,8 +58,9 @@
           [Service]
           Type=simple
           User={{ agent_name }}
-          WorkingDirectory=/home/{{ agent_name }}/openclaw
-          ExecStart=/usr/bin/npm start
+          WorkingDirectory=/home/{{ agent_name }}/workspace
+          EnvironmentFile=/home/{{ agent_name }}/openclaw/.env
+          ExecStart=/home/{{ agent_name }}/.openclaw/bin/openclaw gateway run --allow-unconfigured
           Restart=on-failure
           RestartSec=5
 
