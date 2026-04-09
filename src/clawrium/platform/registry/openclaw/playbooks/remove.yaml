@@ -39,6 +39,17 @@
         state: absent
       when: install_dir.stat.exists
 
+    - name: Check if openclaw runtime prefix exists
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/.openclaw"
+      register: runtime_prefix_dir
+
+    - name: Remove openclaw runtime prefix
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.openclaw"
+        state: absent
+      when: runtime_prefix_dir.stat.exists
+
     - name: Check if workspace directory exists
       ansible.builtin.stat:
         path: "/home/{{ agent_name }}/workspace"
