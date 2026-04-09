@@ -7,7 +7,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from clawrium.cli.main import app
-from clawrium.core.onboarding import ClawNotFoundError
+from clawrium.core.onboarding import AgentNotFoundError
 
 runner = CliRunner()
 
@@ -366,7 +366,7 @@ def test_start_keyboard_interrupt_during_execution(isolated_config: Path):
 
 
 def test_start_claw_not_found_during_initialization(isolated_config: Path):
-    """Start handles ClawNotFoundError when initialize_onboarding fails."""
+    """Start handles AgentNotFoundError when initialize_onboarding fails."""
     hosts_file = isolated_config / "hosts.json"
     isolated_config.mkdir(parents=True, exist_ok=True)
 
@@ -407,10 +407,10 @@ def test_start_claw_not_found_during_initialization(isolated_config: Path):
 
     hosts_file.write_text(json.dumps(hosts_data, indent=2))
 
-    # Mock initialize_onboarding to raise ClawNotFoundError
+    # Mock initialize_onboarding to raise AgentNotFoundError
     with patch(
         "clawrium.cli.agent.initialize_onboarding",
-        side_effect=ClawNotFoundError("Claw 'opc' not found on host 'work'"),
+        side_effect=AgentNotFoundError("Claw 'opc' not found on host 'work'"),
     ):
         result = runner.invoke(app, ["agent", "start", "opc-work"])
 

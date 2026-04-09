@@ -72,7 +72,7 @@ def test_status_shows_claw_table(mock_hosts_with_claws):
     """Status shows table grouped by claw type."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.RUNNING,
             "user": "opc-server1",
@@ -98,7 +98,7 @@ def test_status_shows_running_status(mock_hosts_with_claws):
     """Running claw shows green status."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.RUNNING,
             "user": "opc-server1",
@@ -121,7 +121,7 @@ def test_status_shows_stopped_status(mock_hosts_with_claws):
     """Stopped claw shows red status."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.STOPPED,
             "user": "opc-server1",
@@ -144,7 +144,7 @@ def test_status_host_filter(mock_hosts_with_claws):
     """--host flag filters to specific host."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.RUNNING,
             "user": "opc-server1",
@@ -195,7 +195,7 @@ def test_status_shows_failed_install():
     # Health check returns unknown since not really installed
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.STOPPED,
             "user": "opc-server1",
@@ -232,7 +232,7 @@ def test_status_shows_installing_status():
 
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.UNKNOWN,
             "user": "opc-server1",
@@ -270,7 +270,7 @@ def test_status_shows_degraded_with_missing_secrets(mock_hosts_with_claws):
     """Degraded status shows missing secret keys."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.DEGRADED,
             "user": "opc-server1",
@@ -296,7 +296,7 @@ def test_status_degraded_truncates_long_list(mock_hosts_with_claws):
     """Degraded status truncates when more than 3 missing secrets."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.DEGRADED,
             "user": "opc-server1",
@@ -327,7 +327,7 @@ def test_status_shows_pending_onboard(mock_hosts_with_claws):
     """B5: PENDING_ONBOARD shows 'pending onboard' status."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.PENDING_ONBOARD,
             "user": "opc-server1",
@@ -351,7 +351,7 @@ def test_status_shows_onboarding_with_step(mock_hosts_with_claws):
     """B5/B6: ONBOARDING shows status with step progress."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
             "user": "opc-server1",
@@ -387,7 +387,7 @@ def test_status_shows_onboarding_without_step(mock_hosts_with_claws):
     """B6: ONBOARDING without stages shows fallback '0/4'."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
             "user": "opc-server1",
@@ -412,7 +412,7 @@ def test_status_shows_ready_stopped(mock_hosts_with_claws):
     """B5: READY shows 'ready (stopped)' status."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.READY,
             "user": "opc-server1",
@@ -440,7 +440,7 @@ def test_status_verbose_flag_accepted(mock_hosts_with_claws):
     """--verbose flag is accepted; running claws show no stage breakdown."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.RUNNING,
             "user": "opc-server1",
@@ -467,7 +467,7 @@ def test_status_verbose_shows_onboarding_stages(mock_hosts_with_claws):
     """Verbose mode shows onboarding stage breakdown."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
             "user": "opc-server1",
@@ -505,7 +505,7 @@ def test_status_verbose_shows_stage_completion_dates(mock_hosts_with_claws):
     """Verbose mode shows completion dates for completed stages."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
             "user": "opc-server1",
@@ -537,7 +537,7 @@ def test_status_verbose_pending_onboard(mock_hosts_with_claws):
     """Verbose mode shows pending stages for PENDING_ONBOARD status."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.PENDING_ONBOARD,
             "user": "opc-server1",
@@ -567,7 +567,7 @@ def test_status_verbose_no_stages_for_running(mock_hosts_with_claws):
     """Verbose mode does not show stages for running claws."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.RUNNING,
             "user": "opc-server1",
@@ -593,7 +593,7 @@ def test_status_shows_completed_stage_count(mock_hosts_with_claws):
     """Status shows completed stage count (N/4) for onboarding claws."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
             "user": "opc-server1",
@@ -629,7 +629,7 @@ def test_status_verbose_ready_status(mock_hosts_with_claws):
     """Verbose mode shows all completed stages for READY status."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.READY,
             "user": "opc-server1",
@@ -674,7 +674,7 @@ def test_status_verbose_no_onboarding_stages(mock_hosts_with_claws):
     """Verbose mode shows fallback message when onboarding_stages is None."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
             "user": "opc-server1",
@@ -698,7 +698,7 @@ def test_status_verbose_short_alias(mock_hosts_with_claws):
     """Short -v alias for --verbose is accepted and works."""
     mock_health = MagicMock(
         return_value={
-            "claw": "openclaw",
+            "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
             "user": "opc-server1",

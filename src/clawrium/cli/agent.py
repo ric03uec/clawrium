@@ -27,7 +27,7 @@ from clawrium.core.onboarding import (
     can_skip_stage,
     InvalidTransitionError,
     OnboardingNotFoundError,
-    ClawNotFoundError,
+    AgentNotFoundError,
 )
 
 __all__ = ["agent_app"]
@@ -254,7 +254,7 @@ def _sync_provider_config(host: str, claw_type: str, provider: dict) -> None:
         RuntimeError: If configuration sync fails
     """
     import hashlib
-    from clawrium.core.lifecycle import configure_claw
+    from clawrium.core.lifecycle import configure_agent
 
     host_data = get_host(host)
     if not host_data:
@@ -311,8 +311,8 @@ def _sync_provider_config(host: str, claw_type: str, provider: dict) -> None:
         "provider": provider_config
     }
 
-    # Call configure_claw to apply configuration via Ansible
-    success, error = configure_claw(host, claw_type, config_data)
+    # Call configure_agent to apply configuration via Ansible
+    success, error = configure_agent(host, claw_type, config_data)
 
     if not success:
         raise RuntimeError(f"Failed to configure {claw_type}: {error}")
@@ -697,10 +697,10 @@ def configure(
         try:
             initialize_onboarding(host_alias, installed_name)
             current_state = get_onboarding_state(host_alias, installed_name)
-        except ClawNotFoundError as e:
+        except AgentNotFoundError as e:
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(code=1)
-    except ClawNotFoundError as e:
+    except AgentNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
 
@@ -922,7 +922,7 @@ def remove(
         clm agent remove opc-work
         clm agent remove zc-kevin --force
     """
-    from clawrium.core.lifecycle import remove_claw, LifecycleError
+    from clawrium.core.lifecycle import remove_agent, LifecycleError
 
     try:
         host_alias, claw_type = _parse_claw_name(claw_name)
@@ -970,7 +970,7 @@ def remove(
                 console.print(f"  {message}")
 
         try:
-            result = remove_claw(host_alias, installed_name, on_event=on_event)
+            result = remove_agent(host_alias, installed_name, on_event=on_event)
         except LifecycleError as e:
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(code=1)
@@ -999,7 +999,7 @@ def start(
     Only agents in READY state can start normally.
     Use --force to bypass this check (not recommended).
     """
-    from clawrium.core.lifecycle import start_claw, LifecycleError
+    from clawrium.core.lifecycle import start_agent, LifecycleError
 
     try:
         host_alias, claw_type = _parse_claw_name(claw_name)
@@ -1038,7 +1038,7 @@ def start(
             try:
                 initialize_onboarding(host_alias, installed_name)
                 current_state = get_onboarding_state(host_alias, installed_name)
-            except ClawNotFoundError as e:
+            except AgentNotFoundError as e:
                 console.print(f"[red]Error:[/red] {e}")
                 raise typer.Exit(code=1)
 
@@ -1064,7 +1064,7 @@ def start(
                 console.print(f"  {message}")
 
         try:
-            result = start_claw(
+            result = start_agent(
                 host_alias, claw_type, force=force, on_event=on_event
             )
         except LifecycleError as e:
@@ -1095,7 +1095,7 @@ def stop(
     Gracefully shuts down the agent process. If the process doesn't
     stop within the timeout, it will be forcefully terminated.
     """
-    from clawrium.core.lifecycle import stop_claw, LifecycleError
+    from clawrium.core.lifecycle import stop_agent, LifecycleError
 
     try:
         host_alias, claw_type = _parse_claw_name(claw_name)
@@ -1134,7 +1134,7 @@ def stop(
                 console.print(f"  {message}")
 
         try:
-            result = stop_claw(
+            result = stop_agent(
                 host_alias, claw_type, timeout=timeout, on_event=on_event
             )
         except LifecycleError as e:
@@ -1160,7 +1160,7 @@ def restart(
 
     Stops and starts the agent. Useful after configuration changes.
     """
-    from clawrium.core.lifecycle import restart_claw, LifecycleError
+    from clawrium.core.lifecycle import restart_agent, LifecycleError
 
     try:
         host_alias, claw_type = _parse_claw_name(claw_name)
@@ -1199,7 +1199,7 @@ def restart(
                 console.print(f"  {message}")
 
         try:
-            result = restart_claw(host_alias, claw_type, on_event=on_event)
+            result = restart_agent(host_alias, claw_type, on_event=on_event)
         except LifecycleError as e:
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(code=1)

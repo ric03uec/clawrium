@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from clawrium.core.lifecycle import (
-    start_claw,
-    stop_claw,
-    restart_claw,
-    remove_claw,
+    start_agent,
+    stop_agent,
+    restart_agent,
+    remove_agent,
     LifecycleError,
     _get_lifecycle_playbook_path,
     _run_lifecycle_playbook,
@@ -82,7 +82,7 @@ class TestStartClaw:
     def test_raises_error_when_host_not_found(self):
         with patch("clawrium.core.lifecycle.get_host", return_value=None):
             with pytest.raises(LifecycleError) as exc_info:
-                start_claw("unknown-host", "openclaw")
+                start_agent("unknown-host", "openclaw")
 
         assert "not found" in str(exc_info.value)
 
@@ -95,7 +95,7 @@ class TestStartClaw:
 
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
             with pytest.raises(LifecycleError) as exc_info:
-                start_claw("192.168.1.100", "openclaw")
+                start_agent("192.168.1.100", "openclaw")
 
         assert "not installed" in str(exc_info.value)
 
@@ -113,7 +113,7 @@ class TestStartClaw:
 
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
             with pytest.raises(LifecycleError) as exc_info:
-                start_claw("192.168.1.100", "openclaw")
+                start_agent("192.168.1.100", "openclaw")
 
         assert "incomplete" in str(exc_info.value)
 
@@ -154,14 +154,14 @@ class TestStartClaw:
                         return_value=mock_runner,
                     ):
                         with patch(
-                            "clawrium.core.lifecycle._update_claw_runtime",
+                            "clawrium.core.lifecycle._update_agent_runtime",
                             return_value=True,
                         ):
                             with patch(
                                 "clawrium.core.lifecycle.get_config_dir",
                                 return_value=tmp_path,
                             ):
-                                result = start_claw("192.168.1.100", "openclaw")
+                                result = start_agent("192.168.1.100", "openclaw")
 
         assert result["success"] is True
         assert result["operation"] == "start"
@@ -173,7 +173,7 @@ class TestStopClaw:
     def test_raises_error_when_host_not_found(self):
         with patch("clawrium.core.lifecycle.get_host", return_value=None):
             with pytest.raises(LifecycleError) as exc_info:
-                stop_claw("unknown-host", "openclaw")
+                stop_agent("unknown-host", "openclaw")
 
         assert "not found" in str(exc_info.value)
 
@@ -185,7 +185,7 @@ class TestStopClaw:
 
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
             with pytest.raises(LifecycleError) as exc_info:
-                stop_claw("192.168.1.100", "openclaw")
+                stop_agent("192.168.1.100", "openclaw")
 
         assert "not installed" in str(exc_info.value)
 
@@ -225,14 +225,14 @@ class TestStopClaw:
                         return_value=mock_runner,
                     ):
                         with patch(
-                            "clawrium.core.lifecycle._update_claw_runtime",
+                            "clawrium.core.lifecycle._update_agent_runtime",
                             return_value=True,
                         ):
                             with patch(
                                 "clawrium.core.lifecycle.get_config_dir",
                                 return_value=tmp_path,
                             ):
-                                result = stop_claw("192.168.1.100", "openclaw")
+                                result = stop_agent("192.168.1.100", "openclaw")
 
         assert result["success"] is True
         assert result["operation"] == "stop"
@@ -282,7 +282,7 @@ class TestRestartClaw:
                             "clawrium.core.lifecycle.get_config_dir",
                             return_value=tmp_path,
                         ):
-                            result = restart_claw("192.168.1.100", "openclaw")
+                            result = restart_agent("192.168.1.100", "openclaw")
 
         assert result["success"] is False
         assert "Stop failed" in result["error"]
@@ -324,14 +324,14 @@ class TestRestartClaw:
                         return_value=mock_runner,
                     ):
                         with patch(
-                            "clawrium.core.lifecycle._update_claw_runtime",
+                            "clawrium.core.lifecycle._update_agent_runtime",
                             return_value=True,
                         ):
                             with patch(
                                 "clawrium.core.lifecycle.get_config_dir",
                                 return_value=tmp_path,
                             ):
-                                result = restart_claw("192.168.1.100", "openclaw")
+                                result = restart_agent("192.168.1.100", "openclaw")
 
         assert result["success"] is True
         assert result["operation"] == "restart"
@@ -343,7 +343,7 @@ class TestRemoveClaw:
     def test_raises_error_when_host_not_found(self):
         with patch("clawrium.core.lifecycle.get_host", return_value=None):
             with pytest.raises(LifecycleError) as exc_info:
-                remove_claw("unknown-host", "openclaw")
+                remove_agent("unknown-host", "openclaw")
 
         assert "not found" in str(exc_info.value)
 
@@ -356,7 +356,7 @@ class TestRemoveClaw:
 
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
             with pytest.raises(LifecycleError) as exc_info:
-                remove_claw("192.168.1.100", "openclaw")
+                remove_agent("192.168.1.100", "openclaw")
 
         assert "not installed" in str(exc_info.value)
 
@@ -397,7 +397,7 @@ class TestRemoveClaw:
                         return_value=mock_runner,
                     ):
                         with patch(
-                            "clawrium.core.lifecycle._update_claw_runtime",
+                            "clawrium.core.lifecycle._update_agent_runtime",
                             return_value=True,
                         ):
                             with patch(
@@ -405,10 +405,10 @@ class TestRemoveClaw:
                                 return_value=tmp_path,
                             ):
                                 with patch(
-                                    "clawrium.core.lifecycle.remove_claw_from_host",
+                                    "clawrium.core.lifecycle.remove_agent_from_host",
                                     return_value=True,
                                 ):
-                                    result = remove_claw(
+                                    result = remove_agent(
                                         "192.168.1.100", "openclaw"
                                     )
 
@@ -462,7 +462,7 @@ class TestRemoveClaw:
                         side_effect=[mock_runner_fail, mock_runner_success],
                     ):
                         with patch(
-                            "clawrium.core.lifecycle._update_claw_runtime",
+                            "clawrium.core.lifecycle._update_agent_runtime",
                             return_value=True,
                         ):
                             with patch(
@@ -470,10 +470,10 @@ class TestRemoveClaw:
                                 return_value=tmp_path,
                             ):
                                 with patch(
-                                    "clawrium.core.lifecycle.remove_claw_from_host",
+                                    "clawrium.core.lifecycle.remove_agent_from_host",
                                     return_value=True,
                                 ):
-                                    result = remove_claw(
+                                    result = remove_agent(
                                         "192.168.1.100", "openclaw"
                                     )
 
@@ -525,7 +525,7 @@ class TestRemoveClaw:
                             "clawrium.core.lifecycle.get_config_dir",
                             return_value=tmp_path,
                         ):
-                            result = remove_claw("192.168.1.100", "openclaw")
+                            result = remove_agent("192.168.1.100", "openclaw")
 
         assert result["success"] is False
         assert "Removal failed" in result["error"]
@@ -572,10 +572,10 @@ class TestRemoveClaw:
                             return_value=tmp_path,
                         ):
                             with patch(
-                                "clawrium.core.lifecycle.remove_claw_from_host"
+                                "clawrium.core.lifecycle.remove_agent_from_host"
                             ) as mock_remove:
                                 mock_remove.return_value = True
-                                result = remove_claw("192.168.1.100", "openclaw")
+                                result = remove_agent("192.168.1.100", "openclaw")
 
         assert result["success"] is True
         mock_remove.assert_called_once_with("192.168.1.100", "openclaw")
@@ -627,10 +627,10 @@ class TestRemoveClaw:
                             return_value=tmp_path,
                         ):
                             with patch(
-                                "clawrium.core.lifecycle.remove_claw_from_host",
+                                "clawrium.core.lifecycle.remove_agent_from_host",
                                 return_value=True,
                             ):
-                                result = remove_claw(
+                                result = remove_agent(
                                     "192.168.1.100", "openclaw", on_event=on_event
                                 )
 

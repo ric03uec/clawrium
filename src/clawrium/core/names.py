@@ -176,7 +176,7 @@ def is_ip_address(value: str) -> bool:
 
 
 def validate_claw_name(name: str) -> tuple[bool, str]:
-    """Validate a claw name for format and length.
+    """Validate an agent name for format and length.
 
     Names must be valid Unix usernames: start with a lowercase letter,
     followed by up to 31 lowercase letters, digits, hyphens, or underscores.
@@ -203,11 +203,11 @@ def validate_claw_name(name: str) -> tuple[bool, str]:
 
 
 def is_name_available_on_host(name: str, host: dict) -> bool:
-    """Check if a name is available on a host (unique across all claws).
+    """Check if a name is available on a host (unique across all agents).
 
     Args:
         name: Name to check
-        host: Host record with claws
+        host: Host record with agents
 
     Returns:
         True if name is available, False if already in use

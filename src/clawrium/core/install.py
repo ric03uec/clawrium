@@ -1,10 +1,10 @@
-"""Installation orchestration for claw deployment.
+"""Installation orchestration for agent deployment.
 
 This module handles the end-to-end installation flow:
-1. Validate claw exists in registry
+1. Validate agent exists in registry
 2. Check host compatibility
 3. Run base playbook (system dependencies)
-4. Run claw-specific playbook
+4. Run agent-specific playbook
 
 Host record schema (extended):
 {
@@ -62,7 +62,7 @@ class InstallResult(TypedDict):
     """Result of installation operation."""
 
     success: bool
-    claw: str
+    agent: str
     version: str
     host: str
     playbooks_run: list[str]
@@ -77,7 +77,7 @@ def _get_base_playbook_path() -> Path:
 
 
 def _get_claw_playbook_path(claw_name: str) -> Path:
-    """Get path to claw-specific install playbook."""
+    """Get path to agent-specific install playbook."""
     return (
         Path(__file__).parent.parent
         / "platform"
@@ -101,12 +101,12 @@ def run_installation(
     name: str | None = None,
     on_event: Callable[[str, str], None] | None = None,
 ) -> InstallResult:
-    """Run full installation of a claw on a host.
+    """Run full installation of an agent on a host.
 
     Args:
-        claw_name: Name of claw to install (e.g., "openclaw")
+        claw_name: Name of agent to install (e.g., "openclaw")
         hostname: Hostname or alias of target host
-        name: Optional friendly name for the claw instance. If not provided,
+        name: Optional friendly name for the agent instance. If not provided,
               a random Docker-style name will be generated (e.g., "clever-einstein")
         on_event: Optional callback for progress events (stage, message)
 
@@ -122,12 +122,12 @@ def run_installation(
             on_event(stage, message)
         logger.info("[%s] %s", stage, message)
 
-    # Step 1: Validate claw exists
+    # Step 1: Validate agent exists
     emit("validate", f"Checking {claw_name} manifest...")
     try:
-        load_manifest(claw_name)  # Validates claw exists
+        load_manifest(claw_name)  # Validates agent exists
     except ManifestNotFoundError as e:
-        raise InstallationError(f"Claw '{claw_name}' not found in registry") from e
+        raise InstallationError(f"Agent '{claw_name}' not found in registry") from e
 
     # Step 2: Get host record
     emit("validate", f"Loading host {hostname}...")
@@ -179,7 +179,7 @@ def run_installation(
             if not is_name_available_on_host(name, h):
                 raise InstallationError(
                     f"Name '{name}' already in use on this host. "
-                    "Names must be unique across all claws on a host."
+                    "Names must be unique across all agents on a host."
                 )
             chosen_name[0] = name
 
@@ -197,14 +197,14 @@ def run_installation(
     update_host(host["hostname"], set_installing)
 
     # Extract the chosen name
-    claw_user = chosen_name[0]
+    agent_name = chosen_name[0]
 
-    # Emit message after lock is released and claw_user is set
+    # Emit message after lock is released and agent_name is set
     if name is None:
-        emit("validate", f"Generated unique name: {claw_user}")
+        emit("validate", f"Generated unique name: {agent_name}")
     else:
-        emit("validate", f"Using provided name: {claw_user}")
-    emit("validate", f"Installation state tracked (user: {claw_user})")
+        emit("validate", f"Using provided name: {agent_name}")
+    emit("validate", f"Installation state tracked (user: {agent_name})")
 
     # Step 5: Get SSH credentials
     key_id = host.get("key_id") or host["hostname"]
@@ -218,8 +218,8 @@ def run_installation(
     matched_entry = compat["matched_entry"]
     claw_sha256 = matched_entry.get("sha256", "")
 
-    # Load secrets for this claw instance
-    instance_key = get_instance_key(host["hostname"], claw_name, claw_user)
+    # Load secrets for this agent instance
+    instance_key = get_instance_key(host["hostname"], claw_name, agent_name)
     instance_secrets = get_instance_secrets(instance_key)
 
     # Map secret keys to ansible vars (uppercase SECRET_KEY -> lowercase secret_key)
@@ -238,7 +238,7 @@ def run_installation(
                 }
             },
             "vars": {
-                "claw_user": claw_user,
+                "claw_user": agent_name,
                 "claw_version": f"v{matched_version}",
                 "claw_sha256": claw_sha256,
                 **secret_vars,  # Inject secrets as ansible vars
@@ -282,10 +282,10 @@ def run_installation(
         playbooks_run.append(str(base_playbook))
         emit("base", "System dependencies installed")
 
-        # Step 9: Run claw playbook
+        # Step 9: Run agent playbook
         claw_playbook = _get_claw_playbook_path(claw_name)
         if not claw_playbook.exists():
-            raise InstallationError(f"Claw playbook not found: {claw_playbook}")
+            raise InstallationError(f"Agent playbook not found: {claw_playbook}")
 
         emit("claw", f"Installing {claw_name}...")
 
@@ -302,7 +302,7 @@ def run_installation(
 
         if result.status != "successful":
             raise InstallationError(
-                f"Claw playbook failed: {result.status}. "
+                f"Agent playbook failed: {result.status}. "
                 f"Check logs at {claw_data_dir}/artifacts/"
             )
         playbooks_run.append(str(claw_playbook))
@@ -349,7 +349,7 @@ def run_installation(
 
         return {
             "success": True,
-            "claw": claw_name,
+            "agent": claw_name,
             "version": matched_version,
             "host": host["hostname"],
             "playbooks_run": playbooks_run,
@@ -364,7 +364,7 @@ def run_installation(
             if "claws" not in h:
                 h["claws"] = {}
             if claw_name not in h["claws"]:
-                h["claws"][claw_name] = {"version": matched_version, "user": claw_user}
+                h["claws"][claw_name] = {"version": matched_version, "user": agent_name}
             h["claws"][claw_name]["status"] = "failed"
             h["claws"][claw_name]["error"] = error_msg
             h["claws"][claw_name]["installed_at"] = datetime.now(

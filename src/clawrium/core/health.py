@@ -50,9 +50,9 @@ class ClawStatus(str, Enum):
 
 
 class HealthResult(TypedDict):
-    """Result of health check for a claw on a host."""
+    """Result of health check for an agent on a host."""
 
-    claw: str
+    agent: str
     host: str
     status: ClawStatus
     user: str | None
@@ -195,7 +195,7 @@ def check_claw_health(
 
     if not claw_record:
         return {
-            "claw": claw_name,
+            "agent": claw_name,
             "host": hostname,
             "status": ClawStatus.NOT_INSTALLED,
             "user": None,
@@ -209,7 +209,7 @@ def check_claw_health(
     claw_user = claw_record.get("user")
     if not claw_user:
         return {
-            "claw": claw_name,
+            "agent": claw_name,
             "host": hostname,
             "status": ClawStatus.UNKNOWN,
             "user": None,
@@ -222,7 +222,7 @@ def check_claw_health(
 
     if not VALID_USERNAME_PATTERN.match(claw_user):
         return {
-            "claw": claw_name,
+            "agent": claw_name,
             "host": hostname,
             "status": ClawStatus.UNKNOWN,
             "user": claw_user,
@@ -237,7 +237,7 @@ def check_claw_health(
     ssh_key = get_host_private_key(key_id)
     if not ssh_key:
         return {
-            "claw": claw_name,
+            "agent": claw_name,
             "host": hostname,
             "status": ClawStatus.UNKNOWN,
             "user": claw_user,
@@ -282,7 +282,7 @@ def check_claw_health(
 
         if result.status == "timeout":
             return {
-                "claw": claw_name,
+                "agent": claw_name,
                 "host": hostname,
                 "status": ClawStatus.UNKNOWN,
                 "user": claw_user,
@@ -306,7 +306,7 @@ def check_claw_health(
             event_type = event.get("event")
             if event_type == "runner_on_unreachable":
                 return {
-                    "claw": claw_name,
+                    "agent": claw_name,
                     "host": hostname,
                     "status": ClawStatus.UNKNOWN,
                     "user": claw_user,
@@ -329,7 +329,7 @@ def check_claw_health(
 
         if process_running is None:
             return {
-                "claw": claw_name,
+                "agent": claw_name,
                 "host": hostname,
                 "status": ClawStatus.UNKNOWN,
                 "user": claw_user,
@@ -344,7 +344,7 @@ def check_claw_health(
             missing = get_missing_secrets(claw_name, host, claw_record)
             if missing:
                 return {
-                    "claw": claw_name,
+                    "agent": claw_name,
                     "host": hostname,
                     "status": ClawStatus.DEGRADED,
                     "user": claw_user,
@@ -356,7 +356,7 @@ def check_claw_health(
                 }
             else:
                 return {
-                    "claw": claw_name,
+                    "agent": claw_name,
                     "host": hostname,
                     "status": ClawStatus.RUNNING,
                     "user": claw_user,
@@ -377,7 +377,7 @@ def check_claw_health(
                 if onboarding and isinstance(onboarding, dict):
                     onboarding_stages = onboarding.get("stages")
             return {
-                "claw": claw_name,
+                "agent": claw_name,
                 "host": hostname,
                 "status": status,
                 "user": claw_user,

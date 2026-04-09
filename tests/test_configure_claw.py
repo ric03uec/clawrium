@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from clawrium.core.lifecycle import configure_claw, LifecycleError
+from clawrium.core.lifecycle import configure_agent, LifecycleError
 
 
 class TestConfigureClaw:
@@ -15,7 +15,7 @@ class TestConfigureClaw:
         """Test that LifecycleError is raised when host doesn't exist."""
         with patch("clawrium.core.lifecycle.get_host", return_value=None):
             with pytest.raises(LifecycleError) as exc_info:
-                configure_claw("nonexistent", "zeroclaw", {})
+                configure_agent("nonexistent", "zeroclaw", {})
 
         assert "not found" in str(exc_info.value)
 
@@ -25,7 +25,7 @@ class TestConfigureClaw:
 
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
             with pytest.raises(LifecycleError) as exc_info:
-                configure_claw("test-host", "zeroclaw", {})
+                configure_agent("test-host", "zeroclaw", {})
 
         assert "not installed" in str(exc_info.value)
 
@@ -43,7 +43,7 @@ class TestConfigureClaw:
         }
 
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
-            success, error = configure_claw("test-host", "zeroclaw", config_data)
+            success, error = configure_agent("test-host", "zeroclaw", config_data)
 
         assert success is False
         assert "Invalid model name" in error
@@ -85,7 +85,7 @@ class TestConfigureClaw:
                         with patch(
                             "clawrium.core.lifecycle.update_host", return_value=False
                         ):
-                            success, error = configure_claw(
+                            success, error = configure_agent(
                                 "test-host", "zeroclaw", config_data
                             )
 
@@ -109,7 +109,7 @@ class TestConfigureClaw:
             ) as mock_playbook:
                 mock_playbook.return_value = tmp_path / "nonexistent.yaml"
 
-                success, error = configure_claw("test-host", "zeroclaw", config_data)
+                success, error = configure_agent("test-host", "zeroclaw", config_data)
 
         assert success is False
         assert "playbook not found" in error
@@ -134,7 +134,7 @@ class TestConfigureClaw:
                 return_value=playbook,
             ):
                 with patch("clawrium.core.lifecycle.get_host_private_key", return_value=None):
-                    success, error = configure_claw("test-host", "zeroclaw", config_data)
+                    success, error = configure_agent("test-host", "zeroclaw", config_data)
 
         assert success is False
         assert "SSH key not found" in error
@@ -163,10 +163,10 @@ class TestConfigureClaw:
                 with patch(
                     "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
                 ):
-                    success, error = configure_claw("test-host", "zeroclaw", config_data)
+                    success, error = configure_agent("test-host", "zeroclaw", config_data)
 
         assert success is False
-        assert "Invalid claw_user format" in error
+        assert "Invalid agent_name format" in error
 
     def test_returns_false_when_ansible_times_out(self, tmp_path: Path):
         """Test that Ansible timeout is handled."""
@@ -201,7 +201,7 @@ class TestConfigureClaw:
                         "clawrium.core.lifecycle.ansible_runner.run",
                         return_value=mock_runner,
                     ):
-                        success, error = configure_claw(
+                        success, error = configure_agent(
                             "test-host", "zeroclaw", config_data
                         )
 
@@ -250,7 +250,7 @@ class TestConfigureClaw:
                         with patch(
                             "clawrium.core.lifecycle.update_host"
                         ) as mock_update:
-                            success, error = configure_claw(
+                            success, error = configure_agent(
                                 "test-host", "zeroclaw", config_data
                             )
 
@@ -308,7 +308,7 @@ class TestConfigureClaw:
                                 return_value="",
                             ):
                                 mock_update.return_value = True
-                                success, error = configure_claw(
+                                success, error = configure_agent(
                                     "test-host", "zeroclaw", config_data
                                 )
 

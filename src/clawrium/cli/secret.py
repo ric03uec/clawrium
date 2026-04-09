@@ -16,7 +16,7 @@ from clawrium.core.secrets import (
     get_instance_secrets,
     set_instance_secret,
     remove_instance_secret,
-    ClawNotFoundError,
+    AgentNotFoundError,
 )
 from clawrium.core.registry import (
     get_required_secrets,
@@ -49,7 +49,7 @@ def set_cmd(
     # Validate claw exists
     try:
         hostname, claw_type, name = get_installed_claw(claw_name)
-    except ClawNotFoundError as e:
+    except AgentNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
 
@@ -111,7 +111,7 @@ def list_cmd(
     # Validate claw exists
     try:
         hostname, claw_type, name = get_installed_claw(claw_name)
-    except ClawNotFoundError as e:
+    except AgentNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
 
@@ -183,7 +183,7 @@ def remove_cmd(
     # Validate claw exists
     try:
         hostname, claw_type, name = get_installed_claw(claw_name)
-    except ClawNotFoundError as e:
+    except AgentNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
 

@@ -15,7 +15,7 @@ from clawrium.core.onboarding import (
     run_stage,
     InvalidTransitionError,
     OnboardingNotFoundError,
-    ClawNotFoundError,
+    AgentNotFoundError,
 )
 
 
@@ -163,8 +163,8 @@ class TestGetOnboardingState:
         assert state == OnboardingState.PENDING
 
     def test_get_state_claw_not_found(self, host_with_onboarding):
-        """Raises ClawNotFoundError when claw doesn't exist."""
-        with pytest.raises(ClawNotFoundError) as exc_info:
+        """Raises AgentNotFoundError when claw doesn't exist."""
+        with pytest.raises(AgentNotFoundError) as exc_info:
             get_onboarding_state("server1", "nonexistent")
         assert "not found" in str(exc_info.value).lower()
 
@@ -175,12 +175,12 @@ class TestGetOnboardingState:
         assert "not initialized" in str(exc_info.value).lower()
 
     def test_get_state_host_not_found(self, isolated_config):
-        """Raises ClawNotFoundError when host doesn't exist."""
+        """Raises AgentNotFoundError when host doesn't exist."""
         isolated_config.mkdir(parents=True, exist_ok=True)
         hosts_path = isolated_config / "hosts.json"
         hosts_path.write_text("[]")
 
-        with pytest.raises(ClawNotFoundError):
+        with pytest.raises(AgentNotFoundError):
             get_onboarding_state("nonexistent", "openclaw")
 
 
@@ -207,8 +207,8 @@ class TestTransitionState:
             transition_state("server1", "openclaw", OnboardingState.VALIDATE)
 
     def test_transition_claw_not_found(self, host_with_onboarding):
-        """Raises ClawNotFoundError for non-existent claw."""
-        with pytest.raises(ClawNotFoundError):
+        """Raises AgentNotFoundError for non-existent claw."""
+        with pytest.raises(AgentNotFoundError):
             transition_state("server1", "nonexistent", OnboardingState.PROVIDERS)
 
     def test_full_happy_path_transitions(self, host_with_onboarding):
@@ -297,8 +297,8 @@ class TestCompleteStage:
         assert "invalid stage" in str(exc_info.value).lower()
 
     def test_complete_stage_claw_not_found(self, host_with_onboarding):
-        """Raises ClawNotFoundError for non-existent claw."""
-        with pytest.raises(ClawNotFoundError):
+        """Raises AgentNotFoundError for non-existent claw."""
+        with pytest.raises(AgentNotFoundError):
             complete_stage("server1", "nonexistent", "providers", StageStatus.COMPLETE)
 
 
@@ -337,17 +337,17 @@ class TestInitializeOnboarding:
             assert stage_data["completed_at"] is None
 
     def test_initialize_claw_not_found(self, host_with_claw):
-        """Raises ClawNotFoundError for non-existent claw."""
-        with pytest.raises(ClawNotFoundError):
+        """Raises AgentNotFoundError for non-existent claw."""
+        with pytest.raises(AgentNotFoundError):
             initialize_onboarding("server1", "nonexistent")
 
     def test_initialize_host_not_found(self, isolated_config):
-        """Raises ClawNotFoundError for non-existent host."""
+        """Raises AgentNotFoundError for non-existent host."""
         isolated_config.mkdir(parents=True, exist_ok=True)
         hosts_path = isolated_config / "hosts.json"
         hosts_path.write_text("[]")
 
-        with pytest.raises(ClawNotFoundError):
+        with pytest.raises(AgentNotFoundError):
             initialize_onboarding("nonexistent", "openclaw")
 
 
@@ -396,6 +396,6 @@ class TestRunStage:
         assert stage["status"] == "complete"
 
     def test_run_stage_claw_not_found(self, host_with_onboarding):
-        """Raises ClawNotFoundError for non-existent claw."""
-        with pytest.raises(ClawNotFoundError):
+        """Raises AgentNotFoundError for non-existent claw."""
+        with pytest.raises(AgentNotFoundError):
             run_stage("openclaw", "server1", "nonexistent", "providers")

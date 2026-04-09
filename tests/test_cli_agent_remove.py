@@ -63,10 +63,10 @@ def test_agent_remove_success(host_with_claw: tuple[Path, str, str]):
     """Successfully remove an agent with confirmation."""
     _, alias, claw_name = host_with_claw
 
-    with patch("clawrium.core.lifecycle.remove_claw") as mock_remove:
+    with patch("clawrium.core.lifecycle.remove_agent") as mock_remove:
         mock_remove.return_value = {
             "success": True,
-            "claw": claw_name,
+            "agent": claw_name,
             "host": alias,
             "operation": "remove",
             "pid": None,
@@ -87,10 +87,10 @@ def test_agent_remove_with_force(host_with_claw: tuple[Path, str, str]):
     """Remove agent with --force flag skips confirmation."""
     _, alias, claw_name = host_with_claw
 
-    with patch("clawrium.core.lifecycle.remove_claw") as mock_remove:
+    with patch("clawrium.core.lifecycle.remove_agent") as mock_remove:
         mock_remove.return_value = {
             "success": True,
-            "claw": claw_name,
+            "agent": claw_name,
             "host": alias,
             "operation": "remove",
             "pid": None,
@@ -111,7 +111,7 @@ def test_agent_remove_cancelled(host_with_claw: tuple[Path, str, str]):
     """User cancels removal at confirmation prompt."""
     _, alias, _ = host_with_claw
 
-    with patch("clawrium.core.lifecycle.remove_claw") as mock_remove:
+    with patch("clawrium.core.lifecycle.remove_agent") as mock_remove:
         result = runner.invoke(
             app, ["agent", "remove", f"opc-{alias}"], input="n\n"
         )
@@ -144,10 +144,10 @@ def test_agent_remove_playbook_failure(host_with_claw: tuple[Path, str, str]):
     """Handle playbook execution failure gracefully."""
     _, alias, claw_name = host_with_claw
 
-    with patch("clawrium.core.lifecycle.remove_claw") as mock_remove:
+    with patch("clawrium.core.lifecycle.remove_agent") as mock_remove:
         mock_remove.return_value = {
             "success": False,
-            "claw": claw_name,
+            "agent": claw_name,
             "host": alias,
             "operation": "remove",
             "pid": None,
@@ -170,7 +170,7 @@ def test_agent_remove_lifecycle_error(host_with_claw: tuple[Path, str, str]):
 
     _, alias, _ = host_with_claw
 
-    with patch("clawrium.core.lifecycle.remove_claw") as mock_remove:
+    with patch("clawrium.core.lifecycle.remove_agent") as mock_remove:
         mock_remove.side_effect = LifecycleError("Test error message")
 
         result = runner.invoke(
@@ -200,10 +200,10 @@ def test_agent_remove_with_running_claw(host_with_claw: tuple[Path, str, str]):
     hosts[0]["claws"][claw_name]["runtime"]["status"] = "running"
     hosts_file.write_text(json.dumps(hosts, indent=2))
 
-    with patch("clawrium.core.lifecycle.remove_claw") as mock_remove:
+    with patch("clawrium.core.lifecycle.remove_agent") as mock_remove:
         mock_remove.return_value = {
             "success": True,
-            "claw": claw_name,
+            "agent": claw_name,
             "host": alias,
             "operation": "remove",
             "pid": None,
@@ -232,7 +232,7 @@ def test_agent_remove_event_callbacks(host_with_claw: tuple[Path, str, str]):
             on_event("remove", "Removing from config...")
         return {
             "success": True,
-            "claw": claw_name,
+            "agent": claw_name,
             "host": host,
             "operation": "remove",
             "pid": None,
@@ -241,7 +241,7 @@ def test_agent_remove_event_callbacks(host_with_claw: tuple[Path, str, str]):
         }
 
     with patch(
-        "clawrium.core.lifecycle.remove_claw", side_effect=mock_remove_with_events
+        "clawrium.core.lifecycle.remove_agent", side_effect=mock_remove_with_events
     ):
         result = runner.invoke(
             app, ["agent", "remove", f"opc-{alias}"], input="y\n"
@@ -258,7 +258,7 @@ def test_agent_remove_keyboard_interrupt(host_with_claw: tuple[Path, str, str]):
 
     _, alias, _ = host_with_claw
 
-    with patch("clawrium.core.lifecycle.remove_claw") as mock_remove:
+    with patch("clawrium.core.lifecycle.remove_agent") as mock_remove:
         mock_remove.side_effect = KeyboardInterrupt()
 
         result = runner.invoke(

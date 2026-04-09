@@ -17,7 +17,7 @@ __all__ = [
     "get_host",
     "get_host_by_key_id",
     "update_host",
-    "remove_claw_from_host",
+    "remove_agent_from_host",
     "HOSTS_FILE",
     "HostsFileCorruptedError",
     "DuplicateHostError",
@@ -276,20 +276,20 @@ def get_host_by_key_id(key_id: str) -> dict | None:
     return None
 
 
-def remove_claw_from_host(hostname: str, claw_name: str) -> bool:
-    """Remove a claw from a host's record atomically.
+def remove_agent_from_host(hostname: str, claw_name: str) -> bool:
+    """Remove an agent from a host's record atomically.
 
     Acquires exclusive lock for the entire load-modify-save operation
     to prevent TOCTOU races from concurrent operations.
 
     Args:
         hostname: The hostname of the host.
-        claw_name: Name of the claw to remove.
+        claw_name: Name of the agent to remove.
 
     Returns:
         True if the host was found (operation attempted), False if host not found.
-        Note: Returns True even if the claw was not present in the host's claws dict,
-        making the operation idempotent. Does NOT indicate whether claw was actually removed.
+        Note: Returns True even if the agent was not present in the host's agents dict,
+        making the operation idempotent. Does NOT indicate whether agent was actually removed.
     """
 
     def updater(h: dict) -> dict:

@@ -1,6 +1,6 @@
-"""Onboarding state machine for claw instances.
+"""Onboarding state machine for agent instances.
 
-This module manages the onboarding workflow for newly installed claws,
+This module manages the onboarding workflow for newly installed agents,
 tracking progress through a fixed set of universal stages.
 """
 
@@ -24,7 +24,7 @@ __all__ = [
     "run_stage",
     "InvalidTransitionError",
     "OnboardingNotFoundError",
-    "ClawNotFoundError",
+    "AgentNotFoundError",
 ]
 
 
@@ -65,26 +65,26 @@ class InvalidTransitionError(Exception):
 
 
 class OnboardingNotFoundError(Exception):
-    """Raised when onboarding record does not exist for a claw."""
+    """Raised when onboarding record does not exist for an agent."""
 
     pass
 
 
-class ClawNotFoundError(Exception):
-    """Raised when claw is not found on the host."""
+class AgentNotFoundError(Exception):
+    """Raised when agent is not found on the host."""
 
     pass
 
 
 def _get_claw_record(host: str, claw_name: str) -> dict | None:
-    """Get claw record from host.
+    """Get agent record from host.
 
     Args:
         host: Hostname or alias
-        claw_name: Name of the claw (e.g., "openclaw")
+        claw_name: Name of the agent (e.g., "openclaw")
 
     Returns:
-        Claw record dict or None if not found
+        Agent record dict or None if not found
     """
     host_data = get_host(host)
     if not host_data:
@@ -94,22 +94,22 @@ def _get_claw_record(host: str, claw_name: str) -> dict | None:
 
 
 def get_onboarding_state(host: str, claw_name: str) -> OnboardingState:
-    """Get current onboarding state for a claw.
+    """Get current onboarding state for an agent.
 
     Args:
         host: Hostname or alias
-        claw_name: Name of the claw
+        claw_name: Name of the agent
 
     Returns:
         Current OnboardingState
 
     Raises:
-        ClawNotFoundError: If claw is not installed on host
+        AgentNotFoundError: If agent is not installed on host
         OnboardingNotFoundError: If onboarding has not been initialized
     """
     claw = _get_claw_record(host, claw_name)
     if claw is None:
-        raise ClawNotFoundError(f"Claw '{claw_name}' not found on host '{host}'")
+        raise AgentNotFoundError(f"Agent '{claw_name}' not found on host '{host}'")
 
     onboarding = claw.get("onboarding")
     if onboarding is None:
@@ -127,20 +127,20 @@ def get_onboarding_state(host: str, claw_name: str) -> OnboardingState:
 
 
 def transition_state(host: str, claw_name: str, to_state: OnboardingState) -> bool:
-    """Transition claw to a new onboarding state.
+    """Transition agent to a new onboarding state.
 
     Validates that the transition is allowed according to TRANSITIONS.
 
     Args:
         host: Hostname or alias
-        claw_name: Name of the claw
+        claw_name: Name of the agent
         to_state: Target state to transition to
 
     Returns:
         True if transition succeeded
 
     Raises:
-        ClawNotFoundError: If claw is not installed on host
+        AgentNotFoundError: If agent is not installed on host
         OnboardingNotFoundError: If onboarding has not been initialized
         InvalidTransitionError: If transition is not allowed
     """
@@ -155,7 +155,7 @@ def transition_state(host: str, claw_name: str, to_state: OnboardingState) -> bo
 
     host_data = get_host(host)
     if not host_data:
-        raise ClawNotFoundError(f"Host '{host}' not found")
+        raise AgentNotFoundError(f"Host '{host}' not found")
 
     hostname = host_data["hostname"]
 
@@ -177,7 +177,7 @@ def complete_stage(
 
     Args:
         host: Hostname or alias
-        claw_name: Name of the claw
+        claw_name: Name of the agent
         stage: Stage name (providers, identity, channels, validate)
         status: Status to set (complete or skipped)
         metadata: Optional metadata to store with the stage
@@ -186,7 +186,7 @@ def complete_stage(
         True if update succeeded
 
     Raises:
-        ClawNotFoundError: If claw is not installed on host
+        AgentNotFoundError: If agent is not installed on host
         OnboardingNotFoundError: If onboarding has not been initialized
         ValueError: If stage is not a valid stage name
         InvalidTransitionError: If completing this stage is not permitted in current state
@@ -197,7 +197,7 @@ def complete_stage(
 
     claw = _get_claw_record(host, claw_name)
     if claw is None:
-        raise ClawNotFoundError(f"Claw '{claw_name}' not found on host '{host}'")
+        raise AgentNotFoundError(f"Agent '{claw_name}' not found on host '{host}'")
 
     onboarding = claw.get("onboarding")
     if onboarding is None:
@@ -232,7 +232,7 @@ def complete_stage(
 
     host_data = get_host(host)
     if not host_data:
-        raise ClawNotFoundError(f"Host '{host}' not found")
+        raise AgentNotFoundError(f"Host '{host}' not found")
 
     hostname = host_data["hostname"]
     now = datetime.now(timezone.utc).isoformat()
@@ -250,28 +250,28 @@ def complete_stage(
 
 
 def initialize_onboarding(host: str, claw_name: str) -> bool:
-    """Initialize onboarding record for a claw.
+    """Initialize onboarding record for an agent.
 
     Creates the onboarding data structure with state=PENDING and all
     stages initialized to pending status.
 
     Args:
         host: Hostname or alias
-        claw_name: Name of the claw
+        claw_name: Name of the agent
 
     Returns:
         True if initialization succeeded
 
     Raises:
-        ClawNotFoundError: If claw is not installed on host
+        AgentNotFoundError: If agent is not installed on host
     """
     claw = _get_claw_record(host, claw_name)
     if claw is None:
-        raise ClawNotFoundError(f"Claw '{claw_name}' not found on host '{host}'")
+        raise AgentNotFoundError(f"Agent '{claw_name}' not found on host '{host}'")
 
     host_data = get_host(host)
     if not host_data:
-        raise ClawNotFoundError(f"Host '{host}' not found")
+        raise AgentNotFoundError(f"Host '{host}' not found")
 
     hostname = host_data["hostname"]
     now = datetime.now(timezone.utc).isoformat()
@@ -296,21 +296,21 @@ def initialize_onboarding(host: str, claw_name: str) -> bool:
     return update_host(hostname, updater)
 
 
-def can_skip_stage(claw_type: str, stage: str) -> bool:
-    """Check if a stage can be auto-skipped for a claw type.
+def can_skip_stage(agent_type: str, stage: str) -> bool:
+    """Check if a stage can be auto-skipped for an agent type.
 
-    Some claw types may not need certain stages (e.g., a claw without
+    Some agent types may not need certain stages (e.g., an agent without
     communication features doesn't need the channels stage).
 
     Args:
-        claw_type: Type of claw (e.g., "openclaw", "zeroclaw")
+        agent_type: Type of agent (e.g., "openclaw", "zeroclaw")
         stage: Stage name to check
 
     Returns:
-        True if the stage can be skipped for this claw type
+        True if the stage can be skipped for this agent type
     """
     try:
-        manifest = load_manifest(claw_type)
+        manifest = load_manifest(agent_type)
     except Exception:
         return False
 
@@ -319,18 +319,18 @@ def can_skip_stage(claw_type: str, stage: str) -> bool:
     return stage in skip_stages
 
 
-def get_stage_tasks(claw_type: str, stage: str) -> list[dict]:
-    """Get tasks for a stage from the claw manifest.
+def get_stage_tasks(agent_type: str, stage: str) -> list[dict]:
+    """Get tasks for a stage from the agent manifest.
 
     Args:
-        claw_type: Type of claw (e.g., "openclaw", "zeroclaw")
+        agent_type: Type of agent (e.g., "openclaw", "zeroclaw")
         stage: Stage name
 
     Returns:
         List of task dictionaries for the stage. Empty list if no tasks defined.
     """
     try:
-        manifest = load_manifest(claw_type)
+        manifest = load_manifest(agent_type)
     except Exception:
         return []
 
@@ -342,7 +342,7 @@ def get_stage_tasks(claw_type: str, stage: str) -> list[dict]:
     return stage_config.get("tasks", [])
 
 
-def run_stage(claw_type: str, host: str, claw_name: str, stage: str) -> bool:
+def run_stage(agent_type: str, host: str, claw_name: str, stage: str) -> bool:
     """Execute tasks for an onboarding stage.
 
     This is a placeholder for stage execution logic. In practice, this would:
@@ -351,21 +351,21 @@ def run_stage(claw_type: str, host: str, claw_name: str, stage: str) -> bool:
     3. Update stage status
 
     Args:
-        claw_type: Type of claw (e.g., "openclaw", "zeroclaw")
+        agent_type: Type of agent (e.g., "openclaw", "zeroclaw")
         host: Hostname or alias
-        claw_name: Name of the claw instance
+        claw_name: Name of the agent instance
         stage: Stage name to execute
 
     Returns:
         True if stage completed successfully
     """
     # Check if stage can be skipped
-    if can_skip_stage(claw_type, stage):
+    if can_skip_stage(agent_type, stage):
         complete_stage(host, claw_name, stage, StageStatus.SKIPPED)
         return True
 
     # Get tasks for this stage
-    tasks = get_stage_tasks(claw_type, stage)
+    tasks = get_stage_tasks(agent_type, stage)
 
     if not tasks:
         # No tasks defined - mark as complete

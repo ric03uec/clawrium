@@ -1,6 +1,6 @@
-"""Agent lifecycle management for claw instances.
+"""Agent lifecycle management for agent instances.
 
-This module handles start, stop, and restart operations for claw instances
+This module handles start, stop, and restart operations for agent instances
 running on remote hosts via systemd service management.
 """
 
@@ -14,7 +14,7 @@ from typing import Callable, TypedDict
 import ansible_runner
 
 from clawrium.core.config import get_config_dir
-from clawrium.core.hosts import get_host, update_host, remove_claw_from_host
+from clawrium.core.hosts import get_host, update_host, remove_agent_from_host
 from clawrium.core import keys as core_keys
 from clawrium.core.onboarding import OnboardingState
 from clawrium.core.secrets import get_instance_key, get_instance_secrets
@@ -22,11 +22,11 @@ from clawrium.core.secrets import get_instance_key, get_instance_secrets
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "start_claw",
-    "stop_claw",
-    "restart_claw",
-    "remove_claw",
-    "configure_claw",
+    "start_agent",
+    "stop_agent",
+    "restart_agent",
+    "remove_agent",
+    "configure_agent",
     "LifecycleError",
     "LifecycleResult",
 ]
@@ -42,7 +42,7 @@ class LifecycleResult(TypedDict):
     """Result of lifecycle operation."""
 
     success: bool
-    claw: str
+    agent: str
     host: str
     operation: str
     pid: int | None
@@ -66,7 +66,7 @@ def get_host_private_key(key_id: str) -> Path | None:
 
 
 def _resolve_claw_name(claw_name: str) -> str:
-    """Resolve claw alias to canonical name."""
+    """Resolve agent alias to canonical name."""
     return ALIAS_TO_CANONICAL.get(claw_name, claw_name)
 
 
@@ -89,12 +89,12 @@ def _get_logs_dir() -> Path:
     return logs_dir
 
 
-def _update_claw_runtime(hostname: str, claw_name: str, runtime_data: dict) -> bool:
-    """Update claw runtime information in hosts.json.
+def _update_agent_runtime(hostname: str, claw_name: str, runtime_data: dict) -> bool:
+    """Update agent runtime information in hosts.json.
 
     Args:
         hostname: The hostname of the host
-        claw_name: Name of the claw
+        claw_name: Name of the agent
         runtime_data: Runtime data to store (pid, started_at, status, etc.)
 
     Returns:
@@ -122,7 +122,7 @@ def _run_lifecycle_playbook(
     """Run a lifecycle playbook on a host.
 
     Args:
-        claw_name: Type of claw
+        claw_name: Type of agent
         hostname: Target hostname
         operation: Operation to perform ("start" or "stop")
         host: Host record dict
@@ -142,14 +142,14 @@ def _run_lifecycle_playbook(
         return False, "SSH key not found"
 
     claw_record = host.get("claws", {}).get(claw_name, {})
-    claw_user = claw_record.get("user", f"{claw_name[:3]}-{hostname}")
+    agent_name = claw_record.get("user", f"{claw_name[:3]}-{hostname}")
 
-    # Validate claw_user to prevent path traversal/injection in Ansible playbooks
-    # Use the same validation as claw name validation
-    if not re.match(r"^[a-z][a-z0-9_-]{0,31}$", claw_user):
+    # Validate agent_name to prevent path traversal/injection in Ansible playbooks
+    # Use the same validation as agent name validation
+    if not re.match(r"^[a-z][a-z0-9_-]{0,31}$", agent_name):
         return (
             False,
-            f"Invalid claw_user format: '{claw_user}'. Must start with lowercase letter and contain only lowercase letters, digits, hyphens, underscores (max 32 chars)",
+            f"Invalid agent_name format: '{agent_name}'. Must start with lowercase letter and contain only lowercase letters, digits, hyphens, underscores (max 32 chars)",
         )
 
     instance_key = None
@@ -158,7 +158,7 @@ def _run_lifecycle_playbook(
         instance_key = get_instance_key(
             hostname,
             claw_name,
-            claw_user.split("-")[1] if "-" in claw_user else "default",
+            agent_name.split("-")[1] if "-" in agent_name else "default",
         )
         instance_secrets = get_instance_secrets(instance_key)
         for key, entry in instance_secrets.items():
@@ -176,9 +176,9 @@ def _run_lifecycle_playbook(
                 }
             },
             "vars": {
-                "claw_user": claw_user,
+                "claw_user": agent_name,
                 "claw_name": claw_name,
-                "service_name": f"{claw_name}-{claw_user.split('-', 1)[1] if '-' in claw_user else hostname}",
+                "service_name": f"{claw_name}-{agent_name.split('-', 1)[1] if '-' in agent_name else hostname}",
                 **secret_vars,
             },
         }
@@ -223,17 +223,17 @@ def _run_lifecycle_playbook(
         return False, str(e)
 
 
-def start_claw(
+def start_agent(
     hostname: str,
     claw_name: str,
     force: bool = False,
     on_event: Callable[[str, str], None] | None = None,
 ) -> LifecycleResult:
-    """Start a claw instance on a remote host.
+    """Start an agent instance on a remote host.
 
     Args:
         hostname: Hostname or alias of target host
-        claw_name: Type of claw to start (e.g., "openclaw")
+        claw_name: Type of agent to start (e.g., "openclaw")
         force: Bypass onboarding check (not recommended)
         on_event: Optional callback for progress events
 
@@ -254,7 +254,7 @@ def start_claw(
 
     claw_record = host.get("claws", {}).get(claw_name)
     if not claw_record:
-        raise LifecycleError(f"Claw '{claw_name}' not installed on '{hostname}'")
+        raise LifecycleError(f"Agent '{claw_name}' not installed on '{hostname}'")
 
     onboarding = claw_record.get("onboarding", {})
     state_value = onboarding.get("state", "pending")
@@ -277,7 +277,7 @@ def start_claw(
     if not success:
         return {
             "success": False,
-            "claw": claw_name,
+            "agent": claw_name,
             "host": hostname,
             "operation": "start",
             "pid": None,
@@ -286,7 +286,7 @@ def start_claw(
         }
 
     now = datetime.now(timezone.utc).isoformat()
-    _update_claw_runtime(
+    _update_agent_runtime(
         host["hostname"],
         claw_name,
         {
@@ -300,7 +300,7 @@ def start_claw(
 
     return {
         "success": True,
-        "claw": claw_name,
+        "agent": claw_name,
         "host": hostname,
         "operation": "start",
         "pid": None,
@@ -309,17 +309,17 @@ def start_claw(
     }
 
 
-def stop_claw(
+def stop_agent(
     hostname: str,
     claw_name: str,
     timeout: int = 30,
     on_event: Callable[[str, str], None] | None = None,
 ) -> LifecycleResult:
-    """Stop a claw instance on a remote host.
+    """Stop an agent instance on a remote host.
 
     Args:
         hostname: Hostname or alias of target host
-        claw_name: Type of claw to stop (e.g., "openclaw")
+        claw_name: Type of agent to stop (e.g., "openclaw")
         timeout: Seconds to wait for graceful shutdown
         on_event: Optional callback for progress events
 
@@ -340,7 +340,7 @@ def stop_claw(
 
     claw_record = host.get("claws", {}).get(claw_name)
     if not claw_record:
-        raise LifecycleError(f"Claw '{claw_name}' not installed on '{hostname}'")
+        raise LifecycleError(f"Agent '{claw_name}' not installed on '{hostname}'")
 
     emit("stop", f"Stopping {claw_name} on {hostname}...")
 
@@ -351,7 +351,7 @@ def stop_claw(
     if not success:
         return {
             "success": False,
-            "claw": claw_name,
+            "agent": claw_name,
             "host": hostname,
             "operation": "stop",
             "pid": None,
@@ -360,7 +360,7 @@ def stop_claw(
         }
 
     now = datetime.now(timezone.utc).isoformat()
-    _update_claw_runtime(
+    _update_agent_runtime(
         host["hostname"],
         claw_name,
         {
@@ -375,7 +375,7 @@ def stop_claw(
 
     return {
         "success": True,
-        "claw": claw_name,
+        "agent": claw_name,
         "host": hostname,
         "operation": "stop",
         "pid": None,
@@ -384,16 +384,16 @@ def stop_claw(
     }
 
 
-def restart_claw(
+def restart_agent(
     hostname: str,
     claw_name: str,
     on_event: Callable[[str, str], None] | None = None,
 ) -> LifecycleResult:
-    """Restart a claw instance on a remote host.
+    """Restart an agent instance on a remote host.
 
     Args:
         hostname: Hostname or alias of target host
-        claw_name: Type of claw to restart (e.g., "openclaw")
+        claw_name: Type of agent to restart (e.g., "openclaw")
         on_event: Optional callback for progress events
 
     Returns:
@@ -407,11 +407,11 @@ def restart_claw(
 
     emit("restart", f"Restarting {claw_name} on {hostname}...")
 
-    stop_result = stop_claw(hostname, claw_name, on_event=on_event)
+    stop_result = stop_agent(hostname, claw_name, on_event=on_event)
     if not stop_result["success"]:
         return {
             "success": False,
-            "claw": claw_name,
+            "agent": claw_name,
             "host": hostname,
             "operation": "restart",
             "pid": None,
@@ -419,27 +419,27 @@ def restart_claw(
             "error": f"Stop failed: {stop_result['error']}",
         }
 
-    start_result = start_claw(hostname, claw_name, on_event=on_event)
+    start_result = start_agent(hostname, claw_name, on_event=on_event)
     start_result["operation"] = "restart"
 
     return start_result
 
 
-def configure_claw(
+def configure_agent(
     hostname: str,
     claw_name: str,
     config_data: dict,
     on_event: Callable[[str, str], None] | None = None,
 ) -> tuple[bool, str | None]:
-    """Configure a claw instance on a remote host.
+    """Configure an agent instance on a remote host.
 
-    Updates the claw configuration in hosts.json and applies the configuration
+    Updates the agent configuration in hosts.json and applies the configuration
     to the remote host via Ansible playbook. This is the single source of truth
     for configuration management.
 
     Args:
         hostname: Hostname or alias of target host
-        claw_name: Type of claw to configure (e.g., "zeroclaw", "openclaw")
+        claw_name: Type of agent to configure (e.g., "zeroclaw", "openclaw")
         config_data: Configuration dictionary containing gateway and provider settings
         on_event: Optional callback for progress events
 
@@ -447,7 +447,7 @@ def configure_claw(
         Tuple of (success, error_message)
 
     Raises:
-        LifecycleError: If host not found or claw not installed
+        LifecycleError: If host not found or agent not installed
     """
     from clawrium.core.providers import get_provider_api_key
 
@@ -464,7 +464,7 @@ def configure_claw(
 
     claw_record = host.get("claws", {}).get(claw_name)
     if not claw_record:
-        raise LifecycleError(f"Claw '{claw_name}' not installed on '{hostname}'")
+        raise LifecycleError(f"Agent '{claw_name}' not installed on '{hostname}'")
 
     # Validate config data before running Ansible
     # B7: Validate Ollama model names to prevent template injection
@@ -481,7 +481,7 @@ def configure_claw(
         if provider_api_key:
             emit("configure", "Loaded provider API key from secrets")
 
-    # Get template path for this claw type
+    # Get template path for this agent type
     canonical_name = _resolve_claw_name(claw_name)
     template_path = (
         Path(__file__).parent.parent
@@ -505,13 +505,13 @@ def configure_claw(
     if not ssh_key:
         return False, "SSH key not found"
 
-    claw_user = claw_record.get("user", f"{claw_name[:3]}-{hostname}")
+    agent_name = claw_record.get("user", f"{claw_name[:3]}-{hostname}")
 
-    # Validate claw_user to prevent path traversal/injection in Ansible playbooks
-    if not re.match(r"^[a-z][a-z0-9_-]{0,31}$", claw_user):
+    # Validate agent_name to prevent path traversal/injection in Ansible playbooks
+    if not re.match(r"^[a-z][a-z0-9_-]{0,31}$", agent_name):
         return (
             False,
-            f"Invalid claw_user format: '{claw_user}'. Must start with lowercase letter and contain only lowercase letters, digits, hyphens, underscores (max 32 chars)",
+            f"Invalid agent_name format: '{agent_name}'. Must start with lowercase letter and contain only lowercase letters, digits, hyphens, underscores (max 32 chars)",
         )
 
     # B4: Pass API key via environment variable instead of inventory to prevent plaintext logging
@@ -526,7 +526,7 @@ def configure_claw(
                 }
             },
             "vars": {
-                "claw_user": claw_user,
+                "claw_user": agent_name,
                 "claw_name": claw_name,
                 "config": config_data,
                 "template_path": str(template_path),
@@ -602,20 +602,20 @@ def configure_claw(
         return False, str(e)
 
 
-def remove_claw(
+def remove_agent(
     hostname: str,
     claw_name: str,
     force: bool = False,
     on_event: Callable[[str, str], None] | None = None,
 ) -> LifecycleResult:
-    """Remove a claw instance from a remote host.
+    """Remove an agent instance from a remote host.
 
-    Stops the claw if running, removes all artifacts from the remote host,
-    and removes the claw from local configuration.
+    Stops the agent if running, removes all artifacts from the remote host,
+    and removes the agent from local configuration.
 
     Args:
         hostname: Hostname or alias of target host
-        claw_name: Type of claw to remove (e.g., "openclaw")
+        claw_name: Type of agent to remove (e.g., "openclaw")
         force: Skip confirmation prompts (not used here, handled by CLI)
         on_event: Optional callback for progress events
 
@@ -636,16 +636,16 @@ def remove_claw(
 
     claw_record = host.get("claws", {}).get(claw_name)
     if not claw_record:
-        raise LifecycleError(f"Claw '{claw_name}' not installed on '{hostname}'")
+        raise LifecycleError(f"Agent '{claw_name}' not installed on '{hostname}'")
 
-    # Check if claw is running and stop it first
+    # Check if agent is running and stop it first
     runtime = claw_record.get("runtime", {})
     status = runtime.get("status", "stopped")
 
     if status == "running":
         emit("remove", f"Stopping {claw_name} before removal...")
         try:
-            stop_result = stop_claw(hostname, claw_name, on_event=on_event)
+            stop_result = stop_agent(hostname, claw_name, on_event=on_event)
             if not stop_result["success"]:
                 logger.warning(
                     "Failed to stop %s cleanly: %s", claw_name, stop_result["error"]
@@ -667,7 +667,7 @@ def remove_claw(
     if not success:
         return {
             "success": False,
-            "claw": claw_name,
+            "agent": claw_name,
             "host": hostname,
             "operation": "remove",
             "pid": None,
@@ -677,11 +677,11 @@ def remove_claw(
 
     emit("remove", "Removing from local configuration...")
 
-    # Remove claw from hosts.json
-    # NOTE: remove_claw_from_host returns True if host was found (not if claw was found)
+    # Remove agent from hosts.json
+    # NOTE: remove_agent_from_host returns True if host was found (not if agent was found)
     # An exception here means the local config could not be updated after remote cleanup
     try:
-        removed = remove_claw_from_host(host["hostname"], claw_name)
+        removed = remove_agent_from_host(host["hostname"], claw_name)
         if not removed:
             # Host not found - this shouldn't happen since we validated it earlier
             logger.error(
@@ -689,7 +689,7 @@ def remove_claw(
             )
             return {
                 "success": False,
-                "claw": claw_name,
+                "agent": claw_name,
                 "host": hostname,
                 "operation": "remove",
                 "pid": None,
@@ -702,7 +702,7 @@ def remove_claw(
         )
         return {
             "success": False,
-            "claw": claw_name,
+            "agent": claw_name,
             "host": hostname,
             "operation": "remove",
             "pid": None,
@@ -714,7 +714,7 @@ def remove_claw(
 
     return {
         "success": True,
-        "claw": claw_name,
+        "agent": claw_name,
         "host": hostname,
         "operation": "remove",
         "pid": None,

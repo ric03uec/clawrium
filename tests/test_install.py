@@ -190,7 +190,7 @@ def test_install_success(monkeypatch, tmp_path):
 
     # Verify result
     assert result["success"] is True
-    assert result["claw"] == "openclaw"
+    assert result["agent"] == "openclaw"
     assert result["version"] == "0.1.0"
     assert result["host"] == "test-host"
     assert len(result["playbooks_run"]) == 2

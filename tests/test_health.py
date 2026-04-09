@@ -45,7 +45,7 @@ def test_health_check_running(mock_host):
                 result = check_claw_health("openclaw", mock_host)
 
     assert result["status"] == ClawStatus.RUNNING
-    assert result["claw"] == "openclaw"
+    assert result["agent"] == "openclaw"
     assert result["user"] == "opc-testhost"
     assert result["error"] is None
     assert result["missing_secrets"] is None
@@ -129,7 +129,7 @@ def test_check_all_claws_on_host(mock_host):
                 results = check_all_claws_on_host(mock_host)
 
     assert len(results) == 1
-    assert results[0]["claw"] == "openclaw"
+    assert results[0]["agent"] == "openclaw"
     assert results[0]["status"] == ClawStatus.RUNNING
     assert results[0]["onboarding_step"] is None
 

@@ -10,7 +10,7 @@ from clawrium.core.hosts import (
     get_host,
     get_host_by_key_id,
     update_host,
-    remove_claw_from_host,
+    remove_agent_from_host,
     HOSTS_FILE,
     HostsFileCorruptedError,
     DuplicateHostError,
@@ -380,7 +380,7 @@ def test_remove_claw_from_host_success(isolated_config):
     ]
     save_hosts(test_hosts)
 
-    result = remove_claw_from_host("192.168.1.10", "openclaw")
+    result = remove_agent_from_host("192.168.1.10", "openclaw")
 
     assert result is True
     hosts = load_hosts()
@@ -402,7 +402,7 @@ def test_remove_claw_from_host_not_found(isolated_config):
     save_hosts(test_hosts)
 
     # Try to remove non-existent claw
-    result = remove_claw_from_host("192.168.1.10", "openclaw")
+    result = remove_agent_from_host("192.168.1.10", "openclaw")
 
     assert result is True  # Operation succeeds idempotently
     hosts = load_hosts()
@@ -416,7 +416,7 @@ def test_remove_claw_from_host_no_claws_dict(isolated_config):
     test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
     save_hosts(test_hosts)
 
-    result = remove_claw_from_host("192.168.1.10", "openclaw")
+    result = remove_agent_from_host("192.168.1.10", "openclaw")
 
     assert result is True  # Operation succeeds idempotently
 
@@ -427,6 +427,6 @@ def test_remove_claw_from_host_unknown_host(isolated_config):
     test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
     save_hosts(test_hosts)
 
-    result = remove_claw_from_host("192.168.1.99", "openclaw")
+    result = remove_agent_from_host("192.168.1.99", "openclaw")
 
     assert result is False

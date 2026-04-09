@@ -110,7 +110,7 @@ def test_install_with_flags_skips_prompts(isolated_config: Path):
     with patch("clawrium.cli.install.run_installation") as mock_install:
         mock_install.return_value = {
             "success": True,
-            "claw": "openclaw",
+            "agent": "openclaw",
             "version": "1.0.0",
             "host": "192.168.1.100",
             "playbooks_run": [],
@@ -165,7 +165,7 @@ def test_install_yes_skips_confirmation(isolated_config: Path):
     with patch("clawrium.cli.install.run_installation") as mock_install:
         mock_install.return_value = {
             "success": True,
-            "claw": "openclaw",
+            "agent": "openclaw",
             "version": "1.0.0",
             "host": "192.168.1.100",
             "playbooks_run": [],

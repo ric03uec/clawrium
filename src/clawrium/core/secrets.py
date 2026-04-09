@@ -26,7 +26,7 @@ __all__ = [
     "set_instance_secret",
     "remove_instance_secret",
     "list_instances_with_secrets",
-    "ClawNotFoundError",
+    "AgentNotFoundError",
 ]
 
 SECRETS_FILE = "secrets.json"
@@ -68,8 +68,8 @@ class InvalidSecretKeyError(ValueError):
     pass
 
 
-class ClawNotFoundError(Exception):
-    """Raised when claw is not found in hosts registry."""
+class AgentNotFoundError(Exception):
+    """Raised when agent is not found in hosts registry."""
 
     pass
 
@@ -273,7 +273,7 @@ def get_installed_claw(claw_name: str) -> tuple[str, str, str]:
                 canonical_name = name or user or claw_type
                 return (hostname, claw_type, canonical_name)
 
-    raise ClawNotFoundError(
+    raise AgentNotFoundError(
         f"Claw '{claw_name}' not found. Only installed claws can have secrets."
     )
 

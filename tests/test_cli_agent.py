@@ -111,7 +111,7 @@ def test_agent_install_with_flags(isolated_config: Path):
     with patch("clawrium.cli.install.run_installation") as mock_install:
         mock_install.return_value = {
             "success": True,
-            "claw": "openclaw",
+            "agent": "openclaw",
             "version": "1.0.0",
             "host": "192.168.1.100",
             "playbooks_run": [],
