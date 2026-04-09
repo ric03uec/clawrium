@@ -238,7 +238,8 @@ def run_installation(
                 }
             },
             "vars": {
-                "claw_user": agent_name,
+                "agent_name": agent_name,
+                "agent_type": claw_name,
                 "claw_version": f"v{matched_version}",
                 "claw_sha256": claw_sha256,
                 **secret_vars,  # Inject secrets as ansible vars

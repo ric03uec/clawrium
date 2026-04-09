@@ -5,75 +5,75 @@
   tasks:
     - name: Check if systemd service exists
       ansible.builtin.stat:
-        path: "/etc/systemd/system/zeroclaw-{{ claw_user }}.service"
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
       register: service_file
 
     - name: Stop zeroclaw service if running
       ansible.builtin.systemd:
-        name: "zeroclaw-{{ claw_user }}"
+        name: "{{ agent_type }}-{{ agent_name }}"
         state: stopped
       when: service_file.stat.exists
       ignore_errors: yes
 
     - name: Disable zeroclaw service
       ansible.builtin.systemd:
-        name: "zeroclaw-{{ claw_user }}"
+        name: "{{ agent_type }}-{{ agent_name }}"
         enabled: no
       when: service_file.stat.exists
       ignore_errors: yes
 
     - name: Remove systemd service file
       ansible.builtin.file:
-        path: "/etc/systemd/system/zeroclaw-{{ claw_user }}.service"
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
         state: absent
       notify: Reload systemd
 
     - name: Check if bin directory exists
       ansible.builtin.stat:
-        path: "/home/{{ claw_user }}/bin"
+        path: "/home/{{ agent_name }}/bin"
       register: bin_dir
 
     - name: Remove bin directory
       ansible.builtin.file:
-        path: "/home/{{ claw_user }}/bin"
+        path: "/home/{{ agent_name }}/bin"
         state: absent
       when: bin_dir.stat.exists
 
     - name: Check if workspace directory exists
       ansible.builtin.stat:
-        path: "/home/{{ claw_user }}/workspace"
+        path: "/home/{{ agent_name }}/workspace"
       register: workspace_dir
 
     - name: Remove workspace directory
       ansible.builtin.file:
-        path: "/home/{{ claw_user }}/workspace"
+        path: "/home/{{ agent_name }}/workspace"
         state: absent
       when: workspace_dir.stat.exists
 
     - name: Check if config directory exists
       ansible.builtin.stat:
-        path: "/home/{{ claw_user }}/.zeroclaw"
+        path: "/home/{{ agent_name }}/.zeroclaw"
       register: config_dir
 
     - name: Remove config directory
       ansible.builtin.file:
-        path: "/home/{{ claw_user }}/.zeroclaw"
+        path: "/home/{{ agent_name }}/.zeroclaw"
         state: absent
       when: config_dir.stat.exists
 
-    - name: Check if claw user exists
+    - name: Check if agent user exists
       ansible.builtin.getent:
         database: passwd
-        key: "{{ claw_user }}"
+        key: "{{ agent_name }}"
       register: user_check
       ignore_errors: yes
 
-    - name: Remove claw user account
+    - name: Remove agent user account
       ansible.builtin.user:
-        name: "{{ claw_user }}"
+        name: "{{ agent_name }}"
         state: absent
         remove: yes
-      when: user_check is succeeded
+      when: user_check is not failed
 
     - name: Display success message
       ansible.builtin.debug:

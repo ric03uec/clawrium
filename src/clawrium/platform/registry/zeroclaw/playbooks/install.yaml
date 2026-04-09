@@ -21,19 +21,19 @@
       when: ansible_architecture not in supported_architectures
 
   tasks:
-    - name: Create claw user
+    - name: Create agent user
       ansible.builtin.user:
-        name: "{{ claw_user }}"
+        name: "{{ agent_name }}"
         state: present
         create_home: yes
         shell: /bin/bash
 
     - name: Create bin directory
       ansible.builtin.file:
-        path: "/home/{{ claw_user }}/bin"
+        path: "/home/{{ agent_name }}/bin"
         state: directory
-        owner: "{{ claw_user }}"
-        group: "{{ claw_user }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
         mode: "0755"
 
     - name: Download zeroclaw binary
@@ -46,10 +46,10 @@
     - name: Extract zeroclaw binary
       ansible.builtin.unarchive:
         src: "/tmp/zeroclaw-{{ release_arch }}.tar.gz"
-        dest: "/home/{{ claw_user }}/bin"
+        dest: "/home/{{ agent_name }}/bin"
         remote_src: yes
-        owner: "{{ claw_user }}"
-        group: "{{ claw_user }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
 
     - name: Cleanup tarball
       ansible.builtin.file:
@@ -58,27 +58,27 @@
 
     - name: Create workspace directory
       ansible.builtin.file:
-        path: "/home/{{ claw_user }}/workspace"
+        path: "/home/{{ agent_name }}/workspace"
         state: directory
-        owner: "{{ claw_user }}"
-        group: "{{ claw_user }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
         mode: "0700"
 
     - name: Create config directory
       ansible.builtin.file:
-        path: "/home/{{ claw_user }}/.zeroclaw"
+        path: "/home/{{ agent_name }}/.zeroclaw"
         state: directory
-        owner: "{{ claw_user }}"
-        group: "{{ claw_user }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
         mode: "0700"
 
     - name: Calculate unique gateway port (40000-42000 range)
       ansible.builtin.set_fact:
-        gateway_port: "{{ 40000 + ((claw_user | hash('md5') | int(base=16)) % 2000) }}"
+        gateway_port: "{{ 40000 + ((agent_name | hash('md5') | int(base=16)) % 2000) }}"
 
     - name: Create zeroclaw config
       ansible.builtin.copy:
-        dest: "/home/{{ claw_user }}/.zeroclaw/config.toml"
+        dest: "/home/{{ agent_name }}/.zeroclaw/config.toml"
         content: |
           [gateway]
           host = "0.0.0.0"
@@ -90,23 +90,23 @@
           default_model = "{{ llm_model | default('llama3') }}"
           api_key = "{{ llm_api_key | default('') }}"
           {% endif %}
-        owner: "{{ claw_user }}"
-        group: "{{ claw_user }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
         mode: "0600"
 
     - name: Create systemd service file
       ansible.builtin.copy:
-        dest: "/etc/systemd/system/zeroclaw-{{ claw_user }}.service"
+        dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
         content: |
           [Unit]
-          Description=ZeroClaw AI Assistant ({{ claw_user }})
+          Description=ZeroClaw AI Assistant ({{ agent_name }})
           After=network.target
 
           [Service]
           Type=simple
-          User={{ claw_user }}
-          WorkingDirectory=/home/{{ claw_user }}/workspace
-          ExecStart=/home/{{ claw_user }}/bin/zeroclaw daemon
+          User={{ agent_name }}
+          WorkingDirectory=/home/{{ agent_name }}/workspace
+          ExecStart=/home/{{ agent_name }}/bin/zeroclaw daemon
           Restart=on-failure
           RestartSec=5
 
@@ -117,7 +117,7 @@
 
     - name: Enable and start zeroclaw service
       ansible.builtin.systemd:
-        name: "zeroclaw-{{ claw_user }}"
+        name: "{{ agent_type }}-{{ agent_name }}"
         enabled: yes
         state: started
         daemon_reload: yes

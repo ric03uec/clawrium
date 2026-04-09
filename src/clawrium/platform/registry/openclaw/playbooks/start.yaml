@@ -2,16 +2,16 @@
 - hosts: all
   become: yes
   tasks:
-    - name: Get claw user home directory
-      ansible.builtin.shell: |
-        getent passwd {{ claw_user }} | cut -d: -f6
-      register: claw_home
-      changed_when: false
+    - name: Get agent user home directory
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ agent_name }}"
+      register: user_info
       failed_when: false
 
     - name: Check if systemd service exists
       ansible.builtin.stat:
-        path: "/etc/systemd/system/openclaw-{{ claw_user }}.service"
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
       register: service_file
 
     - name: Fail if service not installed
@@ -21,7 +21,7 @@
 
     - name: Start openclaw service
       ansible.builtin.systemd:
-        name: "openclaw-{{ claw_user }}"
+        name: "{{ agent_type }}-{{ agent_name }}"
         state: started
         enabled: yes
         daemon_reload: yes
@@ -29,25 +29,25 @@
 
     - name: Wait for service to be active
       ansible.builtin.systemd:
-        name: "openclaw-{{ claw_user }}"
+        name: "{{ agent_type }}-{{ agent_name }}"
       register: service_status
       until: service_status.status.ActiveState == "active"
       retries: 10
       delay: 3
 
     - name: Verify process is running
-      ansible.builtin.shell: |
-        pgrep -u {{ claw_user }} node
+      ansible.builtin.command:
+        cmd: pgrep -u {{ agent_name }} node
       register: process_check
       changed_when: false
       failed_when: process_check.rc != 0
 
     - name: Get process info
-      ansible.builtin.shell: |
-        pgrep -u {{ claw_user }} node | head -1
+      ansible.builtin.command:
+        cmd: pgrep -u {{ agent_name }} node
       register: pid_result
       changed_when: false
 
     - name: Display success message
       ansible.builtin.debug:
-        msg: "OpenClaw started successfully (PID: {{ pid_result.stdout }})"
+        msg: "OpenClaw started successfully (PID: {{ pid_result.stdout_lines[0] }})"

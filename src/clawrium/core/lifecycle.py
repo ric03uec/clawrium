@@ -176,8 +176,8 @@ def _run_lifecycle_playbook(
                 }
             },
             "vars": {
-                "claw_user": agent_name,
-                "claw_name": claw_name,
+                "agent_name": agent_name,
+                "agent_type": claw_name,
                 "service_name": f"{claw_name}-{agent_name.split('-', 1)[1] if '-' in agent_name else hostname}",
                 **secret_vars,
             },
@@ -526,8 +526,8 @@ def configure_agent(
                 }
             },
             "vars": {
-                "claw_user": agent_name,
-                "claw_name": claw_name,
+                "agent_name": agent_name,
+                "agent_type": claw_name,
                 "config": config_data,
                 "template_path": str(template_path),
             },

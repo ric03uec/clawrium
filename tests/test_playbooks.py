@@ -62,7 +62,7 @@ def test_openclaw_install_playbook_structure():
 
     # Check for required elements
     assert "- hosts:" in content, "Should have hosts directive"
-    assert "claw_user" in content, "Should use claw_user variable"
+    assert "agent_name" in content, "Should use agent_name variable"
     assert "npm install" in content, "Should run npm install"
     assert "openclaw" in content.lower(), "Should reference openclaw repository"
 

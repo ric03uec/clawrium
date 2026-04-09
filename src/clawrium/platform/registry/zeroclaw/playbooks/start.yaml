@@ -4,7 +4,7 @@
   tasks:
     - name: Check if systemd service exists
       ansible.builtin.stat:
-        path: "/etc/systemd/system/zeroclaw-{{ claw_user }}.service"
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
       register: service_file
 
     - name: Fail if service not installed
@@ -14,7 +14,7 @@
 
     - name: Start zeroclaw service
       ansible.builtin.systemd:
-        name: "zeroclaw-{{ claw_user }}"
+        name: "{{ agent_type }}-{{ agent_name }}"
         state: started
         enabled: yes
         daemon_reload: yes
@@ -22,25 +22,25 @@
 
     - name: Wait for service to be active
       ansible.builtin.systemd:
-        name: "zeroclaw-{{ claw_user }}"
+        name: "{{ agent_type }}-{{ agent_name }}"
       register: service_status
       until: service_status.status.ActiveState == "active"
       retries: 10
       delay: 3
 
     - name: Verify process is running
-      ansible.builtin.shell: |
-        pgrep -u {{ claw_user }} zeroclaw
+      ansible.builtin.command:
+        cmd: pgrep -u {{ agent_name }} zeroclaw
       register: process_check
       changed_when: false
       failed_when: process_check.rc != 0
 
     - name: Get process info
-      ansible.builtin.shell: |
-        pgrep -u {{ claw_user }} zeroclaw | head -1
+      ansible.builtin.command:
+        cmd: pgrep -u {{ agent_name }} zeroclaw
       register: pid_result
       changed_when: false
 
     - name: Display success message
       ansible.builtin.debug:
-        msg: "ZeroClaw started successfully (PID: {{ pid_result.stdout }})"
+        msg: "ZeroClaw started successfully (PID: {{ pid_result.stdout_lines[0] }})"

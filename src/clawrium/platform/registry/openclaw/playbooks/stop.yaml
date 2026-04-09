@@ -4,30 +4,30 @@
   tasks:
     - name: Check if systemd service exists
       ansible.builtin.stat:
-        path: "/etc/systemd/system/openclaw-{{ claw_user }}.service"
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
       register: service_file
 
     - name: Stop openclaw service gracefully
       ansible.builtin.systemd:
-        name: "openclaw-{{ claw_user }}"
+        name: "{{ agent_type }}-{{ agent_name }}"
         state: stopped
       register: stop_result
       when: service_file.stat.exists
       ignore_errors: yes
 
     - name: Wait for service to stop
-      ansible.builtin.shell: |
-        systemctl is-active openclaw-{{ claw_user }} 2>/dev/null
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
       register: service_status
-      until: service_status.rc != 0
+      until: service_status.status.ActiveState != "active"
       retries: 10
       delay: 2
       when: service_file.stat.exists
       ignore_errors: yes
 
     - name: Verify process is stopped
-      ansible.builtin.shell: |
-        pgrep -u {{ claw_user }} node
+      ansible.builtin.command:
+        cmd: pgrep -u {{ agent_name }} node
       register: process_check
       changed_when: false
       failed_when: process_check.rc == 0

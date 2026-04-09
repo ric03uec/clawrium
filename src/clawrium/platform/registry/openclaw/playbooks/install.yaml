@@ -2,9 +2,9 @@
 - hosts: all
   become: yes
   tasks:
-    - name: Create claw user
+    - name: Create agent user
       ansible.builtin.user:
-        name: "{{ claw_user }}"
+        name: "{{ agent_name }}"
         state: present
         create_home: yes
         shell: /bin/bash
@@ -12,50 +12,50 @@
     - name: Clone OpenClaw repository
       ansible.builtin.git:
         repo: https://github.com/openclaw/openclaw.git
-        dest: "/home/{{ claw_user }}/openclaw"
+        dest: "/home/{{ agent_name }}/openclaw"
         version: "{{ claw_version | default('v2026.4.2') }}"
-      become_user: "{{ claw_user }}"
+      become_user: "{{ agent_name }}"
 
     - name: Install npm dependencies
       ansible.builtin.command:
         cmd: npm install
-        chdir: "/home/{{ claw_user }}/openclaw"
-      become_user: "{{ claw_user }}"
+        chdir: "/home/{{ agent_name }}/openclaw"
+      become_user: "{{ agent_name }}"
 
     - name: Create workspace directory
       ansible.builtin.file:
-        path: "/home/{{ claw_user }}/workspace"
+        path: "/home/{{ agent_name }}/workspace"
         state: directory
-        owner: "{{ claw_user }}"
-        group: "{{ claw_user }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
         mode: "0700"
 
     - name: Calculate unique port (40000-42000 range)
       ansible.builtin.set_fact:
-        openclaw_port: "{{ 40000 + ((claw_user | hash('md5') | int(base=16)) % 2000) }}"
+        openclaw_port: "{{ 40000 + ((agent_name | hash('md5') | int(base=16)) % 2000) }}"
 
     - name: Create OpenClaw environment file
       ansible.builtin.copy:
-        dest: "/home/{{ claw_user }}/openclaw/.env"
+        dest: "/home/{{ agent_name }}/openclaw/.env"
         content: |
           OPENCLAW_GATEWAY_BIND=lan
           OPENCLAW_GATEWAY_PORT={{ openclaw_port }}
-        owner: "{{ claw_user }}"
-        group: "{{ claw_user }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
         mode: "0600"
 
     - name: Create systemd service file
       ansible.builtin.copy:
-        dest: "/etc/systemd/system/openclaw-{{ claw_user }}.service"
+        dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
         content: |
           [Unit]
-          Description=OpenClaw AI Assistant ({{ claw_user }})
+          Description=OpenClaw AI Assistant ({{ agent_name }})
           After=network.target
 
           [Service]
           Type=simple
-          User={{ claw_user }}
-          WorkingDirectory=/home/{{ claw_user }}/openclaw
+          User={{ agent_name }}
+          WorkingDirectory=/home/{{ agent_name }}/openclaw
           ExecStart=/usr/bin/npm start
           Restart=on-failure
           RestartSec=5
@@ -67,7 +67,7 @@
 
     - name: Enable and start openclaw service
       ansible.builtin.systemd:
-        name: "openclaw-{{ claw_user }}"
+        name: "{{ agent_type }}-{{ agent_name }}"
         enabled: yes
         state: started
         daemon_reload: yes

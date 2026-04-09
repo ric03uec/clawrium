@@ -1239,7 +1239,7 @@ def test_install_with_custom_name(monkeypatch, tmp_path):
     assert mock_run.call_count >= 1
     call_kwargs = mock_run.call_args[1]
     assert "inventory" in call_kwargs
-    assert call_kwargs["inventory"]["all"]["vars"]["claw_user"] == "work-assistant"
+    assert call_kwargs["inventory"]["all"]["vars"]["agent_name"] == "work-assistant"
 
 
 def test_install_auto_generates_name(monkeypatch, tmp_path):
@@ -1322,7 +1322,7 @@ def test_install_auto_generates_name(monkeypatch, tmp_path):
     assert result["success"] is True
     # Verify auto-generated name was used (format: adjective-scientist)
     call_kwargs = mock_run.call_args[1]
-    claw_user = call_kwargs["inventory"]["all"]["vars"]["claw_user"]
+    claw_user = call_kwargs["inventory"]["all"]["vars"]["agent_name"]
     parts = claw_user.split("-")
     assert len(parts) == 2, f"Expected 'adjective-scientist' format, got '{claw_user}'"
 
@@ -1477,7 +1477,7 @@ def test_install_allows_same_name_different_host(monkeypatch, tmp_path):
 
     assert result["success"] is True
     call_kwargs = mock_run.call_args[1]
-    assert call_kwargs["inventory"]["all"]["vars"]["claw_user"] == "work-assistant"
+    assert call_kwargs["inventory"]["all"]["vars"]["agent_name"] == "work-assistant"
 
 
 def test_install_validates_name_format(monkeypatch, tmp_path):

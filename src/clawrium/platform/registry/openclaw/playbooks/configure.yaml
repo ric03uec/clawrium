@@ -2,45 +2,45 @@
 - hosts: all
   become: yes
   tasks:
-    - name: Check if claw user exists
+    - name: Check if agent user exists
       ansible.builtin.getent:
         database: passwd
-        key: "{{ claw_user }}"
+        key: "{{ agent_name }}"
       failed_when: false
       register: user_check
 
     - name: Fail if claw not installed
       ansible.builtin.fail:
-        msg: "Claw user '{{ claw_user }}' not found. Run 'clm agent install' first."
+        msg: "Agent user '{{ agent_name }}' not found. Run 'clm agent install' first."
       when: user_check.msg is defined
 
     - name: Ensure openclaw directory exists
       ansible.builtin.file:
-        path: "/home/{{ claw_user }}/openclaw"
+        path: "/home/{{ agent_name }}/openclaw"
         state: directory
-        owner: "{{ claw_user }}"
-        group: "{{ claw_user }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
         mode: "0700"
 
     - name: Write openclaw .env from template
       ansible.builtin.template:
         src: "{{ template_path }}/.env.j2"
-        dest: "/home/{{ claw_user }}/openclaw/.env"
-        owner: "{{ claw_user }}"
-        group: "{{ claw_user }}"
+        dest: "/home/{{ agent_name }}/openclaw/.env"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
         mode: "0600"
       notify: Restart openclaw service
 
     - name: Ensure service is enabled
       ansible.builtin.systemd:
-        name: "openclaw-{{ claw_user }}"
+        name: "{{ agent_type }}-{{ agent_name }}"
         enabled: yes
         daemon_reload: yes
 
   handlers:
     - name: Restart openclaw service
       ansible.builtin.systemd:
-        name: "openclaw-{{ claw_user }}"
+        name: "{{ agent_type }}-{{ agent_name }}"
         state: restarted
         daemon_reload: yes
       ignore_errors: yes
