@@ -1538,3 +1538,90 @@ def test_install_validates_name_format(monkeypatch, tmp_path):
 
     with pytest.raises(InstallationError, match="Invalid name"):
         run_installation("openclaw", "test-host", name="a" * 33)  # Too long
+
+
+def test_install_uses_extended_timeout(monkeypatch, tmp_path):
+    """Test that claw installation uses 30-minute timeout."""
+    from clawrium.core.install import run_installation
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.9"},
+                },
+            }
+        ],
+    }
+
+    import clawrium.core.install
+
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compatible_host = {
+        "hostname": "test-host",
+        "agent_name": "xclm",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
+
+    compat_result = {
+        "compatible": True,
+        "matched_entry": mock_manifest["entries"][0],
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: compat_result,
+    )
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: u(clawrium.core.install.get_host(h)))
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", lambda h, c: True
+    )
+
+    class SuccessfulResult:
+        status = "successful"
+
+    mock_run = Mock(return_value=SuccessfulResult())
+
+    import ansible_runner
+
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    # Run installation
+    run_installation("openclaw", "test-host")
+
+    # Verify ansible_runner.run was called twice (base + claw)
+    assert mock_run.call_count == 2
+
+    # Check second call (claw installation) has timeout=1800
+    claw_call = mock_run.call_args_list[1]
+    assert claw_call[1]["timeout"] == 1800, (
+        "Claw installation should use 1800s (30 min) timeout"
+    )

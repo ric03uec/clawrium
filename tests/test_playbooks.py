@@ -26,16 +26,55 @@ def test_base_playbook_structure():
 
     content = base_playbook.read_text()
 
-    # Check for required elements
+    # Check for required elements in raw content
     assert "- hosts:" in content, "Should have hosts directive"
     assert "become: yes" in content or "become: true" in content, "Should require sudo"
-    assert "nodejs" in content.lower(), "Should install nodejs"
-    assert "build-essential" in content, "Should install build-essential"
 
-    # Parse YAML to ensure it's valid
+    # Parse YAML to validate structure and package lists
     data = yaml.safe_load(content)
     assert isinstance(data, list), "Playbook should be a list of plays"
     assert len(data) > 0, "Playbook should have at least one play"
+
+    # Extract all tasks from the first play
+    tasks = data[0].get("tasks", [])
+
+    # Find and validate Node.js installation
+    # Look for the specific task "Install Node.js"
+    nodejs_tasks = [
+        t for t in tasks
+        if t.get("name") == "Install Node.js"
+    ]
+    assert len(nodejs_tasks) > 0, "Should have task to install Node.js"
+    nodejs_task = nodejs_tasks[0]
+    apt_module = nodejs_task.get("ansible.builtin.apt", {})
+    assert apt_module.get("name") == "nodejs", (
+        "Node.js task should install nodejs package"
+    )
+
+    # Find and validate build-essential installation
+    build_essential_tasks = [
+        t for t in tasks
+        if "build-essential" in str(t.get("name", "")).lower()
+    ]
+    assert len(build_essential_tasks) > 0, "Should have task to install build-essential"
+    build_essential_task = build_essential_tasks[0]
+    apt_module = build_essential_task.get("ansible.builtin.apt", {})
+    assert apt_module.get("name") == "build-essential", (
+        "build-essential task should install build-essential package"
+    )
+
+    # Find and validate git/gh installation
+    git_gh_tasks = [
+        t for t in tasks
+        if "git" in str(t.get("name", "")).lower() and "github" in str(t.get("name", "")).lower()
+    ]
+    assert len(git_gh_tasks) > 0, "Should have task to install git and GitHub CLI"
+    git_gh_task = git_gh_tasks[0]
+    apt_module = git_gh_task.get("ansible.builtin.apt", {})
+    packages = apt_module.get("name", [])
+    assert isinstance(packages, list), "git/gh task should install list of packages"
+    assert "git" in packages, "Should install git package"
+    assert "gh" in packages, "Should install gh (GitHub CLI) package"
 
 
 def test_openclaw_install_playbook_exists():
