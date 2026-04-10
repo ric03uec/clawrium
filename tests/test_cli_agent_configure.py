@@ -681,3 +681,130 @@ class TestCanSkipStage:
 
             assert result.exit_code == 0
             assert mock_skip.called
+
+
+class TestConfigurePreservesGatewayAuth:
+    """Tests that configuration preserves gateway authentication."""
+
+    def test_preserves_gateway_token_during_reconfiguration(
+        self, isolated_config: Path
+    ):
+        """Gateway auth token is preserved when reconfiguring provider."""
+        from clawrium.cli.agent import _sync_provider_config
+
+        create_test_keypair(isolated_config, "work")
+
+        # Create host with gateway auth already set
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_file = isolated_config / "hosts.json"
+        hosts_data = [
+            {
+                "hostname": "192.168.1.100",
+                "key_id": "work",
+                "port": 22,
+                "agent_name": "xclm",
+                "alias": "work",
+                "auth_method": "key",
+                "agents": {
+                    "openclaw": {
+                        "version": "0.1.0",
+                        "status": "installed",
+                        "agent_name": "assistant",
+                        "onboarding": {"state": "pending"},
+                        "config": {
+                            "gateway": {
+                                "url": "ws://192.168.1.100:40123",
+                                "auth": "original-token-abc123",
+                                "port": 40123,
+                                "bind": "lan",
+                            }
+                        },
+                    }
+                },
+            }
+        ]
+        hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+        # Test provider
+        provider = {
+            "name": "test-openai",
+            "type": "openai",
+            "endpoint": "",
+            "default_model": "gpt-4",
+        }
+
+        # Mock configure_agent to verify it receives preserved auth
+        captured_config = []
+
+        def mock_configure(hostname, claw_name, config_data, on_event=None):
+            captured_config.append(config_data.copy())
+            return True, None
+
+        with patch(
+            "clawrium.core.lifecycle.configure_agent", side_effect=mock_configure
+        ):
+            _sync_provider_config("work", "openclaw", provider)
+
+        # Verify gateway auth was preserved
+        assert len(captured_config) > 0
+        gateway_config = captured_config[0]["gateway"]
+        assert gateway_config["url"] == "ws://192.168.1.100:40123"
+        assert gateway_config["auth"] == "original-token-abc123"
+
+    def test_preserves_gateway_url_during_reconfiguration(self, isolated_config: Path):
+        """Gateway URL is preserved when reconfiguring provider."""
+        from clawrium.cli.agent import _sync_provider_config
+
+        create_test_keypair(isolated_config, "work")
+
+        # Create host with gateway URL
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_file = isolated_config / "hosts.json"
+        hosts_data = [
+            {
+                "hostname": "192.168.1.100",
+                "key_id": "work",
+                "port": 22,
+                "agent_name": "xclm",
+                "alias": "work",
+                "auth_method": "key",
+                "agents": {
+                    "openclaw": {
+                        "version": "0.1.0",
+                        "status": "installed",
+                        "agent_name": "assistant",
+                        "onboarding": {"state": "pending"},
+                        "config": {
+                            "gateway": {
+                                "url": "ws://custom-host:9999",
+                                "port": 9999,
+                                "bind": "lan",
+                            }
+                        },
+                    }
+                },
+            }
+        ]
+        hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+        provider = {
+            "name": "test-openai",
+            "type": "openai",
+            "endpoint": "",
+            "default_model": "gpt-4",
+        }
+
+        captured_config = []
+
+        def mock_configure(hostname, claw_name, config_data, on_event=None):
+            captured_config.append(config_data.copy())
+            return True, None
+
+        with patch(
+            "clawrium.core.lifecycle.configure_agent", side_effect=mock_configure
+        ):
+            _sync_provider_config("work", "openclaw", provider)
+
+        # Verify URL was preserved
+        gateway_config = captured_config[0]["gateway"]
+        assert gateway_config["url"] == "ws://custom-host:9999"
