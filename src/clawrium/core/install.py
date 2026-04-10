@@ -298,7 +298,7 @@ def run_installation(
             inventory=inventory,
             playbook=str(claw_playbook),
             quiet=False,  # Show output
-            timeout=600,  # 10 min timeout for claw install
+            timeout=1800,  # 30 min timeout for claw install
         )
 
         if result.status != "successful":

@@ -43,3 +43,10 @@
       ansible.builtin.apt:
         name: build-essential
         state: present
+
+    - name: Install git and GitHub CLI
+      ansible.builtin.apt:
+        name:
+          - git
+          - gh
+        state: present
