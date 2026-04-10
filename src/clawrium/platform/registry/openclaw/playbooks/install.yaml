@@ -41,7 +41,7 @@
       ansible.builtin.copy:
         dest: "/home/{{ agent_name }}/openclaw/.env"
         content: |
-          OPENCLAW_GATEWAY_BIND=lan
+          OPENCLAW_GATEWAY_BIND=0.0.0.0
           OPENCLAW_GATEWAY_PORT={{ openclaw_port }}
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"

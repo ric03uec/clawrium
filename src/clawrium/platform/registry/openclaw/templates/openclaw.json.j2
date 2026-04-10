@@ -24,7 +24,7 @@
 {% set gateway = config.gateway | default({}) %}
   "gateway": {
     "port": {{ gateway.port | default(18789) | int }},
-    "bind": {{ gateway.bind | default('lan') | tojson }},
+    "bind": {{ gateway.bind | default('0.0.0.0') | tojson }},
 {% if gateway.auth is defined and gateway.auth %}
     "auth": {{ gateway.auth | tojson }},
 {% endif %}
