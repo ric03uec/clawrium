@@ -29,8 +29,8 @@ def test_load_hosts_valid_json(isolated_config):
     isolated_config.mkdir(parents=True, exist_ok=True)
     hosts_path = isolated_config / HOSTS_FILE
     test_data = [
-        {"hostname": "192.168.1.10", "port": 22, "user": "xclm"},
-        {"hostname": "192.168.1.20", "port": 22, "user": "xclm"},
+        {"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"},
+        {"hostname": "192.168.1.20", "port": 22, "agent_name": "xclm"},
     ]
     hosts_path.write_text(json.dumps(test_data))
 
@@ -41,7 +41,7 @@ def test_load_hosts_valid_json(isolated_config):
 
 def test_save_hosts_creates_file(isolated_config):
     """save_hosts([host]) writes JSON to config dir."""
-    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"}]
 
     save_hosts(test_hosts)
 
@@ -61,7 +61,7 @@ def test_save_hosts_creates_dir(tmp_path, monkeypatch):
     # Config dir doesn't exist yet
     assert not config_dir.exists()
 
-    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"}]
     save_hosts(test_hosts)
 
     # Config dir should now exist
@@ -73,11 +73,11 @@ def test_add_host_appends(isolated_config):
     """add_host(host) appends to file (loads, appends, saves)."""
     # Setup: create initial hosts
     isolated_config.mkdir(parents=True, exist_ok=True)
-    initial_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    initial_hosts = [{"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"}]
     save_hosts(initial_hosts)
 
     # Add new host
-    new_host = {"hostname": "192.168.1.20", "port": 22, "user": "xclm"}
+    new_host = {"hostname": "192.168.1.20", "port": 22, "agent_name": "xclm"}
     add_host(new_host)
 
     # Verify
@@ -92,8 +92,8 @@ def test_remove_host_found(isolated_config):
     # Setup: create hosts
     isolated_config.mkdir(parents=True, exist_ok=True)
     test_hosts = [
-        {"hostname": "192.168.1.10", "port": 22, "user": "xclm"},
-        {"hostname": "192.168.1.20", "port": 22, "user": "xclm"},
+        {"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"},
+        {"hostname": "192.168.1.20", "port": 22, "agent_name": "xclm"},
     ]
     save_hosts(test_hosts)
 
@@ -111,7 +111,7 @@ def test_remove_host_not_found(isolated_config):
     """remove_host(hostname) returns False if not found."""
     # Setup: create hosts
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"}]
     save_hosts(test_hosts)
 
     # Try to remove non-existent host
@@ -128,8 +128,8 @@ def test_get_host_by_hostname(isolated_config):
     # Setup: create hosts
     isolated_config.mkdir(parents=True, exist_ok=True)
     test_hosts = [
-        {"hostname": "192.168.1.10", "port": 22, "user": "xclm"},
-        {"hostname": "192.168.1.20", "port": 22, "user": "xclm"},
+        {"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"},
+        {"hostname": "192.168.1.20", "port": 22, "agent_name": "xclm"},
     ]
     save_hosts(test_hosts)
 
@@ -146,8 +146,8 @@ def test_get_host_by_alias(isolated_config):
     # Setup: create hosts with aliases
     isolated_config.mkdir(parents=True, exist_ok=True)
     test_hosts = [
-        {"hostname": "192.168.1.10", "port": 22, "user": "xclm", "alias": "server1"},
-        {"hostname": "192.168.1.20", "port": 22, "user": "xclm", "alias": "server2"},
+        {"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm", "alias": "server1"},
+        {"hostname": "192.168.1.20", "port": 22, "agent_name": "xclm", "alias": "server2"},
     ]
     save_hosts(test_hosts)
 
@@ -164,7 +164,7 @@ def test_get_host_not_found(isolated_config):
     """get_host(identifier) returns None if not found."""
     # Setup: create hosts
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"}]
     save_hosts(test_hosts)
 
     # Try to find non-existent host
@@ -176,7 +176,7 @@ def test_get_host_not_found(isolated_config):
 
 def test_save_hosts_file_permissions(isolated_config):
     """save_hosts() creates file with 0600 permissions."""
-    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"}]
     save_hosts(test_hosts)
 
     hosts_path = isolated_config / HOSTS_FILE
@@ -224,21 +224,21 @@ def test_host_claw_tracking_installed(isolated_config):
     test_host = {
         "hostname": "192.168.1.10",
         "port": 22,
-        "user": "xclm",
+        "agent_name": "xclm",
         "key_id": "testhost",
     }
     save_hosts([test_host])
 
     # Simulate install success by updating host with claw tracking
     def add_claw_tracking(h: dict) -> dict:
-        if "claws" not in h:
-            h["claws"] = {}
-        h["claws"]["openclaw"] = {
+        if "agents" not in h:
+            h["agents"] = {}
+        h["agents"]["openclaw"] = {
             "version": "0.1.0",
             "status": "installed",
             "installed_at": "2024-01-01T00:00:00Z",
             "error": None,
-            "user": "opc-testhost",
+            "agent_name": "opc-testhost",
         }
         return h
 
@@ -248,32 +248,32 @@ def test_host_claw_tracking_installed(isolated_config):
     # Verify host record contains claw tracking
     hosts = load_hosts()
     assert len(hosts) == 1
-    assert "claws" in hosts[0]
-    assert "openclaw" in hosts[0]["claws"]
-    assert hosts[0]["claws"]["openclaw"]["status"] == "installed"
-    assert hosts[0]["claws"]["openclaw"]["version"] == "0.1.0"
-    assert hosts[0]["claws"]["openclaw"]["installed_at"] == "2024-01-01T00:00:00Z"
-    assert hosts[0]["claws"]["openclaw"]["error"] is None
-    assert hosts[0]["claws"]["openclaw"]["user"] == "opc-testhost"
+    assert "agents" in hosts[0]
+    assert "openclaw" in hosts[0]["agents"]
+    assert hosts[0]["agents"]["openclaw"]["status"] == "installed"
+    assert hosts[0]["agents"]["openclaw"]["version"] == "0.1.0"
+    assert hosts[0]["agents"]["openclaw"]["installed_at"] == "2024-01-01T00:00:00Z"
+    assert hosts[0]["agents"]["openclaw"]["error"] is None
+    assert hosts[0]["agents"]["openclaw"]["agent_name"] == "opc-testhost"
 
 
 def test_host_claw_tracking_failed(isolated_config):
     """After failed install, host record contains claws[claw_name] with status='failed' and error message."""
     # Setup: create host
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_host = {"hostname": "192.168.1.10", "port": 22, "user": "xclm"}
+    test_host = {"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"}
     save_hosts([test_host])
 
     # Simulate install failure by updating host with failed status
     def add_failed_claw(h: dict) -> dict:
-        if "claws" not in h:
-            h["claws"] = {}
-        h["claws"]["openclaw"] = {
+        if "agents" not in h:
+            h["agents"] = {}
+        h["agents"]["openclaw"] = {
             "version": "0.1.0",
             "status": "failed",
             "installed_at": "2024-01-01T00:00:00Z",
             "error": "Base playbook failed: timeout",
-            "user": None,
+            "agent_name": None,
         }
         return h
 
@@ -283,16 +283,16 @@ def test_host_claw_tracking_failed(isolated_config):
     # Verify host record contains failure tracking
     hosts = load_hosts()
     assert len(hosts) == 1
-    assert "claws" in hosts[0]
-    assert "openclaw" in hosts[0]["claws"]
-    assert hosts[0]["claws"]["openclaw"]["status"] == "failed"
-    assert hosts[0]["claws"]["openclaw"]["error"] == "Base playbook failed: timeout"
+    assert "agents" in hosts[0]
+    assert "openclaw" in hosts[0]["agents"]
+    assert hosts[0]["agents"]["openclaw"]["status"] == "failed"
+    assert hosts[0]["agents"]["openclaw"]["error"] == "Base playbook failed: timeout"
 
 
 def test_update_host_not_found(isolated_config):
     """update_host returns False when hostname not found."""
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"}]
     save_hosts(test_hosts)
 
     def noop(h: dict) -> dict:
@@ -310,11 +310,11 @@ def test_update_host_not_found(isolated_config):
 def test_add_host_duplicate_raises(isolated_config):
     """add_host raises DuplicateHostError when hostname already exists."""
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"}]
     save_hosts(test_hosts)
 
     # Try to add duplicate hostname
-    duplicate = {"hostname": "192.168.1.10", "port": 22, "user": "different"}
+    duplicate = {"hostname": "192.168.1.10", "port": 22, "agent_name": "different"}
 
     with pytest.raises(DuplicateHostError) as exc_info:
         add_host(duplicate)
@@ -332,13 +332,13 @@ def test_get_host_by_key_id_found(isolated_config):
         {
             "hostname": "192.168.1.10",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "key_id": "server1-key",
         },
         {
             "hostname": "192.168.1.20",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "key_id": "server2-key",
         },
     ]
@@ -355,7 +355,7 @@ def test_get_host_by_key_id_not_found(isolated_config):
     """get_host_by_key_id returns None when key_id not found."""
     isolated_config.mkdir(parents=True, exist_ok=True)
     test_hosts = [
-        {"hostname": "192.168.1.10", "port": 22, "user": "xclm", "key_id": "known-key"}
+        {"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm", "key_id": "known-key"}
     ]
     save_hosts(test_hosts)
 
@@ -371,10 +371,10 @@ def test_remove_claw_from_host_success(isolated_config):
         {
             "hostname": "192.168.1.10",
             "port": 22,
-            "user": "xclm",
-            "claws": {
-                "openclaw": {"version": "1.0.0", "user": "opc-test"},
-                "zeroclaw": {"version": "2.0.0", "user": "zc-test"},
+            "agent_name": "xclm",
+            "agents": {
+                "openclaw": {"version": "1.0.0", "agent_name": "opc-test"},
+                "zeroclaw": {"version": "2.0.0", "agent_name": "zc-test"},
             },
         }
     ]
@@ -384,8 +384,8 @@ def test_remove_claw_from_host_success(isolated_config):
 
     assert result is True
     hosts = load_hosts()
-    assert "openclaw" not in hosts[0]["claws"]
-    assert "zeroclaw" in hosts[0]["claws"]  # Other claws remain
+    assert "openclaw" not in hosts[0]["agents"]
+    assert "zeroclaw" in hosts[0]["agents"]  # Other claws remain
 
 
 def test_remove_claw_from_host_not_found(isolated_config):
@@ -395,8 +395,8 @@ def test_remove_claw_from_host_not_found(isolated_config):
         {
             "hostname": "192.168.1.10",
             "port": 22,
-            "user": "xclm",
-            "claws": {"zeroclaw": {"version": "2.0.0"}},
+            "agent_name": "xclm",
+            "agents": {"zeroclaw": {"version": "2.0.0"}},
         }
     ]
     save_hosts(test_hosts)
@@ -406,14 +406,14 @@ def test_remove_claw_from_host_not_found(isolated_config):
 
     assert result is True  # Operation succeeds idempotently
     hosts = load_hosts()
-    assert "openclaw" not in hosts[0]["claws"]
-    assert "zeroclaw" in hosts[0]["claws"]
+    assert "openclaw" not in hosts[0]["agents"]
+    assert "zeroclaw" in hosts[0]["agents"]
 
 
 def test_remove_claw_from_host_no_claws_dict(isolated_config):
     """remove_claw_from_host handles host with no claws dict."""
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"}]
     save_hosts(test_hosts)
 
     result = remove_agent_from_host("192.168.1.10", "openclaw")
@@ -424,7 +424,7 @@ def test_remove_claw_from_host_no_claws_dict(isolated_config):
 def test_remove_claw_from_host_unknown_host(isolated_config):
     """remove_claw_from_host returns False for unknown host."""
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "user": "xclm"}]
+    test_hosts = [{"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm"}]
     save_hosts(test_hosts)
 
     result = remove_agent_from_host("192.168.1.99", "openclaw")

@@ -30,18 +30,18 @@ def host_with_claw(isolated_config: Path) -> tuple[Path, str, str]:
             "alias": alias,
             "key_id": "testhost",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "auth_method": "key",
             "hardware": {
                 "architecture": "x86_64",
                 "processor_cores": 4,
                 "memtotal_mb": 8192,
             },
-            "claws": {
+            "agents": {
                 claw_name: {
                     "version": "1.0.0",
                     "status": "installed",
-                    "user": "opc-testhost",
+                    "agent_name": "opc-testhost",
                     "installed_at": "2026-04-01T00:00:00Z",
                     "runtime": {"status": "stopped"},
                 }
@@ -189,7 +189,7 @@ def test_agent_remove_with_running_claw(host_with_claw: tuple[Path, str, str]):
     # Update claw to be running
     hosts_file = config / "hosts.json"
     hosts = json.loads(hosts_file.read_text())
-    hosts[0]["claws"][claw_name]["runtime"]["status"] = "running"
+    hosts[0]["agents"][claw_name]["runtime"]["status"] = "running"
     hosts_file.write_text(json.dumps(hosts, indent=2))
 
     with patch("clawrium.core.lifecycle.remove_agent") as mock_remove:

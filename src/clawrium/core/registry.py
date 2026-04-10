@@ -48,11 +48,6 @@ def validate_agent_type(agent_type: str) -> None:
         )
 
 
-def validate_claw_name(claw_name: str) -> None:
-    """Backward-compatible wrapper around `validate_agent_type`."""
-    validate_agent_type(claw_name)
-
-
 class Requirements(TypedDict):
     """Runtime requirements for a supported platform entry."""
 

@@ -3,7 +3,7 @@
 from clawrium.core.names import (
     generate_random_name,
     is_ip_address,
-    validate_claw_name,
+    validate_agent_name,
     is_name_available_on_host,
     SCIENTISTS,
 )
@@ -83,86 +83,86 @@ class TestScientistList:
 
 
 class TestValidateClawName:
-    """Tests for validate_claw_name function."""
+    """Tests for validate_agent_name function."""
 
     def test_valid_simple_names(self):
-        """validate_claw_name accepts simple valid names."""
-        assert validate_claw_name("work-assistant")[0] is True
-        assert validate_claw_name("clever_einstein")[0] is True
-        assert validate_claw_name("name123")[0] is True
-        assert validate_claw_name("abc-123_xyz")[0] is True
+        """validate_agent_name accepts simple valid names."""
+        assert validate_agent_name("work-assistant")[0] is True
+        assert validate_agent_name("clever_einstein")[0] is True
+        assert validate_agent_name("name123")[0] is True
+        assert validate_agent_name("abc-123_xyz")[0] is True
 
     def test_valid_edge_cases(self):
-        """validate_claw_name accepts edge case valid names."""
-        assert validate_claw_name("a")[0] is True
-        assert validate_claw_name("a" * 32)[0] is True
-        assert validate_claw_name("clever-einstein-123")[0] is True
+        """validate_agent_name accepts edge case valid names."""
+        assert validate_agent_name("a")[0] is True
+        assert validate_agent_name("a" * 32)[0] is True
+        assert validate_agent_name("clever-einstein-123")[0] is True
 
     def test_rejects_empty_name(self):
-        """validate_claw_name rejects empty names."""
-        valid, msg = validate_claw_name("")
+        """validate_agent_name rejects empty names."""
+        valid, msg = validate_agent_name("")
         assert valid is False
         assert "empty" in msg.lower()
 
     def test_rejects_too_long_name(self):
-        """validate_claw_name rejects names longer than 32 characters."""
-        valid, msg = validate_claw_name("a" * 33)
+        """validate_agent_name rejects names longer than 32 characters."""
+        valid, msg = validate_agent_name("a" * 33)
         assert valid is False
         assert "32" in msg
 
     def test_rejects_invalid_characters(self):
-        """validate_claw_name rejects names with invalid characters."""
-        valid, msg = validate_claw_name("work assistant")
+        """validate_agent_name rejects names with invalid characters."""
+        valid, msg = validate_agent_name("work assistant")
         assert valid is False
         assert "lowercase" in msg.lower()
 
-        valid, msg = validate_claw_name("work.assistant")
+        valid, msg = validate_agent_name("work.assistant")
         assert valid is False
         assert "lowercase" in msg.lower()
 
-        valid, msg = validate_claw_name("work@assistant")
+        valid, msg = validate_agent_name("work@assistant")
         assert valid is False
         assert "lowercase" in msg.lower()
 
     def test_rejects_uppercase_letters(self):
-        """validate_claw_name rejects names with uppercase letters."""
-        valid, msg = validate_claw_name("Name")
+        """validate_agent_name rejects names with uppercase letters."""
+        valid, msg = validate_agent_name("Name")
         assert valid is False
         assert "lowercase" in msg.lower()
 
-        valid, msg = validate_claw_name("UPPER")
+        valid, msg = validate_agent_name("UPPER")
         assert valid is False
         assert "lowercase" in msg.lower()
 
-        valid, msg = validate_claw_name("MyAssistant")
+        valid, msg = validate_agent_name("MyAssistant")
         assert valid is False
         assert "lowercase" in msg.lower()
 
     def test_rejects_names_starting_with_digit(self):
-        """validate_claw_name rejects names starting with a digit."""
-        valid, msg = validate_claw_name("1bad")
+        """validate_agent_name rejects names starting with a digit."""
+        valid, msg = validate_agent_name("1bad")
         assert valid is False
         assert "start with a lowercase letter" in msg
 
-        valid, msg = validate_claw_name("123claw")
+        valid, msg = validate_agent_name("123claw")
         assert valid is False
         assert "start with a lowercase letter" in msg
 
     def test_rejects_names_starting_with_hyphen(self):
-        """validate_claw_name rejects names starting with a hyphen."""
-        valid, msg = validate_claw_name("-bad")
+        """validate_agent_name rejects names starting with a hyphen."""
+        valid, msg = validate_agent_name("-bad")
         assert valid is False
         assert "start with a lowercase letter" in msg
 
     def test_rejects_names_starting_with_underscore(self):
-        """validate_claw_name rejects names starting with an underscore."""
-        valid, msg = validate_claw_name("_bad")
+        """validate_agent_name rejects names starting with an underscore."""
+        valid, msg = validate_agent_name("_bad")
         assert valid is False
         assert "start with a lowercase letter" in msg
 
     def test_returns_error_message(self):
-        """validate_claw_name returns descriptive error messages."""
-        valid, msg = validate_claw_name("")
+        """validate_agent_name returns descriptive error messages."""
+        valid, msg = validate_agent_name("")
         assert len(msg) > 0
 
 
@@ -171,20 +171,20 @@ class TestIsNameAvailableOnHost:
 
     def test_returns_true_for_available_name(self):
         """is_name_available_on_host returns True for unused name."""
-        host = {"claws": {"openclaw": {"user": "clever-einstein"}}}
+        host = {"agents": {"openclaw": {"agent_name": "clever-einstein"}}}
         assert is_name_available_on_host("swift-curie", host) is True
 
     def test_returns_false_for_used_name(self):
         """is_name_available_on_host returns False for already used name."""
-        host = {"claws": {"openclaw": {"user": "clever-einstein"}}}
+        host = {"agents": {"openclaw": {"agent_name": "clever-einstein"}}}
         assert is_name_available_on_host("clever-einstein", host) is False
 
     def test_checks_all_claw_types(self):
         """is_name_available_on_host checks uniqueness across all claw types."""
         host = {
-            "claws": {
-                "openclaw": {"user": "clever-einstein"},
-                "zeroclaw": {"user": "swift-curie"},
+            "agents": {
+                "openclaw": {"agent_name": "clever-einstein"},
+                "zeroclaw": {"agent_name": "swift-curie"},
             }
         }
         assert is_name_available_on_host("clever-einstein", host) is False
@@ -193,7 +193,7 @@ class TestIsNameAvailableOnHost:
 
     def test_handles_empty_claws(self):
         """is_name_available_on_host handles host with no claws."""
-        host = {"claws": {}}
+        host = {"agents": {}}
         assert is_name_available_on_host("clever-einstein", host) is True
 
     def test_handles_missing_claws_field(self):

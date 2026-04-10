@@ -111,7 +111,7 @@ def validate_soul_md(claw_type: str) -> ValidationResult:
         ValidationResult with pass/fail status and any errors/warnings.
     """
     config_dir = get_config_dir()
-    soul_path = config_dir / "claws" / claw_type / "SOUL.md"
+    soul_path = config_dir / "agents" / claw_type / "SOUL.md"
 
     if not soul_path.exists():
         return ValidationResult(
@@ -659,8 +659,8 @@ def validate_agent_installation(host: str, claw_name: str) -> ValidationResult:
             errors=[f"Host '{host}' not found."],
         )
 
-    claws = host_data.get("claws", {})
-    claw_data = claws.get(claw_name)
+    agents = host_data.get("agents", {})
+    claw_data = agents.get(claw_name)
 
     if not claw_data:
         return ValidationResult(

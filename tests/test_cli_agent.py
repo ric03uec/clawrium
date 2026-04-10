@@ -32,7 +32,7 @@ def create_host(
         "hostname": hostname,
         "key_id": key_id or hostname,
         "port": 22,
-        "user": "xclm",
+        "agent_name": "xclm",
         "auth_method": "key",
         "hardware": {
             "architecture": "x86_64",
@@ -140,7 +140,7 @@ def test_agent_ps_no_hosts():
 
 def test_agent_ps_no_claws():
     """clm agent ps with hosts but no claws shows message."""
-    hosts = [{"hostname": "192.168.1.100", "claws": {}}]
+    hosts = [{"hostname": "192.168.1.100", "agents": {}}]
 
     with patch("clawrium.cli.status.load_hosts", return_value=hosts):
         result = runner.invoke(app, ["agent", "ps"])

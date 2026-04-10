@@ -89,8 +89,8 @@ def _get_claw_record(host: str, claw_name: str) -> dict | None:
     host_data = get_host(host)
     if not host_data:
         return None
-    claws = host_data.get("claws", {})
-    return claws.get(claw_name)
+    agents = host_data.get("agents", {})
+    return agents.get(claw_name)
 
 
 def get_onboarding_state(host: str, claw_name: str) -> OnboardingState:
@@ -160,7 +160,13 @@ def transition_state(host: str, claw_name: str, to_state: OnboardingState) -> bo
     hostname = host_data["hostname"]
 
     def updater(h: dict) -> dict:
-        h["claws"][claw_name]["onboarding"]["state"] = to_state.value
+        if "agents" not in h or claw_name not in h["agents"]:
+            raise AgentNotFoundError(f"Agent '{claw_name}' not found on host '{host}'")
+        if "onboarding" not in h["agents"][claw_name]:
+            raise OnboardingNotFoundError(
+                f"Onboarding not initialized for '{claw_name}' on '{host}'"
+            )
+        h["agents"][claw_name]["onboarding"]["state"] = to_state.value
         return h
 
     return update_host(hostname, updater)
@@ -238,7 +244,21 @@ def complete_stage(
     now = datetime.now(timezone.utc).isoformat()
 
     def updater(h: dict) -> dict:
-        stage_data = h["claws"][claw_name]["onboarding"]["stages"][stage]
+        if "agents" not in h or claw_name not in h["agents"]:
+            raise AgentNotFoundError(f"Agent '{claw_name}' not found on host '{host}'")
+        if "onboarding" not in h["agents"][claw_name]:
+            raise OnboardingNotFoundError(
+                f"Onboarding not initialized for '{claw_name}' on '{host}'"
+            )
+        if "stages" not in h["agents"][claw_name]["onboarding"]:
+            raise OnboardingNotFoundError(
+                f"Onboarding stages not initialized for '{claw_name}' on '{host}'"
+            )
+        if stage not in h["agents"][claw_name]["onboarding"]["stages"]:
+            raise OnboardingNotFoundError(
+                f"Stage '{stage}' not found for '{claw_name}' on '{host}'"
+            )
+        stage_data = h["agents"][claw_name]["onboarding"]["stages"][stage]
         stage_data["status"] = status.value
         stage_data["completed_at"] = now
         if metadata:
@@ -277,7 +297,7 @@ def initialize_onboarding(host: str, claw_name: str) -> bool:
     now = datetime.now(timezone.utc).isoformat()
 
     def updater(h: dict) -> dict:
-        h["claws"][claw_name]["onboarding"] = {
+        h["agents"][claw_name]["onboarding"] = {
             "state": OnboardingState.PENDING.value,
             "started_at": now,
             "stages": {

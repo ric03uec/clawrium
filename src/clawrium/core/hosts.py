@@ -39,7 +39,7 @@ def load_hosts() -> list[dict]:
         List of host dictionaries. Empty list if file doesn't exist.
 
     Raises:
-        HostsFileCorruptedError: If hosts.json exists but cannot be parsed.
+        HostsFileCorruptedError: If hosts.json exists but cannot be parsed or uses old schema.
     """
     hosts_path = get_config_dir() / HOSTS_FILE
     if not hosts_path.exists():
@@ -55,6 +55,17 @@ def load_hosts() -> list[dict]:
                 raise HostsFileCorruptedError(
                     f"hosts.json contains invalid entries (expected list of objects): {hosts_path}"
                 )
+
+            # Detect old schema format and provide migration guidance
+            for host in data:
+                if "claws" in host:
+                    raise HostsFileCorruptedError(
+                        f"hosts.json uses old schema format (found 'claws' key). "
+                        f"This version requires the new schema format. "
+                        f"Migration required: Remove all existing agents and reinstall them. "
+                        f"See CHANGELOG for breaking changes: {hosts_path}"
+                    )
+
             return data
     except json.JSONDecodeError as e:
         raise HostsFileCorruptedError(
@@ -276,7 +287,7 @@ def get_host_by_key_id(key_id: str) -> dict | None:
     return None
 
 
-def remove_agent_from_host(hostname: str, claw_name: str) -> bool:
+def remove_agent_from_host(hostname: str, agent_type: str) -> bool:
     """Remove an agent from a host's record atomically.
 
     Acquires exclusive lock for the entire load-modify-save operation
@@ -284,7 +295,7 @@ def remove_agent_from_host(hostname: str, claw_name: str) -> bool:
 
     Args:
         hostname: The hostname of the host.
-        claw_name: Name of the agent to remove.
+        agent_type: Type of the agent to remove (e.g., "openclaw").
 
     Returns:
         True if the host was found (operation attempted), False if host not found.
@@ -293,8 +304,8 @@ def remove_agent_from_host(hostname: str, claw_name: str) -> bool:
     """
 
     def updater(h: dict) -> dict:
-        if "claws" in h and claw_name in h["claws"]:
-            del h["claws"][claw_name]
+        if "agents" in h and agent_type in h["agents"]:
+            del h["agents"][agent_type]
         return h
 
     return update_host(hostname, updater)

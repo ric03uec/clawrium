@@ -245,8 +245,8 @@ def get_installed_claw(claw_name: str) -> tuple[str, str, str]:
     """Get installed claw details from hosts registry.
 
     Searches all hosts for a claw with matching name. Searches by:
-    1. The "name" field
-    2. The "user" field (claw system user)
+    1. The "agent_name" field
+    2. The "name" field (legacy)
     3. The claw_type key itself (e.g., "zeroclaw")
 
     Args:
@@ -263,14 +263,14 @@ def get_installed_claw(claw_name: str) -> tuple[str, str, str]:
     hosts = load_hosts()
     for host in hosts:
         hostname = host.get("hostname", "")
-        claws = host.get("claws", {})
-        for claw_type, claw_data in claws.items():
-            # Check name field, user field, or claw_type
+        agents = host.get("agents", {})
+        for claw_type, claw_data in agents.items():
+            # Check agent_name field, name field (legacy), or claw_type
+            agent_name = claw_data.get("agent_name")
             name = claw_data.get("name")
-            user = claw_data.get("user")
-            if claw_name in (name, user, claw_type):
-                # Return the canonical name (name > user > claw_type)
-                canonical_name = name or user or claw_type
+            if claw_name in (agent_name, name, claw_type):
+                # Return the canonical name (agent_name > name > claw_type)
+                canonical_name = agent_name or name or claw_type
                 return (hostname, claw_type, canonical_name)
 
     raise AgentNotFoundError(

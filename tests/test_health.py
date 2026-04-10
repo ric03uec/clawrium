@@ -12,6 +12,7 @@ from clawrium.core.health import (
     ClawStatus,
     ONBOARDING_STEP_MAP,
 )
+from clawrium.core.secrets import SecretsFileCorruptedError
 
 
 @pytest.fixture
@@ -20,13 +21,13 @@ def mock_host():
     return {
         "hostname": "192.168.1.100",
         "port": 22,
-        "user": "xclm",
+        "agent_name": "xclm",
         "key_id": "testhost",
-        "claws": {
+        "agents": {
             "openclaw": {
                 "version": "0.1.0",
                 "status": "installed",
-                "user": "opc-testhost",
+                "agent_name": "opc-testhost",
             }
         },
     }
@@ -46,7 +47,7 @@ def test_health_check_running(mock_host):
 
     assert result["status"] == ClawStatus.RUNNING
     assert result["agent"] == "openclaw"
-    assert result["user"] == "opc-testhost"
+    assert result["agent_name"] == "opc-testhost"
     assert result["error"] is None
     assert result["missing_secrets"] is None
     assert result["onboarding_step"] is None
@@ -134,11 +135,27 @@ def test_check_all_claws_on_host(mock_host):
     assert results[0]["onboarding_step"] is None
 
 
+def test_health_check_never_modifies_state(mock_host):
+    """Health checks are read-only operations and never call update_host."""
+    mock_runner = MagicMock()
+    mock_runner.status = "successful"
+    mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
+
+    with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+        with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+            with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+                with patch("clawrium.core.hosts.update_host") as mock_update:
+                    check_claw_health("openclaw", mock_host)
+
+    # Assert health check never modifies persisted state
+    assert mock_update.call_count == 0
+
+
 def test_health_check_no_claw_user():
     """Missing claw user returns UNKNOWN status with error."""
     host = {
         "hostname": "192.168.1.100",
-        "claws": {
+        "agents": {
             "openclaw": {
                 "version": "0.1.0",
                 "status": "installed",
@@ -153,15 +170,35 @@ def test_health_check_no_claw_user():
     assert "No claw user recorded" in result["error"]
 
 
+def test_health_check_corrupted_host_data():
+    """Corrupted host data (missing hostname) returns UNKNOWN status."""
+    # Malformed host missing critical fields
+    corrupted_host = {
+        "agents": {
+            "openclaw": {
+                "version": "0.1.0",
+                "status": "installed",
+                "agent_name": "opc-test",
+            }
+        }
+        # Missing "hostname" field
+    }
+
+    result = check_claw_health("openclaw", corrupted_host)
+
+    assert result["status"] == ClawStatus.UNKNOWN
+    assert result["error"] is not None
+
+
 def test_health_check_invalid_claw_user():
     """Invalid claw user format returns UNKNOWN status with error."""
     host = {
         "hostname": "192.168.1.100",
-        "claws": {
+        "agents": {
             "openclaw": {
                 "version": "0.1.0",
                 "status": "installed",
-                "user": "root; rm -rf /",  # Command injection attempt
+                "agent_name": "root; rm -rf /",  # Command injection attempt
             }
         },
     }
@@ -211,7 +248,7 @@ def test_claw_status_degraded_exists():
 
 
 def test_health_result_has_missing_secrets_field(mock_host):
-    """HealthResult includes missing_secrets field in return."""
+    """HealthResult includes missing_secrets field with None when no required secrets."""
     mock_runner = MagicMock()
     mock_runner.status = "successful"
     mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
@@ -227,8 +264,9 @@ def test_health_result_has_missing_secrets_field(mock_host):
                 ):
                     result = check_claw_health("openclaw", mock_host)
 
-    # Check field exists
-    assert "missing_secrets" in result
+    # Assert exact value: None when running with no required secrets
+    assert result["missing_secrets"] is None
+    assert result["status"] == ClawStatus.RUNNING
 
 
 def test_check_claw_health_degraded_when_missing_secrets(mock_host):
@@ -342,6 +380,34 @@ def test_check_claw_health_degraded_partial_secrets(mock_host):
     assert result["missing_secrets"] == ["ANTHROPIC_API_KEY"]
 
 
+def test_check_claw_health_corrupted_secrets_file(mock_host):
+    """Corrupted secrets file returns DEGRADED status with error message."""
+    mock_runner = MagicMock()
+    mock_runner.status = "successful"
+    mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
+
+    # Mock required secrets for openclaw
+    required_secrets = [{"key": "OPENAI_API_KEY", "description": "OpenAI API key"}]
+
+    with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+        with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
+            # Mock get_instance_secrets to raise SecretsFileCorruptedError
+            with patch(
+                "clawrium.core.health.get_instance_secrets",
+                side_effect=SecretsFileCorruptedError("Secrets file is corrupted"),
+            ):
+                with patch(
+                    "clawrium.core.health.get_required_secrets",
+                    return_value=required_secrets,
+                ):
+                    result = check_claw_health("openclaw", mock_host)
+
+    # Should return DEGRADED with error message, not crash
+    assert result["status"] == ClawStatus.DEGRADED
+    assert result["error"] is not None
+    assert "corrupted" in result["error"].lower()
+
+
 def test_missing_secrets_none_for_non_running_status(mock_host):
     """Non-running status has missing_secrets as None."""
     mock_runner = MagicMock()
@@ -366,25 +432,25 @@ class TestGetMissingSecrets:
     """Tests for get_missing_secrets function - core Phase 06 logic."""
 
     def test_claw_name_from_record_name_field(self):
-        """Uses claw name from 'name' field when available."""
+        """Uses agent name from 'agent_name' field (canonical field)."""
         host = {"hostname": "192.168.1.100"}
-        claw_record = {"name": "work", "user": "opc-work"}
+        claw_record = {"name": "work", "agent_name": "opc-work"}
 
         with patch("clawrium.core.health.get_instance_key") as mock_key:
-            mock_key.return_value = "192.168.1.100:openclaw:work"
+            mock_key.return_value = "192.168.1.100:openclaw:opc-work"
             with patch("clawrium.core.health.get_instance_secrets", return_value={}):
                 with patch(
                     "clawrium.core.health.get_required_secrets", return_value=[]
                 ):
                     get_missing_secrets("openclaw", host, claw_record)
 
-        # Verify instance key was built with correct claw_name
-        mock_key.assert_called_once_with("192.168.1.100", "openclaw", "work")
+        # Verify instance key was built with correct agent_name
+        mock_key.assert_called_once_with("192.168.1.100", "openclaw", "opc-work")
 
     def test_claw_name_derived_from_user_fallback(self):
         """Falls back to using user field directly."""
         host = {"hostname": "192.168.1.100"}
-        claw_record = {"user": "opc-work"}  # No 'name' field
+        claw_record = {"agent_name": "opc-work"}  # No 'name' field
 
         with patch("clawrium.core.health.get_instance_key") as mock_key:
             mock_key.return_value = "192.168.1.100:openclaw:opc-work"
@@ -400,7 +466,7 @@ class TestGetMissingSecrets:
     def test_multi_hyphen_claw_name(self):
         """Preserves multi-hyphen user names exactly."""
         host = {"hostname": "192.168.1.100"}
-        claw_record = {"user": "opc-my-claw"}  # Multi-hyphen
+        claw_record = {"agent_name": "opc-my-claw"}  # Multi-hyphen
 
         with patch("clawrium.core.health.get_instance_key") as mock_key:
             mock_key.return_value = "192.168.1.100:openclaw:opc-my-claw"
@@ -416,7 +482,7 @@ class TestGetMissingSecrets:
     def test_no_hyphen_fallback(self):
         """Handles user names without hyphen (uses full name)."""
         host = {"hostname": "192.168.1.100"}
-        claw_record = {"user": "simpleuser"}  # No hyphen
+        claw_record = {"agent_name": "simpleuser"}  # No hyphen
 
         with patch("clawrium.core.health.get_instance_key") as mock_key:
             mock_key.return_value = "192.168.1.100:openclaw:simpleuser"
@@ -432,7 +498,7 @@ class TestGetMissingSecrets:
     def test_empty_user_string_returns_empty(self):
         """Returns empty list when claw name cannot be determined."""
         host = {"hostname": "192.168.1.100"}
-        claw_record = {"user": ""}  # Empty user, no name field
+        claw_record = {"agent_name": ""}  # Empty user, no name field
 
         result = get_missing_secrets("openclaw", host, claw_record)
 
@@ -450,7 +516,7 @@ class TestGetMissingSecrets:
     def test_returns_missing_secrets(self):
         """Returns list of missing required secrets."""
         host = {"hostname": "192.168.1.100"}
-        claw_record = {"name": "work", "user": "opc-work"}
+        claw_record = {"name": "work", "agent_name": "opc-work"}
 
         required = [
             {"key": "OPENAI_API_KEY", "description": "OpenAI key"},
@@ -473,7 +539,7 @@ class TestGetMissingSecrets:
     def test_returns_empty_when_all_present(self):
         """Returns empty list when all required secrets are present."""
         host = {"hostname": "192.168.1.100"}
-        claw_record = {"name": "work", "user": "opc-work"}
+        claw_record = {"name": "work", "agent_name": "opc-work"}
 
         required = [{"key": "OPENAI_API_KEY", "description": "OpenAI key"}]
         instance_secrets = {
@@ -545,7 +611,7 @@ class TestGetOnboardingStatus:
 
     def test_no_onboarding_record_returns_pending_onboard(self):
         """Missing onboarding record returns PENDING_ONBOARD for backward compatibility."""
-        claw_record = {"version": "0.1.0", "user": "opc-test"}
+        claw_record = {"version": "0.1.0", "agent_name": "opc-test"}
         status, step = get_onboarding_status(claw_record)
         assert status == ClawStatus.PENDING_ONBOARD
         assert step is None
@@ -623,6 +689,14 @@ class TestGetOnboardingStatus:
         assert status == ClawStatus.PENDING_ONBOARD
         assert step is None
 
+    def test_malformed_stages_data_returns_pending_onboard(self):
+        """Malformed stages (string instead of dict) returns PENDING_ONBOARD gracefully."""
+        claw_record = {"onboarding": {"state": "providers", "stages": "malformed-string"}}
+        status, step = get_onboarding_status(claw_record)
+        # Should handle gracefully - return ONBOARDING with step based on state
+        assert status == ClawStatus.ONBOARDING
+        assert step == "1/4"
+
 
 class TestOnboardingStepMap:
     """Tests for ONBOARDING_STEP_MAP constant."""
@@ -648,13 +722,13 @@ class TestHealthCheckOnboardingIntegration:
         return {
             "hostname": "192.168.1.100",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "key_id": "testhost",
-            "claws": {
+            "agents": {
                 "openclaw": {
                     "version": "0.1.0",
                     "status": "installed",
-                    "user": "opc-testhost",
+                    "agent_name": "opc-testhost",
                     "onboarding": {
                         "state": "providers",
                         "started_at": "2026-04-06T00:00:00+00:00",
@@ -688,7 +762,7 @@ class TestHealthCheckOnboardingIntegration:
 
     def test_stopped_claw_in_identity_state(self, mock_host_with_onboarding):
         """Stopped claw in identity state returns ONBOARDING with step 2/4."""
-        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = (
+        mock_host_with_onboarding["agents"]["openclaw"]["onboarding"]["state"] = (
             "identity"
         )
 
@@ -715,7 +789,7 @@ class TestHealthCheckOnboardingIntegration:
 
     def test_stopped_claw_in_channels_state(self, mock_host_with_onboarding):
         """Stopped claw in channels state returns ONBOARDING with step 3/4."""
-        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = (
+        mock_host_with_onboarding["agents"]["openclaw"]["onboarding"]["state"] = (
             "channels"
         )
 
@@ -742,7 +816,7 @@ class TestHealthCheckOnboardingIntegration:
 
     def test_stopped_claw_in_validate_state(self, mock_host_with_onboarding):
         """Stopped claw in validate state returns ONBOARDING with step 4/4."""
-        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = (
+        mock_host_with_onboarding["agents"]["openclaw"]["onboarding"]["state"] = (
             "validate"
         )
 
@@ -769,7 +843,7 @@ class TestHealthCheckOnboardingIntegration:
 
     def test_stopped_claw_in_ready_state(self, mock_host_with_onboarding):
         """Stopped claw in ready state returns READY."""
-        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = "ready"
+        mock_host_with_onboarding["agents"]["openclaw"]["onboarding"]["state"] = "ready"
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
@@ -792,7 +866,7 @@ class TestHealthCheckOnboardingIntegration:
 
     def test_stopped_claw_in_pending_state(self, mock_host_with_onboarding):
         """Stopped claw in pending state returns PENDING_ONBOARD."""
-        mock_host_with_onboarding["claws"]["openclaw"]["onboarding"]["state"] = (
+        mock_host_with_onboarding["agents"]["openclaw"]["onboarding"]["state"] = (
             "pending"
         )
 
@@ -847,7 +921,7 @@ class TestHealthResultOnboardingStepField:
         """NOT_INSTALLED status has onboarding_step as None."""
         host = {
             "hostname": "192.168.1.100",
-            "claws": {},
+            "agents": {},
         }
         result = check_claw_health("openclaw", host)
         assert result["status"] == ClawStatus.NOT_INSTALLED
@@ -858,7 +932,7 @@ class TestHealthResultOnboardingStepField:
         """UNKNOWN status has onboarding_step as None."""
         host = {
             "hostname": "192.168.1.100",
-            "claws": {
+            "agents": {
                 "openclaw": {"version": "0.1.0", "status": "installed"}
                 # Missing user field
             },
@@ -877,13 +951,13 @@ class TestProcessRunningField:
         return {
             "hostname": "192.168.1.100",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "key_id": "testhost",
-            "claws": {
+            "agents": {
                 "openclaw": {
                     "version": "0.1.0",
                     "status": "installed",
-                    "user": "opc-testhost",
+                    "agent_name": "opc-testhost",
                 }
             },
         }
@@ -958,7 +1032,7 @@ class TestProcessRunningField:
 
     def test_ready_but_stopped_has_process_running_false(self, mock_host):
         """B2: READY status with stopped process has process_running=False."""
-        mock_host["claws"]["openclaw"]["onboarding"] = {"state": "ready"}
+        mock_host["agents"]["openclaw"]["onboarding"] = {"state": "ready"}
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
@@ -980,7 +1054,7 @@ class TestProcessRunningField:
 
     def test_not_installed_has_process_running_none(self):
         """NOT_INSTALLED status has process_running=None."""
-        host = {"hostname": "192.168.1.100", "claws": {}}
+        host = {"hostname": "192.168.1.100", "agents": {}}
         result = check_claw_health("openclaw", host)
         assert result["status"] == ClawStatus.NOT_INSTALLED
         assert result["process_running"] is None
@@ -989,7 +1063,7 @@ class TestProcessRunningField:
         """UNKNOWN status has process_running=None."""
         host = {
             "hostname": "192.168.1.100",
-            "claws": {
+            "agents": {
                 "openclaw": {"version": "0.1.0", "status": "installed"}
                 # Missing user field
             },
@@ -1055,7 +1129,7 @@ class TestCountCompletedStages:
 
     def test_no_onboarding_returns_zero_four(self):
         """Missing onboarding record returns (0, 4)."""
-        claw_record = {"version": "0.1.0", "user": "opc-test"}
+        claw_record = {"version": "0.1.0", "agent_name": "opc-test"}
         completed, total = count_completed_stages(claw_record)
         assert completed == 0
         assert total == 4
@@ -1191,4 +1265,11 @@ class TestCountCompletedStages:
         }
         completed, total = count_completed_stages(claw_record)
         assert completed == 1
+        assert total == 4
+
+    def test_stages_is_string_not_dict_returns_zero(self):
+        """Malformed stages (string instead of dict) returns (0, 4) gracefully."""
+        claw_record = {"onboarding": {"state": "providers", "stages": "malformed"}}
+        completed, total = count_completed_stages(claw_record)
+        assert completed == 0
         assert total == 4

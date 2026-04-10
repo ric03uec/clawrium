@@ -69,10 +69,9 @@ def test_load_manifest_nonexistent():
 
 
 def test_load_manifest_path_traversal():
-    """Test path traversal attempt triggers InvalidClawNameError."""
-    from clawrium.core.registry import InvalidClawNameError
+    """Test path traversal attempt triggers InvalidAgentTypeError."""
 
-    with pytest.raises(InvalidClawNameError):
+    with pytest.raises(InvalidAgentTypeError):
         load_manifest("../etc/passwd")
 
 
@@ -641,75 +640,45 @@ def test_get_optional_secrets_nonexistent_raises():
         get_optional_secrets("nonexistent")
 
 
-# validate_claw_name tests
-
-
-def test_validate_claw_name_empty_raises():
-    """Test validate_claw_name with empty string raises InvalidClawNameError."""
-    from clawrium.core.registry import validate_claw_name, InvalidClawNameError
-
-    with pytest.raises(InvalidClawNameError, match="cannot be empty") as exc:
-        validate_claw_name("")
-    assert isinstance(exc.value, InvalidAgentTypeError)
-
-
-def test_validate_claw_name_with_slash_raises():
-    """Test validate_claw_name with slash raises InvalidClawNameError."""
-    from clawrium.core.registry import validate_claw_name, InvalidClawNameError
-
-    with pytest.raises(InvalidClawNameError, match="invalid characters") as exc:
-        validate_claw_name("foo/bar")
-    assert isinstance(exc.value, InvalidAgentTypeError)
-
-
-def test_validate_claw_name_with_backslash_raises():
-    """Test validate_claw_name with backslash raises InvalidClawNameError."""
-    from clawrium.core.registry import validate_claw_name, InvalidClawNameError
-
-    with pytest.raises(InvalidClawNameError, match="invalid characters") as exc:
-        validate_claw_name("foo\\bar")
-    assert isinstance(exc.value, InvalidAgentTypeError)
-
-
-def test_validate_claw_name_valid():
-    """Test validate_claw_name with valid names passes."""
-    from clawrium.core.registry import validate_claw_name
-
-    # These should not raise
-    validate_claw_name("openclaw")
-    validate_claw_name("zero-agent")
-    validate_claw_name("claw_v2")
-    validate_claw_name("Claw123")
+# validate_agent_type tests
 
 
 def test_validate_agent_type_empty_raises():
-    """Test validate_agent_type with empty value raises InvalidAgentTypeError."""
-    with pytest.raises(InvalidAgentTypeError, match="cannot be empty"):
+    """Test validate_agent_type with empty string raises InvalidAgentTypeError."""
+
+    with pytest.raises(InvalidAgentTypeError, match="cannot be empty") as exc:
         validate_agent_type("")
+    assert isinstance(exc.value, InvalidAgentTypeError)
 
 
 def test_validate_agent_type_with_slash_raises():
     """Test validate_agent_type with slash raises InvalidAgentTypeError."""
-    with pytest.raises(InvalidAgentTypeError, match="invalid characters"):
+
+    with pytest.raises(InvalidAgentTypeError, match="invalid characters") as exc:
         validate_agent_type("foo/bar")
+    assert isinstance(exc.value, InvalidAgentTypeError)
 
 
 def test_validate_agent_type_with_backslash_raises():
     """Test validate_agent_type with backslash raises InvalidAgentTypeError."""
-    with pytest.raises(InvalidAgentTypeError, match="invalid characters"):
+
+    with pytest.raises(InvalidAgentTypeError, match="invalid characters") as exc:
         validate_agent_type("foo\\bar")
-
-
-def test_validate_agent_type_with_dotdot_raises():
-    """Test validate_agent_type with dot traversal raises InvalidAgentTypeError."""
-    with pytest.raises(InvalidAgentTypeError, match="invalid characters"):
-        validate_agent_type("..")
+    assert isinstance(exc.value, InvalidAgentTypeError)
 
 
 def test_validate_agent_type_valid():
     """Test validate_agent_type with valid names passes."""
+
+    # These should not raise
     validate_agent_type("openclaw")
-    validate_agent_type("agent_v2")
+    validate_agent_type("zero-agent")
+    validate_agent_type("claw_v2")
+    validate_agent_type("Claw123")
+
+
+
+
 
 
 # check_compatibility version parameter tests

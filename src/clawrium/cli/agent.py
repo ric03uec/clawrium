@@ -144,8 +144,8 @@ def _resolve_agent_instance(agent_name: str) -> tuple[str, dict, str, dict, str]
         if not hostname:
             continue
 
-        for claw_type, claw_record in host_data.get("claws", {}).items():
-            canonical_name = claw_record.get("name") or claw_record.get("user")
+        for claw_type, claw_record in host_data.get("agents", {}).items():
+            canonical_name = claw_record.get("agent_name") or claw_record.get("name")
             if not canonical_name:
                 continue
             if canonical_name == agent_name:
@@ -229,10 +229,10 @@ def _sync_provider_config(host: str, claw_type: str, provider: dict) -> None:
     if not host_data:
         raise RuntimeError(f"Host '{host}' not found")
 
-    claw_record = host_data.get("claws", {}).get(claw_type)
+    claw_record = host_data.get("agents", {}).get(claw_type)
     if not claw_record:
         raise RuntimeError(f"Agent '{claw_type}' not installed on '{host}'")
-    installed_name = claw_record.get("name") or claw_record.get("user") or claw_type
+    installed_name = claw_record.get("agent_name") or claw_record.get("name") or claw_type
 
     # Calculate or preserve gateway port
     existing_config = claw_record.get("config", {})
@@ -246,7 +246,7 @@ def _sync_provider_config(host: str, claw_type: str, provider: dict) -> None:
         port_hash = int(hashlib.md5(installed_name.encode()).hexdigest(), 16)
         gateway_port = 40000 + (port_hash % 2000)
 
-    # Build gateway config based on claw type
+    # Build gateway config based on agent type
     if claw_type == "zeroclaw":
         gateway_config = {
             "host": "0.0.0.0",
@@ -391,7 +391,7 @@ def _run_identity_stage(host: str, claw_type: str, yes: bool) -> bool:
         return False
 
     config_dir = get_config_dir()
-    soul_dir = config_dir / "claws" / claw_type
+    soul_dir = config_dir / "agents" / claw_type
     soul_dir.mkdir(parents=True, exist_ok=True)
     soul_path = soul_dir / "SOUL.md"
 

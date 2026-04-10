@@ -57,7 +57,7 @@ class TestValidateSoulMd:
 
     def test_soul_md_exists_and_readable(self, isolated_config: Path):
         """Returns success when SOUL.md exists and is readable."""
-        soul_dir = isolated_config / "claws" / "openclaw"
+        soul_dir = isolated_config / "agents" / "openclaw"
         soul_dir.mkdir(parents=True)
         (soul_dir / "SOUL.md").write_text("# OpenClaw Personality\n\nBe helpful.")
 
@@ -67,7 +67,7 @@ class TestValidateSoulMd:
 
     def test_soul_md_empty_warning(self, isolated_config: Path):
         """Returns warning when SOUL.md is empty."""
-        soul_dir = isolated_config / "claws" / "openclaw"
+        soul_dir = isolated_config / "agents" / "openclaw"
         soul_dir.mkdir(parents=True)
         (soul_dir / "SOUL.md").write_text("")
 
@@ -78,7 +78,7 @@ class TestValidateSoulMd:
 
     def test_soul_md_large_warning(self, isolated_config: Path):
         """Returns warning when SOUL.md is larger than 10KB."""
-        soul_dir = isolated_config / "claws" / "openclaw"
+        soul_dir = isolated_config / "agents" / "openclaw"
         soul_dir.mkdir(parents=True)
         (soul_dir / "SOUL.md").write_text("x" * 11000)
 
@@ -98,7 +98,7 @@ class TestValidateProviderConfig:
         hosts_data = [
             {
                 "hostname": "192.168.1.100",
-                "claws": {
+                "agents": {
                     "openclaw": {
                         "onboarding": {
                             "state": "validate",
@@ -130,7 +130,7 @@ class TestValidateProviderConfig:
         hosts_data = [
             {
                 "hostname": "192.168.1.100",
-                "claws": {
+                "agents": {
                     "openclaw": {
                         "onboarding": {
                             "state": "validate",
@@ -158,7 +158,7 @@ class TestValidateProviderConfig:
         hosts_data = [
             {
                 "hostname": "192.168.1.100",
-                "claws": {
+                "agents": {
                     "openclaw": {
                         "onboarding": {
                             "state": "validate",
@@ -484,7 +484,7 @@ class TestValidateAgentInstallation:
         """Returns failure when claw not installed."""
         isolated_config.mkdir(parents=True, exist_ok=True)
         hosts_file = isolated_config / "hosts.json"
-        hosts_data = [{"hostname": "192.168.1.100", "claws": {}}]
+        hosts_data = [{"hostname": "192.168.1.100", "agents": {}}]
         hosts_file.write_text(json.dumps(hosts_data))
 
         result = validate_agent_installation("192.168.1.100", "openclaw")
@@ -501,7 +501,7 @@ class TestValidateAgentInstallation:
         hosts_data = [
             {
                 "hostname": "192.168.1.100",
-                "claws": {
+                "agents": {
                     "openclaw": {
                         "version": "0.1.0",
                         "status": "installed",

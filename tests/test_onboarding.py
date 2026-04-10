@@ -27,13 +27,13 @@ def host_with_claw(isolated_config):
             "hostname": "192.168.1.100",
             "alias": "server1",
             "port": 22,
-            "user": "xclm",
-            "claws": {
+            "agent_name": "xclm",
+            "agents": {
                 "openclaw": {
                     "version": "0.1.0",
                     "status": "installed",
                     "name": "assistant",
-                    "user": "opc-assistant",
+                    "agent_name": "opc-assistant",
                 }
             },
         }
@@ -54,13 +54,13 @@ def host_with_onboarding(isolated_config):
             "hostname": "192.168.1.100",
             "alias": "server1",
             "port": 22,
-            "user": "xclm",
-            "claws": {
+            "agent_name": "xclm",
+            "agents": {
                 "openclaw": {
                     "version": "0.1.0",
                     "status": "installed",
                     "name": "assistant",
-                    "user": "opc-assistant",
+                    "agent_name": "opc-assistant",
                     "onboarding": {
                         "state": "pending",
                         "started_at": "2026-04-06T00:00:00+00:00",
@@ -261,7 +261,7 @@ class TestCompleteStage:
         from clawrium.core.hosts import get_host
 
         host = get_host("server1")
-        stage = host["claws"]["openclaw"]["onboarding"]["stages"]["providers"]
+        stage = host["agents"]["openclaw"]["onboarding"]["stages"]["providers"]
         assert stage["status"] == "complete"
         assert stage["completed_at"] is not None
 
@@ -276,7 +276,7 @@ class TestCompleteStage:
         from clawrium.core.hosts import get_host
 
         host = get_host("server1")
-        stage = host["claws"]["openclaw"]["onboarding"]["stages"]["providers"]
+        stage = host["agents"]["openclaw"]["onboarding"]["stages"]["providers"]
         assert stage["provider_id"] == "openai-default"
 
     def test_complete_stage_skipped(self, host_with_onboarding):
@@ -287,7 +287,7 @@ class TestCompleteStage:
         from clawrium.core.hosts import get_host
 
         host = get_host("server1")
-        stage = host["claws"]["openclaw"]["onboarding"]["stages"]["channels"]
+        stage = host["agents"]["openclaw"]["onboarding"]["stages"]["channels"]
         assert stage["status"] == "skipped"
 
     def test_complete_invalid_stage(self, host_with_onboarding):
@@ -313,7 +313,7 @@ class TestInitializeOnboarding:
         from clawrium.core.hosts import get_host
 
         host = get_host("server1")
-        onboarding = host["claws"]["openclaw"]["onboarding"]
+        onboarding = host["agents"]["openclaw"]["onboarding"]
 
         assert onboarding["state"] == "pending"
         assert onboarding["started_at"] is not None
@@ -330,7 +330,7 @@ class TestInitializeOnboarding:
         from clawrium.core.hosts import get_host
 
         host = get_host("server1")
-        stages = host["claws"]["openclaw"]["onboarding"]["stages"]
+        stages = host["agents"]["openclaw"]["onboarding"]["stages"]
 
         for stage_name, stage_data in stages.items():
             assert stage_data["status"] == "pending", f"Stage {stage_name} not pending"
@@ -393,7 +393,7 @@ class TestRunStage:
         from clawrium.core.hosts import get_host
 
         host = get_host("server1")
-        stage = host["claws"]["openclaw"]["onboarding"]["stages"]["providers"]
+        stage = host["agents"]["openclaw"]["onboarding"]["stages"]["providers"]
         assert stage["status"] == "complete"
 
     def test_run_stage_claw_not_found(self, host_with_onboarding):

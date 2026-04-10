@@ -103,7 +103,7 @@ def mock_ssh_config():
 
     # Mock lookup() to return sample SSH config
     mock_config.lookup = MagicMock(
-        return_value={"hostname": "192.168.1.100", "user": "xclm", "port": 22}
+        return_value={"hostname": "192.168.1.100", "agent_name": "xclm", "port": 22}
     )
 
     return mock_config
@@ -116,7 +116,7 @@ def sample_host_data():
         "hostname": "192.168.1.100",
         "key_id": "192.168.1.100",  # Key storage identifier
         "port": 22,
-        "user": "xclm",
+        "agent_name": "xclm",
         "auth_method": "key",
         "alias": "testhost",
         "hardware": {
@@ -188,13 +188,13 @@ def hosts_with_installed_claw(isolated_config):
             "hostname": "192.168.1.100",
             "alias": "server1",
             "port": 22,
-            "user": "xclm",
-            "claws": {
+            "agent_name": "xclm",
+            "agents": {
                 "openclaw": {
                     "version": "0.1.0",
                     "status": "installed",
                     "name": "work",
-                    "user": "opc-work",
+                    "agent_name": "opc-work",
                 }
             },
         }

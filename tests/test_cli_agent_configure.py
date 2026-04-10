@@ -39,7 +39,7 @@ def create_host_with_claw(
             "hostname": hostname,
             "key_id": key_id,
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "alias": alias,
             "auth_method": "key",
             "hardware": {
@@ -57,12 +57,12 @@ def create_host_with_claw(
                 "last_seen": "2026-04-06T00:00:00Z",
                 "tags": [],
             },
-            "claws": {
+            "agents": {
                 claw_type: {
                     "version": "0.1.0",
                     "status": "installed",
                     "name": "assistant",
-                    "user": "assistant",
+                    "agent_name": "assistant",
                     "onboarding": {
                         "state": onboarding_state,
                         "started_at": "2026-04-06T00:00:00+00:00",
@@ -270,7 +270,7 @@ class TestAgentConfigureFullWizard:
         create_host_with_claw(isolated_config, onboarding_state="ready")
         hosts_file = isolated_config / "hosts.json"
         hosts_data = json.loads(hosts_file.read_text())
-        hosts_data[0]["claws"]["openclaw"]["onboarding"]["state"] = "ready"
+        hosts_data[0]["agents"]["openclaw"]["onboarding"]["state"] = "ready"
         hosts_file.write_text(json.dumps(hosts_data, indent=2))
 
         result = runner.invoke(
@@ -442,7 +442,7 @@ class TestRunIdentityStage:
             result = _run_identity_stage("work", "openclaw", True)
 
         assert result is True
-        soul_path = isolated_config / "claws" / "openclaw" / "SOUL.md"
+        soul_path = isolated_config / "agents" / "openclaw" / "SOUL.md"
         assert soul_path.exists()
 
 
@@ -483,12 +483,12 @@ class TestRunValidateStage:
 
         hosts_file = isolated_config / "hosts.json"
         hosts_data = json.loads(hosts_file.read_text())
-        hosts_data[0]["claws"]["openclaw"]["onboarding"]["stages"]["providers"][
+        hosts_data[0]["agents"]["openclaw"]["onboarding"]["stages"]["providers"][
             "provider_id"
         ] = "test-openai"
         hosts_file.write_text(json.dumps(hosts_data, indent=2))
 
-        soul_dir = isolated_config / "claws" / "openclaw"
+        soul_dir = isolated_config / "agents" / "openclaw"
         soul_dir.mkdir(parents=True)
         (soul_dir / "SOUL.md").write_text("Test personality")
 
@@ -529,7 +529,7 @@ class TestRunValidateStage:
 
         hosts_file = isolated_config / "hosts.json"
         hosts_data = json.loads(hosts_file.read_text())
-        hosts_data[0]["claws"]["openclaw"]["onboarding"]["stages"]["providers"][
+        hosts_data[0]["agents"]["openclaw"]["onboarding"]["stages"]["providers"][
             "provider_id"
         ] = "test-openai"
         hosts_file.write_text(json.dumps(hosts_data, indent=2))
@@ -549,12 +549,12 @@ class TestRunValidateStage:
 
         hosts_file = isolated_config / "hosts.json"
         hosts_data = json.loads(hosts_file.read_text())
-        hosts_data[0]["claws"]["openclaw"]["onboarding"]["stages"]["providers"][
+        hosts_data[0]["agents"]["openclaw"]["onboarding"]["stages"]["providers"][
             "provider_id"
         ] = "test-openai"
         hosts_file.write_text(json.dumps(hosts_data, indent=2))
 
-        soul_dir = isolated_config / "claws" / "openclaw"
+        soul_dir = isolated_config / "agents" / "openclaw"
         soul_dir.mkdir(parents=True)
         (soul_dir / "SOUL.md").write_text("Test personality")
 
@@ -596,7 +596,7 @@ class TestRunValidateStage:
                 "hostname": "192.168.1.100",
                 "key_id": "work",
                 "alias": "work",
-                "claws": {
+                "agents": {
                     "openclaw": {
                         "version": "0.1.0",
                         "status": "installed",
@@ -615,7 +615,7 @@ class TestRunValidateStage:
         ]
         hosts_file.write_text(json.dumps(hosts_data))
 
-        soul_dir = isolated_config / "claws" / "openclaw"
+        soul_dir = isolated_config / "agents" / "openclaw"
         soul_dir.mkdir(parents=True)
         (soul_dir / "SOUL.md").write_text("Test personality")
 

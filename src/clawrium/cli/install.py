@@ -1,4 +1,4 @@
-"""Install command for deploying claws to hosts."""
+"""Install command for deploying agents to hosts."""
 
 from typing import Optional
 
@@ -104,10 +104,10 @@ def install(
     Without flags, prompts for claw and host selection interactively.
     With --type and --host flags, runs directly (per D-01 hybrid invocation).
     """
-    # Step 1: Get claw (prompt if not provided per D-01)
+    # Step 1: Get agent type (prompt if not provided per D-01)
     selected_claw = claw or _select_claw()
 
-    # Step 2: Validate claw exists
+    # Step 2: Validate agent type exists
     try:
         get_claw_info(selected_claw)  # Validates claw exists
     except ManifestNotFoundError:

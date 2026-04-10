@@ -26,7 +26,7 @@ def create_host_with_ready_claw(
             "hostname": hostname,
             "key_id": alias,
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "alias": alias,
             "auth_method": "key",
             "hardware": {
@@ -44,11 +44,11 @@ def create_host_with_ready_claw(
                 "last_seen": "2026-04-07T00:00:00Z",
                 "tags": [],
             },
-            "claws": {
+            "agents": {
                 claw_type: {
                     "version": "2026.4.2",
                     "status": "installed",
-                    "user": "assistant",
+                    "agent_name": "assistant",
                     "onboarding": {
                         "state": "ready",
                         "started_at": "2026-04-07T00:00:00Z",
@@ -93,7 +93,7 @@ class TestAgentStart:
                 "hostname": "192.168.1.100",
                 "alias": "work",
                 "key_id": "work",
-                "claws": {},
+                "agents": {},
             }
         ]
         hosts_file.write_text(json.dumps(hosts_data, indent=2))
@@ -112,9 +112,9 @@ class TestAgentStart:
                 "hostname": "192.168.1.100",
                 "alias": "work",
                 "key_id": "work",
-                "claws": {
+                "agents": {
                     "openclaw": {
-                        "user": "assistant",
+                        "agent_name": "assistant",
                         "onboarding": {"state": "pending"},
                     }
                 },
@@ -164,11 +164,11 @@ class TestAgentStart:
                 "hostname": "192.168.1.100",
                 "alias": "work",
                 "key_id": "work",
-                "user": "xclm",
+                "agent_name": "xclm",
                 "port": 22,
-                "claws": {
+                "agents": {
                     "openclaw": {
-                        "user": "assistant",
+                        "agent_name": "assistant",
                         "onboarding": {"state": "pending"},
                     }
                 },
@@ -225,7 +225,7 @@ class TestAgentStop:
                 "hostname": "192.168.1.100",
                 "alias": "work",
                 "key_id": "work",
-                "claws": {},
+                "agents": {},
             }
         ]
         hosts_file.write_text(json.dumps(hosts_data, indent=2))

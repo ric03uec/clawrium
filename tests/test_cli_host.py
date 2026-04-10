@@ -324,7 +324,7 @@ def test_host_ps_uses_key_id(isolated_config: Path, mock_ssh_client):
         "alias": "myserver",  # Need alias so get_host can find it
         "key_id": "myserver",
         "port": 22,
-        "user": "xclm",
+        "agent_name": "xclm",
         "auth_method": "key",
         "hardware": {},
         "metadata": {"added_at": "2026-03-21", "last_seen": "2026-03-21", "tags": []},
@@ -356,7 +356,7 @@ def test_host_remove_uses_key_id(isolated_config: Path):
         "alias": "myserver",
         "key_id": "myserver",  # Keys stored here, not under hostname
         "port": 22,
-        "user": "xclm",
+        "agent_name": "xclm",
         "auth_method": "key",
         "hardware": {},
         "metadata": {"added_at": "2026-03-21", "last_seen": "2026-03-21", "tags": []},

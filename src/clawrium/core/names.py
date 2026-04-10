@@ -175,7 +175,7 @@ def is_ip_address(value: str) -> bool:
         return False
 
 
-def validate_claw_name(name: str) -> tuple[bool, str]:
+def validate_agent_name(name: str) -> tuple[bool, str]:
     """Validate an agent name for format and length.
 
     Names must be valid Unix usernames: start with a lowercase letter,
@@ -212,7 +212,7 @@ def is_name_available_on_host(name: str, host: dict) -> bool:
     Returns:
         True if name is available, False if already in use
     """
-    for claw_config in host.get("claws", {}).values():
-        if claw_config.get("user") == name:
+    for agent_config in host.get("agents", {}).values():
+        if agent_config.get("agent_name") == name or agent_config.get("name") == name:
             return False
     return True
