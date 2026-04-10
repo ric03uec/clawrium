@@ -36,6 +36,7 @@ MANIFEST
 # Local editor commands (created by make setup-dev)
 .claude/settings.local.json
 .opencode/settings.local.json
+.opencode/opencode.json
 .opencode/state.json
 .opencode/sessions/
 
