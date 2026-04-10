@@ -31,6 +31,31 @@
         mode: "0600"
       notify: Restart openclaw service
 
+    - name: Ensure openclaw config directory exists
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.openclaw"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    - name: Write openclaw config from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/openclaw.json.j2"
+        dest: "/home/{{ agent_name }}/.openclaw/openclaw.json"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+      when: config.provider is defined and config.provider.default_model is defined
+      notify: Restart openclaw service
+
+    - name: Verify model set in openclaw.json
+      ansible.builtin.command:
+        cmd: cat /home/{{ agent_name }}/.openclaw/openclaw.json
+      register: verify_model
+      failed_when: config.provider.default_model not in verify_model.stdout
+      when: config.provider is defined and config.provider.default_model is defined
+
     - name: Ensure service is enabled
       ansible.builtin.systemd:
         name: "{{ agent_type }}-{{ agent_name }}"
