@@ -139,7 +139,11 @@ async def _chat_loop(
     response_timeout_seconds: float,
     idle_timeout_seconds: float,
 ) -> None:
-    client = OpenClawChatClient(gateway_url=gateway_url, auth_token=auth_token)
+    client = OpenClawChatClient(
+        gateway_url=gateway_url,
+        auth_token=auth_token,
+        timeout_seconds=response_timeout_seconds,
+    )
     with console.status("Connecting to gateway...", spinner="dots"):
         await client.connect()
 
