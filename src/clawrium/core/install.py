@@ -140,6 +140,8 @@ def run_installation(
     hostname: str,
     name: str | None = None,
     on_event: Callable[[str, str], None] | None = None,
+    cleanup_failed: bool = False,
+    resume: bool = False,
 ) -> InstallResult:
     """Run full installation of an agent on a host.
 
@@ -149,6 +151,8 @@ def run_installation(
         name: Optional friendly name for the agent instance. If not provided,
               a random Docker-style name will be generated (e.g., "clever-einstein")
         on_event: Optional callback for progress events (stage, message)
+        cleanup_failed: Force cleanup of failed agent before installation
+        resume: Resume existing installation using existing agent name
 
     Returns:
         InstallResult with success status and details
@@ -197,11 +201,60 @@ def run_installation(
         emit("validate", f"Validated custom name: {name}")
 
     incomplete_details = _get_incomplete_installation_details(host, claw_name)
-    if incomplete_details and incomplete_details.get("status") == "installing":
-        raise IncompleteInstallationError(
-            host["hostname"], claw_name, incomplete_details
-        )
-    if incomplete_details:
+
+    # Handle cleanup if requested
+    if cleanup_failed and incomplete_details:
+        emit("cleanup", "Removing incomplete installation...")
+
+        def cleanup_agent(h: dict) -> dict:
+            # Remove agent entry (including onboarding state)
+            if "agents" in h and claw_name in h["agents"]:
+                del h["agents"][claw_name]
+            return h
+
+        update_host(host["hostname"], cleanup_agent)
+
+        # Remove secrets for this instance
+        if incomplete_details.get("agent_name"):
+            from clawrium.core.secrets import load_secrets, save_secrets
+            instance_key = get_instance_key(
+                host["hostname"], claw_name, incomplete_details["agent_name"]
+            )
+            try:
+                secrets = load_secrets()
+                if instance_key in secrets:
+                    del secrets[instance_key]
+                    save_secrets(secrets)
+                    emit("cleanup", "Removed secrets for incomplete installation")
+            except Exception as e:
+                logger.warning("Failed to remove secrets: %s", e)
+                # Emit visible warning to user
+                emit(
+                    "warn",
+                    f"Failed to remove secrets for {instance_key}. "
+                    "Manual cleanup may be required."
+                )
+
+        emit("cleanup", "Cleanup complete. Starting fresh installation...")
+        incomplete_details = None
+
+    # Handle resume if requested
+    if resume and incomplete_details:
+        # Only allow resume from 'installing' state - 'failed' requires cleanup
+        if incomplete_details.get("status") == "failed":
+            raise InstallationError(
+                "Cannot resume from 'failed' state. "
+                "Use cleanup option for failed installations."
+            )
+        # Use existing agent name from incomplete installation
+        name = incomplete_details.get("agent_name")
+        if not name:
+            raise InstallationError(
+                "Cannot resume: agent_name missing from incomplete installation state. "
+                "Use cleanup option instead."
+            )
+        emit("validate", f"Resuming installation with existing name: {name}")
+    elif incomplete_details:
         emit(
             "validate",
             "Found previous incomplete installation state; proceeding with retry.",
@@ -212,6 +265,14 @@ def run_installation(
     chosen_name = [None]
 
     def set_installing(h: dict) -> dict:
+        # Check for incomplete installation under lock (unless cleanup or resume)
+        if not cleanup_failed and not resume:
+            locked_incomplete = _get_incomplete_installation_details(h, claw_name)
+            if locked_incomplete and locked_incomplete.get("status") == "installing":
+                raise IncompleteInstallationError(
+                    h["hostname"], claw_name, locked_incomplete
+                )
+
         if name is None:
             # Auto-generate name with retry loop for uniqueness
             max_attempts = 10
@@ -226,8 +287,8 @@ def run_installation(
                     "Use --name to specify one."
                 )
         else:
-            # Use custom name, check uniqueness under lock
-            if not is_name_available_on_host(name, h):
+            # Use custom name, check uniqueness under lock (unless resuming)
+            if not resume and not is_name_available_on_host(name, h):
                 raise InstallationError(
                     f"Name '{name}' already in use on this host. "
                     "Names must be unique across all agents on a host."
@@ -236,13 +297,22 @@ def run_installation(
 
         if "agents" not in h:
             h["agents"] = {}
-        h["agents"][claw_name] = {
-            "version": matched_version,
-            "status": "installing",
-            "installed_at": None,
-            "error": None,
-            "agent_name": chosen_name[0],
-        }
+
+        # Update status to installing (preserving existing data if resuming)
+        if resume:
+            if claw_name not in h["agents"]:
+                raise InstallationError("Cannot resume: agent was removed")
+            h["agents"][claw_name]["status"] = "installing"
+            h["agents"][claw_name]["error"] = None
+            h["agents"][claw_name]["version"] = matched_version  # Update version
+        else:
+            h["agents"][claw_name] = {
+                "version": matched_version,
+                "status": "installing",
+                "installed_at": None,
+                "error": None,
+                "agent_name": chosen_name[0],
+            }
         return h
 
     update_host(host["hostname"], set_installing)
@@ -251,7 +321,9 @@ def run_installation(
     agent_name = chosen_name[0]
 
     # Emit message after lock is released and agent_name is set
-    if name is None:
+    if resume:
+        emit("validate", f"Resuming with existing name: {agent_name}")
+    elif name is None:
         emit("validate", f"Generated unique name: {agent_name}")
     else:
         emit("validate", f"Using provided name: {agent_name}")

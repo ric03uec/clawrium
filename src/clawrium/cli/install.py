@@ -9,7 +9,11 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from clawrium.core.hosts import load_hosts, get_host, HostsFileCorruptedError
-from clawrium.core.install import run_installation, InstallationError
+from clawrium.core.install import (
+    run_installation,
+    InstallationError,
+    IncompleteInstallationError,
+)
 from clawrium.core.registry import (
     list_claws,
     get_claw_info,
@@ -81,6 +85,89 @@ def _select_host() -> str:
     # Return hostname for lookup
     selected = hosts[choice - 1]
     return selected.get("alias") or selected["hostname"]
+
+
+def _handle_incomplete_installation(error: IncompleteInstallationError) -> tuple[bool, bool]:
+    """Prompt user to handle incomplete installation.
+
+    Returns:
+        Tuple of (cleanup_failed, resume) flags for run_installation()
+    """
+    details = error.details
+    status = details.get("status", "unknown")
+    agent_name = details.get("agent_name") or error.claw_name
+    error_msg = details.get("error")
+
+    console.print()
+    console.print(
+        f"[yellow]Found incomplete installation for {error.claw_name} "
+        f"(name: {agent_name})[/yellow]"
+    )
+    console.print(f"[yellow]Status: {status}[/yellow]")
+    if error_msg:
+        console.print(f"[yellow]Error: {error_msg}[/yellow]")
+    console.print()
+
+    console.print("[bold]Options:[/bold]")
+    console.print("  1. Resume installation (continue from current state)")
+    console.print("  2. Clean up and retry (remove failed agent, start fresh)")
+    console.print("  3. Abort (cancel operation)")
+    console.print()
+
+    choice = typer.prompt("Choose option [1/2/3]", type=int)
+
+    if choice == 1:
+        # Resume
+        return (False, True)
+    elif choice == 2:
+        # Clean up and retry
+        return (True, False)
+    elif choice == 3:
+        # Abort
+        console.print("Installation cancelled.")
+        raise typer.Exit(code=0)
+    else:
+        console.print("[red]Invalid selection[/red]")
+        raise typer.Exit(code=1)
+
+
+def _run_installation_with_progress(
+    selected_claw: str,
+    selected_host: str,
+    name: str | None,
+    cleanup_failed: bool,
+    resume: bool,
+) -> dict:
+    """Run installation with progress spinner.
+
+    Returns:
+        InstallResult dict
+    """
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Starting installation...", total=None)
+
+        def update_progress(stage: str, message: str) -> None:
+            # Surface warnings immediately outside progress context
+            if stage == "warn":
+                console.print(f"[yellow]Warning:[/yellow] {message}")
+            else:
+                progress.update(task, description=f"[{stage}] {message}")
+
+        result = run_installation(
+            claw_name=selected_claw,
+            hostname=selected_host,
+            name=name,
+            on_event=update_progress,
+            cleanup_failed=cleanup_failed,
+            resume=resume,
+        )
+
+    return result
 
 
 def install(
@@ -161,24 +248,13 @@ def install(
     # Step 6: Run installation with progress spinner (per D-02)
     console.print()  # Blank line before progress
 
+    cleanup_failed = False
+    resume = False
+
     try:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-            transient=True,
-        ) as progress:
-            task = progress.add_task("Starting installation...", total=None)
-
-            def update_progress(stage: str, message: str) -> None:
-                progress.update(task, description=f"[{stage}] {message}")
-
-            result = run_installation(
-                claw_name=selected_claw,
-                hostname=selected_host,
-                name=name,
-                on_event=update_progress,
-            )
+        result = _run_installation_with_progress(
+            selected_claw, selected_host, name, cleanup_failed, resume
+        )
 
         # Success
         console.print(
@@ -186,6 +262,26 @@ def install(
             if name
             else f"[green]Success![/green] {selected_claw} v{result['version']} installed on {display_host}"
         )
+
+    except IncompleteInstallationError as e:
+        # Handle incomplete installation with interactive prompt
+        cleanup_failed, resume = _handle_incomplete_installation(e)
+        # Retry installation with user's choice
+        try:
+            result = _run_installation_with_progress(
+                selected_claw, selected_host, name, cleanup_failed, resume
+            )
+
+            # Success
+            console.print(
+                f"[green]Success![/green] {selected_claw} v{result['version']} installed as '{name}' on {display_host}"
+                if name
+                else f"[green]Success![/green] {selected_claw} v{result['version']} installed on {display_host}"
+            )
+
+        except InstallationError as retry_error:
+            console.print(f"[red]Installation failed:[/red] {retry_error}")
+            raise typer.Exit(code=1)
 
     except InstallationError as e:
         # Error display per D-10

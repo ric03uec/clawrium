@@ -228,7 +228,7 @@ def test_install_error_exits_1(isolated_config: Path):
 
 
 def test_install_incomplete_error_exits_1(isolated_config: Path):
-    """IncompleteInstallationError shows error message and exits 1."""
+    """IncompleteInstallationError shows interactive prompt and user can abort."""
     create_test_keypair(isolated_config, "testhost")
     create_host(isolated_config, "192.168.1.100", alias="testhost", key_id="testhost")
 
@@ -247,15 +247,18 @@ def test_install_incomplete_error_exits_1(isolated_config: Path):
             },
         )
 
-        result = runner.invoke(
-            app,
-            ["agent", "install", "--type", "openclaw", "--host", "testhost", "--yes"],
-            env=os.environ,
-        )
+        # Mock user selecting "Abort" option (3)
+        with patch("typer.prompt", return_value=3):
+            result = runner.invoke(
+                app,
+                ["agent", "install", "--type", "openclaw", "--host", "testhost", "--yes"],
+                env=os.environ,
+            )
 
-        assert result.exit_code == 1
-        assert "incomplete installation detected" in result.output.lower()
+        assert result.exit_code == 0  # Abort exits with 0, not 1
+        assert "incomplete installation" in result.output.lower()
         assert "work-assistant" in result.output.lower()
+        assert "cancelled" in result.output.lower() or "abort" in result.output.lower()
 
 
 def test_install_incompatible_exits_1(isolated_config: Path):
