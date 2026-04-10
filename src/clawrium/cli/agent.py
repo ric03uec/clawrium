@@ -232,7 +232,9 @@ def _sync_provider_config(host: str, claw_type: str, provider: dict) -> None:
     claw_record = host_data.get("agents", {}).get(claw_type)
     if not claw_record:
         raise RuntimeError(f"Agent '{claw_type}' not installed on '{host}'")
-    installed_name = claw_record.get("agent_name") or claw_record.get("name") or claw_type
+    installed_name = (
+        claw_record.get("agent_name") or claw_record.get("name") or claw_type
+    )
 
     # Calculate or preserve gateway port
     existing_config = claw_record.get("config", {})

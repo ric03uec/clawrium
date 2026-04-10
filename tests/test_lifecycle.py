@@ -408,9 +408,7 @@ class TestRemoveClaw:
                                     "clawrium.core.lifecycle.remove_agent_from_host",
                                     return_value=True,
                                 ):
-                                    result = remove_agent(
-                                        "192.168.1.100", "openclaw"
-                                    )
+                                    result = remove_agent("192.168.1.100", "openclaw")
 
         assert result["success"] is True
         assert result["operation"] == "remove"
@@ -473,9 +471,7 @@ class TestRemoveClaw:
                                     "clawrium.core.lifecycle.remove_agent_from_host",
                                     return_value=True,
                                 ):
-                                    result = remove_agent(
-                                        "192.168.1.100", "openclaw"
-                                    )
+                                    result = remove_agent("192.168.1.100", "openclaw")
 
         # Should still succeed with removal
         assert result["success"] is True

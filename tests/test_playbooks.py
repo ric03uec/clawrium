@@ -40,10 +40,7 @@ def test_base_playbook_structure():
 
     # Find and validate Node.js installation
     # Look for the specific task "Install Node.js"
-    nodejs_tasks = [
-        t for t in tasks
-        if t.get("name") == "Install Node.js"
-    ]
+    nodejs_tasks = [t for t in tasks if t.get("name") == "Install Node.js"]
     assert len(nodejs_tasks) > 0, "Should have task to install Node.js"
     nodejs_task = nodejs_tasks[0]
     apt_module = nodejs_task.get("ansible.builtin.apt", {})
@@ -53,8 +50,7 @@ def test_base_playbook_structure():
 
     # Find and validate build-essential installation
     build_essential_tasks = [
-        t for t in tasks
-        if "build-essential" in str(t.get("name", "")).lower()
+        t for t in tasks if "build-essential" in str(t.get("name", "")).lower()
     ]
     assert len(build_essential_tasks) > 0, "Should have task to install build-essential"
     build_essential_task = build_essential_tasks[0]
@@ -65,8 +61,10 @@ def test_base_playbook_structure():
 
     # Find and validate git/gh installation
     git_gh_tasks = [
-        t for t in tasks
-        if "git" in str(t.get("name", "")).lower() and "github" in str(t.get("name", "")).lower()
+        t
+        for t in tasks
+        if "git" in str(t.get("name", "")).lower()
+        and "github" in str(t.get("name", "")).lower()
     ]
     assert len(git_gh_tasks) > 0, "Should have task to install git and GitHub CLI"
     git_gh_task = git_gh_tasks[0]

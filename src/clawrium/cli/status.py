@@ -154,7 +154,9 @@ def status(
 
         for h, claw_record in instances:
             display_host = h.get("alias") or h["hostname"]
-            full_name = claw_record.get("agent_name") or claw_record.get("name") or claw_name
+            full_name = (
+                claw_record.get("agent_name") or claw_record.get("name") or claw_name
+            )
             version = claw_record.get("version", "?")
             installed_at = claw_record.get("installed_at", "-")
             if installed_at and installed_at != "-":

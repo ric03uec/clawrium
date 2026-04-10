@@ -691,7 +691,9 @@ class TestGetOnboardingStatus:
 
     def test_malformed_stages_data_returns_pending_onboard(self):
         """Malformed stages (string instead of dict) returns PENDING_ONBOARD gracefully."""
-        claw_record = {"onboarding": {"state": "providers", "stages": "malformed-string"}}
+        claw_record = {
+            "onboarding": {"state": "providers", "stages": "malformed-string"}
+        }
         status, step = get_onboarding_status(claw_record)
         # Should handle gracefully - return ONBOARDING with step based on state
         assert status == ClawStatus.ONBOARDING

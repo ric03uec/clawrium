@@ -677,10 +677,6 @@ def test_validate_agent_type_valid():
     validate_agent_type("Claw123")
 
 
-
-
-
-
 # check_compatibility version parameter tests
 
 
