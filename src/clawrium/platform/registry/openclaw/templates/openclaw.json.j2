@@ -1,7 +1,54 @@
 {
   "agents": {
     "defaults": {
-      "model": "{{ config.provider.default_model }}"
+{% if config.provider is defined and config.provider.default_model is defined %}
+      "model": {{ config.provider.default_model | tojson }},
+{% endif %}
+      "workspace": {{ config.workspace | default('~/.openclaw/workspace') | tojson }},
+      "maxConcurrent": {{ config.max_concurrent | default(4) | int }},
+{% if config.skills is defined and config.skills %}
+      "skills": {{ config.skills | tojson }},
+{% endif %}
+      "sandbox": {
+        "mode": {{ config.sandbox_mode | default('non-main') | tojson }}
+      },
+      "heartbeat": {
+        "every": {{ config.heartbeat_interval | default('30m') | tojson }},
+        "target": "last"
+      }
+    }
+{% if config.agent_list is defined and config.agent_list %}
+    ,"list": {{ config.agent_list | tojson }}
+{% endif %}
+  },
+{% set gateway = config.gateway | default({}) %}
+  "gateway": {
+    "port": {{ gateway.port | default(18789) | int }},
+    "bind": {{ gateway.bind | default('lan') | tojson }},
+{% if gateway.auth is defined and gateway.auth %}
+    "auth": {{ gateway.auth | tojson }},
+{% endif %}
+    "reload": {
+      "mode": "hybrid",
+      "debounceMs": 300
+    },
+    "channelHealthCheckMinutes": 5
+  },
+  "session": {
+    "dmScope": {{ config.session_dm_scope | default('per-channel-peer') | tojson }},
+    "reset": {
+      "mode": {{ config.session_reset_mode | default('daily') | tojson }},
+      "atHour": {{ config.session_reset_hour | default(4) | int }},
+      "idleMinutes": {{ config.session_idle_minutes | default(120) | int }}
+    }
+  },
+{% if config.channels is defined and config.channels %}
+  "channels": {{ config.channels | tojson }},
+{% endif %}
+  "env": {
+    "shellEnv": {
+      "enabled": true,
+      "timeoutMs": 15000
     }
   }
 }

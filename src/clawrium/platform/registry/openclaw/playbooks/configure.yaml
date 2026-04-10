@@ -49,11 +49,66 @@
       when: config.provider is defined and config.provider.default_model is defined
       notify: Restart openclaw service
 
-    - name: Verify model set in openclaw.json
-      ansible.builtin.command:
-        cmd: cat /home/{{ agent_name }}/.openclaw/openclaw.json
-      register: verify_model
-      failed_when: config.provider.default_model not in verify_model.stdout
+    - name: Verify openclaw.json configuration
+      ansible.builtin.shell: |
+        CONFIG_FILE="/home/{{ agent_name }}/.openclaw/openclaw.json"
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "ERROR: Configuration file not found at $CONFIG_FILE"
+          exit 1
+        fi
+
+        # Verify JSON is valid
+        if ! python3 -m json.tool "$CONFIG_FILE" > /dev/null 2>&1; then
+          echo "ERROR: Invalid JSON in $CONFIG_FILE"
+          exit 1
+        fi
+
+        # Verify critical fields using Python JSON parsing
+        # Pass expected values as command-line args to avoid shell injection
+        python3 - "$CONFIG_FILE" {{ config | to_json | quote }} << 'EOF'
+import json
+import sys
+
+config_file = sys.argv[1]
+expected_config = json.loads(sys.argv[2])
+
+with open(config_file, "r") as f:
+    config = json.load(f)
+
+errors = []
+
+# Verify model is set if provider configured
+if expected_config.get("provider", {}).get("default_model"):
+    model = config.get("agents", {}).get("defaults", {}).get("model")
+    expected_model = expected_config["provider"]["default_model"]
+    if not model or expected_model not in str(model):
+        errors.append(f"Model '{expected_model}' not found in agents.defaults.model")
+
+# Verify gateway port
+if expected_config.get("gateway", {}).get("port"):
+    gateway_port = config.get("gateway", {}).get("port")
+    expected_port = expected_config["gateway"]["port"]
+    if gateway_port != expected_port:
+        errors.append(f"Gateway port mismatch: expected {expected_port}, got {gateway_port}")
+
+# Verify gateway bind
+if expected_config.get("gateway", {}).get("bind"):
+    gateway_bind = config.get("gateway", {}).get("bind")
+    expected_bind = expected_config["gateway"]["bind"]
+    if gateway_bind != expected_bind:
+        errors.append(f"Gateway bind mismatch: expected {expected_bind}, got {gateway_bind}")
+
+if errors:
+    for error in errors:
+        print(f"ERROR: {error}", file=sys.stderr)
+    sys.exit(1)
+
+print("Configuration verified successfully")
+EOF
+      args:
+        executable: /bin/bash
+      register: verify_config
+      failed_when: verify_config.rc != 0
       when: config.provider is defined and config.provider.default_model is defined
 
     - name: Ensure service is enabled
