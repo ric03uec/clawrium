@@ -9,6 +9,7 @@ from clawrium.core.hosts import (
     remove_host,
     get_host,
     get_host_by_key_id,
+    get_agent_by_name,
     update_host,
     remove_agent_from_host,
     HOSTS_FILE,
@@ -146,8 +147,18 @@ def test_get_host_by_alias(isolated_config):
     # Setup: create hosts with aliases
     isolated_config.mkdir(parents=True, exist_ok=True)
     test_hosts = [
-        {"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm", "alias": "server1"},
-        {"hostname": "192.168.1.20", "port": 22, "agent_name": "xclm", "alias": "server2"},
+        {
+            "hostname": "192.168.1.10",
+            "port": 22,
+            "agent_name": "xclm",
+            "alias": "server1",
+        },
+        {
+            "hostname": "192.168.1.20",
+            "port": 22,
+            "agent_name": "xclm",
+            "alias": "server2",
+        },
     ]
     save_hosts(test_hosts)
 
@@ -355,7 +366,12 @@ def test_get_host_by_key_id_not_found(isolated_config):
     """get_host_by_key_id returns None when key_id not found."""
     isolated_config.mkdir(parents=True, exist_ok=True)
     test_hosts = [
-        {"hostname": "192.168.1.10", "port": 22, "agent_name": "xclm", "key_id": "known-key"}
+        {
+            "hostname": "192.168.1.10",
+            "port": 22,
+            "agent_name": "xclm",
+            "key_id": "known-key",
+        }
     ]
     save_hosts(test_hosts)
 
@@ -430,3 +446,62 @@ def test_remove_claw_from_host_unknown_host(isolated_config):
     result = remove_agent_from_host("192.168.1.99", "openclaw")
 
     assert result is False
+
+
+def test_get_agent_by_name_unique_match(isolated_config):
+    """get_agent_by_name returns matching host and agent tuple."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts = [
+        {
+            "hostname": "192.168.1.10",
+            "alias": "alpha",
+            "agents": {
+                "openclaw": {
+                    "agent_name": "opc-alpha",
+                    "config": {
+                        "gateway": {
+                            "url": "ws://192.168.1.10:40123",
+                            "auth": "token-a",
+                        }
+                    },
+                }
+            },
+        }
+    ]
+    save_hosts(hosts)
+
+    resolved = get_agent_by_name("opc-alpha")
+
+    assert resolved is not None
+    host, agent_type, record = resolved
+    assert host["hostname"] == "192.168.1.10"
+    assert agent_type == "openclaw"
+    assert record["agent_name"] == "opc-alpha"
+
+
+def test_get_agent_by_name_ambiguous_raises(isolated_config):
+    """get_agent_by_name raises ValueError when name appears on multiple hosts."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts = [
+        {
+            "hostname": "192.168.1.10",
+            "alias": "alpha",
+            "agents": {"openclaw": {"agent_name": "opc-shared"}},
+        },
+        {
+            "hostname": "192.168.1.11",
+            "alias": "beta",
+            "agents": {"openclaw": {"agent_name": "opc-shared"}},
+        },
+    ]
+    save_hosts(hosts)
+
+    with pytest.raises(ValueError) as exc_info:
+        get_agent_by_name("opc-shared")
+
+    assert "ambiguous" in str(exc_info.value).lower()
+
+
+def test_get_agent_by_name_empty_returns_none():
+    """get_agent_by_name returns None for blank query."""
+    assert get_agent_by_name("   ") is None

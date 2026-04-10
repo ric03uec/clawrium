@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from collections import deque
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 import websockets
 from websockets.exceptions import WebSocketException
@@ -17,6 +19,7 @@ __all__ = [
     "ChatConnectionError",
     "ChatAuthenticationError",
     "ChatProtocolError",
+    "SecretStr",
     "OpenClawChatClient",
 ]
 
@@ -37,24 +40,50 @@ class ChatProtocolError(ChatError):
     """Raised when gateway protocol validation fails."""
 
 
+class SecretStr:
+    """String-like secret container with masked representation."""
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str) -> None:
+        self._value = value
+
+    def get_secret_value(self) -> str:
+        """Return raw secret value for protocol payloads."""
+        return self._value
+
+    def __repr__(self) -> str:
+        return "***"
+
+    def __str__(self) -> str:
+        return "***"
+
+
 class OpenClawChatClient:
     """Minimal WebSocket client for OpenClaw gateway chat RPC."""
 
     def __init__(
         self,
         gateway_url: str,
-        auth_token: str,
+        auth_token: SecretStr | str,
         timeout_seconds: float = 30.0,
     ) -> None:
         self.gateway_url = gateway_url
-        self.auth_token = auth_token
+        if isinstance(auth_token, SecretStr):
+            self._auth_token = auth_token
+        else:
+            self._auth_token = SecretStr(auth_token)
         self.timeout_seconds = timeout_seconds
         self._ws: Any | None = None
         self._request_id = 0
-        self._event_buffer: list[dict[str, Any]] = []
+        self._event_buffer: deque[dict[str, Any]] = deque(maxlen=100)
 
     async def connect(self) -> None:
         """Connect and authenticate with the gateway."""
+        parsed_url = urlparse(self.gateway_url)
+        if parsed_url.scheme not in {"ws", "wss"}:
+            raise ChatConnectionError("Gateway URL must use ws:// or wss://")
+
         try:
             self._ws = await websockets.connect(
                 self.gateway_url,
@@ -92,7 +121,7 @@ class OpenClawChatClient:
                 "caps": [],
                 "commands": [],
                 "permissions": {},
-                "auth": {"token": self.auth_token},
+                "auth": {"token": self._auth_token.get_secret_value()},
                 "userAgent": f"clawrium/{__version__}",
             }
             if isinstance(nonce, str) and nonce:
@@ -137,6 +166,8 @@ class OpenClawChatClient:
         if self._ws is None:
             raise ChatConnectionError("Not connected to gateway")
 
+        self._event_buffer.clear()
+
         req_id = self._next_id()
         idempotency_key = str(uuid.uuid4())
         await self._send_json(
@@ -152,7 +183,10 @@ class OpenClawChatClient:
             }
         )
 
-        response = await self._wait_for_response(req_id)
+        response = await self._wait_for_response(
+            req_id,
+            timeout=response_timeout_seconds,
+        )
         if not response.get("ok"):
             raise ChatProtocolError(_extract_error(response))
 
@@ -225,9 +259,14 @@ class OpenClawChatClient:
             raise ChatProtocolError("Gateway frame must be a JSON object")
         return frame
 
-    async def _wait_for_response(self, req_id: str) -> dict[str, Any]:
+    async def _wait_for_response(
+        self,
+        req_id: str,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        wait_timeout = timeout if timeout is not None else self.timeout_seconds
         while True:
-            frame = await self._recv_json(timeout=self.timeout_seconds)
+            frame = await self._recv_json(timeout=wait_timeout)
             if frame.get("type") == "res" and frame.get("id") == req_id:
                 return frame
             if frame.get("type") == "event":
@@ -235,7 +274,7 @@ class OpenClawChatClient:
 
     async def _next_event(self, timeout: float) -> dict[str, Any]:
         if self._event_buffer:
-            return self._event_buffer.pop(0)
+            return self._event_buffer.popleft()
         while True:
             frame = await self._recv_json(timeout=timeout)
             if frame.get("type") == "event":
