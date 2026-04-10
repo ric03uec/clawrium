@@ -227,6 +227,37 @@ def test_install_error_exits_1(isolated_config: Path):
         assert "playbook" in result.output.lower()
 
 
+def test_install_incomplete_error_exits_1(isolated_config: Path):
+    """IncompleteInstallationError shows error message and exits 1."""
+    create_test_keypair(isolated_config, "testhost")
+    create_host(isolated_config, "192.168.1.100", alias="testhost", key_id="testhost")
+
+    from clawrium.core.install import IncompleteInstallationError
+
+    with patch("clawrium.cli.install.run_installation") as mock_install:
+        mock_install.side_effect = IncompleteInstallationError(
+            hostname="192.168.1.100",
+            claw_name="openclaw",
+            details={
+                "status": "failed",
+                "installed_at": None,
+                "error": "Base playbook failed",
+                "agent_name": "work-assistant",
+                "version": "0.1.0",
+            },
+        )
+
+        result = runner.invoke(
+            app,
+            ["agent", "install", "--type", "openclaw", "--host", "testhost", "--yes"],
+            env=os.environ,
+        )
+
+        assert result.exit_code == 1
+        assert "incomplete installation detected" in result.output.lower()
+        assert "work-assistant" in result.output.lower()
+
+
 def test_install_incompatible_exits_1(isolated_config: Path):
     """Incompatible host shows reasons and exits 1."""
     # Setup: create host with incompatible hardware (ARM instead of x86_64)
@@ -291,21 +322,19 @@ def test_install_hosts_file_corrupted(isolated_config: Path):
     assert "corrupted" in result.output.lower() or "error" in result.output.lower()
 
 
-
-
 def test_install_claw_flag_rejected(isolated_config: Path):
     """Test that the old --claw flag is rejected with proper error message."""
     # Setup: create host and keypair
     create_test_keypair(isolated_config, "testhost")
     create_host(isolated_config, "192.168.1.100", alias="testhost", key_id="testhost")
-    
+
     # Try using the old --claw flag
     result = runner.invoke(
         app,
         ["agent", "install", "--claw", "openclaw", "--host", "testhost"],
         env=os.environ,
     )
-    
+
     # Should exit with error code 2 (Typer's "no such option" error)
     assert result.exit_code == 2
     # Should mention the flag issue

@@ -26,7 +26,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, TypedDict
+from typing import Callable, NotRequired, TypedDict
 
 import ansible_runner
 
@@ -58,6 +58,21 @@ class InstallationError(Exception):
     pass
 
 
+class IncompleteInstallationError(InstallationError):
+    """Raised when an incomplete installation already exists for an agent type."""
+
+    def __init__(self, hostname: str, claw_name: str, details: dict):
+        self.hostname = hostname
+        self.claw_name = claw_name
+        self.details = details
+        status = details.get("status", "unknown")
+        agent_name = details.get("agent_name") or claw_name
+        super().__init__(
+            "Incomplete installation detected for "
+            f"'{agent_name}' on host '{hostname}' (status: {status})."
+        )
+
+
 class InstallResult(TypedDict):
     """Result of installation operation."""
 
@@ -67,6 +82,31 @@ class InstallResult(TypedDict):
     host: str
     playbooks_run: list[str]
     error: str | None
+    incomplete_installation: NotRequired[dict | None]
+
+
+def _get_incomplete_installation_details(host: dict, claw_name: str) -> dict | None:
+    """Return existing incomplete installation details for an agent type, if any."""
+    existing = host.get("agents", {}).get(claw_name)
+    if not existing:
+        return None
+
+    status = existing.get("status")
+    installed_at = existing.get("installed_at")
+    # Detect explicit incomplete states from prior attempts.
+    # Also treat a status-bearing record with no installed_at timestamp as incomplete.
+    if status in {"installing", "failed"} or (
+        status is not None and installed_at is None
+    ):
+        return {
+            "status": status,
+            "installed_at": installed_at,
+            "error": existing.get("error"),
+            "agent_name": existing.get("agent_name"),
+            "version": existing.get("version"),
+        }
+
+    return None
 
 
 def _get_base_playbook_path() -> Path:
@@ -155,6 +195,17 @@ def run_installation(
         if not valid:
             raise InstallationError(f"Invalid name: {error_msg}")
         emit("validate", f"Validated custom name: {name}")
+
+    incomplete_details = _get_incomplete_installation_details(host, claw_name)
+    if incomplete_details and incomplete_details.get("status") == "installing":
+        raise IncompleteInstallationError(
+            host["hostname"], claw_name, incomplete_details
+        )
+    if incomplete_details:
+        emit(
+            "validate",
+            "Found previous incomplete installation state; proceeding with retry.",
+        )
 
     # Step 5: Set installing state with uniqueness check under lock
     # Use a list to capture the chosen name from inside the updater
@@ -331,14 +382,21 @@ def run_installation(
                                 gateway_token = facts.get("openclaw_gateway_token")
                                 gateway_url = facts.get("openclaw_gateway_url")
                                 if gateway_token and gateway_url:
-                                    emit("claw", "Gateway authentication token captured")
+                                    emit(
+                                        "claw", "Gateway authentication token captured"
+                                    )
                                     break
                         except (json.JSONDecodeError, IOError) as file_err:
-                            logger.debug("Skipping fact file %s: %s", fact_file, file_err)
+                            logger.debug(
+                                "Skipping fact file %s: %s", fact_file, file_err
+                            )
                             continue
             except Exception as e:
                 logger.warning("Failed to extract gateway token: %s", e, exc_info=True)
-                emit("warn", "Gateway token capture failed - manual pairing may be needed")
+                emit(
+                    "warn",
+                    "Gateway token capture failed - manual pairing may be needed",
+                )
 
         # Step 10: Update host with success status and gateway auth (if available)
         def set_installed(h: dict) -> dict:
@@ -396,6 +454,7 @@ def run_installation(
             "host": host["hostname"],
             "playbooks_run": playbooks_run,
             "error": None,
+            "incomplete_installation": incomplete_details,
         }
 
     except Exception as e:
@@ -406,7 +465,10 @@ def run_installation(
             if "agents" not in h:
                 h["agents"] = {}
             if claw_name not in h["agents"]:
-                h["agents"][claw_name] = {"version": matched_version, "agent_name": agent_name}
+                h["agents"][claw_name] = {
+                    "version": matched_version,
+                    "agent_name": agent_name,
+                }
             h["agents"][claw_name]["status"] = "failed"
             h["agents"][claw_name]["error"] = error_msg
             h["agents"][claw_name]["installed_at"] = datetime.now(
