@@ -7,6 +7,7 @@ Clawrium is a CLI tool for managing AI agent fleets on local networks.
 1. [Host Preparation](host-preparation.md) - Prepare hosts for management (create xclm user, setup SSH)
 2. Host Management - Add, list, and manage hosts with `clm host` (coming soon)
 3. Agent Deployment - Deploy AI assistants to your fleet (coming soon)
+4. [Agent Onboarding](agent-onboarding.md) - Configure newly installed agents through guided workflow
 
 ## Quick Reference
 
