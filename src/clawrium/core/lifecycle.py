@@ -476,6 +476,33 @@ def configure_agent(
                 f"Invalid model name: '{model_name}'. Model names must contain only alphanumeric characters, dots, colons, slashes, underscores, plus, and hyphens.",
             )
 
+    # Validate required provider fields
+    required_provider_fields = ["name", "type", "default_model"]
+    if config_data.get("provider"):
+        if not isinstance(config_data["provider"], dict):
+            return False, "Invalid provider config - expected dict"
+        missing = [
+            f for f in required_provider_fields if not config_data["provider"].get(f)
+        ]
+        if missing:
+            return False, f"Incomplete provider config - missing: {', '.join(missing)}"
+
+        # Ollama providers require endpoint
+        if config_data["provider"].get("type") == "ollama":
+            if not config_data["provider"].get("endpoint"):
+                return False, "Ollama provider requires 'endpoint' field"
+
+    # Validate required gateway fields
+    required_gateway_fields = ["port"]
+    if config_data.get("gateway"):
+        if not isinstance(config_data["gateway"], dict):
+            return False, "Invalid gateway config - expected dict"
+        missing = [
+            f for f in required_gateway_fields if not config_data["gateway"].get(f)
+        ]
+        if missing:
+            return False, f"Incomplete gateway config - missing: {', '.join(missing)}"
+
     # Load provider API key from secrets if provider is configured
     provider_api_key = ""
     if config_data.get("provider") and config_data["provider"].get("name"):

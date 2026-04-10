@@ -246,18 +246,30 @@ def _sync_provider_config(host: str, claw_type: str, provider: dict) -> None:
         port_hash = int(hashlib.md5(installed_name.encode()).hexdigest(), 16)
         gateway_port = 40000 + (port_hash % 2000)
 
-    # Build gateway config based on agent type
+    # Build gateway config based on agent type, preserving existing fields
     if claw_type == "zeroclaw":
         gateway_config = {
-            "host": "0.0.0.0",
+            "host": existing_gateway.get("host", "0.0.0.0"),
             "port": gateway_port,
-            "allow_public_bind": True,
+            "allow_public_bind": existing_gateway.get("allow_public_bind", True),
         }
     elif claw_type == "openclaw":
-        gateway_config = {"bind": "lan", "port": gateway_port}
+        gateway_config = {
+            "bind": existing_gateway.get("bind", "lan"),
+            "port": gateway_port,
+        }
     else:
         # Default gateway config
-        gateway_config = {"host": "0.0.0.0", "port": gateway_port}
+        gateway_config = {
+            "host": existing_gateway.get("host", "0.0.0.0"),
+            "port": gateway_port,
+        }
+
+    # Preserve url and auth if they exist
+    if "url" in existing_gateway:
+        gateway_config["url"] = existing_gateway["url"]
+    if "auth" in existing_gateway:
+        gateway_config["auth"] = existing_gateway["auth"]
 
     # Build provider config
     provider_config = {
