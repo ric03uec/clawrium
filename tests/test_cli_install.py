@@ -32,7 +32,7 @@ def create_host(
         "hostname": hostname,
         "key_id": key_id or hostname,
         "port": 22,
-        "user": "xclm",
+        "agent_name": "xclm",
         "auth_method": "key",
         "hardware": {
             "architecture": "x86_64",
@@ -240,7 +240,7 @@ def test_install_incompatible_exits_1(isolated_config: Path):
         "alias": "armhost",
         "key_id": "armhost",
         "port": 22,
-        "user": "xclm",
+        "agent_name": "xclm",
         "auth_method": "key",
         "hardware": {
             "architecture": "aarch64",  # OpenClaw requires x86_64

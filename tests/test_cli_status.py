@@ -19,14 +19,14 @@ def mock_hosts_with_claws():
             "hostname": "192.168.1.100",
             "alias": "server1",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "key_id": "server1",
-            "claws": {
+            "agents": {
                 "openclaw": {
                     "version": "0.1.0",
                     "status": "installed",
                     "installed_at": "2026-03-21T10:00:00Z",
-                    "user": "opc-server1",
+                    "agent_name": "opc-server1",
                 }
             },
         },
@@ -34,14 +34,14 @@ def mock_hosts_with_claws():
             "hostname": "192.168.1.101",
             "alias": "server2",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "key_id": "server2",
-            "claws": {
+            "agents": {
                 "openclaw": {
                     "version": "0.1.0",
                     "status": "installed",
                     "installed_at": "2026-03-21T11:00:00Z",
-                    "user": "opc-server2",
+                    "agent_name": "opc-server2",
                 }
             },
         },
@@ -59,7 +59,7 @@ def test_status_no_hosts():
 
 def test_status_no_claws():
     """Hosts with no claws shows install message."""
-    hosts = [{"hostname": "192.168.1.100", "claws": {}}]
+    hosts = [{"hostname": "192.168.1.100", "agents": {}}]
 
     with patch("clawrium.cli.status.load_hosts", return_value=hosts):
         result = runner.invoke(app, ["ps"])
@@ -75,7 +75,7 @@ def test_status_shows_claw_table(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.RUNNING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -101,7 +101,7 @@ def test_status_shows_running_status(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.RUNNING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -124,7 +124,7 @@ def test_status_shows_stopped_status(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.STOPPED,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -147,7 +147,7 @@ def test_status_host_filter(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.RUNNING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -181,12 +181,12 @@ def test_status_shows_failed_install():
         {
             "hostname": "192.168.1.100",
             "alias": "server1",
-            "claws": {
+            "agents": {
                 "openclaw": {
                     "version": "0.1.0",
                     "status": "failed",
                     "error": "Playbook failed",
-                    "user": "opc-server1",
+                    "agent_name": "opc-server1",
                 }
             },
         }
@@ -198,7 +198,7 @@ def test_status_shows_failed_install():
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.STOPPED,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -220,11 +220,11 @@ def test_status_shows_installing_status():
         {
             "hostname": "192.168.1.100",
             "alias": "server1",
-            "claws": {
+            "agents": {
                 "openclaw": {
                     "version": "0.1.0",
                     "status": "installing",
-                    "user": "opc-server1",
+                    "agent_name": "opc-server1",
                 }
             },
         }
@@ -235,7 +235,7 @@ def test_status_shows_installing_status():
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.UNKNOWN,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -273,7 +273,7 @@ def test_status_shows_degraded_with_missing_secrets(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.DEGRADED,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
             "onboarding_step": None,
@@ -299,7 +299,7 @@ def test_status_degraded_truncates_long_list(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.DEGRADED,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": ["KEY1", "KEY2", "KEY3", "KEY4", "KEY5"],
             "onboarding_step": None,
@@ -330,7 +330,7 @@ def test_status_shows_pending_onboard(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.PENDING_ONBOARD,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -354,7 +354,7 @@ def test_status_shows_onboarding_with_step(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": "2/4",
@@ -390,7 +390,7 @@ def test_status_shows_onboarding_without_step(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -415,7 +415,7 @@ def test_status_shows_ready_stopped(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.READY,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -443,7 +443,7 @@ def test_status_verbose_flag_accepted(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.RUNNING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -470,7 +470,7 @@ def test_status_verbose_shows_onboarding_stages(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": "2/4",
@@ -508,7 +508,7 @@ def test_status_verbose_shows_stage_completion_dates(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": "2/4",
@@ -540,7 +540,7 @@ def test_status_verbose_pending_onboard(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.PENDING_ONBOARD,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -570,7 +570,7 @@ def test_status_verbose_no_stages_for_running(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.RUNNING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -596,7 +596,7 @@ def test_status_shows_completed_stage_count(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": "2/4",
@@ -632,7 +632,7 @@ def test_status_verbose_ready_status(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.READY,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -677,7 +677,7 @@ def test_status_verbose_no_onboarding_stages(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": "1/4",
@@ -701,7 +701,7 @@ def test_status_verbose_short_alias(mock_hosts_with_claws):
             "agent": "openclaw",
             "host": "192.168.1.100",
             "status": ClawStatus.ONBOARDING,
-            "user": "opc-server1",
+            "agent_name": "opc-server1",
             "error": None,
             "missing_secrets": None,
             "onboarding_step": "1/4",

@@ -69,7 +69,7 @@ class TestEnumerateTargets:
         # Mock get_host to return valid host
         mock_host = {
             "hostname": "192.168.1.100",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
             "key_id": "192.168.1.100",
         }
@@ -111,7 +111,7 @@ class TestEnumerateTargets:
         # Mock get_host to return valid host
         mock_host = {
             "hostname": "192.168.1.100",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
             "key_id": "192.168.1.100",
         }
@@ -153,7 +153,7 @@ class TestEnumerateTargets:
         # Mock get_host to return valid host
         mock_host = {
             "hostname": "192.168.1.100",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
             "key_id": "192.168.1.100",
         }
@@ -264,7 +264,7 @@ class TestInputValidation:
 
         mock_host = {
             "hostname": "192.168.1.100",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
             "key_id": "192.168.1.100",
         }
@@ -307,7 +307,7 @@ class TestExecuteReset:
         # Mock get_host
         mock_host = {
             "hostname": "192.168.1.100",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
             "key_id": "192.168.1.100",
         }
@@ -344,7 +344,7 @@ class TestExecuteReset:
         # Mock get_host to return valid host
         mock_host = {
             "hostname": "192.168.1.100",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
             "key_id": "192.168.1.100",
         }
@@ -384,7 +384,7 @@ class TestCliReset:
             "hostname": "192.168.1.100",
             "key_id": "192.168.1.100",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
         }
         hosts_file.write_text(json.dumps([host]))
 
@@ -429,7 +429,7 @@ class TestCliReset:
             "hostname": "192.168.1.100",
             "key_id": "192.168.1.100",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
         }
         hosts_file.write_text(json.dumps([host]))
 
@@ -474,7 +474,7 @@ class TestCliReset:
             "hostname": "192.168.1.100",
             "key_id": "192.168.1.100",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
         }
         hosts_file.write_text(json.dumps([host]))
 
@@ -540,10 +540,10 @@ class TestCliReset:
             "hostname": "192.168.1.100",
             "key_id": "192.168.1.100",
             "port": 22,
-            "user": "xclm",
-            "claws": {
-                "zeroclaw": {"status": "installed", "user": "zc-myhost"},
-                "openclaw": {"status": "installed", "user": "opc-work"},
+            "agent_name": "xclm",
+            "agents": {
+                "zeroclaw": {"status": "installed", "agent_name": "zc-myhost"},
+                "openclaw": {"status": "installed", "agent_name": "opc-work"},
             },
         }
         hosts_file.write_text(json.dumps([host]))
@@ -579,7 +579,7 @@ class TestCliReset:
         # Check host record was updated
         hosts = json.loads(hosts_file.read_text())
         host = hosts[0]
-        assert host.get("claws", {}) == {}
+        assert host.get("agents", {}) == {}
         # Verify last_reset timestamp was set
         assert "metadata" in host
         assert "last_reset" in host["metadata"]
@@ -631,7 +631,7 @@ class TestResetEdgeCases:
             "hostname": "192.168.1.100",
             "key_id": "192.168.1.100",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
         }
         hosts_file.write_text(json.dumps([host]))
 
@@ -668,7 +668,7 @@ class TestResetEdgeCases:
             "hostname": "192.168.1.100",
             "key_id": "192.168.1.100",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
         }
         hosts_file.write_text(json.dumps([host]))
 
@@ -716,7 +716,7 @@ class TestResetEdgeCases:
             "alias": "myhost",
             "key_id": "192.168.1.100",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
         }
         hosts_file.write_text(json.dumps([host]))
 
@@ -759,7 +759,7 @@ class TestResetEdgeCases:
             "hostname": "192.168.1.100",
             "key_id": "192.168.1.100",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
         }
         hosts_file.write_text(json.dumps([host]))
 
@@ -803,7 +803,7 @@ class TestResetEdgeCases:
         # Mock get_host to return host with path traversal hostname
         mock_host = {
             "hostname": "../../../etc/passwd",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
             "key_id": "../../../etc/passwd",
         }
@@ -835,7 +835,7 @@ class TestResetEdgeCases:
 
         mock_host = {
             "hostname": "192.168.1.100",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
             "key_id": "192.168.1.100",
         }

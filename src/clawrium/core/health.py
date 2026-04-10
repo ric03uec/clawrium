@@ -18,6 +18,7 @@ from clawrium.core.secrets import (
     get_instance_key,
     get_instance_secrets,
     InvalidInstanceKeyComponentError,
+    SecretsFileCorruptedError,
 )
 from clawrium.core.registry import get_required_secrets
 
@@ -117,7 +118,8 @@ def count_completed_stages(claw_record: dict) -> tuple[int, int]:
         return 0, 4
 
     stages = onboarding.get("stages", {})
-    if not stages:
+    # Ensure stages is a dict (handle corrupted data gracefully)
+    if not stages or not isinstance(stages, dict):
         return 0, 4
 
     completed = sum(
@@ -141,7 +143,7 @@ def get_missing_secrets(claw_type: str, host: dict, claw_record: dict) -> list[s
     """
     # Use canonical instance name.
     # For current installs this is stored in `user`; `name` is supported as fallback.
-    claw_name = claw_record.get("name") or claw_record.get("user", "")
+    claw_name = claw_record.get("agent_name") or claw_record.get("name", "")
 
     if not claw_name:
         # Cannot determine claw name - return empty (no secrets can be checked)
@@ -158,6 +160,7 @@ def get_missing_secrets(claw_type: str, host: dict, claw_record: dict) -> list[s
         )
         return []
 
+    # Let SecretsFileCorruptedError propagate to caller for proper error handling
     instance_secrets = get_instance_secrets(instance_key)
 
     required = get_required_secrets(claw_type)
@@ -181,20 +184,34 @@ def check_claw_health(
     Returns:
         HealthResult with status and any error message
     """
-    hostname = host["hostname"]
+    # Validate required host fields
+    hostname = host.get("hostname")
+    if not hostname:
+        return {
+            "agent": claw_name,
+            "host": "unknown",
+            "status": ClawStatus.UNKNOWN,
+            "agent_name": None,
+            "error": "Host record missing required 'hostname' field",
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": None,
+            "onboarding_stages": None,
+        }
+
     port = host.get("port", 22)
     user = host.get("user", "xclm")
 
     # Get claw record from host
-    claws = host.get("claws", {})
-    claw_record = claws.get(claw_name)
+    agents = host.get("agents", {})
+    claw_record = agents.get(claw_name)
 
     if not claw_record:
         return {
             "agent": claw_name,
             "host": hostname,
             "status": ClawStatus.NOT_INSTALLED,
-            "user": None,
+            "agent_name": None,
             "error": None,
             "missing_secrets": None,
             "onboarding_step": None,
@@ -202,13 +219,13 @@ def check_claw_health(
             "onboarding_stages": None,
         }
 
-    claw_user = claw_record.get("user")
+    claw_user = claw_record.get("agent_name") or claw_record.get("name")
     if not claw_user:
         return {
             "agent": claw_name,
             "host": hostname,
             "status": ClawStatus.UNKNOWN,
-            "user": None,
+            "agent_name": None,
             "error": "No claw user recorded",
             "missing_secrets": None,
             "onboarding_step": None,
@@ -221,7 +238,7 @@ def check_claw_health(
             "agent": claw_name,
             "host": hostname,
             "status": ClawStatus.UNKNOWN,
-            "user": claw_user,
+            "agent_name": claw_user,
             "error": f"Invalid claw user format: {claw_user}",
             "missing_secrets": None,
             "onboarding_step": None,
@@ -236,7 +253,7 @@ def check_claw_health(
             "agent": claw_name,
             "host": hostname,
             "status": ClawStatus.UNKNOWN,
-            "user": claw_user,
+            "agent_name": claw_user,
             "error": "SSH key not found",
             "missing_secrets": None,
             "onboarding_step": None,
@@ -281,7 +298,7 @@ def check_claw_health(
                 "agent": claw_name,
                 "host": hostname,
                 "status": ClawStatus.UNKNOWN,
-                "user": claw_user,
+                "agent_name": claw_user,
                 "error": "Health check timed out",
                 "missing_secrets": None,
                 "onboarding_step": None,
@@ -305,7 +322,7 @@ def check_claw_health(
                     "agent": claw_name,
                     "host": hostname,
                     "status": ClawStatus.UNKNOWN,
-                    "user": claw_user,
+                    "agent_name": claw_user,
                     "error": "Host unreachable",
                     "missing_secrets": None,
                     "onboarding_step": None,
@@ -328,7 +345,7 @@ def check_claw_health(
                 "agent": claw_name,
                 "host": hostname,
                 "status": ClawStatus.UNKNOWN,
-                "user": claw_user,
+                "agent_name": claw_user,
                 "error": error_msg or f"SSH failed: {result.status}",
                 "missing_secrets": None,
                 "onboarding_step": None,
@@ -337,13 +354,27 @@ def check_claw_health(
             }
 
         if process_running:
-            missing = get_missing_secrets(claw_name, host, claw_record)
+            try:
+                missing = get_missing_secrets(claw_name, host, claw_record)
+            except SecretsFileCorruptedError as e:
+                return {
+                    "agent": claw_name,
+                    "host": hostname,
+                    "status": ClawStatus.DEGRADED,
+                    "agent_name": claw_user,
+                    "error": f"Secrets file corrupted: {str(e)}",
+                    "missing_secrets": None,
+                    "onboarding_step": None,
+                    "process_running": True,
+                    "onboarding_stages": None,
+                }
+
             if missing:
                 return {
                     "agent": claw_name,
                     "host": hostname,
                     "status": ClawStatus.DEGRADED,
-                    "user": claw_user,
+                    "agent_name": claw_user,
                     "error": None,
                     "missing_secrets": missing,
                     "onboarding_step": None,
@@ -355,7 +386,7 @@ def check_claw_health(
                     "agent": claw_name,
                     "host": hostname,
                     "status": ClawStatus.RUNNING,
-                    "user": claw_user,
+                    "agent_name": claw_user,
                     "error": None,
                     "missing_secrets": None,
                     "onboarding_step": None,
@@ -376,7 +407,7 @@ def check_claw_health(
                 "agent": claw_name,
                 "host": hostname,
                 "status": status,
-                "user": claw_user,
+                "agent_name": claw_user,
                 "error": None,
                 "missing_secrets": None,
                 "onboarding_step": step,
@@ -395,9 +426,9 @@ def check_all_claws_on_host(host: dict) -> list[HealthResult]:
         List of HealthResult for each installed claw
     """
     results = []
-    claws = host.get("claws", {})
+    agents = host.get("agents", {})
 
-    for claw_name in claws:
+    for claw_name in agents:
         result = check_claw_health(claw_name, host)
         results.append(result)
 

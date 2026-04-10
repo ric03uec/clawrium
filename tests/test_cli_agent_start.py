@@ -29,7 +29,7 @@ def create_host_with_claw(
             "hostname": hostname,
             "key_id": key_id,
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "alias": alias,
             "auth_method": "key",
             "hardware": {
@@ -47,12 +47,12 @@ def create_host_with_claw(
                 "last_seen": "2026-04-06T00:00:00Z",
                 "tags": [],
             },
-            "claws": {
+            "agents": {
                 claw_type: {
                     "version": "0.1.0",
                     "status": "installed",
                     "name": "assistant",
-                    "user": "assistant",
+                    "agent_name": "assistant",
                     "onboarding": {
                         "state": onboarding_state,
                         "started_at": "2026-04-06T00:00:00+00:00",
@@ -264,7 +264,7 @@ def test_start_claw_not_installed_fails(isolated_config: Path):
             "alias": "work",
             "key_id": "work",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "auth_method": "key",
             "hardware": {
                 "architecture": "x86_64",
@@ -281,7 +281,7 @@ def test_start_claw_not_installed_fails(isolated_config: Path):
                 "last_seen": "2026-04-06T00:00:00Z",
                 "tags": [],
             },
-            "claws": {},
+            "agents": {},
         }
     ]
 
@@ -317,7 +317,7 @@ def test_start_missing_onboarding_initializes(isolated_config: Path):
             "alias": "work",
             "key_id": "work",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "auth_method": "key",
             "hardware": {
                 "architecture": "x86_64",
@@ -334,12 +334,12 @@ def test_start_missing_onboarding_initializes(isolated_config: Path):
                 "last_seen": "2026-04-06T00:00:00Z",
                 "tags": [],
             },
-            "claws": {
+            "agents": {
                 "openclaw": {
                     "version": "0.1.0",
                     "status": "installed",
                     "name": "assistant",
-                    "user": "assistant",
+                    "agent_name": "assistant",
                 }
             },
         }
@@ -379,7 +379,7 @@ def test_start_claw_not_found_during_initialization(isolated_config: Path):
             "alias": "work",
             "key_id": "work",
             "port": 22,
-            "user": "xclm",
+            "agent_name": "xclm",
             "auth_method": "key",
             "hardware": {
                 "architecture": "x86_64",
@@ -396,12 +396,12 @@ def test_start_claw_not_found_during_initialization(isolated_config: Path):
                 "last_seen": "2026-04-06T00:00:00Z",
                 "tags": [],
             },
-            "claws": {
+            "agents": {
                 "openclaw": {
                     "version": "0.1.0",
                     "status": "installed",
                     "name": "assistant",
-                    "user": "assistant",
+                    "agent_name": "assistant",
                 }
             },
         }

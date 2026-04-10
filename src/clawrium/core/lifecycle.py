@@ -65,13 +65,13 @@ def get_host_private_key(key_id: str) -> Path | None:
     return core_keys.get_host_private_key(key_id)
 
 
-def _resolve_claw_name(claw_name: str) -> str:
+def _resolve_agent_type(agent_type: str) -> str:
     """Resolve agent alias to canonical name."""
-    return ALIAS_TO_CANONICAL.get(claw_name, claw_name)
+    return ALIAS_TO_CANONICAL.get(agent_type, agent_type)
 
 
 def _get_lifecycle_playbook_path(claw_name: str, operation: str) -> Path:
-    canonical_name = _resolve_claw_name(claw_name)
+    canonical_name = _resolve_agent_type(claw_name)
     return (
         Path(__file__).parent.parent
         / "platform"
@@ -102,11 +102,11 @@ def _update_agent_runtime(hostname: str, claw_name: str, runtime_data: dict) -> 
     """
 
     def updater(h: dict) -> dict:
-        if "claws" not in h:
-            h["claws"] = {}
-        if claw_name not in h["claws"]:
-            h["claws"][claw_name] = {}
-        h["claws"][claw_name]["runtime"] = runtime_data
+        if "agents" not in h:
+            h["agents"] = {}
+        if claw_name not in h["agents"]:
+            h["agents"][claw_name] = {}
+        h["agents"][claw_name]["runtime"] = runtime_data
         return h
 
     return update_host(hostname, updater)
@@ -141,8 +141,8 @@ def _run_lifecycle_playbook(
     if not ssh_key:
         return False, "SSH key not found"
 
-    claw_record = host.get("claws", {}).get(claw_name, {})
-    agent_name = claw_record.get("name") or claw_record.get("user")
+    claw_record = host.get("agents", {}).get(claw_name, {})
+    agent_name = claw_record.get("agent_name") or claw_record.get("name")
     if not agent_name:
         return False, f"No agent name recorded for '{claw_name}' on '{hostname}'"
 
@@ -249,7 +249,7 @@ def start_agent(
     if not host:
         raise LifecycleError(f"Host '{hostname}' not found")
 
-    claw_record = host.get("claws", {}).get(claw_name)
+    claw_record = host.get("agents", {}).get(claw_name)
     if not claw_record:
         raise LifecycleError(f"Agent '{claw_name}' not installed on '{hostname}'")
 
@@ -263,7 +263,7 @@ def start_agent(
 
     if state != OnboardingState.READY and not force:
         agent_display_name = (
-            claw_record.get("name") or claw_record.get("user") or claw_name
+            claw_record.get("agent_name") or claw_record.get("name") or claw_name
         )
         raise LifecycleError(
             f"Cannot start {claw_name}: onboarding incomplete (state={state_value}). "
@@ -338,7 +338,7 @@ def stop_agent(
     if not host:
         raise LifecycleError(f"Host '{hostname}' not found")
 
-    claw_record = host.get("claws", {}).get(claw_name)
+    claw_record = host.get("agents", {}).get(claw_name)
     if not claw_record:
         raise LifecycleError(f"Agent '{claw_name}' not installed on '{hostname}'")
 
@@ -462,7 +462,7 @@ def configure_agent(
     if not host:
         raise LifecycleError(f"Host '{hostname}' not found")
 
-    claw_record = host.get("claws", {}).get(claw_name)
+    claw_record = host.get("agents", {}).get(claw_name)
     if not claw_record:
         raise LifecycleError(f"Agent '{claw_name}' not installed on '{hostname}'")
 
@@ -485,7 +485,7 @@ def configure_agent(
             emit("configure", "Loaded provider API key from secrets")
 
     # Get template path for this agent type
-    canonical_name = _resolve_claw_name(claw_name)
+    canonical_name = _resolve_agent_type(claw_name)
     template_path = (
         Path(__file__).parent.parent
         / "platform"
@@ -508,7 +508,7 @@ def configure_agent(
     if not ssh_key:
         return False, "SSH key not found"
 
-    agent_name = claw_record.get("name") or claw_record.get("user")
+    agent_name = claw_record.get("agent_name") or claw_record.get("name")
     if not agent_name:
         return False, f"No agent name recorded for '{claw_name}' on '{hostname}'"
 
@@ -585,11 +585,11 @@ def configure_agent(
         emit("configure", "Saving configuration to hosts.json...")
 
         def updater(h: dict) -> dict:
-            if "claws" not in h:
-                h["claws"] = {}
-            if claw_name not in h["claws"]:
-                h["claws"][claw_name] = {}
-            h["claws"][claw_name]["config"] = config_data
+            if "agents" not in h:
+                h["agents"] = {}
+            if claw_name not in h["agents"]:
+                h["agents"][claw_name] = {}
+            h["agents"][claw_name]["config"] = config_data
             return h
 
         if not update_host(host["hostname"], updater):
@@ -642,7 +642,7 @@ def remove_agent(
     if not host:
         raise LifecycleError(f"Host '{hostname}' not found")
 
-    claw_record = host.get("claws", {}).get(claw_name)
+    claw_record = host.get("agents", {}).get(claw_name)
     if not claw_record:
         raise LifecycleError(f"Agent '{claw_name}' not installed on '{hostname}'")
 

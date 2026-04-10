@@ -9,13 +9,13 @@ This module handles the end-to-end installation flow:
 Host record schema (extended):
 {
     "hostname": str,
-    "claws": {
+    "agents": {
         "openclaw": {
             "version": "0.1.0",
             "status": "installed" | "failed" | "installing",
             "installed_at": "ISO timestamp",
             "error": str | None,
-            "user": "clever-einstein"  # friendly name, no prefix
+            "agent_name": "clever-einstein"  # friendly name, no prefix
         }
     },
     ...existing fields...
@@ -36,7 +36,7 @@ from clawrium.core.keys import get_host_private_key
 from clawrium.core.names import (
     generate_random_name,
     is_name_available_on_host,
-    validate_claw_name,
+    validate_agent_name,
 )
 from clawrium.core.registry import (
     check_compatibility,
@@ -76,13 +76,13 @@ def _get_base_playbook_path() -> Path:
     return Path(__file__).parent.parent / "platform" / "playbooks" / "base.yaml"
 
 
-def _get_claw_playbook_path(claw_name: str) -> Path:
+def _get_agent_playbook_path(agent_type: str) -> Path:
     """Get path to agent-specific install playbook."""
     return (
         Path(__file__).parent.parent
         / "platform"
         / "registry"
-        / claw_name
+        / agent_type
         / "playbooks"
         / "install.yaml"
     )
@@ -151,7 +151,7 @@ def run_installation(
 
     # Step 4: Validate custom name if provided (format only, uniqueness checked in updater)
     if name is not None:
-        valid, error_msg = validate_claw_name(name)
+        valid, error_msg = validate_agent_name(name)
         if not valid:
             raise InstallationError(f"Invalid name: {error_msg}")
         emit("validate", f"Validated custom name: {name}")
@@ -183,14 +183,14 @@ def run_installation(
                 )
             chosen_name[0] = name
 
-        if "claws" not in h:
-            h["claws"] = {}
-        h["claws"][claw_name] = {
+        if "agents" not in h:
+            h["agents"] = {}
+        h["agents"][claw_name] = {
             "version": matched_version,
             "status": "installing",
             "installed_at": None,
             "error": None,
-            "user": chosen_name[0],
+            "agent_name": chosen_name[0],
         }
         return h
 
@@ -284,7 +284,7 @@ def run_installation(
         emit("base", "System dependencies installed")
 
         # Step 9: Run agent playbook
-        claw_playbook = _get_claw_playbook_path(claw_name)
+        claw_playbook = _get_agent_playbook_path(claw_name)
         if not claw_playbook.exists():
             raise InstallationError(f"Agent playbook not found: {claw_playbook}")
 
@@ -311,9 +311,9 @@ def run_installation(
 
         # Step 10: Update host with success status
         def set_installed(h: dict) -> dict:
-            if "claws" in h and claw_name in h["claws"]:
-                h["claws"][claw_name]["status"] = "installed"
-                h["claws"][claw_name]["installed_at"] = datetime.now(
+            if "agents" in h and claw_name in h["agents"]:
+                h["agents"][claw_name]["status"] = "installed"
+                h["agents"][claw_name]["installed_at"] = datetime.now(
                     timezone.utc
                 ).isoformat()
             return h
@@ -362,13 +362,13 @@ def run_installation(
         error_msg = str(e)
 
         def set_failed(h: dict) -> dict:
-            if "claws" not in h:
-                h["claws"] = {}
-            if claw_name not in h["claws"]:
-                h["claws"][claw_name] = {"version": matched_version, "user": agent_name}
-            h["claws"][claw_name]["status"] = "failed"
-            h["claws"][claw_name]["error"] = error_msg
-            h["claws"][claw_name]["installed_at"] = datetime.now(
+            if "agents" not in h:
+                h["agents"] = {}
+            if claw_name not in h["agents"]:
+                h["agents"][claw_name] = {"version": matched_version, "agent_name": agent_name}
+            h["agents"][claw_name]["status"] = "failed"
+            h["agents"][claw_name]["error"] = error_msg
+            h["agents"][claw_name]["installed_at"] = datetime.now(
                 timezone.utc
             ).isoformat()
             return h

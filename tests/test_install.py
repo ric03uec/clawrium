@@ -74,7 +74,7 @@ def test_install_incompatible_host_raises(monkeypatch):
     # Mock get_host with incompatible hardware
     incompatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "hardware": {
             "architecture": "arm64",  # Wrong arch
@@ -138,7 +138,7 @@ def test_install_success(monkeypatch, tmp_path):
     # Mock get_host
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -235,7 +235,7 @@ def test_install_emits_events(monkeypatch, tmp_path):
 
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -331,7 +331,7 @@ def test_install_base_playbook_fails(monkeypatch, tmp_path):
 
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -407,7 +407,7 @@ def test_install_missing_ssh_key_raises(monkeypatch, tmp_path):
 
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -475,7 +475,7 @@ def test_install_updates_host_on_success(monkeypatch, tmp_path):
 
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -519,20 +519,20 @@ def test_install_updates_host_on_success(monkeypatch, tmp_path):
         nonlocal persistent_host
         # Capture before state
         before_status = None
-        if "claws" in persistent_host and "openclaw" in persistent_host.get(
-            "claws", {}
+        if "agents" in persistent_host and "openclaw" in persistent_host.get(
+            "agents", {}
         ):
-            before_status = persistent_host["claws"]["openclaw"].get("status")
+            before_status = persistent_host["agents"]["openclaw"].get("status")
 
         # Apply updater to persistent host state (simulates real update_host behavior)
         persistent_host = updater(persistent_host)
 
         # Capture after state
         after_status = None
-        if "claws" in persistent_host and "openclaw" in persistent_host.get(
-            "claws", {}
+        if "agents" in persistent_host and "openclaw" in persistent_host.get(
+            "agents", {}
         ):
-            after_status = persistent_host["claws"]["openclaw"].get("status")
+            after_status = persistent_host["agents"]["openclaw"].get("status")
 
         # Store the before/after snapshot
         update_calls.append(
@@ -570,11 +570,11 @@ def test_install_updates_host_on_success(monkeypatch, tmp_path):
     last_updated = last_call[3]
 
     assert last_hostname == "test-host"
-    assert "claws" in last_updated
-    assert "openclaw" in last_updated["claws"]
-    assert last_updated["claws"]["openclaw"]["status"] == "installed"
-    assert last_updated["claws"]["openclaw"]["version"] == "0.1.0"
-    assert last_updated["claws"]["openclaw"]["installed_at"] is not None
+    assert "agents" in last_updated
+    assert "openclaw" in last_updated["agents"]
+    assert last_updated["agents"]["openclaw"]["status"] == "installed"
+    assert last_updated["agents"]["openclaw"]["version"] == "0.1.0"
+    assert last_updated["agents"]["openclaw"]["installed_at"] is not None
 
 
 def test_install_updates_host_on_failure(monkeypatch, tmp_path):
@@ -612,7 +612,7 @@ def test_install_updates_host_on_failure(monkeypatch, tmp_path):
 
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -655,8 +655,8 @@ def test_install_updates_host_on_failure(monkeypatch, tmp_path):
     def mock_update_host(hostname, updater):
         # Call the updater to capture the update
         test_host = compatible_host.copy()
-        if "claws" not in test_host:
-            test_host["claws"] = {}
+        if "agents" not in test_host:
+            test_host["agents"] = {}
         updated = updater(test_host)
         update_calls.append((hostname, updated))
         return True
@@ -673,11 +673,11 @@ def test_install_updates_host_on_failure(monkeypatch, tmp_path):
     # Check if any call has failed status
     found_failed = False
     for hostname, updated in update_calls:
-        if "claws" in updated and "openclaw" in updated["claws"]:
-            if updated["claws"]["openclaw"]["status"] == "failed":
+        if "agents" in updated and "openclaw" in updated["agents"]:
+            if updated["agents"]["openclaw"]["status"] == "failed":
                 found_failed = True
-                assert updated["claws"]["openclaw"]["error"] is not None
-                assert "failed" in updated["claws"]["openclaw"]["error"].lower()
+                assert updated["agents"]["openclaw"]["error"] is not None
+                assert "failed" in updated["agents"]["openclaw"]["error"].lower()
                 break
 
     assert found_failed, "Expected update_host to be called with failed status"
@@ -718,7 +718,7 @@ def test_install_initializes_onboarding(monkeypatch, tmp_path):
 
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -761,7 +761,7 @@ def test_install_initializes_onboarding(monkeypatch, tmp_path):
     def mock_update_host(hostname, updater):
         nonlocal persistent_host
         persistent_host = updater(persistent_host)
-        status = persistent_host.get("claws", {}).get("openclaw", {}).get("status")
+        status = persistent_host.get("agents", {}).get("openclaw", {}).get("status")
         call_order.append(("update_host", status))
         return True
 
@@ -834,7 +834,7 @@ def test_install_failure_does_not_initialize_onboarding(monkeypatch, tmp_path):
 
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -935,7 +935,7 @@ def test_install_onboarding_raises_does_not_corrupt_state(monkeypatch, tmp_path)
 
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -979,10 +979,10 @@ def test_install_onboarding_raises_does_not_corrupt_state(monkeypatch, tmp_path)
         nonlocal persistent_host
         persistent_host = updater(persistent_host)
         status = None
-        if "claws" in persistent_host and "openclaw" in persistent_host.get(
-            "claws", {}
+        if "agents" in persistent_host and "openclaw" in persistent_host.get(
+            "agents", {}
         ):
-            status = persistent_host["claws"]["openclaw"].get("status")
+            status = persistent_host["agents"]["openclaw"].get("status")
         update_calls.append((hostname, status))
         return True
 
@@ -1052,7 +1052,7 @@ def test_install_onboarding_record_structure(monkeypatch, tmp_path):
     hosts_data = [
         {
             "hostname": "test-host",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
             "key_id": "test-host",
             "hardware": {
@@ -1061,7 +1061,7 @@ def test_install_onboarding_record_structure(monkeypatch, tmp_path):
                 "os_version": "24.04",
                 "memtotal_mb": 4096,
             },
-            "claws": {},
+            "agents": {},
         }
     ]
     hosts_path = config_dir / "hosts.json"
@@ -1128,10 +1128,10 @@ def test_install_onboarding_record_structure(monkeypatch, tmp_path):
     assert host is not None
 
     # Verify claw record exists
-    assert "claws" in host
-    assert "openclaw" in host["claws"]
+    assert "agents" in host
+    assert "openclaw" in host["agents"]
 
-    claw = host["claws"]["openclaw"]
+    claw = host["agents"]["openclaw"]
     assert claw["status"] == "installed"
     assert claw["installed_at"] is not None
 
@@ -1189,7 +1189,7 @@ def test_install_with_custom_name(monkeypatch, tmp_path):
 
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -1275,7 +1275,7 @@ def test_install_auto_generates_name(monkeypatch, tmp_path):
 
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -1358,7 +1358,7 @@ def test_install_rejects_duplicate_name_same_host(monkeypatch, tmp_path):
     # Host with existing claw using the same name
     host_with_claw = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {
@@ -1367,7 +1367,7 @@ def test_install_rejects_duplicate_name_same_host(monkeypatch, tmp_path):
             "os_version": "24.04",
             "memtotal_mb": 4096,
         },
-        "claws": {"zeroclaw": {"user": "work-assistant"}},
+        "agents": {"zeroclaw": {"agent_name": "work-assistant"}},
     }
     monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: host_with_claw)
 
@@ -1431,7 +1431,7 @@ def test_install_allows_same_name_different_host(monkeypatch, tmp_path):
     # Different host (no claws)
     different_host = {
         "hostname": "other-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "other-host",
         "hardware": {
@@ -1509,7 +1509,7 @@ def test_install_validates_name_format(monkeypatch, tmp_path):
 
     compatible_host = {
         "hostname": "test-host",
-        "user": "xclm",
+        "agent_name": "xclm",
         "port": 22,
         "key_id": "test-host",
         "hardware": {

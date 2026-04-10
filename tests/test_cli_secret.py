@@ -33,7 +33,7 @@ def test_secret_set_creates_new(hosts_with_installed_claw: Path):
     secrets_file = hosts_with_installed_claw / "secrets.json"
     assert secrets_file.exists()
     secrets = json.loads(secrets_file.read_text())
-    instance_key = "192.168.1.100:openclaw:work"
+    instance_key = "192.168.1.100:openclaw:opc-work"
     assert instance_key in secrets
     assert "TEST_KEY" in secrets[instance_key]
     assert secrets[instance_key]["TEST_KEY"]["value"] == "my-secret-value"
@@ -61,7 +61,7 @@ def test_secret_set_with_description(hosts_with_installed_claw: Path):
     # Verify description was stored
     secrets_file = hosts_with_installed_claw / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    instance_key = "192.168.1.100:openclaw:work"
+    instance_key = "192.168.1.100:openclaw:opc-work"
     assert secrets[instance_key]["API_KEY"]["description"] == "My API key"
 
 
@@ -88,7 +88,7 @@ def test_secret_set_update_existing(hosts_with_installed_claw: Path):
     # Verify value unchanged
     secrets_file = hosts_with_installed_claw / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    instance_key = "192.168.1.100:openclaw:work"
+    instance_key = "192.168.1.100:openclaw:opc-work"
     assert secrets[instance_key]["EXISTING_KEY"]["value"] == "old-value"
 
 
@@ -115,7 +115,7 @@ def test_secret_set_update_confirmed(hosts_with_installed_claw: Path):
     # Verify value changed
     secrets_file = hosts_with_installed_claw / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    instance_key = "192.168.1.100:openclaw:work"
+    instance_key = "192.168.1.100:openclaw:opc-work"
     assert secrets[instance_key]["EXISTING_KEY"]["value"] == "new-value"
 
 
@@ -137,7 +137,7 @@ def test_secret_set_yes_flag_skips_confirmation(hosts_with_installed_claw: Path)
     # Verify value changed
     secrets_file = hosts_with_installed_claw / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    instance_key = "192.168.1.100:openclaw:work"
+    instance_key = "192.168.1.100:openclaw:opc-work"
     assert secrets[instance_key]["KEY"]["value"] == "new-value"
 
 
@@ -332,7 +332,7 @@ def test_secret_remove_prompts_confirmation(hosts_with_installed_claw: Path):
     # Verify secret still exists
     secrets_file = hosts_with_installed_claw / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    instance_key = "192.168.1.100:openclaw:work"
+    instance_key = "192.168.1.100:openclaw:opc-work"
     assert "TO_REMOVE" in secrets[instance_key]
 
 
@@ -358,7 +358,7 @@ def test_secret_remove_confirmed(hosts_with_installed_claw: Path):
     # Verify secret was removed
     secrets_file = hosts_with_installed_claw / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    instance_key = "192.168.1.100:openclaw:work"
+    instance_key = "192.168.1.100:openclaw:opc-work"
     # Instance key should be removed entirely since it has no secrets
     assert instance_key not in secrets
 
@@ -384,7 +384,7 @@ def test_secret_remove_force_skips_confirmation(hosts_with_installed_claw: Path)
     # Verify secret was removed
     secrets_file = hosts_with_installed_claw / "secrets.json"
     secrets = json.loads(secrets_file.read_text())
-    instance_key = "192.168.1.100:openclaw:work"
+    instance_key = "192.168.1.100:openclaw:opc-work"
     assert instance_key not in secrets
 
 
@@ -409,11 +409,10 @@ def test_secret_set_with_claw(isolated_config: Path):
             {
                 "hostname": "wolf",
                 "alias": "wolf",
-                "claws": {
+                "agents": {
                     "openclaw": {
-                        "name": "opc-work",
                         "status": "installed",
-                        "user": "opc-work",
+                        "agent_name": "opc-work",
                     }
                 },
             }
@@ -464,11 +463,10 @@ def test_secret_set_with_claw_update_confirmed(isolated_config: Path):
             {
                 "hostname": "wolf",
                 "alias": "wolf",
-                "claws": {
+                "agents": {
                     "openclaw": {
-                        "name": "opc-work",
                         "status": "installed",
-                        "user": "opc-work",
+                        "agent_name": "opc-work",
                     }
                 },
             }
@@ -508,22 +506,20 @@ def test_secret_list_per_claw(isolated_config: Path):
             {
                 "hostname": "wolf",
                 "alias": "wolf",
-                "claws": {
+                "agents": {
                     "openclaw": {
-                        "name": "opc-work",
                         "status": "installed",
-                        "user": "opc-work",
+                        "agent_name": "opc-work",
                     }
                 },
             },
             {
                 "hostname": "bear",
                 "alias": "bear",
-                "claws": {
+                "agents": {
                     "openclaw": {
-                        "name": "opc-personal",
                         "status": "installed",
-                        "user": "opc-personal",
+                        "agent_name": "opc-personal",
                     }
                 },
             },
@@ -565,11 +561,10 @@ def test_secret_list_shows_missing_required(isolated_config: Path):
             {
                 "hostname": "wolf",
                 "alias": "wolf",
-                "claws": {
+                "agents": {
                     "openclaw": {
-                        "name": "opc-work",
                         "status": "installed",
-                        "user": "opc-work",
+                        "agent_name": "opc-work",
                     }
                 },
             }
@@ -610,11 +605,10 @@ def test_secret_remove_with_claw(isolated_config: Path):
             {
                 "hostname": "wolf",
                 "alias": "wolf",
-                "claws": {
+                "agents": {
                     "openclaw": {
-                        "name": "opc-work",
                         "status": "installed",
-                        "user": "opc-work",
+                        "agent_name": "opc-work",
                     }
                 },
             }

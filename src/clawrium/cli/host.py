@@ -711,18 +711,18 @@ def reset(
         console.print(f"  Services removed: {result.removed['services']}")
         console.print(f"  Paths cleaned: {result.removed['paths']}")
 
-        # Clear claws from host record and set last_reset timestamp
-        def clear_claws(h: dict) -> dict:
+        # Clear agents from host record and set last_reset timestamp
+        def clear_agents(h: dict) -> dict:
             from datetime import datetime, timezone
 
-            h["claws"] = {}
+            h["agents"] = {}
             if "metadata" not in h:
                 h["metadata"] = {}
             h["metadata"]["last_reset"] = datetime.now(timezone.utc).isoformat()
             return h
 
         # W4: Check return value of update_host
-        if not update_host(hostname, clear_claws):
+        if not update_host(hostname, clear_agents):
             console.print(
                 "[yellow]Warning:[/yellow] Could not update host record (host may have been removed)"
             )

@@ -21,7 +21,7 @@ class TestConfigureClaw:
 
     def test_raises_error_when_claw_not_installed(self):
         """Test that LifecycleError is raised when claw not installed."""
-        host = {"hostname": "test-host", "claws": {}}
+        host = {"hostname": "test-host", "agents": {}}
 
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
             with pytest.raises(LifecycleError) as exc_info:
@@ -33,7 +33,7 @@ class TestConfigureClaw:
         """Test that invalid Ollama model names are rejected."""
         host = {
             "hostname": "test-host",
-            "claws": {"zeroclaw": {"user": "zer-test"}},
+            "agents": {"zeroclaw": {"agent_name": "zer-test"}},
         }
         config_data = {
             "provider": {
@@ -53,9 +53,9 @@ class TestConfigureClaw:
         host = {
             "hostname": "test-host",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {"zeroclaw": {"user": "zer-test"}},
+            "agents": {"zeroclaw": {"agent_name": "zer-test"}},
         }
         config_data = {"gateway": {"host": "0.0.0.0", "port": 40000}}
 
@@ -96,7 +96,7 @@ class TestConfigureClaw:
         """Test that missing configure playbook is detected."""
         host = {
             "hostname": "test-host",
-            "claws": {"zeroclaw": {"user": "zer-test"}},
+            "agents": {"zeroclaw": {"agent_name": "zer-test"}},
         }
         config_data = {"gateway": {"host": "0.0.0.0", "port": 40000}}
 
@@ -119,7 +119,7 @@ class TestConfigureClaw:
         host = {
             "hostname": "test-host",
             "key_id": "test",
-            "claws": {"zeroclaw": {"user": "zer-test"}},
+            "agents": {"zeroclaw": {"agent_name": "zer-test"}},
         }
         config_data = {"gateway": {"host": "0.0.0.0", "port": 40000}}
 
@@ -144,7 +144,7 @@ class TestConfigureClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "claws": {"zeroclaw": {"user": "Invalid User!"}},
+            "agents": {"zeroclaw": {"agent_name": "Invalid User!"}},
         }
         config_data = {"gateway": {"host": "0.0.0.0", "port": 40000}}
 
@@ -173,9 +173,9 @@ class TestConfigureClaw:
         host = {
             "hostname": "test-host",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {"zeroclaw": {"user": "zer-test"}},
+            "agents": {"zeroclaw": {"agent_name": "zer-test"}},
         }
         config_data = {"gateway": {"host": "0.0.0.0", "port": 40000}}
 
@@ -213,9 +213,9 @@ class TestConfigureClaw:
         host = {
             "hostname": "test-host",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {"zeroclaw": {"user": "zer-test"}},
+            "agents": {"zeroclaw": {"agent_name": "zer-test"}},
         }
         config_data = {"gateway": {"host": "0.0.0.0", "port": 40000}}
 
@@ -265,9 +265,9 @@ class TestConfigureClaw:
         host = {
             "hostname": "test-host",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {"zeroclaw": {"user": "zer-test"}},
+            "agents": {"zeroclaw": {"agent_name": "zer-test"}},
         }
         config_data = {
             "gateway": {"host": "0.0.0.0", "port": 40000, "allow_public_bind": True},

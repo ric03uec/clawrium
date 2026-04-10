@@ -37,9 +37,9 @@ class TestRunLifecyclePlaybook:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {"openclaw": {"user": "opc-work"}},
+            "agents": {"openclaw": {"agent_name": "opc-work"}},
         }
 
         with patch("clawrium.core.lifecycle._get_lifecycle_playbook_path") as mock_path:
@@ -55,9 +55,9 @@ class TestRunLifecyclePlaybook:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "missing-key",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {"openclaw": {"user": "opc-work"}},
+            "agents": {"openclaw": {"agent_name": "opc-work"}},
         }
 
         playbook_path = tmp_path / "start.yaml"
@@ -90,7 +90,7 @@ class TestStartClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "claws": {},
+            "agents": {},
         }
 
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
@@ -103,9 +103,9 @@ class TestStartClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "claws": {
+            "agents": {
                 "openclaw": {
-                    "user": "opc-work",
+                    "agent_name": "opc-work",
                     "onboarding": {"state": "pending"},
                 }
             },
@@ -121,11 +121,11 @@ class TestStartClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {
+            "agents": {
                 "openclaw": {
-                    "user": "opc-work",
+                    "agent_name": "opc-work",
                     "onboarding": {"state": "ready"},
                 }
             },
@@ -180,7 +180,7 @@ class TestStopClaw:
     def test_raises_error_when_claw_not_installed(self):
         host = {
             "hostname": "192.168.1.100",
-            "claws": {},
+            "agents": {},
         }
 
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
@@ -193,11 +193,11 @@ class TestStopClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {
+            "agents": {
                 "openclaw": {
-                    "user": "opc-work",
+                    "agent_name": "opc-work",
                 }
             },
         }
@@ -245,11 +245,11 @@ class TestRestartClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {
+            "agents": {
                 "openclaw": {
-                    "user": "opc-work",
+                    "agent_name": "opc-work",
                 }
             },
         }
@@ -291,11 +291,11 @@ class TestRestartClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {
+            "agents": {
                 "openclaw": {
-                    "user": "opc-work",
+                    "agent_name": "opc-work",
                     "onboarding": {"state": "ready"},
                 }
             },
@@ -351,7 +351,7 @@ class TestRemoveClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "claws": {},
+            "agents": {},
         }
 
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
@@ -364,11 +364,11 @@ class TestRemoveClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {
+            "agents": {
                 "openclaw": {
-                    "user": "opc-work",
+                    "agent_name": "opc-work",
                     "runtime": {"status": "running"},
                 }
             },
@@ -420,11 +420,11 @@ class TestRemoveClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {
+            "agents": {
                 "openclaw": {
-                    "user": "opc-work",
+                    "agent_name": "opc-work",
                     "runtime": {"status": "running"},
                 }
             },
@@ -484,11 +484,11 @@ class TestRemoveClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {
+            "agents": {
                 "openclaw": {
-                    "user": "opc-work",
+                    "agent_name": "opc-work",
                     "runtime": {"status": "stopped"},
                 }
             },
@@ -535,11 +535,11 @@ class TestRemoveClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {
+            "agents": {
                 "openclaw": {
-                    "user": "opc-work",
+                    "agent_name": "opc-work",
                     "runtime": {"status": "stopped"},
                 }
             },
@@ -585,11 +585,11 @@ class TestRemoveClaw:
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
-            "user": "xclm",
+            "agent_name": "xclm",
             "port": 22,
-            "claws": {
+            "agents": {
                 "openclaw": {
-                    "user": "opc-work",
+                    "agent_name": "opc-work",
                     "runtime": {"status": "stopped"},
                 }
             },

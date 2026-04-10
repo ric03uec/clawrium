@@ -46,7 +46,7 @@ def set_cmd(
 
     Prompts for the value using masked input (not visible on screen).
     """
-    # Validate claw exists
+    # Validate agent type exists
     try:
         hostname, claw_type, name = get_installed_claw(claw_name)
     except AgentNotFoundError as e:
@@ -108,7 +108,7 @@ def list_cmd(
     Shows secret keys and metadata. Values are never displayed.
     Also shows missing required secrets.
     """
-    # Validate claw exists
+    # Validate agent type exists
     try:
         hostname, claw_type, name = get_installed_claw(claw_name)
     except AgentNotFoundError as e:
@@ -126,13 +126,13 @@ def list_cmd(
     # Get secrets for this instance
     instance_secrets = secrets.get(instance_key, {})
 
-    # Get required secrets for this claw type
+    # Build gateway config based on agent type
     required_secrets = get_required_secrets(claw_type)
     required_keys = {s["key"] for s in required_secrets}
     stored_keys = set(instance_secrets.keys())
     missing_keys = required_keys - stored_keys
 
-    # Display claw header
+    # Display agent header
     console.print(f"\n[bold]Agent:[/bold] {name} ({hostname})")
 
     # Display stored secrets if any
@@ -180,7 +180,7 @@ def remove_cmd(
 
     Prompts for confirmation unless --force is specified.
     """
-    # Validate claw exists
+    # Validate agent type exists
     try:
         hostname, claw_type, name = get_installed_claw(claw_name)
     except AgentNotFoundError as e:
