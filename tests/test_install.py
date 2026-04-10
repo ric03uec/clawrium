@@ -1026,8 +1026,10 @@ def test_install_onboarding_raises_does_not_corrupt_state(monkeypatch, tmp_path)
     # Verify warning event was emitted about onboarding failure
     warn_events = [e for e in events if e[0] == "warn"]
     assert len(warn_events) >= 1, "Should emit warning when onboarding fails"
-    assert "clm onboard init" in warn_events[0][1], (
-        "Warning should include retry command"
+    # Check that at least one warning mentions onboarding
+    onboarding_warnings = [e for e in warn_events if "clm onboard init" in e[1]]
+    assert len(onboarding_warnings) >= 1, (
+        "Warning should include onboarding retry command"
     )
 
 
@@ -1625,3 +1627,332 @@ def test_install_uses_extended_timeout(monkeypatch, tmp_path):
     assert claw_call[1]["timeout"] == 1800, (
         "Claw installation should use 1800s (30 min) timeout"
     )
+
+
+def test_install_openclaw_captures_gateway_token(monkeypatch, tmp_path):
+    """Test that OpenClaw installation extracts gateway token from Ansible facts."""
+    import json
+    from clawrium.core.install import run_installation
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.9"},
+                },
+            }
+        ],
+    }
+
+    import clawrium.core.install
+
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compatible_host = {
+        "hostname": "test-host",
+        "agent_name": "xclm",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
+
+    compat_result = {
+        "compatible": True,
+        "matched_entry": mock_manifest["entries"][0],
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: compat_result,
+    )
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    # Track update_host calls to verify token storage with persistent state
+    update_calls = []
+    persistent_host = compatible_host.copy()
+
+    def mock_update_host(hostname, updater):
+        nonlocal persistent_host
+        if "agents" not in persistent_host:
+            persistent_host["agents"] = {}
+        persistent_host = updater(persistent_host)
+        update_calls.append((hostname, persistent_host.copy()))
+        return True
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", mock_update_host)
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", lambda h, c: True
+    )
+
+    # Mock ansible_runner.run with fact cache
+    class SuccessfulResult:
+        status = "successful"
+
+        class Config:
+            artifact_dir = tmp_path / "artifacts"
+
+        config = Config()
+
+    # Create fact cache with gateway token
+    fact_cache_dir = tmp_path / "artifacts" / "fact_cache"
+    fact_cache_dir.mkdir(parents=True)
+    fact_file = fact_cache_dir / "test-host"
+    fact_file.write_text(
+        json.dumps(
+            {
+                "openclaw_gateway_token": "test-token-123",
+                "openclaw_gateway_url": "ws://test-host:40123",
+            }
+        )
+    )
+
+    mock_run = Mock(return_value=SuccessfulResult())
+
+    import ansible_runner
+
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    # Run installation
+    result = run_installation("openclaw", "test-host")
+
+    # Verify installation succeeded
+    assert result["success"] is True
+
+    # Verify gateway token was stored in final update_host call
+    assert len(update_calls) >= 2
+    last_update = update_calls[-1][1]
+
+    assert "agents" in last_update
+    assert "openclaw" in last_update["agents"]
+    assert "config" in last_update["agents"]["openclaw"]
+    assert "gateway" in last_update["agents"]["openclaw"]["config"]
+
+    gateway_config = last_update["agents"]["openclaw"]["config"]["gateway"]
+    assert gateway_config["url"] == "ws://test-host:40123"
+    assert gateway_config["auth"] == "test-token-123"
+
+
+def test_install_openclaw_stores_gateway_url(monkeypatch, tmp_path):
+    """Test that OpenClaw installation stores gateway URL correctly."""
+    import json
+    from clawrium.core.install import run_installation
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.9"},
+                },
+            }
+        ],
+    }
+
+    import clawrium.core.install
+
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compatible_host = {
+        "hostname": "192.168.1.100",
+        "agent_name": "xclm",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
+
+    compat_result = {
+        "compatible": True,
+        "matched_entry": mock_manifest["entries"][0],
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: compat_result,
+    )
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    update_calls = []
+    persistent_host = compatible_host.copy()
+
+    def mock_update_host(hostname, updater):
+        nonlocal persistent_host
+        if "agents" not in persistent_host:
+            persistent_host["agents"] = {}
+        persistent_host = updater(persistent_host)
+        update_calls.append((hostname, persistent_host.copy()))
+        return True
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", mock_update_host)
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", lambda h, c: True
+    )
+
+    class SuccessfulResult:
+        status = "successful"
+
+        class Config:
+            artifact_dir = tmp_path / "artifacts"
+
+        config = Config()
+
+    fact_cache_dir = tmp_path / "artifacts" / "fact_cache"
+    fact_cache_dir.mkdir(parents=True)
+    fact_file = fact_cache_dir / "192.168.1.100"
+    fact_file.write_text(
+        json.dumps(
+            {
+                "openclaw_gateway_token": "token-abc",
+                "openclaw_gateway_url": "ws://192.168.1.100:40999",
+            }
+        )
+    )
+
+    mock_run = Mock(return_value=SuccessfulResult())
+
+    import ansible_runner
+
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    # Run installation
+    run_installation("openclaw", "192.168.1.100")
+
+    # Verify URL construction and storage
+    last_update = update_calls[-1][1]
+    gateway_url = last_update["agents"]["openclaw"]["config"]["gateway"]["url"]
+
+    assert gateway_url == "ws://192.168.1.100:40999"
+    assert gateway_url.startswith("ws://")
+    assert "192.168.1.100" in gateway_url
+
+
+def test_install_openclaw_without_token_succeeds(monkeypatch, tmp_path):
+    """Test that OpenClaw installation succeeds even if token generation fails."""
+    from clawrium.core.install import run_installation
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.9"},
+                },
+            }
+        ],
+    }
+
+    import clawrium.core.install
+
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compatible_host = {
+        "hostname": "test-host",
+        "agent_name": "xclm",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
+
+    compat_result = {
+        "compatible": True,
+        "matched_entry": mock_manifest["entries"][0],
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: compat_result,
+    )
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", lambda h, u: u(clawrium.core.install.get_host(h)))
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", lambda h, c: True
+    )
+
+    # Mock ansible_runner.run WITHOUT fact cache (token extraction fails)
+    class SuccessfulResult:
+        status = "successful"
+
+        class Config:
+            artifact_dir = tmp_path / "artifacts_no_facts"
+
+        config = Config()
+
+    mock_run = Mock(return_value=SuccessfulResult())
+
+    import ansible_runner
+
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    # Run installation - should succeed despite missing token
+    result = run_installation("openclaw", "test-host")
+
+    # Verify installation succeeded
+    assert result["success"] is True
+    assert result["error"] is None

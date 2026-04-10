@@ -2,6 +2,13 @@
 - hosts: all
   become: yes
   tasks:
+    - name: Verify gateway token exists in config (strict mode only)
+      ansible.builtin.fail:
+        msg: "Gateway auth token not found. Run installation again to generate token."
+      when:
+        - config.gateway.auth is not defined or not config.gateway.auth
+      tags: [never, strict]
+
     - name: Check if agent user exists
       ansible.builtin.getent:
         database: passwd

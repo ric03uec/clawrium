@@ -76,6 +76,27 @@
         state: started
         daemon_reload: yes
 
+    - name: Wait for gateway to be ready
+      ansible.builtin.wait_for:
+        timeout: 10
+      delegate_to: localhost
+
+    - name: Generate gateway authentication token
+      ansible.builtin.command:
+        cmd: /home/{{ agent_name }}/.openclaw/bin/openclaw doctor --generate-gateway-token --output json
+      become_user: "{{ agent_name }}"
+      register: gateway_token_result
+      retries: 3
+      delay: 2
+      until: gateway_token_result.rc == 0
+      no_log: true
+
+    - name: Save token to fact for retrieval
+      ansible.builtin.set_fact:
+        openclaw_gateway_token: "{{ gateway_token_result.stdout | from_json | json_query('token') }}"
+        openclaw_gateway_url: "ws://{{ ansible_host }}:{{ openclaw_port }}"
+      no_log: true
+
   handlers:
     - name: Reload systemd
       ansible.builtin.systemd:

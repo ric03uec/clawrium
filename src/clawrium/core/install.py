@@ -309,13 +309,54 @@ def run_installation(
         playbooks_run.append(str(claw_playbook))
         emit("claw", f"{claw_name} installed successfully")
 
-        # Step 10: Update host with success status
+        # Step 9.5: Extract gateway token from Ansible facts (OpenClaw only)
+        gateway_token = None
+        gateway_url = None
+        if claw_name == "openclaw" and result.status == "successful":
+            # Get host facts from Ansible result
+            try:
+                # ansible-runner stores facts in artifacts/<run_id>/fact_cache/<hostname>
+                import json
+                from pathlib import Path
+
+                artifacts_dir = Path(result.config.artifact_dir)
+                fact_cache_dir = artifacts_dir / "fact_cache"
+
+                if fact_cache_dir.exists():
+                    # Find fact file for our host
+                    for fact_file in fact_cache_dir.glob("*"):
+                        try:
+                            with open(fact_file) as f:
+                                facts = json.load(f)
+                                gateway_token = facts.get("openclaw_gateway_token")
+                                gateway_url = facts.get("openclaw_gateway_url")
+                                if gateway_token and gateway_url:
+                                    emit("claw", "Gateway authentication token captured")
+                                    break
+                        except (json.JSONDecodeError, IOError) as file_err:
+                            logger.debug("Skipping fact file %s: %s", fact_file, file_err)
+                            continue
+            except Exception as e:
+                logger.warning("Failed to extract gateway token: %s", e, exc_info=True)
+                emit("warn", "Gateway token capture failed - manual pairing may be needed")
+
+        # Step 10: Update host with success status and gateway auth (if available)
         def set_installed(h: dict) -> dict:
             if "agents" in h and claw_name in h["agents"]:
                 h["agents"][claw_name]["status"] = "installed"
                 h["agents"][claw_name]["installed_at"] = datetime.now(
                     timezone.utc
                 ).isoformat()
+
+                # Store gateway authentication (OpenClaw only)
+                if gateway_token and gateway_url:
+                    if "config" not in h["agents"][claw_name]:
+                        h["agents"][claw_name]["config"] = {}
+                    if "gateway" not in h["agents"][claw_name]["config"]:
+                        h["agents"][claw_name]["config"]["gateway"] = {}
+
+                    h["agents"][claw_name]["config"]["gateway"]["url"] = gateway_url
+                    h["agents"][claw_name]["config"]["gateway"]["auth"] = gateway_token
             return h
 
         update_host(host["hostname"], set_installed)
