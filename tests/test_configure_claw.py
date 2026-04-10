@@ -346,7 +346,7 @@ class TestOpenClawTemplate:
         assert result["agents"]["defaults"]["workspace"] == "~/.openclaw/workspace"
         assert result["agents"]["defaults"]["maxConcurrent"] == 4
         assert result["gateway"]["port"] == 18789
-        assert result["gateway"]["bind"] == "lan"
+        assert result["gateway"]["bind"] == "0.0.0.0"
 
     def test_template_renders_full_config(self):
         """Test template renders with all optional fields."""
@@ -392,7 +392,7 @@ class TestOpenClawTemplate:
         assert result["agents"]["defaults"]["heartbeat"]["every"] == "30m"
         assert result["agents"]["defaults"]["heartbeat"]["target"] == "last"
         assert result["gateway"]["port"] == 18789
-        assert result["gateway"]["bind"] == "lan"
+        assert result["gateway"]["bind"] == "0.0.0.0"
         assert result["gateway"]["reload"]["mode"] == "hybrid"
         assert result["gateway"]["reload"]["debounceMs"] == 300
         assert result["gateway"]["channelHealthCheckMinutes"] == 5
@@ -418,7 +418,7 @@ class TestOpenClawTemplate:
 
         # Should use gateway defaults
         assert result["gateway"]["port"] == 18789
-        assert result["gateway"]["bind"] == "lan"
+        assert result["gateway"]["bind"] == "0.0.0.0"
 
     def test_template_handles_empty_optional_fields(self):
         """Test template with empty lists/dicts."""
