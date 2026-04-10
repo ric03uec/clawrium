@@ -328,7 +328,7 @@ def test_status_shows_installing_status():
             result = runner.invoke(app, ["ps"])
 
     assert result.exit_code == 0
-    assert "installing" in result.output.lower()
+    assert "installing..." in result.output
     assert mock_health.call_count == 1
 
 

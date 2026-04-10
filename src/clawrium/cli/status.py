@@ -1,5 +1,6 @@
 """Fleet status command for viewing agent instances across hosts."""
 
+import logging
 from collections import defaultdict
 from typing import Optional
 
@@ -18,6 +19,7 @@ from clawrium.core.health import (
 
 __all__ = ["status"]
 
+logger = logging.getLogger(__name__)
 console = Console()
 
 
@@ -228,9 +230,15 @@ def status(
                 elif isinstance(error_msg, str):
                     error_display = escape(error_msg)
                 else:
+                    logger.warning(
+                        "Non-string error field for failed install: %s",
+                        type(error_msg).__name__,
+                    )
                     error_display = "unknown error"
                 status_display = f"[red]install failed[/red] ({error_display})"
             elif install_status == "installing":
+                # No installed_at means installation never completed (abandoned/stale),
+                # distinct from actively installing which has a timestamp.
                 if claw_record.get("installed_at") is None:
                     status_display = "[yellow]incomplete install[/yellow]"
                 else:
