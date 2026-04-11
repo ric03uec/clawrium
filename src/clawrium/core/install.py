@@ -10,12 +10,12 @@ Host record schema (extended):
 {
     "hostname": str,
     "agents": {
-        "openclaw": {
+        "clever-einstein": {  # Agent NAME as key (allows multiple per type)
+            "type": "openclaw",  # Agent type (zeroclaw, openclaw, etc.)
             "version": "0.1.0",
             "status": "installed" | "failed" | "installing",
             "installed_at": "ISO timestamp",
             "error": str | None,
-            "agent_name": "clever-einstein"  # friendly name, no prefix
         }
     },
     ...existing fields...

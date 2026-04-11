@@ -244,9 +244,11 @@ def status(
                 else:
                     status_display = "[yellow]installing...[/yellow]"
 
+            agent_type = claw_record.get("type", claw_name)
+
             table.add_row(
                 escape(full_name),
-                escape(claw_name),
+                escape(agent_type),
                 escape(display_host),
                 version,
                 status_display,
