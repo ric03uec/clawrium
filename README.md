@@ -1,5 +1,9 @@
 <p align="center">
-  <h1 align="center">🦀 Clawrium</h1>
+  <img src="docs/assets/clawrium-logo.png" alt="Clawrium Logo" width="400">
+</p>
+
+<p align="center">
+  <h1 align="center">Clawrium</h1>
   <p align="center">
     <strong>Fleet management for AI agents on your local network.</strong>
   </p>
