@@ -9,13 +9,34 @@
         create_home: yes
         shell: /bin/bash
 
-    - name: Install OpenClaw CLI runtime via install-cli.sh
-      ansible.builtin.shell: |
-        set -euo pipefail
-        curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install-cli.sh | bash -s -- --prefix "/home/{{ agent_name }}/.openclaw" --install-method npm --version "{{ claw_version | default('v2026.4.2') | regex_replace('^v', '') }}" --no-onboard
-      args:
-        executable: /bin/bash
+    - name: Download OpenClaw installer script
+      ansible.builtin.get_url:
+        url: https://openclaw.ai/install-cli.sh
+        dest: "/tmp/openclaw-install-{{ agent_name }}.sh"
+        mode: "0700"
+        force: yes
+        timeout: 30
+        checksum: "{{ installer_checksum | default(omit) }}"
+
+    - name: Install OpenClaw CLI runtime
+      ansible.builtin.command:
+        argv:
+          - /bin/bash
+          - "/tmp/openclaw-install-{{ agent_name }}.sh"
+          - --prefix
+          - "/home/{{ agent_name }}/.openclaw"
+          - --install-method
+          - npm
+          - --version
+          - "{{ claw_version | default('v2026.4.2') | regex_replace('^v', '') }}"
+          - --no-onboard
+        creates: "/home/{{ agent_name }}/.openclaw/bin/openclaw"
       become_user: "{{ agent_name }}"
+
+    - name: Clean up installer script
+      ansible.builtin.file:
+        path: "/tmp/openclaw-install-{{ agent_name }}.sh"
+        state: absent
 
     - name: Create workspace directory
       ansible.builtin.file:
@@ -27,7 +48,7 @@
 
     - name: Create OpenClaw config directory
       ansible.builtin.file:
-        path: "/home/{{ agent_name }}/openclaw"
+        path: "/home/{{ agent_name }}/.openclaw"
         state: directory
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -37,15 +58,22 @@
       ansible.builtin.set_fact:
         openclaw_port: "{{ 40000 + ((agent_name | hash('md5') | int(base=16)) % 2000) }}"
 
-    - name: Create OpenClaw environment file
-      ansible.builtin.copy:
-        dest: "/home/{{ agent_name }}/openclaw/.env"
-        content: |
-          OPENCLAW_GATEWAY_BIND=0.0.0.0
-          OPENCLAW_GATEWAY_PORT={{ openclaw_port }}
+    - name: Write openclaw config from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/openclaw.json.j2"
+        dest: "/home/{{ agent_name }}/.openclaw/openclaw.json"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
+
+    - name: Create environment file for agent
+      ansible.builtin.copy:
+        dest: "/home/{{ agent_name }}/.openclaw/env"
+        content: ""
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        force: no
 
     - name: Create systemd service file
       ansible.builtin.copy:
@@ -59,7 +87,7 @@
           Type=simple
           User={{ agent_name }}
           WorkingDirectory=/home/{{ agent_name }}/workspace
-          EnvironmentFile=/home/{{ agent_name }}/openclaw/.env
+          EnvironmentFile=/home/{{ agent_name }}/.openclaw/env
           ExecStart=/home/{{ agent_name }}/.openclaw/bin/openclaw gateway run --allow-unconfigured
           Restart=on-failure
           RestartSec=5
@@ -76,24 +104,49 @@
         state: started
         daemon_reload: yes
 
-    - name: Wait for gateway to be ready
+    - name: Wait for gateway port to be listening
       ansible.builtin.wait_for:
-        timeout: 10
+        port: "{{ openclaw_port }}"
+        host: "{{ ansible_host }}"
+        timeout: 60
       delegate_to: localhost
+      become: no
 
     - name: Generate gateway authentication token
       ansible.builtin.command:
-        cmd: /home/{{ agent_name }}/.openclaw/bin/openclaw doctor --generate-gateway-token --output json
+        argv:
+          - "/home/{{ agent_name }}/.openclaw/bin/openclaw"
+          - doctor
+          - --generate-gateway-token
+      become_user: "{{ agent_name }}"
+      register: doctor_output
+      retries: 3
+      delay: 2
+      until: doctor_output.rc == 0
+      no_log: true
+
+    - name: Read gateway authentication token from config
+      ansible.builtin.command:
+        argv:
+          - "/home/{{ agent_name }}/.openclaw/bin/openclaw"
+          - config
+          - get
+          - gateway.auth.token
       become_user: "{{ agent_name }}"
       register: gateway_token_result
       retries: 3
       delay: 2
-      until: gateway_token_result.rc == 0
+      until: >
+        gateway_token_result.rc == 0 and
+        (gateway_token_result.stdout | trim) is regex('^[a-zA-Z0-9_-]{32,}$')
+      failed_when: >
+        gateway_token_result.rc != 0 or
+        not ((gateway_token_result.stdout | trim) is regex('^[a-zA-Z0-9_-]{32,}$'))
       no_log: true
 
     - name: Save token to fact for retrieval
       ansible.builtin.set_fact:
-        openclaw_gateway_token: "{{ gateway_token_result.stdout | from_json | json_query('token') }}"
+        openclaw_gateway_token: "{{ gateway_token_result.stdout | trim }}"
         openclaw_gateway_url: "ws://{{ ansible_host }}:{{ openclaw_port }}"
       no_log: true
 

@@ -22,6 +22,7 @@ Host record schema (extended):
 }
 """
 
+import hashlib
 import logging
 import os
 from datetime import datetime, timezone
@@ -33,6 +34,7 @@ import ansible_runner
 from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import get_host, update_host
 from clawrium.core.keys import get_host_private_key
+from clawrium.core.lifecycle import _resolve_agent_type
 from clawrium.core.names import (
     generate_random_name,
     is_name_available_on_host,
@@ -351,10 +353,35 @@ def run_installation(
         ansible_var_name = key.lower()
         secret_vars[ansible_var_name] = entry.get("value", "")
 
+    # Get template path for agent type
+    canonical_name = _resolve_agent_type(claw_name)
+    template_path = (
+        Path(__file__).parent.parent
+        / "platform"
+        / "registry"
+        / canonical_name
+        / "templates"
+    )
+
+    # Calculate unique port for this agent (matches playbook's calculation)
+    # This ensures config.gateway.port matches the openclaw_port ansible var
+    port_hash = int(hashlib.md5(agent_name.encode()).hexdigest(), 16)
+    openclaw_port = 40000 + (port_hash % 2000)
+
+    # Build minimal config for templates
+    config = {
+        "gateway": {
+            "mode": "local",
+            "port": openclaw_port,
+            "bind": "0.0.0.0",
+        }
+    }
+
     inventory = {
         "all": {
             "hosts": {
                 host["hostname"]: {
+                    "ansible_host": host["hostname"],
                     "ansible_user": host.get("user", "xclm"),
                     "ansible_port": host.get("port", 22),
                     "ansible_ssh_private_key_file": str(ssh_key),
@@ -365,6 +392,8 @@ def run_installation(
                 "agent_type": claw_name,
                 "claw_version": f"v{matched_version}",
                 "claw_sha256": claw_sha256,
+                "config": config,
+                "template_path": str(template_path),
                 **secret_vars,  # Inject secrets as ansible vars
             },
         }
@@ -440,8 +469,6 @@ def run_installation(
             try:
                 # ansible-runner stores facts in artifacts/<run_id>/fact_cache/<hostname>
                 import json
-                from pathlib import Path
-
                 artifacts_dir = Path(result.config.artifact_dir)
                 fact_cache_dir = artifacts_dir / "fact_cache"
 
