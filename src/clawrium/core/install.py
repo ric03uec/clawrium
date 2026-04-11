@@ -85,6 +85,8 @@ class InstallResult(TypedDict):
     playbooks_run: list[str]
     error: str | None
     incomplete_installation: NotRequired[dict | None]
+    skipped: NotRequired[bool]
+    skip_reason: NotRequired[str | None]
 
 
 def _get_incomplete_installation_details(host: dict, claw_name: str) -> dict | None:
@@ -135,6 +137,35 @@ def _get_logs_dir() -> Path:
     logs_dir = get_config_dir() / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     return logs_dir
+
+
+def _openclaw_install_was_skipped(playbook_result: object) -> bool:
+    """Detect whether OpenClaw install task was skipped by Ansible conditions."""
+    events = getattr(playbook_result, "events", None) or []
+
+    for event in events:
+        if event.get("event") != "runner_on_ok":
+            continue
+
+        event_data = event.get("event_data", {})
+        task_name = event_data.get("task", "")
+        result = event_data.get("res", {})
+
+        if task_name == "Mark install as skipped when already installed":
+            return True
+
+        ansible_facts = result.get("ansible_facts", {})
+        if ansible_facts.get("openclaw_already_installed_and_matching") is True:
+            return True
+
+        msg = result.get("msg", "")
+        if (
+            isinstance(msg, str)
+            and "already installed with matching version" in msg.lower()
+        ):
+            return True
+
+    return False
 
 
 def run_installation(
@@ -219,6 +250,7 @@ def run_installation(
         # Remove secrets for this instance
         if incomplete_details.get("agent_name"):
             from clawrium.core.secrets import load_secrets, save_secrets
+
             instance_key = get_instance_key(
                 host["hostname"], claw_name, incomplete_details["agent_name"]
             )
@@ -234,7 +266,7 @@ def run_installation(
                 emit(
                     "warn",
                     f"Failed to remove secrets for {instance_key}. "
-                    "Manual cleanup may be required."
+                    "Manual cleanup may be required.",
                 )
 
         emit("cleanup", "Cleanup complete. Starting fresh installation...")
@@ -265,6 +297,7 @@ def run_installation(
     # Step 5: Set installing state with uniqueness check under lock
     # Use a list to capture the chosen name from inside the updater
     chosen_name = [None]
+    reusing_existing_installed = [False]
 
     def set_installing(h: dict) -> dict:
         # Check for incomplete installation under lock (unless cleanup or resume)
@@ -276,21 +309,45 @@ def run_installation(
                 )
 
         if name is None:
-            # Auto-generate name with retry loop for uniqueness
-            max_attempts = 10
-            for attempt in range(max_attempts):
-                candidate = generate_random_name()
-                if is_name_available_on_host(candidate, h):
-                    chosen_name[0] = candidate
-                    break
+            existing_installed = h.get("agents", {}).get(claw_name, {})
+            if (
+                not resume
+                and not cleanup_failed
+                and existing_installed.get("status") == "installed"
+                and existing_installed.get("agent_name")
+            ):
+                chosen_name[0] = existing_installed["agent_name"]
+                reusing_existing_installed[0] = True
+                return_name = chosen_name[0]
+                if return_name:
+                    logger.info(
+                        "Reusing existing installed agent name under lock: %s",
+                        return_name,
+                    )
             else:
-                raise InstallationError(
-                    f"Could not generate a unique name after {max_attempts} attempts. "
-                    "Use --name to specify one."
-                )
+                # Auto-generate name with retry loop for uniqueness
+                max_attempts = 10
+                for attempt in range(max_attempts):
+                    candidate = generate_random_name()
+                    if is_name_available_on_host(candidate, h):
+                        chosen_name[0] = candidate
+                        break
+                else:
+                    raise InstallationError(
+                        f"Could not generate a unique name after {max_attempts} attempts. "
+                        "Use --name to specify one."
+                    )
         else:
             # Use custom name, check uniqueness under lock (unless resuming)
-            if not resume and not is_name_available_on_host(name, h):
+            same_as_existing = (
+                claw_name in h.get("agents", {})
+                and h["agents"][claw_name].get("agent_name") == name
+            )
+            if (
+                not resume
+                and not (reusing_existing_installed[0] and same_as_existing)
+                and not is_name_available_on_host(name, h)
+            ):
                 raise InstallationError(
                     f"Name '{name}' already in use on this host. "
                     "Names must be unique across all agents on a host."
@@ -300,8 +357,8 @@ def run_installation(
         if "agents" not in h:
             h["agents"] = {}
 
-        # Update status to installing (preserving existing data if resuming)
-        if resume:
+        # Update status to installing (preserving existing data if resuming/reusing)
+        if resume or reusing_existing_installed[0]:
             if claw_name not in h["agents"]:
                 raise InstallationError("Cannot resume: agent was removed")
             h["agents"][claw_name]["status"] = "installing"
@@ -325,6 +382,8 @@ def run_installation(
     # Emit message after lock is released and agent_name is set
     if resume:
         emit("validate", f"Resuming with existing name: {agent_name}")
+    elif reusing_existing_installed[0]:
+        emit("validate", f"Using existing installed name: {agent_name}")
     elif name is None:
         emit("validate", f"Generated unique name: {agent_name}")
     else:
@@ -459,7 +518,18 @@ def run_installation(
                 f"Check logs at {claw_data_dir}/artifacts/"
             )
         playbooks_run.append(str(claw_playbook))
-        emit("claw", f"{claw_name} installed successfully")
+        install_skipped = False
+        skip_reason = None
+        if claw_name == "openclaw":
+            install_skipped = _openclaw_install_was_skipped(result)
+            if install_skipped:
+                skip_reason = "already_installed_version_match"
+                emit(
+                    "claw",
+                    "OpenClaw already installed with matching version; skipped install task",
+                )
+        if not install_skipped:
+            emit("claw", f"{claw_name} installed successfully")
 
         # Step 9.5: Extract gateway token from Ansible facts (OpenClaw only)
         gateway_token = None
@@ -469,6 +539,7 @@ def run_installation(
             try:
                 # ansible-runner stores facts in artifacts/<run_id>/fact_cache/<hostname>
                 import json
+
                 artifacts_dir = Path(result.config.artifact_dir)
                 fact_cache_dir = artifacts_dir / "fact_cache"
 
@@ -554,6 +625,8 @@ def run_installation(
             "playbooks_run": playbooks_run,
             "error": None,
             "incomplete_installation": incomplete_details,
+            "skipped": install_skipped,
+            "skip_reason": skip_reason,
         }
 
     except Exception as e:
@@ -570,9 +643,7 @@ def run_installation(
                 }
             h["agents"][claw_name]["status"] = "failed"
             h["agents"][claw_name]["error"] = error_msg
-            h["agents"][claw_name]["installed_at"] = datetime.now(
-                timezone.utc
-            ).isoformat()
+            h["agents"][claw_name]["installed_at"] = None
             return h
 
         update_host(host["hostname"], set_failed)

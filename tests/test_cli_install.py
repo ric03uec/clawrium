@@ -185,6 +185,34 @@ def test_install_yes_skips_confirmation(isolated_config: Path):
         mock_install.assert_called_once()
 
 
+def test_install_yes_shows_skip_message_when_already_installed(isolated_config: Path):
+    """clm install --yes reports skip when backend marks install as skipped."""
+    create_test_keypair(isolated_config, "testhost")
+    create_host(isolated_config, "192.168.1.100", alias="testhost", key_id="testhost")
+
+    with patch("clawrium.cli.install.run_installation") as mock_install:
+        mock_install.return_value = {
+            "success": True,
+            "agent": "openclaw",
+            "version": "2026.4.2",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+            "skipped": True,
+            "skip_reason": "already_installed_version_match",
+        }
+
+        result = runner.invoke(
+            app,
+            ["agent", "install", "--type", "openclaw", "--host", "testhost", "--yes"],
+            env=os.environ,
+        )
+
+        assert result.exit_code == 0
+        assert "already installed" in result.output.lower()
+        assert "skipped" in result.output.lower()
+
+
 def test_install_cancelled_exits_0(isolated_config: Path):
     """Declining confirmation exits cleanly with code 0."""
     # Setup: create host and keypair
