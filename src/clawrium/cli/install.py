@@ -263,11 +263,16 @@ def install(
         )
 
         # Success
-        console.print(
-            f"[green]Success![/green] {selected_claw} v{result['version']} installed as '{name}' on {display_host}"
-            if name
-            else f"[green]Success![/green] {selected_claw} v{result['version']} installed on {display_host}"
-        )
+        if result.get("skipped"):
+            console.print(
+                f"[green]Success![/green] {selected_claw} v{result['version']} already installed on {display_host} (skipped)"
+            )
+        else:
+            console.print(
+                f"[green]Success![/green] {selected_claw} v{result['version']} installed as '{name}' on {display_host}"
+                if name
+                else f"[green]Success![/green] {selected_claw} v{result['version']} installed on {display_host}"
+            )
 
     except IncompleteInstallationError as e:
         if cleanup_failed:
@@ -280,9 +285,14 @@ def install(
                 result = _run_installation_with_progress(
                     selected_claw, selected_host, None, True, False
                 )
-                console.print(
-                    f"[green]Success![/green] {selected_claw} v{result['version']} installed on {display_host}"
-                )
+                if result.get("skipped"):
+                    console.print(
+                        f"[green]Success![/green] {selected_claw} v{result['version']} already installed on {display_host} (skipped)"
+                    )
+                else:
+                    console.print(
+                        f"[green]Success![/green] {selected_claw} v{result['version']} installed on {display_host}"
+                    )
             except InstallationError as retry_error:
                 console.print(f"[red]Installation failed:[/red] {retry_error}")
                 raise typer.Exit(code=1)
@@ -296,11 +306,16 @@ def install(
                 )
 
                 # Success
-                console.print(
-                    f"[green]Success![/green] {selected_claw} v{result['version']} installed as '{name}' on {display_host}"
-                    if name
-                    else f"[green]Success![/green] {selected_claw} v{result['version']} installed on {display_host}"
-                )
+                if result.get("skipped"):
+                    console.print(
+                        f"[green]Success![/green] {selected_claw} v{result['version']} already installed on {display_host} (skipped)"
+                    )
+                else:
+                    console.print(
+                        f"[green]Success![/green] {selected_claw} v{result['version']} installed as '{name}' on {display_host}"
+                        if name
+                        else f"[green]Success![/green] {selected_claw} v{result['version']} installed on {display_host}"
+                    )
 
             except InstallationError as retry_error:
                 console.print(f"[red]Installation failed:[/red] {retry_error}")
