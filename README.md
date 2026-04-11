@@ -17,23 +17,41 @@
 
 ---
 
-```
-$ uvx clawrium init
-$ clm host add worker-1 --ip 192.168.1.50
-$ clm claw deploy openclaw --host worker-1
-$ clm fleet status
-
-HOST        CLAW        MODEL           STATUS    TOKENS (24h)
-worker-1    openclaw    claude-sonnet   running   12,847
-worker-2    nemoclaw    gpt-4o          running   8,231
-worker-3    zeroclaw    claude-opus     idle      0
-```
-
 ## How it works
 
 <p align="center">
   <img src="docs/assets/clawrium-architecture.png" alt="Clawrium architecture — control node managing agents across hosts" width="100%" />
 </p>
+
+Clawrium uses Ansible under the hood for SSH-based orchestration. You run `clm` from your control machine, which talks to target hosts over SSH. No agents, no containers, no Kubernetes complexity — just processes running on hosts with a unified management layer.
+
+## Commands
+
+```bash
+# Initialize Clawrium
+clm init
+
+# Host management
+clm host init worker-1              # Generate SSH keys and configure remote host
+clm host add worker-1               # Add initialized host to fleet
+clm host list                       # List all hosts
+clm host status worker-1            # Check host connectivity
+clm host remove worker-1            # Remove host from fleet
+
+# Agent management
+clm agent registry list             # Browse available agents
+clm agent install -t openclaw -H worker-1 -n assistant-1
+clm agent ps                        # View all agents across fleet
+clm agent onboard assistant-1       # Configure agent interactively
+clm ps                              # Quick fleet overview
+
+# Provider management
+clm provider add anthropic          # Add API keys for inference providers
+clm provider list                   # View configured providers
+
+# Chat with agents
+clm chat assistant-1                # Start interactive session
+```
 
 ## Why Clawrium
 
@@ -57,14 +75,24 @@ uvx clawrium
 # Initialize config
 clm init
 
-# Add a host
-clm host add my-server --ip 192.168.1.100
+# Set up a host
+clm host init 192.168.1.100 --user your-username
+clm host add worker-1
 
-# Deploy an agent
-clm claw deploy openclaw --host my-server
+# Add inference provider (e.g., Anthropic for Claude models)
+clm provider add anthropic
+
+# Install an agent
+clm agent install --type openclaw --host worker-1 --name my-assistant
+
+# Configure the agent
+clm agent onboard my-assistant
 
 # Check fleet status
-clm fleet status
+clm ps
+
+# Chat with your agent
+clm chat my-assistant
 ```
 
 **→ Full setup guide, claw types, and configuration reference: [ric03uec.github.io/clawrium](https://ric03uec.github.io/clawrium/)**
