@@ -83,6 +83,18 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
 | **Claw** | An AI assistant instance (OpenClaw, NemoClaw, ZeroClaw, or custom) |
 | **Registry** | Platform-defined claw types with versions, deps, and templates |
 
+## FAQ
+
+### Why not Kubernetes?
+
+**Two reasons:**
+
+1. **Most AI agents don't support it.** OpenClaw, NemoClaw, ZeroClaw — these run as local processes, not containerized services. They expect a home directory, local config files, and direct access to the host. Wrapping them in containers adds friction with no payoff.
+
+2. **K8s is overkill for local fleets.** You're managing 3–10 machines on a LAN, not orchestrating microservices across cloud regions. Kubernetes brings etcd, control planes, networking overlays, RBAC, and a learning curve that dwarfs the problem. You don't need a container scheduler — you need to SSH into a box and run a process.
+
+**Clawrium uses Ansible under the hood instead.** Ansible gives you idempotent host management, secrets handling, and multi-machine orchestration without requiring anything on the target machines beyond SSH. Clawrium sits on top of Ansible and adds the agent-specific layer: lifecycle management, token tracking, model swapping, and fleet-wide visibility.
+
 ## Tech Stack
 
 Python · [Typer](https://typer.tiangolo.com/) · [ansible-runner](https://ansible-runner.readthedocs.io/) · [uv](https://docs.astral.sh/uv/)
