@@ -1,88 +1,98 @@
-# Clawrium
-
-**An aquarium for your claws.**
-
 <p align="center">
-  <img src="docs/assets/clawrium-logo.png" alt="Clawrium Logo" width="600">
+  <h1 align="center">🦀 Clawrium</h1>
+  <p align="center">
+    <strong>Fleet management for AI agents on your local network.</strong>
+  </p>
+  <p align="center">
+    Deploy, upgrade, and monitor dozens of AI assistant instances across hosts — from one terminal.
+  </p>
+  <p align="center">
+    <a href="https://ric03uec.github.io/clawrium/">Documentation</a> · <a href="https://github.com/ric03uec/clawrium/issues">Issues</a> · <a href="https://github.com/users/ric03uec/projects/1">Roadmap</a>
+  </p>
 </p>
 
-CLI tool for managing AI agent fleets on local networks. Deploy and manage multiple agent instances across hosts from a single command center.
+---
 
-**[Documentation](https://ric03uec.github.io/clawrium/)** | **[GitHub](https://github.com/ric03uec/clawrium)**
+```
+$ uvx clawrium init
+$ clm host add worker-1 --ip 192.168.1.50
+$ clm claw deploy openclaw --host worker-1
+$ clm fleet status
 
-## Features
-
-### Universal Agent Support
-
-Manage any agent from a single command center:
-- [OpenClaw](https://github.com/openclaw/openclaw)
-- [ZeroClaw](https://github.com/zeroclaw/zeroclaw)
-- [NemoClaw](https://github.com/nemoclaw/nemoclaw)
-- [NanoClaw](https://github.com/nanoclaw/nanoclaw)
-- [IronClaw](https://github.com/ironclaw/ironclaw)
-
-### Normalized Configuration
-
-One config format, every agent. Clawrium standardizes settings across different agent types - define your preferences once and Clawrium translates them for each agent's native format.
-
-### Multi-Model Freedom
-
-Don't get locked into one provider. Run any model across your fleet:
-- **Open models**: NVIDIA Nemotron, GLM-4, MiniMax
-- **Big labs**: OpenAI, Anthropic, Google, Mistral
-- **Local**: Ollama, llama.cpp, vLLM
-
-## Prerequisites
-
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) package manager
-
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/ric03uec/clawrium.git
-cd clawrium
-
-# Install dependencies
-uv sync
-
-# Install in development mode
-uv pip install -e .
+HOST        CLAW        MODEL           STATUS    TOKENS (24h)
+worker-1    openclaw    claude-sonnet   running   12,847
+worker-2    nemoclaw    gpt-4o          running   8,231
+worker-3    zeroclaw    claude-opus     idle      0
 ```
 
-## Initial Setup
+## How it works
+
+<p align="center">
+  <img src="docs/assets/clawrium-architecture.png" alt="Clawrium architecture — control node managing agents across hosts" width="100%" />
+</p>
+
+## Why Clawrium
+
+You're running multiple AI agents — coding assistants, internal tools, experiment harnesses — across machines on your network. Without Clawrium, you SSH into each box, manage configs individually, lose track of token spend, and have no unified view of what's running where.
+
+Clawrium gives you `kubectl`-style fleet control for AI agents:
+
+- **One CLI, all hosts.** Add machines to your fleet and deploy any claw type to any host.
+- **Lifecycle management.** Upgrades, rollbacks, secrets rotation, backups — handled.
+- **Token tracking & guardrails.** See spend across your fleet. Set limits before someone's experiment burns through your API budget.
+- **Model experimentation.** Swap models across agents to compare performance without touching individual configs.
+
+## Quickstart
+
+**Requirements:** Python 3.11+, [uv](https://docs.astral.sh/uv/)
 
 ```bash
-# Initialize Clawrium configuration
+# Install
+uvx clawrium
+
+# Initialize config
 clm init
 
-# Add a host to manage
-clm host add <hostname> --ip <ip-address>
+# Add a host
+clm host add my-server --ip 192.168.1.100
 
-# Check host status
-clm host status
+# Deploy an agent
+clm claw deploy openclaw --host my-server
+
+# Check fleet status
+clm fleet status
 ```
 
-## Usage
+**→ Full setup guide, claw types, and configuration reference: [ric03uec.github.io/clawrium](https://ric03uec.github.io/clawrium/)**
 
-```bash
-# List available commands
-clm --help
+## Who this is for
 
-# Chat with an installed OpenClaw agent
-clm chat <agent-name>
+Clawrium is for **engineers running AI agents in non-trivial setups** — home labs, dev teams, research groups. If you have more than one agent running on more than one machine, this tool exists for you.
 
-# Manage hosts
-clm host list
-clm host add <name> --ip <address>
-clm host remove <name>
-clm host status [name]
-```
+It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup. It's a Python CLI that talks to your machines via Ansible. You own everything.
+
+## Key Concepts
+
+| Concept | What it is |
+|---------|-----------|
+| **Host** | A machine in your network running one or more claws |
+| **Claw** | An AI assistant instance (OpenClaw, NemoClaw, ZeroClaw, or custom) |
+| **Registry** | Platform-defined claw types with versions, deps, and templates |
+
+## Tech Stack
+
+Python · [Typer](https://typer.tiangolo.com/) · [ansible-runner](https://ansible-runner.readthedocs.io/) · [uv](https://docs.astral.sh/uv/)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, workflow, and guidelines.
+```bash
+git clone https://github.com/ric03uec/clawrium && cd clawrium
+make test       # Run tests
+make lint       # Check style
+make format     # Auto-format
+```
+
+Issues are the source of truth. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 ## License
 
