@@ -4,7 +4,7 @@
   tasks:
     - name: Normalize target OpenClaw version
       ansible.builtin.set_fact:
-        openclaw_target_version: "{{ (claw_version | default('v2026.4.2')) | regex_replace('^v', '') }}"
+        openclaw_target_version: "{{ (claw_version | default('v2026.4.9')) | regex_replace('^v', '') }}"
 
     - name: Create agent user
       ansible.builtin.user:
@@ -180,7 +180,7 @@
       become_user: "{{ agent_name }}"
       changed_when: true
 
-    - name: Run device pairing via localhost (auto-approved)
+    - name: Run device pairing via localhost
       ansible.builtin.command:
         cmd: "node pair_device.mjs ws://127.0.0.1:{{ openclaw_port }} {{ gateway_token_result_stdout }}"
         chdir: "/home/{{ agent_name }}"

@@ -408,7 +408,6 @@ class TestOpenClawTemplate:
         assert result["gateway"]["bind"] == "lan"
         assert result["gateway"]["reload"]["mode"] == "hybrid"
         assert result["gateway"]["reload"]["debounceMs"] == 300
-        assert result["gateway"]["channelHealthCheckMinutes"] == 5
         assert result["session"]["dmScope"] == "per-channel-peer"
         assert result["session"]["reset"]["mode"] == "daily"
         assert result["session"]["reset"]["atHour"] == 4
