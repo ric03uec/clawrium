@@ -25,34 +25,6 @@
 
 Clawrium uses Ansible under the hood for SSH-based orchestration. You run `clm` from your control machine, which talks to target hosts over SSH. No agents, no containers, no Kubernetes complexity - just processes running on hosts with a unified management layer.
 
-## Commands
-
-```bash
-# Initialize Clawrium
-clm init
-
-# Host management
-clm host init worker-1              # Generate SSH keys and configure remote host
-clm host add worker-1               # Add initialized host to fleet
-clm host list                       # List all hosts
-clm host status worker-1            # Check host connectivity
-clm host remove worker-1            # Remove host from fleet
-
-# Agent management
-clm agent registry list             # Browse available agents
-clm agent install -t openclaw -H worker-1 -n assistant-1
-clm agent ps                        # View all agents across fleet
-clm agent onboard assistant-1       # Configure agent interactively
-clm ps                              # Quick fleet overview
-
-# Provider management
-clm provider add anthropic          # Add API keys for inference providers
-clm provider list                   # View configured providers
-
-# Chat with agents
-clm chat assistant-1                # Start interactive session
-```
-
 ## Why Clawrium
 
 You're running multiple AI agents - coding assistants, internal tools, experiment harnesses - across machines on your network. Without Clawrium, you SSH into each box, manage configs individually, lose track of token spend, and have no unified view of what's running where.
@@ -60,9 +32,11 @@ You're running multiple AI agents - coding assistants, internal tools, experimen
 Clawrium gives you `kubectl`-style fleet control for AI agents:
 
 - **One CLI, all hosts.** Add machines to your fleet and deploy any claw type to any host.
+- **Specialized agents.** Each claw does one job and does it well. Instead of one overloaded assistant, run a fleet of purpose-built agents - a coding agent, a review agent, a research agent - each with its own context, data, and configuration isolated from the rest.
+- **Local inference.** Use hardware you already have - Mac Minis, [NVIDIA DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/), spare servers - as inference providers. Run smaller open models like Gemma, GPT-4o-mini, Kimi, or Llama locally and point multiple agents at them.
+- **Model experimentation.** Swap models across agents to compare performance without touching individual configs.
 - **Lifecycle management.** Upgrades, rollbacks, secrets rotation, backups - handled.
 - **Token tracking & guardrails.** See spend across your fleet. Set limits before someone's experiment burns through your API budget.
-- **Model experimentation.** Swap models across agents to compare performance without touching individual configs.
 
 ## Who this is for
 
@@ -78,7 +52,7 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
 # Install (pick one)
 uv tool install clawrium
 # or
-python -m pip install clawrium
+pip install clawrium
 
 # Run
 clm --help

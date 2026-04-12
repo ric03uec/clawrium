@@ -59,7 +59,7 @@ const config: Config = {
       title: 'Clawrium',
       logo: {
         alt: 'Clawrium Logo',
-        src: 'img/logo.svg',
+        src: 'img/clawrium-logo.png',
       },
       items: [
         {

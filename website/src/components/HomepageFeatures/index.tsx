@@ -9,15 +9,10 @@ type FeatureItem = {
   description: ReactNode;
 };
 
-function ClawIcon() {
+function GlobeIcon() {
   return (
-    <svg viewBox="0 0 64 64" fill="currentColor" width="64" height="64">
-      <ellipse cx="32" cy="40" rx="18" ry="14" fill="currentColor" opacity="0.9"/>
-      <circle cx="24" cy="38" r="4" fill="white"/>
-      <circle cx="40" cy="38" r="4" fill="white"/>
-      <path d="M28 44 Q32 48 36 44" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round"/>
-      <path d="M14 28 L8 14 L14 22 L18 8 L20 24 L32 6 L32 22 L44 8 L44 24 L50 14 L50 28" 
-            stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg viewBox="0 0 24 24" fill="currentColor" width="64" height="64">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93m6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39"/>
     </svg>
   );
 }
@@ -41,11 +36,11 @@ function UnlockIcon() {
 const FeatureList: FeatureItem[] = [
   {
     title: '🌐 Universal Claw Support',
-    icon: <ClawIcon />,
+    icon: <GlobeIcon />,
     description: (
       <>
-        Manage any claw from a single command center: OpenClaw, ZeroClaw,
-        NemoClaw, NanoClaw, IronClaw, and more.
+        Today, Clawrium supports OpenClaw for end-to-end install, onboarding,
+        and lifecycle management. ZeroClaw and additional claw types are planned.
       </>
     ),
   },

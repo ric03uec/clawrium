@@ -11,13 +11,16 @@ Clawrium is a CLI tool for managing AI assistant fleets on local networks. Deplo
 
 ## Why Clawrium?
 
-Running AI assistants across multiple machines means dealing with:
-- Different configuration formats for each claw type
-- Manual SSH access to each host
-- Scattered secrets and credentials
-- No unified view of your fleet
+You're running multiple AI agents - coding assistants, internal tools, experiment harnesses - across machines on your network. Without Clawrium, you SSH into each box, manage configs individually, lose track of token spend, and have no unified view of what's running where.
 
-Clawrium solves this by providing a single interface to manage any number of claws across any number of hosts.
+Clawrium gives you `kubectl`-style fleet control for AI agents:
+
+- **One CLI, all hosts.** Add machines to your fleet and deploy any claw type to any host.
+- **Specialized agents.** Each claw does one job and does it well. Instead of one overloaded assistant, run a fleet of purpose-built agents - a coding agent, a review agent, a research agent - each with its own context, data, and configuration isolated from the rest.
+- **Local inference.** Use hardware you already have - Mac Minis, [NVIDIA DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/), spare servers - as inference providers. Run smaller open models like Gemma, GPT-4o-mini, Kimi, or Llama locally and point multiple agents at them.
+- **Model experimentation.** Swap models across agents to compare performance without touching individual configs.
+- **Lifecycle management.** Upgrades, rollbacks, secrets rotation, backups - handled.
+- **Token tracking & guardrails.** See spend across your fleet. Set limits before someone's experiment burns through your API budget.
 
 ## Features
 
