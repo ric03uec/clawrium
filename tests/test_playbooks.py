@@ -102,9 +102,7 @@ def test_openclaw_install_playbook_structure():
     assert "agent_name" in content, "Should use agent_name variable"
     assert "install-cli.sh" in content, "Should use official install-cli.sh installer"
     # Service can use either hardcoded path or variable for runtime binary
-    assert "gateway run" in content, (
-        "Should start gateway with 'gateway run' command"
-    )
+    assert "gateway run" in content, "Should start gateway with 'gateway run' command"
     assert "--allow-unconfigured" in content, (
         "Should allow startup before interactive setup is completed"
     )

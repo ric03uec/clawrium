@@ -643,7 +643,9 @@ class TestEnvTemplate:
 
         assert env_map["OPENROUTER_API_KEY"] == "openrouter-key"
         # OpenRouter models get prefixed with openrouter/
-        assert env_map["OPENCLAW_DEFAULT_MODEL"] == "openrouter/deepseek/deepseek-chat-v3"
+        assert (
+            env_map["OPENCLAW_DEFAULT_MODEL"] == "openrouter/deepseek/deepseek-chat-v3"
+        )
 
     def test_env_bedrock_provider(self):
         config = {
@@ -706,7 +708,9 @@ class TestEnvTemplate:
 
         assert "OPENROUTER_API_KEY" not in env_map
         # OpenRouter models get prefixed with openrouter/ for OpenClaw
-        assert env_map["OPENCLAW_DEFAULT_MODEL"] == "openrouter/deepseek/deepseek-chat-v3"
+        assert (
+            env_map["OPENCLAW_DEFAULT_MODEL"] == "openrouter/deepseek/deepseek-chat-v3"
+        )
 
     def test_env_missing_default_model(self):
         config = {
@@ -760,6 +764,7 @@ class TestDevicePairingValidation:
             / "src/clawrium/platform/registry/openclaw/playbooks/install.yaml"
         )
         import yaml
+
         with open(playbook_path) as f:
             return yaml.safe_load(f)
 
@@ -776,8 +781,11 @@ class TestDevicePairingValidation:
                 break
 
         assert validate_task is not None, "Missing device credentials validation task"
-        assert "device_credentials.deviceToken is not defined" in validate_task["ansible.builtin.fail"]["msg"] or \
-               "device_credentials.deviceToken" in str(validate_task.get("when", ""))
+        assert "device_credentials.deviceToken is not defined" in validate_task[
+            "ansible.builtin.fail"
+        ]["msg"] or "device_credentials.deviceToken" in str(
+            validate_task.get("when", "")
+        )
 
     def test_playbook_validates_device_token_length(self):
         """Test that playbook validates deviceToken minimum length."""
@@ -804,8 +812,12 @@ class TestDevicePairingValidation:
         content = script_path.read_text()
 
         # Verify parse errors are logged, not silently ignored
-        assert "Failed to parse gateway message" in content or "parse" in content.lower()
-        assert "// Ignore parse errors" not in content, "Parse errors should not be silently ignored"
+        assert (
+            "Failed to parse gateway message" in content or "parse" in content.lower()
+        )
+        assert "// Ignore parse errors" not in content, (
+            "Parse errors should not be silently ignored"
+        )
 
     def test_pairing_script_validates_challenge_nonce(self):
         """Test that pair_device.mjs validates challengeNonce before use."""
@@ -816,8 +828,9 @@ class TestDevicePairingValidation:
         content = script_path.read_text()
 
         # Verify null check exists for challengeNonce
-        assert "!challengeNonce" in content or "challengeNonce ==" in content, \
+        assert "!challengeNonce" in content or "challengeNonce ==" in content, (
             "Missing null check for challengeNonce"
+        )
 
     def test_pairing_script_has_timeout(self):
         """Test that pair_device.mjs has a timeout for pairing."""

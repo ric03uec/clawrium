@@ -69,6 +69,7 @@ def host_with_ready_agent(isolated_config, monkeypatch):
 
     # Mock SSH key
     import clawrium.core.install
+
     monkeypatch.setattr(
         clawrium.core.install, "get_host_private_key", lambda x: "fake-ssh-key"
     )
@@ -118,9 +119,13 @@ class TestReinstallPreservesOnboarding:
 
             # Assert: Onboarding state still READY
             post_state = get_onboarding_state("192.168.1.100", "work")
-            assert post_state == OnboardingState.READY, f"Expected READY, got {post_state}"
+            assert post_state == OnboardingState.READY, (
+                f"Expected READY, got {post_state}"
+            )
 
-    def test_reinstall_preserves_stage_metadata(self, host_with_ready_agent, monkeypatch):
+    def test_reinstall_preserves_stage_metadata(
+        self, host_with_ready_agent, monkeypatch
+    ):
         """Reinstalling preserves stage completion metadata (provider_id, timestamps)."""
         # Mock ansible-runner
         mock_result = MagicMock()
@@ -146,7 +151,9 @@ class TestReinstallPreservesOnboarding:
             host = get_host("192.168.1.100")
             post_onboarding = host["agents"]["work"]["onboarding"]
 
-            assert post_onboarding["stages"]["providers"]["provider_id"] == pre_provider_id
+            assert (
+                post_onboarding["stages"]["providers"]["provider_id"] == pre_provider_id
+            )
             assert post_onboarding["started_at"] == pre_started_at
             assert (
                 post_onboarding["stages"]["providers"]["completed_at"]

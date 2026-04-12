@@ -183,6 +183,7 @@ def test_no_detection_for_installed(monkeypatch, tmp_path):
     assert result["success"] is True
     assert result["incomplete_installation"] is None
 
+
 def test_resume_multiple_incomplete_raises_error(monkeypatch, tmp_path):
     """B7: Resume with multiple incomplete installations should raise error."""
     from clawrium.core.install import InstallationError, run_installation
@@ -317,6 +318,7 @@ def test_cleanup_multiple_incomplete_installations(monkeypatch, tmp_path):
         status = "successful"
 
     import ansible_runner
+
     monkeypatch.setattr(ansible_runner, "run", Mock(return_value=SuccessfulResult()))
 
     result = run_installation("openclaw", "test-host", cleanup_failed=True)
@@ -326,7 +328,9 @@ def test_cleanup_multiple_incomplete_installations(monkeypatch, tmp_path):
     assert "work-assistant" not in host_state[0]["agents"]
     assert "home-assistant" not in host_state[0]["agents"]
     # A new agent should be created
-    new_agents = [k for k, v in host_state[0]["agents"].items() if v.get("type") == "openclaw"]
+    new_agents = [
+        k for k, v in host_state[0]["agents"].items() if v.get("type") == "openclaw"
+    ]
     assert len(new_agents) == 1
 
 

@@ -637,6 +637,7 @@ class TestRemoveClaw:
         assert any(stage == "validate" for stage, _ in events)
         assert any(stage == "remove" for stage, _ in events)
 
+
 class TestResolveAgentRecord:
     """Tests for _resolve_agent_record function."""
 

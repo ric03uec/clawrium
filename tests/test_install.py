@@ -786,7 +786,9 @@ def test_install_initializes_onboarding(monkeypatch, tmp_path):
     def mock_update_host(hostname, updater):
         nonlocal persistent_host
         persistent_host = updater(persistent_host)
-        status = persistent_host.get("agents", {}).get(test_agent_name, {}).get("status")
+        status = (
+            persistent_host.get("agents", {}).get(test_agent_name, {}).get("status")
+        )
         call_order.append(("update_host", status))
         return True
 
@@ -1035,7 +1037,9 @@ def test_install_onboarding_raises_does_not_corrupt_state(monkeypatch, tmp_path)
         events.append((stage, message))
 
     # Run installation - should succeed despite onboarding failure
-    result = run_installation("openclaw", "test-host", name=test_agent_name, on_event=on_event)
+    result = run_installation(
+        "openclaw", "test-host", name=test_agent_name, on_event=on_event
+    )
 
     # Verify installation succeeded (onboarding failure should not corrupt state)
     assert result["success"] is True, (
@@ -1782,9 +1786,7 @@ def test_install_openclaw_captures_gateway_token(monkeypatch, tmp_path):
         "openclaw_gateway_token": "test-token-123",
         "openclaw_gateway_url": "ws://test-host:40123",
     }
-    fact_file.write_text(
-        json.dumps({"__payload__": json.dumps(payload_data)})
-    )
+    fact_file.write_text(json.dumps({"__payload__": json.dumps(payload_data)}))
 
     mock_run = Mock(return_value=SuccessfulResult())
 
@@ -1907,9 +1909,7 @@ def test_install_openclaw_stores_gateway_url(monkeypatch, tmp_path):
         "openclaw_gateway_token": "token-abc",
         "openclaw_gateway_url": "ws://192.168.1.100:40999",
     }
-    fact_file.write_text(
-        json.dumps({"__payload__": json.dumps(payload_data)})
-    )
+    fact_file.write_text(json.dumps({"__payload__": json.dumps(payload_data)}))
 
     mock_run = Mock(return_value=SuccessfulResult())
 

@@ -21,6 +21,7 @@ from clawrium.cli.chat import chat as chat_command
 from clawrium.cli.host import host_app
 from clawrium.cli.provider import provider_app
 from clawrium.cli.status import status as status_command
+from clawrium.cli.tui import launch_tui
 
 __all__ = ["app"]
 
@@ -103,6 +104,12 @@ def snapshot() -> None:
         "This command will backup your fleet configuration in a future release."
     )
     raise typer.Exit(code=0)
+
+
+@app.command()
+def tui() -> None:
+    """Launch the interactive TUI dashboard."""
+    launch_tui()
 
 
 # Register agent subcommands (primary interface)

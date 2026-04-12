@@ -46,8 +46,7 @@ def create_host_with_claw(
             "stages": {
                 "providers": {
                     "status": "complete"
-                    if onboarding_state
-                    in ["identity", "channels", "validate", "ready"]
+                    if onboarding_state in ["identity", "channels", "validate", "ready"]
                     else "pending",
                     "completed_at": None,
                     "provider_id": None,
@@ -65,9 +64,7 @@ def create_host_with_claw(
                     "completed_at": None,
                 },
                 "validate": {
-                    "status": "complete"
-                    if onboarding_state == "ready"
-                    else "pending",
+                    "status": "complete" if onboarding_state == "ready" else "pending",
                     "completed_at": None,
                 },
             },
@@ -240,7 +237,9 @@ class TestAgentConfigureSingleStage:
             )
 
             assert result.exit_code == 0
-            mock_run.assert_called_once_with("192.168.1.100", "openclaw", True, "assistant")
+            mock_run.assert_called_once_with(
+                "192.168.1.100", "openclaw", True, "assistant"
+            )
 
     def test_single_stage_failure(self, isolated_config: Path):
         """Stage failure exits with code 1."""
@@ -527,7 +526,9 @@ class TestRunChannelsStageDiscord:
                 "987654321098765432",  # Channel ID
                 "740723459344302120",  # User ID
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is True
         assert mock_p.call_count == 5
@@ -547,19 +548,23 @@ class TestRunChannelsStageDiscord:
         stored_secrets = []
 
         def capture_secret(instance_key, key, value, description):
-            stored_secrets.append({
-                "instance_key": instance_key,
-                "key": key,
-                "value": value,
-                "description": description,
-            })
+            stored_secrets.append(
+                {
+                    "instance_key": instance_key,
+                    "key": key,
+                    "value": value,
+                    "description": description,
+                }
+            )
 
         # Bot token must be 50-100 chars with valid format
         valid_token = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMw"
 
         with (
             patch("clawrium.cli.agent.typer.prompt") as mock_p,
-            patch("clawrium.core.secrets.set_instance_secret", side_effect=capture_secret),
+            patch(
+                "clawrium.core.secrets.set_instance_secret", side_effect=capture_secret
+            ),
             patch("clawrium.cli.agent._sync_channel_config"),
             patch("clawrium.cli.agent.complete_stage"),
         ):
@@ -570,7 +575,9 @@ class TestRunChannelsStageDiscord:
                 "987654321098765432",  # Channel ID
                 "740723459344302120",  # User ID
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is True
         assert len(stored_secrets) == 1
@@ -595,7 +602,9 @@ class TestRunChannelsStageDiscord:
                 valid_token,  # Bot token
                 "1234",  # Invalid guild ID - too short
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is False
 
@@ -606,7 +615,9 @@ class TestRunChannelsStageDiscord:
                 valid_token,  # Bot token
                 "12345678901234567a",  # Invalid - contains letter
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is False
 
@@ -628,7 +639,9 @@ class TestRunChannelsStageDiscord:
                 "123456789012345678",  # Valid guild ID
                 "1234",  # Invalid channel ID - too short
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is False
 
@@ -647,12 +660,14 @@ class TestRunChannelsStageDiscord:
         synced_configs = []
 
         def capture_sync(host, claw_type, channels_config, installed_name):
-            synced_configs.append({
-                "host": host,
-                "claw_type": claw_type,
-                "channels_config": channels_config,
-                "installed_name": installed_name,
-            })
+            synced_configs.append(
+                {
+                    "host": host,
+                    "claw_type": claw_type,
+                    "channels_config": channels_config,
+                    "installed_name": installed_name,
+                }
+            )
 
         # Bot token must be 50-100 chars with valid format
         valid_token = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMw"
@@ -670,7 +685,9 @@ class TestRunChannelsStageDiscord:
                 "987654321098765432",  # Channel ID
                 "740723459344302120",  # User ID
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is True
         assert len(synced_configs) == 1
@@ -682,9 +699,19 @@ class TestRunChannelsStageDiscord:
         assert config["discord"]["allowFrom"] == ["740723459344302120"]
         assert config["discord"]["groupPolicy"] == "allowlist"
         assert "123456789012345678" in config["discord"]["guilds"]
-        assert config["discord"]["guilds"]["123456789012345678"]["users"] == ["740723459344302120"]
-        assert "987654321098765432" in config["discord"]["guilds"]["123456789012345678"]["channels"]
-        assert config["discord"]["guilds"]["123456789012345678"]["channels"]["987654321098765432"]["allow"] is True
+        assert config["discord"]["guilds"]["123456789012345678"]["users"] == [
+            "740723459344302120"
+        ]
+        assert (
+            "987654321098765432"
+            in config["discord"]["guilds"]["123456789012345678"]["channels"]
+        )
+        assert (
+            config["discord"]["guilds"]["123456789012345678"]["channels"][
+                "987654321098765432"
+            ]["allow"]
+            is True
+        )
 
     def test_discord_sync_failure_returns_false(self, isolated_config: Path):
         """Returns False when channel config sync fails."""
@@ -710,7 +737,9 @@ class TestRunChannelsStageDiscord:
                 "987654321098765432",  # Channel ID
                 "740723459344302120",  # User ID
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is False
 
@@ -733,7 +762,9 @@ class TestRunChannelsStageDiscord:
                 "987654321098765432",  # Valid channel ID
                 "1234567890123456",  # Invalid user ID - 16 digits
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is False
 
@@ -746,7 +777,9 @@ class TestRunChannelsStageDiscord:
                 "987654321098765432",  # Valid channel ID
                 "12345678901234567890",  # Invalid user ID - 20 digits
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is False
 
@@ -759,7 +792,9 @@ class TestRunChannelsStageDiscord:
                 "987654321098765432",  # Valid channel ID
                 "notanumber",  # Invalid user ID - non-numeric
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is False
 
@@ -776,7 +811,9 @@ class TestRunChannelsStageDiscord:
                 2,  # Select discord
                 "",  # Empty bot token
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is False
 
@@ -786,7 +823,9 @@ class TestRunChannelsStageDiscord:
                 2,  # Select discord
                 "short-token",  # Too short
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is False
 
@@ -1093,14 +1132,18 @@ class TestConfigurePreservesGatewayAuth:
         # Mock configure_agent to verify it receives preserved auth
         captured_config = []
 
-        def mock_configure(hostname, claw_name, config_data, agent_name=None, on_event=None):
+        def mock_configure(
+            hostname, claw_name, config_data, agent_name=None, on_event=None
+        ):
             captured_config.append(config_data.copy())
             return True, None
 
         with patch(
             "clawrium.core.lifecycle.configure_agent", side_effect=mock_configure
         ):
-            _sync_provider_config("work", "openclaw", provider, installed_name="openclaw")
+            _sync_provider_config(
+                "work", "openclaw", provider, installed_name="openclaw"
+            )
 
         # Verify gateway auth was preserved
         assert len(captured_config) > 0
@@ -1153,14 +1196,18 @@ class TestConfigurePreservesGatewayAuth:
 
         captured_config = []
 
-        def mock_configure(hostname, claw_name, config_data, agent_name=None, on_event=None):
+        def mock_configure(
+            hostname, claw_name, config_data, agent_name=None, on_event=None
+        ):
             captured_config.append(config_data.copy())
             return True, None
 
         with patch(
             "clawrium.core.lifecycle.configure_agent", side_effect=mock_configure
         ):
-            _sync_provider_config("work", "openclaw", provider, installed_name="openclaw")
+            _sync_provider_config(
+                "work", "openclaw", provider, installed_name="openclaw"
+            )
 
         # Verify URL was preserved
         gateway_config = captured_config[0]["gateway"]

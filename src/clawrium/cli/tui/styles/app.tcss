@@ -1,0 +1,39 @@
+/* Clawrium TUI - Dark theme styling */
+Screen {
+    background: $surface;
+}
+
+Header {
+    background: $primary-darken-2;
+}
+
+Footer {
+    background: $primary-darken-2;
+}
+
+#fleet-label {
+    text-style: bold;
+    color: $text-disabled;
+    padding: 1 2;
+    height: 1;
+}
+
+#detail-label {
+    text-style: bold;
+    color: $text-disabled;
+    padding: 1 2;
+    height: 1;
+}
+
+#detail-hint {
+    padding: 1 2;
+    height: 1;
+}
+
+DataTable {
+    height: 1fr;
+}
+
+AgentTable {
+    height: 1fr;
+}

@@ -137,7 +137,8 @@ def test_prompt_cleanup_retry(monkeypatch, tmp_path):
 
     # Mock secrets functions for cleanup
     monkeypatch.setattr(
-        "clawrium.core.secrets.load_secrets", lambda: {"test-host:openclaw:work-assistant": {}}
+        "clawrium.core.secrets.load_secrets",
+        lambda: {"test-host:openclaw:work-assistant": {}},
     )
     monkeypatch.setattr("clawrium.core.secrets.save_secrets", lambda x: None)
 
@@ -149,7 +150,8 @@ def test_prompt_cleanup_retry(monkeypatch, tmp_path):
     assert "work-assistant" not in updated_host[0]["agents"]  # Old agent removed
     # Find the new agent (should be the only openclaw type agent)
     new_agent_names = [
-        name for name, data in updated_host[0]["agents"].items()
+        name
+        for name, data in updated_host[0]["agents"].items()
         if data.get("type") == "openclaw"
     ]
     assert len(new_agent_names) == 1

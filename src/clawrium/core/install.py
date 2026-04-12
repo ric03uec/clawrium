@@ -337,7 +337,9 @@ def run_installation(
     # Step 5: Set installing state with uniqueness check under lock
     # Use lists to capture values from inside updater closures
     chosen_name = [None]
-    preserved_onboarding = [None]  # Capture onboarding to restore after ansible succeeds
+    preserved_onboarding = [
+        None
+    ]  # Capture onboarding to restore after ansible succeeds
 
     def set_installing(h: dict) -> dict:
         # Check for incomplete installation under lock (unless cleanup or resume)
@@ -369,7 +371,10 @@ def run_installation(
                 # Allow reinstalling over "installed" or "failed" agents (preserves onboarding)
                 # Block reinstalling over "installing" agents (use --resume or --cleanup-failed)
                 existing_agent = h.get("agents", {}).get(name)
-                if not existing_agent or existing_agent.get("status") not in ["installed", "failed"]:
+                if not existing_agent or existing_agent.get("status") not in [
+                    "installed",
+                    "failed",
+                ]:
                     raise InstallationError(
                         f"Name '{name}' already in use on this host. "
                         "Names must be unique across all agents on a host."

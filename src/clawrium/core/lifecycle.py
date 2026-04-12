@@ -17,7 +17,11 @@ from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import get_host, update_host, remove_agent_from_host
 from clawrium.core import keys as core_keys
 from clawrium.core.onboarding import OnboardingState
-from clawrium.core.secrets import get_instance_key, get_instance_secrets, remove_instance_secrets
+from clawrium.core.secrets import (
+    get_instance_key,
+    get_instance_secrets,
+    remove_instance_secrets,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -581,7 +585,9 @@ def configure_agent(
     # Load channel secrets (Discord bot token)
     discord_bot_token = ""
     try:
-        instance_key = get_instance_key(host["hostname"], resolved_type, unix_agent_name)
+        instance_key = get_instance_key(
+            host["hostname"], resolved_type, unix_agent_name
+        )
         instance_secrets = get_instance_secrets(instance_key)
         if "DISCORD_BOT_TOKEN" in instance_secrets:
             discord_bot_token = instance_secrets["DISCORD_BOT_TOKEN"]["value"]

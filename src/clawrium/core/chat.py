@@ -101,7 +101,9 @@ class OpenClawChatClient:
 
         try:
             from cryptography.hazmat.primitives import serialization
-            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+                Ed25519PrivateKey,
+            )
 
             # Load private key from PEM
             private_key = serialization.load_pem_private_key(
@@ -126,7 +128,7 @@ class OpenClawChatClient:
             public_key = private_key.public_key()
             public_key_raw = public_key.public_bytes(
                 encoding=serialization.Encoding.Raw,
-                format=serialization.PublicFormat.Raw
+                format=serialization.PublicFormat.Raw,
             )
             public_key_b64 = base64.b64encode(public_key_raw).decode()
 

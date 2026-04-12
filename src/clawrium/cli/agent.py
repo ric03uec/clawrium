@@ -617,9 +617,7 @@ def _run_channels_stage(
                 "guilds": {
                     guild_id: {
                         "users": [user_id],
-                        "channels": {
-                            channel_id: {"allow": True}
-                        }
+                        "channels": {channel_id: {"allow": True}},
                     }
                 },
             }
@@ -645,7 +643,9 @@ def _run_channels_stage(
             console.print(f"[red]Error:[/red] Host '{host}' not found")
             return False
         canonical_hostname = host_data["hostname"]
-        instance_key = get_instance_key(canonical_hostname, claw_type, installed_name or claw_type)
+        instance_key = get_instance_key(
+            canonical_hostname, claw_type, installed_name or claw_type
+        )
         set_instance_secret(
             instance_key, "DISCORD_BOT_TOKEN", bot_token, "Discord bot token"
         )
