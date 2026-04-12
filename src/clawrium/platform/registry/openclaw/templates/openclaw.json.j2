@@ -27,7 +27,7 @@
       "skills": {{ agents_defaults.skills | tojson }},
 {% endif %}
       "sandbox": {
-        "mode": {{ agents_defaults.sandbox_mode | default(config.sandbox_mode) | default('non-main') | tojson }},
+        "mode": {{ agents_defaults.sandbox_mode | default(config.sandbox_mode) | default('off') | tojson }},
         "scope": {{ agents_defaults.sandbox_scope | default('session') | tojson }}
       },
       "heartbeat": {

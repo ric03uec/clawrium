@@ -12,6 +12,8 @@ secrets:
   optional:
     - key: ANTHROPIC_API_KEY
       description: "Anthropic API key for Claude models"
+    - key: DISCORD_BOT_TOKEN
+      description: "Discord bot token for Discord channel"
 
 # Onboarding workflow configuration
 onboarding:

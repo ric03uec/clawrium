@@ -17,7 +17,7 @@ from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import get_host, update_host, remove_agent_from_host
 from clawrium.core import keys as core_keys
 from clawrium.core.onboarding import OnboardingState
-from clawrium.core.secrets import get_instance_key, get_instance_secrets
+from clawrium.core.secrets import get_instance_key, get_instance_secrets, remove_instance_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -578,6 +578,17 @@ def configure_agent(
         if provider_api_key:
             emit("configure", "Loaded provider API key from secrets")
 
+    # Load channel secrets (Discord bot token)
+    discord_bot_token = ""
+    try:
+        instance_key = get_instance_key(host["hostname"], resolved_type, unix_agent_name)
+        instance_secrets = get_instance_secrets(instance_key)
+        if "DISCORD_BOT_TOKEN" in instance_secrets:
+            discord_bot_token = instance_secrets["DISCORD_BOT_TOKEN"]["value"]
+            emit("configure", "Loaded Discord bot token from secrets")
+    except Exception as e:
+        logger.warning("Failed to load Discord bot token for %s: %s", agent_name, e)
+
     # Get template path for this agent type
     canonical_name = _resolve_agent_type(resolved_type)
     template_path = (
@@ -628,6 +639,7 @@ def configure_agent(
                 "config": config_data,
                 "template_path": str(template_path),
                 "provider_api_key": provider_api_key,
+                "discord_bot_token": discord_bot_token,
             },
         }
     }
@@ -792,6 +804,15 @@ def remove_agent(
         }
 
     emit("remove", "Removing from local configuration...")
+
+    # Clean up per-instance secrets (Discord bot token, etc.)
+    try:
+        unix_agent_name = claw_record.get("agent_name") or agent_key
+        instance_key = get_instance_key(host["hostname"], agent_type, unix_agent_name)
+        remove_instance_secrets(instance_key)
+        emit("remove", "Cleaned up instance secrets")
+    except Exception as e:
+        logger.warning("Failed to clean up instance secrets for %s: %s", agent_key, e)
 
     # Remove agent from hosts.json
     # NOTE: remove_agent_from_host returns True if host was found (not if agent was found)

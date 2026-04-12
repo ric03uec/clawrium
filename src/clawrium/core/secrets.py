@@ -25,6 +25,7 @@ __all__ = [
     "get_instance_secrets",
     "set_instance_secret",
     "remove_instance_secret",
+    "remove_instance_secrets",
     "list_instances_with_secrets",
     "AgentNotFoundError",
 ]
@@ -380,6 +381,30 @@ def remove_instance_secret(instance_key: str, key: str) -> bool:
         # Clean up empty instance dict
         if not secrets[instance_key]:
             del secrets[instance_key]
+
+        # Save without re-acquiring lock (we already hold it)
+        config_dir = init_config_dir()
+        _save_secrets_atomic(secrets, config_dir)
+
+        return True
+
+
+def remove_instance_secrets(instance_key: str) -> bool:
+    """Remove all secrets for a specific claw instance.
+
+    Args:
+        instance_key: Instance key in format "host:claw_type:claw_name".
+
+    Returns:
+        True if instance had secrets and they were removed, False if no secrets existed.
+    """
+    with _secrets_lock():
+        secrets = load_secrets()
+
+        if instance_key not in secrets:
+            return False
+
+        del secrets[instance_key]
 
         # Save without re-acquiring lock (we already hold it)
         config_dir = init_config_dir()

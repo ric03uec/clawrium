@@ -29,10 +29,54 @@ def create_host_with_claw(
     key_id: str = "work",
     claw_type: str = "openclaw",
     onboarding_state: str = "pending",
+    config: dict | None = None,
 ) -> None:
     """Create a test host with a claw installed."""
     hosts_file = config_dir / "hosts.json"
     config_dir.mkdir(parents=True, exist_ok=True)
+
+    agent_data = {
+        "version": "0.1.0",
+        "status": "installed",
+        "name": "assistant",
+        "agent_name": "assistant",
+        "onboarding": {
+            "state": onboarding_state,
+            "started_at": "2026-04-06T00:00:00+00:00",
+            "stages": {
+                "providers": {
+                    "status": "complete"
+                    if onboarding_state
+                    in ["identity", "channels", "validate", "ready"]
+                    else "pending",
+                    "completed_at": None,
+                    "provider_id": None,
+                },
+                "identity": {
+                    "status": "complete"
+                    if onboarding_state in ["channels", "validate", "ready"]
+                    else "pending",
+                    "completed_at": None,
+                },
+                "channels": {
+                    "status": "complete"
+                    if onboarding_state in ["validate", "ready"]
+                    else "pending",
+                    "completed_at": None,
+                },
+                "validate": {
+                    "status": "complete"
+                    if onboarding_state == "ready"
+                    else "pending",
+                    "completed_at": None,
+                },
+            },
+        },
+    }
+
+    # Add config if provided
+    if config:
+        agent_data["config"] = config
 
     hosts_data = [
         {
@@ -58,44 +102,7 @@ def create_host_with_claw(
                 "tags": [],
             },
             "agents": {
-                claw_type: {
-                    "version": "0.1.0",
-                    "status": "installed",
-                    "name": "assistant",
-                    "agent_name": "assistant",
-                    "onboarding": {
-                        "state": onboarding_state,
-                        "started_at": "2026-04-06T00:00:00+00:00",
-                        "stages": {
-                            "providers": {
-                                "status": "complete"
-                                if onboarding_state
-                                in ["identity", "channels", "validate", "ready"]
-                                else "pending",
-                                "completed_at": None,
-                                "provider_id": None,
-                            },
-                            "identity": {
-                                "status": "complete"
-                                if onboarding_state in ["channels", "validate", "ready"]
-                                else "pending",
-                                "completed_at": None,
-                            },
-                            "channels": {
-                                "status": "complete"
-                                if onboarding_state in ["validate", "ready"]
-                                else "pending",
-                                "completed_at": None,
-                            },
-                            "validate": {
-                                "status": "complete"
-                                if onboarding_state == "ready"
-                                else "pending",
-                                "completed_at": None,
-                            },
-                        },
-                    },
-                }
+                claw_type: agent_data,
             },
         }
     ]
@@ -468,6 +475,356 @@ class TestRunChannelsStage:
             result = _run_channels_stage("work", "openclaw", True)
 
         assert result is False
+
+    def test_channel_list_shows_cli_and_discord(self, isolated_config: Path):
+        """Verify only cli and discord are shown as options."""
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config)
+
+        result = runner.invoke(
+            app,
+            ["agent", "configure", "assistant", "--stage", "channels"],
+            input="1\n",  # Select cli
+            env=os.environ,
+        )
+
+        assert "cli" in result.output.lower()
+        assert "discord" in result.output.lower()
+        # These channels should NOT be shown
+        assert "web" not in result.output.lower()
+        assert "whatsapp" not in result.output.lower()
+        assert "slack" not in result.output.lower()
+
+
+class TestRunChannelsStageDiscord:
+    """Tests for Discord channel configuration."""
+
+    def test_discord_channel_prompts_for_credentials(self, isolated_config: Path):
+        """Verify prompts appear when selecting discord."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        # Provider config is required for channel sync
+        create_host_with_claw(
+            isolated_config,
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "openai"}},
+        )
+
+        # Test that discord selection triggers credential prompts
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent._sync_channel_config"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            # Bot token must be 50-100 chars with valid format
+            valid_token = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMw"
+            mock_p.side_effect = [
+                2,  # Select discord
+                valid_token,  # Bot token
+                "123456789012345678",  # Guild ID
+                "987654321098765432",  # Channel ID
+                "740723459344302120",  # User ID
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is True
+        assert mock_p.call_count == 5
+
+    def test_discord_bot_token_stored_as_secret(self, isolated_config: Path):
+        """Verify bot token is stored as secret."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        # Provider config is required for channel sync
+        create_host_with_claw(
+            isolated_config,
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "openai"}},
+        )
+
+        stored_secrets = []
+
+        def capture_secret(instance_key, key, value, description):
+            stored_secrets.append({
+                "instance_key": instance_key,
+                "key": key,
+                "value": value,
+                "description": description,
+            })
+
+        # Bot token must be 50-100 chars with valid format
+        valid_token = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMw"
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.core.secrets.set_instance_secret", side_effect=capture_secret),
+            patch("clawrium.cli.agent._sync_channel_config"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,  # Select discord
+                valid_token,  # Bot token
+                "123456789012345678",  # Guild ID
+                "987654321098765432",  # Channel ID
+                "740723459344302120",  # User ID
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is True
+        assert len(stored_secrets) == 1
+        assert stored_secrets[0]["key"] == "DISCORD_BOT_TOKEN"
+        assert stored_secrets[0]["value"] == valid_token
+        assert "discord" in stored_secrets[0]["description"].lower()
+
+    def test_discord_guild_id_validation(self, isolated_config: Path):
+        """Verify format validation for guild ID (17-19 digits)."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config)
+
+        # Bot token must be 50-100 chars with valid format
+        valid_token = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMw"
+
+        # Test invalid guild ID (too short)
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,  # Select discord
+                valid_token,  # Bot token
+                "1234",  # Invalid guild ID - too short
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is False
+
+        # Test invalid guild ID (contains letters)
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,  # Select discord
+                valid_token,  # Bot token
+                "12345678901234567a",  # Invalid - contains letter
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is False
+
+    def test_discord_channel_id_validation(self, isolated_config: Path):
+        """Verify format validation for channel ID (17-19 digits)."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config)
+
+        # Bot token must be 50-100 chars with valid format
+        valid_token = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMw"
+
+        # Test invalid channel ID (too short)
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,  # Select discord
+                valid_token,  # Bot token
+                "123456789012345678",  # Valid guild ID
+                "1234",  # Invalid channel ID - too short
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is False
+
+    def test_discord_config_synced_to_agent(self, isolated_config: Path):
+        """Verify config sync is called with correct data."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        # Provider config is required for channel sync
+        create_host_with_claw(
+            isolated_config,
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "openai"}},
+        )
+
+        synced_configs = []
+
+        def capture_sync(host, claw_type, channels_config, installed_name):
+            synced_configs.append({
+                "host": host,
+                "claw_type": claw_type,
+                "channels_config": channels_config,
+                "installed_name": installed_name,
+            })
+
+        # Bot token must be 50-100 chars with valid format
+        valid_token = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMw"
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,  # Select discord
+                valid_token,  # Bot token
+                "123456789012345678",  # Guild ID
+                "987654321098765432",  # Channel ID
+                "740723459344302120",  # User ID
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is True
+        assert len(synced_configs) == 1
+        config = synced_configs[0]["channels_config"]
+        assert "discord" in config
+        assert config["discord"]["enabled"] is True
+        assert config["discord"]["token"]["source"] == "env"
+        assert config["discord"]["token"]["id"] == "DISCORD_BOT_TOKEN"
+        assert config["discord"]["allowFrom"] == ["740723459344302120"]
+        assert config["discord"]["groupPolicy"] == "allowlist"
+        assert "123456789012345678" in config["discord"]["guilds"]
+        assert config["discord"]["guilds"]["123456789012345678"]["users"] == ["740723459344302120"]
+        assert "987654321098765432" in config["discord"]["guilds"]["123456789012345678"]["channels"]
+        assert config["discord"]["guilds"]["123456789012345678"]["channels"]["987654321098765432"]["allow"] is True
+
+    def test_discord_sync_failure_returns_false(self, isolated_config: Path):
+        """Returns False when channel config sync fails."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config)
+
+        # Bot token must be 50-100 chars with valid format
+        valid_token = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMw"
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch(
+                "clawrium.cli.agent._sync_channel_config",
+                side_effect=Exception("SSH connection failed"),
+            ),
+        ):
+            mock_p.side_effect = [
+                2,  # Select discord
+                valid_token,  # Bot token
+                "123456789012345678",  # Guild ID
+                "987654321098765432",  # Channel ID
+                "740723459344302120",  # User ID
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is False
+
+    def test_discord_user_id_validation(self, isolated_config: Path):
+        """Verify format validation for user ID (17-19 digits)."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config)
+
+        # Bot token must be 50-100 chars with valid format
+        valid_token = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMw"
+
+        # Test invalid user ID (too short - 16 digits)
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,  # Select discord
+                valid_token,  # Bot token
+                "123456789012345678",  # Valid guild ID
+                "987654321098765432",  # Valid channel ID
+                "1234567890123456",  # Invalid user ID - 16 digits
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is False
+
+        # Test invalid user ID (too long - 20 digits)
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,  # Select discord
+                valid_token,  # Bot token
+                "123456789012345678",  # Valid guild ID
+                "987654321098765432",  # Valid channel ID
+                "12345678901234567890",  # Invalid user ID - 20 digits
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is False
+
+        # Test invalid user ID (non-numeric)
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,  # Select discord
+                valid_token,  # Bot token
+                "123456789012345678",  # Valid guild ID
+                "987654321098765432",  # Valid channel ID
+                "notanumber",  # Invalid user ID - non-numeric
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is False
+
+    def test_discord_bot_token_validation(self, isolated_config: Path):
+        """Verify bot token format validation."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config)
+
+        # Test empty bot token
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,  # Select discord
+                "",  # Empty bot token
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is False
+
+        # Test bot token too short (less than 50 chars)
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,  # Select discord
+                "short-token",  # Too short
+            ]
+            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+
+        assert result is False
+
+    def test_sync_channel_config_calls_configure_agent(self, isolated_config: Path):
+        """Verify _sync_channel_config calls configure_agent with correct data."""
+        from clawrium.cli.agent import _sync_channel_config
+
+        create_test_keypair(isolated_config, "work")
+        # Create host with configured provider - agent stored under claw_type key
+        create_host_with_claw(
+            isolated_config,
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "openai"}},
+        )
+
+        captured_calls = []
+
+        def capture_configure(*args, **kwargs):
+            captured_calls.append({"args": args, "kwargs": kwargs})
+            return True, None
+
+        with patch(
+            "clawrium.core.lifecycle.configure_agent",
+            side_effect=capture_configure,
+        ):
+            channels_config = {"discord": {"enabled": True}}
+            # Use claw_type as agent lookup key (no installed_name) to match fixture structure
+            _sync_channel_config("192.168.1.100", "openclaw", channels_config, None)
+
+        assert len(captured_calls) == 1
+        call = captured_calls[0]
+        # Verify configure_agent was called with correct host and agent type
+        assert call["args"][0] == "192.168.1.100"  # host
+        assert call["args"][1] == "openclaw"  # claw_type
+        # Verify channels config is in the config_data
+        config_data = call["args"][2]
+        assert "channels" in config_data
+        assert config_data["channels"] == {"discord": {"enabled": True}}
 
 
 class TestRunValidateStage:

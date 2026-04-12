@@ -386,9 +386,10 @@ def _run_providers_stage(
         console.print("[green]✓[/green]")
     except Exception as e:
         console.print(f"[red]✗[/red] {rich_escape(str(e))}")
+        agent_name = installed_name or claw_type
         console.print(
             f"[red]Error:[/red] Failed to apply provider configuration. "
-            f"Run 'clm agent configure {claw_type[:2]}-{host} --stage providers' to retry."
+            f"Run 'clm agent configure {rich_escape(agent_name)} --stage providers' to retry."
         )
         return False
 
@@ -476,6 +477,57 @@ def _run_identity_stage(
         return False
 
 
+def _sync_channel_config(
+    host: str,
+    claw_type: str,
+    channels_config: dict,
+    installed_name: str | None = None,
+) -> None:
+    """Sync channel configuration to remote agent via Ansible.
+
+    Args:
+        host: Host alias
+        claw_type: Claw type (zeroclaw, openclaw, etc.)
+        channels_config: Channel configuration dict
+        installed_name: Optional installed agent name
+
+    Raises:
+        RuntimeError: If configuration sync fails
+    """
+    from clawrium.core.lifecycle import configure_agent
+
+    host_data = get_host(host)
+    if not host_data:
+        raise RuntimeError(f"Host '{host}' not found")
+
+    agent_name = installed_name or claw_type
+    agents = host_data.get("agents", {})
+    agent = agents.get(agent_name, {})
+
+    # Merge channels into existing config
+    existing_config = agent.get("config", {})
+
+    # Guard against overwriting provider config if not present (B4)
+    # If provider stage was completed, config should have provider key
+    if not existing_config.get("provider"):
+        raise RuntimeError(
+            "Provider not configured. Run 'clm agent configure <agent> --stage providers' first."
+        )
+
+    existing_config["channels"] = channels_config
+
+    # Call configure_agent to sync
+    success, error = configure_agent(
+        host,
+        claw_type,
+        existing_config,
+        agent_name=installed_name,
+    )
+
+    if not success:
+        raise RuntimeError(f"Failed to sync channel config: {error}")
+
+
 def _run_channels_stage(
     host: str,
     claw_type: str,
@@ -492,7 +544,9 @@ def _run_channels_stage(
     Returns:
         True if stage completed successfully
     """
-    channels = ["cli", "web", "whatsapp", "slack"]
+    from clawrium.core.secrets import get_instance_key, set_instance_secret
+
+    channels = ["cli", "discord"]
 
     console.print("[bold]Select default channel:[/bold]")
     for i, ch in enumerate(channels, 1):
@@ -512,6 +566,90 @@ def _run_channels_stage(
 
     selected_channel = channels[choice - 1]
     console.print(f"[green]✓[/green] Default channel: {selected_channel}")
+
+    channels_config: dict = {}
+
+    if selected_channel == "discord":
+        console.print("\n[bold]Discord Configuration[/bold]")
+
+        # Prompt for bot token (masked)
+        bot_token = typer.prompt("Discord bot token", hide_input=True)
+
+        # Validate bot token is not empty and has valid format
+        if not bot_token or not bot_token.strip():
+            console.print("[red]Error:[/red] Bot token cannot be empty")
+            return False
+
+        # Validate bot token format (base64 chars including +/=, reasonable length)
+        # Discord bot tokens use standard base64 which includes + and /
+        if not re.match(r"^[A-Za-z0-9._+/=-]{50,120}$", bot_token):
+            console.print("[red]Error:[/red] Invalid bot token format")
+            return False
+
+        # Prompt for guild ID with validation
+        guild_id = typer.prompt("Discord server (guild) ID")
+        if not re.match(r"^\d{17,19}$", guild_id):
+            console.print("[red]Error:[/red] Invalid guild ID format (17-19 digits)")
+            return False
+
+        # Prompt for channel ID with validation
+        channel_id = typer.prompt("Discord channel ID")
+        if not re.match(r"^\d{17,19}$", channel_id):
+            console.print("[red]Error:[/red] Invalid channel ID format (17-19 digits)")
+            return False
+
+        # Prompt for user ID(s) to allowlist
+        user_id = typer.prompt("Your Discord user ID (for auto-approve)")
+        if not re.match(r"^\d{17,19}$", user_id):
+            console.print("[red]Error:[/red] Invalid user ID format (17-19 digits)")
+            return False
+
+        channels_config = {
+            "discord": {
+                "enabled": True,
+                "token": {
+                    "source": "env",
+                    "provider": "default",
+                    "id": "DISCORD_BOT_TOKEN",
+                },
+                "allowFrom": [user_id],
+                "groupPolicy": "allowlist",
+                "guilds": {
+                    guild_id: {
+                        "users": [user_id],
+                        "channels": {
+                            channel_id: {"allow": True}
+                        }
+                    }
+                },
+            }
+        }
+
+        # Sync channel config to agent first
+        console.print("Syncing channel config to agent... ", end="")
+        try:
+            _sync_channel_config(host, claw_type, channels_config, installed_name)
+            console.print("[green]✓[/green]")
+        except Exception as e:
+            console.print(f"[red]✗[/red] {rich_escape(str(e))}")
+            agent_name = installed_name or claw_type
+            console.print(
+                f"[dim]Retry with: clm agent configure {rich_escape(agent_name)} --stage channels[/dim]"
+            )
+            return False
+
+        # Store bot token as secret only after successful sync (W4)
+        # Use canonical hostname for instance_key to match lifecycle.py (B3)
+        host_data = get_host(host)
+        if not host_data:
+            console.print(f"[red]Error:[/red] Host '{host}' not found")
+            return False
+        canonical_hostname = host_data["hostname"]
+        instance_key = get_instance_key(canonical_hostname, claw_type, installed_name or claw_type)
+        set_instance_secret(
+            instance_key, "DISCORD_BOT_TOKEN", bot_token, "Discord bot token"
+        )
+        console.print("[green]✓[/green] Discord bot token stored securely")
 
     try:
         complete_stage(

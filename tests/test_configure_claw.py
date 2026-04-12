@@ -401,7 +401,7 @@ class TestOpenClawTemplate:
 
         assert result["agents"]["defaults"]["workspace"] == "~/.openclaw/workspace"
         assert result["agents"]["defaults"]["maxConcurrent"] == 4
-        assert result["agents"]["defaults"]["sandbox"]["mode"] == "non-main"
+        assert result["agents"]["defaults"]["sandbox"]["mode"] == "off"
         assert result["agents"]["defaults"]["heartbeat"]["every"] == "30m"
         assert result["agents"]["defaults"]["heartbeat"]["target"] == "last"
         assert result["gateway"]["port"] == 18789
