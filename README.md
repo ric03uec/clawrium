@@ -1,12 +1,4 @@
-<p align="center">
-  <img src="docs/assets/clawrium-logo.png" alt="Clawrium Logo" width="300">
-</p>
-
-# Clawrium
-
-<p align="center">
-  <strong>An aquarium for your claws.</strong>
-</p>
+# <img src="docs/assets/clawrium-logo.png" alt="Clawrium" height="40" align="center"> Clawrium - An aquarium for *claws
 
 <p align="center">
   Fleet management for AI agents on your local network.

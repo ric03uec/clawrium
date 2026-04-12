@@ -1,4 +1,4 @@
-# Clawrium Documentation
+# Clawrium - An aquarium for *claws
 
 Clawrium is a CLI tool for managing AI agent fleets on local networks.
 
