@@ -8,6 +8,8 @@ keywords: [architecture, components, network topology, data flow, system design]
 
 Clawrium manages AI assistant deployments across your network through three key concepts: **Hosts**, **Claws**, and the **Registry**.
 
+![Clawrium architecture](/img/clawrium-architecture.png)
+
 ## Key Concepts
 
 ```mermaid
@@ -19,12 +21,11 @@ graph TB
         end
 
         subgraph "Host A"
-            CLAW1[ZeroClaw]
-            CLAW2[OpenClaw]
+            CLAW1[OpenClaw]
         end
 
         subgraph "Host B"
-            CLAW3[NemoClaw]
+            CLAW2[OpenClaw]
         end
     end
 
@@ -33,7 +34,6 @@ graph TB
     CLM --> |manages| CONFIG
     CLM --> |SSH| CLAW1
     CLM --> |SSH| CLAW2
-    CLM --> |SSH| CLAW3
     CLM --> |reads| REGISTRY
 
     style CLM fill:#4a9eff,color:#fff
@@ -51,14 +51,13 @@ A **Host** is any machine on your network that runs one or more claws. Clawrium 
 
 ### Claw
 
-A **Claw** is an AI assistant instance. Each claw type (ZeroClaw, OpenClaw, NemoClaw, etc.) has its own configuration format, but Clawrium provides a normalized interface.
+A **Claw** is an AI assistant instance. Today, Clawrium supports OpenClaw for end-to-end deployment and management.
 
-**Supported claws:**
-- ZeroClaw
+**Current support:**
 - OpenClaw
-- NemoClaw
-- NanoClaw
-- IronClaw
+
+**Planned:**
+- ZeroClaw and additional claw types
 
 ### Registry
 
@@ -103,8 +102,8 @@ sequenceDiagram
     participant Registry
     participant Host as Target Host
 
-    User->>CLM: clm install zeroclaw --host myhost
-    CLM->>Registry: Get ZeroClaw definition
+    User->>CLM: clm install openclaw --host myhost
+    CLM->>Registry: Get OpenClaw definition
     Registry-->>CLM: Version, dependencies, template
     CLM->>Host: SSH as xclm
     CLM->>Host: Install dependencies

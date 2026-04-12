@@ -75,8 +75,13 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
 **Requirements:** Python 3.11+, [uv](https://docs.astral.sh/uv/)
 
 ```bash
-# Install
-uvx clawrium
+# Install (pick one)
+uv tool install clawrium
+# or
+python -m pip install clawrium
+
+# Run
+clm --help
 
 # Initialize config
 clm init
@@ -118,6 +123,22 @@ clm chat my-assistant
 Right now, Clawrium is only tested on Ubuntu hosts and Ubuntu control machines.
 
 Other Linux distributions may work, but they are not currently part of the test matrix.
+
+### Which claws are supported today?
+
+Right now, only OpenClaw is officially supported and tested end-to-end.
+
+ZeroClaw and additional claws are planned.
+
+### Is Claude subscription supported?
+
+No. Clawrium supports API keys only, by design.
+
+### Which channels are supported?
+
+Discord is supported right now.
+
+Additional channels are planned.
 
 ### Does Clawrium install Docker or Kubernetes?
 

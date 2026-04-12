@@ -1,8 +1,8 @@
 ---
 sidebar_position: 1
 slug: /
-description: Clawrium is a CLI tool for managing AI assistant fleets on local networks. Deploy and manage multiple claw instances across hosts from a single command center.
-keywords: [clawrium, AI assistant, fleet management, CLI tool, multi-host, zeroclaw, openclaw]
+description: Clawrium is a CLI tool for managing AI assistant fleets on local networks. Deploy and manage OpenClaw instances across hosts from a single command center.
+keywords: [clawrium, AI assistant, fleet management, CLI tool, multi-host, openclaw]
 ---
 
 # Introduction
@@ -21,14 +21,11 @@ Clawrium solves this by providing a single interface to manage any number of cla
 
 ## Features
 
-### 🌐 Universal Claw Support
+### 🌐 OpenClaw Support (Current)
 
-Manage any claw from a single command center:
-- [ZeroClaw](https://github.com/zeroclaw/zeroclaw)
-- [OpenClaw](https://github.com/openclaw/openclaw)
-- [NemoClaw](https://github.com/nemoclaw/nemoclaw)
-- [NanoClaw](https://github.com/nanoclaw/nanoclaw)
-- [IronClaw](https://github.com/ironclaw/ironclaw)
+Today, Clawrium supports OpenClaw for end-to-end install, onboarding, and lifecycle management.
+
+Support for ZeroClaw and additional claw types is planned.
 
 ### ⚙️ Normalized Configuration
 
@@ -63,10 +60,10 @@ clm host status myhost
 clm registry list
 
 # Install a claw on a host
-clm install --claw zeroclaw --host myhost
+clm install --claw openclaw --host myhost
 
 # Set a secret for a claw
-clm secret set zc-myhost OPENAI_API_KEY
+clm secret set oc-myhost OPENAI_API_KEY
 ```
 
 ## Key Concepts
@@ -74,8 +71,34 @@ clm secret set zc-myhost OPENAI_API_KEY
 | Concept | Description |
 |---------|-------------|
 | **Host** | A machine in your network that runs one or more claws |
-| **Claw** | An AI assistant instance (zeroclaw, openclaw, etc.) |
+| **Claw** | An AI assistant instance (currently OpenClaw) |
 | **Registry** | Platform-defined claw types with versions, dependencies, and requirements |
+
+## Architecture
+
+![Clawrium architecture](/img/clawrium-architecture.png)
+
+Clawrium runs from your control machine and uses SSH + Ansible to manage remote hosts from one CLI.
+
+## FAQ
+
+### What operating systems are supported?
+
+Clawrium is currently tested on Ubuntu control machines and Ubuntu target hosts only.
+
+### Which claws are supported today?
+
+OpenClaw is supported right now.
+
+ZeroClaw and additional claw types are planned.
+
+### Is Claude subscription supported?
+
+No. API keys are required by design.
+
+### Which channels are supported?
+
+Discord is supported right now. Additional channels are planned.
 
 ## User Data
 
