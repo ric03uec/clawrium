@@ -75,10 +75,7 @@
     "reload": {
       "mode": {{ gateway.reload_mode | default('hybrid') | tojson }},
       "debounceMs": {{ gateway.reload_debounce | default(300) | int }}
-    },
-    "channelHealthCheckMinutes": {{ gateway.channelHealthCheckMinutes | default(5) | int }},
-    "channelStaleEventThresholdMinutes": {{ gateway.channelStaleEventThresholdMinutes | default(60) | int }},
-    "channelMaxRestartsPerHour": {{ gateway.channelMaxRestartsPerHour | default(10) | int }}
+    }
   },
 {% set session = config.session | default({}) %}
   "session": {

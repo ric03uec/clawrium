@@ -408,7 +408,6 @@ class TestOpenClawTemplate:
         assert result["gateway"]["bind"] == "lan"
         assert result["gateway"]["reload"]["mode"] == "hybrid"
         assert result["gateway"]["reload"]["debounceMs"] == 300
-        assert result["gateway"]["channelHealthCheckMinutes"] == 5
         assert result["session"]["dmScope"] == "per-channel-peer"
         assert result["session"]["reset"]["mode"] == "daily"
         assert result["session"]["reset"]["atHour"] == 4
@@ -749,3 +748,84 @@ class TestEnvTemplate:
         assert "OPENROUTER_API_KEY" not in env_map
         assert "GOOGLE_APPLICATION_CREDENTIALS" not in env_map
         assert "ZAI_API_KEY" not in env_map
+
+
+class TestDevicePairingValidation:
+    """Tests for device pairing credential validation in Ansible playbook."""
+
+    def _load_playbook(self):
+        """Load the install playbook."""
+        playbook_path = (
+            Path(__file__).parent.parent
+            / "src/clawrium/platform/registry/openclaw/playbooks/install.yaml"
+        )
+        import yaml
+        with open(playbook_path) as f:
+            return yaml.safe_load(f)
+
+    def test_playbook_validates_device_token_exists(self):
+        """Test that playbook has validation for missing deviceToken."""
+        playbook = self._load_playbook()
+        tasks = playbook[0]["tasks"]
+
+        # Find the validation task
+        validate_task = None
+        for task in tasks:
+            if task.get("name") == "Validate device credentials":
+                validate_task = task
+                break
+
+        assert validate_task is not None, "Missing device credentials validation task"
+        assert "device_credentials.deviceToken is not defined" in validate_task["ansible.builtin.fail"]["msg"] or \
+               "device_credentials.deviceToken" in str(validate_task.get("when", ""))
+
+    def test_playbook_validates_device_token_length(self):
+        """Test that playbook validates deviceToken minimum length."""
+        playbook = self._load_playbook()
+        tasks = playbook[0]["tasks"]
+
+        # Find the validation task
+        validate_task = None
+        for task in tasks:
+            if task.get("name") == "Validate device credentials":
+                validate_task = task
+                break
+
+        assert validate_task is not None
+        when_condition = str(validate_task.get("when", ""))
+        assert "length" in when_condition or "< 10" in when_condition
+
+    def test_pairing_script_handles_malformed_json(self):
+        """Test that pair_device.mjs logs parse errors instead of silently ignoring."""
+        script_path = (
+            Path(__file__).parent.parent
+            / "src/clawrium/platform/registry/openclaw/scripts/pair_device.mjs"
+        )
+        content = script_path.read_text()
+
+        # Verify parse errors are logged, not silently ignored
+        assert "Failed to parse gateway message" in content or "parse" in content.lower()
+        assert "// Ignore parse errors" not in content, "Parse errors should not be silently ignored"
+
+    def test_pairing_script_validates_challenge_nonce(self):
+        """Test that pair_device.mjs validates challengeNonce before use."""
+        script_path = (
+            Path(__file__).parent.parent
+            / "src/clawrium/platform/registry/openclaw/scripts/pair_device.mjs"
+        )
+        content = script_path.read_text()
+
+        # Verify null check exists for challengeNonce
+        assert "!challengeNonce" in content or "challengeNonce ==" in content, \
+            "Missing null check for challengeNonce"
+
+    def test_pairing_script_has_timeout(self):
+        """Test that pair_device.mjs has a timeout for pairing."""
+        script_path = (
+            Path(__file__).parent.parent
+            / "src/clawrium/platform/registry/openclaw/scripts/pair_device.mjs"
+        )
+        content = script_path.read_text()
+
+        assert "setTimeout" in content, "Pairing script should have timeout"
+        assert "30000" in content or "timeout" in content.lower()

@@ -224,3 +224,4 @@ website/node_modules/
 website/build/
 website/.docusaurus/
 website/.cache-loader/
+.mcp.json

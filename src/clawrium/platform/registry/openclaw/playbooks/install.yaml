@@ -180,7 +180,7 @@
       become_user: "{{ agent_name }}"
       changed_when: true
 
-    - name: Run device pairing via localhost (auto-approved)
+    - name: Run device pairing via localhost
       ansible.builtin.command:
         cmd: "node pair_device.mjs ws://127.0.0.1:{{ openclaw_port }} {{ gateway_token_result_stdout }}"
         chdir: "/home/{{ agent_name }}"
