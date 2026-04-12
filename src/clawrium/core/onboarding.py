@@ -54,7 +54,7 @@ TRANSITIONS: dict[str, list[str]] = {
     "identity": ["channels"],
     "channels": ["validate"],
     "validate": ["ready", "channels"],  # Fail → back to fix
-    "ready": [],
+    "ready": ["ready"],  # Idempotent reinstall preserves READY state
 }
 
 

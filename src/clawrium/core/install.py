@@ -335,8 +335,9 @@ def run_installation(
         )
 
     # Step 5: Set installing state with uniqueness check under lock
-    # Use a list to capture the chosen name from inside the updater
+    # Use lists to capture values from inside updater closures
     chosen_name = [None]
+    preserved_onboarding = [None]  # Capture onboarding to restore after ansible succeeds
 
     def set_installing(h: dict) -> dict:
         # Check for incomplete installation under lock (unless cleanup or resume)
@@ -387,10 +388,11 @@ def run_installation(
             h["agents"][chosen_name[0]]["version"] = matched_version  # Update version
             h["agents"][chosen_name[0]]["type"] = claw_name
         else:
-            # Preserve existing onboarding state if reinstalling (unless cleanup_failed)
-            existing_onboarding = None
+            # Capture existing onboarding to restore AFTER ansible succeeds (not now)
+            # This prevents corrupted state if installation fails
+            # UNLESS cleanup_failed=True, then we force a fresh install
             if chosen_name[0] in h.get("agents", {}) and not cleanup_failed:
-                existing_onboarding = h["agents"][chosen_name[0]].get("onboarding")
+                preserved_onboarding[0] = h["agents"][chosen_name[0]].get("onboarding")
 
             h["agents"][chosen_name[0]] = {
                 "type": claw_name,
@@ -398,11 +400,11 @@ def run_installation(
                 "status": "installing",
                 "installed_at": None,
                 "error": None,
+                "agent_name": chosen_name[0],
             }
-
-            # Restore onboarding state if it existed
-            if existing_onboarding:
-                h["agents"][chosen_name[0]]["onboarding"] = existing_onboarding
+            # NOTE: Onboarding NOT restored here - will be restored in set_installed()
+            # after ansible succeeds to prevent status='failed' + onboarding='ready'
+            # cleanup_failed=True ensures preserved_onboarding[0] is None (fresh install)
         return h
 
     update_host(host["hostname"], set_installing)
@@ -700,6 +702,11 @@ def run_installation(
                 ).isoformat()
                 h["agents"][agent_name]["type"] = claw_name
 
+                # Restore preserved onboarding state (captured before ansible ran)
+                # This is done AFTER ansible succeeds to prevent corrupted state
+                if preserved_onboarding[0]:
+                    h["agents"][agent_name]["onboarding"] = preserved_onboarding[0]
+
                 # Store gateway authentication (OpenClaw only)
                 if gateway_token and gateway_url:
                     if "config" not in h["agents"][agent_name]:
@@ -772,6 +779,7 @@ def run_installation(
                 h["agents"][agent_name] = {
                     "type": claw_name,
                     "version": matched_version,
+                    "agent_name": agent_name,
                 }
             h["agents"][agent_name]["type"] = claw_name
             h["agents"][agent_name]["status"] = "failed"
