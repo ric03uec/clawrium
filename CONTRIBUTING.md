@@ -1,6 +1,6 @@
 # Contributing to Clawrium
 
-This guide explains how to contribute to Clawrium using the `/clm:*` workflow skills.
+This guide explains how to contribute to Clawrium using the `/itx:*` workflow skills.
 
 ## Quick Start
 
@@ -14,13 +14,13 @@ make install
 gh issue list --label ready
 
 # 3. Start working (in Claude Code)
-/clm:execute 42
+/itx:execute 42
 
 # 4. Verify your changes
-/clm:verify
+/itx:verify
 
 # 5. Get review
-/clm:review-pr
+/itx:review-pr
 ```
 
 ## Core Concepts
@@ -40,7 +40,7 @@ Issue titles describe what the user can do, not what you'll implement:
 
 ### Workflow Skills
 
-Claude Code skills (`/clm:*`) automate the workflow. They handle label transitions, create structured comments, and maintain prompt logs for reproducibility.
+Claude Code skills (`/itx:*`) automate the workflow. They handle label transitions, create structured comments, and maintain prompt logs for reproducibility.
 
 ## Setup
 
@@ -69,11 +69,11 @@ make lint
 ### Verify Skills are Available
 
 In Claude Code, run `/help` to see available skills. You should see:
-- `/clm:bug-new`
-- `/clm:issue-new`
-- `/clm:plan`
-- `/clm:execute`
-- `/clm:verify`
+- `/itx:bug-new`
+- `/itx:issue-new`
+- `/itx:plan`
+- `/itx:execute`
+- `/itx:verify`
 - etc.
 
 ## Workflow
@@ -87,7 +87,7 @@ In Claude Code, run `/help` to see available skills. You should see:
 └─────────┘    └──────────┘    └─────────┘    └───────┘    └─────────────┘    └───────────┘    └──────┘
       │              │               │              │               │                 │
       │              │               │              │               │                 │
-   /clm:triage  /clm:plan-build  /clm:plan-scaffold  /clm:execute    /clm:verify    PR merged
+   /itx:triage  /itx:plan-create  /itx:plan-scaffold  /itx:execute    /itx:verify    PR merged
 ```
 
 ### Step-by-Step Example
@@ -97,7 +97,7 @@ In Claude Code, run `/help` to see available skills. You should see:
 ```
 You: I tried to install zeroclaw but got a version mismatch error
 
-/clm:bug-new
+/itx:bug-new
 ```
 
 Claude asks: "What should the user be able to do when this bug is fixed?"
@@ -109,7 +109,7 @@ Result: Issue #42 created with title "User can install zeroclaw without version 
 #### 2. Plan the Work
 
 ```
-/clm:plan-build 42
+/itx:plan-create 42
 ```
 
 Claude:
@@ -122,7 +122,7 @@ Claude:
 #### 2b. Scaffold Execution (Optional but Recommended)
 
 ```
-/clm:plan-scaffold 42
+/itx:plan-scaffold 42
 ```
 
 Claude:
@@ -135,7 +135,7 @@ Claude:
 #### 3. Execute
 
 ```
-/clm:execute 42
+/itx:execute 42
 ```
 
 Claude uses a structured task checklist approach:
@@ -175,7 +175,7 @@ Issue moves: `ready` → `in-progress`
 #### 4. Verify
 
 ```
-/clm:verify
+/itx:verify
 ```
 
 Claude runs:
@@ -187,7 +187,7 @@ make lint   # No lint errors
 #### 5. Create PR and Review
 
 ```
-/clm:review-pr
+/itx:review-pr
 ```
 
 Claude:
@@ -218,32 +218,32 @@ After review passes and PR merges, issue closes automatically.
 
 | Skill | When to Use |
 |-------|-------------|
-| `/clm:bug-new` | Found a bug during development |
-| `/clm:bug-update 42 <text>` | Add context to existing bug |
-| `/clm:issue-new` | Have a feature idea |
-| `/clm:issue-update 42 <text>` | Add context to existing issue |
+| `/itx:bug-new` | Found a bug during development |
+| `/itx:bug-update 42 <text>` | Add context to existing bug |
+| `/itx:issue-new` | Have a feature idea |
+| `/itx:issue-update 42 <text>` | Add context to existing issue |
 
 ### Workflow
 
 | Skill | When to Use |
 |-------|-------------|
-| `/clm:triage` | Review issues without workflow labels |
-| `/clm:plan-build 42` | Create high-level implementation plan |
-| `/clm:plan-scaffold 42` | Create phased execution with entry/exit criteria |
-| `/clm:execute 42` | Start working on a ready issue |
-| `/clm:verify` | Before creating PR |
-| `/clm:review-pr` | Request code review |
-| `/clm:pr-status` | Check status of open PRs |
+| `/itx:triage` | Review issues without workflow labels |
+| `/itx:plan-create 42` | Create high-level implementation plan |
+| `/itx:plan-scaffold 42` | Create phased execution with entry/exit criteria |
+| `/itx:execute 42` | Start working on a ready issue |
+| `/itx:verify` | Before creating PR |
+| `/itx:review-pr` | Request code review |
+| `/itx:pr-status` | Check status of open PRs |
 
 ### Utilities
 
 | Skill | When to Use |
 |-------|-------------|
-| `/clm:note <text>` | Quick capture idea to NOTES.md |
+| `/itx:note <text>` | Quick capture idea to NOTES.md |
 
 ## Complex Issues: Parent/Subtask Pattern
 
-For large issues, `/clm:plan` may create subtasks:
+For large issues, `/itx:plan` may create subtasks:
 
 ```
 Parent Issue #100: "User can manage multiple hosts in batch"
@@ -257,10 +257,10 @@ Parent Issue #100: "User can manage multiple hosts in batch"
 
 ```bash
 # Execute parent (runs all subtasks sequentially)
-/clm:execute 100
+/itx:execute 100
 
 # Or execute individual subtask
-/clm:execute 101
+/itx:execute 101
 ```
 
 ### Completion Rules
@@ -282,18 +282,18 @@ Work on multiple issues simultaneously using git worktrees and tmux.
 
 ```bash
 # In main repo, spawn parallel executions
-/clm:execute 35 in a subtree
-/clm:execute 42 in a subtree
-/clm:execute 48 in a subtree
+/itx:execute 35 in a subtree
+/itx:execute 42 in a subtree
+/itx:execute 48 in a subtree
 
 # Attach to see progress
-tmux attach -t clm/exec
+tmux attach -t itx/exec
 ```
 
 ### How It Works
 
 ```
-/clm:execute 35 in a subtree
+/itx:execute 35 in a subtree
        │
        ▼
 ┌──────────────────────────────┐
@@ -304,7 +304,7 @@ tmux attach -t clm/exec
                ▼
 ┌──────────────────────────────┐
 │ 2. Spawn tmux window         │
-│    Session: clm/exec         │
+│    Session: itx/exec         │
 │    Window: issue-35          │
 └──────────────┬───────────────┘
                │
@@ -330,10 +330,10 @@ tmux attach -t clm/exec
 
 ```bash
 # View all execution windows
-tmux list-windows -t clm/exec
+tmux list-windows -t itx/exec
 
 # Attach to session
-tmux attach -t clm/exec
+tmux attach -t itx/exec
 
 # Switch between windows (inside tmux)
 # Ctrl-a n    (next window)
@@ -341,7 +341,7 @@ tmux attach -t clm/exec
 # Ctrl-a 0-9  (window by number)
 
 # Kill a specific window
-tmux kill-window -t "clm/exec:issue-35"
+tmux kill-window -t "itx/exec:issue-35"
 ```
 
 ### Cleanup After Merge
@@ -370,7 +370,7 @@ All PRs use ATX automated review. Requirements:
 - **Rating**: Must be > 3/5
 - **Blocking issues**: Must be zero
 
-If review fails, fix issues and re-run `/clm:review-pr`.
+If review fails, fix issues and re-run `/itx:review-pr`.
 
 See [AGENTS.md](AGENTS.md) for review format.
 
@@ -415,7 +415,7 @@ Skills automatically log prompts in issue comments:
 <summary>Prompt Log</summary>
 
 **Stage**: planning
-**Skill**: /clm:plan
+**Skill**: /itx:plan
 **Timestamp**: 2026-04-04T10:30:00Z
 **Model**: claude-opus-4-5-20251101
 
@@ -449,7 +449,7 @@ gh issue list --author @me
 ### What if I discover a bug while working?
 
 ```
-/clm:bug-new Found null pointer in host validation
+/itx:bug-new Found null pointer in host validation
 ```
 
 This creates a separate tracked issue without derailing your current work.
@@ -471,5 +471,5 @@ git commit -m "fix: address review feedback"
 git push
 
 # Re-request review
-/clm:review-pr
+/itx:review-pr
 ```
