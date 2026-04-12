@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+
+from rich.markup import escape
 from textual.widgets import DataTable
 
 from clawrium.cli.tui.data import AgentViewModel
 from clawrium.core.health import ClawStatus
 
 COLUMNS = ("", "Role", "Type", "Model", "Host", "Uptime", "Status")
+logger = logging.getLogger(__name__)
 
 
 def status_color(status: ClawStatus) -> str:
@@ -52,6 +56,7 @@ def status_label(status: ClawStatus, error: str | None = None) -> str:
     label = label_map.get(status, "unknown")
     if error and status == ClawStatus.UNKNOWN:
         display_error = error[:30] if len(error) > 30 else error
+        display_error = escape(display_error)
         label = f"unknown ({display_error})"
     return label
 
@@ -81,12 +86,12 @@ class AgentTable(DataTable):
             label = status_label(status, agent.get("health_error"))
             self.add_row(
                 status_dot(status),
-                agent["agent_name"],
-                agent["agent_type"],
-                agent["model"],
-                agent["host_alias"],
-                agent["uptime"],
-                f"[{status_color(status)}]{label}[/{status_color(status)}]",
+                escape(agent["agent_name"]),
+                escape(agent["agent_type"]),
+                escape(agent["model"]),
+                escape(agent["host_alias"]),
+                escape(agent["uptime"]),
+                f"[{status_color(status)}]{escape(label)}[/{status_color(status)}]",
                 key=agent["agent_key"] + "@" + agent["host"],
             )
 
@@ -101,6 +106,6 @@ class AgentTable(DataTable):
                 agent_key = agent["agent_key"] + "@" + agent["host"]
                 if agent_key == key_str:
                     return agent
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to resolve selected agent: %s", e)
         return None

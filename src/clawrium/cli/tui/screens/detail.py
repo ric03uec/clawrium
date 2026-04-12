@@ -7,15 +7,17 @@ from rich.markup import escape
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual import work
-from textual.screen import Screen
+from textual.screen import ModalScreen, Screen
 from textual.widgets import Label, Static
 from textual.worker import get_current_worker
 
 from clawrium.cli.tui.data import AgentViewModel, get_agent_detail
 from clawrium.cli.tui.widgets.detail_cards import DetailCards
+from clawrium.core.health import ClawStatus
+from clawrium.core.lifecycle import restart_agent, stop_agent
 
 
-class ConfirmModal(Screen):
+class ConfirmModal(ModalScreen[bool]):
     BINDINGS = [
         Binding("y", "confirm", "Yes", show=True),
         Binding("n", "cancel", "No", show=True),
@@ -67,91 +69,144 @@ class DetailScreen(Screen):
         )
 
     def action_go_back(self) -> None:
-        self.app.pop_screen()
+        self.dismiss()
+
+    def on_unmount(self) -> None:
+        self.app.sub_title = "Fleet Dashboard"
 
     def action_stop_agent(self) -> None:
+        if self._agent["status"] not in (ClawStatus.RUNNING, ClawStatus.DEGRADED):
+            self.notify("Agent is not running", severity="warning")
+            return
         agent_key = escape(self._agent["agent_key"])
         host = escape(self._agent["host"])
         self.app.push_screen(
             ConfirmModal(f"Stop {agent_key} on {host}?"),
-            callback=lambda confirmed: self._do_stop(confirmed) if confirmed else None,
+            callback=self._on_stop_confirmed,
         )
 
     def action_restart_agent(self) -> None:
+        if self._agent["status"] not in (ClawStatus.RUNNING, ClawStatus.DEGRADED):
+            self.notify("Agent is not restartable in current state", severity="warning")
+            return
         agent_key = escape(self._agent["agent_key"])
         host = escape(self._agent["host"])
         self.app.push_screen(
             ConfirmModal(f"Restart {agent_key} on {host}?"),
-            callback=lambda confirmed: (
-                self._do_restart(confirmed) if confirmed else None
-            ),
+            callback=self._on_restart_confirmed,
         )
 
-    @work(thread=True)
-    def _do_stop(self, confirmed: bool) -> None:
-        if not confirmed:
-            return
-        from clawrium.core.lifecycle import stop_agent
+    def _on_stop_confirmed(self, confirmed: bool) -> None:
+        if confirmed:
+            self._do_stop()
 
+    def _on_restart_confirmed(self, confirmed: bool) -> None:
+        if confirmed:
+            self._do_restart()
+
+    @work(thread=True)
+    def _do_stop(self) -> None:
+        worker = get_current_worker()
         agent_key = self._agent["agent_key"]
         host = self._agent["host"]
-        agent_type = self._agent["agent_type"]
+        current = get_agent_detail(agent_key, host)
+        if not current:
+            self.app.call_from_thread(self._on_agent_removed)
+            return
+        if current["status"] not in (ClawStatus.RUNNING, ClawStatus.DEGRADED):
+            self.app.call_from_thread(
+                self.notify, "Agent is no longer running", severity="warning"
+            )
+            if not worker.is_cancelled:
+                self._refresh_async()
+            return
+        agent_type = current["agent_type"]
         try:
             result = stop_agent(host, agent_type, agent_name=agent_key)
+            if worker.is_cancelled:
+                return
             if result["success"]:
                 self.app.call_from_thread(
                     self.notify,
-                    f"Stopped {agent_key} on {host}",
+                    f"Stopped {escape(agent_key)} on {escape(host)}",
                     severity="information",
                 )
             else:
                 self.app.call_from_thread(
                     self.notify,
-                    f"Failed to stop: {result.get('error', 'unknown')}",
+                    f"Failed to stop: {escape(str(result.get('error', 'unknown')))}",
                     severity="error",
                 )
         except Exception as e:
-            self.app.call_from_thread(self.notify, f"Error: {e}", severity="error")
-        self.app.call_from_thread(self._refresh_async)
+            if worker.is_cancelled:
+                return
+            self.app.call_from_thread(
+                self.notify, f"Error: {escape(str(e))}", severity="error"
+            )
+        if not worker.is_cancelled:
+            self._refresh_async()
 
     @work(thread=True)
-    def _do_restart(self, confirmed: bool) -> None:
-        if not confirmed:
-            return
-        from clawrium.core.lifecycle import restart_agent
-
+    def _do_restart(self) -> None:
+        worker = get_current_worker()
         agent_key = self._agent["agent_key"]
         host = self._agent["host"]
-        agent_type = self._agent["agent_type"]
+        current = get_agent_detail(agent_key, host)
+        if not current:
+            self.app.call_from_thread(self._on_agent_removed)
+            return
+        if current["status"] not in (ClawStatus.RUNNING, ClawStatus.DEGRADED):
+            self.app.call_from_thread(
+                self.notify,
+                "Agent is no longer restartable",
+                severity="warning",
+            )
+            if not worker.is_cancelled:
+                self._refresh_async()
+            return
+        agent_type = current["agent_type"]
         try:
             result = restart_agent(host, agent_type, agent_name=agent_key)
+            if worker.is_cancelled:
+                return
             if result["success"]:
                 self.app.call_from_thread(
                     self.notify,
-                    f"Restarted {agent_key} on {host}",
+                    f"Restarted {escape(agent_key)} on {escape(host)}",
                     severity="information",
                 )
             else:
                 self.app.call_from_thread(
                     self.notify,
-                    f"Failed to restart: {result.get('error', 'unknown')}",
+                    f"Failed to restart: {escape(str(result.get('error', 'unknown')))}",
                     severity="error",
                 )
         except Exception as e:
-            self.app.call_from_thread(self.notify, f"Error: {e}", severity="error")
-        self.app.call_from_thread(self._refresh_async)
+            if worker.is_cancelled:
+                return
+            self.app.call_from_thread(
+                self.notify, f"Error: {escape(str(e))}", severity="error"
+            )
+        if not worker.is_cancelled:
+            self._refresh_async()
 
-    @work(thread=True)
     def _refresh_async(self) -> None:
-        worker = get_current_worker()
         updated = get_agent_detail(self._agent["agent_key"], self._agent["host"])
-        if worker.is_cancelled:
-            return
         if updated:
-            self._agent = updated
             self.app.call_from_thread(self._update_cards, updated)
+        else:
+            self.app.call_from_thread(self._on_agent_removed)
 
     def _update_cards(self, updated: AgentViewModel) -> None:
+        if not self.is_attached:
+            return
         self._agent = updated
         cards = self.query_one("#detail-cards", DetailCards)
         cards.update_agent(updated)
+        self.app.refresh_fleet()
+
+    def _on_agent_removed(self) -> None:
+        if not self.is_attached:
+            return
+        self.notify("Agent no longer exists, returning to fleet", severity="warning")
+        self.dismiss()

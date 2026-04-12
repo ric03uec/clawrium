@@ -88,6 +88,9 @@ def get_fleet_data(
         for agent_key, claw_record in h.get("agents", {}).items():
             if not isinstance(claw_record, dict):
                 continue
+            if not AGENT_KEY_PATTERN.match(agent_key):
+                logger.warning("Invalid agent_key format: %.64r", agent_key)
+                continue
             result = check_claw_health_safe(agent_key, h)
             agent_name = (
                 claw_record.get("agent_name") or claw_record.get("name") or agent_key
@@ -184,7 +187,7 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
         agent_name = (
             claw_record.get("agent_name") or claw_record.get("name") or agent_key
         )
-        agent_type = claw_record.get("type", agent_key)
+        agent_type = claw_record.get("type", "unknown")
         version = claw_record.get("version", "?")
         config = claw_record.get("config", {})
         model = "-"
