@@ -1,18 +1,19 @@
 <p align="center">
-  <img src="docs/assets/clawrium-logo.png" alt="Clawrium Logo" width="400">
+  <img src="docs/assets/clawrium-logo.png" alt="Clawrium Logo" width="300">
+</p>
+
+# Clawrium
+
+<p align="center">
+  <strong>An aquarium for your claws.</strong>
 </p>
 
 <p align="center">
-  <h1 align="center">Clawrium</h1>
-  <p align="center">
-    <strong>Fleet management for AI agents on your local network.</strong>
-  </p>
-  <p align="center">
-    Deploy, upgrade, and monitor dozens of AI assistant instances across hosts - from one terminal.
-  </p>
-  <p align="center">
-    <a href="https://ric03uec.github.io/clawrium/">Documentation</a> · <a href="https://github.com/ric03uec/clawrium/issues">Issues</a> · <a href="https://github.com/users/ric03uec/projects/1">Roadmap</a>
-  </p>
+  Fleet management for AI agents on your local network.
+</p>
+
+<p align="center">
+  <a href="https://ric03uec.github.io/clawrium/">Documentation</a> · <a href="https://github.com/ric03uec/clawrium/issues">Issues</a> · <a href="https://github.com/users/ric03uec/projects/1">Roadmap</a>
 </p>
 
 ---
