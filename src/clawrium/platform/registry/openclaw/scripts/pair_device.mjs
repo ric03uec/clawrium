@@ -75,6 +75,13 @@ async function pairDevice() {
         if (msg.type === 'event' && msg.event === 'connect.challenge') {
           challengeNonce = msg.payload?.nonce;
 
+          if (!challengeNonce) {
+            console.error(JSON.stringify({ error: 'No challenge nonce received from gateway' }));
+            ws.close();
+            reject(new Error('No challenge nonce received'));
+            return;
+          }
+
           const signedAt = Date.now();
           const clientId = 'cli';
           const clientMode = 'cli';
@@ -142,7 +149,7 @@ async function pairDevice() {
           }
         }
       } catch (err) {
-        // Ignore parse errors
+        console.error(JSON.stringify({ error: 'Failed to parse gateway message', details: err.message }));
       }
     });
 
