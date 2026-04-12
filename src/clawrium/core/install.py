@@ -365,10 +365,14 @@ def run_installation(
         else:
             # Use custom/resume name, check uniqueness under lock (unless resuming)
             if not resume and not is_name_available_on_host(name, h):
-                raise InstallationError(
-                    f"Name '{name}' already in use on this host. "
-                    "Names must be unique across all agents on a host."
-                )
+                # Allow reinstalling over "installed" or "failed" agents (preserves onboarding)
+                # Block reinstalling over "installing" agents (use --resume or --cleanup-failed)
+                existing_agent = h.get("agents", {}).get(name)
+                if not existing_agent or existing_agent.get("status") not in ["installed", "failed"]:
+                    raise InstallationError(
+                        f"Name '{name}' already in use on this host. "
+                        "Names must be unique across all agents on a host."
+                    )
             chosen_name[0] = name
 
         if "agents" not in h:
@@ -383,6 +387,11 @@ def run_installation(
             h["agents"][chosen_name[0]]["version"] = matched_version  # Update version
             h["agents"][chosen_name[0]]["type"] = claw_name
         else:
+            # Preserve existing onboarding state if reinstalling (unless cleanup_failed)
+            existing_onboarding = None
+            if chosen_name[0] in h.get("agents", {}) and not cleanup_failed:
+                existing_onboarding = h["agents"][chosen_name[0]].get("onboarding")
+
             h["agents"][chosen_name[0]] = {
                 "type": claw_name,
                 "version": matched_version,
@@ -390,6 +399,10 @@ def run_installation(
                 "installed_at": None,
                 "error": None,
             }
+
+            # Restore onboarding state if it existed
+            if existing_onboarding:
+                h["agents"][chosen_name[0]]["onboarding"] = existing_onboarding
         return h
 
     update_host(host["hostname"], set_installing)
@@ -714,7 +727,7 @@ def run_installation(
                 try:
                     emit(
                         "warn",
-                        f"Onboarding setup incomplete — run `clm onboard init {host['hostname']} {agent_name}` to retry",
+                        f"Onboarding setup incomplete - run `clm onboard init {host['hostname']} {agent_name}` to retry",
                     )
                 except Exception:
                     logger.warning(
@@ -725,7 +738,7 @@ def run_installation(
             try:
                 emit(
                     "warn",
-                    f"Onboarding setup failed — run `clm onboard init {host['hostname']} {agent_name}` to retry",
+                    f"Onboarding setup failed - run `clm onboard init {host['hostname']} {agent_name}` to retry",
                 )
             except Exception:
                 logger.warning("Failed to emit onboarding warning event", exc_info=True)

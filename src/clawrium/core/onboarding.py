@@ -336,6 +336,9 @@ def initialize_onboarding(host: str, claw_name: str) -> bool:
     Creates the onboarding data structure with state=PENDING and all
     stages initialized to pending status.
 
+    This function is idempotent - if onboarding already exists, it skips
+    initialization to preserve existing state (e.g., during reinstalls).
+
     Args:
         host: Hostname or alias
         claw_name: Name of the agent
@@ -349,6 +352,10 @@ def initialize_onboarding(host: str, claw_name: str) -> bool:
     claw = _get_claw_record(host, claw_name)
     if claw is None:
         raise AgentNotFoundError(f"Agent '{claw_name}' not found on host '{host}'")
+
+    # Skip if onboarding already exists (idempotent behavior)
+    if "onboarding" in claw:
+        return True
 
     host_data = get_host(host)
     if not host_data:
