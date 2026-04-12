@@ -100,7 +100,6 @@ class TestDetailCards:
             status=ClawStatus.RUNNING,
             model="gpt-4o",
             uptime="2d 5h",
-            error=None,
             missing_secrets=None,
             onboarding_step=None,
             process_running=True,
@@ -126,7 +125,6 @@ class TestDetailCards:
             status=ClawStatus.DEGRADED,
             model="gpt-4o",
             uptime="-",
-            error=None,
             missing_secrets=["API_KEY", "SECRET_TOKEN"],
             onboarding_step=None,
             process_running=True,
@@ -134,6 +132,53 @@ class TestDetailCards:
         )
         cards = DetailCards(agent=agent)
         built = cards._build_cards(agent)
+        config_card = built[2]
+        secrets_rows = [r for r in config_card._rows if r[0] == "secrets"]
+        assert len(secrets_rows) == 1
+        assert "missing" in secrets_rows[0][1]
+        assert "2 key" in secrets_rows[0][1]
+
+    def test_secrets_not_rendered_as_raw_values(self):
+        agent = AgentViewModel(
+            agent_key="openclaw",
+            agent_name="opc-test",
+            agent_type="openclaw",
+            host="192.168.1.100",
+            host_alias="testhost",
+            version="1.0.0",
+            status=ClawStatus.RUNNING,
+            model="gpt-4o",
+            uptime="-",
+            missing_secrets=None,
+            onboarding_step=None,
+            process_running=True,
+            health_error=None,
+        )
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        config_card = built[2]
+        secrets_row = [r for r in config_card._rows if r[0] == "secrets"]
+        assert len(secrets_row) == 1
+        assert "sk-" not in secrets_row[0][1]
+
+    def test_rich_markup_escaped_in_error(self):
+        agent = AgentViewModel(
+            agent_key="openclaw",
+            agent_name="opc-test",
+            agent_type="openclaw",
+            host="192.168.1.100",
+            host_alias="testhost",
+            version="1.0.0",
+            status=ClawStatus.UNKNOWN,
+            model="gpt-4o",
+            uptime="-",
+            missing_secrets=None,
+            onboarding_step=None,
+            process_running=False,
+            health_error="Host [red]unreachable[/red]",
+        )
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
         identity = built[0]
-        keys = [row[0] for row in identity._rows]
-        assert "missing secrets" in keys
+        error_rows = [r for r in identity._rows if r[0] == "error"]
+        assert len(error_rows) == 1

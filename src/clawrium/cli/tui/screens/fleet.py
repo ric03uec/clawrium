@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual import work
 from textual.screen import Screen
 from textual.widgets import DataTable, Label
+from textual.worker import get_current_worker
 
 from clawrium.cli.tui.data import get_fleet_data
 from clawrium.cli.tui.widgets.agent_table import AgentTable
@@ -15,7 +17,6 @@ from clawrium.cli.tui.widgets.metrics_bar import MetricsBar
 class FleetScreen(Screen):
     BINDINGS = [
         Binding("d", "view_detail", "Details", show=True),
-        Binding("slash", "filter", "Filter", show=True),
         Binding("r", "refresh", "Refresh", show=True),
     ]
 
@@ -29,7 +30,7 @@ class FleetScreen(Screen):
         yield AgentTable(id="fleet-table")
 
     def on_mount(self) -> None:
-        self._load_data()
+        self._load_data_async()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         table = self.query_one("#fleet-table", AgentTable)
@@ -39,8 +40,15 @@ class FleetScreen(Screen):
 
             self.app.push_screen(DetailScreen(agent=agent))
 
-    def _load_data(self) -> None:
+    @work(thread=True)
+    def _load_data_async(self) -> None:
+        worker = get_current_worker()
         agents, summary = get_fleet_data(host_filter=self._filter_text or None)
+        if worker.is_cancelled:
+            return
+        self.app.call_from_thread(self._update_ui, agents, summary)
+
+    def _update_ui(self, agents, summary) -> None:
         metrics = self.query_one("#fleet-metrics", MetricsBar)
         metrics.update_summary(summary)
         table = self.query_one("#fleet-table", AgentTable)
@@ -57,31 +65,5 @@ class FleetScreen(Screen):
 
             self.app.push_screen(DetailScreen(agent=agent))
 
-    def action_filter(self) -> None:
-        self.app.push_screen(FilterModal())
-
     def action_refresh(self) -> None:
-        self._load_data()
-
-
-class FilterModal(Screen):
-    BINDINGS = [
-        Binding("escape", "dismiss_filter", "Cancel", show=True),
-    ]
-
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
-
-    def compose(self) -> ComposeResult:
-        yield Label(
-            "Filter by agent name or host (press Esc to cancel, Enter to apply)"
-        )
-
-    def on_key(self, event) -> None:
-        if event.key == "enter":
-            self.app.pop_screen()
-        elif event.key == "escape":
-            self.app.pop_screen()
-
-    def action_dismiss_filter(self) -> None:
-        self.app.pop_screen()
+        self._load_data_async()

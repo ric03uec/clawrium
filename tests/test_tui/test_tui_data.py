@@ -53,7 +53,6 @@ class TestCalculateUptime:
 
 class TestLoadHostsSafe:
     def test_returns_empty_on_corrupted(self, isolated_config):
-
         isolated_config.mkdir(parents=True, exist_ok=True)
         (isolated_config / "hosts.json").write_text("not json")
         assert load_hosts_safe() == []
@@ -261,8 +260,11 @@ class TestGetAgentDetail:
         assert detail["version"] == "1.0.0"
 
     def test_not_found(self, isolated_config):
-
         isolated_config.mkdir(parents=True, exist_ok=True)
         (isolated_config / "hosts.json").write_text("[]")
         result = get_agent_detail("nonexistent", "nohost")
+        assert result is None
+
+    def test_invalid_agent_key_rejected(self):
+        result = get_agent_detail("../../../etc/passwd", "somehost")
         assert result is None

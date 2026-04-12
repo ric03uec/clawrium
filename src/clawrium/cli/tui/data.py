@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import TypedDict
 
@@ -10,6 +11,8 @@ from clawrium.core.health import ClawStatus, HealthResult, check_claw_health
 from clawrium.core.hosts import HostsFileCorruptedError, load_hosts
 
 logger = logging.getLogger(__name__)
+
+AGENT_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
 class AgentViewModel(TypedDict):
@@ -22,7 +25,6 @@ class AgentViewModel(TypedDict):
     status: ClawStatus
     model: str
     uptime: str
-    error: str | None
     missing_secrets: list[str] | None
     onboarding_step: str | None
     process_running: bool | None
@@ -90,7 +92,7 @@ def get_fleet_data(
             agent_name = (
                 claw_record.get("agent_name") or claw_record.get("name") or agent_key
             )
-            agent_type = claw_record.get("type", agent_key)
+            agent_type = claw_record.get("type", "unknown")
             version = claw_record.get("version", "?")
             config = claw_record.get("config", {})
             model = "-"
@@ -122,7 +124,6 @@ def get_fleet_data(
                     status=status,
                     model=model,
                     uptime=calculate_uptime(started_at),
-                    error=result.get("error"),
                     missing_secrets=result.get("missing_secrets"),
                     onboarding_step=result.get("onboarding_step"),
                     process_running=result.get("process_running"),
@@ -165,6 +166,9 @@ def check_claw_health_safe(claw_name: str, host: dict) -> HealthResult:
 
 
 def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | None:
+    if not AGENT_KEY_PATTERN.match(agent_key):
+        logger.warning("Invalid agent_key format: %s", agent_key)
+        return None
     hosts = load_hosts_safe()
     for h in hosts:
         hostname = h.get("hostname", "")
@@ -206,7 +210,6 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
             status=status,
             model=model,
             uptime=calculate_uptime(started_at),
-            error=result.get("error"),
             missing_secrets=result.get("missing_secrets"),
             onboarding_step=result.get("onboarding_step"),
             process_running=result.get("process_running"),

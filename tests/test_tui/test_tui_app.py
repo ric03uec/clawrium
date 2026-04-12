@@ -17,11 +17,6 @@ class TestClawriumApp:
         binding_keys = [b.key for b in app.BINDINGS]
         assert "q" in binding_keys
 
-    def test_bindings_include_help(self):
-        app = ClawriumApp()
-        binding_keys = [b.key for b in app.BINDINGS]
-        assert "question" in binding_keys
-
 
 class TestLaunchTui:
     def test_launch_creates_app_and_runs(self):

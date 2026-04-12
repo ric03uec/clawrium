@@ -19,14 +19,9 @@ class ClawriumApp(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True),
-        Binding("question", "show_help", "Help", show=True),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield FleetScreen()
         yield Footer()
-
-    def on_screen_resume(self, event) -> None:
-        if isinstance(event.screen, FleetScreen):
-            self.sub_title = "Fleet Dashboard"

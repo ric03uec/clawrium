@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from rich.markup import escape
+
 from textual.app import ComposeResult
 from textual.containers import Grid
 from textual.widget import Widget
@@ -37,7 +39,7 @@ class DetailCard(Widget):
     def compose(self) -> ComposeResult:
         yield Label(self._title, classes="card-title")
         for key, value in self._rows:
-            yield Static(f"[dim]{key}[/dim]  {value}", classes="card-row")
+            yield Static(f"[dim]{key}[/dim]  {escape(str(value))}", classes="card-row")
 
 
 class DetailCards(Grid):
@@ -94,10 +96,14 @@ class DetailCards(Grid):
             ("est. cost / 7d", "N/A"),
         ]
 
+        secrets_status = "configured"
+        if agent.get("missing_secrets"):
+            secrets_status = f"missing: {len(agent['missing_secrets'])} key(s)"
+
         config_rows = [
             ("provider", "N/A"),
             ("gateway port", "N/A"),
-            ("secrets", "N/A"),
+            ("secrets", secrets_status),
         ]
 
         health_rows = [
@@ -105,12 +111,6 @@ class DetailCards(Grid):
             ("memory", "N/A"),
             ("errors / 24h", "N/A"),
         ]
-
-        if agent.get("missing_secrets"):
-            missing = ", ".join(agent["missing_secrets"][:3])
-            if len(agent["missing_secrets"]) > 3:
-                missing += f" +{len(agent['missing_secrets']) - 3} more"
-            identity_rows.append(("missing secrets", missing))
 
         if agent.get("health_error"):
             identity_rows.append(("error", agent["health_error"][:50]))

@@ -21,7 +21,6 @@ from clawrium.cli.chat import chat as chat_command
 from clawrium.cli.host import host_app
 from clawrium.cli.provider import provider_app
 from clawrium.cli.status import status as status_command
-from clawrium.cli.tui import launch_tui
 
 __all__ = ["app"]
 
@@ -109,7 +108,15 @@ def snapshot() -> None:
 @app.command()
 def tui() -> None:
     """Launch the interactive TUI dashboard."""
-    launch_tui()
+    try:
+        from clawrium.cli.tui import launch_tui
+
+        launch_tui()
+    except ImportError:
+        console.print(
+            "[red]Error:[/red] TUI requires textual. Install with: pip install clawrium"
+        )
+        raise typer.Exit(code=1)
 
 
 # Register agent subcommands (primary interface)
