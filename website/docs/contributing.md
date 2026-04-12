@@ -4,7 +4,7 @@ sidebar_position: 3
 
 # Contributing Workflow
 
-This guide explains how to contribute to Clawrium using the `/clm:*` workflow skills.
+This guide explains how to contribute to Clawrium using the `/itx:*` workflow skills.
 
 ## Workflow Overview
 
@@ -15,7 +15,7 @@ This guide explains how to contribute to Clawrium using the `/clm:*` workflow sk
 └─────────┘    └──────────┘    └─────────┘    └───────┘    └─────────────┘    └───────────┘    └──────┘
       │              │               │              │               │                 │
       │              │               │              │               │                 │
-   /clm:triage  /clm:plan-build  /clm:plan-scaffold  /clm:execute    /clm:verify    PR merged
+   /itx:triage  /itx:plan-create  /itx:plan-scaffold  /itx:execute    /itx:verify    PR merged
 ```
 
 ## Issue States
@@ -33,7 +33,7 @@ This guide explains how to contribute to Clawrium using the `/clm:*` workflow sk
 
 ## Planning Phases
 
-### Phase 1: Plan-Build (`/clm:plan-build`)
+### Phase 1: Plan-Build (`/itx:plan-create`)
 
 Creates a high-level implementation plan with:
 - Overview of the approach
@@ -44,7 +44,7 @@ Creates a high-level implementation plan with:
 
 **Transition**: `planning` → `planned`
 
-### Phase 2: Plan-Scaffold (`/clm:plan-scaffold`)
+### Phase 2: Plan-Scaffold (`/itx:plan-scaffold`)
 
 Creates phased execution with entry/exit criteria:
 
@@ -114,29 +114,29 @@ Phase 3: UI Integration
 
 | Skill | When to Use |
 |-------|-------------|
-| `/clm:bug-new` | Found a bug during development |
-| `/clm:issue-new` | Have a feature idea |
+| `/itx:bug-new` | Found a bug during development |
+| `/itx:issue-new` | Have a feature idea |
 
 ### Workflow
 
 | Skill | When to Use |
 |-------|-------------|
-| `/clm:triage` | Review issues without workflow labels |
-| `/clm:plan-build 42` | Create high-level implementation plan |
-| `/clm:plan-scaffold 42` | Create phased execution with entry/exit criteria |
-| `/clm:execute 42` | Start working on a ready issue |
-| `/clm:verify` | Before creating PR |
-| `/clm:review-pr` | Request code review |
+| `/itx:triage` | Review issues without workflow labels |
+| `/itx:plan-create 42` | Create high-level implementation plan |
+| `/itx:plan-scaffold 42` | Create phased execution with entry/exit criteria |
+| `/itx:execute 42` | Start working on a ready issue |
+| `/itx:verify` | Before creating PR |
+| `/itx:review-pr` | Request code review |
 
 ### Utilities
 
 | Skill | When to Use |
 |-------|-------------|
-| `/clm:note <text>` | Quick capture idea to NOTES.md |
+| `/itx:note <text>` | Quick capture idea to NOTES.md |
 
 ## Complex Issues: Parent/Subtask Pattern
 
-For large issues, `/clm:plan-build` may create subtasks:
+For large issues, `/itx:plan-create` may create subtasks:
 
 ```
 Parent Issue #100: "User can manage multiple hosts in batch"
@@ -150,10 +150,10 @@ Parent Issue #100: "User can manage multiple hosts in batch"
 
 ```bash
 # Execute parent (runs all subtasks sequentially)
-/clm:execute 100
+/itx:execute 100
 
 # Or execute individual subtask
-/clm:execute 101
+/itx:execute 101
 ```
 
 ### Completion Rules

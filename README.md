@@ -5,6 +5,13 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/ric03uec/clawrium/actions/workflows/ci.yml"><img src="https://github.com/ric03uec/clawrium/actions/workflows/ci.yml/badge.svg" alt="Build"></a>
+  <a href="https://pypi.org/project/clawrium/"><img src="https://img.shields.io/pypi/v/clawrium" alt="PyPI"></a>
+  <a href="https://pypi.org/project/clawrium/"><img src="https://img.shields.io/pypi/pyversions/clawrium" alt="Python"></a>
+  <a href="https://github.com/ric03uec/clawrium/blob/main/LICENSE"><img src="https://img.shields.io/github/license/ric03uec/clawrium" alt="License"></a>
+</p>
+
+<p align="center">
   <a href="https://ric03uec.github.io/clawrium/">Documentation</a> · <a href="https://github.com/ric03uec/clawrium/issues">Issues</a> · <a href="https://github.com/users/ric03uec/projects/1">Roadmap</a>
 </p>
 

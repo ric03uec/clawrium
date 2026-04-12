@@ -1,25 +1,50 @@
 # Clawrium - An aquarium for *claws
 
-Clawrium is a CLI tool (`clm`) for managing AI agent fleets (ZeroClaw, NemoClaw, OpenClaw, or any other agent) on local networks. It allows users to deploy and manage multiple agent instances across hosts without dealing with each host separately. Using Clawrium, you can
-1. manage any number of assistants on your local network
-2. manage the agent lifecycle (upgrades, secrets management, backups etc)
-3. track token usage across different agents and build guardrails
-4. experiment with different models across your agent fleet
+## How It Works
 
-## Resources
+Clawrium is a CLI tool (`clm`) that manages AI agent fleets across your local network. Point it at any machine, and it handles deployment, configuration, and lifecycle management via SSH and Ansible.
 
-- Repository: https://github.com/ric03uec/clawrium
-- Project Board: https://github.com/users/ric03uec/projects/1
+```
+Your Machine (clm CLI)
+    │
+    ├── Host A ──> zeroclaw instance
+    ├── Host B ──> openclaw instance
+    └── Host C ──> nemoclaw instance, zeroclaw instance
+```
 
-## Version
+## Why
 
-26.04.01
+- **Single pane of glass**: Manage all agents from one CLI instead of SSH-ing to each host
+- **Consistent lifecycle**: Same commands for install, configure, start, stop, remove across all agent types
+- **Secrets management**: Secure API key storage with per-agent isolation
+- **Fleet visibility**: `clm ps` shows status of all agents across all hosts
 
-## Tech Stack
+## Who Is This For
 
-- **CLI**: Python + Typer
-- **Execution**: ansible-runner
-- **Packaging**: uv/uvx
+- **Homelabbers**: Run multiple AI assistants on spare hardware
+- **Teams**: Standardize agent deployment across developer machines
+- **Experimenters**: Try different models/agents without manual setup on each host
+
+## Quickstart
+
+```bash
+# Install
+pip install clawrium
+
+# Add a host
+clm host init 192.168.1.100 --user myuser
+clm host add 192.168.1.100 --alias mybox
+
+# Install an agent
+clm agent install --type openclaw --host mybox
+
+# Configure and start
+clm agent configure <agent-name>
+clm agent start <agent-name>
+
+# Check fleet status
+clm ps
+```
 
 ## Key Concepts
 
@@ -29,9 +54,18 @@ Clawrium is a CLI tool (`clm`) for managing AI agent fleets (ZeroClaw, NemoClaw,
 - **Agent Name**: The unique identifier for an installed agent instance
 - **Registry**: Platform-defined agent types with versions, dependencies, and templates
 
-## User Data
+## Resources
 
-All user configuration stored in `~/.config/clawrium/`
+- Repository: https://github.com/ric03uec/clawrium
+- Project Board: https://github.com/users/ric03uec/projects/1
+- Version: 26.04.01
+
+## Tech Stack
+
+- **CLI**: Python + Typer
+- **Execution**: ansible-runner
+- **Packaging**: uv/uvx
+- **User Data**: `~/.config/clawrium/`
 
 ## Development
 
@@ -62,30 +96,30 @@ Example:
 ~/projects/clawrium-issue-35/  # Worktree for issue 35
 ```
 
-Trigger with: `/clm:execute 35 in a subtree` or `/clm:execute 35 --worktree`
+Trigger with: `/itx:execute 35 in a subtree` or `/itx:execute 35 --worktree`
 
 ### Quick Reference
 
 ```
-New Issue → /clm:triage → /clm:plan-build → /clm:plan-scaffold → /clm:execute → /clm:verify → /clm:review-pr → Merge
+New Issue → /itx:triage → /itx:plan-create → /itx:plan-scaffold → /itx:execute → /itx:verify → /itx:review-pr → Merge
 ```
 
 ### Skills
 
 | Skill | Purpose |
 |-------|---------|
-| `/clm:bug-new` | Create bug issue (asks for customer outcome) |
-| `/clm:issue-new` | Create feature issue (asks for customer outcome) |
-| `/clm:triage` | Review unlabeled issues |
-| `/clm:plan-build <n>` | Create high-level implementation plan |
-| `/clm:plan-scaffold <n>` | Create phased execution with entry/exit criteria |
-| `/clm:execute <n>` | Execute issue (parent or subtask) |
-| `/clm:verify` | Run tests and lint |
-| `/clm:review-pr [n]` | ATX review of PR |
+| `/itx:bug-new` | Create bug issue (asks for customer outcome) |
+| `/itx:issue-new` | Create feature issue (asks for customer outcome) |
+| `/itx:triage` | Review unlabeled issues |
+| `/itx:plan-create <n>` | Create high-level implementation plan |
+| `/itx:plan-scaffold <n>` | Create phased execution with entry/exit criteria |
+| `/itx:execute <n>` | Execute issue (parent or subtask) |
+| `/itx:verify` | Run tests and lint |
+| `/itx:review-pr [n]` | ATX review of PR |
 
 ### Task-Based Execution
 
-The `/clm:execute` skill uses a structured task checklist approach to prevent getting lost during execution:
+The `/itx:execute` skill uses a structured task checklist approach to prevent getting lost during execution:
 
 **Planning Phase (Mandatory)**:
 1. Read implementation plan from issue
