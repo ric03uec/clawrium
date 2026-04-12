@@ -64,6 +64,12 @@ Clawrium gives you `kubectl`-style fleet control for AI agents:
 - **Token tracking & guardrails.** See spend across your fleet. Set limits before someone's experiment burns through your API budget.
 - **Model experimentation.** Swap models across agents to compare performance without touching individual configs.
 
+## Who this is for
+
+Clawrium is for **engineers running AI agents in non-trivial setups** - home labs, dev teams, research groups. If you have more than one agent running on more than one machine, this tool exists for you.
+
+It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup. It's a Python CLI that talks to your machines via Ansible. You own everything.
+
 ## Quickstart
 
 **Requirements:** Python 3.11+, [uv](https://docs.astral.sh/uv/)
@@ -97,12 +103,6 @@ clm chat my-assistant
 
 **→ Full setup guide, claw types, and configuration reference: [ric03uec.github.io/clawrium](https://ric03uec.github.io/clawrium/)**
 
-## Who this is for
-
-Clawrium is for **engineers running AI agents in non-trivial setups** - home labs, dev teams, research groups. If you have more than one agent running on more than one machine, this tool exists for you.
-
-It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup. It's a Python CLI that talks to your machines via Ansible. You own everything.
-
 ## Key Concepts
 
 | Concept | What it is |
@@ -112,6 +112,20 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
 | **Registry** | Platform-defined claw types with versions, deps, and templates |
 
 ## FAQ
+
+### What operating systems are supported?
+
+Right now, Clawrium is only tested on Ubuntu hosts and Ubuntu control machines.
+
+Other Linux distributions may work, but they are not currently part of the test matrix.
+
+### Does Clawrium install Docker or Kubernetes?
+
+No. Clawrium does not require Docker or Kubernetes. It manages agent processes over SSH using Ansible.
+
+### Can I manage multiple hosts with different agent types?
+
+Yes. You can register multiple hosts and run different claws on each host (for example, OpenClaw on one host and NemoClaw on another) from the same `clm` control node.
 
 ### Why not Kubernetes?
 
