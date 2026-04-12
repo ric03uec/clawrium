@@ -21,7 +21,7 @@ Clawrium solves this by providing a single interface to manage any number of cla
 
 ## Features
 
-### Universal Claw Support
+### 🌐 Universal Claw Support
 
 Manage any claw from a single command center:
 - [ZeroClaw](https://github.com/zeroclaw/zeroclaw)
@@ -30,11 +30,11 @@ Manage any claw from a single command center:
 - [NanoClaw](https://github.com/nanoclaw/nanoclaw)
 - [IronClaw](https://github.com/ironclaw/ironclaw)
 
-### Normalized Configuration
+### ⚙️ Normalized Configuration
 
 One config format, every claw. Define your preferences once and Clawrium translates them for each claw's native format.
 
-### Multi-Model Freedom
+### 🔓 Multi-Model Freedom
 
 Run any model across your fleet:
 - **Open models**: NVIDIA Nemotron, GLM-4, MiniMax

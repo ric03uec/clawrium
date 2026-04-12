@@ -40,7 +40,7 @@ function UnlockIcon() {
 
 const FeatureList: FeatureItem[] = [
   {
-    title: 'Universal Claw Support',
+    title: '🌐 Universal Claw Support',
     icon: <ClawIcon />,
     description: (
       <>
@@ -50,7 +50,7 @@ const FeatureList: FeatureItem[] = [
     ),
   },
   {
-    title: 'Normalized Configuration',
+    title: '⚙️ Normalized Configuration',
     icon: <GearIcon />,
     description: (
       <>
@@ -60,7 +60,7 @@ const FeatureList: FeatureItem[] = [
     ),
   },
   {
-    title: 'Multi-Model Freedom',
+    title: '🔓 Multi-Model Freedom',
     icon: <UnlockIcon />,
     description: (
       <>
