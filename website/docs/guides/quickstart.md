@@ -6,15 +6,25 @@ keywords: [quickstart, tutorial, first claw, deploy, get started]
 
 # Quickstart
 
-Deploy your first AI assistant claw in under 10 minutes. This guide walks through the complete workflow from installation to a running claw.
+Deploy your first OpenClaw instance in under 10 minutes. This guide walks through the complete workflow from installation to a running claw.
 
 ## Prerequisites
 
 - Clawrium installed ([Installation Guide](../installation.md))
 - A target machine (physical or VM) with:
-  - Ubuntu 22.04/24.04 or Debian 13
+  - Ubuntu 22.04/24.04
   - SSH access with sudo privileges
   - Network connectivity from your management machine
+
+## Install Clawrium
+
+Use one of the following commands on your control machine:
+
+```bash
+uv tool install clawrium
+# or
+python -m pip install clawrium
+```
 
 ## Step 1: Initialize Clawrium
 
@@ -72,42 +82,39 @@ Example output:
 ```
 Available Claws:
   openclaw    Open-source AI assistant framework
-  zeroclaw    Lightweight AI assistant for edge devices
 ```
 
-Get details about a specific claw:
+Get details about OpenClaw:
 
 ```bash
-clm registry show zeroclaw
+clm registry show openclaw
 ```
 
 ## Step 5: Configure Secrets
 
-Most claws require secrets (API keys, endpoints) to function. Check what secrets a claw needs:
+OpenClaw requires provider credentials. Check what secrets are needed:
 
 ```bash
-clm secret list zc-homelab
+clm secret list oc-homelab
 ```
 
 Set the required secrets:
 
 ```bash
-# For zeroclaw - point to your LLM provider
-clm secret set zc-homelab LLM_PROVIDER_URL
-# Enter: http://192.168.1.50:11434  (your Ollama server, for example)
+# For openclaw - set provider credentials
+clm secret set oc-homelab OPENAI_API_KEY
 
-clm secret set zc-homelab LLM_MODEL
-# Enter: llama3
+clm secret set oc-homelab ANTHROPIC_API_KEY
 ```
 
 The secret value is entered via masked prompt (not visible on screen).
 
 ## Step 6: Install the Claw
 
-Install zeroclaw on your host:
+Install OpenClaw on your host:
 
 ```bash
-clm install --claw zeroclaw --host homelab
+clm install --claw openclaw --host homelab
 ```
 
 Clawrium will:
