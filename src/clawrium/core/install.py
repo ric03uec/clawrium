@@ -714,7 +714,7 @@ def run_installation(
                 try:
                     emit(
                         "warn",
-                        f"Onboarding setup incomplete — run `clm onboard init {host['hostname']} {agent_name}` to retry",
+                        f"Onboarding setup incomplete - run `clm onboard init {host['hostname']} {agent_name}` to retry",
                     )
                 except Exception:
                     logger.warning(
@@ -725,7 +725,7 @@ def run_installation(
             try:
                 emit(
                     "warn",
-                    f"Onboarding setup failed — run `clm onboard init {host['hostname']} {agent_name}` to retry",
+                    f"Onboarding setup failed - run `clm onboard init {host['hostname']} {agent_name}` to retry",
                 )
             except Exception:
                 logger.warning("Failed to emit onboarding warning event", exc_info=True)

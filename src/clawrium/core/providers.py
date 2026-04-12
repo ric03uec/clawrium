@@ -285,7 +285,7 @@ def validate_ollama_url(url: str) -> str:
         raise InvalidOllamaUrlError("URL must include a hostname")
 
     # Resolve hostname to IP and block cloud metadata endpoints only.
-    # Private/loopback IPs are allowed — Ollama runs on local networks.
+    # Private/loopback IPs are allowed - Ollama runs on local networks.
     try:
         addr_info = socket.getaddrinfo(
             hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
