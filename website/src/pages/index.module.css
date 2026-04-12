@@ -21,12 +21,12 @@
   }
 
   .heroLogo {
-    max-width: 280px;
+    max-width: 150px;
   }
 }
 
 .heroLogo {
-  max-width: 450px;
+  max-width: 200px;
   height: auto;
   margin-bottom: 1.5rem;
   filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2));
