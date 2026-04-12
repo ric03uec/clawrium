@@ -144,9 +144,9 @@ class TestTransitions:
         assert "ready" in TRANSITIONS["validate"]
         assert "channels" in TRANSITIONS["validate"]
 
-    def test_ready_is_terminal(self):
-        """ready has no outgoing transitions."""
-        assert TRANSITIONS["ready"] == []
+    def test_ready_is_idempotent(self):
+        """ready can transition to itself (idempotent reinstall)."""
+        assert TRANSITIONS["ready"] == ["ready"]
 
     def test_all_states_have_transitions(self):
         """All OnboardingState values are in TRANSITIONS."""
