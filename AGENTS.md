@@ -15,7 +15,7 @@ Clawrium is a CLI tool (`clm`) for managing AI agent fleets (ZeroClaw, NemoClaw,
 
 ## Version
 
-26.3.1
+26.04.01
 
 ## Tech Stack
 

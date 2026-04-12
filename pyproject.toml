@@ -1,6 +1,6 @@
 [project]
 name = "clawrium"
-version = "0.1.0"
+version = "26.04.01"
 description = "CLI tool for managing AI assistant fleets"
 readme = "README.md"
 requires-python = ">=3.10"
