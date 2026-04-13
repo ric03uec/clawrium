@@ -1,4 +1,4 @@
-# <img src="docs/assets/clawrium-logo.png" alt="Clawrium" height="40" align="center"> Clawrium - An aquarium for *claws
+# <img src="docs/assets/clawrium-logo.png" alt="Clawrium" height="40" align="center"> Clawrium - An aquarium for agents
 
 <p align="center">
   Fleet management for AI agents on your local network.
@@ -31,8 +31,8 @@ You're running multiple AI agents - coding assistants, internal tools, experimen
 
 Clawrium gives you `kubectl`-style fleet control for AI agents:
 
-- **One CLI, all hosts.** Add machines to your fleet and deploy any claw type to any host.
-- **Specialized agents.** Each claw does one job and does it well. Instead of one overloaded assistant, run a fleet of purpose-built agents - a coding agent, a review agent, a research agent - each with its own context, data, and configuration isolated from the rest.
+- **One CLI, all hosts.** Add machines to your fleet and deploy any agent type to any host.
+- **Specialized agents.** Each agent does one job and does it well. Instead of one overloaded assistant, run a fleet of purpose-built agents - a coding agent, a review agent, a research agent - each with its own context, data, and configuration isolated from the rest.
 - **Local inference.** Use hardware you already have - Mac Minis, [NVIDIA DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/), spare servers - as inference providers. Run smaller open models like Gemma, GPT-4o-mini, Kimi, or Llama locally and point multiple agents at them.
 - **Model experimentation.** Swap models across agents to compare performance without touching individual configs.
 - **Lifecycle management.** Upgrades, rollbacks, secrets rotation, backups - handled.
@@ -46,7 +46,7 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
 
 ## Quickstart
 
-**Requirements:** Python 3.11+, [uv](https://docs.astral.sh/uv/)
+**Requirements:** Python 3.10+, [uv](https://docs.astral.sh/uv/)
 
 ```bash
 # Install (pick one)
@@ -62,16 +62,19 @@ clm init
 
 # Set up a host
 clm host init 192.168.1.100 --user your-username
-clm host add worker-1
+clm host add 192.168.1.100 --alias worker-1
 
 # Add inference provider (e.g., Anthropic for Claude models)
-clm provider add anthropic
+clm provider add anthropic --type anthropic
 
 # Install an agent
-clm agent install --type openclaw --host worker-1 --name my-assistant
+clm agent install --type <agent-type> --host worker-1 --name my-assistant
 
 # Configure the agent
-clm agent onboard my-assistant
+clm agent configure my-assistant
+
+# Start the agent
+clm agent start my-assistant
 
 # Check fleet status
 clm ps
@@ -80,53 +83,61 @@ clm ps
 clm chat my-assistant
 ```
 
-**→ Full setup guide, claw types, and configuration reference: [ric03uec.github.io/clawrium](https://ric03uec.github.io/clawrium/)**
+**→ Full setup guide, agent types, and configuration reference: [ric03uec.github.io/clawrium](https://ric03uec.github.io/clawrium/)**
 
 ## Key Concepts
 
 | Concept | What it is |
 |---------|-----------|
-| **Host** | A machine in your network running one or more claws |
-| **Claw** | An AI assistant instance (OpenClaw, NemoClaw, ZeroClaw, or custom) |
-| **Registry** | Platform-defined claw types with versions, deps, and templates |
+| **Host** | A machine in your network running one or more agents |
+| **Agent** | An installed AI assistant instance managed by Clawrium |
+| **Agent Type** | The implementation/runtime class of an agent |
+| **Agent Name** | The unique identifier for an installed agent instance |
+| **Registry** | Platform-defined agent types with versions, dependencies, and templates |
 
 ## FAQ
 
-### What operating systems are supported?
+### 1. What operating systems are supported?
 
 Right now, Clawrium is only tested on Ubuntu hosts and Ubuntu control machines.
 
 Other Linux distributions may work, but they are not currently part of the test matrix.
 
-### Which claws are supported today?
+### 2. Which agents are supported today?
 
-Right now, only OpenClaw is officially supported and tested end-to-end.
+Right now, one agent type is officially supported and tested end-to-end.
 
-ZeroClaw and additional claws are planned.
+Additional agent types are planned.
 
-### Is Claude subscription supported?
+### 3. Is Claude subscription supported?
 
 No. Clawrium supports API keys only, by design.
 
-### Which channels are supported?
+### 4. Which channels are supported?
 
 Discord is supported right now.
 
 Additional channels are planned.
 
-### Does Clawrium install Docker or Kubernetes?
+### 5. Does Clawrium install Docker or Kubernetes?
 
 No. Clawrium does not require Docker or Kubernetes. It manages agent processes over SSH using Ansible.
 
-### Can I manage multiple hosts with different agent types?
+### 6. Can I manage multiple hosts with different agent types?
 
-Yes. You can register multiple hosts and run different claws on each host (for example, OpenClaw on one host and NemoClaw on another) from the same `clm` control node.
+Yes. You can register multiple hosts and run different agent types on each host from the same `clm` control node.
 
-### Why not Kubernetes?
+### 7. Why doesn't it support x-agent and y-feature?
+
+I'm building Clawrium in my spare time, so I prioritize my own use cases first.
+
+If you want support for a specific agent type or feature, please open an issue and send a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
+### 8. Why not Kubernetes?
 
 **Two reasons:**
 
-1. **Most AI agents don't support it.** OpenClaw, NemoClaw, ZeroClaw - these run as local processes, not containerized services. They expect a home directory, local config files, and direct access to the host. Wrapping them in containers adds friction with no payoff.
+1. **Most AI agent runtimes don't support it.** These run as local processes, not containerized services. They expect a home directory, local config files, and direct access to the host. Wrapping them in containers adds friction with no payoff.
 
 2. **K8s is overkill for local fleets.** You're managing 3-10 machines on a LAN, not orchestrating microservices across cloud regions. Kubernetes brings etcd, control planes, networking overlays, RBAC, and a learning curve that dwarfs the problem. You don't need a container scheduler - you need to SSH into a box and run a process.
 
