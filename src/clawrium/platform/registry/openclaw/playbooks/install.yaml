@@ -123,7 +123,7 @@
           WorkingDirectory=/home/{{ agent_name }}/workspace
           EnvironmentFile=/home/{{ agent_name }}/.openclaw/env
           ExecStart={{ openclaw_runtime_binary }} gateway run --allow-unconfigured
-          Restart=on-failure
+          Restart=always
           RestartSec=5
 
           [Install]

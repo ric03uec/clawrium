@@ -19,6 +19,43 @@
         msg: "OpenClaw service not installed. Run 'clm agent install' first."
       when: not service_file.stat.exists
 
+    - name: Discover openclaw binary in PATH
+      ansible.builtin.command: which openclaw
+      register: openclaw_which_result
+      changed_when: false
+      failed_when: false
+
+    - name: Set openclaw binary path
+      ansible.builtin.set_fact:
+        openclaw_runtime_binary: "{{ openclaw_which_result.stdout if (openclaw_which_result.rc | default(1)) == 0 else '/home/' ~ agent_name ~ '/.openclaw/bin/openclaw' }}"
+
+    - name: Sync systemd service file
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+        content: |
+          [Unit]
+          Description=OpenClaw AI Assistant ({{ agent_name }})
+          After=network.target
+
+          [Service]
+          Type=simple
+          User={{ agent_name }}
+          WorkingDirectory=/home/{{ agent_name }}/workspace
+          EnvironmentFile=/home/{{ agent_name }}/.openclaw/env
+          ExecStart={{ openclaw_runtime_binary }} gateway run --allow-unconfigured
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+      register: service_file_changed
+
+    - name: Reload systemd if service file changed
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      when: service_file_changed.changed
+
     - name: Start openclaw service
       ansible.builtin.systemd:
         name: "{{ agent_type }}-{{ agent_name }}"
