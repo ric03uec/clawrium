@@ -106,7 +106,8 @@
 {% if config.identity is defined %}
   "identity": {{ config.identity | tojson }},
 {% endif %}
-{% if config.provider is defined and config.provider.type == "ollama" and config.provider.endpoint %}
+{% if config.provider is defined and config.provider.type == "ollama" and config.provider.endpoint and config.provider.default_model is defined and config.provider.default_model %}
+{% set ollama_model_id = config.provider.default_model | replace('ollama/', '', 1) %}
   "models": {
     "providers": {
       "ollama": {
@@ -115,13 +116,13 @@
         "api": "ollama",
         "models": [
           {
-            "id": {{ config.provider.default_model | tojson }},
-            "name": {{ config.provider.default_model | tojson }},
+            "id": {{ ollama_model_id | tojson }},
+            "name": {{ ollama_model_id | tojson }},
             "reasoning": false,
             "input": ["text"],
             "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-            "contextWindow": 131072,
-            "maxTokens": 16384
+            "contextWindow": {{ config.provider.context_window | default(131072) }},
+            "maxTokens": {{ config.provider.max_tokens | default(16384) }}
           }
         ]
       }

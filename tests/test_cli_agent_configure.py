@@ -1212,3 +1212,139 @@ class TestConfigurePreservesGatewayAuth:
         # Verify URL was preserved
         gateway_config = captured_config[0]["gateway"]
         assert gateway_config["url"] == "ws://custom-host:9999"
+
+    def test_preserves_channels_during_provider_switch(self, isolated_config: Path):
+        """Test that channels config is preserved when switching providers."""
+        from clawrium.cli.agent import _sync_provider_config
+
+        create_test_keypair(isolated_config, "work")
+
+        # Create host with channels config
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_file = isolated_config / "hosts.json"
+        hosts_data = [
+            {
+                "hostname": "192.168.1.100",
+                "key_id": "work",
+                "port": 22,
+                "agent_name": "xclm",
+                "alias": "work",
+                "auth_method": "key",
+                "agents": {
+                    "openclaw": {
+                        "version": "0.1.0",
+                        "status": "installed",
+                        "agent_name": "assistant",
+                        "onboarding": {"state": "ready"},
+                        "config": {
+                            "gateway": {"port": 40000, "bind": "lan"},
+                            "provider": {
+                                "name": "old-provider",
+                                "type": "openrouter",
+                                "default_model": "openai/gpt-4o",
+                            },
+                            "channels": {
+                                "discord": {
+                                    "enabled": True,
+                                    "token": {"source": "env", "id": "DISCORD_BOT_TOKEN"},
+                                    "allowFrom": ["123456789"],
+                                }
+                            },
+                        },
+                    }
+                },
+            }
+        ]
+        hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+        # New provider to switch to
+        provider = {
+            "name": "new-provider",
+            "type": "ollama",
+            "endpoint": "http://localhost:11434",
+            "default_model": "llama3.1:8b",
+        }
+
+        # Capture the config_data passed to configure_agent
+        captured_config = []
+
+        def mock_configure(
+            hostname, claw_name, config_data, agent_name=None, on_event=None
+        ):
+            captured_config.append(config_data.copy())
+            return True, None
+
+        with patch(
+            "clawrium.core.lifecycle.configure_agent", side_effect=mock_configure
+        ):
+            _sync_provider_config(
+                "work", "openclaw", provider, installed_name="openclaw"
+            )
+
+        # Verify channels were preserved
+        assert "channels" in captured_config[0]
+        assert captured_config[0]["channels"]["discord"]["enabled"] is True
+        assert captured_config[0]["channels"]["discord"]["allowFrom"] == ["123456789"]
+
+    def test_does_not_add_channels_when_absent(self, isolated_config: Path):
+        """Test that channels key is not added when not present in existing config."""
+        from clawrium.cli.agent import _sync_provider_config
+
+        create_test_keypair(isolated_config, "work")
+
+        # Create host without channels config
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_file = isolated_config / "hosts.json"
+        hosts_data = [
+            {
+                "hostname": "192.168.1.100",
+                "key_id": "work",
+                "port": 22,
+                "agent_name": "xclm",
+                "alias": "work",
+                "auth_method": "key",
+                "agents": {
+                    "openclaw": {
+                        "version": "0.1.0",
+                        "status": "installed",
+                        "agent_name": "assistant",
+                        "onboarding": {"state": "ready"},
+                        "config": {
+                            "gateway": {"port": 40000, "bind": "lan"},
+                            "provider": {
+                                "name": "old-provider",
+                                "type": "openrouter",
+                                "default_model": "openai/gpt-4o",
+                            },
+                            # No channels key
+                        },
+                    }
+                },
+            }
+        ]
+        hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+        provider = {
+            "name": "new-provider",
+            "type": "ollama",
+            "endpoint": "http://localhost:11434",
+            "default_model": "llama3.1:8b",
+        }
+
+        captured_config = []
+
+        def mock_configure(
+            hostname, claw_name, config_data, agent_name=None, on_event=None
+        ):
+            captured_config.append(config_data.copy())
+            return True, None
+
+        with patch(
+            "clawrium.core.lifecycle.configure_agent", side_effect=mock_configure
+        ):
+            _sync_provider_config(
+                "work", "openclaw", provider, installed_name="openclaw"
+            )
+
+        # Verify channels key was not added
+        assert "channels" not in captured_config[0]

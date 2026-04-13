@@ -564,6 +564,88 @@ class TestOpenClawTemplate:
         assert success is True, f"Configuration failed: {error}"
         assert error is None
 
+    def test_template_ollama_renders_models_block(self):
+        """Test that ollama provider generates models.providers.ollama block."""
+        config = {
+            "provider": {
+                "type": "ollama",
+                "endpoint": "http://localhost:11434",
+                "default_model": "llama3.1:8b",
+            },
+        }
+        result = self._render_template(config)
+
+        # Verify models.providers.ollama structure
+        assert "models" in result
+        assert "providers" in result["models"]
+        assert "ollama" in result["models"]["providers"]
+        ollama = result["models"]["providers"]["ollama"]
+        assert ollama["baseUrl"] == "http://localhost:11434"
+        assert ollama["apiKey"] == "ollama-local"
+        assert ollama["api"] == "ollama"
+        assert len(ollama["models"]) == 1
+        assert ollama["models"][0]["id"] == "llama3.1:8b"
+        assert ollama["models"][0]["name"] == "llama3.1:8b"
+        assert ollama["models"][0]["contextWindow"] == 131072
+        assert ollama["models"][0]["maxTokens"] == 16384
+
+    def test_template_ollama_no_models_block_without_endpoint(self):
+        """Test that ollama without endpoint does not generate models block."""
+        config = {
+            "provider": {
+                "type": "ollama",
+                "default_model": "llama3.1:8b",
+                # No endpoint
+            },
+        }
+        result = self._render_template(config)
+
+        # models block should not exist
+        assert "models" not in result
+
+    def test_template_ollama_no_models_block_without_default_model(self):
+        """Test that ollama without default_model does not crash."""
+        config = {
+            "provider": {
+                "type": "ollama",
+                "endpoint": "http://localhost:11434",
+                # No default_model
+            },
+        }
+        result = self._render_template(config)
+
+        # Should not crash, models block should not exist
+        assert "models" not in result
+
+    def test_template_ollama_strips_prefix_in_models_id(self):
+        """Test that pre-prefixed ollama model has correct id without double prefix."""
+        config = {
+            "provider": {
+                "type": "ollama",
+                "endpoint": "http://localhost:11434",
+                "default_model": "ollama/llama3.1:8b",  # Already prefixed
+            },
+        }
+        result = self._render_template(config)
+
+        # models[].id should be stripped of ollama/ prefix
+        assert result["models"]["providers"]["ollama"]["models"][0]["id"] == "llama3.1:8b"
+        # But model.primary should keep the prefix
+        assert result["agents"]["defaults"]["model"]["primary"] == "ollama/llama3.1:8b"
+
+    def test_template_ollama_model_gets_prefix(self):
+        """Test that unprefixed ollama model gets ollama/ prefix in model.primary."""
+        config = {
+            "provider": {
+                "type": "ollama",
+                "endpoint": "http://localhost:11434",
+                "default_model": "llama3.1:8b",  # Not prefixed
+            },
+        }
+        result = self._render_template(config)
+
+        assert result["agents"]["defaults"]["model"]["primary"] == "ollama/llama3.1:8b"
+
 
 class TestEnvTemplate:
     """Tests for OpenClaw .env.j2 template rendering."""
