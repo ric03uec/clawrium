@@ -10,13 +10,13 @@ Clawrium provides the `clm` command-line interface for managing your AI claw fle
 ## Installation
 
 ```bash
-uvx clawrium
+uv tool install clawrium
 ```
 
-Or install globally:
+Or run without installing:
 
 ```bash
-uv tool install clawrium
+uvx --from clawrium clm --help
 ```
 
 ## Command Structure

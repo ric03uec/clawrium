@@ -114,7 +114,7 @@ def tui() -> None:
         launch_tui()
     except ImportError:
         console.print(
-            "[red]Error:[/red] TUI requires textual. Install with: pip install clawrium"
+            "[red]Error:[/red] TUI requires textual. Reinstall with: uv tool install --force clawrium"
         )
         raise typer.Exit(code=1)
 

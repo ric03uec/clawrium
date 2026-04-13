@@ -49,10 +49,11 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
 **Requirements:** Python 3.10+, [uv](https://docs.astral.sh/uv/)
 
 ```bash
-# Install (pick one)
+# Install
 uv tool install clawrium
-# or
-pip install clawrium
+
+# Or run without installing
+uvx --from clawrium clm --help
 
 # Run
 clm --help
