@@ -355,7 +355,9 @@ class TestOpenClawTemplate:
         }
         result = self._render_template(config)
 
-        assert result["agents"]["defaults"]["model"] == {"primary": "anthropic/claude-sonnet-4-6"}
+        assert result["agents"]["defaults"]["model"] == {
+            "primary": "anthropic/claude-sonnet-4-6"
+        }
         assert result["agents"]["defaults"]["workspace"] == "~/.openclaw/workspace"
         assert result["agents"]["defaults"]["maxConcurrent"] == 4
         assert result["gateway"]["port"] == 18789
@@ -629,7 +631,9 @@ class TestOpenClawTemplate:
         result = self._render_template(config)
 
         # models[].id should be stripped of ollama/ prefix
-        assert result["models"]["providers"]["ollama"]["models"][0]["id"] == "llama3.1:8b"
+        assert (
+            result["models"]["providers"]["ollama"]["models"][0]["id"] == "llama3.1:8b"
+        )
         # But model.primary should keep the prefix
         assert result["agents"]["defaults"]["model"]["primary"] == "ollama/llama3.1:8b"
 

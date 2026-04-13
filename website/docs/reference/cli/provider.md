@@ -6,7 +6,9 @@ Manage inference providers (LLM APIs) for claw instances.
 clm provider <command> [options]
 ```
 
-Providers are configured locally in `~/.config/clawrium/providers.json`. API keys are stored securely in `~/.config/clawrium/secrets.yml` and are never transmitted in plain text.
+Providers are configured locally in `~/.config/clawrium/providers.json`. API keys and AWS credentials are stored securely in `~/.config/clawrium/secrets.yml` and are never transmitted in plain text.
+
+> **Provider Types:** Most providers use API keys for authentication. AWS Bedrock requires AWS Access Key and Secret Key instead.
 
 ## Commands
 
@@ -82,6 +84,25 @@ Available models:
 Select default model (number or name): 1
 Provider 'local-llm' added successfully!
 ```
+
+Add an AWS Bedrock provider:
+
+```bash
+$ clm provider add my-bedrock --type bedrock
+AWS Bedrock requires Access Key and Secret Key
+AWS Access Key ID: ********
+**
+AWS Secret Access Key: ********
+**
+Available models for bedrock:
+  1. anthropic.claude-opus-4-20250514-v1:0
+  2. anthropic.claude-sonnet-4-20250514-v1:0
+  3. anthropic.claude-3-5-sonnet-20241022-v2:0
+Select default model (number or name): 2
+Provider 'my-bedrock' added successfully!
+```
+
+> **Note:** The `**` shown after entering credentials provides visual confirmation that the paste was successful, since the input is hidden.
 
 ### Exit Codes
 
@@ -179,6 +200,19 @@ $ clm provider edit myopenai --update-key
 New API key: ********
 API key updated.
 Provider 'myopenai' updated successfully!
+```
+
+Update AWS Bedrock credentials:
+
+```bash
+$ clm provider edit my-bedrock --update-key
+AWS Bedrock requires Access Key and Secret Key
+New AWS Access Key ID: ********
+**
+New AWS Secret Access Key: ********
+**
+AWS credentials updated.
+Provider 'my-bedrock' updated successfully!
 ```
 
 ### Exit Codes

@@ -15,10 +15,13 @@ from clawrium.core.providers import (
     get_models_for_type,
     get_provider,
     get_provider_api_key,
+    get_provider_aws_credentials,
     load_providers,
     remove_provider,
     remove_provider_api_key,
+    remove_provider_aws_credentials,
     set_provider_api_key,
+    set_provider_aws_credentials,
     update_provider,
     validate_ollama_url,
     validate_provider_name,
@@ -181,6 +184,70 @@ def add(
             "updated_at": now,
         }
 
+        # Ollama doesn't require credentials
+        credentials_to_store = None
+
+    elif provider_type == "bedrock":
+        # Bedrock requires AWS Access Key and Secret Key (not API key)
+        models = get_models_for_type(provider_type)
+
+        console.print("[dim]AWS Bedrock requires Access Key and Secret Key[/dim]")
+
+        # Get AWS Access Key securely via interactive prompt
+        access_key = typer.prompt("AWS Access Key ID", hide_input=True)
+        if access_key:
+            console.print("[dim]**[/dim]")  # Visual feedback for paste
+        if not access_key:
+            console.print("[red]Error:[/red] AWS Access Key is required")
+            raise typer.Exit(code=1)
+
+        # Get AWS Secret Key securely via interactive prompt
+        secret_key = typer.prompt("AWS Secret Access Key", hide_input=True)
+        if secret_key:
+            console.print("[dim]**[/dim]")  # Visual feedback for paste
+        if not secret_key:
+            console.print("[red]Error:[/red] AWS Secret Key is required")
+            raise typer.Exit(code=1)
+
+        # Select default model
+        if model and models and model not in models:
+            console.print(
+                f"[yellow]Warning:[/yellow] Model '{rich_escape(model)}' not in known models for {provider_type}"
+            )
+            if not typer.confirm("Continue anyway?"):
+                raise typer.Exit(code=0)
+
+        if not model and models:
+            console.print(f"\nAvailable models for {provider_type}:")
+            for i, m in enumerate(models, 1):
+                console.print(f"  {i}. {rich_escape(m)}")
+
+            choice = typer.prompt(
+                "Select default model (number or name)",
+                default="1",
+            )
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(models):
+                    model = models[idx]
+                else:
+                    model = choice
+            except ValueError:
+                model = choice
+
+        # Build Bedrock provider record (AWS credentials stored separately in secrets)
+        now = datetime.now(timezone.utc).isoformat()
+        provider_record = {
+            "name": name,
+            "type": provider_type,
+            "default_model": model,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        # Credentials will be stored after provider record is persisted
+        credentials_to_store = ("aws", access_key, secret_key)
+
     else:
         # Cloud provider - requires API key
         models = get_models_for_type(provider_type)
@@ -228,15 +295,22 @@ def add(
             "updated_at": now,
         }
 
-        # Store API key securely (B1 fix)
-        set_provider_api_key(name, api_key)
+        # Credentials will be stored after provider record is persisted
+        credentials_to_store = ("api_key", api_key)
 
-    # Add provider
+    # Add provider record first, then store credentials (B1 fix - prevents orphaned secrets)
     try:
         add_provider(provider_record)
     except DuplicateProviderError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
+
+    # Store credentials only after provider record is successfully persisted
+    if credentials_to_store is not None:
+        if credentials_to_store[0] == "aws":
+            set_provider_aws_credentials(name, credentials_to_store[1], credentials_to_store[2])
+        elif credentials_to_store[0] == "api_key":
+            set_provider_api_key(name, credentials_to_store[1])
 
     console.print(f"[green]Provider '{name}' added successfully![/green]")
 
@@ -282,6 +356,13 @@ def list_providers() -> None:
         # For Ollama, show endpoint instead of masked key
         if provider_type == "ollama":
             key_display = rich_escape(provider.get("endpoint", "-"))
+        elif provider_type == "bedrock":
+            # For Bedrock, show masked AWS Access Key
+            access_key, secret_key = get_provider_aws_credentials(provider_name)
+            if access_key and secret_key:
+                key_display = _mask_api_key(access_key)
+            else:
+                key_display = "-"
         else:
             # Fetch API key from secure storage
             api_key = get_provider_api_key(provider_name)
@@ -367,21 +448,39 @@ def edit(
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(code=1)
 
-    # Handle API key update for non-Ollama providers
+    # Handle credential update for non-Ollama providers
     if update_key:
         if provider.get("type") == "ollama":
             console.print(
-                "[yellow]Warning:[/yellow] Ollama providers don't use API keys"
+                "[yellow]Warning:[/yellow] Ollama providers don't use API keys. "
+                "Use '--url' to update the server URL."
             )
+            raise typer.Exit(code=0)
+        elif provider.get("type") == "bedrock":
+            # Bedrock uses AWS Access Key and Secret Key
+            console.print("[dim]AWS Bedrock requires Access Key and Secret Key[/dim]")
+            new_access_key = typer.prompt("New AWS Access Key ID", hide_input=True)
+            if new_access_key:
+                console.print("[dim]**[/dim]")  # Visual feedback for paste
+            new_secret_key = typer.prompt("New AWS Secret Access Key", hide_input=True)
+            if new_secret_key:
+                console.print("[dim]**[/dim]")  # Visual feedback for paste
+            if new_access_key and new_secret_key:
+                set_provider_aws_credentials(name, new_access_key, new_secret_key)
+                console.print("[green]AWS credentials updated.[/green]")
+            else:
+                console.print(
+                    "[red]Error:[/red] Both Access Key and Secret Key are required"
+                )
+                raise typer.Exit(code=1)
         else:
             new_api_key = typer.prompt("New API key", hide_input=True)
             if new_api_key:
                 set_provider_api_key(name, new_api_key)
                 console.print("[green]API key updated.[/green]")
             else:
-                console.print(
-                    "[yellow]Warning:[/yellow] Empty API key provided, skipping update"
-                )
+                console.print("[red]Error:[/red] API key cannot be empty")
+                raise typer.Exit(code=1)
 
     def apply_updates(p: dict) -> dict:
         if model is not None:
@@ -435,8 +534,12 @@ def remove(
             raise typer.Exit(code=0)
 
     if remove_provider(name):
-        # Also remove API key from secure storage
-        remove_provider_api_key(name)
+        # Also remove credentials from secure storage
+        provider_type = provider.get("type")
+        if provider_type == "bedrock":
+            remove_provider_aws_credentials(name)
+        elif provider_type != "ollama":
+            remove_provider_api_key(name)
         console.print(f"[green]Provider '{name}' removed successfully.[/green]")
     else:
         console.print("[red]Error:[/red] Failed to remove provider")
