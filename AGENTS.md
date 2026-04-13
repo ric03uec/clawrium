@@ -190,7 +190,7 @@ Detailed explanation of changes.
 Closes #XX
 
 ATX Review Summary
-Review 1: Rating 2/5
+Review 1: Rating 2/5 | Cost: $0.12 | Time: 45s
 Blocking issues:
 | # | Status | Issue |
 |---|--------|-------|
@@ -218,10 +218,10 @@ Include detailed ATX review after Summary and Testing sections:
 
 **Final Review: Rating 4/5**
 
-| Review | Rating | Blocking Issues | Status |
-|--------|--------|-----------------|--------|
-| 1 | 2/5 | B1, B2, B3 | All fixed |
-| 2 | 4/5 | None | Ready |
+| Review | Rating | Blocking Issues | Status | Cost | Time |
+|--------|--------|-----------------|--------|------|------|
+| 1 | 2/5 | B1, B2, B3 | All fixed | $0.12 | 45s |
+| 2 | 4/5 | None | Ready | $0.08 | 32s |
 
 <details>
 <summary>Review 1 Details (Rating 2/5)</summary>
