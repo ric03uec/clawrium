@@ -305,12 +305,17 @@ def _sync_provider_config(
         "endpoint": provider.get("endpoint", ""),
         "default_model": provider.get("default_model", ""),
     }
+    # Pass through optional ollama config fields
+    if provider.get("context_window"):
+        provider_config["context_window"] = provider["context_window"]
+    if provider.get("max_tokens"):
+        provider_config["max_tokens"] = provider["max_tokens"]
 
     # Build complete config data
     config_data = {"gateway": gateway_config, "provider": provider_config}
 
     # Preserve existing channels config (Discord pairing, etc.)
-    if existing_config.get("channels"):
+    if "channels" in existing_config:
         config_data["channels"] = existing_config["channels"]
 
     # Call configure_agent to apply configuration via Ansible

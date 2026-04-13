@@ -121,8 +121,8 @@
             "reasoning": false,
             "input": ["text"],
             "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-            "contextWindow": {{ config.provider.context_window | default(131072) }},
-            "maxTokens": {{ config.provider.max_tokens | default(16384) }}
+            "contextWindow": {{ config.provider.context_window | default(131072) | int }},
+            "maxTokens": {{ config.provider.max_tokens | default(16384) | int }}
           }
         ]
       }

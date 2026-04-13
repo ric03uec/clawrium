@@ -46,6 +46,7 @@
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
+      no_log: true
       when: config.provider is defined and config.provider.default_model is defined
       notify: Restart openclaw service
 
