@@ -1,13 +1,13 @@
 ---
 sidebar_position: 1
 slug: /
-description: Clawrium is a CLI tool for managing AI assistant fleets on local networks. Deploy and manage OpenClaw instances across hosts from a single command center.
-keywords: [clawrium, AI assistant, fleet management, CLI tool, multi-host, openclaw]
+description: Clawrium is a CLI tool for managing AI assistant fleets on local networks. Deploy and manage agent instances across hosts from a single command center.
+keywords: [clawrium, AI assistant, fleet management, CLI tool, multi-host, agent]
 ---
 
 # Introduction
 
-Clawrium is a CLI tool for managing AI assistant fleets on local networks. Deploy and manage multiple claw instances across hosts from a single command center.
+Clawrium is a CLI tool for managing AI assistant fleets on local networks. Deploy and manage multiple agent instances across hosts from a single command center.
 
 ## Why Clawrium?
 
@@ -15,8 +15,8 @@ You're running multiple AI agents - coding assistants, internal tools, experimen
 
 Clawrium gives you `kubectl`-style fleet control for AI agents:
 
-- **One CLI, all hosts.** Add machines to your fleet and deploy any claw type to any host.
-- **Specialized agents.** Each claw does one job and does it well. Instead of one overloaded assistant, run a fleet of purpose-built agents - a coding agent, a review agent, a research agent - each with its own context, data, and configuration isolated from the rest.
+- **One CLI, all hosts.** Add machines to your fleet and deploy any agent type to any host.
+- **Specialized agents.** Each agent does one job and does it well. Instead of one overloaded assistant, run a fleet of purpose-built agents - a coding agent, a review agent, a research agent - each with its own context, data, and configuration isolated from the rest.
 - **Local inference.** Use hardware you already have - Mac Minis, [NVIDIA DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/), spare servers - as inference providers. Run smaller open models like Gemma, GPT-4o-mini, Kimi, or Llama locally and point multiple agents at them.
 - **Model experimentation.** Swap models across agents to compare performance without touching individual configs.
 - **Lifecycle management.** Upgrades, rollbacks, secrets rotation, backups - handled.
@@ -24,15 +24,15 @@ Clawrium gives you `kubectl`-style fleet control for AI agents:
 
 ## Features
 
-### 🌐 OpenClaw Support (Current)
+### 🌐 Agent Support (Current)
 
-Today, Clawrium supports OpenClaw for end-to-end install, onboarding, and lifecycle management.
+Today, Clawrium supports one agent type for end-to-end install, onboarding, and lifecycle management.
 
-Support for ZeroClaw and additional claw types is planned.
+Support for additional agent types is planned.
 
 ### ⚙️ Normalized Configuration
 
-One config format, every claw. Define your preferences once and Clawrium translates them for each claw's native format.
+One config format, every agent. Define your preferences once and Clawrium translates them for each agent runtime's native format.
 
 ### 🔓 Multi-Model Freedom
 
@@ -57,25 +57,34 @@ clm host add 192.168.1.100 --alias myhost
 clm host list
 
 # Check host status
-clm host status myhost
+clm host ps myhost
 
-# Browse available claw types
-clm registry list
+# Browse available agent types
+clm agent registry list
 
-# Install a claw on a host
-clm install --claw openclaw --host myhost
+# Add inference provider
+clm provider add anthropic --type anthropic
 
-# Set a secret for a claw
-clm secret set oc-myhost OPENAI_API_KEY
+# Install an agent on a host
+clm agent install --type <agent-type> --host myhost --name my-agent
+
+# Set a secret for an agent
+clm agent secret set my-agent OPENAI_API_KEY
+
+# Configure and start the agent
+clm agent configure my-agent
+clm agent start my-agent
 ```
 
 ## Key Concepts
 
 | Concept | Description |
 |---------|-------------|
-| **Host** | A machine in your network that runs one or more claws |
-| **Claw** | An AI assistant instance (currently OpenClaw) |
-| **Registry** | Platform-defined claw types with versions, dependencies, and requirements |
+| **Host** | A machine in your network that runs one or more agents |
+| **Agent** | An installed AI assistant instance managed by Clawrium |
+| **Agent Type** | The implementation/runtime class of an agent |
+| **Agent Name** | The unique identifier for an installed agent instance |
+| **Registry** | Platform-defined agent types with versions, dependencies, and templates |
 
 ## Architecture
 
@@ -85,23 +94,29 @@ Clawrium runs from your control machine and uses SSH + Ansible to manage remote 
 
 ## FAQ
 
-### What operating systems are supported?
+### 1. What operating systems are supported?
 
 Clawrium is currently tested on Ubuntu control machines and Ubuntu target hosts only.
 
-### Which claws are supported today?
+### 2. Which agents are supported today?
 
-OpenClaw is supported right now.
+One agent type is supported right now.
 
-ZeroClaw and additional claw types are planned.
+Additional agent types are planned.
 
-### Is Claude subscription supported?
+### 3. Is Claude subscription supported?
 
 No. API keys are required by design.
 
-### Which channels are supported?
+### 4. Which channels are supported?
 
 Discord is supported right now. Additional channels are planned.
+
+### 5. Why doesn't it support x-agent and y-feature?
+
+I'm building Clawrium in my spare time, so I prioritize my own use cases first.
+
+If you want support for a specific agent type or feature, please open an issue and send a PR. See the [Contributing Guidelines](https://github.com/ric03uec/clawrium/blob/main/CONTRIBUTING.md).
 
 ## User Data
 
@@ -112,11 +127,11 @@ Clawrium stores configuration in `~/.config/clawrium/` (or `$XDG_CONFIG_HOME/cla
 | `hosts.json` | Registered hosts and metadata (0600 permissions) |
 | `keys/<hostname>/xclm_ed25519` | Private key for SSH to host |
 | `keys/<hostname>/xclm_ed25519.pub` | Public key added to host's authorized_keys |
-| `secrets/<claw-name>/<key>` | Encrypted secrets for claw instances |
+| `secrets/<agent-name>/<key>` | Encrypted secrets for agent instances |
 
 ## Next Steps
 
 - [Installation](./installation.md) - Install Clawrium
-- [Quickstart](./guides/quickstart.md) - Deploy your first claw
+- [Quickstart](./guides/quickstart.md) - Deploy your first agent
 - [Host Setup](./guides/host-setup.md) - Detailed host preparation guide
 - [Architecture](./architecture.md) - Understand how Clawrium works

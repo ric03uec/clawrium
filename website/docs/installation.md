@@ -6,7 +6,7 @@ keywords: [install, setup, requirements, uvx, pip, python]
 
 # Installation
 
-This guide covers installing Clawrium on your management machine (the computer you'll use to control your claw fleet).
+This guide covers installing Clawrium on your management machine (the computer you'll use to control your agent fleet).
 
 ## Prerequisites
 
@@ -60,7 +60,7 @@ Run the `clm` command to verify installation:
 clm --help
 ```
 
-You should see:
+You should see output similar to:
 
 ```
  Usage: clm [OPTIONS] COMMAND [ARGS]...
@@ -68,12 +68,12 @@ You should see:
  Clawrium - Manage your AI assistant fleet
 
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
-│ init      Initialize Clawrium and check dependencies.                        │
-│ install   Install a claw on a host.                                          │
-│ status    Show fleet status across all hosts.                                │
+│ init      Initialize Clawrium and check dependencies                         │
 │ host      Manage hosts in your fleet                                         │
-│ registry  Browse available claw types                                        │
-│ secret    Manage secrets for claw instances                                  │
+│ provider  Manage inference providers (LLM APIs)                              │
+│ agent     Manage agents in your fleet                                        │
+│ ps        Show fleet status across all hosts                                 │
+│ chat      Chat with a deployed agent                                         │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -91,5 +91,5 @@ This creates:
 
 ## Next Steps
 
-- [Quickstart: Deploy your first claw](./guides/quickstart.md)
+- [Quickstart: Deploy your first agent](./guides/quickstart.md)
 - [Host Setup Guide](./guides/host-setup.md)
