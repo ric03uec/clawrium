@@ -29,7 +29,7 @@ Your Machine (clm CLI)
 
 ```bash
 # Install
-pip install clawrium
+uv tool install clawrium
 
 # Add a host
 clm host init 192.168.1.100 --user myuser

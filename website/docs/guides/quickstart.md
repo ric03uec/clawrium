@@ -18,12 +18,10 @@ Deploy your first OpenClaw instance in under 10 minutes. This guide walks throug
 
 ## Install Clawrium
 
-Use one of the following commands on your control machine:
+Install on your control machine:
 
 ```bash
 uv tool install clawrium
-# or
-python -m pip install clawrium
 ```
 
 ## Step 1: Initialize Clawrium

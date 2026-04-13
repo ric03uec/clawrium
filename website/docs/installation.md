@@ -1,7 +1,7 @@
 ---
 sidebar_position: 2
 description: Install Clawrium CLI on your management machine. Requirements, installation methods, and initial setup.
-keywords: [install, setup, requirements, uvx, pip, python]
+keywords: [install, setup, requirements, uv, uvx, python]
 ---
 
 # Installation
@@ -11,7 +11,7 @@ This guide covers installing Clawrium on your management machine (the computer y
 ## Prerequisites
 
 - **Python 3.10 or higher**
-- **uvx** (recommended) or pip
+- **uv** ([install guide](https://docs.astral.sh/uv/getting-started/installation/))
 
 ### Check Python Version
 
@@ -20,13 +20,13 @@ python3 --version
 # Should be 3.10 or higher
 ```
 
-### Install uvx
+### Install uv
 
-If you don't have uvx, install it via pipx or brew:
+If you don't have uv, install it:
 
 ```bash
-# Using pipx (recommended)
-pipx install uv
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Or using Homebrew on macOS
 brew install uv
@@ -34,23 +34,19 @@ brew install uv
 
 ## Install Clawrium
 
-### Using uvx (Recommended)
-
-```bash
-uvx clawrium
-```
-
-This runs the latest version of Clawrium without permanent installation. To install permanently:
+### Install Permanently (Recommended)
 
 ```bash
 uv tool install clawrium
 ```
 
-### Using pip
+### Run Without Installing
 
 ```bash
-pip install clawrium
+uvx --from clawrium clm --help
 ```
+
+This runs the latest version without permanent installation.
 
 ## Verify Installation
 
