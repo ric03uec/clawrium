@@ -1,0 +1,8 @@
+{
+  "label": "Channels",
+  "position": 5,
+  "link": {
+    "type": "generated-index",
+    "description": "Communication channel setup guides for Clawrium agents."
+  }
+}
