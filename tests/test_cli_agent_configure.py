@@ -1246,7 +1246,10 @@ class TestConfigurePreservesGatewayAuth:
                             "channels": {
                                 "discord": {
                                     "enabled": True,
-                                    "token": {"source": "env", "id": "DISCORD_BOT_TOKEN"},
+                                    "token": {
+                                        "source": "env",
+                                        "id": "DISCORD_BOT_TOKEN",
+                                    },
                                     "allowFrom": ["123456789"],
                                 }
                             },

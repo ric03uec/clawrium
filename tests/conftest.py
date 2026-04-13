@@ -143,12 +143,14 @@ def sample_host_data():
 
 @pytest.fixture
 def sample_provider_data():
-    """Return sample provider data for testing."""
+    """Return sample provider data for testing.
+
+    Note: API keys are stored in secrets, not in the provider record.
+    """
     return {
         "name": "test-openai",
         "type": "openai",
         "default_model": "gpt-4o",
-        "api_key": "sk-test123456789",
         "created_at": "2026-04-05T12:00:00+00:00",
         "updated_at": "2026-04-05T12:00:00+00:00",
     }

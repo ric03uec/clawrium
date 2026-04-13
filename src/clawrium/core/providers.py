@@ -33,6 +33,9 @@ __all__ = [
     "set_provider_api_key",
     "get_provider_api_key",
     "remove_provider_api_key",
+    "set_provider_aws_credentials",
+    "get_provider_aws_credentials",
+    "remove_provider_aws_credentials",
     "ProvidersFileCorruptedError",
     "DuplicateProviderError",
     "InvalidProviderTypeError",
@@ -446,6 +449,78 @@ def remove_provider_api_key(provider_name: str) -> bool:
 
     instance_key = get_provider_instance_key(provider_name)
     return remove_instance_secret(instance_key, "API_KEY")
+
+
+def set_provider_aws_credentials(
+    provider_name: str, access_key: str, secret_key: str
+) -> bool:
+    """Store AWS credentials for a Bedrock provider securely.
+
+    Uses the secrets module to store both AWS Access Key ID and Secret Access Key.
+
+    Args:
+        provider_name: Name of the provider.
+        access_key: AWS Access Key ID.
+        secret_key: AWS Secret Access Key.
+
+    Returns:
+        True if new secrets created, False if existing secrets updated.
+    """
+    from clawrium.core.secrets import set_instance_secret
+
+    instance_key = get_provider_instance_key(provider_name)
+    created1 = set_instance_secret(
+        instance_key,
+        "AWS_ACCESS_KEY_ID",
+        access_key,
+        description=f"AWS access key for provider {provider_name}",
+    )
+    created2 = set_instance_secret(
+        instance_key,
+        "AWS_SECRET_ACCESS_KEY",
+        secret_key,
+        description=f"AWS secret key for provider {provider_name}",
+    )
+    return created1 and created2
+
+
+def get_provider_aws_credentials(provider_name: str) -> tuple[str | None, str | None]:
+    """Retrieve AWS credentials for a Bedrock provider.
+
+    Args:
+        provider_name: Name of the provider.
+
+    Returns:
+        Tuple of (access_key, secret_key). Either value may be None if not found.
+    """
+    from clawrium.core.secrets import get_instance_secrets
+
+    instance_key = get_provider_instance_key(provider_name)
+    secrets = get_instance_secrets(instance_key)
+    access_key = None
+    secret_key = None
+    if "AWS_ACCESS_KEY_ID" in secrets:
+        access_key = secrets["AWS_ACCESS_KEY_ID"]["value"]
+    if "AWS_SECRET_ACCESS_KEY" in secrets:
+        secret_key = secrets["AWS_SECRET_ACCESS_KEY"]["value"]
+    return (access_key, secret_key)
+
+
+def remove_provider_aws_credentials(provider_name: str) -> bool:
+    """Remove AWS credentials for a Bedrock provider.
+
+    Args:
+        provider_name: Name of the provider.
+
+    Returns:
+        True if any secret was removed, False if neither existed.
+    """
+    from clawrium.core.secrets import remove_instance_secret
+
+    instance_key = get_provider_instance_key(provider_name)
+    removed1 = remove_instance_secret(instance_key, "AWS_ACCESS_KEY_ID")
+    removed2 = remove_instance_secret(instance_key, "AWS_SECRET_ACCESS_KEY")
+    return removed1 or removed2
 
 
 def load_providers() -> list[dict]:

@@ -421,6 +421,8 @@ class TestProviderEdit:
 
     def test_edit_update_key(self, isolated_config, sample_provider_data):
         """'clm provider edit --update-key' prompts for new API key."""
+        from clawrium.core.providers import get_provider_api_key
+
         isolated_config.mkdir(parents=True, exist_ok=True)
         save_providers([sample_provider_data])
 
@@ -432,6 +434,8 @@ class TestProviderEdit:
 
         assert result.exit_code == 0
         assert "updated" in result.output.lower()
+        # Verify the secret was actually persisted
+        assert get_provider_api_key("test-openai") == "sk-new-key"
 
 
 class TestProviderRemove:
@@ -562,3 +566,236 @@ class TestProviderRefresh:
 
         assert result.exit_code == 1
         assert "no endpoint" in result.output.lower()
+
+
+class TestProviderBedrock:
+    """Tests for Bedrock provider with AWS credentials."""
+
+    def test_add_bedrock_prompts_for_aws_credentials(self, isolated_config):
+        """'clm provider add --type bedrock' prompts for AWS Access Key and Secret Key."""
+        result = runner.invoke(
+            app,
+            [
+                "provider",
+                "add",
+                "my-bedrock",
+                "--type",
+                "bedrock",
+                "--model",
+                "anthropic.claude-sonnet-4-20250514-v1:0",
+            ],
+            input="AKIAIOSFODNN7EXAMPLE\nwJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
+        )
+
+        assert result.exit_code == 0
+        assert "added successfully" in result.output.lower()
+        assert "aws access key" in result.output.lower()
+        assert "aws secret access key" in result.output.lower()
+
+        # Verify provider was created
+        providers_path = isolated_config / PROVIDERS_FILE
+        assert providers_path.exists()
+
+        with open(providers_path) as f:
+            providers = json.load(f)
+
+        assert len(providers) == 1
+        assert providers[0]["name"] == "my-bedrock"
+        assert providers[0]["type"] == "bedrock"
+        assert (
+            providers[0]["default_model"] == "anthropic.claude-sonnet-4-20250514-v1:0"
+        )
+        # AWS credentials should NOT be in providers.json (stored in secrets)
+        assert "access_key" not in providers[0]
+        assert "secret_key" not in providers[0]
+
+    def test_add_bedrock_requires_access_key(self, isolated_config):
+        """'clm provider add --type bedrock' requires AWS Access Key."""
+        result = runner.invoke(
+            app,
+            ["provider", "add", "my-bedrock", "--type", "bedrock"],
+            input="\ntest-secret\n",  # Empty access key
+        )
+
+        assert result.exit_code == 1
+        assert "access key" in result.output.lower()
+
+    def test_add_bedrock_requires_secret_key(self, isolated_config):
+        """'clm provider add --type bedrock' requires AWS Secret Key."""
+        result = runner.invoke(
+            app,
+            ["provider", "add", "my-bedrock", "--type", "bedrock"],
+            input="AKIAIOSFODNN7EXAMPLE\n\n",  # Empty secret key
+        )
+
+        assert result.exit_code == 1
+        assert "secret key" in result.output.lower()
+
+    def test_add_bedrock_empty_access_key_guard(self, isolated_config):
+        """Test application guard against empty access key (mocked prompt)."""
+        # This tests the app guard, not Typer's abort behavior
+        with patch(
+            "clawrium.cli.provider.typer.prompt",
+            side_effect=["", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"],
+        ):
+            result = runner.invoke(
+                app,
+                ["provider", "add", "my-bedrock", "--type", "bedrock"],
+            )
+
+        assert result.exit_code == 1
+        assert "access key" in result.output.lower()
+        assert "required" in result.output.lower()
+
+    def test_add_bedrock_empty_secret_key_guard(self, isolated_config):
+        """Test application guard against empty secret key (mocked prompt)."""
+        # This tests the app guard, not Typer's abort behavior
+        with patch(
+            "clawrium.cli.provider.typer.prompt",
+            side_effect=["AKIAIOSFODNN7EXAMPLE", ""],
+        ):
+            result = runner.invoke(
+                app,
+                ["provider", "add", "my-bedrock", "--type", "bedrock"],
+            )
+
+        assert result.exit_code == 1
+        assert "secret key" in result.output.lower()
+        assert "required" in result.output.lower()
+
+    def test_edit_bedrock_update_key(self, isolated_config):
+        """'clm provider edit --update-key' prompts for AWS credentials for Bedrock."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        bedrock_provider = {
+            "name": "my-bedrock",
+            "type": "bedrock",
+            "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
+            "created_at": "2026-04-01T00:00:00+00:00",
+            "updated_at": "2026-04-01T00:00:00+00:00",
+        }
+        save_providers([bedrock_provider])
+
+        result = runner.invoke(
+            app,
+            ["provider", "edit", "my-bedrock", "--update-key"],
+            input="AKIANEWKEY123456\nnewsecretkey123\n",
+        )
+
+        assert result.exit_code == 0
+        assert "aws credentials updated" in result.output.lower()
+        assert "new aws access key" in result.output.lower()
+        assert "new aws secret access key" in result.output.lower()
+
+    def test_edit_bedrock_update_key_empty_secret_aborts(self, isolated_config):
+        """'clm provider edit --update-key' aborts when secret key is empty."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        bedrock_provider = {
+            "name": "my-bedrock",
+            "type": "bedrock",
+            "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
+            "created_at": "2026-04-01T00:00:00+00:00",
+            "updated_at": "2026-04-01T00:00:00+00:00",
+        }
+        save_providers([bedrock_provider])
+
+        # Typer's hidden prompt aborts on empty input
+        result = runner.invoke(
+            app,
+            ["provider", "edit", "my-bedrock", "--update-key"],
+            input="AKIANEWKEY123456\n\n",  # Empty secret key causes Typer abort
+        )
+
+        # Hidden prompts abort on empty input, resulting in exit code 1
+        assert result.exit_code == 1
+
+    def test_list_bedrock_shows_masked_access_key(self, isolated_config):
+        """'clm provider list' shows masked AWS Access Key for Bedrock."""
+        from clawrium.core.providers import set_provider_aws_credentials
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        bedrock_provider = {
+            "name": "my-bedrock",
+            "type": "bedrock",
+            "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
+            "created_at": "2026-04-01T00:00:00+00:00",
+            "updated_at": "2026-04-01T00:00:00+00:00",
+        }
+        save_providers([bedrock_provider])
+        set_provider_aws_credentials(
+            "my-bedrock",
+            "AKIAIOSFODNN7EXAMPLE",
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        )
+
+        result = runner.invoke(app, ["provider", "list"])
+
+        assert result.exit_code == 0
+        assert "my-bedrock" in result.output
+        assert "bedrock" in result.output
+        # Should show masked access key (first 4 ... last 4)
+        assert "AKIA" in result.output
+        assert "MPLE" in result.output
+
+    def test_remove_bedrock_cleans_up_credentials(self, isolated_config):
+        """'clm provider remove' cleans up AWS credentials for Bedrock."""
+        from clawrium.core.providers import (
+            set_provider_aws_credentials,
+            get_provider_aws_credentials,
+        )
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        bedrock_provider = {
+            "name": "my-bedrock",
+            "type": "bedrock",
+            "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
+            "created_at": "2026-04-01T00:00:00+00:00",
+            "updated_at": "2026-04-01T00:00:00+00:00",
+        }
+        save_providers([bedrock_provider])
+        set_provider_aws_credentials(
+            "my-bedrock",
+            "AKIAIOSFODNN7EXAMPLE",
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        )
+
+        # Verify credentials exist
+        access_key, secret_key = get_provider_aws_credentials("my-bedrock")
+        assert access_key is not None
+        assert secret_key is not None
+
+        result = runner.invoke(app, ["provider", "remove", "my-bedrock", "--force"])
+
+        assert result.exit_code == 0
+        assert "removed successfully" in result.output.lower()
+
+        # Verify credentials were cleaned up
+        access_key, secret_key = get_provider_aws_credentials("my-bedrock")
+        assert access_key is None
+        assert secret_key is None
+
+    def test_edit_bedrock_partial_credentials_fails(self, isolated_config):
+        """'clm provider edit --update-key' fails when only access key provided."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        bedrock_provider = {
+            "name": "my-bedrock",
+            "type": "bedrock",
+            "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
+            "created_at": "2026-04-01T00:00:00+00:00",
+            "updated_at": "2026-04-01T00:00:00+00:00",
+        }
+        save_providers([bedrock_provider])
+
+        # Mock typer.prompt to return access key but empty secret key
+        # This tests the application guard (not Typer's abort behavior)
+        with patch(
+            "clawrium.cli.provider.typer.prompt",
+            side_effect=["AKIANEWKEY123456", ""],
+        ):
+            result = runner.invoke(
+                app,
+                ["provider", "edit", "my-bedrock", "--update-key"],
+            )
+
+        assert result.exit_code == 1
+        assert "both" in result.output.lower()
+        assert "required" in result.output.lower()

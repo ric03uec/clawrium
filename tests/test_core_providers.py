@@ -22,6 +22,9 @@ from clawrium.core.providers import (
     set_provider_api_key,
     get_provider_api_key,
     remove_provider_api_key,
+    set_provider_aws_credentials,
+    get_provider_aws_credentials,
+    remove_provider_aws_credentials,
     ProvidersFileCorruptedError,
     DuplicateProviderError,
     InvalidProviderNameError,
@@ -331,6 +334,71 @@ class TestProviderApiKeyStorage:
         """remove_provider_api_key returns False when key doesn't exist."""
         result = remove_provider_api_key("nonexistent")
         assert result is False
+
+
+class TestProviderAwsCredentialsStorage:
+    """Tests for secure AWS credentials storage (Bedrock)."""
+
+    def test_set_and_get_provider_aws_credentials(self, isolated_config):
+        """set_provider_aws_credentials stores and get_provider_aws_credentials retrieves."""
+        set_provider_aws_credentials(
+            "my-bedrock",
+            "AKIAIOSFODNN7EXAMPLE",
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        )
+        access_key, secret_key = get_provider_aws_credentials("my-bedrock")
+        assert access_key == "AKIAIOSFODNN7EXAMPLE"
+        assert secret_key == "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+
+    def test_get_provider_aws_credentials_not_found(self, isolated_config):
+        """get_provider_aws_credentials returns (None, None) when not found."""
+        access_key, secret_key = get_provider_aws_credentials("nonexistent")
+        assert access_key is None
+        assert secret_key is None
+
+    def test_get_provider_aws_credentials_partial(self, isolated_config):
+        """get_provider_aws_credentials handles partial credentials."""
+        from clawrium.core.secrets import set_instance_secret
+        from clawrium.core.providers import get_provider_instance_key
+
+        # Only set access key, not secret key
+        instance_key = get_provider_instance_key("partial-bedrock")
+        set_instance_secret(instance_key, "AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
+
+        access_key, secret_key = get_provider_aws_credentials("partial-bedrock")
+        assert access_key == "AKIAIOSFODNN7EXAMPLE"
+        assert secret_key is None
+
+    def test_remove_provider_aws_credentials(self, isolated_config):
+        """remove_provider_aws_credentials removes stored credentials."""
+        set_provider_aws_credentials(
+            "my-bedrock",
+            "AKIAIOSFODNN7EXAMPLE",
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        )
+        access_key, secret_key = get_provider_aws_credentials("my-bedrock")
+        assert access_key is not None
+        assert secret_key is not None
+
+        result = remove_provider_aws_credentials("my-bedrock")
+        assert result is True
+        access_key, secret_key = get_provider_aws_credentials("my-bedrock")
+        assert access_key is None
+        assert secret_key is None
+
+    def test_remove_provider_aws_credentials_not_found(self, isolated_config):
+        """remove_provider_aws_credentials returns False when credentials don't exist."""
+        result = remove_provider_aws_credentials("nonexistent")
+        assert result is False
+
+    def test_set_provider_aws_credentials_update(self, isolated_config):
+        """set_provider_aws_credentials can update existing credentials."""
+        set_provider_aws_credentials("my-bedrock", "AKIAOLD", "secretold")
+        set_provider_aws_credentials("my-bedrock", "AKIANEW", "secretnew")
+
+        access_key, secret_key = get_provider_aws_credentials("my-bedrock")
+        assert access_key == "AKIANEW"
+        assert secret_key == "secretnew"
 
 
 class TestProviderStorage:
