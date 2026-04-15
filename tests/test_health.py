@@ -1275,3 +1275,131 @@ class TestCountCompletedStages:
         completed, total = count_completed_stages(claw_record)
         assert completed == 0
         assert total == 4
+
+
+class TestProcessNameByAgentType:
+    """Tests for agent-type-aware process name in health check (issue #224)."""
+
+    def test_openclaw_uses_openclaw_process_name(self):
+        """openclaw agent type uses 'pgrep -u {user} openclaw'."""
+        host = {
+            "hostname": "192.168.1.100",
+            "port": 22,
+            "user": "xclm",
+            "key_id": "testhost",
+            "agents": {
+                "my-openclaw": {
+                    "type": "openclaw",
+                    "agent_name": "wolf-i",
+                    "version": "0.1.0",
+                }
+            },
+        }
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
+
+        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner) as mock_run:
+                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+                    check_claw_health("my-openclaw", host)
+
+        # Verify pgrep uses 'openclaw' process name
+        call_args = mock_run.call_args
+        assert call_args is not None
+        module_args = call_args.kwargs.get("module_args", "")
+        assert "pgrep -u wolf-i openclaw" == module_args
+
+    def test_zeroclaw_uses_node_process_name(self):
+        """zeroclaw agent type uses 'pgrep -u {user} node'."""
+        host = {
+            "hostname": "192.168.1.100",
+            "port": 22,
+            "user": "xclm",
+            "key_id": "testhost",
+            "agents": {
+                "my-zeroclaw": {
+                    "type": "zeroclaw",
+                    "agent_name": "zc-edge",
+                    "version": "0.1.0",
+                }
+            },
+        }
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
+
+        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner) as mock_run:
+                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+                    check_claw_health("my-zeroclaw", host)
+
+        # Verify pgrep uses 'node' process name
+        call_args = mock_run.call_args
+        assert call_args is not None
+        module_args = call_args.kwargs.get("module_args", "")
+        assert "pgrep -u zc-edge node" == module_args
+
+    def test_missing_type_defaults_to_node(self):
+        """Agent without type field defaults to 'node' process name."""
+        host = {
+            "hostname": "192.168.1.100",
+            "port": 22,
+            "user": "xclm",
+            "key_id": "testhost",
+            "agents": {
+                "legacy-agent": {
+                    "agent_name": "legacy-user",
+                    "version": "0.1.0",
+                    # No "type" field
+                }
+            },
+        }
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
+
+        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner) as mock_run:
+                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+                    check_claw_health("legacy-agent", host)
+
+        # Verify pgrep defaults to 'node' process name
+        call_args = mock_run.call_args
+        assert call_args is not None
+        module_args = call_args.kwargs.get("module_args", "")
+        assert "pgrep -u legacy-user node" == module_args
+
+    def test_empty_type_defaults_to_node(self):
+        """Agent with empty type string defaults to 'node' process name."""
+        host = {
+            "hostname": "192.168.1.100",
+            "port": 22,
+            "user": "xclm",
+            "key_id": "testhost",
+            "agents": {
+                "empty-type-agent": {
+                    "type": "",
+                    "agent_name": "empty-user",
+                    "version": "0.1.0",
+                }
+            },
+        }
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
+
+        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
+            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner) as mock_run:
+                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+                    check_claw_health("empty-type-agent", host)
+
+        # Verify pgrep defaults to 'node' process name
+        call_args = mock_run.call_args
+        assert call_args is not None
+        module_args = call_args.kwargs.get("module_args", "")
+        assert "pgrep -u empty-user node" == module_args

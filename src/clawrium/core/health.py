@@ -274,11 +274,16 @@ def check_claw_health(
         }
     }
 
-    # Check for node process owned by claw user using pgrep.
+    # Determine process name based on agent type.
+    # openclaw sets process title to "openclaw"/"openclaw-gateway", not "node".
+    agent_type = claw_record.get("type", "")
+    process_name = "openclaw" if agent_type == "openclaw" else "node"
+
+    # Check for process owned by claw user using pgrep.
     # claw_user is already validated by VALID_USERNAME_PATTERN (alphanumeric/hyphen/underscore).
     # Using module='command' avoids shell interpretation entirely.
     # pgrep exits 0 (process found) → runner_on_ok; exits 1 (not found) → runner_on_failed rc=1.
-    check_cmd = f"pgrep -u {claw_user} node"
+    check_cmd = f"pgrep -u {claw_user} {process_name}"
 
     with tempfile.TemporaryDirectory() as tmpdir:
         os.chmod(tmpdir, 0o700)
