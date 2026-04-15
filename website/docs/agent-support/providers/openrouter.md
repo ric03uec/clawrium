@@ -1,4 +1,4 @@
-# OpenRouter Provider
+# OpenRouter
 
 **Status:** ✅ Supported
 
