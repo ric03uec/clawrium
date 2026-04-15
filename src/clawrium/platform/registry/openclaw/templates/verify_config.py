@@ -12,7 +12,10 @@ import sys
 
 def main():
     if len(sys.argv) != 3:
-        print("Usage: verify_config.py <config_file> <expected_config_file>", file=sys.stderr)
+        print(
+            "Usage: verify_config.py <config_file> <expected_config_file>",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     config_file = sys.argv[1]
@@ -34,7 +37,9 @@ def main():
         with open(expected_file, "r") as f:
             expected_config = json.load(f)
     except FileNotFoundError:
-        print(f"ERROR: Expected config file not found at {expected_file}", file=sys.stderr)
+        print(
+            f"ERROR: Expected config file not found at {expected_file}", file=sys.stderr
+        )
         sys.exit(1)
     except json.JSONDecodeError:
         print(f"ERROR: Invalid JSON in {expected_file}", file=sys.stderr)
@@ -42,19 +47,39 @@ def main():
 
     errors = []
 
+    def _expected_model_id(expected: dict) -> str | None:
+        provider = expected.get("provider", {})
+        default_model = provider.get("default_model")
+        if not default_model:
+            return None
+
+        provider_type = provider.get("type")
+        if provider_type == "openrouter" and not str(default_model).startswith(
+            "openrouter/"
+        ):
+            return f"openrouter/{default_model}"
+        if provider_type == "ollama" and not str(default_model).startswith("ollama/"):
+            return f"ollama/{default_model}"
+        return str(default_model)
+
     # Verify model is set if provider configured
-    # W2 fix: Use exact equality instead of substring matching
-    if expected_config.get("provider", {}).get("default_model"):
+    expected_model = _expected_model_id(expected_config)
+    if expected_model:
         model = config.get("agents", {}).get("defaults", {}).get("model")
-        expected_model = expected_config["provider"]["default_model"]
-        if not model:
+        if not isinstance(model, dict):
             errors.append(
-                f"Model not found in agents.defaults.model, expected '{expected_model}'"
+                "Model schema mismatch: expected agents.defaults.model to be an object with key 'primary'"
             )
-        elif str(model) != expected_model:
-            errors.append(
-                f"Model mismatch: expected '{expected_model}', got '{model}'"
-            )
+        else:
+            actual_model = model.get("primary")
+            if not actual_model:
+                errors.append(
+                    "Model schema mismatch: missing agents.defaults.model.primary"
+                )
+            elif str(actual_model) != expected_model:
+                errors.append(
+                    f"Model mismatch: expected '{expected_model}', got '{actual_model}'"
+                )
 
     # Verify gateway port
     if expected_config.get("gateway", {}).get("port"):
