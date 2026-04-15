@@ -23,7 +23,7 @@ We welcome community contributions! If you need Azure OpenAI support:
 
 ### Option 1: Open an Issue
 
-[Create a feature request](../../issues/new?labels=enhancement,provider&title=Add+Azure+OpenAI+provider+support)
+[Create a feature request](https://github.com/ric03uec/clawrium/issues/new?labels=enhancement,provider&title=Add+Azure+OpenAI+provider+support)
 
 Include:
 - Your use case
@@ -39,7 +39,7 @@ We'd love your contribution! Implementation would involve:
 3. Support Azure-specific endpoints and model deployment names
 4. Add tests and documentation
 
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](/docs/contributing) for guidelines.
 
 ### Option 3: Use OpenRouter
 
@@ -76,7 +76,7 @@ If implementing Azure OpenAI support, the following would be required:
 
 ## Vote for This Feature
 
-Add a 👍 reaction to [this issue](../../issues) to help us prioritize.
+Add a 👍 reaction to [this issue](https://github.com/ric03uec/clawrium/issues) to help us prioritize.
 
 ---
 

@@ -20,9 +20,9 @@ A browser-based chat interface for interacting with agents.
 
 **Target:** Q2 2026
 
-**Milestone:** [SEA (Secondary Engagement & Automation)](../milestones)
+**Milestone:** [SEA (Secondary Engagement & Automation)](https://github.com/ric03uec/clawrium/milestones)
 
-Track progress: [GitHub Issue #TBD](../../issues)
+Track progress: [GitHub Issue #TBD](https://github.com/ric03uec/clawrium/issues)
 
 ---
 
@@ -75,7 +75,7 @@ Access will require:
 
 ## Vote for Priority
 
-Add a 👍 reaction to [the web channel issue](../../issues) to help prioritize.
+Add a 👍 reaction to [the web channel issue](https://github.com/ric03uec/clawrium/issues) to help prioritize.
 
 ---
 

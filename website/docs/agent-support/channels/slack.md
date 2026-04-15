@@ -74,7 +74,7 @@ clm agent configure my-agent
 
 ## Vote for Priority
 
-Add a 👍 reaction to [the Slack channel issue](../../issues) to help prioritize.
+Add a 👍 reaction to [the Slack channel issue](https://github.com/ric03uec/clawrium/issues) to help prioritize.
 
 ---
 

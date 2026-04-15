@@ -140,7 +140,7 @@ Until native integration is available:
 
 ## Vote for Priority
 
-Add a 👍 reaction to [the Jira integration issue](../../issues) to help prioritize.
+Add a 👍 reaction to [the Jira integration issue](https://github.com/ric03uec/clawrium/issues) to help prioritize.
 
 ---
 

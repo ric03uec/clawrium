@@ -24,7 +24,7 @@ We welcome community contributions! If you need Linear support:
 
 ### Option 1: Open an Issue
 
-[Create a feature request](../../issues/new?labels=enhancement,integration&title=Add+Linear+integration+support)
+[Create a feature request](https://github.com/ric03uec/clawrium/issues/new?labels=enhancement,integration&title=Add+Linear+integration+support)
 
 Include:
 - Your use case (team size, workflow)
@@ -42,7 +42,7 @@ We'd love your contribution! Linear has a well-designed GraphQL API:
 4. Cycle/sprint management
 5. Real-time via webhooks
 
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](/docs/contributing) for guidelines.
 
 ---
 
@@ -116,7 +116,7 @@ curl -H "Authorization: $LINEAR_API_KEY" \
 
 ## Vote for This Feature
 
-Add a 👍 reaction to [this issue](../../issues) to help us prioritize.
+Add a 👍 reaction to [this issue](https://github.com/ric03uec/clawrium/issues) to help us prioritize.
 
 ---
 

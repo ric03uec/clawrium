@@ -150,7 +150,7 @@ ZeroClaw is currently in development. Expected features:
   - Log streaming
   - Secrets management
 
-Track progress: [GitHub Milestone SEA](../milestones)
+Track progress: [GitHub Milestone SEA](https://github.com/ric03uec/clawrium/milestones)
 
 ---
 
@@ -176,5 +176,5 @@ Track progress: [GitHub Milestone SEA](../milestones)
 ## Next Steps
 
 - [OpenClaw Support Matrix](openclaw.md) - Full-featured alternative
-- [Agent Onboarding](../agent-onboarding.md) - Onboarding process overview
-- [CLI Reference](../reference/cli/agent.md) - Command documentation
+- [Agent Onboarding](/docs/guides/agent-onboarding) - Onboarding process overview
+- [CLI Reference](/docs/reference/cli/agent) - Command documentation
