@@ -1,10 +1,12 @@
-# OpenClaw Support Matrix
+# OpenClaw
 
-OpenClaw is a full-featured agent supporting multiple LLM providers, communication channels, and third-party integrations.
+OpenClaw is a full-featured AI assistant supporting multiple LLM providers, communication channels, and third-party integrations.
 
 **Status:** ✅ Production Ready
 
 **Best for:** Discord bots, multi-channel assistants, complex workflows
+
+**GitHub:** [openclaw/openclaw](https://github.com/openclaw/openclaw)
 
 ---
 

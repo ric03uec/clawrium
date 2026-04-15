@@ -1,79 +1,109 @@
 ---
 sidebar_position: 1
 slug: /
-description: Clawrium is a CLI tool for managing AI assistant fleets on local networks. Deploy and manage agent instances across hosts from a single command center.
-keywords: [clawrium, AI assistant, fleet management, CLI tool, multi-host, agent]
+description: Clawrium is a CLI to manage all your AI assistants. Deploy agents like OpenClaw across your network from a single command center.
+keywords: [clawrium, AI assistant, fleet management, CLI tool, multi-host, agent, openclaw]
 ---
 
 # Introduction
 
-Clawrium is a CLI tool for managing AI assistant fleets on local networks. Deploy and manage multiple agent instances across hosts from a single command center.
+**Clawrium is a CLI to manage all your AI assistants.** Point it at any machine on your network and deploy agents like [OpenClaw](https://github.com/openclaw/openclaw) with a single command.
+
+## What is a Claw?
+
+A **claw** is a general-purpose AI assistant that runs on a machine in your network. Unlike coding-specific tools, claws are versatile assistants that can:
+
+- Answer questions via Discord, Slack, or CLI
+- Research topics and summarize findings
+- Help with writing, brainstorming, and planning
+- Connect to external services (GitHub, Jira, etc.)
+
+**Currently supported claws:**
+- [**OpenClaw**](https://github.com/opencode-ai/opencode) - Full-featured assistant with multi-provider and multi-channel support
+
+**Planned:**
+- **ZeroClaw** - Lightweight assistant for resource-constrained devices
 
 ## Why Clawrium?
 
-You're running multiple AI agents - coding assistants, internal tools, experiment harnesses - across machines on your network. Without Clawrium, you SSH into each box, manage configs individually, lose track of token spend, and have no unified view of what's running where.
+You're running multiple AI agents across machines on your network. Without Clawrium, you SSH into each box, manage configs individually, and have no unified view of what's running where.
 
 Clawrium gives you `kubectl`-style fleet control for AI agents:
 
 - **One CLI, all hosts.** Add machines to your fleet and deploy any agent type to any host.
-- **Specialized agents.** Each agent does one job and does it well. Instead of one overloaded assistant, run a fleet of purpose-built agents - a coding agent, a review agent, a research agent - each with its own context, data, and configuration isolated from the rest.
-- **Local inference.** Use hardware you already have - Mac Minis, [NVIDIA DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/), spare servers - as inference providers. Run smaller open models like Gemma, GPT-4o-mini, Kimi, or Llama locally and point multiple agents at them.
-- **Model experimentation.** Swap models across agents to compare performance without touching individual configs.
-- **Lifecycle management.** Upgrades, rollbacks, secrets rotation, backups - handled.
-- **Token tracking & guardrails.** See spend across your fleet. Set limits before someone's experiment burns through your API budget.
+- **Specialized agents.** Run a fleet of purpose-built agents - a research agent, a support agent, an internal assistant - each with its own context and configuration.
+- **Model flexibility.** Use any provider: OpenAI, Anthropic, local Ollama, or self-hosted inference.
+- **Lifecycle management.** Upgrades, rollbacks, secrets rotation - handled from one place.
 
-## Features
+## How It Works
 
-### 🌐 Agent Support (Current)
+```
+Your Machine (clm CLI)
+    │
+    ├── Host A ──> openclaw instance (Discord bot)
+    ├── Host B ──> openclaw instance (internal assistant)
+    └── Host C ──> zeroclaw instance (lightweight helper)
+```
 
-Today, Clawrium supports one agent type for end-to-end install, onboarding, and lifecycle management.
-
-Support for additional agent types is planned.
-
-### ⚙️ Normalized Configuration
-
-One config format, every agent. Define your preferences once and Clawrium translates them for each agent runtime's native format.
-
-### 🔓 Multi-Model Freedom
-
-Run any model across your fleet:
-- **Open models**: NVIDIA Nemotron, GLM-4, MiniMax
-- **Big labs**: OpenAI, Anthropic, Google, Mistral
-- **Local**: Ollama, llama.cpp, vLLM
+Clawrium runs from your control machine and uses SSH + Ansible to manage remote hosts.
 
 ## Quick Reference
 
 ```bash
 # Initialize Clawrium (check dependencies)
 clm init
+```
+```
+✓ Configuration directory created at ~/.config/clawrium/
+✓ Dependencies validated
+```
 
+```bash
 # Initialize a host (generates keypair, sets up management user)
 clm host init 192.168.1.100 --user myuser
+```
+```
+Generating SSH keypair for 192.168.1.100...
+✓ Keypair created: ~/.config/clawrium/keys/192.168.1.100/
+Configuring xclm user on remote host...
+✓ Host initialized successfully
+```
 
+```bash
 # Add an initialized host to the fleet
-clm host add 192.168.1.100 --alias myhost
+clm host add 192.168.1.100 --alias homelab
+```
+```
+Connecting to 192.168.1.100 as xclm...
+✓ Connection successful
+Detecting hardware capabilities...
+  CPU: 4 cores (ARM64)
+  Memory: 8 GB
+  GPU: None
+✓ Host 'homelab' added to fleet
+```
 
-# List all hosts
-clm host list
+```bash
+# See your fleet status
+clm ps
+```
+```
+HOST        AGENT          TYPE       STATUS    UPTIME
+─────────────────────────────────────────────────────────
+homelab     oc-discord     openclaw   running   3d 4h
+nuc-01      oc-work        openclaw   running   12h
+```
 
-# Check host status
-clm host ps myhost
-
-# Browse available agent types
-clm agent registry list
-
-# Add inference provider
-clm provider add anthropic --type anthropic
-
+```bash
 # Install an agent on a host
-clm agent install --type <agent-type> --host myhost --name my-agent
-
-# Set a secret for an agent
-clm agent secret set my-agent OPENAI_API_KEY
-
-# Configure and start the agent
-clm agent configure my-agent
-clm agent start my-agent
+clm agent install --type openclaw --host homelab --name my-assistant
+```
+```
+Installing openclaw on homelab...
+✓ Dependencies installed
+✓ Agent user created
+✓ Configuration deployed
+✓ Agent 'my-assistant' installed successfully
 ```
 
 ## Key Concepts
@@ -81,10 +111,20 @@ clm agent start my-agent
 | Concept | Description |
 |---------|-------------|
 | **Host** | A machine in your network that runs one or more agents |
-| **Agent** | An installed AI assistant instance managed by Clawrium |
-| **Agent Type** | The implementation/runtime class of an agent |
-| **Agent Name** | The unique identifier for an installed agent instance |
-| **Registry** | Platform-defined agent types with versions, dependencies, and templates |
+| **Claw** | An AI assistant instance (like OpenClaw or ZeroClaw) |
+| **Agent** | An installed claw instance managed by Clawrium |
+| **Registry** | Available claw types with versions, dependencies, and templates |
+
+## What You'll Need
+
+Before you start, make sure you have:
+
+| Requirement | Details |
+|-------------|---------|
+| **Control machine** | macOS or Linux with Python 3.10+ |
+| **Target host** | Ubuntu 22.04/24.04 with SSH access |
+| **Network** | Direct connectivity between control machine and hosts |
+| **API keys** | At least one LLM provider (OpenAI, Anthropic, etc.) |
 
 ## Architecture
 
@@ -94,44 +134,43 @@ Clawrium runs from your control machine and uses SSH + Ansible to manage remote 
 
 ## FAQ
 
-### 1. What operating systems are supported?
+### What operating systems are supported?
 
-Clawrium is currently tested on Ubuntu control machines and Ubuntu target hosts only.
+Clawrium is currently tested on Ubuntu control machines and Ubuntu 22.04/24.04 target hosts.
 
-### 2. Which agents are supported today?
+### Which agents are supported today?
 
-One agent type is supported right now.
+[OpenClaw](https://github.com/openclaw/openclaw) is supported with full lifecycle management. ZeroClaw support is planned.
 
-Additional agent types are planned.
+### Is Claude subscription supported?
 
-### 3. Is Claude subscription supported?
+No. API keys are required by design - Clawrium manages API credentials, not subscription accounts.
 
-No. API keys are required by design.
+### Which communication channels are supported?
 
-### 4. Which channels are supported?
+Discord and CLI are supported today. Slack and web interfaces are planned.
 
-Discord is supported right now. Additional channels are planned.
+### Do I need to be online?
 
-### 5. Why doesn't it support x-agent and y-feature?
+Yes. The agents connect to LLM providers via API. Local inference with Ollama reduces external dependencies but still requires the model to be served.
 
-I'm building Clawrium in my spare time, so I prioritize my own use cases first.
+### Why doesn't it support my favorite agent?
 
-If you want support for a specific agent type or feature, please open an issue and send a PR. See the [Contributing Guidelines](https://github.com/ric03uec/clawrium/blob/main/CONTRIBUTING.md).
+Clawrium is built in spare time, so features are prioritized by maintainer use cases. Want support for a specific agent? [Open an issue](https://github.com/ric03uec/clawrium/issues) or send a PR.
 
 ## User Data
 
-Clawrium stores configuration in `~/.config/clawrium/` (or `$XDG_CONFIG_HOME/clawrium/`):
+Clawrium stores configuration in `~/.config/clawrium/`:
 
 | Path | Description |
 |------|-------------|
-| `hosts.json` | Registered hosts and metadata (0600 permissions) |
-| `keys/<hostname>/xclm_ed25519` | Private key for SSH to host |
-| `keys/<hostname>/xclm_ed25519.pub` | Public key added to host's authorized_keys |
-| `secrets/<agent-name>/<key>` | Encrypted secrets for agent instances |
+| `hosts.json` | Registered hosts and metadata |
+| `keys/<hostname>/` | SSH keypairs for each host |
+| `secrets/<agent-name>/` | Encrypted secrets for agent instances |
 
 ## Next Steps
 
+- **[Quickstart](./guides/quickstart.md)** - Deploy your first agent in 5 minutes
 - [Installation](./installation.md) - Install Clawrium
-- [Quickstart](./guides/quickstart.md) - Deploy your first agent
 - [Host Setup](./guides/host-setup.md) - Detailed host preparation guide
 - [Architecture](./architecture.md) - Understand how Clawrium works

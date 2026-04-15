@@ -39,8 +39,9 @@ const FeatureList: FeatureItem[] = [
     icon: <GlobeIcon />,
     description: (
       <>
-        Today, Clawrium supports OpenClaw for end-to-end install, onboarding,
-        and lifecycle management. ZeroClaw and additional claw types are planned.
+        Today, Clawrium supports{' '}
+        <a href="https://github.com/openclaw/openclaw">OpenClaw</a> for end-to-end install,
+        onboarding, and lifecycle management. ZeroClaw and additional claw types are planned.
       </>
     ),
   },
@@ -80,16 +81,112 @@ function Feature({title, icon, description}: FeatureItem) {
   );
 }
 
-export default function HomepageFeatures(): ReactNode {
+function BeforeAfterSection(): ReactNode {
   return (
-    <section className={styles.features}>
+    <section className={styles.beforeAfter}>
       <div className="container">
+        <Heading as="h2" className="text--center">Before &amp; After Clawrium</Heading>
         <div className="row">
-          {FeatureList.map((props, idx) => (
-            <Feature key={idx} {...props} />
-          ))}
+          <div className={clsx('col col--6', styles.beforeAfterCol)}>
+            <Heading as="h3">Before: Manual SSH chaos</Heading>
+            <pre className={styles.asciiDiagram}>
+{`You (laptop)
+    │
+    ├── SSH to pi-lab ──────> configure agent
+    │                         restart service
+    │                         check logs
+    │                         update config...
+    │
+    ├── SSH to nuc-01 ──────> same manual steps
+    │
+    └── SSH to dev-box ─────> same manual steps
+    
+    ❌ No unified view
+    ❌ Config drift between machines
+    ❌ Manual secret management`}
+            </pre>
+          </div>
+          <div className={clsx('col col--6', styles.beforeAfterCol)}>
+            <Heading as="h3">After: One CLI, all agents</Heading>
+            <pre className={styles.asciiDiagram}>
+{`You (laptop + clm CLI)
+    │
+    └── clm ────┬── pi-lab ───> openclaw
+                │
+                ├── nuc-01 ───> openclaw
+                │
+                └── dev-box ──> zeroclaw
+    
+    ✅ Single command center
+    ✅ Consistent configuration
+    ✅ Centralized secrets`}
+            </pre>
+          </div>
+        </div>
+        <div className={styles.clmPsOutput}>
+          <Heading as="h4" className="text--center">See your entire fleet with one command:</Heading>
+          <pre className={styles.terminalOutput}>
+{`$ clm ps
+
+HOST        AGENT          TYPE       STATUS    UPTIME
+─────────────────────────────────────────────────────────
+pi-lab      oc-discord     openclaw   running   3d 4h
+nuc-01      oc-work        openclaw   running   12h
+dev-box     zc-research    zeroclaw   stopped   -`}
+          </pre>
         </div>
       </div>
     </section>
+  );
+}
+
+function UseCasesSection(): ReactNode {
+  return (
+    <section className={styles.useCases}>
+      <div className="container">
+        <Heading as="h2" className="text--center">Who Uses Clawrium?</Heading>
+        <div className="row">
+          <div className={clsx('col col--4', styles.useCase)}>
+            <Heading as="h3">Homelabbers</Heading>
+            <p>
+              Run AI assistants on your Raspberry Pis, NUCs, and spare hardware.
+              Experiment with different models without cloud costs.
+            </p>
+          </div>
+          <div className={clsx('col col--4', styles.useCase)}>
+            <Heading as="h3">Teams</Heading>
+            <p>
+              Standardize agent deployment across developer machines.
+              Share configurations and ensure everyone runs the same setup.
+            </p>
+          </div>
+          <div className={clsx('col col--4', styles.useCase)}>
+            <Heading as="h3">Small Orgs</Heading>
+            <p>
+              Deploy purpose-built agents for different departments.
+              A research agent, a support agent, a coding agent - each isolated.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export default function HomepageFeatures(): ReactNode {
+  return (
+    <>
+      <BeforeAfterSection />
+      <section className={styles.features}>
+        <div className="container">
+          <div className="row">
+            {FeatureList.map((props, idx) => (
+              <Feature key={idx} {...props} />
+            ))}
+          </div>
+        </div>
+      </section>
+      <UseCasesSection />
+    </>
   );
 }

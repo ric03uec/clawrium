@@ -8,17 +8,23 @@ keywords: [install, setup, requirements, uv, uvx, python]
 
 This guide covers installing Clawrium on your management machine (the computer you'll use to control your agent fleet).
 
-## Prerequisites
+## What You'll Need
 
-- **Python 3.10 or higher**
-- **uv** ([install guide](https://docs.astral.sh/uv/getting-started/installation/))
+| Requirement | Version | How to Check |
+|-------------|---------|--------------|
+| **Python** | 3.10 or higher | `python3 --version` |
+| **uv** | Any | `uv --version` |
 
 ### Check Python Version
 
 ```bash
 python3 --version
-# Should be 3.10 or higher
 ```
+```
+Python 3.11.4
+```
+
+If your version is below 3.10, [upgrade Python](https://www.python.org/downloads/) first.
 
 ### Install uv
 
@@ -27,8 +33,18 @@ If you don't have uv, install it:
 ```bash
 # macOS/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+```
+Downloading uv...
+Installing to ~/.cargo/bin/uv
+✓ uv installed successfully
 
-# Or using Homebrew on macOS
+Run 'source ~/.bashrc' or restart your shell to use uv.
+```
+
+Or using Homebrew on macOS:
+
+```bash
 brew install uv
 ```
 
@@ -39,6 +55,11 @@ brew install uv
 ```bash
 uv tool install clawrium
 ```
+```
+Resolved 1 package in 523ms
+Installed 1 package in 12ms
+ + clawrium==26.4.3
+```
 
 ### Run Without Installing
 
@@ -46,7 +67,7 @@ uv tool install clawrium
 uvx --from clawrium clm --help
 ```
 
-This runs the latest version without permanent installation.
+This runs the latest version without permanent installation - useful for trying it out.
 
 ## Verify Installation
 
@@ -56,7 +77,7 @@ Run the `clm` command to verify installation:
 clm --help
 ```
 
-You should see output similar to:
+You should see:
 
 ```
  Usage: clm [OPTIONS] COMMAND [ARGS]...
@@ -73,6 +94,15 @@ You should see output similar to:
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
+Check the version:
+
+```bash
+clm --version
+```
+```
+clm, version 26.4.3
+```
+
 ## Initialize Clawrium
 
 Run `clm init` to create the configuration directory and check dependencies:
@@ -80,12 +110,57 @@ Run `clm init` to create the configuration directory and check dependencies:
 ```bash
 clm init
 ```
+```
+✓ Configuration directory created at ~/.config/clawrium/
+✓ Ansible found: ansible [core 2.15.0]
+✓ SSH client found: OpenSSH_9.0p1
+✓ Dependencies validated
+
+Clawrium is ready! Next: clm host init <hostname> --user <user>
+```
 
 This creates:
-- `~/.config/clawrium/` directory
-- Validates that required dependencies are available
+- `~/.config/clawrium/` directory structure
+- Validates that Ansible and SSH are available
+
+## Troubleshooting
+
+### "command not found: clm"
+
+The uv tools directory isn't in your PATH. Add it:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Then restart your shell or run `source ~/.bashrc`.
+
+### "Ansible not found"
+
+Install Ansible:
+
+```bash
+# macOS
+brew install ansible
+
+# Ubuntu/Debian
+sudo apt install ansible
+
+# Using pip
+pip install ansible
+```
+
+### "Permission denied" during init
+
+The config directory location isn't writable. Check permissions:
+
+```bash
+ls -la ~/.config/
+# Should show your user owns the directory
+```
 
 ## Next Steps
 
-- [Quickstart: Deploy your first agent](./guides/quickstart.md)
-- [Host Setup Guide](./guides/host-setup.md)
+- **[Quickstart: Deploy your first agent](./guides/quickstart.md)** - Get an agent running in 5 minutes
+- [Host Setup Guide](./guides/host-setup.md) - Prepare target machines for deployment

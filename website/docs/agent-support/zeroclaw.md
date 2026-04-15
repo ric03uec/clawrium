@@ -1,4 +1,4 @@
-# ZeroClaw Support Matrix
+# ZeroClaw
 
 ZeroClaw is a minimal CLI-only agent designed for simple automation tasks and quick scripts.
 

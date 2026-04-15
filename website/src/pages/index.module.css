@@ -40,6 +40,15 @@
   line-height: 1.6;
 }
 
+.heroLink {
+  color: #22d3ee;
+  text-decoration: underline;
+}
+
+.heroLink:hover {
+  color: #67e8f9;
+}
+
 .buttons {
   display: flex;
   align-items: center;

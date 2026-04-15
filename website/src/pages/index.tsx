@@ -23,14 +23,17 @@ function HomepageHeader() {
         </Heading>
         <p className="hero__subtitle">{siteConfig.tagline}</p>
         <p className={styles.heroDescription}>
-          CLI tool for managing AI assistant fleets on local networks.
-          Deploy and manage multiple claw instances across hosts from a single command center.
+          <strong>Clawrium is a CLI to manage all your AI assistants.</strong>
+          <br />
+          Point it at any machine on your network, and deploy agents like{' '}
+          <a href="https://github.com/openclaw/openclaw" className={styles.heroLink}>OpenClaw</a>{' '}
+          with a single command.
         </p>
         <div className={styles.buttons}>
           <Link
             className="button button--secondary button--lg"
-            to="/docs/">
-            Get Started
+            to="/docs/guides/quickstart">
+            5-Minute Quickstart
           </Link>
           <Link
             className="button button--outline button--secondary button--lg"

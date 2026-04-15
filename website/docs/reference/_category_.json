@@ -1,6 +1,5 @@
 {
   "label": "Reference",
-  "position": 3,
   "link": {
     "type": "generated-index",
     "description": "CLI commands and configuration reference for Clawrium."
