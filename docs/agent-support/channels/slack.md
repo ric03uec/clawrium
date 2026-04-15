@@ -19,9 +19,9 @@ Slack channel will allow your agent to operate as a bot in Slack workspaces.
 
 **Target:** Q2 2026
 
-**Milestone:** [SEA (Secondary Engagement & Automation)](../milestones)
+**Milestone:** [SEA](https://github.com/ric03uec/clawrium/milestone/2)
 
-Track progress: [GitHub Issue #TBD](../../issues)
+Track progress: [GitHub Issue #229](https://github.com/ric03uec/clawrium/issues/229)
 
 ---
 
