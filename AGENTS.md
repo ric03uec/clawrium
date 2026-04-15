@@ -190,7 +190,7 @@ Detailed explanation of changes.
 Closes #XX
 
 ATX Review Summary
-Review 1: Rating 2/5 | Cost: $0.12 | Time: 45s
+Review 1: Rating 2/5 | Cost: $0.12 | Time: 45s | Agents: leader, cli-ux
 Blocking issues:
 | # | Status | Issue |
 |---|--------|-------|
@@ -217,11 +217,14 @@ Include detailed ATX review after Summary and Testing sections:
 ## ATX Review Summary
 
 **Final Review: Rating 4/5**
+**Total Cost: $0.20 | Total Time: 1m 17s**
 
-| Review | Rating | Blocking Issues | Status | Cost | Time |
-|--------|--------|-----------------|--------|------|------|
-| 1 | 2/5 | B1, B2, B3 | All fixed | $0.12 | 45s |
-| 2 | 4/5 | None | Ready | $0.08 | 32s |
+| Review | Rating | Blocking Issues | Status | Cost | Time | Agents |
+|--------|--------|-----------------|--------|------|------|--------|
+| 1 | 2/5 | B1, B2, B3 | All fixed | $0.12 | 45s | leader, cli-ux, test-coverage |
+| 2 | 4/5 | None | Ready | $0.08 | 32s | leader, cli-ux |
+
+> **Note**: ATX does not expose model information per agent.
 
 <details>
 <summary>Review 1 Details (Rating 2/5)</summary>
@@ -252,7 +255,7 @@ Include detailed ATX review after Summary and Testing sections:
 Co-Authored-By: @atx-ci <269048218+atx-ci@users.noreply.github.com>
 ```
 
-See PRs #19 and #21 for real examples of this format.
+See PRs #19, #21, and #205 for real examples of this format.
 </pr-format>
 
 <enforcement>

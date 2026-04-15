@@ -43,6 +43,7 @@ Request a code review using ATX agents.
 
    **PR**: #<number> - <title>
    **Rating**: <X>/5
+   **Cost**: $<cost> | **Time**: <time> | **Agents**: <comma-separated list>
 
    ### Blocking Issues
    <table or "None">
@@ -56,6 +57,9 @@ Request a code review using ATX agents.
    ### Verdict
    <READY FOR MERGE / NEEDS CHANGES>
    ```
+
+   > **Note**: Extract cost, time, and agents from ATX response metadata.
+   > ATX does not expose model information per agent.
 
 ## Notes
 

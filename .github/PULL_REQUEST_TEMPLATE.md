@@ -28,11 +28,14 @@ MANDATORY: All PRs must include @atx-ci review before merging.
 
 ### Review Summary
 
-**Final Review: Rating /5**
+**Final Review: Rating /5** <!-- filled after ATX review -->
+**Total Cost: $ | Total Time: ** <!-- filled after ATX review -->
 
-| Review | Rating | Blocking Issues | Status |
-|--------|--------|-----------------|--------|
-| 1 | /5 | | |
+| Review | Rating | Blocking Issues | Status | Cost | Time | Agents |
+|--------|--------|-----------------|--------|------|------|--------|
+| 1 | /5 | | | | | |
+
+<!-- Note: ATX does not expose model information per agent. -->
 
 <details>
 <summary>Review 1 Details</summary>
@@ -59,14 +62,17 @@ MANDATORY: All PRs must include @atx-ci review before merging.
 
 <!--
 <atx-example>
-Example of a completed ATX review section (from PR #21):
+Example of a completed ATX review section (from PR #205):
 
 **Final Review: Rating 4/5**
+**Total Cost: $10.15 | Total Time: 23m 55s**
 
-| Review | Rating | Blocking Issues | Status |
-|--------|--------|-----------------|--------|
-| 1 | 2/5 | B1-B7 | B1,B7 fixed; B2-B6 out-of-scope |
-| 2 | 4/5 | None | Ready |
+| Review | Rating | Blocking Issues | Status | Cost | Time | Agents |
+|--------|--------|-----------------|--------|------|------|--------|
+| 1 | 2/5 | B1-B7 | B1,B7 fixed; B2-B6 out-of-scope | $3.57 | 8m 26s | leader, cli-ux, lifecycle-state, test-coverage, ansible-playbook |
+| 2 | 4/5 | None | Ready | $6.58 | 15m 29s | leader, cli-ux |
+
+<!-- Note: ATX does not expose model information per agent. -->
 
 <details>
 <summary>Review 1 Details (Rating 2/5)</summary>
