@@ -1,4 +1,4 @@
-# Azure OpenAI Provider
+# Azure OpenAI
 
 **Status:** 📋 Not Currently Planned
 

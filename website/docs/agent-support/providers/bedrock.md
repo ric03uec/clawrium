@@ -1,4 +1,4 @@
-# AWS Bedrock Provider
+# AWS Bedrock
 
 **Status:** ✅ Supported
 

@@ -20,14 +20,6 @@ const sidebars: SidebarsConfig = {
         'guides/agent-onboarding',
         'guides/secret-management',
         'guides/fleet-management',
-        {
-          type: 'category',
-          label: 'Channels',
-          items: [
-            'guides/channels/channels',
-            'guides/channels/discord',
-          ],
-        },
       ],
     },
     'architecture',

@@ -1,4 +1,4 @@
-# Google Vertex AI Provider
+# Google Vertex AI
 
 **Status:** ✅ Supported
 

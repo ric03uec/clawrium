@@ -1,4 +1,4 @@
-# Anthropic Provider
+# Anthropic
 
 **Status:** ✅ Supported
 

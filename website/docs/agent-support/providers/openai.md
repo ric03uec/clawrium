@@ -1,4 +1,4 @@
-# OpenAI Provider
+# OpenAI
 
 **Status:** ✅ Supported
 
