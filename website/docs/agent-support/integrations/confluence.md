@@ -24,7 +24,7 @@ We welcome community contributions! If you need Confluence support:
 
 ### Option 1: Open an Issue
 
-[Create a feature request](../../issues/new?labels=enhancement,integration&title=Add+Confluence+integration+support)
+[Create a feature request](https://github.com/ric03uec/clawrium/issues/new?labels=enhancement,integration&title=Add+Confluence+integration+support)
 
 Include:
 - Your specific use case
@@ -41,7 +41,7 @@ We'd love your contribution! Implementation would involve:
 4. Content parsing (handle Confluence markup)
 5. Optional: Page creation/updates
 
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](/docs/contributing) for guidelines.
 
 ---
 
@@ -105,7 +105,7 @@ Export Confluence pages and use RAG (Retrieval-Augmented Generation) via the age
 
 ## Vote for This Feature
 
-Add a 👍 reaction to [this issue](../../issues) to help us prioritize.
+Add a 👍 reaction to [this issue](https://github.com/ric03uec/clawrium/issues) to help us prioritize.
 
 ---
 

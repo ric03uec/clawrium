@@ -58,4 +58,4 @@ To request support for a new agent type or feature:
 2. Open an issue describing your use case
 3. Reference the relevant agent matrix in your request
 
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for contribution guidelines.
+See [CONTRIBUTING.md](/docs/contributing) for contribution guidelines.

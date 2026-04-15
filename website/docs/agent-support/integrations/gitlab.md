@@ -24,7 +24,7 @@ We welcome community contributions! If you need GitLab support:
 
 ### Option 1: Open an Issue
 
-[Create a feature request](../../issues/new?labels=enhancement,integration&title=Add+GitLab+integration+support)
+[Create a feature request](https://github.com/ric03uec/clawrium/issues/new?labels=enhancement,integration&title=Add+GitLab+integration+support)
 
 Include:
 - Your use case (personal, enterprise, etc.)
@@ -42,7 +42,7 @@ We'd love your contribution! Implementation would be similar to [GitHub integrat
 4. CI/CD pipeline status
 5. Webhook handling
 
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](/docs/contributing) for guidelines.
 
 ---
 
@@ -117,7 +117,7 @@ curl -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 
 ## Vote for This Feature
 
-Add a 👍 reaction to [this issue](../../issues) to help us prioritize.
+Add a 👍 reaction to [this issue](https://github.com/ric03uec/clawrium/issues) to help us prioritize.
 
 ---
 

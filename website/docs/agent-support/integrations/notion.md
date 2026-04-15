@@ -24,7 +24,7 @@ We welcome community contributions! If you need Notion support:
 
 ### Option 1: Open an Issue
 
-[Create a feature request](../../issues/new?labels=enhancement,integration&title=Add+Notion+integration+support)
+[Create a feature request](https://github.com/ric03uec/clawrium/issues/new?labels=enhancement,integration&title=Add+Notion+integration+support)
 
 Include:
 - Your specific use case
@@ -41,7 +41,7 @@ We'd love your contribution! Notion has a well-documented API:
 4. Content retrieval
 5. Optional: Page creation/updates
 
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](/docs/contributing) for guidelines.
 
 ---
 
@@ -111,7 +111,7 @@ Use generic HTTP MCP tools or Notion-specific MCP server when available.
 
 ## Vote for This Feature
 
-Add a 👍 reaction to [this issue](../../issues) to help us prioritize.
+Add a 👍 reaction to [this issue](https://github.com/ric03uec/clawrium/issues) to help us prioritize.
 
 ---
 

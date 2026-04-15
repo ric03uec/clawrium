@@ -24,7 +24,7 @@ We welcome community contributions! If you need WhatsApp support:
 
 ### Option 1: Open an Issue
 
-[Create a feature request](../../issues/new?labels=enhancement,channel&title=Add+WhatsApp+channel+support)
+[Create a feature request](https://github.com/ric03uec/clawrium/issues/new?labels=enhancement,channel&title=Add+WhatsApp+channel+support)
 
 Include:
 - Your use case (personal, business, etc.)
@@ -41,7 +41,7 @@ We'd love your contribution! Implementation would involve:
 4. Rate limiting and conversation tracking
 5. Business verification documentation
 
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](/docs/contributing) for guidelines.
 
 ---
 
@@ -92,7 +92,7 @@ If you need mobile messaging:
 
 ## Vote for This Feature
 
-Add a 👍 reaction to [this issue](../../issues) to help us prioritize.
+Add a 👍 reaction to [this issue](https://github.com/ric03uec/clawrium/issues) to help us prioritize.
 
 ---
 
