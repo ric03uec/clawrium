@@ -1,4 +1,4 @@
-# <img src="docs/assets/clawrium-logo.png" alt="Clawrium" height="40" align="center"> Clawrium - An aquarium for agents
+# <img src="docs/assets/clawrium-logo.png" alt="Clawrium" height="40" align="center"> Clawrium - An aquarium for *claws
 
 <p align="center">
   Fleet management for AI agents on your local network.
@@ -38,6 +38,16 @@ Clawrium gives you `kubectl`-style fleet control for AI agents:
 - **Lifecycle management.** Upgrades, rollbacks, secrets rotation, backups - handled.
 - **Token tracking & guardrails.** See spend across your fleet. Set limits before someone's experiment burns through your API budget.
 
+## What is a "Claw" or an Agent?
+
+A **Claw** or an Agent is a general-purpose AI assistant that runs on a host in your network. Unlike coding-focused assistants (Copilot, Cursor), Claws are designed for broader tasks:
+
+- **[OpenClaw](https://github.com/openclaw/openclaw)** - Open-source general assistant
+- **[ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw)** - Lightweight assistant for resource-constrained hosts
+- **[IronClaw](https://github.com/nearai/ironclaw)** - High-performance assistant for demanding workloads
+
+Clawrium manages the lifecycle of these agents across your fleet - install, configure, start, stop, upgrade, monitor.
+
 ## Who this is for
 
 Clawrium is for **engineers running AI agents in non-trivial setups** - home labs, dev teams, research groups. If you have more than one agent running on more than one machine, this tool exists for you.
@@ -46,7 +56,16 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
 
 ## Quickstart
 
-**Requirements:** Python 3.10+, [uv](https://docs.astral.sh/uv/)
+### What You'll Need
+
+| Requirement | Why |
+|-------------|-----|
+| Python 3.10+ | Runtime for `clm` CLI |
+| [uv](https://docs.astral.sh/uv/) | Fast Python package installer |
+| SSH access to a remote host | Clawrium manages agents over SSH |
+| API key (Anthropic, OpenAI, etc.) | Agents need inference providers |
+
+### Install & Run
 
 ```bash
 # Install
@@ -54,37 +73,53 @@ uv tool install clawrium
 
 # Or run without installing
 uvx --from clawrium clm --help
+```
 
-# Run
-clm --help
+### 5-Minute Setup
 
+```bash
 # Initialize config
 clm init
+# → Created /home/user/.config/clawrium/config.yaml
 
-# Set up a host
-clm host init 192.168.1.100 --user your-username
+# Set up SSH to your host
+clm host init 192.168.1.100 --user myuser
+# → Checking SSH connectivity...
+# → SSH key copied to 192.168.1.100
+
+# Add the host to your fleet
 clm host add 192.168.1.100 --alias worker-1
+# → Host 'worker-1' added
 
-# Add inference provider (e.g., Anthropic for Claude models)
+# Add an inference provider
 clm provider add anthropic --type anthropic
+# → Enter API key: ********
+# → Provider 'anthropic' configured
 
-# Install an agent
-clm agent install --type <agent-type> --host worker-1 --name my-assistant
+# Install OpenClaw agent
+clm agent install --type openclaw --host worker-1 --name my-assistant
+# → Installing openclaw on worker-1...
+# → Agent 'my-assistant' installed
 
-# Configure the agent
+# Configure and start
 clm agent configure my-assistant
-
-# Start the agent
 clm agent start my-assistant
+# → Agent 'my-assistant' started
 
 # Check fleet status
 clm ps
+# NAME           TYPE      HOST      STATUS   UPTIME
+# my-assistant   openclaw  worker-1  running  2m
 
 # Chat with your agent
 clm chat my-assistant
+# → Connected to my-assistant
+# → Type your message...
 ```
 
-**→ Full setup guide, agent types, and configuration reference: [ric03uec.github.io/clawrium](https://ric03uec.github.io/clawrium/)**
+**You should see:** A running agent in `clm ps` output with status `running`.
+
+**→ Full setup guide: [ric03uec.github.io/clawrium](https://ric03uec.github.io/clawrium/)**
 
 ## Key Concepts
 
@@ -106,7 +141,7 @@ Other Linux distributions may work, but they are not currently part of the test 
 
 ### 2. Which agents are supported today?
 
-Right now, one agent type is officially supported and tested end-to-end.
+[OpenClaw](https://github.com/openclaw/openclaw) is officially supported and tested end-to-end.
 
 Additional agent types are planned.
 
@@ -116,7 +151,7 @@ No. Clawrium supports API keys only, by design.
 
 ### 4. Which channels are supported?
 
-Discord is supported right now.
+[Discord](https://ric03uec.github.io/clawrium/docs/channels/discord) is supported right now.
 
 Additional channels are planned.
 
