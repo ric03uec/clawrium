@@ -102,7 +102,7 @@ sequenceDiagram
     participant Registry
     participant Host as Target Host
 
-    User->>CLM: clm install openclaw --host myhost
+    User->>CLM: clm agent install --type openclaw --host myhost
     CLM->>Registry: Get OpenClaw definition
     Registry-->>CLM: Version, dependencies, template
     CLM->>Host: SSH as xclm
@@ -239,7 +239,7 @@ sequenceDiagram
     participant Ansible
     participant Host
 
-    User->>CLI: clm install zeroclaw --host pi-lab
+    User->>CLI: clm agent install --type zeroclaw --host pi-lab
     CLI->>Config: Load host info for pi-lab
     Config-->>CLI: SSH key, connection details
     CLI->>Ansible: Generate playbook
@@ -264,7 +264,7 @@ sequenceDiagram
     User->>CLI: clm secret set API_KEY
     CLI->>CLI: Read value (hidden prompt)
     CLI->>Secrets: Store encrypted value
-    User->>CLI: clm install zeroclaw
+    User->>CLI: clm agent install --type zeroclaw
     CLI->>Secrets: Retrieve secrets
     Secrets-->>CLI: API_KEY value
     CLI->>Ansible: Inject into playbook
