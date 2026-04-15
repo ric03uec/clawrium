@@ -6,6 +6,7 @@ This is the primary interface for managing AI assistants.
 import os
 import re
 import tempfile
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -424,6 +425,7 @@ def _run_identity_stage(
     claw_type: str,
     yes: bool,
     installed_name: str | None = None,
+    identity_files: list[Path] | None = None,
 ) -> bool:
     """Run the IDENTITY onboarding stage.
 
@@ -434,53 +436,87 @@ def _run_identity_stage(
         claw_type: Claw type
         yes: Skip confirmation prompts
         installed_name: Agent instance name
+        identity_files: Optional list of identity files to import
 
     Returns:
         True if stage completed successfully
     """
     from clawrium.core.lifecycle import configure_agent
+    import shutil
 
     agent_name = installed_name or claw_type
-
-    console.print("[1/3] Create personality file (SOUL.md)")
-
-    if yes:
-        personality = "You are a helpful coding assistant focused on reliability and code quality."
-    else:
-        console.print(
-            "  Describe your agent's personality (max 2000 chars, press Enter for default):"
-        )
-        personality = typer.prompt(
-            "> ",
-            default="You are a helpful coding assistant focused on reliability and code quality.",
-        )
-
-    if len(personality) > 2000:
-        console.print(
-            "[red]Error:[/red] Personality description exceeds 2000 character limit"
-        )
-        return False
-
-    # Write SOUL.md to agent-specific directory
     config_dir = get_config_dir()
     identity_dir = config_dir / "agents" / claw_type / agent_name / "identity"
     identity_dir.mkdir(parents=True, exist_ok=True)
-    soul_path = identity_dir / "SOUL.md"
 
-    try:
-        _atomic_write_file(
-            str(soul_path),
-            f"# {agent_name.upper()} Personality\n\n{personality}\n",
-        )
-        console.print(f"  [green]✓[/green] Created {soul_path}")
-    except Exception as e:
-        console.print(
-            f"[red]Error:[/red] Failed to write SOUL.md: {rich_escape(str(e))}"
-        )
-        return False
+    # If files provided via --file, copy them to identity directory
+    if identity_files:
+        console.print("[1/3] Import identity files")
+        for src_file in identity_files:
+            dest_file = identity_dir / src_file.name
+            try:
+                shutil.copy2(src_file, dest_file)
+                console.print(f"  [green]✓[/green] Imported {src_file.name}")
+            except Exception as e:
+                console.print(
+                    f"[red]Error:[/red] Failed to copy {src_file.name}: {rich_escape(str(e))}"
+                )
+                return False
+
+        # Check if SOUL.md was provided, if not create default
+        soul_path = identity_dir / "SOUL.md"
+        if not soul_path.exists():
+            console.print("  [dim]SOUL.md not provided, creating default...[/dim]")
+            try:
+                _atomic_write_file(
+                    str(soul_path),
+                    f"# {agent_name.upper()} Personality\n\nYou are a helpful coding assistant focused on reliability and code quality.\n",
+                )
+                console.print("  [green]✓[/green] Created default SOUL.md")
+            except Exception as e:
+                console.print(
+                    f"[red]Error:[/red] Failed to write SOUL.md: {rich_escape(str(e))}"
+                )
+                return False
+    else:
+        # Interactive mode - prompt for personality
+        console.print("[1/3] Create personality file (SOUL.md)")
+
+        if yes:
+            personality = "You are a helpful coding assistant focused on reliability and code quality."
+        else:
+            console.print(
+                "  Describe your agent's personality (max 2000 chars, press Enter for default):"
+            )
+            personality = typer.prompt(
+                "> ",
+                default="You are a helpful coding assistant focused on reliability and code quality.",
+            )
+
+        if len(personality) > 2000:
+            console.print(
+                "[red]Error:[/red] Personality description exceeds 2000 character limit"
+            )
+            return False
+
+        soul_path = identity_dir / "SOUL.md"
+
+        try:
+            _atomic_write_file(
+                str(soul_path),
+                f"# {agent_name.upper()} Personality\n\n{personality}\n",
+            )
+            console.print(f"  [green]✓[/green] Created {soul_path}")
+        except Exception as e:
+            console.print(
+                f"[red]Error:[/red] Failed to write SOUL.md: {rich_escape(str(e))}"
+            )
+            return False
 
     console.print("\n[2/3] Create identity files")
     console.print("  [green]✓[/green] Using default identity configuration")
+
+    soul_path = identity_dir / "SOUL.md"
 
     # Sync identity files to remote workspace
     console.print("\n[3/3] Sync identity files to remote workspace")
@@ -508,7 +544,7 @@ def _run_identity_stage(
         return False
 
     # Trigger workspace sync with identity files
-    identity_files = {
+    identity_vars = {
         "soul_path": str(soul_path),
         "sync_workspace": True,
     }
@@ -520,7 +556,7 @@ def _run_identity_stage(
             claw_type,
             existing_config,
             agent_name=agent_name,
-            extra_vars={"identity_files": identity_files},
+            extra_vars={"identity_files": identity_vars},
         )
         if success:
             console.print("[green]✓[/green]")
@@ -875,6 +911,10 @@ def _run_validate_stage(
         return False
 
 
+# Allowed identity file names for --file option
+IDENTITY_FILE_ALLOWLIST = {"SOUL.md", "AGENTS.md", "TOOLS.md", "IDENTITY.md"}
+
+
 @agent_app.command()
 def configure(
     claw_name: str = typer.Argument(
@@ -887,6 +927,14 @@ def configure(
         help="Run single stage (providers, identity, channels, validate)",
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip prompts, use defaults"),
+    file: Optional[list[Path]] = typer.Option(
+        None,
+        "--file",
+        "-f",
+        help="Import identity file (SOUL.md, AGENTS.md, TOOLS.md, IDENTITY.md). Repeatable. Only valid with --stage identity.",
+        exists=True,
+        readable=True,
+    ),
 ) -> None:
     """Configure agent settings through an interactive wizard.
 
@@ -897,7 +945,26 @@ def configure(
         clm agent configure wise-hypatia
         clm agent configure clever-einstein --stage providers
         clm agent configure work-assistant --yes
+        clm agent configure wolf-i --stage identity --file ~/SOUL.md
     """
+    # Validate --file is only used with --stage identity
+    if file and stage != "identity":
+        console.print(
+            "[red]Error:[/red] --file can only be used with --stage identity"
+        )
+        raise typer.Exit(code=1)
+
+    # Validate file names are in allowlist
+    if file:
+        for f in file:
+            if f.name not in IDENTITY_FILE_ALLOWLIST:
+                console.print(
+                    f"[red]Error:[/red] Invalid identity file '{rich_escape(f.name)}'"
+                )
+                console.print(
+                    f"Allowed files: {', '.join(sorted(IDENTITY_FILE_ALLOWLIST))}"
+                )
+                raise typer.Exit(code=1)
     try:
         (
             hostname,
@@ -968,7 +1035,10 @@ def configure(
         }[stage]
 
         try:
-            success = stage_func(hostname, claw_type, yes, installed_name)
+            if stage == "identity":
+                success = stage_func(hostname, claw_type, yes, installed_name, file)
+            else:
+                success = stage_func(hostname, claw_type, yes, installed_name)
         except KeyboardInterrupt:
             console.print("\nCancelled.")
             raise typer.Exit(code=1)

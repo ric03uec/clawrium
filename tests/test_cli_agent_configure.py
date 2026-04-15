@@ -237,9 +237,15 @@ class TestAgentConfigureSingleStage:
             )
 
             assert result.exit_code == 0
-            mock_run.assert_called_once_with(
-                "192.168.1.100", "openclaw", True, "assistant"
-            )
+            # Identity stage has extra identity_files parameter (None when not provided)
+            if stage_name == "identity":
+                mock_run.assert_called_once_with(
+                    "192.168.1.100", "openclaw", True, "assistant", None
+                )
+            else:
+                mock_run.assert_called_once_with(
+                    "192.168.1.100", "openclaw", True, "assistant"
+                )
 
     def test_single_stage_failure(self, isolated_config: Path):
         """Stage failure exits with code 1."""
