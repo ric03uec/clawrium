@@ -137,7 +137,7 @@ Each secret file:
 
 ## Best Practices
 
-1. **Set secrets before installing** - Required secrets must exist before `clm install` succeeds
+1. **Set secrets before installing** - Required secrets must exist before `clm agent install` succeeds
 2. **Use descriptive comments** - Add `-d` descriptions to remember what each secret is for
 3. **Rotate periodically** - Update secrets if you rotate API keys
 4. **One claw, one set** - Each claw instance has its own secrets; they're not shared

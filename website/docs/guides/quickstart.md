@@ -112,7 +112,7 @@ The secret value is entered via masked prompt (not visible on screen).
 Install OpenClaw on your host:
 
 ```bash
-clm install --claw openclaw --host homelab
+clm agent install --type openclaw --host homelab
 ```
 
 Clawrium will:
@@ -149,4 +149,4 @@ The claw's manifest doesn't support your host's OS, version, or architecture. Ru
 
 ### Missing required secrets
 
-Run `clm secret list <claw-name>` to see which secrets are missing. Set them before running `clm install`.
+Run `clm secret list <claw-name>` to see which secrets are missing. Set them before running `clm agent install`.

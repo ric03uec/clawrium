@@ -32,7 +32,7 @@ clm <group> <command> [options]
 |---------|-------------|
 | [`clm init`](#clm-init) | Initialize Clawrium and check dependencies |
 | [`clm status`](#clm-status) | Show fleet status across all hosts |
-| [`clm install`](#clm-install) | Install a claw on a host |
+| [`clm agent install`](#clm-agent-install) | Install an agent on a host |
 
 ## Command Groups
 
@@ -127,34 +127,34 @@ $ clm status --host pi-lab
 
 ---
 
-## clm install
+## clm agent install
 
-Install a claw on a host.
+Install an agent on a host.
 
 ```bash
-clm install [--claw CLAW] [--host HOST] [--yes]
+clm agent install [--type AGENT_TYPE] [--host HOST] [--yes]
 ```
 
-Without flags, prompts for claw and host selection interactively. With `--claw` and `--host` flags, runs directly for scripting.
+Without flags, prompts for agent type and host selection interactively. With `--type` and `--host` flags, runs directly for scripting.
 
 ### Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--claw` | `-c` | Claw type to install (e.g., `zeroclaw`) |
+| `--type` | `-t` | Agent type to install (e.g., `zeroclaw`) |
 | `--host` | `-H` | Target host (hostname or alias) |
 | `--yes` | `-y` | Skip confirmation prompt |
 
 ### Interactive Example
 
 ```bash
-$ clm install
+$ clm agent install
 
-Available claws:
+Available agent types:
   1. zeroclaw (v0.1.0) - Zero-config Claude assistant
   2. openclaw (v0.2.0) - OpenAI-powered assistant
 
-Select claw: 1
+Select agent type: 1
 
 Available hosts:
   1. pi-lab (aarch64, 4.0GB)
@@ -165,7 +165,7 @@ Select host: 1
 ╭─────────────────────────────────────────╮
 │          Installation Summary           │
 ├─────────────────────────────────────────┤
-│ Claw: zeroclaw                          │
+│ Agent Type: zeroclaw                    │
 │ Version: 0.1.0                          │
 │ Host: pi-lab                            │
 │ Architecture: aarch64                   │
@@ -180,7 +180,7 @@ Success! zeroclaw v0.1.0 installed on pi-lab
 ### Non-Interactive Example
 
 ```bash
-$ clm install --claw zeroclaw --host pi-lab --yes
+$ clm agent install --type zeroclaw --host pi-lab --yes
 ```
 
 ### Exit Codes

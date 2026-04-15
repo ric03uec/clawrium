@@ -93,9 +93,9 @@ Deploy the same claw to multiple hosts:
 
 ```bash
 # Install ZeroClaw on multiple hosts
-clm install zeroclaw --host pi-lab --yes
-clm install zeroclaw --host nuc-01 --yes
-clm install zeroclaw --host dev-server --yes
+clm agent install --type zeroclaw --host pi-lab --yes
+clm agent install --type zeroclaw --host nuc-01 --yes
+clm agent install --type zeroclaw --host dev-server --yes
 ```
 
 ### Managing Configuration
@@ -276,10 +276,10 @@ Each host has an isolated SSH keypair:
 1. **Test on dev hosts first**
    ```bash
    # Deploy to dev
-   clm install zeroclaw --host dev-server --yes
+   clm agent install --type zeroclaw --host dev-server --yes
    # Verify
    # Then deploy to production
-   clm install zeroclaw --host pi-lab --yes
+   clm agent install --type zeroclaw --host pi-lab --yes
    ```
 
 2. **Document host configurations**
