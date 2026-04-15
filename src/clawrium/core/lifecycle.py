@@ -31,6 +31,7 @@ __all__ = [
     "restart_agent",
     "remove_agent",
     "configure_agent",
+    "sync_agent",
     "LifecycleError",
     "LifecycleResult",
 ]
@@ -489,6 +490,134 @@ def restart_agent(
     start_result["operation"] = "restart"
 
     return start_result
+
+
+def sync_agent(
+    hostname: str,
+    claw_name: str,
+    agent_name: str | None = None,
+    on_event: Callable[[str, str], None] | None = None,
+) -> LifecycleResult:
+    """Sync configuration and restart an agent instance.
+
+    Orchestrates: configure_agent -> restart_agent.
+    This is a single command to ensure an agent is running the latest configuration.
+
+    Args:
+        hostname: Hostname or alias of target host
+        claw_name: Type of agent to sync (e.g., "openclaw")
+        agent_name: Optional specific instance name
+        on_event: Optional callback for progress events
+
+    Returns:
+        LifecycleResult with success status and details
+    """
+
+    def emit(stage: str, message: str) -> None:
+        if on_event:
+            on_event(stage, message)
+        logger.info("[%s] %s", stage, message)
+
+    target = agent_name or claw_name
+    emit("sync", f"Syncing {target} on {hostname}...")
+
+    # Validate host and agent exist
+    host = get_host(hostname)
+    if not host:
+        raise LifecycleError(f"Host '{hostname}' not found")
+
+    resolved = _resolve_agent_record(host, target, expected_type=claw_name)
+    if not resolved:
+        raise LifecycleError(f"Agent '{target}' not installed on '{hostname}'")
+    agent_key, agent_type, claw_record = resolved
+
+    # B1: Check onboarding state - agent must be READY to sync
+    onboarding = claw_record.get("onboarding", {})
+    state_value = onboarding.get("state", "pending")
+
+    try:
+        state = OnboardingState(state_value)
+    except ValueError:
+        state = OnboardingState.PENDING
+
+    if state != OnboardingState.READY:
+        raise LifecycleError(
+            f"Cannot sync {agent_key}: onboarding incomplete (state={state_value}). "
+            f"Run 'clm agent configure {agent_key}' first."
+        )
+
+    # Get existing config to re-apply
+    existing_config = claw_record.get("config", {})
+    if not existing_config:
+        raise LifecycleError(
+            f"No configuration found for {agent_key}. "
+            f"Run 'clm agent configure {agent_key}' first."
+        )
+
+    # Step 1: Configure agent (sync config files)
+    emit("sync", f"Configuring {agent_key}...")
+    config_success, config_error = configure_agent(
+        hostname,
+        agent_type,
+        existing_config,
+        agent_name=agent_key,
+        on_event=on_event,
+    )
+
+    if not config_success:
+        return {
+            "success": False,
+            "agent": agent_key,
+            "host": hostname,
+            "operation": "sync",
+            "pid": None,
+            "started_at": None,
+            "error": f"Configure failed: {config_error}",
+        }
+
+    # Step 2: Restart agent
+    # B2: Wrap in try/except to maintain LifecycleResult return contract
+    emit("sync", f"Restarting {agent_key}...")
+    try:
+        restart_result = restart_agent(
+            hostname,
+            agent_type,
+            agent_name=agent_key,
+            on_event=on_event,
+        )
+    except LifecycleError as e:
+        return {
+            "success": False,
+            "agent": agent_key,
+            "host": hostname,
+            "operation": "sync",
+            "pid": None,
+            "started_at": None,
+            "error": f"Restart failed: {e}",
+        }
+
+    if not restart_result["success"]:
+        return {
+            "success": False,
+            "agent": agent_key,
+            "host": hostname,
+            "operation": "sync",
+            "pid": None,
+            "started_at": None,
+            "error": f"Restart failed: {restart_result['error']}",
+        }
+
+    emit("sync", f"Sync complete for {agent_key}")
+
+    return {
+        "success": True,
+        "agent": agent_key,
+        "host": hostname,
+        "operation": "sync",
+        "pid": restart_result.get("pid"),
+        "started_at": restart_result.get("started_at"),
+        "error": None,
+    }
 
 
 def configure_agent(

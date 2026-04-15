@@ -10,6 +10,7 @@ from clawrium.core.lifecycle import (
     stop_agent,
     restart_agent,
     remove_agent,
+    sync_agent,
     LifecycleError,
     _get_lifecycle_playbook_path,
     _run_lifecycle_playbook,
@@ -717,3 +718,363 @@ class TestResolveAgentRecord:
         agent_name, agent_type, record = result
         assert agent_name == "work-bot"
         assert agent_type == "openclaw"
+
+
+class TestSyncAgent:
+    """Tests for sync_agent function."""
+
+    def test_raises_error_when_host_not_found(self):
+        """Sync with unknown host fails."""
+        with patch("clawrium.core.lifecycle.get_host", return_value=None):
+            with pytest.raises(LifecycleError) as exc_info:
+                sync_agent("unknown-host", "openclaw")
+
+        assert "not found" in str(exc_info.value)
+
+    def test_raises_error_when_agent_not_installed(self):
+        """Sync when agent not installed fails."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agents": {},
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with pytest.raises(LifecycleError) as exc_info:
+                sync_agent("192.168.1.100", "openclaw")
+
+        assert "not installed" in str(exc_info.value)
+
+    def test_raises_error_when_onboarding_incomplete(self):
+        """B1: Sync raises error when agent onboarding is not complete."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "pending"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with pytest.raises(LifecycleError) as exc_info:
+                sync_agent("192.168.1.100", "openclaw")
+
+        assert "onboarding incomplete" in str(exc_info.value)
+
+    def test_raises_error_when_no_config(self):
+        """Sync when no config exists fails."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    # No config
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with pytest.raises(LifecycleError) as exc_info:
+                sync_agent("192.168.1.100", "openclaw")
+
+        assert "No configuration found" in str(exc_info.value)
+
+    def test_returns_failure_when_configure_fails(self):
+        """Sync fails when configure step fails."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(False, "Config error"),
+            ) as mock_configure:
+                with patch(
+                    "clawrium.core.lifecycle.restart_agent"
+                ) as mock_restart:
+                    result = sync_agent("192.168.1.100", "openclaw")
+
+        assert result["success"] is False
+        assert "Configure failed" in result["error"]
+        assert result["operation"] == "sync"
+        # W6: Verify restart was NOT called when configure fails
+        mock_configure.assert_called_once()
+        mock_restart.assert_not_called()
+
+    def test_returns_failure_when_restart_fails(self):
+        """B9: Sync fails when restart step fails after configure succeeds."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ) as mock_configure:
+                with patch(
+                    "clawrium.core.lifecycle.restart_agent",
+                    return_value={
+                        "success": False,
+                        "agent": "opc-work",
+                        "host": "192.168.1.100",
+                        "operation": "restart",
+                        "pid": None,
+                        "started_at": None,
+                        "error": "Restart error",
+                    },
+                ):
+                    result = sync_agent("192.168.1.100", "openclaw")
+
+        assert result["success"] is False
+        assert "Restart failed" in result["error"]
+        assert result["operation"] == "sync"
+        # Confirm configure was called (intermediate step ran)
+        mock_configure.assert_called_once()
+
+    def test_returns_failure_when_restart_raises_exception(self):
+        """B2: Sync catches LifecycleError from restart and returns result."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ):
+                with patch(
+                    "clawrium.core.lifecycle.restart_agent",
+                    side_effect=LifecycleError("Restart exception"),
+                ):
+                    result = sync_agent("192.168.1.100", "openclaw")
+
+        assert result["success"] is False
+        assert "Restart failed" in result["error"]
+        assert "Restart exception" in result["error"]
+        assert result["operation"] == "sync"
+
+    def test_returns_success_on_successful_sync(self):
+        """Sync succeeds when all steps succeed."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ):
+                with patch(
+                    "clawrium.core.lifecycle.restart_agent",
+                    return_value={
+                        "success": True,
+                        "agent": "opc-work",
+                        "host": "192.168.1.100",
+                        "operation": "restart",
+                        "pid": 1234,
+                        "started_at": "2026-04-14T12:00:00Z",
+                        "error": None,
+                    },
+                ):
+                    result = sync_agent("192.168.1.100", "openclaw")
+
+        assert result["success"] is True
+        assert result["operation"] == "sync"
+        assert result["agent"] == "opc-work"
+        assert result["pid"] == 1234
+
+    def test_sync_agent_by_explicit_name(self):
+        """W7: Test sync with explicit agent_name parameter."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ):
+                with patch(
+                    "clawrium.core.lifecycle.restart_agent",
+                    return_value={
+                        "success": True,
+                        "agent": "opc-work",
+                        "host": "192.168.1.100",
+                        "operation": "restart",
+                        "pid": None,
+                        "started_at": "2026-04-14T12:00:00Z",
+                        "error": None,
+                    },
+                ):
+                    result = sync_agent(
+                        "192.168.1.100", "openclaw", agent_name="opc-work"
+                    )
+
+        assert result["success"] is True
+        assert result["agent"] == "opc-work"
+
+    def test_event_callbacks_invoked(self):
+        """Verify on_event callback is called with appropriate messages."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        events = []
+
+        def on_event(stage, message):
+            events.append((stage, message))
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ):
+                with patch(
+                    "clawrium.core.lifecycle.restart_agent",
+                    return_value={
+                        "success": True,
+                        "agent": "opc-work",
+                        "host": "192.168.1.100",
+                        "operation": "restart",
+                        "pid": None,
+                        "started_at": "2026-04-14T12:00:00Z",
+                        "error": None,
+                    },
+                ):
+                    result = sync_agent(
+                        "192.168.1.100", "openclaw", on_event=on_event
+                    )
+
+        assert result["success"] is True
+        # W8: Assert sync events were emitted with proper count/ordering
+        sync_events = [e for e in events if e[0] == "sync"]
+        # Should have at least 4 sync events: Syncing, Configuring, Restarting, complete
+        assert len(sync_events) >= 4
+        # First should be "Syncing..."
+        assert "Syncing" in sync_events[0][1]
+        # Last should be "Sync complete"
+        assert "complete" in sync_events[-1][1].lower()

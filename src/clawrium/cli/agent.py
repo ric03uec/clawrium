@@ -1356,6 +1356,74 @@ def restart(
 
 
 @agent_app.command()
+def sync(
+    claw_name: str = typer.Argument(
+        ..., help="Agent instance name to sync (use 'clm agent ps' to list agents)"
+    ),
+) -> None:
+    """Sync configuration and restart an agent.
+
+    Pushes latest configuration to the agent host and restarts the agent
+    to apply changes.
+
+    Examples:
+        clm agent sync wise-hypatia
+        clm agent sync work-assistant
+    """
+    from clawrium.core.lifecycle import sync_agent, LifecycleError
+
+    try:
+        hostname, host_data, claw_type, _, installed_name = _resolve_agent_instance(
+            claw_name
+        )
+        display_host = host_data.get("alias") or host_data.get("hostname")
+        if not display_host:
+            display_host = hostname
+
+        console.print(
+            f"[green]Syncing agent:[/green] {rich_escape(installed_name)} on {rich_escape(display_host)}"
+        )
+
+        def on_event(stage: str, message: str) -> None:
+            # W2: Fixed - configure stage gets dim, sync stage gets normal
+            if stage == "configure":
+                console.print(f"  [dim]{message}[/dim]")
+            else:
+                console.print(f"  {message}")
+
+        # W3: Fixed - always pass agent_name since _resolve_agent_instance resolved it
+        try:
+            result = sync_agent(
+                hostname,
+                claw_type,
+                agent_name=installed_name,
+                on_event=on_event,
+            )
+        except LifecycleError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+        if result["success"]:
+            console.print(
+                "[green]✓[/green] Configuration synced and agent restarted"
+            )
+            console.print("  Run 'clm agent ps' to check status")
+        else:
+            console.print(f"[red]✗[/red] Failed to sync agent: {result['error']}")
+            raise typer.Exit(code=1)
+
+    except HostsFileCorruptedError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+    except AgentNameResolutionError as e:
+        console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        raise typer.Exit(code=1)
+    except KeyboardInterrupt:
+        console.print("\nCancelled.")
+        raise typer.Exit(code=1)
+
+
+@agent_app.command()
 def logs(
     claw_name: str = typer.Argument(..., help="Agent name to view logs for"),
 ) -> None:
