@@ -1,4 +1,4 @@
-# WhatsApp Channel
+# WhatsApp
 
 **Status:** 📋 Not Currently Planned
 

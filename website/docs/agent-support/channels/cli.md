@@ -1,4 +1,4 @@
-# CLI Channel
+# CLI
 
 **Status:** ✅ Supported (All Agents)
 

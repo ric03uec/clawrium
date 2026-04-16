@@ -1,4 +1,4 @@
-# Web Interface Channel
+# Web Interface
 
 **Status:** 🚧 In Development
 

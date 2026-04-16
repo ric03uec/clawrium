@@ -1,4 +1,4 @@
-# Discord Channel
+# Discord
 
 **Status:** ✅ Supported (OpenClaw only)
 
