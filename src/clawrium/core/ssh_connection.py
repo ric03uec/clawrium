@@ -10,6 +10,7 @@ __all__ = [
     "get_ssh_config",
     "test_ssh_connection",
     "accept_host_key",
+    "push_file_to_remote",
     "HostKeyVerificationRequired",
 ]
 
@@ -244,3 +245,102 @@ def accept_host_key(
             os.umask(old_umask)
 
     return policy.key_accepted
+
+
+def push_file_to_remote(
+    hostname: str,
+    port: int,
+    username: str,
+    private_key_path: str,
+    local_path: str | Path,
+    remote_path: str,
+    permissions: int | None = None,
+) -> tuple[bool, str | None]:
+    """Push a local file to a remote host via SFTP.
+
+    Transfers a file from the local filesystem to a remote host using SFTP.
+    Uses the same SSH connection patterns as other functions in this module.
+
+    Args:
+        hostname: Remote host to connect to.
+        port: SSH port.
+        username: SSH username.
+        private_key_path: Path to private key file for authentication.
+        local_path: Local file to upload.
+        remote_path: Destination path on remote host.
+        permissions: Optional file mode to set (e.g., 0o600).
+
+    Returns:
+        Tuple of (success, error_message). On success, error_message is None.
+        On failure, error_message contains actionable user-facing error.
+
+    Raises:
+        HostKeyVerificationRequired: If host key not in known_hosts (TOFU).
+    """
+    local_path = Path(local_path)
+
+    # Validate local file exists before attempting connection
+    if not local_path.exists():
+        return (False, f"Local file not found: {local_path}")
+    if not local_path.is_file():
+        return (False, f"Path is not a file: {local_path}")
+
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(StrictHostKeyPolicy())
+
+    sftp = None
+    try:
+        client.connect(
+            hostname=hostname,
+            port=port,
+            username=username,
+            key_filename=private_key_path,
+            timeout=10,
+        )
+
+        sftp = client.open_sftp()
+        sftp.put(str(local_path), remote_path)
+
+        if permissions is not None:
+            sftp.chmod(remote_path, permissions)
+
+        return (True, None)
+
+    except HostKeyVerificationRequired:
+        raise
+    except paramiko.BadHostKeyException:
+        return (
+            False,
+            "Host key verification failed - host key changed since last connection",
+        )
+    except paramiko.AuthenticationException:
+        return (False, f"Authentication failed for {username}@{hostname}")
+    except paramiko.SFTPError as e:
+        # SFTP protocol errors
+        logger.debug("SFTP error during file transfer: %s", e)
+        error_msg = str(e)
+        if "Permission denied" in error_msg:
+            return (False, f"Permission denied writing to {remote_path}")
+        if "No such file" in error_msg:
+            return (False, f"Remote directory does not exist: {remote_path}")
+        return (False, f"File transfer failed: {error_msg}")
+    except paramiko.SSHException as e:
+        logger.debug("SSH error during file transfer to %s:%d: %s", hostname, port, e)
+        return (False, "SSH connection failed - check host availability and SSH configuration")
+    except socket.error as e:
+        logger.debug("Socket error during file transfer to %s:%d: %s", hostname, port, e)
+        return (False, f"Network error: could not reach {hostname}:{port}")
+    except OSError as e:
+        # File system errors during SFTP operations (IOError is OSError in Python 3)
+        logger.debug("OS error during file transfer: %s", e)
+        error_msg = str(e)
+        if "Permission denied" in error_msg:
+            return (False, f"Permission denied writing to {remote_path}")
+        if "No such file" in error_msg:
+            return (False, f"Remote directory does not exist: {remote_path}")
+        return (False, f"File transfer failed: {error_msg}")
+    finally:
+        if sftp is not None:
+            sftp.close()
+        client.close()
