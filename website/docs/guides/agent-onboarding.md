@@ -174,8 +174,8 @@ Configure governance identity:
 
 For channel-specific setup and credential requirements, see:
 
-- [Channels Guide](./channels/channels.md)
-- [Discord Channel Setup](./channels/discord.md)
+- [Channels Guide](../agent-support/channels/index.md)
+- [Discord Channel Setup](../agent-support/channels/discord.md)
 
 :::info
 For ZeroClaw, only CLI is supported and auto-configured.
@@ -407,7 +407,7 @@ The wizard will respect your intent even if the stage is normally skippable.
 
 ## Next Steps
 
-- [Channels Guide](./channels/channels.md) - Configure communication channels and integrations
+- [Channels Guide](../agent-support/channels/index.md) - Configure communication channels and integrations
 - [Secret Management](./secret-management.md) - Managing provider API keys
 - [Fleet Management](./fleet-management.md) - Operating multiple agents
 - [CLI Reference: agent](../reference/cli/agent.md) - Full command documentation
