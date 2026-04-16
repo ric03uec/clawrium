@@ -1,4 +1,4 @@
-# Slack Channel
+# Slack
 
 **Status:** ✅ Supported (OpenClaw only)
 
@@ -181,7 +181,7 @@ After setup, the Slack config in your agent's `openclaw.json` looks like:
 | `botToken` | SecretRef | — | Bot token reference (`xoxb-...`) |
 | `appToken` | SecretRef | — | App-level token reference (`xapp-...`) |
 | `allowFrom` | string[] | `[]` | User IDs allowed to interact with the bot |
-| `groupPolicy` | string | `"allowlist"` | Channel access policy: `open`, `allowlist`, `disabled` |
+| `groupPolicy` | string | `"allowlist"` | Group access policy: `open`, `allowlist`, `disabled` |
 | `dmPolicy` | string | `"pairing"` | DM access policy: `pairing`, `allowlist`, `open`, `disabled` |
 
 ### SecretRef Object
@@ -211,7 +211,7 @@ At runtime, OpenClaw resolves the token from the environment file written by Cla
 | `open` | Anyone can DM (requires `allowFrom: ["*"]`) |
 | `disabled` | No DMs allowed |
 
-### Channel Policy (`groupPolicy`)
+### Group Policy (`groupPolicy`)
 
 | Policy | Behavior |
 |--------|----------|
