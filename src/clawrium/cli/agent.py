@@ -352,6 +352,7 @@ def _run_providers_stage(
     """
     from clawrium.core.providers import (
         get_provider_api_key,
+        get_provider_aws_credentials,
         load_providers,
         ProvidersFileCorruptedError,
     )
@@ -374,7 +375,17 @@ def _run_providers_stage(
         name = provider.get("name", "?")
         ptype = provider.get("type", "?")
         model = provider.get("default_model", "-")
-        key_status = "✓" if get_provider_api_key(name) else "✗"
+        # Determine credential status based on provider type
+        if ptype == "ollama":
+            # Ollama providers don't require credentials
+            key_status = "✓"
+        elif ptype == "bedrock":
+            # Bedrock uses AWS credentials, not API key
+            access_key, secret_key = get_provider_aws_credentials(name)
+            key_status = "✓" if (access_key and secret_key) else "✗"
+        else:
+            # Cloud providers use API key
+            key_status = "✓" if get_provider_api_key(name) else "✗"
         console.print(
             f"  {i}. {rich_escape(name)} ({rich_escape(ptype)}, {rich_escape(model)}) {key_status}"
         )
@@ -406,12 +417,26 @@ def _run_providers_stage(
         )
         return False
 
+    # Check if providers stage is already complete - if so, skip complete_stage()
+    # This allows re-running the stage to update config without state machine errors
+    from clawrium.core.onboarding import _get_claw_record
+
+    agent_name = installed_name or claw_type
+    claw_record = _get_claw_record(host, agent_name)
+    stages = claw_record.get("onboarding", {}).get("stages", {}) if claw_record else {}
+    providers_status = stages.get("providers", {}).get("status")
+
+    if providers_status == "complete":
+        # Stage already complete, config sync was successful, we're done
+        console.print("[green]✓[/green] Provider configuration updated")
+        return True
+
     # Only complete stage after successful config sync
     console.print("Saving provider selection... ", end="")
     try:
         complete_stage(
             host,
-            installed_name or claw_type,
+            agent_name,
             "providers",
             StageStatus.COMPLETE,
             {"provider_id": provider_name},
@@ -771,10 +796,24 @@ def _run_channels_stage(
         )
         console.print("[green]✓[/green] Discord bot token stored securely")
 
+    # Check if channels stage is already complete - if so, skip complete_stage()
+    # This allows re-running the stage to update config without state machine errors
+    from clawrium.core.onboarding import _get_claw_record
+
+    agent_name = installed_name or claw_type
+    claw_record = _get_claw_record(host, agent_name)
+    stages = claw_record.get("onboarding", {}).get("stages", {}) if claw_record else {}
+    channels_status = stages.get("channels", {}).get("status")
+
+    if channels_status == "complete":
+        # Stage already complete, config sync was successful, we're done
+        console.print("[green]✓[/green] Channels configuration updated")
+        return True
+
     try:
         complete_stage(
             host,
-            installed_name or claw_type,
+            agent_name,
             "channels",
             StageStatus.COMPLETE,
             {"default_channel": selected_channel},
@@ -849,7 +888,7 @@ def _run_validate_stage(
         all_errors.extend(soul_result.errors)
 
     console.print(f"[3/{total_checks}] Validating provider configuration...")
-    provider_result = validate_provider_config(host, claw_type)
+    provider_result = validate_provider_config(host, agent_name)
     if provider_result.passed:
         provider_id = provider_result.details.get("provider_id", "unknown")
         provider_type = provider_result.details.get("provider_type", "unknown")

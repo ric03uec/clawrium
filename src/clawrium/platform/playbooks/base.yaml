@@ -2,10 +2,25 @@
 - hosts: all
   become: yes
   tasks:
+    - name: Kill stale apt lock holders
+      ansible.builtin.command: fuser -k {{ item }}
+      loop:
+        - /var/lib/apt/lists/lock
+        - /var/lib/dpkg/lock
+        - /var/lib/dpkg/lock-frontend
+      failed_when: false
+      changed_when: false
+
     - name: Update apt cache
       ansible.builtin.apt:
         update_cache: yes
         cache_valid_time: 3600
+
+    - name: Check if node is installed
+      ansible.builtin.command: node --version
+      register: node_check
+      failed_when: false
+      changed_when: false
 
     - name: Install required packages for NodeSource repository
       ansible.builtin.apt:
@@ -14,30 +29,35 @@
           - ca-certificates
           - gnupg
         state: present
+      when: node_check.rc != 0
 
     - name: Create keyrings directory
       ansible.builtin.file:
         path: /etc/apt/keyrings
         state: directory
         mode: "0755"
+      when: node_check.rc != 0
 
     - name: Download NodeSource GPG key
       ansible.builtin.get_url:
         url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
         dest: /etc/apt/keyrings/nodesource.asc
         mode: "0644"
+      when: node_check.rc != 0
 
     - name: Add NodeSource repository for Node.js 20
       ansible.builtin.apt_repository:
         repo: "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_20.x nodistro main"
         state: present
         filename: nodesource
+      when: node_check.rc != 0
 
     - name: Install Node.js
       ansible.builtin.apt:
         name: nodejs
         state: present
         update_cache: yes
+      when: node_check.rc != 0
 
     - name: Install build-essential
       ansible.builtin.apt:
