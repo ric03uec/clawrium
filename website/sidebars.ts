@@ -25,12 +25,12 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'OS Support',
-      collapsed: false,
+      collapsed: true,
       items: [
         {
           type: 'category',
           label: 'Ubuntu',
-          collapsed: false,
+          collapsed: true,
           items: [
             'os-support/ubuntu/24-04',
           ],
