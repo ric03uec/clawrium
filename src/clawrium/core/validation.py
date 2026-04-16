@@ -7,6 +7,7 @@ and connectivity before transitioning to READY state.
 import asyncio
 import json
 import socket
+import time
 import urllib.request
 import urllib.error
 from dataclasses import dataclass, field
@@ -695,7 +696,11 @@ async def _probe_openclaw_gateway(
 
 
 def validate_openclaw_gateway(
-    host: str, claw_name: str, timeout: int = 10
+    host: str,
+    claw_name: str,
+    timeout: int = 10,
+    retries: int = 3,
+    retry_delay: float = 1.0,
 ) -> ValidationResult:
     """Validate OpenClaw gateway reachability and authentication.
 
@@ -703,6 +708,8 @@ def validate_openclaw_gateway(
         host: Host alias, hostname, or key_id.
         claw_name: Name of the claw instance.
         timeout: Connection timeout in seconds.
+        retries: Number of connection attempts on transient connection errors.
+        retry_delay: Delay between retries in seconds.
 
     Returns:
         ValidationResult with gateway health verification status.
@@ -770,48 +777,72 @@ def validate_openclaw_gateway(
     device_id = device.get("id") if isinstance(device, dict) else None
     device_private_key = device.get("privateKey") if isinstance(device, dict) else None
 
-    try:
-        asyncio.run(
-            _probe_openclaw_gateway(
-                gateway_url,
-                auth_token,
-                timeout,
-                device_id,
-                device_private_key,
+    retries = max(1, int(retries))
+    last_connection_error: ChatConnectionError | None = None
+
+    for attempt in range(1, retries + 1):
+        try:
+            asyncio.run(
+                _probe_openclaw_gateway(
+                    gateway_url,
+                    auth_token,
+                    timeout,
+                    device_id,
+                    device_private_key,
+                )
             )
-        )
-        return ValidationResult(
-            passed=True,
-            details={
-                "gateway_url": gateway_url,
-                "timeout": timeout,
-                "device_auth": bool(device_id and device_private_key),
-            },
-        )
-    except ChatConnectionError as e:
+            return ValidationResult(
+                passed=True,
+                details={
+                    "gateway_url": gateway_url,
+                    "timeout": timeout,
+                    "device_auth": bool(device_id and device_private_key),
+                    "attempts": attempt,
+                },
+            )
+        except ChatConnectionError as e:
+            last_connection_error = e
+            if attempt < retries:
+                time.sleep(retry_delay)
+                continue
+            break
+        except ChatAuthenticationError as e:
+            return ValidationResult(
+                passed=False,
+                errors=[ERROR_MESSAGES["gateway_auth_failed"]],
+                details={"error": str(e), "gateway_url": gateway_url},
+            )
+        except ChatProtocolError as e:
+            return ValidationResult(
+                passed=False,
+                errors=[ERROR_MESSAGES["gateway_protocol_failed"].format(error=str(e))],
+                details={"gateway_url": gateway_url},
+            )
+        except Exception as e:
+            return ValidationResult(
+                passed=False,
+                errors=[ERROR_MESSAGES["gateway_protocol_failed"].format(error=str(e))],
+                details={"gateway_url": gateway_url},
+            )
+
+    if last_connection_error is not None:
         return ValidationResult(
             passed=False,
             errors=[ERROR_MESSAGES["gateway_unreachable"].format(endpoint=gateway_url)],
-            details={"error": str(e), "gateway_url": gateway_url},
+            details={
+                "error": str(last_connection_error),
+                "gateway_url": gateway_url,
+                "attempts": retries,
+            },
         )
-    except ChatAuthenticationError as e:
-        return ValidationResult(
-            passed=False,
-            errors=[ERROR_MESSAGES["gateway_auth_failed"]],
-            details={"error": str(e), "gateway_url": gateway_url},
-        )
-    except ChatProtocolError as e:
-        return ValidationResult(
-            passed=False,
-            errors=[ERROR_MESSAGES["gateway_protocol_failed"].format(error=str(e))],
-            details={"gateway_url": gateway_url},
-        )
-    except Exception as e:
-        return ValidationResult(
-            passed=False,
-            errors=[ERROR_MESSAGES["gateway_protocol_failed"].format(error=str(e))],
-            details={"gateway_url": gateway_url},
-        )
+
+    return ValidationResult(
+        passed=False,
+        errors=[
+            ERROR_MESSAGES["gateway_protocol_failed"].format(error="Unknown error")
+        ],
+        details={"gateway_url": gateway_url},
+    )
 
 
 def validate_agent_installation(host: str, claw_name: str) -> ValidationResult:
