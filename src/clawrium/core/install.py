@@ -530,6 +530,7 @@ def run_installation(
             inventory=inventory,
             playbook=str(base_playbook),
             quiet=False,  # Show output
+            verbosity=1,  # Show task details (-v)
             timeout=300,  # 5 min timeout for base install
         )
 
@@ -556,6 +557,7 @@ def run_installation(
             inventory=inventory,
             playbook=str(claw_playbook),
             quiet=False,  # Show output
+            verbosity=1,  # Show task details (-v)
             timeout=1800,  # 30 min timeout for claw install
         )
 
@@ -721,6 +723,7 @@ def run_installation(
 
                     h["agents"][agent_name]["config"]["gateway"]["url"] = gateway_url
                     h["agents"][agent_name]["config"]["gateway"]["auth"] = gateway_token
+                    h["agents"][agent_name]["config"]["gateway"]["port"] = openclaw_port
 
                     # Store device credentials for operator scope auth
                     if device_id and device_token and device_private_key:

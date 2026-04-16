@@ -286,7 +286,7 @@ Supported provider types:
   bedrock - 6 models (SDK-based)
   ollama - Self-hosted (dynamic model discovery)
   openai - 5 models
-  openrouter - 10 models
+  openrouter - 14 models
   vertex - 4 models (SDK-based)
   zai - 2 models
 ```
