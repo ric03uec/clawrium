@@ -144,6 +144,7 @@ def status(
     table.add_column("Name", style="cyan bold")
     table.add_column("Agent Type", style="dim")
     table.add_column("Host", style="white")
+    table.add_column("Port", style="dim")
     table.add_column("Version", style="green")
     table.add_column("Status", no_wrap=True)
     table.add_column("Installed", style="dim")
@@ -164,6 +165,9 @@ def status(
             if installed_at and installed_at != "-":
                 # Format as date only for readability
                 installed_at = installed_at.split("T")[0]
+
+            port = claw_record.get("config", {}).get("gateway", {}).get("port")
+            port_display = str(port) if port else "-"
 
             # Get live status with color coding
             result = health_results.get((claw_name, h["hostname"]))
@@ -250,6 +254,7 @@ def status(
                 escape(full_name),
                 escape(agent_type),
                 escape(display_host),
+                port_display,
                 version,
                 status_display,
                 installed_at,
