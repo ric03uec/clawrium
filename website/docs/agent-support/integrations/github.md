@@ -74,56 +74,38 @@ Agent: Analyzing commits since v2.0.0...
 
 ---
 
-## Preliminary Setup (Subject to Change)
+## Create Fine-Grained Token for One Repo
 
-### 1. Create GitHub App
-
-1. Go to [GitHub Developer Settings](https://github.com/settings/apps)
-2. Click **New GitHub App**
+1. Go to GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens
+   - Direct link: https://github.com/settings/tokens?type=beta
+2. Click **Generate new token**
 3. Configure:
-   - Name: `My Claw Agent`
-   - Homepage URL: Your URL
-   - Callback URL: Not needed for CLI
-4. Set permissions:
-   - Repository: Read & Write
-   - Pull requests: Read & Write
-   - Issues: Read & Write
-   - Actions: Read (optional)
-5. Create app and generate private key
+   - Token name: Descriptive name (for example, `clawrium-myrepo`)
+   - Expiration: Set as needed
+   - Repository access: Select **Only select repositories** and pick your single repo
+4. Set permissions based on what you need:
 
-### 2. Install App
+| Use Case | Permission | Level |
+|----------|------------|-------|
+| Read code | Contents | Read |
+| Push code | Contents | Read & Write |
+| Read issues | Issues | Read |
+| Create/comment issues | Issues | Read & Write |
+| Read PRs | Pull requests | Read |
+| Create/review PRs | Pull requests | Read & Write |
 
-1. Install the app on your repositories
-2. Note the installation ID
+5. Click **Generate token** and copy it immediately.
 
-### 3. Configure in Clawrium (When Available)
+## Use with Clawrium
+
+When configuring your agent:
 
 ```bash
 clm agent configure my-agent
-# Select GitHub integration when prompted
+# Enter the fine-grained token when prompted for GitHub credentials
 ```
 
----
-
-## Authentication
-
-GitHub integration will support:
-
-- **GitHub App:** Recommended for organizations
-- **Personal Access Token:** For personal use
-- **Fine-grained PAT:** New GitHub feature
-
----
-
-## Permissions Required
-
-| Feature | Permission | Level |
-|---------|------------|-------|
-| Read issues | Issues | Read |
-| Create issues | Issues | Write |
-| Read PRs | Pull requests | Read |
-| Comment on PRs | Pull requests | Write |
-| Trigger workflows | Actions | Write |
+The key difference from classic tokens: fine-grained tokens let you scope to specific repos and grant minimal permissions per resource type.
 
 ---
 

@@ -133,12 +133,29 @@
 {% endif %}
 {% set tools = config.tools | default({}) %}
 {% set tools_exec = tools.exec | default({}) %}
+{% set tools_deny = tools.deny | default([]) %}
+{% set browser_denied = 'browser' in tools_deny %}
   "tools": {
     "exec": {
-      "host": {{ tools_exec.host | default('gateway') | tojson }}
+      "host": {{ tools_exec.host | default('gateway') | tojson }},
+      "security": {{ tools_exec.security | default('full') | tojson }},
+      "ask": {{ tools_exec.ask | default('off') | tojson }}
+{% if tools_exec.strictInlineEval is defined %}
+      ,"strictInlineEval": {{ tools_exec.strictInlineEval | tojson }}
+{% endif %}
+{% if tools_exec.safeBins is defined %}
+      ,"safeBins": {{ tools_exec.safeBins | tojson }}
+{% endif %}
+{% if tools_exec.safeBinTrustedDirs is defined %}
+      ,"safeBinTrustedDirs": {{ tools_exec.safeBinTrustedDirs | tojson }}
+{% endif %}
+{% if tools_exec.safeBinProfiles is defined %}
+      ,"safeBinProfiles": {{ tools_exec.safeBinProfiles | tojson }}
+{% endif %}
     }
+    ,"deny": {{ (tools_deny if browser_denied else tools_deny + ['browser']) | tojson }}
 {% if tools | length > 0 %}
-    {% for key, value in tools.items() if key != 'exec' %}
+    {% for key, value in tools.items() if key != 'exec' and key != 'deny' %}
     ,"{{ key }}": {{ value | tojson }}
     {% endfor %}
 {% endif %}
@@ -155,9 +172,13 @@
 {% if config.channels is defined and config.channels %}
   "channels": {{ config.channels | tojson }},
 {% endif %}
-{% if config.browser is defined %}
-  "browser": {{ config.browser | tojson }},
-{% endif %}
+{% set browser_cfg = config.browser | default({}) %}
+  "browser": {
+    "enabled": false
+{% for key, value in browser_cfg.items() if key != 'enabled' %}
+    ,"{{ key }}": {{ value | tojson }}
+{% endfor %}
+  },
 {% if config.audio is defined %}
   "audio": {{ config.audio | tojson }},
 {% endif %}

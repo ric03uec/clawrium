@@ -107,11 +107,28 @@ def test_openclaw_install_playbook_structure():
         "Should allow startup before interactive setup is completed"
     )
     assert "EnvironmentFile=" in content, "Should load environment file in service"
+    assert "exec-approvals.json" in content, (
+        "Should write host exec approvals policy file"
+    )
 
     # Parse YAML to ensure it's valid
     data = yaml.safe_load(content)
     assert isinstance(data, list), "Playbook should be a list of plays"
     assert len(data) > 0, "Playbook should have at least one play"
+    tasks = data[0].get("tasks", [])
+    exec_approvals_task = next(
+        t for t in tasks if t.get("name") == "Write exec approvals policy from template"
+    )
+    template_cfg = exec_approvals_task["ansible.builtin.template"]
+    assert template_cfg["src"] == "{{ template_path }}/exec-approvals.json.j2"
+    assert (
+        template_cfg["dest"] == "/home/{{ agent_name }}/.openclaw/exec-approvals.json"
+    )
+    assert template_cfg["backup"] is True
+    assert exec_approvals_task["no_log"] is True
+    assert any(t.get("name") == "Verify exec approvals JSON is valid" for t in tasks), (
+        "Should validate exec-approvals JSON after rendering"
+    )
 
 
 def test_openclaw_configure_playbook_exists():
@@ -140,13 +157,28 @@ def test_openclaw_configure_playbook_structure():
         "Should include configuration validation task"
     )
     # B2 fix: Now uses external script instead of embedded Python
-    assert "verify_config.py" in content, (
-        "Should use external verify_config.py script"
+    assert "verify_config.py" in content, "Should use external verify_config.py script"
+    assert "Write exec approvals policy from template" in content, (
+        "Should include task to manage host exec approvals policy"
     )
 
     data = yaml.safe_load(content)
     assert isinstance(data, list), "Playbook should be a list of plays"
     assert len(data) > 0, "Playbook should have at least one play"
+    tasks = data[0].get("tasks", [])
+    exec_approvals_task = next(
+        t for t in tasks if t.get("name") == "Write exec approvals policy from template"
+    )
+    template_cfg = exec_approvals_task["ansible.builtin.template"]
+    assert template_cfg["src"] == "{{ template_path }}/exec-approvals.json.j2"
+    assert (
+        template_cfg["dest"] == "/home/{{ agent_name }}/.openclaw/exec-approvals.json"
+    )
+    assert template_cfg["backup"] is True
+    assert exec_approvals_task["no_log"] is True
+    assert any(t.get("name") == "Verify exec approvals JSON is valid" for t in tasks), (
+        "Should validate exec-approvals JSON after rendering"
+    )
 
 
 def test_openclaw_start_playbook_uses_openclaw_process_check():
@@ -227,9 +259,16 @@ def test_identity_templates_exist():
     template_dir = openclaw_package / "templates"
 
     # Verify templates exist
-    assert (template_dir / "AGENTS.md.j2").is_file(), "AGENTS.md.j2 template should exist"
+    assert (template_dir / "AGENTS.md.j2").is_file(), (
+        "AGENTS.md.j2 template should exist"
+    )
     assert (template_dir / "TOOLS.md.j2").is_file(), "TOOLS.md.j2 template should exist"
-    assert (template_dir / "IDENTITY.md.j2").is_file(), "IDENTITY.md.j2 template should exist"
+    assert (template_dir / "IDENTITY.md.j2").is_file(), (
+        "IDENTITY.md.j2 template should exist"
+    )
+    assert (template_dir / "exec-approvals.json.j2").is_file(), (
+        "exec-approvals.json.j2 template should exist"
+    )
 
 
 def test_verify_config_script_exists():

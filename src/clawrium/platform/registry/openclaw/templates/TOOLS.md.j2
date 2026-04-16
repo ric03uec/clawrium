@@ -17,9 +17,14 @@ The agent has access to the following tool categories:
 - Manage processes
 
 ### Web Access
-- Fetch web pages
-- Search the web
-- Access APIs
+- Search the web with `web_search`
+- Fetch specific URLs with `web_fetch`
+- Access APIs over HTTP tools
+
+### Browser Automation
+- Browser tool is disabled in this deployment
+- Do not call `browser` tool in this environment
+- Prefer `web_search` + `web_fetch` for research tasks
 
 ## Tool Usage Guidelines
 
@@ -45,6 +50,14 @@ The following operations require explicit user confirmation:
 - System configuration changes
 - Network operations to unknown hosts
 - Installation of packages or dependencies
+
+The following tool is unavailable in this host mode:
+- `browser` (headless server deployment)
+
+Alternatives when browser automation is requested:
+- `web_search` for discovery and ranking
+- `web_fetch` for content extraction from known URLs
+- `exec` with `curl`/`wget` only when HTTP tools are insufficient
 
 ## Custom Tool Configuration
 
