@@ -698,6 +698,11 @@ def configure_agent(
         LifecycleError: If host not found or agent not installed
     """
     from clawrium.core.providers import get_provider_api_key
+    from clawrium.core.integrations import (
+        get_agent_integrations,
+        get_integration,
+        get_integration_credentials,
+    )
 
     def emit(stage: str, message: str) -> None:
         if on_event:
@@ -776,6 +781,36 @@ def configure_agent(
     except Exception as e:
         logger.warning("Failed to load Discord bot token for %s: %s", agent_key, e)
 
+    # Load integrations assigned to this agent
+    # Key by integration_name to avoid collisions when multiple integrations
+    # of the same type are assigned (e.g., work-github and personal-github)
+    integrations_data: dict[str, dict] = {}
+    assigned_integrations = get_agent_integrations(hostname, agent_key)
+    for integration_name in assigned_integrations:
+        integration = get_integration(integration_name)
+        if not integration:
+            logger.warning(
+                "Integration '%s' assigned to %s not found, skipping",
+                integration_name,
+                agent_key,
+            )
+            continue
+        integration_type = integration.get("type", "")
+        credentials = get_integration_credentials(integration_name)
+        if credentials:
+            # Store by integration_name with type and credentials
+            # Templates access via: integrations.<name>.type and integrations.<name>.<key>
+            integrations_data[integration_name] = {
+                "type": integration_type,
+                **credentials,
+            }
+            emit("configure", f"Loaded {integration_name} ({integration_type}) credentials")
+        else:
+            logger.warning(
+                "No credentials found for integration '%s', skipping",
+                integration_name,
+            )
+
     # Get template path for this agent type
     canonical_name = _resolve_agent_type(resolved_type)
     template_path = (
@@ -818,6 +853,7 @@ def configure_agent(
         "template_path": str(template_path),
         "provider_api_key": provider_api_key,
         "discord_bot_token": discord_bot_token,
+        "integrations": integrations_data,
     }
 
     # Merge extra_vars (not persisted to hosts.json)

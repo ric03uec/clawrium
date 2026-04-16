@@ -19,6 +19,7 @@ from clawrium.cli.init import init as init_command
 from clawrium.cli.agent import agent_app
 from clawrium.cli.chat import chat as chat_command
 from clawrium.cli.host import host_app
+from clawrium.cli.integration import integration_app
 from clawrium.cli.provider import provider_app
 from clawrium.cli.status import status as status_command
 
@@ -127,6 +128,9 @@ app.add_typer(host_app, name="host")
 
 # Register provider subcommands (inference provider management)
 app.add_typer(provider_app, name="provider")
+
+# Register integration subcommands (external service integrations)
+app.add_typer(integration_app, name="integration")
 
 
 if __name__ == "__main__":

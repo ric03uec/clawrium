@@ -20,3 +20,50 @@ default_model = "{{ config.provider.default_model }}"
 api_key = "{{ lookup('env', 'CLAWRIUM_PROVIDER_API_KEY') | replace('\\', '\\\\') | replace('"', '\\"') }}"
 {% endif %}
 {% endif %}
+
+{% if integrations is defined and integrations %}
+[integrations]
+{# Integrations are keyed by name with type and credentials #}
+{# Multiple integrations of same type are supported #}
+{% for name, integration in integrations.items() %}
+{% if integration.type == 'github' and integration.GITHUB_TOKEN is defined %}
+github_token = "{{ integration.GITHUB_TOKEN | replace('\\', '\\\\') | replace('"', '\\"') }}"
+{% endif %}
+{% if integration.type == 'gitlab' %}
+{% if integration.GITLAB_TOKEN is defined %}
+gitlab_token = "{{ integration.GITLAB_TOKEN | replace('\\', '\\\\') | replace('"', '\\"') }}"
+{% endif %}
+{% if integration.GITLAB_URL is defined %}
+gitlab_url = "{{ integration.GITLAB_URL }}"
+{% endif %}
+{% endif %}
+{% if integration.type == 'jira' %}
+{% if integration.JIRA_URL is defined %}
+jira_url = "{{ integration.JIRA_URL }}"
+{% endif %}
+{% if integration.JIRA_EMAIL is defined %}
+jira_email = "{{ integration.JIRA_EMAIL }}"
+{% endif %}
+{% if integration.JIRA_API_TOKEN is defined %}
+jira_api_token = "{{ integration.JIRA_API_TOKEN | replace('\\', '\\\\') | replace('"', '\\"') }}"
+{% endif %}
+{% endif %}
+{% if integration.type == 'confluence' %}
+{% if integration.CONFLUENCE_URL is defined %}
+confluence_url = "{{ integration.CONFLUENCE_URL }}"
+{% endif %}
+{% if integration.CONFLUENCE_EMAIL is defined %}
+confluence_email = "{{ integration.CONFLUENCE_EMAIL }}"
+{% endif %}
+{% if integration.CONFLUENCE_API_TOKEN is defined %}
+confluence_api_token = "{{ integration.CONFLUENCE_API_TOKEN | replace('\\', '\\\\') | replace('"', '\\"') }}"
+{% endif %}
+{% endif %}
+{% if integration.type == 'linear' and integration.LINEAR_API_KEY is defined %}
+linear_api_key = "{{ integration.LINEAR_API_KEY | replace('\\', '\\\\') | replace('"', '\\"') }}"
+{% endif %}
+{% if integration.type == 'notion' and integration.NOTION_API_KEY is defined %}
+notion_api_key = "{{ integration.NOTION_API_KEY | replace('\\', '\\\\') | replace('"', '\\"') }}"
+{% endif %}
+{% endfor %}
+{% endif %}
