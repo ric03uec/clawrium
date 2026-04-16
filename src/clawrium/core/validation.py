@@ -4,8 +4,10 @@ This module provides validation functions to verify agent configuration
 and connectivity before transitioning to READY state.
 """
 
+import asyncio
 import json
 import socket
+import time
 import urllib.request
 import urllib.error
 from dataclasses import dataclass, field
@@ -20,6 +22,7 @@ __all__ = [
     "validate_provider_config",
     "validate_provider_api_key",
     "verify_provider_connectivity",
+    "validate_openclaw_gateway",
     "validate_agent_installation",
     "ERROR_MESSAGES",
     "WARNING_MESSAGES",
@@ -92,6 +95,23 @@ ERROR_MESSAGES = {
         "Agent binary has incorrect permissions. Expected {expected}, found {actual}."
     ),
     "onboarding_not_found": "Onboarding record not found for {claw_name} on {host}.",
+    "gateway_not_configured": (
+        "Gateway endpoint not configured for this agent. "
+        "Re-run 'clm agent configure <claw> --stage providers' to sync config."
+    ),
+    "gateway_auth_missing": (
+        "Gateway auth token not configured for this agent. "
+        "Re-run 'clm agent install' or 'clm agent configure <claw> --stage providers'."
+    ),
+    "gateway_unreachable": (
+        "Could not connect to OpenClaw gateway at {endpoint}. "
+        "Check host, port, and network connectivity."
+    ),
+    "gateway_auth_failed": (
+        "Gateway authentication failed. "
+        "Verify gateway auth token and device credentials."
+    ),
+    "gateway_protocol_failed": "Gateway protocol error: {error}",
 }
 
 WARNING_MESSAGES = {
@@ -117,7 +137,9 @@ def validate_soul_md(claw_type: str, agent_name: str | None = None) -> Validatio
     # Check new agent-specific path first (if agent_name provided)
     # New path: agents/<type>/<agent-name>/identity/SOUL.md
     if agent_name:
-        new_path = config_dir / "agents" / claw_type / agent_name / "identity" / "SOUL.md"
+        new_path = (
+            config_dir / "agents" / claw_type / agent_name / "identity" / "SOUL.md"
+        )
         if new_path.exists():
             soul_path = new_path
         else:
@@ -647,6 +669,179 @@ def _test_vertex_connectivity(provider: dict, timeout: int) -> ValidationResult:
     return ValidationResult(
         passed=False,
         errors=[ERROR_MESSAGES["vertex_credentials"]],
+    )
+
+
+async def _probe_openclaw_gateway(
+    gateway_url: str,
+    auth_token: str,
+    timeout: int,
+    device_id: str | None,
+    device_private_key: str | None,
+) -> None:
+    """Open and close an authenticated gateway connection."""
+    from clawrium.core.chat import OpenClawChatClient
+
+    client = OpenClawChatClient(
+        gateway_url=gateway_url,
+        auth_token=auth_token,
+        device_id=device_id,
+        device_private_key=device_private_key,
+        timeout_seconds=float(timeout),
+    )
+    try:
+        await client.connect()
+    finally:
+        await client.close()
+
+
+def validate_openclaw_gateway(
+    host: str,
+    claw_name: str,
+    timeout: int = 10,
+    retries: int = 3,
+    retry_delay: float = 1.0,
+) -> ValidationResult:
+    """Validate OpenClaw gateway reachability and authentication.
+
+    Args:
+        host: Host alias, hostname, or key_id.
+        claw_name: Name of the claw instance.
+        timeout: Connection timeout in seconds.
+        retries: Number of connection attempts on transient connection errors.
+        retry_delay: Delay between retries in seconds.
+
+    Returns:
+        ValidationResult with gateway health verification status.
+    """
+    from clawrium.core.chat import (
+        ChatAuthenticationError,
+        ChatConnectionError,
+        ChatProtocolError,
+    )
+    from clawrium.core.hosts import get_host_by_key_id
+    from clawrium.core.onboarding import _get_claw_record
+
+    host_data = get_host(host)
+    if not host_data:
+        host_data = get_host_by_key_id(host)
+    if not host_data:
+        return ValidationResult(
+            passed=False,
+            errors=[f"Host '{host}' not found."],
+        )
+
+    # Resolve claw from canonical hostname/alias to avoid key_id lookup gaps.
+    claw_record = _get_claw_record(host_data["hostname"], claw_name)
+    if claw_record is None:
+        return ValidationResult(
+            passed=False,
+            errors=[
+                ERROR_MESSAGES["onboarding_not_found"].format(
+                    claw_name=claw_name, host=host
+                )
+            ],
+        )
+
+    config = claw_record.get("config", {})
+    gateway = config.get("gateway", {})
+
+    gateway_url = gateway.get("url")
+    if not gateway_url:
+        port = gateway.get("port")
+        if not port:
+            return ValidationResult(
+                passed=False,
+                errors=[ERROR_MESSAGES["gateway_not_configured"]],
+            )
+        gateway_url = f"ws://{host_data['hostname']}:{port}"
+
+    auth = gateway.get("auth")
+    auth_token = ""
+    if isinstance(auth, str):
+        auth_token = auth
+    elif isinstance(auth, dict):
+        maybe_token = auth.get("token")
+        if isinstance(maybe_token, str):
+            auth_token = maybe_token
+
+    auth_token = auth_token.strip()
+    if not auth_token:
+        return ValidationResult(
+            passed=False,
+            errors=[ERROR_MESSAGES["gateway_auth_missing"]],
+            details={"gateway_url": gateway_url},
+        )
+
+    device = gateway.get("device", {})
+    device_id = device.get("id") if isinstance(device, dict) else None
+    device_private_key = device.get("privateKey") if isinstance(device, dict) else None
+
+    retries = max(1, int(retries))
+    last_connection_error: ChatConnectionError | None = None
+
+    for attempt in range(1, retries + 1):
+        try:
+            asyncio.run(
+                _probe_openclaw_gateway(
+                    gateway_url,
+                    auth_token,
+                    timeout,
+                    device_id,
+                    device_private_key,
+                )
+            )
+            return ValidationResult(
+                passed=True,
+                details={
+                    "gateway_url": gateway_url,
+                    "timeout": timeout,
+                    "device_auth": bool(device_id and device_private_key),
+                    "attempts": attempt,
+                },
+            )
+        except ChatConnectionError as e:
+            last_connection_error = e
+            if attempt < retries:
+                time.sleep(retry_delay)
+                continue
+            break
+        except ChatAuthenticationError as e:
+            return ValidationResult(
+                passed=False,
+                errors=[ERROR_MESSAGES["gateway_auth_failed"]],
+                details={"error": str(e), "gateway_url": gateway_url},
+            )
+        except ChatProtocolError as e:
+            return ValidationResult(
+                passed=False,
+                errors=[ERROR_MESSAGES["gateway_protocol_failed"].format(error=str(e))],
+                details={"gateway_url": gateway_url},
+            )
+        except Exception as e:
+            return ValidationResult(
+                passed=False,
+                errors=[ERROR_MESSAGES["gateway_protocol_failed"].format(error=str(e))],
+                details={"gateway_url": gateway_url},
+            )
+
+    if last_connection_error is not None:
+        return ValidationResult(
+            passed=False,
+            errors=[ERROR_MESSAGES["gateway_unreachable"].format(endpoint=gateway_url)],
+            details={
+                "error": str(last_connection_error),
+                "gateway_url": gateway_url,
+                "attempts": retries,
+            },
+        )
+
+    return ValidationResult(
+        passed=False,
+        errors=[
+            ERROR_MESSAGES["gateway_protocol_failed"].format(error="Unknown error")
+        ],
+        details={"gateway_url": gateway_url},
     )
 
 

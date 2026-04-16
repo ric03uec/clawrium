@@ -10,6 +10,7 @@ from clawrium.core.validation import (
     validate_provider_config,
     validate_provider_api_key,
     verify_provider_connectivity,
+    validate_openclaw_gateway,
     validate_agent_installation,
     ERROR_MESSAGES,
     WARNING_MESSAGES,
@@ -469,6 +470,282 @@ class TestTestOllamaConnectivity:
             assert result.passed is True
             assert len(result.warnings) == 1
             assert "no models" in result.warnings[0].lower()
+
+
+class TestValidateOpenClawGateway:
+    """Tests for validate_openclaw_gateway function."""
+
+    def test_missing_gateway_config_fails(self, isolated_config: Path):
+        """Returns failure when gateway endpoint is not configured."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_file = isolated_config / "hosts.json"
+        hosts_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "hostname": "192.168.1.100",
+                        "agents": {
+                            "assistant": {
+                                "type": "openclaw",
+                                "onboarding": {
+                                    "state": "validate",
+                                    "stages": {
+                                        "providers": {
+                                            "status": "complete",
+                                            "provider_id": "test-openai",
+                                        },
+                                        "identity": {"status": "complete"},
+                                        "channels": {"status": "complete"},
+                                        "validate": {"status": "pending"},
+                                    },
+                                },
+                                "config": {"gateway": {}},
+                            }
+                        },
+                    }
+                ]
+            )
+        )
+
+        result = validate_openclaw_gateway("192.168.1.100", "assistant")
+
+        assert result.passed is False
+        assert "gateway endpoint not configured" in result.errors[0].lower()
+
+    def test_missing_gateway_auth_fails(self, isolated_config: Path):
+        """Returns failure when gateway auth token is missing."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_file = isolated_config / "hosts.json"
+        hosts_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "hostname": "192.168.1.100",
+                        "agents": {
+                            "assistant": {
+                                "type": "openclaw",
+                                "onboarding": {
+                                    "state": "validate",
+                                    "stages": {
+                                        "providers": {
+                                            "status": "complete",
+                                            "provider_id": "test-openai",
+                                        },
+                                        "identity": {"status": "complete"},
+                                        "channels": {"status": "complete"},
+                                        "validate": {"status": "pending"},
+                                    },
+                                },
+                                "config": {
+                                    "gateway": {
+                                        "url": "ws://192.168.1.100:40123",
+                                        "port": 40123,
+                                    }
+                                },
+                            }
+                        },
+                    }
+                ]
+            )
+        )
+
+        result = validate_openclaw_gateway("192.168.1.100", "assistant")
+
+        assert result.passed is False
+        assert "auth token not configured" in result.errors[0].lower()
+
+    @patch("clawrium.core.validation._probe_openclaw_gateway")
+    def test_gateway_probe_success(self, mock_probe, isolated_config: Path):
+        """Returns success when gateway probe connects and authenticates."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_file = isolated_config / "hosts.json"
+        hosts_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "hostname": "192.168.1.100",
+                        "agents": {
+                            "assistant": {
+                                "type": "openclaw",
+                                "onboarding": {
+                                    "state": "validate",
+                                    "stages": {
+                                        "providers": {
+                                            "status": "complete",
+                                            "provider_id": "test-openai",
+                                        },
+                                        "identity": {"status": "complete"},
+                                        "channels": {"status": "complete"},
+                                        "validate": {"status": "pending"},
+                                    },
+                                },
+                                "config": {
+                                    "gateway": {
+                                        "url": "ws://192.168.1.100:40123",
+                                        "auth": {"token": "test-token"},
+                                        "port": 40123,
+                                    }
+                                },
+                            }
+                        },
+                    }
+                ]
+            )
+        )
+
+        result = validate_openclaw_gateway("192.168.1.100", "assistant")
+
+        assert result.passed is True
+        assert result.details.get("gateway_url") == "ws://192.168.1.100:40123"
+
+    @patch("clawrium.core.validation._probe_openclaw_gateway")
+    def test_gateway_probe_auth_failure(self, mock_probe, isolated_config: Path):
+        """Returns auth failure when gateway rejects credentials."""
+        from clawrium.core.chat import ChatAuthenticationError
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_file = isolated_config / "hosts.json"
+        hosts_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "hostname": "192.168.1.100",
+                        "agents": {
+                            "assistant": {
+                                "type": "openclaw",
+                                "onboarding": {
+                                    "state": "validate",
+                                    "stages": {
+                                        "providers": {
+                                            "status": "complete",
+                                            "provider_id": "test-openai",
+                                        },
+                                        "identity": {"status": "complete"},
+                                        "channels": {"status": "complete"},
+                                        "validate": {"status": "pending"},
+                                    },
+                                },
+                                "config": {
+                                    "gateway": {
+                                        "url": "ws://192.168.1.100:40123",
+                                        "auth": "bad-token",
+                                        "port": 40123,
+                                    }
+                                },
+                            }
+                        },
+                    }
+                ]
+            )
+        )
+        mock_probe.side_effect = ChatAuthenticationError("unauthorized")
+
+        result = validate_openclaw_gateway("192.168.1.100", "assistant")
+
+        assert result.passed is False
+        assert "authentication failed" in result.errors[0].lower()
+
+    @patch("clawrium.core.validation._probe_openclaw_gateway")
+    def test_gateway_probe_retries_and_recovers(
+        self, mock_probe, isolated_config: Path
+    ):
+        """Retries transient connection failures and succeeds on a later attempt."""
+        from clawrium.core.chat import ChatConnectionError
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_file = isolated_config / "hosts.json"
+        hosts_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "hostname": "192.168.1.100",
+                        "agents": {
+                            "assistant": {
+                                "type": "openclaw",
+                                "onboarding": {
+                                    "state": "validate",
+                                    "stages": {
+                                        "providers": {
+                                            "status": "complete",
+                                            "provider_id": "test-openai",
+                                        },
+                                        "identity": {"status": "complete"},
+                                        "channels": {"status": "complete"},
+                                        "validate": {"status": "pending"},
+                                    },
+                                },
+                                "config": {
+                                    "gateway": {
+                                        "url": "ws://192.168.1.100:40123",
+                                        "auth": "token-123",
+                                        "port": 40123,
+                                    }
+                                },
+                            }
+                        },
+                    }
+                ]
+            )
+        )
+        mock_probe.side_effect = [ChatConnectionError("timeout"), None]
+
+        result = validate_openclaw_gateway(
+            "192.168.1.100", "assistant", retries=3, retry_delay=0
+        )
+
+        assert result.passed is True
+        assert result.details.get("attempts") == 2
+        assert mock_probe.call_count == 2
+
+    @patch("clawrium.core.validation._probe_openclaw_gateway")
+    def test_gateway_probe_retries_exhausted(self, mock_probe, isolated_config: Path):
+        """Fails after exhausting connection retry attempts."""
+        from clawrium.core.chat import ChatConnectionError
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_file = isolated_config / "hosts.json"
+        hosts_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "hostname": "192.168.1.100",
+                        "agents": {
+                            "assistant": {
+                                "type": "openclaw",
+                                "onboarding": {
+                                    "state": "validate",
+                                    "stages": {
+                                        "providers": {
+                                            "status": "complete",
+                                            "provider_id": "test-openai",
+                                        },
+                                        "identity": {"status": "complete"},
+                                        "channels": {"status": "complete"},
+                                        "validate": {"status": "pending"},
+                                    },
+                                },
+                                "config": {
+                                    "gateway": {
+                                        "url": "ws://192.168.1.100:40123",
+                                        "auth": "token-123",
+                                        "port": 40123,
+                                    }
+                                },
+                            }
+                        },
+                    }
+                ]
+            )
+        )
+        mock_probe.side_effect = ChatConnectionError("timeout")
+
+        result = validate_openclaw_gateway(
+            "192.168.1.100", "assistant", retries=3, retry_delay=0
+        )
+
+        assert result.passed is False
+        assert result.details.get("attempts") == 3
+        assert mock_probe.call_count == 3
 
 
 class TestValidateAgentInstallation:

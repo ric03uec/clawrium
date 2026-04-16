@@ -9,6 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from clawrium.cli.main import app
+from clawrium.core.validation import ValidationResult
 
 runner = CliRunner()
 
@@ -242,10 +243,37 @@ class TestAgentConfigureSingleStage:
                 mock_run.assert_called_once_with(
                     "192.168.1.100", "openclaw", True, "assistant", None
                 )
+            elif stage_name == "validate":
+                mock_run.assert_called_once_with(
+                    "192.168.1.100", "openclaw", True, "assistant", False
+                )
             else:
                 mock_run.assert_called_once_with(
                     "192.168.1.100", "openclaw", True, "assistant"
                 )
+
+    def test_skip_health_rejected_for_non_validate_single_stage(
+        self, isolated_config: Path
+    ):
+        """Rejects --skip-health with non-validate single stage."""
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config)
+
+        result = runner.invoke(
+            app,
+            [
+                "agent",
+                "configure",
+                "assistant",
+                "--stage",
+                "providers",
+                "--skip-health",
+            ],
+            env=os.environ,
+        )
+
+        assert result.exit_code == 1
+        assert "skip-health" in result.output.lower()
 
     def test_single_stage_failure(self, isolated_config: Path):
         """Stage failure exits with code 1."""
@@ -466,14 +494,19 @@ class TestRunIdentityStage:
 
         with patch("clawrium.cli.agent.complete_stage"):
             with patch("clawrium.cli.agent.get_host", return_value=mock_host):
-                with patch(
-                    "clawrium.core.lifecycle.configure_agent", mock_configure
-                ):
+                with patch("clawrium.core.lifecycle.configure_agent", mock_configure):
                     result = _run_identity_stage("work", "openclaw", True)
 
         assert result is True
         # New path: agents/<type>/<agent-name>/identity/SOUL.md
-        soul_path = isolated_config / "agents" / "openclaw" / "openclaw" / "identity" / "SOUL.md"
+        soul_path = (
+            isolated_config
+            / "agents"
+            / "openclaw"
+            / "openclaw"
+            / "identity"
+            / "SOUL.md"
+        )
         assert soul_path.exists()
 
         # Verify configure_agent was called with identity_files in extra_vars
@@ -942,6 +975,10 @@ class TestRunValidateStage:
             patch(
                 "clawrium.core.validation._make_request", return_value=(200, {}, None)
             ),
+            patch(
+                "clawrium.core.validation.validate_openclaw_gateway",
+                return_value=ValidationResult(passed=True),
+            ),
             patch("clawrium.cli.agent.complete_stage", side_effect=Exception("failed")),
         ):
             result = _run_validate_stage("work", "openclaw", True)
@@ -1008,6 +1045,13 @@ class TestRunValidateStage:
             patch(
                 "clawrium.core.validation._make_request", return_value=(200, {}, None)
             ),
+            patch(
+                "clawrium.core.validation.validate_openclaw_gateway",
+                return_value=ValidationResult(
+                    passed=True,
+                    details={"gateway_url": "ws://192.168.1.100:40123"},
+                ),
+            ),
             patch("clawrium.cli.agent.complete_stage"),
         ):
             result = _run_validate_stage("work", "openclaw", True)
@@ -1052,6 +1096,125 @@ class TestRunValidateStage:
             result = _run_validate_stage("work", "openclaw", True)
 
         assert result is False
+
+    def test_skip_health_marks_validate_metadata(self, isolated_config: Path):
+        """Stores skip metadata when validate runs with --skip-health."""
+        from clawrium.cli.agent import _run_validate_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config, onboarding_state="validate")
+        create_provider(isolated_config)
+
+        hosts_file = isolated_config / "hosts.json"
+        hosts_data = json.loads(hosts_file.read_text())
+        hosts_data[0]["agents"]["openclaw"]["onboarding"]["stages"]["providers"][
+            "provider_id"
+        ] = "test-openai"
+        hosts_data[0]["agents"]["openclaw"]["config"] = {
+            "gateway": {
+                "url": "ws://192.168.1.100:40123",
+                "auth": "token-123",
+                "port": 40123,
+            }
+        }
+        hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+        soul_dir = isolated_config / "agents" / "openclaw"
+        soul_dir.mkdir(parents=True)
+        (soul_dir / "SOUL.md").write_text("Test personality")
+
+        secrets_file = isolated_config / "secrets.json"
+        secrets_file.write_text(
+            json.dumps(
+                {
+                    "provider:test-openai": {
+                        "API_KEY": {
+                            "key": "API_KEY",
+                            "value": "sk-test-key",
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-01T00:00:00Z",
+                            "description": "",
+                        }
+                    }
+                }
+            )
+        )
+
+        with (
+            patch(
+                "clawrium.core.validation._make_request", return_value=(200, {}, None)
+            ),
+            patch("clawrium.core.validation.validate_openclaw_gateway") as mock_gateway,
+            patch("clawrium.cli.agent.complete_stage") as mock_complete,
+        ):
+            result = _run_validate_stage("work", "openclaw", True, skip_health=True)
+
+        assert result is True
+        mock_gateway.assert_not_called()
+        args = mock_complete.call_args[0]
+        metadata = args[4]
+        assert metadata["gateway_health_checked"] is False
+        assert metadata["gateway_health_status"] == "skipped"
+
+    def test_gateway_health_failure_blocks_validate(self, isolated_config: Path):
+        """Validate fails when OpenClaw gateway health check fails."""
+        from clawrium.cli.agent import _run_validate_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config, onboarding_state="validate")
+        create_provider(isolated_config)
+
+        hosts_file = isolated_config / "hosts.json"
+        hosts_data = json.loads(hosts_file.read_text())
+        hosts_data[0]["agents"]["openclaw"]["onboarding"]["stages"]["providers"][
+            "provider_id"
+        ] = "test-openai"
+        hosts_data[0]["agents"]["openclaw"]["config"] = {
+            "gateway": {
+                "url": "ws://192.168.1.100:40123",
+                "auth": "token-123",
+                "port": 40123,
+            }
+        }
+        hosts_file.write_text(json.dumps(hosts_data, indent=2))
+
+        soul_dir = isolated_config / "agents" / "openclaw"
+        soul_dir.mkdir(parents=True)
+        (soul_dir / "SOUL.md").write_text("Test personality")
+
+        secrets_file = isolated_config / "secrets.json"
+        secrets_file.write_text(
+            json.dumps(
+                {
+                    "provider:test-openai": {
+                        "API_KEY": {
+                            "key": "API_KEY",
+                            "value": "sk-test-key",
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-01T00:00:00Z",
+                            "description": "",
+                        }
+                    }
+                }
+            )
+        )
+
+        with (
+            patch(
+                "clawrium.core.validation._make_request", return_value=(200, {}, None)
+            ),
+            patch(
+                "clawrium.core.validation.validate_openclaw_gateway",
+                return_value=ValidationResult(
+                    passed=False, errors=["Could not connect to OpenClaw gateway"]
+                ),
+            ),
+            patch("clawrium.cli.agent.complete_stage") as mock_complete,
+        ):
+            result = _run_validate_stage("work", "openclaw", True)
+
+        assert result is False
+        mock_complete.assert_not_called()
 
 
 class TestHostsFileCorruptedError:

@@ -563,12 +563,18 @@ def _run_identity_stage(
         else:
             console.print("[red]✗[/red]")
             console.print(f"  [yellow]Warning:[/yellow] Workspace sync failed: {error}")
-            console.print("  [dim]Identity files saved locally. Sync later with 'clm agent sync'[/dim]")
+            console.print(
+                "  [dim]Identity files saved locally. Sync later with 'clm agent sync'[/dim]"
+            )
             # Don't fail the stage - local files are saved
     except Exception as e:
         console.print("[red]✗[/red]")
-        console.print(f"  [yellow]Warning:[/yellow] Workspace sync failed: {rich_escape(str(e))}")
-        console.print("  [dim]Identity files saved locally. Sync later with 'clm agent sync'[/dim]")
+        console.print(
+            f"  [yellow]Warning:[/yellow] Workspace sync failed: {rich_escape(str(e))}"
+        )
+        console.print(
+            "  [dim]Identity files saved locally. Sync later with 'clm agent sync'[/dim]"
+        )
         # Don't fail the stage - local files are saved
 
     # Only call complete_stage if we're actually in the identity state
@@ -578,9 +584,7 @@ def _run_identity_stage(
 
     if current_state == "identity":
         try:
-            complete_stage(
-                host, agent_name, "identity", StageStatus.COMPLETE
-            )
+            complete_stage(host, agent_name, "identity", StageStatus.COMPLETE)
         except Exception as e:
             console.print(
                 f"[red]Error:[/red] Failed to save identity stage: {rich_escape(str(e))}"
@@ -785,6 +789,7 @@ def _run_validate_stage(
     claw_type: str,
     yes: bool,
     installed_name: str | None = None,
+    skip_health: bool = False,
 ) -> bool:
     """Run the VALIDATE onboarding stage.
 
@@ -808,12 +813,15 @@ def _run_validate_stage(
         validate_provider_api_key,
         verify_provider_connectivity,
         validate_agent_installation,
+        validate_openclaw_gateway,
     )
 
     all_errors = []
     all_warnings = []
 
-    console.print("[1/4] Validating agent installation...")
+    total_checks = 5 if claw_type == "openclaw" else 4
+
+    console.print(f"[1/{total_checks}] Validating agent installation...")
     agent_name = installed_name or claw_type
     install_result = validate_agent_installation(host, agent_name)
     if install_result.passed:
@@ -824,7 +832,7 @@ def _run_validate_stage(
             console.print(f"    [red]Error:[/red] {rich_escape(error)}")
         all_errors.extend(install_result.errors)
 
-    console.print("[2/4] Validating personality file (SOUL.md)...")
+    console.print(f"[2/{total_checks}] Validating personality file (SOUL.md)...")
     soul_result = validate_soul_md(claw_type)
     if soul_result.passed:
         console.print("  [green]✓[/green] SOUL.md exists and readable")
@@ -837,7 +845,7 @@ def _run_validate_stage(
             console.print(f"    [red]Error:[/red] {rich_escape(error)}")
         all_errors.extend(soul_result.errors)
 
-    console.print("[3/4] Validating provider configuration...")
+    console.print(f"[3/{total_checks}] Validating provider configuration...")
     provider_result = validate_provider_config(host, claw_type)
     if provider_result.passed:
         provider_id = provider_result.details.get("provider_id", "unknown")
@@ -868,7 +876,7 @@ def _run_validate_stage(
             console.print(f"    [red]Error:[/red] {rich_escape(error)}")
         all_errors.extend(provider_result.errors)
 
-    console.print("[4/4] Testing provider connectivity...")
+    console.print(f"[4/{total_checks}] Testing provider connectivity...")
     if provider_result.passed:
         provider_id = provider_result.details.get("provider_id")
         conn_result = verify_provider_connectivity(provider_id)
@@ -885,6 +893,39 @@ def _run_validate_stage(
     else:
         console.print("  [dim]Skipped (no provider configured)[/dim]")
 
+    gateway_status = "not_applicable"
+    gateway_reason = ""
+    gateway_details: dict = {}
+
+    if claw_type == "openclaw":
+        console.print(f"[5/{total_checks}] Verifying OpenClaw gateway health...")
+        if skip_health:
+            gateway_status = "skipped"
+            gateway_reason = "skipped via --skip-health"
+            console.print("  [yellow]⚠[/yellow] Skipped (--skip-health)")
+        elif all_errors:
+            gateway_status = "skipped"
+            gateway_reason = "skipped due to earlier validation errors"
+            console.print("  [dim]Skipped due to previous validation errors[/dim]")
+        else:
+            conn_result = validate_openclaw_gateway(host, agent_name)
+            gateway_details = conn_result.details
+            if conn_result.passed:
+                gateway_status = "passed"
+                endpoint = conn_result.details.get("gateway_url")
+                if endpoint:
+                    console.print(
+                        f"  [green]✓[/green] Gateway reachable: {rich_escape(str(endpoint))}"
+                    )
+                else:
+                    console.print("  [green]✓[/green] Gateway connectivity OK")
+            else:
+                gateway_status = "failed"
+                console.print("  [red]✗[/red] Gateway health check failed")
+                for error in conn_result.errors:
+                    console.print(f"    [red]Error:[/red] {rich_escape(error)}")
+                all_errors.extend(conn_result.errors)
+
     console.print()
     if all_errors:
         console.print(f"[red]Validation failed with {len(all_errors)} error(s)[/red]")
@@ -899,9 +940,24 @@ def _run_validate_stage(
     else:
         console.print("[green]Validation passed[/green]")
 
+    metadata = None
+    if claw_type == "openclaw":
+        metadata = {
+            "gateway_health_checked": gateway_status == "passed",
+            "gateway_health_status": gateway_status,
+        }
+        if gateway_reason:
+            metadata["gateway_health_reason"] = gateway_reason
+        if "gateway_url" in gateway_details:
+            metadata["gateway_url"] = gateway_details["gateway_url"]
+
     try:
         complete_stage(
-            host, installed_name or claw_type, "validate", StageStatus.COMPLETE
+            host,
+            installed_name or claw_type,
+            "validate",
+            StageStatus.COMPLETE,
+            metadata,
         )
         return True
     except Exception as e:
@@ -927,6 +983,11 @@ def configure(
         help="Run single stage (providers, identity, channels, validate)",
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip prompts, use defaults"),
+    skip_health: bool = typer.Option(
+        False,
+        "--skip-health",
+        help="Skip OpenClaw gateway health verification during validate",
+    ),
     file: Optional[list[Path]] = typer.Option(
         None,
         "--file",
@@ -949,8 +1010,12 @@ def configure(
     """
     # Validate --file is only used with --stage identity
     if file and stage != "identity":
+        console.print("[red]Error:[/red] --file can only be used with --stage identity")
+        raise typer.Exit(code=1)
+
+    if skip_health and stage and stage != "validate":
         console.print(
-            "[red]Error:[/red] --file can only be used with --stage identity"
+            "[red]Error:[/red] --skip-health can only be used with --stage validate or full onboarding"
         )
         raise typer.Exit(code=1)
 
@@ -1037,6 +1102,14 @@ def configure(
         try:
             if stage == "identity":
                 success = stage_func(hostname, claw_type, yes, installed_name, file)
+            elif stage == "validate":
+                success = stage_func(
+                    hostname,
+                    claw_type,
+                    yes,
+                    installed_name,
+                    skip_health,
+                )
             else:
                 success = stage_func(hostname, claw_type, yes, installed_name)
         except KeyboardInterrupt:
@@ -1102,9 +1175,18 @@ def configure(
                     console.print(f"[red]Error:[/red] {e}")
                     raise typer.Exit(code=1)
 
-            success = stage_functions[stage_name](
-                hostname, claw_type, yes, installed_name
-            )
+            if stage_name == "validate":
+                success = stage_functions[stage_name](
+                    hostname,
+                    claw_type,
+                    yes,
+                    installed_name,
+                    skip_health,
+                )
+            else:
+                success = stage_functions[stage_name](
+                    hostname, claw_type, yes, installed_name
+                )
 
             if not success:
                 console.print(
