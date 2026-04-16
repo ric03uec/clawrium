@@ -362,6 +362,9 @@ class TestOpenClawTemplate:
         assert result["agents"]["defaults"]["maxConcurrent"] == 4
         assert result["gateway"]["port"] == 18789
         assert result["gateway"]["bind"] == "lan"
+        assert "browser" in result["tools"]["deny"]
+        assert result["browser"]["enabled"] is False
+        assert "plugins" not in result
 
     def test_template_renders_full_config(self):
         """Test template renders with all optional fields."""
@@ -389,12 +392,43 @@ class TestOpenClawTemplate:
         assert result["gateway"]["port"] == 40123
         assert result["gateway"]["bind"] == "loopback"
         assert result["gateway"]["auth"]["token"] == "secret"
+        assert result["tools"]["exec"]["security"] == "full"
+        assert result["tools"]["exec"]["ask"] == "off"
         assert result["session"]["dmScope"] == "per-peer"
         assert result["session"]["reset"]["atHour"] == 6
         assert result["session"]["reset"]["idleMinutes"] == 60
         # Verify channels rendered correctly
         assert "channels" in result
         assert result["channels"]["telegram"]["enabled"] is True
+
+    def test_template_enforces_browser_disabled(self):
+        """Headless profile always disables browser even when config sets enabled=true."""
+        config = {
+            "provider": {"default_model": "openai/gpt-5.4"},
+            "browser": {"enabled": True, "headless": True},
+            "plugins": {"entries": {"browser": {"enabled": True}}},
+            "tools": {"deny": ["exec"]},
+        }
+
+        result = self._render_template(config)
+
+        assert result["browser"]["enabled"] is False
+        assert result["browser"]["headless"] is True
+        assert result["plugins"]["entries"]["browser"]["enabled"] is True
+        assert "exec" in result["tools"]["deny"]
+        assert "browser" in result["tools"]["deny"]
+
+    def test_template_preserves_web_tools_when_browser_disabled(self):
+        """Browser deny list should not block web_search/web_fetch alternatives."""
+        config = {
+            "provider": {"default_model": "openai/gpt-5.4"},
+        }
+
+        result = self._render_template(config)
+
+        assert "browser" in result["tools"]["deny"]
+        assert "web_search" not in result["tools"]["deny"]
+        assert "web_fetch" not in result["tools"]["deny"]
 
     def test_template_defaults_match_openclaw_docs(self):
         """Test that defaults match OpenClaw official documentation."""
@@ -566,6 +600,132 @@ class TestOpenClawTemplate:
         assert success is True, f"Configuration failed: {error}"
         assert error is None
 
+    def test_configure_openclaw_with_headless_enforces_browser_deny(
+        self, tmp_path: Path
+    ):
+        """configure_agent pipeline should render browser-disabled config for headless hosts."""
+        host = {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {"ocl-test": {"type": "openclaw"}},
+        }
+        config_data = {
+            "provider": {
+                "name": "test-provider",
+                "type": "openrouter",
+                "default_model": "deepseek/deepseek-chat-v3",
+            },
+            "browser": {"enabled": True, "headless": True},
+            "tools": {"deny": ["exec"]},
+        }
+
+        key_path = tmp_path / "key"
+        key_path.write_text("key")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = []
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ):
+                with patch(
+                    "clawrium.core.lifecycle.get_host_private_key",
+                    return_value=key_path,
+                ):
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        return_value=mock_runner,
+                    ) as mock_ansible:
+                        with patch("clawrium.core.lifecycle.update_host"):
+                            with patch(
+                                "clawrium.core.providers.get_provider_api_key",
+                                return_value="sk-or-test",
+                            ):
+                                success, error = configure_agent(
+                                    "test-host", "openclaw", config_data
+                                )
+
+                                assert success is True
+                                assert error is None
+
+                                ansible_vars = mock_ansible.call_args.kwargs[
+                                    "inventory"
+                                ]["all"]["vars"]
+                                rendered = self._render_template(ansible_vars["config"])
+
+                                assert "browser" in rendered["tools"]["deny"]
+                                assert "web_search" not in rendered["tools"]["deny"]
+                                assert "web_fetch" not in rendered["tools"]["deny"]
+                                assert rendered["browser"]["enabled"] is False
+
+    def test_configure_openclaw_template_path_and_config_vars(self, tmp_path: Path):
+        """configure_agent should pass template path and config vars to ansible."""
+        host = {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {"ocl-test": {"type": "openclaw"}},
+        }
+        config_data = {
+            "provider": {
+                "name": "test-provider",
+                "type": "openrouter",
+                "default_model": "deepseek/deepseek-chat-v3",
+            }
+        }
+
+        key_path = tmp_path / "key"
+        key_path.write_text("key")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = []
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ):
+                with patch(
+                    "clawrium.core.lifecycle.get_host_private_key",
+                    return_value=key_path,
+                ):
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        return_value=mock_runner,
+                    ) as mock_ansible:
+                        with patch("clawrium.core.lifecycle.update_host"):
+                            with patch(
+                                "clawrium.core.providers.get_provider_api_key",
+                                return_value="sk-or-test",
+                            ):
+                                success, error = configure_agent(
+                                    "test-host", "openclaw", config_data
+                                )
+
+                                assert success is True
+                                assert error is None
+
+                                ansible_vars = mock_ansible.call_args.kwargs[
+                                    "inventory"
+                                ]["all"]["vars"]
+                                assert "openclaw/templates" in str(
+                                    ansible_vars["template_path"]
+                                )
+                                assert ansible_vars["config"]["provider"][
+                                    "default_model"
+                                ] == ("deepseek/deepseek-chat-v3")
+
     def test_template_ollama_renders_models_block(self):
         """Test that ollama provider generates models.providers.ollama block."""
         config = {
@@ -649,6 +809,113 @@ class TestOpenClawTemplate:
         result = self._render_template(config)
 
         assert result["agents"]["defaults"]["model"]["primary"] == "ollama/llama3.1:8b"
+
+    def test_template_exec_defaults_to_yolo_policy(self):
+        """Test tools.exec defaults to no-prompt host execution policy."""
+        config = {
+            "provider": {
+                "default_model": "anthropic/claude-sonnet-4-6",
+            }
+        }
+        result = self._render_template(config)
+
+        assert result["tools"]["exec"]["host"] == "gateway"
+        assert result["tools"]["exec"]["security"] == "full"
+        assert result["tools"]["exec"]["ask"] == "off"
+
+    def test_template_exec_renders_custom_policy_fields(self):
+        """Test tools.exec includes security/ask and optional policy knobs."""
+        config = {
+            "provider": {
+                "default_model": "anthropic/claude-sonnet-4-6",
+            },
+            "tools": {
+                "exec": {
+                    "host": "node",
+                    "security": "allowlist",
+                    "ask": "always",
+                    "strictInlineEval": True,
+                    "safeBins": ["head", "tail"],
+                    "safeBinTrustedDirs": ["/usr/bin"],
+                    "safeBinProfiles": {"head": {"maxPositional": 0}},
+                }
+            },
+        }
+        result = self._render_template(config)
+
+        assert result["tools"]["exec"]["host"] == "node"
+        assert result["tools"]["exec"]["security"] == "allowlist"
+        assert result["tools"]["exec"]["ask"] == "always"
+        assert result["tools"]["exec"]["strictInlineEval"] is True
+        assert result["tools"]["exec"]["safeBins"] == ["head", "tail"]
+        assert result["tools"]["exec"]["safeBinTrustedDirs"] == ["/usr/bin"]
+        assert result["tools"]["exec"]["safeBinProfiles"]["head"]["maxPositional"] == 0
+
+
+class TestExecApprovalsTemplate:
+    """Tests for OpenClaw exec-approvals.json.j2 template rendering."""
+
+    def _render_template(self, config):
+        template_dir = (
+            Path(__file__).parent.parent
+            / "src/clawrium/platform/registry/openclaw/templates"
+        )
+        env = Environment(loader=FileSystemLoader(str(template_dir)))
+        template = env.get_template("exec-approvals.json.j2")
+        rendered = template.render(config=config)
+        return json.loads(rendered)
+
+    def test_exec_approvals_defaults_to_no_prompt_policy(self):
+        config = {}
+        result = self._render_template(config)
+
+        assert result["version"] == 1
+        assert result["defaults"]["security"] == "full"
+        assert result["defaults"]["ask"] == "off"
+        assert result["defaults"]["askFallback"] == "full"
+        assert result["defaults"]["autoAllowSkills"] is False
+
+    def test_exec_approvals_follows_tools_exec_fallbacks(self):
+        config = {
+            "tools": {
+                "exec": {
+                    "security": "allowlist",
+                    "ask": "on-miss",
+                }
+            }
+        }
+        result = self._render_template(config)
+
+        assert result["defaults"]["security"] == "allowlist"
+        assert result["defaults"]["ask"] == "on-miss"
+        assert result["defaults"]["askFallback"] == "full"
+        assert result["defaults"]["autoAllowSkills"] is False
+
+    def test_exec_approvals_honors_explicit_overrides(self):
+        config = {
+            "tools": {
+                "exec": {
+                    "security": "allowlist",
+                    "ask": "on-miss",
+                }
+            },
+            "exec_approvals": {
+                "version": 2,
+                "defaults": {
+                    "security": "full",
+                    "ask": "off",
+                    "askFallback": "allowlist",
+                    "autoAllowSkills": True,
+                },
+            },
+        }
+        result = self._render_template(config)
+
+        assert result["version"] == 2
+        assert result["defaults"]["security"] == "full"
+        assert result["defaults"]["ask"] == "off"
+        assert result["defaults"]["askFallback"] == "allowlist"
+        assert result["defaults"]["autoAllowSkills"] is True
 
 
 class TestEnvTemplate:

@@ -1,0 +1,13 @@
+{% set tools = config.tools | default({}) %}
+{% set tools_exec = tools.exec | default({}) %}
+{% set approvals = config.exec_approvals | default({}) %}
+{% set defaults = approvals.defaults | default({}) %}
+{
+  "version": {{ approvals.version | default(1) | int }},
+  "defaults": {
+    "security": {{ defaults.security | default(tools_exec.security | default('full')) | tojson }},
+    "ask": {{ defaults.ask | default(tools_exec.ask | default('off')) | tojson }},
+    "askFallback": {{ defaults.askFallback | default('full') | tojson }},
+    "autoAllowSkills": {{ defaults.autoAllowSkills | default(false) | tojson }}
+  }
+}

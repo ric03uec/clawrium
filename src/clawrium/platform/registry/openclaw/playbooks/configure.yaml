@@ -95,6 +95,22 @@
       when: config.provider is defined and config.provider.default_model is defined
       notify: Restart openclaw service
 
+    - name: Write exec approvals policy from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/exec-approvals.json.j2"
+        dest: "/home/{{ agent_name }}/.openclaw/exec-approvals.json"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        backup: yes
+      no_log: true
+      notify: Restart openclaw service
+
+    - name: Verify exec approvals JSON is valid
+      ansible.builtin.command:
+        cmd: python3 -m json.tool /home/{{ agent_name }}/.openclaw/exec-approvals.json
+      changed_when: false
+
     # B1/B2/B3 fix: Wrap verification in block/always for cleanup; use command not script
     - name: Config verification block
       when: config.provider is defined and config.provider.default_model is defined

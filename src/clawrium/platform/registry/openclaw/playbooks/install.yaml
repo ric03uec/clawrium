@@ -100,6 +100,21 @@
         group: "{{ agent_name }}"
         mode: "0600"
 
+    - name: Write exec approvals policy from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/exec-approvals.json.j2"
+        dest: "/home/{{ agent_name }}/.openclaw/exec-approvals.json"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        backup: yes
+      no_log: true
+
+    - name: Verify exec approvals JSON is valid
+      ansible.builtin.command:
+        cmd: python3 -m json.tool /home/{{ agent_name }}/.openclaw/exec-approvals.json
+      changed_when: false
+
     - name: Create environment file for agent
       ansible.builtin.copy:
         dest: "/home/{{ agent_name }}/.openclaw/env"
