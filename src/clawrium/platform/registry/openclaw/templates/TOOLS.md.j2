@@ -16,6 +16,32 @@ The agent has access to the following tool categories:
 - Run scripts and build tools
 - Manage processes
 
+{% if integrations is defined %}
+{% set has_github = integrations.values() | selectattr('type', 'equalto', 'github') | list | length > 0 %}
+{% if has_github %}
+### GitHub CLI (gh)
+The `gh` CLI is installed and authenticated. Use it for GitHub operations:
+
+**Issues:**
+- `gh issue create --repo OWNER/REPO --title "Title" --body "Description"`
+- `gh issue list --repo OWNER/REPO`
+- `gh issue view NUMBER --repo OWNER/REPO`
+- `gh issue comment NUMBER --repo OWNER/REPO --body "Comment"`
+
+**Pull Requests:**
+- `gh pr create --repo OWNER/REPO --title "Title" --body "Description"`
+- `gh pr list --repo OWNER/REPO`
+- `gh pr view NUMBER --repo OWNER/REPO`
+- `gh pr review NUMBER --repo OWNER/REPO --approve`
+
+**Repositories:**
+- `gh repo view OWNER/REPO`
+- `gh repo clone OWNER/REPO`
+
+Always use the `exec` tool to run `gh` commands. The CLI is pre-authenticated.
+{% endif %}
+{% endif %}
+
 ### Web Access
 - Search the web with `web_search`
 - Fetch specific URLs with `web_fetch`

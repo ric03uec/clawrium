@@ -84,6 +84,32 @@
       no_log: true
       notify: Restart openclaw service
 
+    # GitHub CLI authentication block
+    # Authenticates gh CLI for each github integration if gh is installed
+    # This enables openclaw's bundled github skill automatically
+    - name: GitHub CLI authentication block
+      when: integrations is defined
+      block:
+        - name: Check if gh CLI is installed
+          ansible.builtin.command: which gh
+          register: gh_check
+          changed_when: false
+          failed_when: false
+
+        - name: Authenticate gh CLI for each github integration
+          ansible.builtin.shell: |
+            echo "{{ item.value.GITHUB_TOKEN }}" | {{ gh_check.stdout }} auth login --with-token
+          become: yes
+          become_user: "{{ agent_name }}"
+          no_log: true
+          when:
+            - gh_check.rc == 0
+            - item.value.type == 'github'
+            - item.value.GITHUB_TOKEN is defined
+          loop: "{{ integrations | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
     - name: Write openclaw config from template
       ansible.builtin.template:
         src: "{{ template_path }}/openclaw.json.j2"
