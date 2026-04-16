@@ -1732,6 +1732,173 @@ def secret_import(
 agent_app.add_typer(secret_app, name="secret")
 
 
+# Integration management for agents
+integration_app = typer.Typer(
+    name="integration",
+    help="Manage integrations assigned to agents",
+    no_args_is_help=True,
+)
+
+
+@integration_app.command(name="list")
+def integrations_list(
+    claw_name: str = typer.Argument(..., help="Agent instance name"),
+) -> None:
+    """List integrations assigned to an agent."""
+    from rich.table import Table
+
+    from clawrium.core.integrations import (
+        get_agent_integrations,
+        load_integrations,
+        IntegrationsFileCorruptedError,
+    )
+    from clawrium.core.secrets import AgentNotFoundError, get_installed_claw
+
+    try:
+        hostname, claw_type, name = get_installed_claw(claw_name)
+    except AgentNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    assigned = get_agent_integrations(hostname, name)
+
+    console.print(f"\n[bold]Agent:[/bold] {rich_escape(name)}")
+
+    if not assigned:
+        console.print("  No integrations assigned")
+        console.print(
+            "\n[dim]Use 'clm agent integration add <agent> <integration>' to assign integrations[/dim]"
+        )
+        return
+
+    # Show assigned integrations with details
+    table = Table(show_header=True, box=None)
+    table.add_column("Name", style="cyan")
+    table.add_column("Type", style="white")
+    table.add_column("Status", style="dim")
+
+    try:
+        all_integrations = {i["name"]: i for i in load_integrations()}
+    except IntegrationsFileCorruptedError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    for integration_name in assigned:
+        integration = all_integrations.get(integration_name)
+        if integration:
+            table.add_row(
+                rich_escape(integration_name),
+                rich_escape(integration.get("type", "?")),
+                "[green]configured[/green]",
+            )
+        else:
+            table.add_row(
+                rich_escape(integration_name),
+                "?",
+                "[red]missing[/red]",
+            )
+
+    console.print(table)
+
+
+@integration_app.command(name="add")
+def integrations_add(
+    claw_name: str = typer.Argument(..., help="Agent instance name"),
+    integration_name: str = typer.Argument(..., help="Integration name to assign"),
+) -> None:
+    """Assign an integration to an agent.
+
+    Examples:
+        clm agent integration add my-agent work-github
+        clm agent integration add my-agent company-jira
+    """
+    from clawrium.core.integrations import (
+        add_agent_integration,
+        get_integration,
+        IntegrationsFileCorruptedError,
+    )
+    from clawrium.core.secrets import AgentNotFoundError, get_installed_claw
+
+    try:
+        hostname, claw_type, name = get_installed_claw(claw_name)
+    except AgentNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    # Verify integration exists
+    try:
+        integration = get_integration(integration_name)
+    except IntegrationsFileCorruptedError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    if not integration:
+        console.print(f"[red]Error:[/red] Integration '{rich_escape(integration_name)}' not found")
+        console.print("Use 'clm integration list' to see available integrations")
+        raise typer.Exit(code=1)
+
+    if add_agent_integration(hostname, name, integration_name):
+        console.print(
+            f"[green]Integration '{rich_escape(integration_name)}' assigned to '{rich_escape(name)}'[/green]"
+        )
+    else:
+        console.print(
+            f"[yellow]Integration '{rich_escape(integration_name)}' is already assigned to '{rich_escape(name)}'[/yellow]"
+        )
+
+
+@integration_app.command(name="remove")
+def integrations_remove(
+    claw_name: str = typer.Argument(..., help="Agent instance name"),
+    integration_name: str = typer.Argument(..., help="Integration name to remove"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+) -> None:
+    """Remove an integration from an agent.
+
+    Examples:
+        clm agent integration remove my-agent work-github
+    """
+    from clawrium.core.integrations import (
+        get_agent_integrations,
+        remove_agent_integration,
+    )
+    from clawrium.core.secrets import AgentNotFoundError, get_installed_claw
+
+    try:
+        hostname, claw_type, name = get_installed_claw(claw_name)
+    except AgentNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    # Check if integration is assigned
+    assigned = get_agent_integrations(hostname, name)
+    if integration_name not in assigned:
+        console.print(
+            f"[red]Error:[/red] Integration '{rich_escape(integration_name)}' "
+            f"is not assigned to '{rich_escape(name)}'"
+        )
+        raise typer.Exit(code=1)
+
+    if not force:
+        confirmed = typer.confirm(
+            f"Unassign integration '{rich_escape(integration_name)}' from '{rich_escape(name)}'?"
+        )
+        if not confirmed:
+            console.print("Cancelled.")
+            raise typer.Exit(code=0)
+
+    if remove_agent_integration(hostname, name, integration_name):
+        console.print(
+            f"[green]Integration '{rich_escape(integration_name)}' removed from '{rich_escape(name)}'[/green]"
+        )
+    else:
+        console.print("[red]Error:[/red] Failed to remove integration")
+        raise typer.Exit(code=1)
+
+
+agent_app.add_typer(integration_app, name="integration")
+
+
 registry_app = typer.Typer(
     name="registry",
     help="Browse available agent types",
