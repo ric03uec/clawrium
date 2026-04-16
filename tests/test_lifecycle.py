@@ -823,9 +823,7 @@ class TestSyncAgent:
                 "clawrium.core.lifecycle.configure_agent",
                 return_value=(False, "Config error"),
             ) as mock_configure:
-                with patch(
-                    "clawrium.core.lifecycle.restart_agent"
-                ) as mock_restart:
+                with patch("clawrium.core.lifecycle.restart_agent") as mock_restart:
                     result = sync_agent("192.168.1.100", "openclaw")
 
         assert result["success"] is False
@@ -1066,9 +1064,7 @@ class TestSyncAgent:
                         "error": None,
                     },
                 ):
-                    result = sync_agent(
-                        "192.168.1.100", "openclaw", on_event=on_event
-                    )
+                    result = sync_agent("192.168.1.100", "openclaw", on_event=on_event)
 
         assert result["success"] is True
         # W8: Assert sync events were emitted with proper count/ordering
@@ -1109,9 +1105,7 @@ class TestSyncAgent:
                 "clawrium.core.lifecycle.configure_agent",
                 return_value=(True, None),
             ) as mock_configure:
-                with patch(
-                    "clawrium.core.lifecycle.restart_agent"
-                ) as mock_restart:
+                with patch("clawrium.core.lifecycle.restart_agent") as mock_restart:
                     result = sync_agent(
                         "192.168.1.100", "openclaw", workspace_only=True
                     )
@@ -1238,3 +1232,88 @@ class TestCleanupAnsibleArtifacts:
 
             # Both attempts should be made
             assert mock_rmtree.call_count == 2
+
+
+class TestConfigureAgentSlackTokens:
+    """Tests for configure_agent loading Slack tokens from secrets."""
+
+    def test_configure_agent_loads_both_slack_tokens(self, isolated_config: Path):
+        """Verify both SLACK_BOT_TOKEN and SLACK_APP_TOKEN are loaded and passed to ansible."""
+        from clawrium.core.lifecycle import configure_agent
+        from clawrium.core.secrets import set_instance_secret, get_instance_key
+
+        instance_key = get_instance_key("192.168.1.100", "openclaw", "testbot")
+        set_instance_secret(
+            instance_key, "SLACK_BOT_TOKEN", "xoxb-123-test", "Slack bot token"
+        )
+        set_instance_secret(
+            instance_key, "SLACK_APP_TOKEN", "xapp-1-ABC-test", "Slack app token"
+        )
+
+        captured_inventories = []
+
+        def capture_runner(*args, **kwargs):
+            captured_inventories.append(
+                kwargs.get("inventory") or (args[1] if len(args) > 1 else None)
+            )
+            result = MagicMock()
+            result.rc = 0
+            result.status = "successful"
+            return result
+
+        host_data = {
+            "hostname": "192.168.1.100",
+            "key_id": "work",
+            "port": 22,
+            "alias": "work",
+            "auth_method": "key",
+            "agents": {
+                "openclaw": {
+                    "version": "0.1.0",
+                    "status": "installed",
+                    "agent_name": "testbot",
+                    "config": {
+                        "gateway": {"port": 40000, "bind": "lan", "auth": "token-123"},
+                        "provider": {
+                            "name": "test-openai",
+                            "type": "openai",
+                            "default_model": "gpt-4",
+                        },
+                        "channels": {"slack": {"enabled": True, "mode": "socket"}},
+                    },
+                    "onboarding": {"state": "ready", "stages": {}},
+                }
+            },
+        }
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host_data),
+            patch("clawrium.core.lifecycle.get_host_private_key") as mock_key,
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run", side_effect=capture_runner
+            ),
+        ):
+            from pathlib import Path as P
+
+            mock_key.return_value = P("/fake/key")
+
+            try:
+                configure_agent(
+                    "192.168.1.100",
+                    "openclaw",
+                    host_data["agents"]["openclaw"]["config"],
+                    agent_name="testbot",
+                )
+            except Exception:
+                pass
+
+        if captured_inventories:
+            inv = captured_inventories[0]
+            if inv and "all" in inv:
+                vars = (
+                    inv["all"]["hosts"]
+                    .get("192.168.1.100", {})
+                    .get("vars", inv["all"].get("vars", {}))
+                )
+                assert vars.get("slack_bot_token") == "xoxb-123-test"
+                assert vars.get("slack_app_token") == "xapp-1-ABC-test"

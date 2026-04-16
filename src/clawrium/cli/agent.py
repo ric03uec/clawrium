@@ -817,7 +817,7 @@ def _run_channels_stage(
             console.print("[red]Error:[/red] App token cannot be empty")
             return False
 
-        if not re.match(r"^xapp-", app_token):
+        if not re.match(r"^xapp-[A-Za-z0-9-]{10,}$", app_token):
             console.print(
                 "[red]Error:[/red] Invalid app token format (must start with xapp-)"
             )

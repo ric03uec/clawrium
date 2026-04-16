@@ -921,7 +921,14 @@ class TestExecApprovalsTemplate:
 class TestEnvTemplate:
     """Tests for OpenClaw .env.j2 template rendering."""
 
-    def _render_env_template(self, config, provider_api_key=""):
+    def _render_env_template(
+        self,
+        config,
+        provider_api_key="",
+        discord_bot_token="",
+        slack_bot_token="",
+        slack_app_token="",
+    ):
         """Helper to render the .env.j2 template."""
         template_dir = (
             Path(__file__).parent.parent
@@ -929,7 +936,13 @@ class TestEnvTemplate:
         )
         env = Environment(loader=FileSystemLoader(str(template_dir)))
         template = env.get_template(".env.j2")
-        return template.render(config=config, provider_api_key=provider_api_key)
+        return template.render(
+            config=config,
+            provider_api_key=provider_api_key,
+            discord_bot_token=discord_bot_token,
+            slack_bot_token=slack_bot_token,
+            slack_app_token=slack_app_token,
+        )
 
     @staticmethod
     def _parse_env(rendered):
@@ -1105,6 +1118,44 @@ class TestEnvTemplate:
         assert "OPENROUTER_API_KEY" not in env_map
         assert "GOOGLE_APPLICATION_CREDENTIALS" not in env_map
         assert "ZAI_API_KEY" not in env_map
+
+    def test_env_slack_bot_token_renders(self):
+        config = {"gateway": {"bind": "lan", "port": 40000}}
+        rendered = self._render_env_template(
+            config, slack_bot_token="xoxb-123456789012-123456789012-AbCdEf"
+        )
+        env_map = self._parse_env(rendered)
+
+        assert env_map["SLACK_BOT_TOKEN"] == "xoxb-123456789012-123456789012-AbCdEf"
+
+    def test_env_slack_app_token_renders(self):
+        config = {"gateway": {"bind": "lan", "port": 40000}}
+        rendered = self._render_env_template(
+            config, slack_app_token="xapp-1-A01BC2DEF-abcdef0123456789"
+        )
+        env_map = self._parse_env(rendered)
+
+        assert env_map["SLACK_APP_TOKEN"] == "xapp-1-A01BC2DEF-abcdef0123456789"
+
+    def test_env_both_slack_tokens_together(self):
+        config = {"gateway": {"bind": "lan", "port": 40000}}
+        rendered = self._render_env_template(
+            config,
+            slack_bot_token="xoxb-123456789012-123456789012-AbCdEf",
+            slack_app_token="xapp-1-A01BC2DEF-abcdef0123456789",
+        )
+        env_map = self._parse_env(rendered)
+
+        assert env_map["SLACK_BOT_TOKEN"] == "xoxb-123456789012-123456789012-AbCdEf"
+        assert env_map["SLACK_APP_TOKEN"] == "xapp-1-A01BC2DEF-abcdef0123456789"
+
+    def test_env_slack_tokens_absent_when_not_provided(self):
+        config = {"gateway": {"bind": "lan", "port": 40000}}
+        rendered = self._render_env_template(config)
+        env_map = self._parse_env(rendered)
+
+        assert "SLACK_BOT_TOKEN" not in env_map
+        assert "SLACK_APP_TOKEN" not in env_map
 
 
 class TestDevicePairingValidation:
