@@ -3,8 +3,11 @@
 This is the primary interface for managing AI assistants.
 """
 
+import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -967,6 +970,24 @@ def _run_validate_stage(
         return False
 
 
+def _resolve_editor(editor_option: Optional[str]) -> str:
+    """Resolve editor command using precedence: option > VISUAL > EDITOR > vi.
+
+    Args:
+        editor_option: Editor specified via --editor option
+
+    Returns:
+        Editor command to use
+    """
+    if editor_option:
+        return editor_option
+    if os.environ.get("VISUAL"):
+        return os.environ["VISUAL"]
+    if os.environ.get("EDITOR"):
+        return os.environ["EDITOR"]
+    return "vi"
+
+
 def _run_edit_config(
     hostname: str,
     host_data: dict,
@@ -988,18 +1009,149 @@ def _run_edit_config(
         display_host: Display name for the host
         editor: Optional editor override (else uses VISUAL/EDITOR/vi)
     """
-    # Edit-config workflow is not yet implemented
-    # This will be implemented in a follow-up subtask of #167
-    console.print(
-        f"[red]Error:[/red] Edit-config workflow for '{rich_escape(installed_name)}' "
-        f"on '{rich_escape(display_host)}' is not yet implemented."
-    )
-    console.print(
-        "\nThis feature will be available in a future release. "
-        "Use the onboarding wizard instead:"
-    )
-    console.print(f"  clm agent configure {rich_escape(installed_name)}")
-    raise typer.Exit(code=1)
+    from clawrium.core.lifecycle import configure_agent, restart_agent, LifecycleError
+
+    # Get agent's existing config from host_data
+    # Need to find the agent record by matching canonical name
+    agents = host_data.get("agents", {})
+    agent_record = None
+    for agent_key, record in agents.items():
+        canonical_name = record.get("agent_name") or record.get("name") or agent_key
+        if canonical_name == installed_name:
+            agent_record = record
+            break
+
+    existing_config = agent_record.get("config", {}) if agent_record else {}
+
+    if not existing_config:
+        console.print(
+            f"[red]Error:[/red] No configuration found for '{rich_escape(installed_name)}' "
+            f"on '{rich_escape(display_host)}'."
+        )
+        console.print(
+            "\nRun the onboarding wizard first to create initial configuration:"
+        )
+        console.print(f"  clm agent configure {rich_escape(installed_name)}")
+        raise typer.Exit(code=1)
+
+    # Resolve editor
+    editor_cmd = _resolve_editor(editor)
+
+    # Create temp file with agent config
+    temp_dir = tempfile.mkdtemp(prefix="clm-edit-")
+    config_file = Path(temp_dir) / f"{installed_name}.json"
+    preserve_temp_dir = False  # Track if we should preserve temp dir for error recovery
+
+    try:
+        # Write config to temp file (pretty-printed for readability)
+        with open(config_file, "w") as f:
+            json.dump(existing_config, f, indent=2)
+            f.write("\n")
+
+        # Store original content for change detection
+        original_content = config_file.read_text()
+
+        console.print(
+            f"Opening config for '{rich_escape(installed_name)}' in {rich_escape(editor_cmd)}..."
+        )
+
+        # Launch editor
+        try:
+            result = subprocess.run(
+                [editor_cmd, str(config_file)],
+                check=False,
+            )
+            if result.returncode != 0:
+                console.print(
+                    f"[red]Error:[/red] Editor exited with code {result.returncode}"
+                )
+                raise typer.Exit(code=1)
+        except FileNotFoundError:
+            console.print(
+                f"[red]Error:[/red] Editor '{rich_escape(editor_cmd)}' not found."
+            )
+            console.print("\nSpecify a different editor with --editor option:")
+            console.print(
+                f"  clm agent configure {rich_escape(installed_name)} --edit-config --editor nano"
+            )
+            raise typer.Exit(code=1)
+
+        # Read edited content
+        edited_content = config_file.read_text()
+
+        # Check for changes
+        if edited_content == original_content:
+            console.print("\n[yellow]No changes detected.[/yellow] Nothing to sync.")
+            return
+
+        # Validate JSON
+        try:
+            edited_config = json.loads(edited_content)
+        except json.JSONDecodeError as e:
+            console.print(f"\n[red]Error:[/red] Invalid JSON: {e}")
+            console.print("\nYour edited file has been preserved at:")
+            console.print(f"  {config_file}")
+            console.print("\nFix the JSON error and try again with:")
+            console.print(
+                f"  clm agent configure {rich_escape(installed_name)} --edit-config"
+            )
+            # Don't clean up temp dir so user can recover their edits
+            preserve_temp_dir = True
+            raise typer.Exit(code=1)
+
+        # Sync to remote
+        console.print("\nSyncing configuration to remote host...")
+
+        success, error = configure_agent(
+            hostname,
+            claw_type,
+            edited_config,
+            agent_name=installed_name,
+        )
+
+        if not success:
+            console.print(f"\n[red]Error:[/red] Sync failed: {error}")
+            console.print("\nYour edited file has been preserved at:")
+            console.print(f"  {config_file}")
+            preserve_temp_dir = True
+            raise typer.Exit(code=1)
+
+        console.print(
+            f"[green]✓[/green] Configuration synced for '{rich_escape(installed_name)}'"
+        )
+
+        # Prompt for restart
+        if typer.confirm("\nRestart agent to apply changes?", default=True):
+            console.print(f"Restarting '{rich_escape(installed_name)}'...")
+            try:
+                restart_result = restart_agent(
+                    hostname,
+                    claw_type,
+                    agent_name=installed_name,
+                )
+                if restart_result["success"]:
+                    console.print(
+                        f"[green]✓[/green] Agent '{rich_escape(installed_name)}' restarted successfully"
+                    )
+                else:
+                    console.print(
+                        f"[red]Error:[/red] Restart failed: {restart_result['error']}"
+                    )
+                    raise typer.Exit(code=1)
+            except LifecycleError as e:
+                console.print(f"[red]Error:[/red] Restart failed: {e}")
+                raise typer.Exit(code=1)
+        else:
+            console.print(
+                "\nConfiguration synced but agent not restarted. "
+                "Restart manually to apply changes:"
+            )
+            console.print(f"  clm agent restart {rich_escape(installed_name)}")
+
+    finally:
+        # Clean up temp directory only if we don't need to preserve it for error recovery
+        if not preserve_temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 # Allowed identity file names for --file option

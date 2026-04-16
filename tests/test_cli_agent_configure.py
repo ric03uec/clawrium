@@ -1586,15 +1586,15 @@ class TestEditConfigOptions:
         assert mock_edit.call_args.kwargs["editor"] == "nano"
         assert result.exit_code == 0
 
-    def test_edit_config_not_yet_implemented(self, isolated_config: Path):
-        """--edit-config shows not implemented error and exits with code 1."""
+    def test_edit_config_no_config_shows_error(self, isolated_config: Path):
+        """--edit-config without existing config shows clear error."""
         create_host_with_claw(isolated_config, onboarding_state="ready")
         create_test_keypair(isolated_config, "work")
 
         result = runner.invoke(app, ["agent", "configure", "assistant", "--edit-config"])
 
         assert result.exit_code == 1
-        assert "not yet implemented" in result.output
+        assert "no configuration found" in result.output.lower()
         assert "clm agent configure assistant" in result.output
 
     def test_edit_config_with_stage_fails(self, isolated_config: Path):
@@ -1684,3 +1684,360 @@ class TestEditConfigOptions:
 
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
+
+
+class TestEditConfigWorkflow:
+    """Tests for the actual edit-config workflow implementation."""
+
+    @pytest.fixture
+    def agent_config(self):
+        """Return a sample agent config for testing."""
+        return {
+            "provider": {
+                "name": "test-openai",
+                "type": "openai",
+                "default_model": "gpt-4",
+            },
+            "gateway": {
+                "port": 40000,
+                "host": "0.0.0.0",
+            },
+        }
+
+    def test_editor_resolution_option_takes_precedence(
+        self, isolated_config: Path, monkeypatch
+    ):
+        """--editor option takes precedence over environment variables."""
+        from clawrium.cli.agent import _resolve_editor
+
+        monkeypatch.setenv("VISUAL", "emacs")
+        monkeypatch.setenv("EDITOR", "nano")
+
+        assert _resolve_editor("vim") == "vim"
+
+    def test_editor_resolution_visual_over_editor(
+        self, isolated_config: Path, monkeypatch
+    ):
+        """VISUAL env var takes precedence over EDITOR."""
+        from clawrium.cli.agent import _resolve_editor
+
+        monkeypatch.setenv("VISUAL", "emacs")
+        monkeypatch.setenv("EDITOR", "nano")
+
+        assert _resolve_editor(None) == "emacs"
+
+    def test_editor_resolution_editor_fallback(self, isolated_config: Path, monkeypatch):
+        """EDITOR env var is used when VISUAL is not set."""
+        from clawrium.cli.agent import _resolve_editor
+
+        monkeypatch.delenv("VISUAL", raising=False)
+        monkeypatch.setenv("EDITOR", "nano")
+
+        assert _resolve_editor(None) == "nano"
+
+    def test_editor_resolution_vi_default(self, isolated_config: Path, monkeypatch):
+        """vi is used as default when no env vars are set."""
+        from clawrium.cli.agent import _resolve_editor
+
+        monkeypatch.delenv("VISUAL", raising=False)
+        monkeypatch.delenv("EDITOR", raising=False)
+
+        assert _resolve_editor(None) == "vi"
+
+    def test_invalid_json_blocks_sync(self, isolated_config: Path, agent_config):
+        """Invalid JSON after editing blocks sync and shows file path."""
+        create_host_with_claw(
+            isolated_config, onboarding_state="ready", config=agent_config
+        )
+        create_test_keypair(isolated_config, "work")
+
+        def mock_editor_writes_invalid_json(args, **kwargs):
+            # Find the config file and write invalid JSON
+            config_path = args[1]
+            with open(config_path, "w") as f:
+                f.write('{"invalid": json missing bracket')
+            return type("Result", (), {"returncode": 0})()
+
+        with patch("subprocess.run", side_effect=mock_editor_writes_invalid_json):
+            result = runner.invoke(
+                app, ["agent", "configure", "assistant", "--edit-config"]
+            )
+
+        assert result.exit_code == 1
+        assert "invalid json" in result.output.lower()
+        assert "preserved at" in result.output.lower()
+        # Verify file path is shown in output for recovery
+        assert "/tmp/" in result.output or "clm-edit-" in result.output
+
+    def test_no_change_skips_sync(self, isolated_config: Path, agent_config):
+        """No changes in editor skips sync."""
+        create_host_with_claw(
+            isolated_config, onboarding_state="ready", config=agent_config
+        )
+        create_test_keypair(isolated_config, "work")
+
+        def mock_editor_no_change(args, **kwargs):
+            # Editor exits without modifying file
+            return type("Result", (), {"returncode": 0})()
+
+        with patch("subprocess.run", side_effect=mock_editor_no_change):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent"
+            ) as mock_configure:
+                result = runner.invoke(
+                    app, ["agent", "configure", "assistant", "--edit-config"]
+                )
+
+        assert "no changes detected" in result.output.lower()
+        mock_configure.assert_not_called()
+
+    def test_successful_edit_syncs_config(self, isolated_config: Path, agent_config):
+        """Valid config change triggers sync."""
+        create_host_with_claw(
+            isolated_config, onboarding_state="ready", config=agent_config
+        )
+        create_test_keypair(isolated_config, "work")
+
+        def mock_editor_changes_port(args, **kwargs):
+            config_path = args[1]
+            with open(config_path) as f:
+                config = json.load(f)
+            config["gateway"]["port"] = 50000
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+            return type("Result", (), {"returncode": 0})()
+
+        with patch("subprocess.run", side_effect=mock_editor_changes_port):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent", return_value=(True, None)
+            ) as mock_configure:
+                with patch(
+                    "clawrium.core.lifecycle.restart_agent",
+                    return_value={"success": True, "error": None},
+                ):
+                    result = runner.invoke(
+                        app,
+                        ["agent", "configure", "assistant", "--edit-config"],
+                        input="y\n",  # Confirm restart
+                    )
+
+        assert "synced" in result.output.lower()
+        mock_configure.assert_called_once()
+        # Verify the new config was passed
+        call_args = mock_configure.call_args
+        assert call_args[0][2]["gateway"]["port"] == 50000
+
+    def test_restart_prompt_only_after_sync(self, isolated_config: Path, agent_config):
+        """Restart prompt appears only when config was synced."""
+        create_host_with_claw(
+            isolated_config, onboarding_state="ready", config=agent_config
+        )
+        create_test_keypair(isolated_config, "work")
+
+        def mock_editor_changes_model(args, **kwargs):
+            config_path = args[1]
+            with open(config_path) as f:
+                config = json.load(f)
+            config["provider"]["default_model"] = "gpt-4-turbo"
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+            return type("Result", (), {"returncode": 0})()
+
+        with patch("subprocess.run", side_effect=mock_editor_changes_model):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent", return_value=(True, None)
+            ):
+                with patch(
+                    "clawrium.core.lifecycle.restart_agent",
+                    return_value={"success": True, "error": None},
+                ) as mock_restart:
+                    # User declines restart
+                    result = runner.invoke(
+                        app,
+                        ["agent", "configure", "assistant", "--edit-config"],
+                        input="n\n",
+                    )
+
+        assert "restart agent to apply changes" in result.output.lower()
+        mock_restart.assert_not_called()
+        assert "restart manually" in result.output.lower()
+
+    def test_sync_failure_shows_error(self, isolated_config: Path, agent_config):
+        """Sync failure shows error and preserves file."""
+        create_host_with_claw(
+            isolated_config, onboarding_state="ready", config=agent_config
+        )
+        create_test_keypair(isolated_config, "work")
+
+        def mock_editor_changes_port(args, **kwargs):
+            config_path = args[1]
+            with open(config_path) as f:
+                config = json.load(f)
+            config["gateway"]["port"] = 50000
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+            return type("Result", (), {"returncode": 0})()
+
+        with patch("subprocess.run", side_effect=mock_editor_changes_port):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(False, "SSH connection failed"),
+            ):
+                result = runner.invoke(
+                    app, ["agent", "configure", "assistant", "--edit-config"]
+                )
+
+        assert result.exit_code == 1
+        assert "sync failed" in result.output.lower()
+        assert "ssh connection failed" in result.output.lower()
+        assert "preserved at" in result.output.lower()
+
+    def test_editor_not_found_shows_error(self, isolated_config: Path, agent_config):
+        """Editor not found shows clear error with suggestion."""
+        create_host_with_claw(
+            isolated_config, onboarding_state="ready", config=agent_config
+        )
+        create_test_keypair(isolated_config, "work")
+
+        with patch("subprocess.run", side_effect=FileNotFoundError()):
+            result = runner.invoke(
+                app,
+                [
+                    "agent",
+                    "configure",
+                    "assistant",
+                    "--edit-config",
+                    "--editor",
+                    "nonexistent-editor",
+                ],
+            )
+
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+        assert "--editor" in result.output
+
+    def test_editor_error_exit_code(self, isolated_config: Path, agent_config):
+        """Editor non-zero exit shows error."""
+        create_host_with_claw(
+            isolated_config, onboarding_state="ready", config=agent_config
+        )
+        create_test_keypair(isolated_config, "work")
+
+        with patch(
+            "subprocess.run",
+            return_value=type("Result", (), {"returncode": 1})(),
+        ):
+            result = runner.invoke(
+                app, ["agent", "configure", "assistant", "--edit-config"]
+            )
+
+        assert result.exit_code == 1
+        assert "editor exited with code 1" in result.output.lower()
+
+    def test_restart_agent_returns_failure(self, isolated_config: Path, agent_config):
+        """restart_agent returning failure dict shows error."""
+        create_host_with_claw(
+            isolated_config, onboarding_state="ready", config=agent_config
+        )
+        create_test_keypair(isolated_config, "work")
+
+        def mock_editor_changes_port(args, **kwargs):
+            config_path = args[1]
+            with open(config_path) as f:
+                config = json.load(f)
+            config["gateway"]["port"] = 50000
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+            return type("Result", (), {"returncode": 0})()
+
+        with patch("subprocess.run", side_effect=mock_editor_changes_port):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent", return_value=(True, None)
+            ):
+                with patch(
+                    "clawrium.core.lifecycle.restart_agent",
+                    return_value={"success": False, "error": "Service failed to start"},
+                ):
+                    result = runner.invoke(
+                        app,
+                        ["agent", "configure", "assistant", "--edit-config"],
+                        input="y\n",  # Confirm restart
+                    )
+
+        assert result.exit_code == 1
+        assert "restart failed" in result.output.lower()
+        assert "service failed to start" in result.output.lower()
+
+    def test_restart_agent_raises_lifecycle_error(
+        self, isolated_config: Path, agent_config
+    ):
+        """restart_agent raising LifecycleError shows error."""
+        from clawrium.core.lifecycle import LifecycleError
+
+        create_host_with_claw(
+            isolated_config, onboarding_state="ready", config=agent_config
+        )
+        create_test_keypair(isolated_config, "work")
+
+        def mock_editor_changes_port(args, **kwargs):
+            config_path = args[1]
+            with open(config_path) as f:
+                config = json.load(f)
+            config["gateway"]["port"] = 50000
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+            return type("Result", (), {"returncode": 0})()
+
+        with patch("subprocess.run", side_effect=mock_editor_changes_port):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent", return_value=(True, None)
+            ):
+                with patch(
+                    "clawrium.core.lifecycle.restart_agent",
+                    side_effect=LifecycleError("Host not reachable"),
+                ):
+                    result = runner.invoke(
+                        app,
+                        ["agent", "configure", "assistant", "--edit-config"],
+                        input="y\n",  # Confirm restart
+                    )
+
+        assert result.exit_code == 1
+        assert "restart failed" in result.output.lower()
+        assert "host not reachable" in result.output.lower()
+
+    def test_sync_failure_preserves_temp_dir(self, isolated_config: Path, agent_config):
+        """Sync failure preserves temp directory for recovery with path shown."""
+        import re
+
+        create_host_with_claw(
+            isolated_config, onboarding_state="ready", config=agent_config
+        )
+        create_test_keypair(isolated_config, "work")
+
+        def mock_editor_changes_port(args, **kwargs):
+            config_path = args[1]
+            with open(config_path) as f:
+                config = json.load(f)
+            config["gateway"]["port"] = 50000
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+            return type("Result", (), {"returncode": 0})()
+
+        with patch("subprocess.run", side_effect=mock_editor_changes_port):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(False, "Connection refused"),
+            ):
+                result = runner.invoke(
+                    app, ["agent", "configure", "assistant", "--edit-config"]
+                )
+
+        assert result.exit_code == 1
+        assert "preserved at" in result.output.lower()
+        # Extract the preserved file path from output and verify it exists
+        # The path looks like: /tmp/clm-edit-XXXX/assistant.json
+        path_match = re.search(r"(/tmp/clm-edit-[^/]+/[^\s]+)", result.output)
+        if path_match:
+            preserved_path = path_match.group(1)
+            assert Path(preserved_path).exists(), f"Preserved file should exist: {preserved_path}"
