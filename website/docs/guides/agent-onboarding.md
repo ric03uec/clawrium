@@ -116,7 +116,7 @@ Run: clm agent start opc-work
 **Purpose:** Connect your agent to an LLM backend.
 
 **What you need:**
-- At least one configured provider (see [Provider Management](./secret-management.md))
+- At least one configured provider (see [Providers](../agent-support/providers/index.md))
 - Network connectivity to the provider
 
 **Example:**
@@ -172,10 +172,7 @@ Configure governance identity:
 
 **Purpose:** Set up how the agent communicates with users.
 
-For channel-specific setup and credential requirements, see:
-
-- [Channels Guide](../agent-support/channels/index.md)
-- [Discord Channel Setup](../agent-support/channels/discord.md)
+For channel-specific setup and credential requirements, see [Agent Support: Channels](../agent-support/channels/index.md).
 
 :::info
 For ZeroClaw, only CLI is supported and auto-configured.
@@ -407,8 +404,6 @@ The wizard will respect your intent even if the stage is normally skippable.
 
 ## Next Steps
 
-- [Channels Guide](../agent-support/channels/index.md) - Configure communication channels and integrations
-- [Secret Management](./secret-management.md) - Managing provider API keys
 - [Fleet Management](./fleet-management.md) - Operating multiple agents
 - [CLI Reference: agent](../reference/cli/agent.md) - Full command documentation
 - [Troubleshooting](../troubleshooting.md) - Common issues and solutions

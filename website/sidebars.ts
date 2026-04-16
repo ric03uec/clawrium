@@ -18,7 +18,6 @@ const sidebars: SidebarsConfig = {
         'guides/quickstart',
         'guides/host-setup',
         'guides/agent-onboarding',
-        'guides/secret-management',
         'guides/fleet-management',
       ],
     },

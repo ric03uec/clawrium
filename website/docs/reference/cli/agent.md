@@ -656,5 +656,4 @@ fi
 
 - [Agent Onboarding Guide](../../guides/agent-onboarding.md) - Detailed onboarding walkthrough
 - [Fleet Management Guide](../../guides/fleet-management.md) - Managing multiple agents
-- [Secret Management Guide](../../guides/secret-management.md) - Working with API keys
 - [Troubleshooting](../../troubleshooting.md) - Common issues and solutions

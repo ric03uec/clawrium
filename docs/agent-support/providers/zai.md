@@ -1,4 +1,4 @@
-# ZAI / BigModel Provider
+# ZAI / BigModel
 
 **Status:** ✅ Supported
 
