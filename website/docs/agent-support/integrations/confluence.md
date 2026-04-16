@@ -1,4 +1,4 @@
-# Confluence Integration
+# Confluence
 
 **Status:** 📋 Not Currently Planned
 

@@ -1,4 +1,4 @@
-# GitLab Integration
+# GitLab
 
 **Status:** 📋 Not Currently Planned
 
@@ -76,7 +76,7 @@ read_user
 
 ## Alternatives
 
-### Use GitHub Integration
+### Use GitHub
 
 If you can mirror to GitHub:
 

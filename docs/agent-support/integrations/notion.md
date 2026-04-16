@@ -1,4 +1,4 @@
-# Notion Integration
+# Notion
 
 **Status:** 📋 Not Currently Planned
 

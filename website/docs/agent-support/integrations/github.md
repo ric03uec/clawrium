@@ -1,4 +1,4 @@
-# GitHub Integration
+# GitHub
 
 **Status:** 🚧 In Development
 

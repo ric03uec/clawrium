@@ -1,4 +1,4 @@
-# Linear Integration
+# Linear
 
 **Status:** 📋 Not Currently Planned
 
@@ -78,7 +78,7 @@ If implemented, Linear integration could:
 
 ## Alternatives
 
-### Use Jira Integration
+### Use Jira
 
 [Jira integration](jira.md) will be available Q2 2026 and serves similar needs.
 

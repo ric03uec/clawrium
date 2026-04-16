@@ -1,4 +1,4 @@
-# Jira Integration
+# Jira
 
 **Status:** 🚧 In Development
 
