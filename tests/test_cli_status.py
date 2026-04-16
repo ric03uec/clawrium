@@ -905,3 +905,126 @@ def test_status_verbose_short_alias(mock_hosts_with_claws):
 
     assert result.exit_code == 0
     assert "providers" in result.output
+
+
+# Tests for port column - Issue #253
+
+
+def test_status_shows_port_when_configured():
+    """Port column displays gateway port when configured."""
+    hosts = [
+        {
+            "hostname": "192.168.1.100",
+            "alias": "server1",
+            "agents": {
+                "openclaw": {
+                    "version": "0.1.0",
+                    "status": "installed",
+                    "installed_at": "2026-03-21T10:00:00Z",
+                    "agent_name": "opc-server1",
+                    "config": {"gateway": {"port": 40123}},
+                }
+            },
+        }
+    ]
+
+    mock_health = MagicMock(
+        return_value={
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "agent_name": "opc-server1",
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+        }
+    )
+
+    with patch("clawrium.cli.status.load_hosts", return_value=hosts):
+        with patch("clawrium.cli.status.check_claw_health", mock_health):
+            result = runner.invoke(app, ["ps"])
+
+    assert result.exit_code == 0
+    assert "40123" in result.output
+
+
+def test_status_shows_dash_when_port_missing():
+    """Port column displays '-' when port not configured."""
+    hosts = [
+        {
+            "hostname": "192.168.1.100",
+            "alias": "server1",
+            "agents": {
+                "openclaw": {
+                    "version": "0.1.0",
+                    "status": "installed",
+                    "installed_at": "2026-03-21T10:00:00Z",
+                    "agent_name": "opc-server1",
+                }
+            },
+        }
+    ]
+
+    mock_health = MagicMock(
+        return_value={
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "agent_name": "opc-server1",
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+        }
+    )
+
+    with patch("clawrium.cli.status.load_hosts", return_value=hosts):
+        with patch("clawrium.cli.status.check_claw_health", mock_health):
+            result = runner.invoke(app, ["ps"])
+
+    assert result.exit_code == 0
+    # Table should have Port column header
+    assert "Port" in result.output
+
+
+def test_status_shows_dash_when_config_empty():
+    """Port column displays '-' when config exists but gateway missing."""
+    hosts = [
+        {
+            "hostname": "192.168.1.100",
+            "alias": "server1",
+            "agents": {
+                "openclaw": {
+                    "version": "0.1.0",
+                    "status": "installed",
+                    "installed_at": "2026-03-21T10:00:00Z",
+                    "agent_name": "opc-server1",
+                    "config": {},
+                }
+            },
+        }
+    ]
+
+    mock_health = MagicMock(
+        return_value={
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "agent_name": "opc-server1",
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+        }
+    )
+
+    with patch("clawrium.cli.status.load_hosts", return_value=hosts):
+        with patch("clawrium.cli.status.check_claw_health", mock_health):
+            result = runner.invoke(app, ["ps"])
+
+    assert result.exit_code == 0
+    assert "Port" in result.output
