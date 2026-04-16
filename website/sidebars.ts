@@ -24,6 +24,22 @@ const sidebars: SidebarsConfig = {
     'architecture',
     {
       type: 'category',
+      label: 'OS Support',
+      collapsed: false,
+      items: [
+        {
+          type: 'category',
+          label: 'Ubuntu',
+          collapsed: false,
+          items: [
+            'os-support/ubuntu/24-04',
+          ],
+        },
+        'os-support/macos',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Agent Support',
       link: {
         type: 'doc',
