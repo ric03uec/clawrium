@@ -6,20 +6,11 @@ Ollama lets you run open-source LLMs locally on your own hardware.
 
 ## Supported Models
 
-Ollama supports 100+ models including:
+<!-- MODEL-TABLE:START -->
+*Ollama models are discovered dynamically from local installation.*
+<!-- MODEL-TABLE:END -->
 
-- `llama3.3` - Meta's Llama 3.3
-- `llama3.2` - Meta's Llama 3.2
-- `llama3.1` - Meta's Llama 3.1
-- `llama3` - Meta's Llama 3
-- `mistral` - Mistral AI
-- `mixtral` - Mixtral 8x7B
-- `gemma2` - Google Gemma 2
-- `qwen2.5` - Alibaba Qwen
-- `phi4` - Microsoft Phi-4
-- `deepseek-r1` - DeepSeek R1
-
-And many more at [ollama.com/library](https://ollama.com/library)
+See more at [ollama.com/library](https://ollama.com/library)
 
 ## Setup
 

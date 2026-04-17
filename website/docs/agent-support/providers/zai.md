@@ -6,14 +6,22 @@ Zhipu AI (ZAI) BigModel platform provides access to GLM (General Language Model)
 
 ## Supported Models
 
-- `glm-4` - General purpose
-- `glm-4-plus` - Enhanced capabilities
-- `glm-4-air` - Fast inference
-- `glm-4-airx` - Extended context
-- `glm-4-flash` - Ultra-fast
-- `glm-4-long` - Long context
-- `glm-4v` - Vision capable
-- `glm-4v-plus` - Enhanced vision
+<!-- MODEL-TABLE:START -->
+| Model ID | Name | Context |
+|----------|------|---------|
+| `glm-4.5` | GLM-4.5 | 131K |
+| `glm-4.5-air` | GLM-4.5-Air | 131K |
+| `glm-4.5-flash` | GLM-4.5-Flash | 131K |
+| `glm-4.5v` | GLM-4.5V | 64K |
+| `glm-4.6` | GLM-4.6 | 204K |
+| `glm-4.6v` | GLM-4.6V | 128K |
+| `glm-4.7` | GLM-4.7 | 204K |
+| `glm-4.7-flash` | GLM-4.7-Flash | 200K |
+| `glm-4.7-flashx` | GLM-4.7-FlashX | 200K |
+| `glm-5` | GLM-5 | 204K |
+| `glm-5.1` | GLM-5.1 | 200K |
+| `glm-5v-turbo` | glm-5v-turbo | 200K |
+<!-- MODEL-TABLE:END -->
 
 ## Setup
 

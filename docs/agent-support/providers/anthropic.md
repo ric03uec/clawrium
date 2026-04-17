@@ -6,13 +6,33 @@ Official Anthropic Claude API integration.
 
 ## Supported Models
 
-- `claude-opus-4-20250514` - Most capable
-- `claude-sonnet-4-20250514` - Balanced performance
-- `claude-3-5-sonnet-20241022` - Previous generation
-- `claude-3-5-haiku-20241022` - Fast, cost-effective
-- `claude-3-opus-20240229` - Original Opus
-- `claude-3-sonnet-20240229` - Original Sonnet
-- `claude-3-haiku-20240307` - Original Haiku
+<!-- MODEL-TABLE:START -->
+| Model ID | Name | Context |
+|----------|------|---------|
+| `claude-3-haiku-20240307` | Claude Haiku 3 | 200K |
+| `claude-3-5-haiku-20241022` | Claude Haiku 3.5 | 200K |
+| `claude-3-5-haiku-latest` | Claude Haiku 3.5 (latest) | 200K |
+| `claude-haiku-4-5-20251001` | Claude Haiku 4.5 | 200K |
+| `claude-haiku-4-5` | Claude Haiku 4.5 (latest) | 200K |
+| `claude-3-opus-20240229` | Claude Opus 3 | 200K |
+| `claude-opus-4-20250514` | Claude Opus 4 | 200K |
+| `claude-opus-4-0` | Claude Opus 4 (latest) | 200K |
+| `claude-opus-4-1-20250805` | Claude Opus 4.1 | 200K |
+| `claude-opus-4-1` | Claude Opus 4.1 (latest) | 200K |
+| `claude-opus-4-5-20251101` | Claude Opus 4.5 | 200K |
+| `claude-opus-4-5` | Claude Opus 4.5 (latest) | 200K |
+| `claude-opus-4-6` | Claude Opus 4.6 | 1M |
+| `claude-opus-4-7` | Claude Opus 4.7 | 1M |
+| `claude-3-sonnet-20240229` | Claude Sonnet 3 | 200K |
+| `claude-3-5-sonnet-20240620` | Claude Sonnet 3.5 | 200K |
+| `claude-3-5-sonnet-20241022` | Claude Sonnet 3.5 v2 | 200K |
+| `claude-3-7-sonnet-20250219` | Claude Sonnet 3.7 | 200K |
+| `claude-sonnet-4-20250514` | Claude Sonnet 4 | 200K |
+| `claude-sonnet-4-0` | Claude Sonnet 4 (latest) | 200K |
+| `claude-sonnet-4-5-20250929` | Claude Sonnet 4.5 | 200K |
+| `claude-sonnet-4-5` | Claude Sonnet 4.5 (latest) | 200K |
+| `claude-sonnet-4-6` | Claude Sonnet 4.6 | 1M |
+<!-- MODEL-TABLE:END -->
 
 ## Setup
 
