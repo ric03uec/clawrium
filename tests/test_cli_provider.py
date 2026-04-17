@@ -28,53 +28,45 @@ class TestProviderTypes:
         assert "ollama" in result.output
 
 
-class TestProviderModels:
-    """Tests for 'clm provider models' command."""
+class TestProviderTypesModels:
+    """Tests for 'clm provider types <type> models' command."""
 
-    def test_models_by_type(self, isolated_config):
-        """'clm provider models openai' lists OpenAI models."""
-        result = runner.invoke(app, ["provider", "models", "openai"])
+    def test_types_models_by_type(self, isolated_config):
+        """'clm provider types openai models' lists OpenAI models."""
+        result = runner.invoke(app, ["provider", "types", "openai", "models"])
 
         assert result.exit_code == 0
         assert "gpt-4o" in result.output
         assert "gpt-4o-mini" in result.output
 
-    def test_models_ollama_type_shows_message(self, isolated_config):
-        """'clm provider models ollama' shows dynamic discovery message."""
-        result = runner.invoke(app, ["provider", "models", "ollama"])
+    def test_types_models_ollama_shows_message(self, isolated_config):
+        """'clm provider types ollama models' shows dynamic discovery message."""
+        result = runner.invoke(app, ["provider", "types", "ollama", "models"])
 
         assert result.exit_code == 0
         assert "dynamically" in result.output.lower()
 
-    def test_models_by_provider_name(self, isolated_config, sample_provider_data):
-        """'clm provider models <name>' shows models for configured provider."""
-        isolated_config.mkdir(parents=True, exist_ok=True)
-        save_providers([sample_provider_data])
-
-        result = runner.invoke(app, ["provider", "models", "test-openai"])
-
-        assert result.exit_code == 0
-        assert "gpt-4o" in result.output
-
-    def test_models_ollama_provider_shows_available(
-        self, isolated_config, sample_ollama_provider
-    ):
-        """'clm provider models <ollama-name>' shows cached models."""
-        isolated_config.mkdir(parents=True, exist_ok=True)
-        save_providers([sample_ollama_provider])
-
-        result = runner.invoke(app, ["provider", "models", "local-llm"])
-
-        assert result.exit_code == 0
-        assert "llama3:latest" in result.output
-        assert "mistral:latest" in result.output
-
-    def test_models_invalid_identifier(self, isolated_config):
-        """'clm provider models <invalid>' shows error."""
-        result = runner.invoke(app, ["provider", "models", "nonexistent"])
+    def test_types_invalid_type(self, isolated_config):
+        """'clm provider types <invalid> models' shows error."""
+        result = runner.invoke(app, ["provider", "types", "nonexistent", "models"])
 
         assert result.exit_code == 1
         assert "not a valid provider type" in result.output.lower()
+
+    def test_types_no_action_shows_hint(self, isolated_config):
+        """'clm provider types openai' (no action) shows available actions."""
+        result = runner.invoke(app, ["provider", "types", "openai"])
+
+        assert result.exit_code == 0
+        assert "available actions" in result.output.lower()
+        assert "models" in result.output
+
+    def test_types_invalid_action(self, isolated_config):
+        """'clm provider types openai invalid' shows error."""
+        result = runner.invoke(app, ["provider", "types", "openai", "invalid"])
+
+        assert result.exit_code == 1
+        assert "unknown action" in result.output.lower()
 
 
 class TestProviderList:
@@ -801,12 +793,12 @@ class TestProviderBedrock:
         assert "required" in result.output.lower()
 
 
-class TestProviderModelsMetadata:
-    """Tests for 'clm provider models' command with metadata display."""
+class TestProviderTypesModelsMetadata:
+    """Tests for 'clm provider types <type> models' with metadata display."""
 
-    def test_models_shows_metadata_columns(self, isolated_config):
-        """'clm provider models openai' shows metadata (name, lab, context)."""
-        result = runner.invoke(app, ["provider", "models", "openai"])
+    def test_types_models_shows_metadata_columns(self, isolated_config):
+        """'clm provider types openai models' shows metadata (name, lab, context)."""
+        result = runner.invoke(app, ["provider", "types", "openai", "models"])
 
         assert result.exit_code == 0
         # Should show model count in header
@@ -820,9 +812,9 @@ class TestProviderModelsMetadata:
         # Should show lab
         assert "OpenAI" in result.output
 
-    def test_models_shows_lab_column(self, isolated_config):
-        """'clm provider models openai' shows lab in output."""
-        result = runner.invoke(app, ["provider", "models", "openai"])
+    def test_types_models_shows_lab_column(self, isolated_config):
+        """'clm provider types openai models' shows lab in output."""
+        result = runner.invoke(app, ["provider", "types", "openai", "models"])
 
         assert result.exit_code == 0
         # OpenAI provider should show OpenAI lab
@@ -830,9 +822,9 @@ class TestProviderModelsMetadata:
         # Verify lab appears multiple times (in table rows)
         assert result.output.count("OpenAI") > 1
 
-    def test_models_openrouter_groups_by_lab(self, isolated_config):
-        """'clm provider models openrouter' groups models by lab."""
-        result = runner.invoke(app, ["provider", "models", "openrouter"])
+    def test_types_models_openrouter_groups_by_lab(self, isolated_config):
+        """'clm provider types openrouter models' groups models by lab."""
+        result = runner.invoke(app, ["provider", "types", "openrouter", "models"])
 
         assert result.exit_code == 0
         # Should show lab count
@@ -841,36 +833,21 @@ class TestProviderModelsMetadata:
         assert "Anthropic" in result.output
         assert "OpenAI" in result.output or "Openai" in result.output
 
-    def test_models_format_context_window_k(self, isolated_config):
+    def test_types_models_format_context_window_k(self, isolated_config):
         """Context windows are formatted with K suffix (e.g., 128K)."""
-        result = runner.invoke(app, ["provider", "models", "anthropic"])
+        result = runner.invoke(app, ["provider", "types", "anthropic", "models"])
 
         assert result.exit_code == 0
         # Anthropic models have 200K context
         assert "200K" in result.output
 
-    def test_models_format_context_window_m(self, isolated_config):
+    def test_types_models_format_context_window_m(self, isolated_config):
         """Context windows >= 1M are formatted with M suffix."""
-        result = runner.invoke(app, ["provider", "models", "openai"])
+        result = runner.invoke(app, ["provider", "types", "openai", "models"])
 
         assert result.exit_code == 0
         # GPT-4.1 has 1M+ context
         assert "1M" in result.output
-
-    def test_models_by_provider_name_shows_metadata(
-        self, isolated_config, sample_provider_data
-    ):
-        """'clm provider models <name>' shows metadata for configured provider."""
-        isolated_config.mkdir(parents=True, exist_ok=True)
-        save_providers([sample_provider_data])
-
-        result = runner.invoke(app, ["provider", "models", "test-openai"])
-
-        assert result.exit_code == 0
-        # Should show model name, not just ID
-        assert "GPT" in result.output or "gpt" in result.output.lower()
-        # Should show context
-        assert "K" in result.output or "M" in result.output
 
 
 class TestInteractiveModelSelection:
@@ -954,47 +931,6 @@ class TestInteractiveModelSelection:
         # Should show matches for "gpt"
         assert "Matches for" in result.output or "gpt" in result.output.lower()
         assert "added successfully" in result.output.lower()
-
-
-class TestProviderTypePrecedence:
-    """Tests for provider type vs configured name precedence."""
-
-    def test_models_type_takes_precedence_over_name(self, isolated_config):
-        """Provider types take precedence over configured provider names."""
-        # Create a provider named 'anthropic' but with type 'openai'
-        # This is a pathological but valid configuration
-        isolated_config.mkdir(parents=True, exist_ok=True)
-        conflicting_provider = {
-            "name": "anthropic",  # Name conflicts with provider type
-            "type": "openai",
-            "default_model": "gpt-4o",
-            "created_at": "2026-04-05T12:00:00+00:00",
-            "updated_at": "2026-04-05T12:00:00+00:00",
-        }
-        save_providers([conflicting_provider])
-
-        # Query 'anthropic' - should show Anthropic type models, not the config
-        result = runner.invoke(app, ["provider", "models", "anthropic"])
-
-        assert result.exit_code == 0
-        # Should show Anthropic models (claude), not OpenAI (gpt)
-        assert "claude" in result.output.lower()
-        # Verify OpenAI models are NOT shown
-        assert "gpt-4o" not in result.output.lower() or "claude" in result.output.lower()
-
-    def test_models_configured_name_after_type_lookup(
-        self, isolated_config, sample_provider_data
-    ):
-        """Non-type names fall back to configured provider lookup."""
-        isolated_config.mkdir(parents=True, exist_ok=True)
-        save_providers([sample_provider_data])
-
-        # 'test-openai' is not a provider type, should look up config
-        result = runner.invoke(app, ["provider", "models", "test-openai"])
-
-        assert result.exit_code == 0
-        # Should show OpenAI models (from configured provider type)
-        assert "gpt" in result.output.lower()
 
 
 class TestProviderModelValidation:

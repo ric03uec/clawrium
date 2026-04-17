@@ -49,8 +49,11 @@ clm agent configure <agent-name>
 # List all providers
 clm provider list
 
-# View available models
-clm provider models <provider-name>
+# List provider types
+clm provider types
+
+# View available models for a provider type
+clm provider types <type> models
 
 # Edit a provider
 clm provider edit <provider-name> --model <new-model>

@@ -18,8 +18,7 @@ Providers are configured locally in `~/.config/clawrium/providers.json`. API key
 | [`clm provider list`](#clm-provider-list) | List all configured providers |
 | [`clm provider edit`](#clm-provider-edit) | Edit an existing provider |
 | [`clm provider remove`](#clm-provider-remove) | Remove a provider |
-| [`clm provider types`](#clm-provider-types) | List supported provider types |
-| [`clm provider models`](#clm-provider-models) | List available models for a provider |
+| [`clm provider types`](#clm-provider-types) | List provider types or show models for a type |
 | [`clm provider refresh`](#clm-provider-refresh) | Refresh Ollama models |
 
 ---
@@ -270,77 +269,82 @@ Provider 'old-provider' removed successfully.
 
 ## clm provider types
 
-List supported provider types.
+List supported provider types or show models for a specific type.
 
 ```bash
-clm provider types
-```
-
-### Example
-
-```bash
-$ clm provider types
-Supported provider types:
-
-  anthropic - 4 models
-  bedrock - 6 models (SDK-based)
-  ollama - Self-hosted (dynamic model discovery)
-  openai - 5 models
-  openrouter - 14 models
-  vertex - 4 models (SDK-based)
-  zai - 2 models
-```
-
----
-
-## clm provider models
-
-List available models for a provider type or configured provider.
-
-```bash
-clm provider models <identifier>
+clm provider types [<type>] [models]
 ```
 
 ### Arguments
 
 | Argument | Description |
 |----------|-------------|
-| `identifier` | Provider type (openai, anthropic, etc.) or provider name |
-
-Note: Provider types take precedence over configured provider names.
+| `type` | (Optional) Provider type to inspect (openai, anthropic, etc.) |
+| `models` | (Optional) Action to show available models for the type |
 
 ### Examples
+
+List all supported provider types:
+
+```bash
+$ clm provider types
+Supported provider types:
+
+  anthropic - 7 models
+  bedrock - 8 models (SDK-based)
+  ollama - Self-hosted (dynamic model discovery)
+  openai - 51 models
+  openrouter - 200+ models
+  vertex - 6 models (SDK-based)
+  zai - 8 models
+```
+
+Show available actions for a type:
+
+```bash
+$ clm provider types openai
+Provider type: openai
+
+Available actions:
+  clm provider types openai models  # List available models
+```
 
 List models for a provider type:
 
 ```bash
-$ clm provider models openai
-Available models for openai:
+$ clm provider types openai models
+Available models for openai (51 models)
 
-  gpt-4o
-  gpt-4o-mini
-  gpt-4-turbo
-  gpt-4
-  gpt-3.5-turbo
+  ID                   Name             Lab       Context
+  gpt-4o               GPT-4o           OpenAI    128K
+  gpt-4o-mini          GPT-4o mini      OpenAI    128K
+  gpt-4-turbo          GPT-4 Turbo      OpenAI    128K
+  ...
 ```
 
-List models from a configured Ollama provider:
+List models for multi-lab provider (grouped by lab):
 
 ```bash
-$ clm provider models local-llm
-Models on 'local-llm' (Ollama):
+$ clm provider types openrouter models
+Available models for openrouter (200+ models from 8 labs)
 
-  llama3.2:latest
-  mistral:latest
-  codellama:latest
+Anthropic (5 models)
+  ID                          Name                Lab         Context
+  anthropic/claude-opus-4     Claude Opus 4       Anthropic   200K
+  ...
+
+OpenAI (10 models)
+  ID                          Name                Lab         Context
+  openai/gpt-4o               GPT-4o              OpenAI      128K
+  ...
 ```
 
 ### Exit Codes
 
 | Code | Meaning |
 |------|---------|
-| 0 | Models listed successfully |
-| 1 | Invalid identifier or providers file corrupted |
+| 0 | Types or models listed successfully |
+| 1 | Invalid provider type or unknown action |
 
 ---
 

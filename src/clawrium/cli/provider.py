@@ -750,9 +750,8 @@ def remove(
         raise typer.Exit(code=1)
 
 
-@provider_app.command()
-def types() -> None:
-    """List supported provider types."""
+def _list_provider_types() -> None:
+    """List all supported provider types."""
     console.print("[bold]Supported provider types:[/bold]\n")
 
     for provider_type in _get_provider_types():
@@ -774,113 +773,86 @@ def types() -> None:
             )
 
 
-@provider_app.command()
-def models(
-    identifier: str = typer.Argument(
-        ...,
-        help="Provider type (openai, anthropic, etc.) or provider name",
-    ),
-) -> None:
-    """List available models for a provider type or configured provider.
+def _show_models_for_type(provider_type: str) -> None:
+    """Show models for a specific provider type."""
+    if provider_type not in PROVIDER_MODELS:
+        console.print(
+            f"[red]Error:[/red] '{provider_type}' is not a valid provider type"
+        )
+        console.print(f"\nValid provider types: {', '.join(_get_provider_types())}")
+        raise typer.Exit(code=1)
 
-    Shows model metadata including name, lab, and context window.
-    For multi-lab providers (like openrouter), models are grouped by lab.
-
-    Note: Provider types take precedence over configured provider names.
-
-    Examples:
-        clm provider models openai        # List models for OpenAI type
-        clm provider models openrouter    # List models grouped by lab
-        clm provider models myopenai      # List models from saved provider config
-    """
-    # Check if it's a provider type
-    if identifier in PROVIDER_MODELS:
-        provider_type = identifier
-
-        # Handle Ollama specially (dynamic discovery)
-        if provider_type == "ollama":
-            console.print(
-                "[yellow]Ollama models are discovered dynamically.[/yellow]\n"
-                "Add an Ollama provider first, then query by provider name."
-            )
-            return
-
-        # Get full model metadata from JSON catalog
-        try:
-            model_list = get_models_for_provider(provider_type)
-        except ProviderNotFoundError:
-            console.print(
-                f"[yellow]No models available for {provider_type}[/yellow]"
-            )
-            return
-
-        if not model_list:
-            console.print(
-                f"[yellow]No models available for {provider_type}[/yellow]"
-            )
-            return
-
-        # Multi-lab providers should group by lab
-        multi_lab_providers = {"openrouter", "bedrock"}
-        group_by_lab = provider_type in multi_lab_providers
-
-        _display_models_with_metadata(
-            model_list,
-            f"Available models for {provider_type}",
-            group_by_lab=group_by_lab,
+    # Handle Ollama specially (dynamic discovery)
+    if provider_type == "ollama":
+        console.print(
+            "[yellow]Ollama models are discovered dynamically.[/yellow]\n"
+            "Add an Ollama provider first, then query by provider name."
         )
         return
 
-    # Otherwise, check if it's a configured provider name
+    # Get full model metadata from JSON catalog
     try:
-        provider = get_provider(identifier)
-    except ProvidersFileCorruptedError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1)
-
-    if provider:
-        provider_type = provider.get("type", "unknown")
-
-        # For Ollama, show saved available_models (no metadata available)
-        if provider_type == "ollama":
-            available = provider.get("available_models", [])
-            if available:
-                console.print(f"[bold]Models on '{identifier}' (Ollama):[/bold]\n")
-                for m in available:
-                    console.print(f"  {rich_escape(m)}")
-            else:
-                console.print(f"[yellow]No models cached for '{identifier}'.[/yellow]")
-                console.print("Run 'clm provider refresh' to fetch models.")
-            return
-
-        # For cloud providers, show full model metadata from JSON catalog
-        try:
-            model_list = get_models_for_provider(provider_type)
-        except ProviderNotFoundError:
-            console.print(
-                f"[yellow]No model list for provider type {provider_type}[/yellow]"
-            )
-            return
-
-        if model_list:
-            multi_lab_providers = {"openrouter", "bedrock"}
-            group_by_lab = provider_type in multi_lab_providers
-            _display_models_with_metadata(
-                model_list,
-                f"Available models for '{identifier}' ({provider_type})",
-                group_by_lab=group_by_lab,
-            )
-        else:
-            console.print(
-                f"[yellow]No model list for provider type {provider_type}[/yellow]"
-            )
+        model_list = get_models_for_provider(provider_type)
+    except ProviderNotFoundError:
+        console.print(f"[yellow]No models available for {provider_type}[/yellow]")
         return
 
-    # Not found
-    console.print(
-        f"[red]Error:[/red] '{identifier}' is not a valid provider type or configured provider"
+    if not model_list:
+        console.print(f"[yellow]No models available for {provider_type}[/yellow]")
+        return
+
+    # Multi-lab providers should group by lab
+    multi_lab_providers = {"openrouter", "bedrock"}
+    group_by_lab = provider_type in multi_lab_providers
+
+    _display_models_with_metadata(
+        model_list,
+        f"Available models for {provider_type}",
+        group_by_lab=group_by_lab,
     )
-    console.print(f"\nValid provider types: {', '.join(_get_provider_types())}")
+
+
+@provider_app.command()
+def types(
+    provider_type: Optional[str] = typer.Argument(
+        None, help="Provider type to inspect (openai, anthropic, etc.)"
+    ),
+    action: Optional[str] = typer.Argument(
+        None, help="Action to perform: 'models' to list available models"
+    ),
+) -> None:
+    """List supported provider types or show details for a specific type.
+
+    Examples:
+        clm provider types                    # List all provider types
+        clm provider types openai models      # List models for OpenAI
+        clm provider types openrouter models  # List models grouped by lab
+    """
+    if provider_type is None:
+        # No args: list all types
+        _list_provider_types()
+        return
+
+    if action is None:
+        # Provider type given but no action: show hint
+        console.print(f"[bold]Provider type: {provider_type}[/bold]\n")
+        if provider_type not in PROVIDER_MODELS:
+            console.print(
+                f"[red]Error:[/red] '{provider_type}' is not a valid provider type"
+            )
+            console.print(f"\nValid provider types: {', '.join(_get_provider_types())}")
+            raise typer.Exit(code=1)
+        console.print("Available actions:")
+        console.print(f"  clm provider types {provider_type} models  # List available models")
+        return
+
+    if action == "models":
+        _show_models_for_type(provider_type)
+        return
+
+    # Unknown action
+    console.print(f"[red]Error:[/red] Unknown action '{action}'")
+    console.print("\nValid actions: models")
     raise typer.Exit(code=1)
 
 
