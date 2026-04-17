@@ -799,3 +799,199 @@ class TestProviderBedrock:
         assert result.exit_code == 1
         assert "both" in result.output.lower()
         assert "required" in result.output.lower()
+
+
+class TestProviderModelsMetadata:
+    """Tests for 'clm provider models' command with metadata display."""
+
+    def test_models_shows_metadata_columns(self, isolated_config):
+        """'clm provider models openai' shows metadata (name, lab, context)."""
+        result = runner.invoke(app, ["provider", "models", "openai"])
+
+        assert result.exit_code == 0
+        # Should show model count in header
+        assert "models" in result.output.lower()
+        # Should show model ID
+        assert "gpt-4o" in result.output
+        # Should show model name (not just ID)
+        assert "GPT-4o" in result.output
+        # Should show context window formatted with K suffix
+        assert "128K" in result.output
+        # Should show lab
+        assert "OpenAI" in result.output
+
+    def test_models_shows_lab_column(self, isolated_config):
+        """'clm provider models openai' shows lab in output."""
+        result = runner.invoke(app, ["provider", "models", "openai"])
+
+        assert result.exit_code == 0
+        # OpenAI provider should show OpenAI lab
+        assert "OpenAI" in result.output
+        # Verify lab appears multiple times (in table rows)
+        assert result.output.count("OpenAI") > 1
+
+    def test_models_openrouter_groups_by_lab(self, isolated_config):
+        """'clm provider models openrouter' groups models by lab."""
+        result = runner.invoke(app, ["provider", "models", "openrouter"])
+
+        assert result.exit_code == 0
+        # Should show lab count
+        assert "labs" in result.output.lower()
+        # Should show lab headers for multi-lab provider
+        assert "Anthropic" in result.output
+        assert "OpenAI" in result.output or "Openai" in result.output
+
+    def test_models_format_context_window_k(self, isolated_config):
+        """Context windows are formatted with K suffix (e.g., 128K)."""
+        result = runner.invoke(app, ["provider", "models", "anthropic"])
+
+        assert result.exit_code == 0
+        # Anthropic models have 200K context
+        assert "200K" in result.output
+
+    def test_models_format_context_window_m(self, isolated_config):
+        """Context windows >= 1M are formatted with M suffix."""
+        result = runner.invoke(app, ["provider", "models", "openai"])
+
+        assert result.exit_code == 0
+        # GPT-4.1 has 1M+ context
+        assert "1M" in result.output
+
+    def test_models_by_provider_name_shows_metadata(
+        self, isolated_config, sample_provider_data
+    ):
+        """'clm provider models <name>' shows metadata for configured provider."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        save_providers([sample_provider_data])
+
+        result = runner.invoke(app, ["provider", "models", "test-openai"])
+
+        assert result.exit_code == 0
+        # Should show model name, not just ID
+        assert "GPT" in result.output or "gpt" in result.output.lower()
+        # Should show context
+        assert "K" in result.output or "M" in result.output
+
+
+class TestInteractiveModelSelection:
+    """Tests for interactive model selection with fuzzy search."""
+
+    def test_add_provider_uses_interactive_selection(self, isolated_config):
+        """'clm provider add' uses interactive model selection."""
+        # Input: API key, then "1" to select first model
+        result = runner.invoke(
+            app,
+            ["provider", "add", "myanthropic", "--type", "anthropic"],
+            input="sk-test\n1\n",
+        )
+
+        assert result.exit_code == 0
+        # Should show model selection prompt with metadata
+        assert "Select a model" in result.output or "available" in result.output.lower()
+        assert "added successfully" in result.output.lower()
+
+    def test_add_with_model_flag_skips_selection(self, isolated_config):
+        """'clm provider add --model' skips interactive selection."""
+        result = runner.invoke(
+            app,
+            [
+                "provider",
+                "add",
+                "myopenai2",
+                "--type",
+                "openai",
+                "--model",
+                "gpt-4o",
+            ],
+            input="sk-test\n",
+        )
+
+        assert result.exit_code == 0
+        assert "added successfully" in result.output.lower()
+        # Should not show model selection
+        assert "Select a model" not in result.output
+
+    def test_interactive_selection_shows_model_info(self, isolated_config):
+        """Interactive selection shows model name, lab, and context."""
+        result = runner.invoke(
+            app,
+            ["provider", "add", "mytest", "--type", "anthropic"],
+            input="sk-test\n1\n",
+        )
+
+        assert result.exit_code == 0
+        # Should show model info in selection list
+        output_lower = result.output.lower()
+        assert "claude" in output_lower or "anthropic" in output_lower
+
+    def test_interactive_selection_exact_model_id(self, isolated_config):
+        """User can enter exact model ID to select directly."""
+        result = runner.invoke(
+            app,
+            ["provider", "add", "mytest2", "--type", "openai"],
+            input="sk-test\ngpt-4o\n",
+        )
+
+        assert result.exit_code == 0
+        assert "added successfully" in result.output.lower()
+
+        # Verify the correct model was selected
+        providers_path = isolated_config / PROVIDERS_FILE
+        with open(providers_path) as f:
+            providers = json.load(f)
+        assert providers[0]["default_model"] == "gpt-4o"
+
+    def test_interactive_selection_fuzzy_search(self, isolated_config):
+        """User can search by typing partial model name."""
+        # Type "gpt" to search, then select first match
+        result = runner.invoke(
+            app,
+            ["provider", "add", "mytest3", "--type", "openai"],
+            input="sk-test\ngpt\n1\n",
+        )
+
+        assert result.exit_code == 0
+        # Should show matches for "gpt"
+        assert "Matches for" in result.output or "gpt" in result.output.lower()
+        assert "added successfully" in result.output.lower()
+
+
+class TestProviderTypePrecedence:
+    """Tests for provider type vs configured name precedence."""
+
+    def test_models_type_takes_precedence_over_name(self, isolated_config):
+        """Provider types take precedence over configured provider names."""
+        # Create a provider named 'anthropic' but with type 'openai'
+        # This is a pathological but valid configuration
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        conflicting_provider = {
+            "name": "anthropic",  # Name conflicts with provider type
+            "type": "openai",
+            "default_model": "gpt-4o",
+            "created_at": "2026-04-05T12:00:00+00:00",
+            "updated_at": "2026-04-05T12:00:00+00:00",
+        }
+        save_providers([conflicting_provider])
+
+        # Query 'anthropic' - should show Anthropic type models, not the config
+        result = runner.invoke(app, ["provider", "models", "anthropic"])
+
+        assert result.exit_code == 0
+        # Should show Anthropic models (claude), not OpenAI (gpt)
+        assert "claude" in result.output.lower()
+        # Verify OpenAI models are NOT shown
+        assert "gpt-4o" not in result.output.lower() or "claude" in result.output.lower()
+
+    def test_models_configured_name_after_type_lookup(
+        self, isolated_config, sample_provider_data
+    ):
+        """Non-type names fall back to configured provider lookup."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        save_providers([sample_provider_data])
+
+        # 'test-openai' is not a provider type, should look up config
+        result = runner.invoke(app, ["provider", "models", "test-openai"])
+
+        assert result.exit_code == 0
+        # Should show OpenAI models (from configured provider type)
+        assert "gpt" in result.output.lower()

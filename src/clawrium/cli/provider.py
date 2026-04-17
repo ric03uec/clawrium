@@ -12,11 +12,13 @@ from clawrium.core.providers import (
     PROVIDER_MODELS,
     add_provider,
     fetch_ollama_models,
+    get_models_for_provider,
     get_models_for_type,
     get_provider,
     get_provider_api_key,
     get_provider_aws_credentials,
     load_providers,
+    ProviderNotFoundError,
     remove_provider,
     remove_provider_api_key,
     remove_provider_aws_credentials,
@@ -57,6 +59,185 @@ def _mask_api_key(key: str | None) -> str:
 def _get_provider_types() -> list[str]:
     """Get list of supported provider types."""
     return sorted(PROVIDER_MODELS.keys())
+
+
+def _format_context_window(tokens: int) -> str:
+    """Format context window for display (e.g., 128000 -> 128K)."""
+    if tokens == 0:
+        return "-"
+    if tokens >= 1_000_000:
+        return f"{tokens // 1_000_000}M"
+    if tokens >= 1000:
+        return f"{tokens // 1000}K"
+    return str(tokens)
+
+
+def _display_models_with_metadata(
+    models: list[dict], title: str, group_by_lab: bool = False
+) -> None:
+    """Display models in a formatted table with metadata.
+
+    Args:
+        models: List of model info dictionaries with id, name, lab, context_window
+        title: Title to show above the table
+        group_by_lab: Whether to group models by lab (for multi-lab providers)
+    """
+    if not models:
+        console.print("[yellow]No models available.[/yellow]")
+        return
+
+    # Count unique labs to determine if grouping makes sense
+    labs = sorted(set(m.get("lab", "Unknown") for m in models))
+
+    if group_by_lab and len(labs) > 1:
+        # Group by lab
+        console.print(f"[bold]{title} ({len(models)} models from {len(labs)} labs)[/bold]\n")
+        models_by_lab: dict[str, list[dict]] = {}
+        for m in models:
+            lab = m.get("lab", "Unknown")
+            if lab not in models_by_lab:
+                models_by_lab[lab] = []
+            models_by_lab[lab].append(m)
+
+        for lab in sorted(models_by_lab.keys()):
+            lab_models = models_by_lab[lab]
+            console.print(f"[cyan]{lab}[/cyan] ({len(lab_models)} models)")
+            table = Table(show_header=True, header_style="dim", box=None, padding=(0, 2))
+            table.add_column("ID", style="white")
+            table.add_column("Name", style="yellow")
+            table.add_column("Context", style="dim", justify="right")
+
+            for m in lab_models:
+                table.add_row(
+                    rich_escape(m.get("id", "")),
+                    rich_escape(m.get("name", "")),
+                    _format_context_window(m.get("context_window", 0)),
+                )
+            console.print(table)
+            console.print()
+    else:
+        # Single table without grouping
+        console.print(f"[bold]{title} ({len(models)} models)[/bold]\n")
+        table = Table(show_header=True, header_style="dim", box=None, padding=(0, 2))
+        table.add_column("ID", style="white")
+        table.add_column("Name", style="yellow")
+        table.add_column("Lab", style="cyan")
+        table.add_column("Context", style="dim", justify="right")
+
+        for m in models:
+            table.add_row(
+                rich_escape(m.get("id", "")),
+                rich_escape(m.get("name", "")),
+                rich_escape(m.get("lab", "")),
+                _format_context_window(m.get("context_window", 0)),
+            )
+        console.print(table)
+
+
+def _interactive_model_selection(provider_type: str) -> str | None:
+    """Interactive model selection with fuzzy search.
+
+    Args:
+        provider_type: Provider type to get models for
+
+    Returns:
+        Selected model ID, or None if selection was cancelled
+    """
+    from fuzzyfinder import fuzzyfinder
+
+    # Get models with full metadata
+    try:
+        models_data = get_models_for_provider(provider_type)
+    except ProviderNotFoundError:
+        return None
+
+    if not models_data:
+        return None
+
+    # Build search index: combine id, name, and lab for fuzzy matching
+    model_ids = [m["id"] for m in models_data]
+    model_by_id = {m["id"]: m for m in models_data}
+
+    # Create searchable strings: "id | name | lab"
+    searchable = []
+    for m in models_data:
+        search_str = f"{m['id']} | {m['name']} | {m['lab']}"
+        searchable.append((search_str, m["id"]))
+    search_index = {s[0]: s[1] for s in searchable}
+
+    console.print(f"\n[bold]Select a model ({len(model_ids)} available)[/bold]")
+    console.print("[dim]Type to search by ID, name, or lab. Enter a number or model ID to select.[/dim]\n")
+
+    # Show first 10 models as preview
+    preview_count = min(10, len(models_data))
+    for i, m in enumerate(models_data[:preview_count], 1):
+        ctx = _format_context_window(m.get("context_window", 0))
+        console.print(
+            f"  {i:2}. {rich_escape(m['id'])} [dim]({m['name']}, {m['lab']}) [{ctx}][/dim]"
+        )
+    if len(models_data) > preview_count:
+        console.print(f"  ... and {len(models_data) - preview_count} more")
+    console.print()
+
+    while True:
+        choice = typer.prompt(
+            "Enter number, model ID, or search term",
+            default="1",
+        )
+
+        # Try as number first
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(model_ids):
+                return model_ids[idx]
+            console.print(f"[yellow]Invalid number. Enter 1-{len(model_ids)}[/yellow]")
+            continue
+        except ValueError:
+            pass
+
+        # Try as exact model ID
+        if choice in model_ids:
+            return choice
+
+        # Try fuzzy search
+        matches = list(fuzzyfinder(choice, search_index.keys()))
+        if not matches:
+            console.print("[yellow]No matches found. Try a different search term.[/yellow]")
+            continue
+
+        # Show top matches
+        console.print(f"\n[bold]Matches for '{rich_escape(choice)}':[/bold]")
+        match_ids = [search_index[m] for m in matches[:10]]
+        for i, mid in enumerate(match_ids, 1):
+            m = model_by_id[mid]
+            ctx = _format_context_window(m.get("context_window", 0))
+            console.print(
+                f"  {i:2}. {rich_escape(m['id'])} [dim]({m['name']}, {m['lab']}) [{ctx}][/dim]"
+            )
+        if len(matches) > 10:
+            console.print(f"  ... and {len(matches) - 10} more matches")
+        console.print()
+
+        # Prompt for selection from matches - loop until valid selection or new search
+        while True:
+            match_choice = typer.prompt(
+                "Enter number to select, or type to search again",
+                default="1",
+            )
+
+            try:
+                idx = int(match_choice) - 1
+                if 0 <= idx < len(match_ids):
+                    return match_ids[idx]
+                else:
+                    console.print(
+                        f"[yellow]Invalid selection. Enter 1-{len(match_ids)}[/yellow]"
+                    )
+                    continue
+            except ValueError:
+                # Non-numeric input: treat as new search query
+                choice = match_choice
+                break  # Exit inner loop to do new search
 
 
 @provider_app.command()
@@ -209,7 +390,7 @@ def add(
             console.print("[red]Error:[/red] AWS Secret Key is required")
             raise typer.Exit(code=1)
 
-        # Select default model
+        # Select default model with interactive fuzzy search
         if model and models and model not in models:
             console.print(
                 f"[yellow]Warning:[/yellow] Model '{rich_escape(model)}' not in known models for {provider_type}"
@@ -217,23 +398,13 @@ def add(
             if not typer.confirm("Continue anyway?"):
                 raise typer.Exit(code=0)
 
-        if not model and models:
-            console.print(f"\nAvailable models for {provider_type}:")
-            for i, m in enumerate(models, 1):
-                console.print(f"  {i}. {rich_escape(m)}")
-
-            choice = typer.prompt(
-                "Select default model (number or name)",
-                default="1",
-            )
-            try:
-                idx = int(choice) - 1
-                if 0 <= idx < len(models):
-                    model = models[idx]
-                else:
-                    model = choice
-            except ValueError:
-                model = choice
+        if not model:
+            selected = _interactive_model_selection(provider_type)
+            if selected:
+                model = selected
+            elif models:
+                # Fallback to first model if interactive selection fails
+                model = models[0]
 
         # Build Bedrock provider record (AWS credentials stored separately in secrets)
         now = datetime.now(timezone.utc).isoformat()
@@ -259,7 +430,7 @@ def add(
             console.print("[red]Error:[/red] API key is required")
             raise typer.Exit(code=1)
 
-        # Select default model
+        # Select default model with interactive fuzzy search
         if model and models and model not in models:
             console.print(
                 f"[yellow]Warning:[/yellow] Model '{rich_escape(model)}' not in known models for {provider_type}"
@@ -267,23 +438,13 @@ def add(
             if not typer.confirm("Continue anyway?"):
                 raise typer.Exit(code=0)
 
-        if not model and models:
-            console.print(f"\nAvailable models for {provider_type}:")
-            for i, m in enumerate(models, 1):
-                console.print(f"  {i}. {rich_escape(m)}")
-
-            choice = typer.prompt(
-                "Select default model (number or name)",
-                default="1",
-            )
-            try:
-                idx = int(choice) - 1
-                if 0 <= idx < len(models):
-                    model = models[idx]
-                else:
-                    model = choice
-            except ValueError:
-                model = choice
+        if not model:
+            selected = _interactive_model_selection(provider_type)
+            if selected:
+                model = selected
+            elif models:
+                # Fallback to first model if interactive selection fails
+                model = models[0]
 
         # Build cloud provider record (API key stored separately in secrets)
         now = datetime.now(timezone.utc).isoformat()
@@ -579,32 +740,52 @@ def models(
 ) -> None:
     """List available models for a provider type or configured provider.
 
+    Shows model metadata including name, lab, and context window.
+    For multi-lab providers (like openrouter), models are grouped by lab.
+
     Note: Provider types take precedence over configured provider names.
 
     Examples:
         clm provider models openai        # List models for OpenAI type
+        clm provider models openrouter    # List models grouped by lab
         clm provider models myopenai      # List models from saved provider config
     """
     # Check if it's a provider type
     if identifier in PROVIDER_MODELS:
         provider_type = identifier
-        model_list = get_models_for_type(provider_type)
 
-        if model_list is None:
-            if provider_type == "ollama":
-                console.print(
-                    "[yellow]Ollama models are discovered dynamically.[/yellow]\n"
-                    "Add an Ollama provider first, then query by provider name."
-                )
-            else:
-                console.print(
-                    f"[yellow]No hardcoded models for {provider_type}[/yellow]"
-                )
+        # Handle Ollama specially (dynamic discovery)
+        if provider_type == "ollama":
+            console.print(
+                "[yellow]Ollama models are discovered dynamically.[/yellow]\n"
+                "Add an Ollama provider first, then query by provider name."
+            )
             return
 
-        console.print(f"[bold]Available models for {provider_type}:[/bold]\n")
-        for m in model_list:
-            console.print(f"  {rich_escape(m)}")
+        # Get full model metadata from JSON catalog
+        try:
+            model_list = get_models_for_provider(provider_type)
+        except ProviderNotFoundError:
+            console.print(
+                f"[yellow]No models available for {provider_type}[/yellow]"
+            )
+            return
+
+        if not model_list:
+            console.print(
+                f"[yellow]No models available for {provider_type}[/yellow]"
+            )
+            return
+
+        # Multi-lab providers should group by lab
+        multi_lab_providers = {"openrouter", "bedrock"}
+        group_by_lab = provider_type in multi_lab_providers
+
+        _display_models_with_metadata(
+            model_list,
+            f"Available models for {provider_type}",
+            group_by_lab=group_by_lab,
+        )
         return
 
     # Otherwise, check if it's a configured provider name
@@ -617,7 +798,7 @@ def models(
     if provider:
         provider_type = provider.get("type", "unknown")
 
-        # For Ollama, show saved available_models
+        # For Ollama, show saved available_models (no metadata available)
         if provider_type == "ollama":
             available = provider.get("available_models", [])
             if available:
@@ -629,14 +810,23 @@ def models(
                 console.print("Run 'clm provider refresh' to fetch models.")
             return
 
-        # For cloud providers, show hardcoded models
-        model_list = get_models_for_type(provider_type)
-        if model_list:
+        # For cloud providers, show full model metadata from JSON catalog
+        try:
+            model_list = get_models_for_provider(provider_type)
+        except ProviderNotFoundError:
             console.print(
-                f"[bold]Available models for '{identifier}' ({provider_type}):[/bold]\n"
+                f"[yellow]No model list for provider type {provider_type}[/yellow]"
             )
-            for m in model_list:
-                console.print(f"  {rich_escape(m)}")
+            return
+
+        if model_list:
+            multi_lab_providers = {"openrouter", "bedrock"}
+            group_by_lab = provider_type in multi_lab_providers
+            _display_models_with_metadata(
+                model_list,
+                f"Available models for '{identifier}' ({provider_type})",
+                group_by_lab=group_by_lab,
+            )
         else:
             console.print(
                 f"[yellow]No model list for provider type {provider_type}[/yellow]"
