@@ -151,7 +151,7 @@ No. Clawrium supports API keys only, by design.
 
 ### 4. Which channels are supported?
 
-[Discord](https://ric03uec.github.io/clawrium/docs/channels/discord) is supported right now.
+[Discord](https://ric03uec.github.io/clawrium/docs/agent-support/channels/discord) and [Slack](https://ric03uec.github.io/clawrium/docs/agent-support/channels/slack) are supported for OpenClaw.
 
 Additional channels are planned.
 

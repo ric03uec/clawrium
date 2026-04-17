@@ -80,9 +80,12 @@ clm agent configure <agent-name> [options]
 - `agent-name` - Name of the agent to configure
 
 **Options:**
-- `--stage <stage>` - Configure specific stage only (providers, identity, channels, validate)
-- `--yes` - Accept defaults and skip confirmations
-- `--provider <id>` - Pre-select provider (skips provider selection prompt)
+- `--stage <stage>` / `-s` - Configure specific stage only (providers, identity, channels, validate)
+- `--yes` / `-y` - Accept defaults and skip confirmations
+- `--file <path>` / `-f` - Import identity file (SOUL.md, AGENTS.md, TOOLS.md, IDENTITY.md). Repeatable. Only valid with `--stage identity`
+- `--skip-health` - Skip OpenClaw gateway health verification during validate stage
+- `--edit-config` - Open agent config file in editor for direct editing. Cannot be combined with `--stage`, `--file`, or `--skip-health`
+- `--editor <command>` - Editor command for `--edit-config` (e.g., vim, nano). Falls back to VISUAL, then EDITOR, then vi
 
 **Examples:**
 
@@ -97,8 +100,14 @@ clm agent configure opc-work --stage identity
 # Non-interactive (use defaults)
 clm agent configure opc-work --yes
 
-# Pre-select provider
-clm agent configure opc-work --provider openai-prod --yes
+# Import identity file
+clm agent configure opc-work --stage identity --file ~/SOUL.md
+
+# Edit config directly in default editor
+clm agent configure opc-work --edit-config
+
+# Edit config with specific editor
+clm agent configure opc-work --edit-config --editor nano
 ```
 
 **Stages:**

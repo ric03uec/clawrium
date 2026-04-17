@@ -19,9 +19,9 @@ GitHub integration allows agents to interact with repositories, pull requests, a
 
 **Target:** Q2 2026
 
-**Milestone:** [SEA (Secondary Engagement & Automation)](../milestones)
+**Milestone:** [SEA (Secondary Engagement & Automation)](https://github.com/ric03uec/clawrium/milestones)
 
-Track progress: [GitHub Issue #TBD](../../issues)
+Track progress: [GitHub Issue #TBD](https://github.com/ric03uec/clawrium/issues)
 
 ---
 
@@ -131,7 +131,7 @@ Until native integration is available:
 
 ## Vote for Priority
 
-Add a 👍 reaction to [the GitHub integration issue](../../issues) to help prioritize.
+Add a 👍 reaction to [the GitHub integration issue](https://github.com/ric03uec/clawrium/issues) to help prioritize.
 
 ---
 

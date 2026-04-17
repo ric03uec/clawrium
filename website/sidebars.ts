@@ -115,6 +115,7 @@ const sidebars: SidebarsConfig = {
             'reference/cli/host',
             'reference/cli/agent',
             'reference/cli/provider',
+            'reference/cli/integration',
             'reference/cli/secret',
             'reference/cli/registry',
           ],

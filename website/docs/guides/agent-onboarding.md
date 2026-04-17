@@ -91,8 +91,9 @@ Create IDENTITY.md? (defines role and context) [Y/n]: y
 Select default communication channel:
   1. cli (recommended)
   2. discord
+  3. slack
 
-Select [1-2]: 1
+Select [1-3]: 1
 ✓ Default channel: cli
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -249,6 +250,24 @@ This is useful for:
 - Automated deployments
 - CI/CD pipelines
 - Bulk agent configuration
+
+### Edit Config Directly
+
+For advanced users, edit the agent's config file directly:
+
+```bash
+# Open in default editor (uses VISUAL, EDITOR, or vi)
+clm agent configure opc-work --edit-config
+
+# Use a specific editor
+clm agent configure opc-work --edit-config --editor nano
+```
+
+After saving, Clawrium validates the config and offers to restart the agent if it's running.
+
+:::warning
+Direct editing bypasses the wizard's validation. Make sure you understand the config format before making changes.
+:::
 
 ### Resume Onboarding
 

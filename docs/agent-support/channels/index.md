@@ -8,7 +8,7 @@ Channels define how users interact with your agents. Different agents support di
 |---------|--------|----------|
 | **[CLI](cli.md)** | All | Terminal-based interaction |
 | **[Discord](discord.md)** | OpenClaw | Discord server bot |
-| **[Slack](slack.md)** | OpenClaw (planned) | Slack workspace bot |
+| **[Slack](slack.md)** | OpenClaw | Slack workspace bot |
 | **[Web](web.md)** | OpenClaw (planned) | Browser-based chat |
 | **[WhatsApp](whatsapp.md)** | Not planned | Mobile messaging |
 
@@ -18,9 +18,11 @@ Channels define how users interact with your agents. Different agents support di
 |---------|-----|---------|-------|-----|
 | **Setup Complexity** | Low | Medium | Medium | High |
 | **Multi-user** | No | Yes | Yes | Yes |
-| **Access Control** | OS-level | Roles | Permissions | Auth |
+| **Access Control** | OS-level | Roles | Policies | Auth |
 | **Rich Media** | Limited | Yes | Yes | Yes |
 | **Mobile Support** | SSH app | Discord app | Slack app | Browser |
+| **Connection** | Local | Gateway | Socket Mode | HTTP |
+| **Required Tokens** | None | 1 (bot) | 2 (bot + app) | Varies |
 
 ## Channel vs Provider
 
