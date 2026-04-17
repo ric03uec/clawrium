@@ -11,9 +11,10 @@ from rich.table import Table
 from clawrium.core.providers import (
     PROVIDER_MODELS,
     add_provider,
+    CatalogLoadError,
     fetch_ollama_models,
+    get_model_ids_for_provider,
     get_models_for_provider,
-    get_models_for_type,
     get_provider,
     get_provider_api_key,
     get_provider_aws_credentials,
@@ -87,7 +88,7 @@ def _get_model_suggestion(model_id: str, provider_type: str) -> str | None:
         matches = search_models(model_id, provider_type=provider_type, limit=1)
         if matches:
             return matches[0]["id"]
-    except ProviderNotFoundError:
+    except (ProviderNotFoundError, CatalogLoadError):
         pass
     return None
 
@@ -168,7 +169,7 @@ def _interactive_model_selection(provider_type: str) -> str | None:
     # Get models with full metadata
     try:
         models_data = get_models_for_provider(provider_type)
-    except ProviderNotFoundError:
+    except (ProviderNotFoundError, CatalogLoadError):
         return None
 
     if not models_data:
@@ -397,7 +398,16 @@ def add(
 
     elif provider_type == "bedrock":
         # Bedrock requires AWS Access Key and Secret Key (not API key)
-        models = get_models_for_type(provider_type)
+        try:
+            models = get_model_ids_for_provider(provider_type)
+        except (ProviderNotFoundError, CatalogLoadError):
+            if not force:
+                console.print(
+                    f"[red]Error:[/red] Model catalog unavailable for {provider_type}. "
+                    "Use --force to bypass validation."
+                )
+                raise typer.Exit(code=1)
+            models = None
 
         console.print("[dim]AWS Bedrock requires Access Key and Secret Key[/dim]")
 
@@ -440,6 +450,9 @@ def add(
             elif models:
                 # Fallback to first model if interactive selection fails
                 model = models[0]
+                console.print(
+                    f"[yellow]Using default model:[/yellow] {rich_escape(model)}"
+                )
 
         # Build Bedrock provider record (AWS credentials stored separately in secrets)
         now = datetime.now(timezone.utc).isoformat()
@@ -456,7 +469,16 @@ def add(
 
     else:
         # Cloud provider - requires API key
-        models = get_models_for_type(provider_type)
+        try:
+            models = get_model_ids_for_provider(provider_type)
+        except (ProviderNotFoundError, CatalogLoadError):
+            if not force:
+                console.print(
+                    f"[red]Error:[/red] Model catalog unavailable for {provider_type}. "
+                    "Use --force to bypass validation."
+                )
+                raise typer.Exit(code=1)
+            models = None
 
         # Get API key securely via interactive prompt (B3 fix - no CLI flag)
         api_key = typer.prompt("API key", hide_input=True)
@@ -488,6 +510,9 @@ def add(
             elif models:
                 # Fallback to first model if interactive selection fails
                 model = models[0]
+                console.print(
+                    f"[yellow]Using default model:[/yellow] {rich_escape(model)}"
+                )
 
         # Build cloud provider record (API key stored separately in secrets)
         now = datetime.now(timezone.utc).isoformat()
@@ -795,6 +820,11 @@ def _show_models_for_type(provider_type: str) -> None:
         model_list = get_models_for_provider(provider_type)
     except ProviderNotFoundError:
         console.print(f"[yellow]No models available for {provider_type}[/yellow]")
+        return
+    except CatalogLoadError:
+        console.print(
+            f"[red]Error:[/red] Model catalog unavailable for {provider_type}."
+        )
         return
 
     if not model_list:

@@ -792,6 +792,53 @@ class TestProviderBedrock:
         assert "both" in result.output.lower()
         assert "required" in result.output.lower()
 
+    def test_add_bedrock_regional_model_accepted(self, isolated_config):
+        """'clm provider add --type bedrock' accepts regional model variants from catalog."""
+        # Regional models like us.anthropic.* exist in models.json but not in
+        # the old hardcoded PROVIDER_MODELS list. After fixing issue #266,
+        # these should be accepted without --force flag.
+        # Mock get_model_ids_for_provider to verify the new code path is used
+        with patch(
+            "clawrium.cli.provider.get_model_ids_for_provider"
+        ) as mock_get_models:
+            mock_get_models.return_value = [
+                "anthropic.claude-opus-4-20250514-v1:0",
+                "us.anthropic.claude-opus-4-20250514-v1:0",
+                "eu.anthropic.claude-opus-4-20250514-v1:0",
+            ]
+
+            result = runner.invoke(
+                app,
+                [
+                    "provider",
+                    "add",
+                    "regional-bedrock",
+                    "--type",
+                    "bedrock",
+                    "--model",
+                    "us.anthropic.claude-opus-4-20250514-v1:0",
+                ],
+                input="AKIAIOSFODNN7EXAMPLE\nwJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
+            )
+
+            # Verify get_model_ids_for_provider was called with 'bedrock'
+            mock_get_models.assert_called_with("bedrock")
+
+        assert result.exit_code == 0
+        assert "added successfully" in result.output.lower()
+
+        # Verify provider was created with the regional model
+        providers_path = isolated_config / PROVIDERS_FILE
+        assert providers_path.exists()
+
+        with open(providers_path) as f:
+            providers = json.load(f)
+
+        assert len(providers) == 1
+        assert providers[0]["name"] == "regional-bedrock"
+        assert providers[0]["type"] == "bedrock"
+        assert providers[0]["default_model"] == "us.anthropic.claude-opus-4-20250514-v1:0"
+
 
 class TestProviderTypesModelsMetadata:
     """Tests for 'clm provider types <type> models' with metadata display."""
@@ -1023,3 +1070,249 @@ class TestProviderModelValidation:
 
         assert result.exit_code == 1
         assert "--force" in result.output
+
+
+class TestProviderCatalogLoadError:
+    """Tests for CatalogLoadError handling in provider commands."""
+
+    def test_add_bedrock_catalog_unavailable_without_force(self, isolated_config):
+        """'clm provider add --type bedrock' exits with error when catalog unavailable."""
+        from clawrium.core.providers import CatalogLoadError
+
+        with patch(
+            "clawrium.cli.provider.get_model_ids_for_provider"
+        ) as mock_get_models:
+            mock_get_models.side_effect = CatalogLoadError("Test catalog load failure")
+
+            result = runner.invoke(
+                app,
+                [
+                    "provider",
+                    "add",
+                    "test-bedrock",
+                    "--type",
+                    "bedrock",
+                    "--model",
+                    "anthropic.claude-opus-4-20250514-v1:0",
+                ],
+                input="AKIAIOSFODNN7EXAMPLE\nwJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
+            )
+
+            assert result.exit_code == 1
+            assert "model catalog unavailable" in result.output.lower()
+            assert "--force" in result.output
+
+    def test_add_bedrock_catalog_unavailable_with_force(self, isolated_config):
+        """'clm provider add --type bedrock --force' succeeds when catalog unavailable."""
+        from clawrium.core.providers import CatalogLoadError
+
+        with patch(
+            "clawrium.cli.provider.get_model_ids_for_provider"
+        ) as mock_get_models:
+            mock_get_models.side_effect = CatalogLoadError("Test catalog load failure")
+
+            result = runner.invoke(
+                app,
+                [
+                    "provider",
+                    "add",
+                    "test-bedrock",
+                    "--type",
+                    "bedrock",
+                    "--model",
+                    "anthropic.claude-opus-4-20250514-v1:0",
+                    "--force",
+                ],
+                input="AKIAIOSFODNN7EXAMPLE\nwJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
+            )
+
+            assert result.exit_code == 0
+            assert "added successfully" in result.output.lower()
+
+            # Verify provider was created with model despite catalog failure
+            providers_path = isolated_config / PROVIDERS_FILE
+            assert providers_path.exists()
+
+            with open(providers_path) as f:
+                providers = json.load(f)
+
+            assert len(providers) == 1
+            assert providers[0]["name"] == "test-bedrock"
+            assert (
+                providers[0]["default_model"] == "anthropic.claude-opus-4-20250514-v1:0"
+            )
+
+    def test_types_models_catalog_unavailable(self, isolated_config):
+        """'clm provider types <type> models' shows error when catalog unavailable."""
+        from clawrium.core.providers import CatalogLoadError
+
+        with patch(
+            "clawrium.cli.provider.get_models_for_provider"
+        ) as mock_get_models:
+            mock_get_models.side_effect = CatalogLoadError("Test catalog load failure")
+
+            result = runner.invoke(app, ["provider", "types", "bedrock", "models"])
+
+            assert result.exit_code == 0  # Graceful degradation, not hard failure
+            assert "model catalog unavailable" in result.output.lower()
+
+
+class TestGetModelSuggestion:
+    """Tests for _get_model_suggestion() private function."""
+
+    def test_get_model_suggestion_catalog_load_error_returns_none(self, isolated_config):
+        """_get_model_suggestion returns None when CatalogLoadError is raised."""
+        from clawrium.cli.provider import _get_model_suggestion
+        from clawrium.core.providers import CatalogLoadError
+
+        with patch("clawrium.cli.provider.search_models") as mock_search:
+            mock_search.side_effect = CatalogLoadError("Test catalog load failure")
+
+            result = _get_model_suggestion("invalid-model", "openai")
+
+            assert result is None
+            mock_search.assert_called_once()
+
+    def test_get_model_suggestion_provider_not_found_returns_none(self, isolated_config):
+        """_get_model_suggestion returns None when ProviderNotFoundError is raised."""
+        from clawrium.cli.provider import _get_model_suggestion
+        from clawrium.core.providers import ProviderNotFoundError
+
+        with patch("clawrium.cli.provider.search_models") as mock_search:
+            mock_search.side_effect = ProviderNotFoundError("unknown-provider")
+
+            result = _get_model_suggestion("any-model", "unknown-provider")
+
+            assert result is None
+            mock_search.assert_called_once()
+
+    def test_get_model_suggestion_valid_returns_match(self, isolated_config):
+        """_get_model_suggestion returns matching model ID when found."""
+        from clawrium.cli.provider import _get_model_suggestion
+
+        with patch("clawrium.cli.provider.search_models") as mock_search:
+            mock_search.return_value = [{"id": "gpt-4o", "name": "GPT-4o"}]
+
+            result = _get_model_suggestion("gpt-4", "openai")
+
+            assert result == "gpt-4o"
+            mock_search.assert_called_once_with("gpt-4", provider_type="openai", limit=1)
+
+    def test_get_model_suggestion_no_match_returns_none(self, isolated_config):
+        """_get_model_suggestion returns None when no matches found."""
+        from clawrium.cli.provider import _get_model_suggestion
+
+        with patch("clawrium.cli.provider.search_models") as mock_search:
+            mock_search.return_value = []
+
+            result = _get_model_suggestion("completely-invalid", "openai")
+
+            assert result is None
+
+    def test_get_model_suggestion_none_response_returns_none(self, isolated_config):
+        """_get_model_suggestion returns None when search_models returns None."""
+        from clawrium.cli.provider import _get_model_suggestion
+
+        with patch("clawrium.cli.provider.search_models") as mock_search:
+            mock_search.return_value = None
+
+            result = _get_model_suggestion("any-model", "openai")
+
+            assert result is None
+
+    def test_get_model_suggestion_multi_match_returns_first(self, isolated_config):
+        """_get_model_suggestion returns first match when multiple found."""
+        from clawrium.cli.provider import _get_model_suggestion
+
+        with patch("clawrium.cli.provider.search_models") as mock_search:
+            mock_search.return_value = [
+                {"id": "gpt-4o", "name": "GPT-4o"},
+                {"id": "gpt-4o-mini", "name": "GPT-4o Mini"},
+            ]
+
+            result = _get_model_suggestion("gpt-4", "openai")
+
+            assert result == "gpt-4o"
+
+    def test_get_model_suggestion_exception_not_propagated(self, isolated_config):
+        """_get_model_suggestion catches exceptions without re-raising."""
+        from clawrium.cli.provider import _get_model_suggestion
+        from clawrium.core.providers import CatalogLoadError
+
+        with patch("clawrium.cli.provider.search_models") as mock_search:
+            mock_search.side_effect = CatalogLoadError("Test error")
+
+            # Should not raise - exception is caught
+            result = _get_model_suggestion("any-model", "openai")
+
+            assert result is None
+            mock_search.assert_called_once()
+
+
+class TestInteractiveModelSelectionErrorPaths:
+    """Tests for _interactive_model_selection() error handling."""
+
+    def test_interactive_model_selection_catalog_load_error_returns_none(
+        self, isolated_config
+    ):
+        """_interactive_model_selection returns None when CatalogLoadError is raised."""
+        from clawrium.cli.provider import _interactive_model_selection
+        from clawrium.core.providers import CatalogLoadError
+
+        with patch("clawrium.cli.provider.get_models_for_provider") as mock_get:
+            mock_get.side_effect = CatalogLoadError("Test catalog load failure")
+
+            result = _interactive_model_selection("bedrock")
+
+            assert result is None
+            mock_get.assert_called_once_with("bedrock")
+
+    def test_interactive_model_selection_provider_not_found_returns_none(
+        self, isolated_config
+    ):
+        """_interactive_model_selection returns None when ProviderNotFoundError is raised."""
+        from clawrium.cli.provider import _interactive_model_selection
+        from clawrium.core.providers import ProviderNotFoundError
+
+        with patch("clawrium.cli.provider.get_models_for_provider") as mock_get:
+            mock_get.side_effect = ProviderNotFoundError("unknown-provider")
+
+            result = _interactive_model_selection("unknown-provider")
+
+            assert result is None
+
+    def test_interactive_model_selection_empty_models_returns_none(self, isolated_config):
+        """_interactive_model_selection returns None when models list is empty."""
+        from clawrium.cli.provider import _interactive_model_selection
+
+        with patch("clawrium.cli.provider.get_models_for_provider") as mock_get:
+            mock_get.return_value = []
+
+            result = _interactive_model_selection("openai")
+
+            assert result is None
+
+    def test_interactive_model_selection_none_response_returns_none(self, isolated_config):
+        """_interactive_model_selection returns None when get_models_for_provider returns None."""
+        from clawrium.cli.provider import _interactive_model_selection
+
+        with patch("clawrium.cli.provider.get_models_for_provider") as mock_get:
+            mock_get.return_value = None
+
+            result = _interactive_model_selection("openai")
+
+            assert result is None
+
+    def test_interactive_model_selection_exception_not_propagated(self, isolated_config):
+        """_interactive_model_selection catches exceptions without re-raising."""
+        from clawrium.cli.provider import _interactive_model_selection
+        from clawrium.core.providers import CatalogLoadError
+
+        with patch("clawrium.cli.provider.get_models_for_provider") as mock_get:
+            mock_get.side_effect = CatalogLoadError("Test error")
+
+            # Should not raise - exception is caught
+            result = _interactive_model_selection("bedrock")
+
+            assert result is None
+            mock_get.assert_called_once()
