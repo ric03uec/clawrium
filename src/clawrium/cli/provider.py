@@ -22,6 +22,7 @@ from clawrium.core.providers import (
     remove_provider,
     remove_provider_api_key,
     remove_provider_aws_credentials,
+    search_models,
     set_provider_api_key,
     set_provider_aws_credentials,
     update_provider,
@@ -70,6 +71,25 @@ def _format_context_window(tokens: int) -> str:
     if tokens >= 1000:
         return f"{tokens // 1000}K"
     return str(tokens)
+
+
+def _get_model_suggestion(model_id: str, provider_type: str) -> str | None:
+    """Find the closest matching model ID for suggestion.
+
+    Args:
+        model_id: Invalid model ID to find suggestion for
+        provider_type: Provider type to search within
+
+    Returns:
+        Closest matching model ID, or None if no good match found
+    """
+    try:
+        matches = search_models(model_id, provider_type=provider_type, limit=1)
+        if matches:
+            return matches[0]["id"]
+    except ProviderNotFoundError:
+        pass
+    return None
 
 
 def _display_models_with_metadata(
@@ -261,6 +281,12 @@ def add(
         "-u",
         help="Server URL (required for Ollama)",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Skip model validation (use for custom/unknown models)",
+    ),
 ) -> None:
     """Add a new inference provider.
 
@@ -270,6 +296,7 @@ def add(
         clm provider add myopenai --type openai
         clm provider add local-llm --type ollama --url http://myserver.example.com:11434
         clm provider add work-claude --type anthropic --model claude-sonnet-4-20250514
+        clm provider add custom --type openai --model my-custom-model --force
     """
     # Validate provider name
     try:
@@ -390,13 +417,21 @@ def add(
             console.print("[red]Error:[/red] AWS Secret Key is required")
             raise typer.Exit(code=1)
 
-        # Select default model with interactive fuzzy search
+        # Validate model against catalog
         if model and models and model not in models:
-            console.print(
-                f"[yellow]Warning:[/yellow] Model '{rich_escape(model)}' not in known models for {provider_type}"
-            )
-            if not typer.confirm("Continue anyway?"):
-                raise typer.Exit(code=0)
+            if force:
+                console.print(
+                    f"[yellow]Warning:[/yellow] Model '{rich_escape(model)}' not in catalog. "
+                    "Proceeding with --force flag."
+                )
+            else:
+                suggestion = _get_model_suggestion(model, provider_type)
+                error_msg = f"Model '{rich_escape(model)}' not found for {provider_type}."
+                if suggestion:
+                    error_msg += f" Did you mean '{rich_escape(suggestion)}'?"
+                console.print(f"[red]Error:[/red] {error_msg}")
+                console.print("[dim]Use --force to bypass validation for custom models.[/dim]")
+                raise typer.Exit(code=1)
 
         if not model:
             selected = _interactive_model_selection(provider_type)
@@ -430,13 +465,21 @@ def add(
             console.print("[red]Error:[/red] API key is required")
             raise typer.Exit(code=1)
 
-        # Select default model with interactive fuzzy search
+        # Validate model against catalog
         if model and models and model not in models:
-            console.print(
-                f"[yellow]Warning:[/yellow] Model '{rich_escape(model)}' not in known models for {provider_type}"
-            )
-            if not typer.confirm("Continue anyway?"):
-                raise typer.Exit(code=0)
+            if force:
+                console.print(
+                    f"[yellow]Warning:[/yellow] Model '{rich_escape(model)}' not in catalog. "
+                    "Proceeding with --force flag."
+                )
+            else:
+                suggestion = _get_model_suggestion(model, provider_type)
+                error_msg = f"Model '{rich_escape(model)}' not found for {provider_type}."
+                if suggestion:
+                    error_msg += f" Did you mean '{rich_escape(suggestion)}'?"
+                console.print(f"[red]Error:[/red] {error_msg}")
+                console.print("[dim]Use --force to bypass validation for custom models.[/dim]")
+                raise typer.Exit(code=1)
 
         if not model:
             selected = _interactive_model_selection(provider_type)

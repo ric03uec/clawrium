@@ -995,3 +995,95 @@ class TestProviderTypePrecedence:
         assert result.exit_code == 0
         # Should show OpenAI models (from configured provider type)
         assert "gpt" in result.output.lower()
+
+
+class TestProviderModelValidation:
+    """Tests for model validation with --model flag."""
+
+    def test_add_invalid_model_returns_error(self, isolated_config):
+        """'clm provider add --model invalid' returns error, not warning."""
+        result = runner.invoke(
+            app,
+            ["provider", "add", "test", "--type", "openai", "--model", "gpt-4-invalid"],
+            input="sk-test\n",
+        )
+
+        assert result.exit_code == 1
+        assert "error" in result.output.lower()
+        assert "gpt-4-invalid" in result.output
+
+    def test_add_invalid_model_shows_suggestion(self, isolated_config):
+        """'clm provider add --model invalid' shows 'Did you mean...' suggestion."""
+        # Use 'gpt4o' (missing hyphen) which fuzzy matches to 'gpt-4o'
+        result = runner.invoke(
+            app,
+            ["provider", "add", "test", "--type", "openai", "--model", "gpt4o"],
+            input="sk-test\n",
+        )
+
+        assert result.exit_code == 1
+        assert "did you mean" in result.output.lower()
+        assert "gpt-4o" in result.output
+
+    def test_add_valid_model_succeeds(self, isolated_config):
+        """'clm provider add --model valid' succeeds."""
+        result = runner.invoke(
+            app,
+            ["provider", "add", "test", "--type", "openai", "--model", "gpt-4o"],
+            input="sk-test\n",
+        )
+
+        assert result.exit_code == 0
+        assert "added successfully" in result.output.lower()
+
+    def test_add_force_bypasses_validation(self, isolated_config):
+        """'clm provider add --model invalid --force' bypasses validation."""
+        result = runner.invoke(
+            app,
+            [
+                "provider",
+                "add",
+                "test",
+                "--type",
+                "openai",
+                "--model",
+                "custom-model",
+                "--force",
+            ],
+            input="sk-test\n",
+        )
+
+        assert result.exit_code == 0
+        assert "warning" in result.output.lower()
+        assert "added successfully" in result.output.lower()
+
+    def test_add_force_flag_short_form(self, isolated_config):
+        """'-f' short form works for --force flag."""
+        result = runner.invoke(
+            app,
+            [
+                "provider",
+                "add",
+                "test",
+                "--type",
+                "openai",
+                "--model",
+                "my-custom",
+                "-f",
+            ],
+            input="sk-test\n",
+        )
+
+        assert result.exit_code == 0
+        assert "added successfully" in result.output.lower()
+
+    def test_add_invalid_model_shows_force_hint(self, isolated_config):
+        """Error message shows hint about --force flag."""
+        result = runner.invoke(
+            app,
+            ["provider", "add", "test", "--type", "openai", "--model", "invalid-model"],
+            input="sk-test\n",
+        )
+
+        assert result.exit_code == 1
+        assert "--force" in result.output
