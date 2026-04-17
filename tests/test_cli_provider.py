@@ -192,7 +192,7 @@ class TestProviderAdd:
 
     def test_add_ollama_rejects_metadata_endpoint(self, isolated_config):
         """'clm provider add --type ollama' rejects cloud metadata endpoints."""
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("169.254.169.254", 0))]
             result = runner.invoke(
                 app,
@@ -213,7 +213,7 @@ class TestProviderAdd:
     def test_add_ollama_success(self, isolated_config):
         """'clm provider add --type ollama' works with valid public URL."""
         # Mock URL validation to allow the URL
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("93.184.216.34", 0))]
 
             # Mock the Ollama server connection
@@ -222,7 +222,7 @@ class TestProviderAdd:
             mock_response.raise_for_status = MagicMock()
 
             with patch(
-                "clawrium.core.providers.requests.get", return_value=mock_response
+                "clawrium.core.providers.storage.requests.get", return_value=mock_response
             ):
                 result = runner.invoke(
                     app,
@@ -244,7 +244,7 @@ class TestProviderAdd:
 
     def test_add_ollama_no_models_fails(self, isolated_config):
         """'clm provider add --type ollama' fails when no models on server."""
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("93.184.216.34", 0))]
 
             mock_response = MagicMock()
@@ -252,7 +252,7 @@ class TestProviderAdd:
             mock_response.raise_for_status = MagicMock()
 
             with patch(
-                "clawrium.core.providers.requests.get", return_value=mock_response
+                "clawrium.core.providers.storage.requests.get", return_value=mock_response
             ):
                 result = runner.invoke(
                     app,
@@ -274,11 +274,11 @@ class TestProviderAdd:
         """'clm provider add --type ollama' handles connection failure."""
         import requests
 
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("93.184.216.34", 0))]
 
             with patch(
-                "clawrium.core.providers.requests.get",
+                "clawrium.core.providers.storage.requests.get",
                 side_effect=requests.exceptions.ConnectionError(),
             ):
                 result = runner.invoke(
@@ -357,7 +357,7 @@ class TestProviderEdit:
         isolated_config.mkdir(parents=True, exist_ok=True)
         save_providers([sample_ollama_provider])
 
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("93.184.216.34", 0))]
 
             mock_response = MagicMock()
@@ -367,7 +367,7 @@ class TestProviderEdit:
             mock_response.raise_for_status = MagicMock()
 
             with patch(
-                "clawrium.core.providers.requests.get", return_value=mock_response
+                "clawrium.core.providers.storage.requests.get", return_value=mock_response
             ):
                 result = runner.invoke(
                     app,
@@ -398,11 +398,11 @@ class TestProviderEdit:
         isolated_config.mkdir(parents=True, exist_ok=True)
         save_providers([sample_ollama_provider])
 
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("93.184.216.34", 0))]
 
             with patch(
-                "clawrium.core.providers.requests.get",
+                "clawrium.core.providers.storage.requests.get",
                 side_effect=requests.exceptions.ConnectionError(),
             ):
                 result = runner.invoke(
@@ -519,7 +519,7 @@ class TestProviderRefresh:
         }
         mock_response.raise_for_status = MagicMock()
 
-        with patch("clawrium.core.providers.requests.get", return_value=mock_response):
+        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
             result = runner.invoke(app, ["provider", "refresh", "local-llm"])
 
         assert result.exit_code == 0
@@ -542,7 +542,7 @@ class TestProviderRefresh:
         save_providers([sample_ollama_provider])
 
         with patch(
-            "clawrium.core.providers.requests.get",
+            "clawrium.core.providers.storage.requests.get",
             side_effect=requests.exceptions.ConnectionError(),
         ):
             result = runner.invoke(app, ["provider", "refresh", "local-llm"])

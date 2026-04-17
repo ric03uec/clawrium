@@ -298,6 +298,7 @@ version = "26.4.5"
 source = { editable = "." }
 dependencies = [
     { name = "ansible-runner" },
+    { name = "fuzzyfinder" },
     { name = "msgpack" },
     { name = "packaging" },
     { name = "paramiko" },
@@ -320,6 +321,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ansible-runner", specifier = ">=2.4.0" },
+    { name = "fuzzyfinder", specifier = ">=2.1.0,<3.0.0" },
     { name = "msgpack", specifier = ">=1.1.2" },
     { name = "packaging", specifier = ">=24.0" },
     { name = "paramiko", specifier = ">=3.0.0" },
@@ -548,6 +550,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8a/0e/97c33bf5009bdbac74fd2beace167cab3f978feb69cc36f1ef79360d6c4e/exceptiongroup-1.3.1-py3-none-any.whl", hash = "sha256:a7a39a3bd276781e98394987d3a5701d0c4edffb633bb7a5144577f82c773598", size = 16740, upload-time = "2025-11-21T23:01:53.443Z" },
+]
+
+[[package]]
+name = "fuzzyfinder"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3c/16/27e312d2b4bdb9f5101b68031048d790edd348a31ee80c3f77066c04d311/fuzzyfinder-2.3.0.tar.gz", hash = "sha256:3d2de6650852fdf3da896917b2fe88550d854dda590de5f239c2899f7eaf20df", size = 78588, upload-time = "2025-04-20T22:20:43.731Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/c3/e64d5e277373e93b75d9711e46dd7903887e8efa8ecc033e2c5df760e309/fuzzyfinder-2.3.0-py3-none-any.whl", hash = "sha256:4ee35618ca6e1562a235d0f40f594b36ae374e55650a251d52add353b7e3f215", size = 19303, upload-time = "2025-04-20T22:20:41.966Z" },
 ]
 
 [[package]]

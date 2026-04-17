@@ -119,7 +119,7 @@ class TestOllamaUrlValidation:
     def test_validate_ollama_url_valid_http(self):
         """validate_ollama_url accepts valid http URLs."""
         # Mock socket.getaddrinfo to return public IP
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [
                 (2, 1, 0, "", ("93.184.216.34", 0))  # example.com IP
             ]
@@ -128,14 +128,14 @@ class TestOllamaUrlValidation:
 
     def test_validate_ollama_url_valid_https(self):
         """validate_ollama_url accepts valid https URLs."""
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("93.184.216.34", 0))]
             url = validate_ollama_url("https://example.com:11434")
             assert url == "https://example.com:11434"
 
     def test_validate_ollama_url_strips_trailing_slash(self):
         """validate_ollama_url removes trailing slashes."""
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("93.184.216.34", 0))]
             url = validate_ollama_url("http://example.com:11434/")
             assert url == "http://example.com:11434"
@@ -154,28 +154,28 @@ class TestOllamaUrlValidation:
 
     def test_validate_ollama_url_allows_private_ip(self):
         """validate_ollama_url allows private IP addresses (Ollama is self-hosted)."""
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("192.168.1.100", 0))]
             url = validate_ollama_url("http://myserver.local:11434")
             assert url == "http://myserver.local:11434"
 
     def test_validate_ollama_url_allows_lan_ip(self):
         """validate_ollama_url allows LAN IP addresses like 192.168.x.x."""
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("192.168.1.17", 0))]
             url = validate_ollama_url("http://192.168.1.17:11434")
             assert url == "http://192.168.1.17:11434"
 
     def test_validate_ollama_url_allows_loopback(self):
         """validate_ollama_url allows loopback addresses (Ollama is self-hosted)."""
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("127.0.0.1", 0))]
             url = validate_ollama_url("http://localhost:11434")
             assert url == "http://localhost:11434"
 
     def test_validate_ollama_url_rejects_metadata_endpoint(self):
         """validate_ollama_url rejects cloud metadata endpoints (169.254.x.x)."""
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.return_value = [(2, 1, 0, "", ("169.254.169.254", 0))]
             with pytest.raises(InvalidOllamaUrlError) as exc_info:
                 validate_ollama_url("http://169.254.169.254")
@@ -185,7 +185,7 @@ class TestOllamaUrlValidation:
         """validate_ollama_url allows hostnames that don't resolve (let requests handle)."""
         import socket as sock
 
-        with patch("clawrium.core.providers.socket.getaddrinfo") as mock_gai:
+        with patch("clawrium.core.providers.storage.socket.getaddrinfo") as mock_gai:
             mock_gai.side_effect = sock.gaierror("Name resolution failed")
             # Should not raise - let requests.get handle the error later
             url = validate_ollama_url("http://nonexistent.example.com:11434")
@@ -206,7 +206,7 @@ class TestOllamaDiscovery:
         }
         mock_response.raise_for_status = MagicMock()
 
-        with patch("clawrium.core.providers.requests.get", return_value=mock_response):
+        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
             models = fetch_ollama_models("http://example.com:11434")
 
         assert models == ["llama3:latest", "mistral:latest"]
@@ -217,7 +217,7 @@ class TestOllamaDiscovery:
         mock_response.json.return_value = {"models": []}
         mock_response.raise_for_status = MagicMock()
 
-        with patch("clawrium.core.providers.requests.get", return_value=mock_response):
+        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
             models = fetch_ollama_models("http://example.com:11434")
 
         assert models == []
@@ -227,7 +227,7 @@ class TestOllamaDiscovery:
         import requests
 
         with patch(
-            "clawrium.core.providers.requests.get",
+            "clawrium.core.providers.storage.requests.get",
             side_effect=requests.exceptions.ConnectionError("Connection refused"),
         ):
             with pytest.raises(OllamaConnectionError) as exc_info:
@@ -239,7 +239,7 @@ class TestOllamaDiscovery:
         import requests
 
         with patch(
-            "clawrium.core.providers.requests.get",
+            "clawrium.core.providers.storage.requests.get",
             side_effect=requests.exceptions.Timeout("Request timed out"),
         ):
             with pytest.raises(OllamaConnectionError) as exc_info:
@@ -256,7 +256,7 @@ class TestOllamaDiscovery:
             response=mock_response
         )
 
-        with patch("clawrium.core.providers.requests.get", return_value=mock_response):
+        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
             with pytest.raises(OllamaConnectionError) as exc_info:
                 fetch_ollama_models("http://example.com:11434")
             assert "error" in str(exc_info.value).lower()
@@ -270,7 +270,7 @@ class TestOllamaDiscovery:
             response=None
         )
 
-        with patch("clawrium.core.providers.requests.get", return_value=mock_response):
+        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
             with pytest.raises(OllamaConnectionError) as exc_info:
                 fetch_ollama_models("http://example.com:11434")
             assert "unknown" in str(exc_info.value).lower()
@@ -281,7 +281,7 @@ class TestOllamaDiscovery:
         mock_response.json.side_effect = json.JSONDecodeError("Invalid", "", 0)
         mock_response.raise_for_status = MagicMock()
 
-        with patch("clawrium.core.providers.requests.get", return_value=mock_response):
+        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
             with pytest.raises(OllamaConnectionError) as exc_info:
                 fetch_ollama_models("http://example.com:11434")
             assert "invalid response" in str(exc_info.value).lower()
@@ -293,7 +293,7 @@ class TestOllamaDiscovery:
         mock_response.raise_for_status = MagicMock()
 
         with patch(
-            "clawrium.core.providers.requests.get", return_value=mock_response
+            "clawrium.core.providers.storage.requests.get", return_value=mock_response
         ) as mock_get:
             fetch_ollama_models("http://example.com:11434")
             mock_get.assert_called_once()
