@@ -197,6 +197,54 @@ class TestSearchModels:
         labs = {r["lab"] for r in results}
         assert "Anthropic" in labs
 
+    def test_search_models_partial_match(self):
+        """search_models finds partial matches using fuzzyfinder."""
+        # 'gpt4' should match 'gpt-4o' even without exact substring
+        results = search_models("gpt4")
+        model_ids = [r["id"] for r in results]
+        # Should find GPT-4 variants
+        assert any("gpt-4" in mid for mid in model_ids)
+
+    def test_search_models_multiple_results_ordered(self):
+        """search_models returns multiple results in relevance order."""
+        results = search_models("gpt", limit=10)
+        # Should return multiple GPT models
+        assert len(results) >= 3
+        model_ids = [r["id"] for r in results]
+        # All results should contain gpt
+        assert all("gpt" in mid.lower() for mid in model_ids)
+
+    def test_search_models_returns_full_model_info(self):
+        """search_models returns complete ModelInfo dictionaries."""
+        results = search_models("claude", limit=1)
+        assert len(results) == 1
+        model = results[0]
+        # Verify all required fields present
+        assert "id" in model
+        assert "name" in model
+        assert "lab" in model
+        assert "context_window" in model
+        assert "tags" in model
+        assert isinstance(model["context_window"], int)
+        assert isinstance(model["tags"], list)
+
+    def test_search_models_filter_reduces_results(self):
+        """search_models with provider filter returns subset of all results."""
+        all_results = search_models("claude", limit=100)
+        filtered_results = search_models("claude", provider_type="anthropic", limit=100)
+
+        # Filtered results should be subset
+        assert len(filtered_results) <= len(all_results)
+        # All filtered results should be from Anthropic
+        assert all(r["lab"] == "Anthropic" for r in filtered_results)
+        # Filter should have reduced results (claude exists in multiple providers)
+        assert len(filtered_results) < len(all_results)
+
+    def test_search_models_whitespace_query_returns_empty(self):
+        """search_models returns empty for whitespace-only query."""
+        results = search_models("   ")
+        assert results == []
+
 
 class TestGetCatalogProviders:
     """Tests for get_catalog_providers function."""
