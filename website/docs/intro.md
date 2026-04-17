@@ -20,11 +20,12 @@ A **claw** is a general-purpose AI assistant that runs on a machine in your netw
 - Help with writing, brainstorming, and planning
 - Connect to external services (GitHub, Jira, etc.)
 
-**Currently supported claws:**
-- [**OpenClaw**](https://github.com/opencode-ai/opencode) - Full-featured assistant with multi-provider and multi-channel support
+**Currently supported:**
+- [**OpenClaw**](https://github.com/openclaw/openclaw) - Full-featured assistant with multi-provider and multi-channel support
 
 **Planned:**
 - **ZeroClaw** - Lightweight assistant for resource-constrained devices
+- **IronClaw** - High-performance assistant for demanding workloads
 
 ## Why Clawrium?
 
@@ -150,7 +151,7 @@ No. API keys are required by design - Clawrium manages API credentials, not subs
 
 ### Which communication channels are supported?
 
-Discord and CLI are supported today. Slack and web interfaces are planned.
+Discord, Slack, and CLI are supported today. Web interface is planned.
 
 ### Do I need to be online?
 
