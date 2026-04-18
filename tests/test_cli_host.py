@@ -531,3 +531,305 @@ def test_host_init_existing_keypair_not_regenerated(isolated_config: Path):
 
             # Key should not be regenerated
             assert private_key.read_text() == "existing-key-content"
+
+
+# Tests for clm host alias command
+
+
+def test_host_alias_set(isolated_config: Path, sample_host_data: dict):
+    """clm host alias --set updates alias successfully."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app, ["host", "alias", "192.168.1.100", "--set", "new-alias"], env=os.environ
+    )
+
+    assert result.exit_code == 0
+    assert "new-alias" in result.output
+
+    # Verify persisted
+    hosts = json.loads(hosts_file.read_text())
+    assert hosts[0].get("alias") == "new-alias"
+
+
+def test_host_alias_by_current_alias(isolated_config: Path, sample_host_data: dict):
+    """clm host alias can target host by current alias."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    # Host with existing alias - use copy to avoid fixture mutation
+    host_data = sample_host_data.copy()
+    host_data["alias"] = "old-alias"
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app, ["host", "alias", "old-alias", "--set", "new-alias"], env=os.environ
+    )
+
+    assert result.exit_code == 0
+    assert "new-alias" in result.output
+
+    # Verify persisted
+    hosts = json.loads(hosts_file.read_text())
+    assert hosts[0].get("alias") == "new-alias"
+
+
+def test_host_alias_duplicate_rejected(isolated_config: Path, sample_host_data: dict):
+    """clm host alias rejects duplicate alias."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    # Two hosts, one with alias
+    host1 = sample_host_data.copy()
+    host2 = {
+        "hostname": "192.168.1.101",
+        "alias": "existing-alias",
+        "port": 22,
+        "user": "xclm",
+        "auth_method": "key",
+        "hardware": {},
+        "metadata": {"added_at": "2026-03-21", "last_seen": "2026-03-21", "tags": []},
+    }
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host1, host2]))
+
+    result = runner.invoke(
+        app,
+        ["host", "alias", "192.168.1.100", "--set", "existing-alias"],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 1
+    assert "already in use" in result.output.lower()
+
+
+def test_host_alias_hostname_conflict(isolated_config: Path, sample_host_data: dict):
+    """clm host alias rejects alias that matches existing hostname."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    # Two hosts
+    host1 = sample_host_data.copy()
+    host2 = {
+        "hostname": "192.168.1.101",
+        "port": 22,
+        "user": "xclm",
+        "auth_method": "key",
+        "hardware": {},
+        "metadata": {"added_at": "2026-03-21", "last_seen": "2026-03-21", "tags": []},
+    }
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host1, host2]))
+
+    # Try to set alias to existing hostname
+    result = runner.invoke(
+        app, ["host", "alias", "192.168.1.100", "--set", "192.168.1.101"], env=os.environ
+    )
+
+    assert result.exit_code == 1
+    assert "conflicts" in result.output.lower()
+
+
+def test_host_alias_not_found(isolated_config: Path):
+    """clm host alias shows error when host not found."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+
+    result = runner.invoke(
+        app, ["host", "alias", "nonexistent", "--set", "new-alias"], env=os.environ
+    )
+
+    assert result.exit_code == 1
+    assert "not found" in result.output.lower()
+
+
+# Tests for clm host tag command
+
+
+def test_host_tag_add(isolated_config: Path, sample_host_data: dict):
+    """clm host tag --add adds single tag."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app, ["host", "tag", "192.168.1.100", "--add", "production"], env=os.environ
+    )
+
+    assert result.exit_code == 0
+    assert "production" in result.output
+
+    # Verify persisted
+    hosts = json.loads(hosts_file.read_text())
+    assert "production" in hosts[0]["metadata"]["tags"]
+
+
+def test_host_tag_add_multiple(isolated_config: Path, sample_host_data: dict):
+    """clm host tag --add adds multiple tags."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app,
+        ["host", "tag", "192.168.1.100", "--add", "web", "--add", "api"],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 0
+    assert "web" in result.output
+    assert "api" in result.output
+
+    # Verify persisted
+    hosts = json.loads(hosts_file.read_text())
+    assert "web" in hosts[0]["metadata"]["tags"]
+    assert "api" in hosts[0]["metadata"]["tags"]
+
+
+def test_host_tag_remove(isolated_config: Path, sample_host_data: dict):
+    """clm host tag --remove removes existing tag."""
+    import json
+    import copy
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    # Add initial tags - use deep copy to avoid fixture mutation
+    host_data = copy.deepcopy(sample_host_data)
+    host_data["metadata"]["tags"] = ["production", "web", "api"]
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app, ["host", "tag", "192.168.1.100", "--remove", "web"], env=os.environ
+    )
+
+    assert result.exit_code == 0
+
+    # Verify persisted
+    hosts = json.loads(hosts_file.read_text())
+    assert "web" not in hosts[0]["metadata"]["tags"]
+    assert "production" in hosts[0]["metadata"]["tags"]
+    assert "api" in hosts[0]["metadata"]["tags"]
+
+
+def test_host_tag_remove_nonexistent(isolated_config: Path, sample_host_data: dict):
+    """clm host tag --remove gracefully handles missing tag."""
+    import json
+    import copy
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host_data = copy.deepcopy(sample_host_data)
+    host_data["metadata"]["tags"] = ["production"]
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app, ["host", "tag", "192.168.1.100", "--remove", "nonexistent"], env=os.environ
+    )
+
+    # Should succeed (graceful handling)
+    assert result.exit_code == 0
+
+    # Original tag preserved
+    hosts = json.loads(hosts_file.read_text())
+    assert "production" in hosts[0]["metadata"]["tags"]
+
+
+def test_host_tag_set(isolated_config: Path, sample_host_data: dict):
+    """clm host tag --set replaces all tags."""
+    import json
+    import copy
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host_data = copy.deepcopy(sample_host_data)
+    host_data["metadata"]["tags"] = ["old-tag"]
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app, ["host", "tag", "192.168.1.100", "--set", "staging,backend"], env=os.environ
+    )
+
+    assert result.exit_code == 0
+    assert "staging" in result.output
+    assert "backend" in result.output
+
+    # Verify persisted
+    hosts = json.loads(hosts_file.read_text())
+    assert hosts[0]["metadata"]["tags"] == ["staging", "backend"]
+
+
+def test_host_tag_set_empty(isolated_config: Path, sample_host_data: dict):
+    """clm host tag --set '' clears all tags."""
+    import json
+    import copy
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host_data = copy.deepcopy(sample_host_data)
+    host_data["metadata"]["tags"] = ["production", "web"]
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app, ["host", "tag", "192.168.1.100", "--set", ""], env=os.environ
+    )
+
+    assert result.exit_code == 0
+    assert "cleared" in result.output.lower()
+
+    # Verify persisted
+    hosts = json.loads(hosts_file.read_text())
+    assert hosts[0]["metadata"]["tags"] == []
+
+
+def test_host_tag_mutually_exclusive(isolated_config: Path, sample_host_data: dict):
+    """clm host tag rejects --set combined with --add/--remove."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app,
+        ["host", "tag", "192.168.1.100", "--set", "new-tag", "--add", "another"],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 1
+    assert "--set cannot be combined" in result.output
+
+
+def test_host_tag_no_operation(isolated_config: Path, sample_host_data: dict):
+    """clm host tag without operation shows error."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app, ["host", "tag", "192.168.1.100"], env=os.environ
+    )
+
+    assert result.exit_code == 1
+    assert "specify" in result.output.lower()
+
+
+def test_host_tag_not_found(isolated_config: Path):
+    """clm host tag shows error when host not found."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+
+    result = runner.invoke(
+        app, ["host", "tag", "nonexistent", "--add", "test"], env=os.environ
+    )
+
+    assert result.exit_code == 1
+    assert "not found" in result.output.lower()

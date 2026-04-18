@@ -13,6 +13,7 @@ from rich.table import Table
 
 from clawrium.core.hosts import (
     add_host,
+    alias_exists,
     get_host,
     get_host_by_key_id,
     load_hosts,
@@ -487,6 +488,137 @@ def remove(
             console.print(f"[dim]Keypair for '{key_id}' deleted.[/dim]")
     else:
         console.print("[red]Error:[/red] Failed to remove host")
+        raise typer.Exit(code=1)
+
+
+@host_app.command(name="alias")
+def alias_cmd(
+    host: str = typer.Argument(..., help="Host hostname or alias"),
+    set_alias: str = typer.Option(..., "--set", "-s", help="New alias for the host"),
+) -> None:
+    """Update the alias for a host.
+
+    Target can be specified by hostname or current alias.
+    """
+    # Find host by hostname or alias
+    try:
+        host_record = get_host(host)
+    except HostsFileCorruptedError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    if not host_record:
+        console.print(f"[red]Error:[/red] Host '{host}' not found")
+        raise typer.Exit(code=1)
+
+    hostname = host_record["hostname"]
+    old_alias = host_record.get("alias")
+
+    # Validate new alias doesn't conflict
+    exists, conflicting_host = alias_exists(set_alias, exclude_hostname=hostname)
+    if exists:
+        # Determine if conflict is with hostname or alias
+        if conflicting_host == set_alias:
+            console.print(
+                f"[red]Error:[/red] Alias '{set_alias}' conflicts with existing hostname"
+            )
+        else:
+            console.print(
+                f"[red]Error:[/red] Alias '{set_alias}' already in use by host '{conflicting_host}'"
+            )
+        raise typer.Exit(code=1)
+
+    # Update alias atomically
+    def apply_alias_update(h: dict) -> dict:
+        h["alias"] = set_alias
+        return h
+
+    if update_host(hostname, apply_alias_update):
+        old_display = old_alias or hostname
+        console.print(f"Host alias updated: {old_display} -> {set_alias}")
+    else:
+        console.print("[red]Error:[/red] Failed to update host alias")
+        raise typer.Exit(code=1)
+
+
+@host_app.command()
+def tag(
+    host: str = typer.Argument(..., help="Host hostname or alias"),
+    add: Optional[list[str]] = typer.Option(None, "--add", help="Add tag(s)"),
+    remove: Optional[list[str]] = typer.Option(None, "--remove", help="Remove tag(s)"),
+    set_tags: Optional[str] = typer.Option(
+        None, "--set", help="Replace all tags (comma-separated)"
+    ),
+) -> None:
+    """Manage tags for a host.
+
+    Add, remove, or replace tags. Use --set "" to clear all tags.
+    """
+    # Validate mutually exclusive options
+    if set_tags is not None and (add or remove):
+        console.print("[red]Error:[/red] --set cannot be combined with --add or --remove")
+        raise typer.Exit(code=1)
+
+    # Require at least one operation
+    if set_tags is None and not add and not remove:
+        console.print("[red]Error:[/red] Specify --add, --remove, or --set")
+        raise typer.Exit(code=1)
+
+    # Find host by hostname or alias
+    try:
+        host_record = get_host(host)
+    except HostsFileCorruptedError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    if not host_record:
+        console.print(f"[red]Error:[/red] Host '{host}' not found")
+        raise typer.Exit(code=1)
+
+    hostname = host_record["hostname"]
+    display_name = host_record.get("alias") or hostname
+
+    # Build updater function based on operation
+    def apply_tag_update(h: dict) -> dict:
+        if "metadata" not in h:
+            h["metadata"] = {}
+        current_tags = list(h["metadata"].get("tags", []))
+
+        if set_tags is not None:
+            # Replace all tags
+            if set_tags == "":
+                new_tags = []
+            else:
+                new_tags = [t.strip() for t in set_tags.split(",") if t.strip()]
+        else:
+            # Add tags (deduplicate)
+            if add:
+                for t in add:
+                    tag_clean = t.strip()
+                    if tag_clean and tag_clean not in current_tags:
+                        current_tags.append(tag_clean)
+            # Remove tags
+            if remove:
+                for t in remove:
+                    tag_clean = t.strip()
+                    if tag_clean in current_tags:
+                        current_tags.remove(tag_clean)
+            new_tags = current_tags
+
+        h["metadata"]["tags"] = new_tags
+        return h
+
+    if update_host(hostname, apply_tag_update):
+        # Reload to show final state
+        updated_host = get_host(hostname)
+        final_tags = updated_host.get("metadata", {}).get("tags", []) if updated_host else []
+
+        if final_tags:
+            console.print(f"Tags updated for '{display_name}': {', '.join(final_tags)}")
+        else:
+            console.print(f"Tags cleared for '{display_name}'")
+    else:
+        console.print("[red]Error:[/red] Failed to update host tags")
         raise typer.Exit(code=1)
 
 

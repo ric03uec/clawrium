@@ -19,6 +19,7 @@ __all__ = [
     "update_host",
     "remove_agent_from_host",
     "get_agent_by_name",
+    "alias_exists",
     "HOSTS_FILE",
     "HostsFileCorruptedError",
     "DuplicateHostError",
@@ -286,6 +287,38 @@ def get_host_by_key_id(key_id: str) -> dict | None:
         if host.get("key_id") == key_id:
             return host
     return None
+
+
+def alias_exists(alias: str, exclude_hostname: str | None = None) -> tuple[bool, str | None]:
+    """Check if alias is already in use by another host.
+
+    Checks against both hostname and alias fields of all hosts.
+
+    Args:
+        alias: The alias to check for conflicts.
+        exclude_hostname: Optionally exclude this hostname from the check (for self-reference).
+
+    Returns:
+        Tuple of (exists, conflicting_hostname).
+        - (True, hostname) if alias conflicts with another host's hostname or alias.
+        - (False, None) if alias is available.
+    """
+    hosts = load_hosts()
+    for host in hosts:
+        host_hostname = host.get("hostname")
+        # Skip the excluded host
+        if exclude_hostname and host_hostname == exclude_hostname:
+            continue
+
+        # Check if alias matches this host's hostname
+        if host_hostname == alias:
+            return (True, host_hostname)
+
+        # Check if alias matches this host's alias
+        if host.get("alias") == alias:
+            return (True, host_hostname)
+
+    return (False, None)
 
 
 def remove_agent_from_host(hostname: str, agent_identifier: str) -> bool:
