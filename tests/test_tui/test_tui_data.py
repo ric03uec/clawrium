@@ -124,6 +124,8 @@ class TestGetFleetData:
             "onboarding_step": None,
             "process_running": True,
             "onboarding_stages": None,
+            "cpu_count": 8,
+            "memory_total_mb": 32768,
         }
 
         with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
@@ -133,6 +135,8 @@ class TestGetFleetData:
         assert agents[0]["agent_name"] == "opc-testhost"
         assert agents[0]["status"] == ClawStatus.RUNNING
         assert agents[0]["model"] == "gpt-4o"
+        assert agents[0]["cpu_count"] == 8
+        assert agents[0]["memory_total_mb"] == 32768
         assert summary["total"] == 1
         assert summary["running"] == 1
         assert summary["hosts"] == 1
@@ -178,6 +182,8 @@ class TestGetFleetData:
             "onboarding_step": "2/4",
             "process_running": False,
             "onboarding_stages": None,
+            "cpu_count": None,
+            "memory_total_mb": None,
         }
 
         with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
@@ -212,12 +218,15 @@ class TestGetFleetData:
             "onboarding_step": None,
             "process_running": True,
             "onboarding_stages": None,
+            "cpu_count": 2,
+            "memory_total_mb": 4096,
         }
 
         with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
             agents, _ = get_fleet_data()
 
         assert agents[0]["model"] == "-"
+        assert agents[0]["provider"] is None
 
 
 class TestGetAgentDetail:
@@ -250,6 +259,8 @@ class TestGetAgentDetail:
             "onboarding_step": None,
             "process_running": True,
             "onboarding_stages": None,
+            "cpu_count": 4,
+            "memory_total_mb": 8192,
         }
 
         with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
@@ -258,6 +269,8 @@ class TestGetAgentDetail:
         assert detail is not None
         assert detail["agent_key"] == "openclaw"
         assert detail["version"] == "1.0.0"
+        assert detail["cpu_count"] == 4
+        assert detail["memory_total_mb"] == 8192
 
     def test_not_found(self, isolated_config):
         isolated_config.mkdir(parents=True, exist_ok=True)

@@ -13,6 +13,15 @@ from clawrium.cli.tui.data import AgentViewModel
 from clawrium.core.health import ClawStatus
 
 
+def _format_memory(mb: int | None) -> str:
+    """Format memory in MB to human-readable string."""
+    if mb is None or mb == 0:
+        return "N/A"
+    if mb >= 1024:
+        return f"{mb // 1024} GB"
+    return f"{mb} MB"
+
+
 class DetailCard(Widget):
     DEFAULT_CSS = """
     DetailCard {
@@ -75,7 +84,7 @@ class DetailCards(Grid):
         }.get(status, "unknown")
 
         identity_rows = [
-            ("role", agent["agent_name"]),
+            ("agent", agent["agent_name"]),
             ("type", agent["agent_type"]),
             ("version", agent["version"]),
             (
@@ -87,6 +96,22 @@ class DetailCards(Grid):
             ("status", status_text),
             ("uptime", agent["uptime"]),
         ]
+
+        # Add all configured addresses
+        addresses = agent.get("addresses", [])
+        if not isinstance(addresses, list):
+            addresses = []
+        for addr in addresses:
+            if not isinstance(addr, dict):
+                continue
+            addr_value = escape(addr.get("address", "N/A"))
+            if addr.get("is_primary"):
+                label = "address (primary)"
+            elif addr.get("label"):
+                label = f"address ({escape(str(addr['label']))})"
+            else:
+                label = "address"
+            identity_rows.append((label, addr_value))
 
         model_cost_rows = [
             ("model", agent["model"]),
@@ -101,14 +126,16 @@ class DetailCards(Grid):
             secrets_status = f"missing: {len(agent['missing_secrets'])} key(s)"
 
         config_rows = [
-            ("provider", "N/A"),
+            ("provider", agent.get("provider") or "not configured"),
             ("gateway port", "N/A"),
             ("secrets", secrets_status),
         ]
 
+        cpu_count = agent.get("cpu_count")
+        mem_mb = agent.get("memory_total_mb")
         health_rows = [
-            ("cpu", "N/A"),
-            ("memory", "N/A"),
+            ("cpu cores", str(cpu_count) if cpu_count else "N/A"),
+            ("memory", _format_memory(mem_mb)),
             ("errors / 24h", "N/A"),
         ]
 

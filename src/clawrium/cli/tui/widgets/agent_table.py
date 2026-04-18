@@ -10,7 +10,7 @@ from textual.widgets import DataTable
 from clawrium.cli.tui.data import AgentViewModel
 from clawrium.core.health import ClawStatus
 
-COLUMNS = ("", "Role", "Type", "Model", "Host", "Uptime", "Status")
+COLUMNS = ("", "Agent", "Type", "Model", "Host", "Uptime", "Status")
 logger = logging.getLogger(__name__)
 
 

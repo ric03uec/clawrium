@@ -29,6 +29,10 @@ class AgentViewModel(TypedDict):
     onboarding_step: str | None
     process_running: bool | None
     health_error: str | None
+    addresses: list[dict]
+    provider: str | None
+    cpu_count: int | None
+    memory_total_mb: int | None
 
 
 class FleetSummary(TypedDict):
@@ -99,10 +103,12 @@ def get_fleet_data(
             version = claw_record.get("version", "?")
             config = claw_record.get("config", {})
             model = "-"
+            provider_name = None
             if isinstance(config, dict):
-                provider = config.get("provider")
-                if isinstance(provider, dict):
-                    model = provider.get("default_model", "-")
+                provider_cfg = config.get("provider")
+                if isinstance(provider_cfg, dict):
+                    model = provider_cfg.get("default_model", "-")
+                    provider_name = provider_cfg.get("name") or provider_cfg.get("type")
 
             started_at = None
             runtime = claw_record.get("runtime", {})
@@ -131,6 +137,10 @@ def get_fleet_data(
                     onboarding_step=result.get("onboarding_step"),
                     process_running=result.get("process_running"),
                     health_error=result.get("error"),
+                    addresses=h.get("addresses", []),
+                    provider=provider_name,
+                    cpu_count=result.get("cpu_count"),
+                    memory_total_mb=result.get("memory_total_mb"),
                 )
             )
 
@@ -165,6 +175,8 @@ def check_claw_health_safe(claw_name: str, host: dict) -> HealthResult:
             onboarding_step=None,
             process_running=None,
             onboarding_stages=None,
+            cpu_count=None,
+            memory_total_mb=None,
         )
 
 
@@ -191,10 +203,12 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
         version = claw_record.get("version", "?")
         config = claw_record.get("config", {})
         model = "-"
+        provider_name = None
         if isinstance(config, dict):
-            provider = config.get("provider")
-            if isinstance(provider, dict):
-                model = provider.get("default_model", "-")
+            provider_cfg = config.get("provider")
+            if isinstance(provider_cfg, dict):
+                model = provider_cfg.get("default_model", "-")
+                provider_name = provider_cfg.get("name") or provider_cfg.get("type")
 
         started_at = None
         runtime = claw_record.get("runtime", {})
@@ -217,5 +231,9 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
             onboarding_step=result.get("onboarding_step"),
             process_running=result.get("process_running"),
             health_error=result.get("error"),
+            addresses=h.get("addresses", []),
+            provider=provider_name,
+            cpu_count=result.get("cpu_count"),
+            memory_total_mb=result.get("memory_total_mb"),
         )
     return None
