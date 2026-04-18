@@ -16,6 +16,7 @@ clm host <command> [options]
 | [`clm host remove`](#clm-host-remove) | Remove a host from the fleet |
 | [`clm host status`](#clm-host-status) | Check status of a host |
 | [`clm host reset`](#clm-host-reset) | Reset a host, removing all claws and users |
+| [`clm host address`](#address-subcommands) | Manage multiple addresses for a host |
 
 ---
 
@@ -351,3 +352,163 @@ Host removed from tracking.
 |------|---------|
 | 0 | Reset completed successfully |
 | 1 | Host not found, reset failed, or user aborted |
+
+---
+
+## Address Subcommands
+
+Manage multiple network addresses for a single host. Useful when hosts are reachable via different addresses depending on network context (LAN, VPN, Tailscale, etc.).
+
+```bash
+clm host address <command> [options]
+```
+
+| Command | Description |
+|---------|-------------|
+| [`clm host address add`](#clm-host-address-add) | Add an address to a host |
+| [`clm host address remove`](#clm-host-address-remove) | Remove an address from a host |
+| [`clm host address list`](#clm-host-address-list) | List all addresses for a host |
+| [`clm host address set-primary`](#clm-host-address-set-primary) | Set a different address as primary |
+
+---
+
+## clm host address add
+
+Add an address to a host.
+
+```bash
+clm host address add <host> <address> [--label LABEL]
+```
+
+The first address added to a host is automatically the primary. Additional addresses can be used to reach the host from different network contexts.
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `host` | Host hostname or alias |
+| `address` | Address as IPv4, IPv6, or hostname (e.g., 192.168.1.1, myhost.local) |
+
+### Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--label` | `-l` | Label for the address (e.g., lan, vpn, external) |
+
+### Example
+
+```bash
+$ clm host address add pi-lab 100.64.0.50 --label tailscale
+Address '100.64.0.50' (tailscale) added to host 'pi-lab'
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Address added successfully |
+| 1 | Host not found or address already exists |
+
+---
+
+## clm host address remove
+
+Remove an address from a host.
+
+```bash
+clm host address remove <host> <address>
+```
+
+Cannot remove the primary address. Use `set-primary` to switch to a different address first.
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `host` | Host hostname or alias |
+| `address` | Address to remove |
+
+### Example
+
+```bash
+$ clm host address remove pi-lab 100.64.0.50
+Address '100.64.0.50' removed from host 'pi-lab'
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Address removed successfully |
+| 1 | Host not found, address not found, or cannot remove primary |
+
+---
+
+## clm host address list
+
+List all addresses for a host.
+
+```bash
+clm host address list <host>
+```
+
+Shows the primary address (used for all downstream commands) and any secondary addresses for different network contexts.
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `host` | Host hostname or alias |
+
+### Example
+
+```bash
+$ clm host address list pi-lab
+           Addresses for pi-lab
+┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
+┃ Address         ┃ Primary ┃ Label     ┃ Added            ┃
+┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
+│ 192.168.1.100   │ *       │ lan       │ 2026-04-01 10:30 │
+│ 100.64.0.50     │         │ tailscale │ 2026-04-05 14:15 │
+└─────────────────┴─────────┴───────────┴──────────────────┘
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Addresses listed successfully |
+| 1 | Host not found |
+
+---
+
+## clm host address set-primary
+
+Set a different address as the primary for a host.
+
+```bash
+clm host address set-primary <host> <address>
+```
+
+The primary address is used for all downstream commands (agent install, configure, status checks, etc.). Changing the primary updates the host's hostname field.
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `host` | Host hostname or alias |
+| `address` | Address to make primary |
+
+### Example
+
+```bash
+$ clm host address set-primary pi-lab 100.64.0.50
+Primary address for 'pi-lab' set to '100.64.0.50'
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Primary address updated successfully |
+| 1 | Host not found or address not found |

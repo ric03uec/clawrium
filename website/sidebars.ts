@@ -24,18 +24,39 @@ const sidebars: SidebarsConfig = {
     'architecture',
     {
       type: 'category',
-      label: 'OS Support',
+      label: 'Scenarios',
       collapsed: true,
       items: [
+        'scenarios/overview',
+        'scenarios/101',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Host Configuration',
+      collapsed: true,
+      items: [
+        'host-configuration/overview',
         {
           type: 'category',
-          label: 'Ubuntu',
+          label: 'OS Support',
+          link: {
+            type: 'doc',
+            id: 'host-configuration/os-support/index',
+          },
           collapsed: true,
           items: [
-            'os-support/ubuntu/24-04',
+            {
+              type: 'category',
+              label: 'Ubuntu',
+              collapsed: true,
+              items: [
+                'host-configuration/os-support/ubuntu/24-04',
+              ],
+            },
+            'host-configuration/os-support/macos',
           ],
         },
-        'os-support/macos',
       ],
     },
     {
