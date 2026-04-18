@@ -86,7 +86,7 @@ def test_status_shows_claw_table(mock_hosts_with_claws):
 
     with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
         with patch("clawrium.cli.status.check_claw_health", mock_health):
-            result = runner.invoke(app, ["ps"])
+            result = runner.invoke(app, ["ps"], env={"COLUMNS": "200"})
 
     assert result.exit_code == 0
     assert "openclaw" in result.output
@@ -248,7 +248,7 @@ def test_status_shows_failed_install_truncates_long_error():
 
     with patch("clawrium.cli.status.load_hosts", return_value=hosts):
         with patch("clawrium.cli.status.check_claw_health", mock_health):
-            result = runner.invoke(app, ["ps"])
+            result = runner.invoke(app, ["ps"], env={"COLUMNS": "200"})
 
     assert "install failed" in result.output
     assert "A" * 50 + "..." in result.output

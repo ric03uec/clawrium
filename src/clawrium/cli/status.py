@@ -144,6 +144,7 @@ def status(
     table.add_column("Name", style="cyan bold")
     table.add_column("Agent Type", style="dim")
     table.add_column("Host", style="white")
+    table.add_column("Address", style="dim")
     table.add_column("Port", style="dim")
     table.add_column("Version", style="green")
     table.add_column("Status", no_wrap=True)
@@ -157,6 +158,7 @@ def status(
 
         for h, claw_record in instances:
             display_host = h.get("alias") or h["hostname"]
+            address = h["hostname"]
             full_name = (
                 claw_record.get("agent_name") or claw_record.get("name") or claw_name
             )
@@ -254,6 +256,7 @@ def status(
                 escape(full_name),
                 escape(agent_type),
                 escape(display_host),
+                escape(address),
                 port_display,
                 version,
                 status_display,
