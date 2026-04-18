@@ -1351,10 +1351,11 @@ class TestProcessNameByAgentType:
                 with patch("clawrium.core.health.get_required_secrets", return_value=[]):
                     check_claw_health("my-openclaw", host)
 
-        # Verify pgrep uses 'openclaw' process name
-        call_args = mock_run.call_args
-        assert call_args is not None
-        module_args = call_args.kwargs.get("module_args", "")
+        # Verify first call (pgrep) uses 'openclaw' process name
+        # Second call is for system info (cpu/memory)
+        assert len(mock_run.call_args_list) >= 1
+        first_call = mock_run.call_args_list[0]
+        module_args = first_call.kwargs.get("module_args", "")
         assert "pgrep -u wolf-i openclaw" == module_args
 
     def test_zeroclaw_uses_node_process_name(self):
@@ -1382,10 +1383,11 @@ class TestProcessNameByAgentType:
                 with patch("clawrium.core.health.get_required_secrets", return_value=[]):
                     check_claw_health("my-zeroclaw", host)
 
-        # Verify pgrep uses 'node' process name
-        call_args = mock_run.call_args
-        assert call_args is not None
-        module_args = call_args.kwargs.get("module_args", "")
+        # Verify first call (pgrep) uses 'node' process name
+        # Second call is for system info (cpu/memory)
+        assert len(mock_run.call_args_list) >= 1
+        first_call = mock_run.call_args_list[0]
+        module_args = first_call.kwargs.get("module_args", "")
         assert "pgrep -u zc-edge node" == module_args
 
     def test_missing_type_defaults_to_node(self):
@@ -1413,10 +1415,11 @@ class TestProcessNameByAgentType:
                 with patch("clawrium.core.health.get_required_secrets", return_value=[]):
                     check_claw_health("legacy-agent", host)
 
-        # Verify pgrep defaults to 'node' process name
-        call_args = mock_run.call_args
-        assert call_args is not None
-        module_args = call_args.kwargs.get("module_args", "")
+        # Verify first call (pgrep) defaults to 'node' process name
+        # Second call is for system info (cpu/memory)
+        assert len(mock_run.call_args_list) >= 1
+        first_call = mock_run.call_args_list[0]
+        module_args = first_call.kwargs.get("module_args", "")
         assert "pgrep -u legacy-user node" == module_args
 
     def test_empty_type_defaults_to_node(self):
@@ -1444,8 +1447,9 @@ class TestProcessNameByAgentType:
                 with patch("clawrium.core.health.get_required_secrets", return_value=[]):
                     check_claw_health("empty-type-agent", host)
 
-        # Verify pgrep defaults to 'node' process name
-        call_args = mock_run.call_args
-        assert call_args is not None
-        module_args = call_args.kwargs.get("module_args", "")
+        # Verify first call (pgrep) defaults to 'node' process name
+        # Second call is for system info (cpu/memory)
+        assert len(mock_run.call_args_list) >= 1
+        first_call = mock_run.call_args_list[0]
+        module_args = first_call.kwargs.get("module_args", "")
         assert "pgrep -u empty-user node" == module_args

@@ -28,6 +28,55 @@ logger = logging.getLogger(__name__)
 # lowercase letters, digits, underscores, or hyphens. Max 32 chars total.
 VALID_USERNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
+
+def _collect_system_info(
+    inventory: dict,
+    hostname: str,
+    tmpdir: str,
+) -> tuple[int | None, int | None]:
+    """Collect CPU count and total memory from remote host.
+
+    Runs nproc and reads /proc/meminfo to get system specifications.
+
+    Args:
+        inventory: Ansible inventory dict
+        hostname: Target host
+        tmpdir: Temporary directory for ansible_runner
+
+    Returns:
+        Tuple of (cpu_count, memory_total_mb), both may be None on failure.
+    """
+    # Run nproc and grep MemTotal in a single shell command
+    cmd = "nproc && grep MemTotal /proc/meminfo | awk '{print $2}'"
+
+    result = ansible_runner.run(
+        private_data_dir=tmpdir,
+        inventory=inventory,
+        host_pattern=hostname,
+        module="shell",
+        module_args=cmd,
+        quiet=True,
+        timeout=10,
+    )
+
+    cpu_count = None
+    memory_total_mb = None
+
+    for event in result.events:
+        if event.get("event") == "runner_on_ok":
+            stdout = event.get("event_data", {}).get("res", {}).get("stdout", "")
+            lines = stdout.strip().split("\n")
+            if len(lines) >= 2:
+                try:
+                    cpu_count = int(lines[0])
+                    mem_kb = int(lines[1])
+                    memory_total_mb = mem_kb // 1024
+                except (ValueError, IndexError):
+                    pass
+            break
+
+    return cpu_count, memory_total_mb
+
 # Onboarding state to step mapping for display
 ONBOARDING_STEP_MAP: dict[str, str] = {
     "providers": "1/4",
@@ -62,6 +111,8 @@ class HealthResult(TypedDict):
     onboarding_step: str | None
     process_running: bool | None
     onboarding_stages: dict[str, dict[str, str | None]] | None
+    cpu_count: int | None
+    memory_total_mb: int | None
 
 
 def get_onboarding_status(claw_record: dict) -> tuple[ClawStatus, str | None]:
@@ -201,6 +252,8 @@ def check_claw_health(
             "onboarding_step": None,
             "process_running": None,
             "onboarding_stages": None,
+            "cpu_count": None,
+            "memory_total_mb": None,
         }
 
     port = host.get("port", 22)
@@ -221,6 +274,8 @@ def check_claw_health(
             "onboarding_step": None,
             "process_running": None,
             "onboarding_stages": None,
+            "cpu_count": None,
+            "memory_total_mb": None,
         }
 
     claw_user = claw_record.get("agent_name") or claw_record.get("name")
@@ -235,6 +290,8 @@ def check_claw_health(
             "onboarding_step": None,
             "process_running": None,
             "onboarding_stages": None,
+            "cpu_count": None,
+            "memory_total_mb": None,
         }
 
     if not VALID_USERNAME_PATTERN.match(claw_user):
@@ -248,6 +305,8 @@ def check_claw_health(
             "onboarding_step": None,
             "process_running": None,
             "onboarding_stages": None,
+            "cpu_count": None,
+            "memory_total_mb": None,
         }
 
     key_id = host.get("key_id") or hostname
@@ -263,6 +322,8 @@ def check_claw_health(
             "onboarding_step": None,
             "process_running": None,
             "onboarding_stages": None,
+            "cpu_count": None,
+            "memory_total_mb": None,
         }
 
     # Build inventory
@@ -313,6 +374,8 @@ def check_claw_health(
                 "onboarding_step": None,
                 "process_running": None,
                 "onboarding_stages": None,
+                "cpu_count": None,
+                "memory_total_mb": None,
             }
 
         # Parse events to determine process state.
@@ -337,6 +400,8 @@ def check_claw_health(
                     "onboarding_step": None,
                     "process_running": None,
                     "onboarding_stages": None,
+                    "cpu_count": None,
+                    "memory_total_mb": None,
                 }
             if event_type == "runner_on_ok":
                 process_running = True
@@ -349,6 +414,15 @@ def check_claw_health(
                     error_msg = f"Unexpected exit code: {rc}"
                 break
 
+        # Collect system info (CPU count, total memory) if we successfully
+        # connected to the host (process_running is not None)
+        cpu_count = None
+        memory_total_mb = None
+        if process_running is not None:
+            cpu_count, memory_total_mb = _collect_system_info(
+                inventory, hostname, tmpdir
+            )
+
         if process_running is None:
             return {
                 "agent": claw_name,
@@ -360,6 +434,8 @@ def check_claw_health(
                 "onboarding_step": None,
                 "process_running": None,
                 "onboarding_stages": None,
+                "cpu_count": None,
+                "memory_total_mb": None,
             }
 
         if process_running:
@@ -377,6 +453,8 @@ def check_claw_health(
                     "onboarding_step": None,
                     "process_running": True,
                     "onboarding_stages": None,
+                    "cpu_count": cpu_count,
+                    "memory_total_mb": memory_total_mb,
                 }
 
             if missing:
@@ -390,6 +468,8 @@ def check_claw_health(
                     "onboarding_step": None,
                     "process_running": True,
                     "onboarding_stages": None,
+                    "cpu_count": cpu_count,
+                    "memory_total_mb": memory_total_mb,
                 }
             else:
                 return {
@@ -402,6 +482,8 @@ def check_claw_health(
                     "onboarding_step": None,
                     "process_running": True,
                     "onboarding_stages": None,
+                    "cpu_count": cpu_count,
+                    "memory_total_mb": memory_total_mb,
                 }
         else:
             status, step = get_onboarding_status(claw_record)
@@ -423,6 +505,8 @@ def check_claw_health(
                 "onboarding_step": step,
                 "process_running": False,
                 "onboarding_stages": onboarding_stages,
+                "cpu_count": cpu_count,
+                "memory_total_mb": memory_total_mb,
             }
 
 

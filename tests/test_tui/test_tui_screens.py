@@ -31,6 +31,10 @@ SAMPLE_AGENT = AgentViewModel(
     onboarding_step=None,
     process_running=True,
     health_error=None,
+    addresses=[{"address": "192.168.1.100", "is_primary": True, "label": None}],
+    provider="openai",
+    cpu_count=4,
+    memory_total_mb=16384,
 )
 
 
@@ -149,6 +153,10 @@ class TestDetailCards:
             onboarding_step=None,
             process_running=True,
             health_error=None,
+            addresses=[],
+            provider="openai",
+            cpu_count=4,
+            memory_total_mb=8192,
         )
         cards = DetailCards(agent=agent)
         built = cards._build_cards(agent)
@@ -181,6 +189,10 @@ class TestDetailCards:
             onboarding_step=None,
             process_running=False,
             health_error="Host [red]unreachable[/red]",
+            addresses=[],
+            provider=None,
+            cpu_count=None,
+            memory_total_mb=None,
         )
         cards = DetailCards(agent=agent)
         built = cards._build_cards(agent)
@@ -194,6 +206,87 @@ class TestDetailCards:
             str(item.renderable) for item in rendered_items if isinstance(item, Static)
         ]
         assert any("\\[" in value for value in static_values)
+
+    def test_memory_under_1gb_shows_mb(self):
+        """Memory less than 1024 MB should display in MB."""
+        agent = AgentViewModel(
+            **{**SAMPLE_AGENT, "memory_total_mb": 512, "cpu_count": 2}
+        )
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        health_card = built[3]
+        memory_row = [r for r in health_card._rows if r[0] == "memory"][0]
+        assert memory_row[1] == "512 MB"
+
+    def test_memory_1gb_shows_gb(self):
+        """Memory >= 1024 MB should display in GB."""
+        agent = AgentViewModel(
+            **{**SAMPLE_AGENT, "memory_total_mb": 1024, "cpu_count": 4}
+        )
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        health_card = built[3]
+        memory_row = [r for r in health_card._rows if r[0] == "memory"][0]
+        assert memory_row[1] == "1 GB"
+
+    def test_memory_none_shows_na(self):
+        """None memory should show N/A."""
+        agent = AgentViewModel(
+            **{**SAMPLE_AGENT, "memory_total_mb": None, "cpu_count": None}
+        )
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        health_card = built[3]
+        memory_row = [r for r in health_card._rows if r[0] == "memory"][0]
+        cpu_row = [r for r in health_card._rows if r[0] == "cpu cores"][0]
+        assert memory_row[1] == "N/A"
+        assert cpu_row[1] == "N/A"
+
+    def test_multiple_addresses_rendered(self):
+        """All addresses should be rendered in identity card."""
+        agent = AgentViewModel(
+            **{
+                **SAMPLE_AGENT,
+                "addresses": [
+                    {"address": "192.168.1.100", "is_primary": True, "label": None},
+                    {"address": "10.0.0.50", "is_primary": False, "label": "vpn"},
+                ],
+            }
+        )
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        identity_card = built[0]
+        addr_rows = [r for r in identity_card._rows if r[0].startswith("address")]
+        assert len(addr_rows) == 2
+        assert any("primary" in r[0] for r in addr_rows)
+        assert any("vpn" in r[0] for r in addr_rows)
+
+    def test_empty_addresses_no_crash(self):
+        """Empty addresses list should not crash."""
+        agent = AgentViewModel(**{**SAMPLE_AGENT, "addresses": []})
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        identity_card = built[0]
+        addr_rows = [r for r in identity_card._rows if r[0].startswith("address")]
+        assert len(addr_rows) == 0
+
+    def test_provider_displayed(self):
+        """Provider name should be displayed in config card."""
+        agent = AgentViewModel(**{**SAMPLE_AGENT, "provider": "anthropic"})
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        config_card = built[2]
+        provider_row = [r for r in config_card._rows if r[0] == "provider"][0]
+        assert provider_row[1] == "anthropic"
+
+    def test_provider_none_shows_not_configured(self):
+        """None provider should show 'not configured'."""
+        agent = AgentViewModel(**{**SAMPLE_AGENT, "provider": None})
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        config_card = built[2]
+        provider_row = [r for r in config_card._rows if r[0] == "provider"][0]
+        assert provider_row[1] == "not configured"
 
 
 class TestConfirmModal:
