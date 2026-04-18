@@ -12,9 +12,14 @@ from clawrium.core.hosts import (
     get_agent_by_name,
     update_host,
     remove_agent_from_host,
+    add_address_to_host,
+    remove_address_from_host,
+    set_primary_address,
+    get_host_addresses,
     HOSTS_FILE,
     HostsFileCorruptedError,
     DuplicateHostError,
+    AddressError,
 )
 
 
@@ -37,7 +42,13 @@ def test_load_hosts_valid_json(isolated_config):
 
     # Test
     hosts = load_hosts()
-    assert hosts == test_data
+    assert len(hosts) == 2
+    # Check core fields (addresses is added by migration)
+    assert hosts[0]["hostname"] == "192.168.1.10"
+    assert hosts[1]["hostname"] == "192.168.1.20"
+    # Verify addresses were migrated
+    assert "addresses" in hosts[0]
+    assert "addresses" in hosts[1]
 
 
 def test_save_hosts_creates_file(isolated_config):
@@ -84,8 +95,11 @@ def test_add_host_appends(isolated_config):
     # Verify
     hosts = load_hosts()
     assert len(hosts) == 2
-    assert hosts[0] == initial_hosts[0]
-    assert hosts[1] == new_host
+    # Check core fields (addresses is added by migration/add_host)
+    assert hosts[0]["hostname"] == "192.168.1.10"
+    assert hosts[1]["hostname"] == "192.168.1.20"
+    # Verify addresses were initialized
+    assert "addresses" in hosts[1]
 
 
 def test_remove_host_found(isolated_config):
@@ -505,3 +519,266 @@ def test_get_agent_by_name_ambiguous_raises(isolated_config):
 def test_get_agent_by_name_empty_returns_none():
     """get_agent_by_name returns None for blank query."""
     assert get_agent_by_name("   ") is None
+
+
+# Tests for address management
+
+
+def test_ensure_addresses_migration(isolated_config):
+    """Hosts without addresses get migrated on load."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    # Create host without addresses field (old format)
+    old_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
+    hosts_path = isolated_config / HOSTS_FILE
+    hosts_path.write_text(json.dumps([old_host]))
+
+    # Load should migrate
+    hosts = load_hosts()
+
+    assert len(hosts) == 1
+    assert "addresses" in hosts[0]
+    assert len(hosts[0]["addresses"]) == 1
+    assert hosts[0]["addresses"][0]["address"] == "192.168.1.10"
+    assert hosts[0]["addresses"][0]["is_primary"] is True
+
+
+def test_add_address_success(isolated_config):
+    """add_address_to_host adds new address correctly."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
+    save_hosts([test_host])
+
+    add_address_to_host("192.168.1.10", "10.0.0.10", label="vpn")
+
+    hosts = load_hosts()
+    assert len(hosts[0]["addresses"]) == 2
+    # Second address should not be primary
+    secondary = [a for a in hosts[0]["addresses"] if a["address"] == "10.0.0.10"][0]
+    assert secondary["is_primary"] is False
+    assert secondary["label"] == "vpn"
+
+
+def test_add_address_duplicate(isolated_config):
+    """add_address_to_host raises AddressError for duplicate address."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
+    save_hosts([test_host])
+
+    with pytest.raises(AddressError) as exc_info:
+        add_address_to_host("192.168.1.10", "192.168.1.10")
+
+    assert "already exists" in str(exc_info.value)
+
+
+def test_remove_address_success(isolated_config):
+    """remove_address_from_host removes non-primary address."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "addresses": [
+            {"address": "192.168.1.10", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
+            {"address": "10.0.0.10", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+        ],
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
+    save_hosts([test_host])
+
+    remove_address_from_host("192.168.1.10", "10.0.0.10")
+
+    hosts = load_hosts()
+    assert len(hosts[0]["addresses"]) == 1
+    assert hosts[0]["addresses"][0]["address"] == "192.168.1.10"
+
+
+def test_remove_address_primary_fails(isolated_config):
+    """remove_address_from_host raises AddressError for primary address."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "addresses": [
+            {"address": "192.168.1.10", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
+            {"address": "10.0.0.10", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+        ],
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
+    save_hosts([test_host])
+
+    with pytest.raises(AddressError) as exc_info:
+        remove_address_from_host("192.168.1.10", "192.168.1.10")
+
+    assert "Cannot remove primary" in str(exc_info.value)
+
+
+def test_remove_address_not_found(isolated_config):
+    """remove_address_from_host raises AddressError when address not found."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
+    save_hosts([test_host])
+
+    with pytest.raises(AddressError) as exc_info:
+        remove_address_from_host("192.168.1.10", "10.0.0.99")
+
+    assert "not found" in str(exc_info.value)
+
+
+def test_set_primary_success(isolated_config):
+    """set_primary_address switches primary and syncs hostname."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "addresses": [
+            {"address": "192.168.1.10", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
+            {"address": "10.0.0.10", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+        ],
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
+    save_hosts([test_host])
+
+    set_primary_address("192.168.1.10", "10.0.0.10")
+
+    hosts = load_hosts()
+    # hostname should be updated
+    assert hosts[0]["hostname"] == "10.0.0.10"
+    # Primary flags should be switched
+    for addr in hosts[0]["addresses"]:
+        if addr["address"] == "10.0.0.10":
+            assert addr["is_primary"] is True
+        else:
+            assert addr["is_primary"] is False
+
+
+def test_set_primary_not_found(isolated_config):
+    """set_primary_address raises AddressError when address not found."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
+    save_hosts([test_host])
+
+    with pytest.raises(AddressError) as exc_info:
+        set_primary_address("192.168.1.10", "10.0.0.99")
+
+    assert "not found" in str(exc_info.value)
+
+
+def test_get_host_addresses(isolated_config):
+    """get_host_addresses returns correct list."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "addresses": [
+            {"address": "192.168.1.10", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
+            {"address": "10.0.0.10", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+        ],
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
+    save_hosts([test_host])
+
+    addresses = get_host_addresses("192.168.1.10")
+
+    assert len(addresses) == 2
+    assert addresses[0]["address"] == "192.168.1.10"
+    assert addresses[1]["address"] == "10.0.0.10"
+
+
+def test_get_host_addresses_not_found(isolated_config):
+    """get_host_addresses raises AddressError when host not found."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(AddressError) as exc_info:
+        get_host_addresses("nonexistent")
+
+    assert "not found" in str(exc_info.value)
+
+
+# Tests for address validation
+
+
+def test_add_address_empty_string(isolated_config):
+    """add_address_to_host rejects empty address."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {"hostname": "192.168.1.10", "port": 22, "metadata": {"added_at": "2024-01-01T00:00:00Z"}}
+    save_hosts([test_host])
+
+    with pytest.raises(AddressError) as exc_info:
+        add_address_to_host("192.168.1.10", "")
+
+    assert "empty" in str(exc_info.value).lower()
+
+
+def test_add_address_whitespace_only(isolated_config):
+    """add_address_to_host rejects whitespace-only address."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {"hostname": "192.168.1.10", "port": 22, "metadata": {"added_at": "2024-01-01T00:00:00Z"}}
+    save_hosts([test_host])
+
+    with pytest.raises(AddressError) as exc_info:
+        add_address_to_host("192.168.1.10", "   ")
+
+    assert "empty" in str(exc_info.value).lower()
+
+
+def test_add_address_shell_injection(isolated_config):
+    """add_address_to_host rejects addresses with shell metacharacters."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {"hostname": "192.168.1.10", "port": 22, "metadata": {"added_at": "2024-01-01T00:00:00Z"}}
+    save_hosts([test_host])
+
+    dangerous_addresses = [
+        "host; rm -rf /",
+        "host$(whoami)",
+        "host`id`",
+        "host|cat /etc/passwd",
+        "host&& echo pwned",
+        "host'injection",
+        'host"injection',
+    ]
+
+    for addr in dangerous_addresses:
+        with pytest.raises(AddressError) as exc_info:
+            add_address_to_host("192.168.1.10", addr)
+        assert "invalid characters" in str(exc_info.value).lower()
+
+
+def test_add_address_user_prefix(isolated_config):
+    """add_address_to_host rejects addresses with @ symbol."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    test_host = {"hostname": "192.168.1.10", "port": 22, "metadata": {"added_at": "2024-01-01T00:00:00Z"}}
+    save_hosts([test_host])
+
+    with pytest.raises(AddressError) as exc_info:
+        add_address_to_host("192.168.1.10", "user@host.example.com")
+
+    assert "@" in str(exc_info.value)
+
+
+def test_add_address_host_not_found(isolated_config):
+    """add_address_to_host raises AddressError when host not found."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(AddressError) as exc_info:
+        add_address_to_host("nonexistent-host", "10.0.0.1")
+
+    assert "not found" in str(exc_info.value).lower()

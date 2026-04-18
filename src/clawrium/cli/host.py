@@ -19,8 +19,13 @@ from clawrium.core.hosts import (
     load_hosts,
     remove_host,
     update_host,
+    add_address_to_host,
+    remove_address_from_host,
+    set_primary_address,
+    get_host_addresses,
     HostsFileCorruptedError,
     DuplicateHostError,
+    AddressError,
 )
 from clawrium.core.keys import (
     generate_host_keypair,
@@ -47,6 +52,13 @@ host_app = typer.Typer(
     help="Manage hosts in your fleet (infrastructure management)",
     no_args_is_help=True,
 )
+
+address_app = typer.Typer(
+    name="address",
+    help="Manage multiple addresses for a host",
+    no_args_is_help=True,
+)
+host_app.add_typer(address_app, name="address")
 
 
 @host_app.command()
@@ -434,9 +446,16 @@ def list_hosts() -> None:
             round(hw.get("memtotal_mb", 0) / 1024, 1) if hw.get("memtotal_mb") else "-"
         )
 
+        # Show [+N] indicator for additional addresses
+        addresses = host.get("addresses", [])
+        additional_count = len(addresses) - 1 if len(addresses) > 1 else 0
+        hostname_display = host["hostname"]
+        if additional_count > 0:
+            hostname_display = f"{hostname_display} [+{additional_count}]"
+
         table.add_row(
             host.get("alias") or "-",
-            host["hostname"],
+            hostname_display,
             hw.get("architecture", "?"),
             str(hw.get("processor_cores", "?")),
             str(mem_gb),
@@ -745,6 +764,15 @@ def ps(
 
     console.print(table)
 
+    # Display addresses if multiple exist
+    addresses = host.get("addresses", [])
+    if len(addresses) > 1:
+        console.print("\n[bold]Addresses:[/bold]")
+        for addr in addresses:
+            primary_marker = "* " if addr.get("is_primary") else "  "
+            label_str = f" ({rich_escape(addr['label'])})" if addr.get("label") else ""
+            console.print(f"  {primary_marker}{rich_escape(addr['address'])}{label_str}")
+
     # Exit 1 if host is disconnected (for scripting)
     if not success:
         raise typer.Exit(code=1)
@@ -872,4 +900,121 @@ def reset(
         console.print("[red]Reset failed![/red]")
         for error in result.errors:
             console.print(f"  - {error}")
+        raise typer.Exit(code=1)
+
+
+# Address management commands
+
+
+@address_app.command(name="add")
+def address_add(
+    host: str = typer.Argument(..., help="Host hostname or alias"),
+    address: str = typer.Argument(
+        ..., help="Address as IPv4, IPv6, or hostname (e.g., 192.168.1.1, myhost.local)"
+    ),
+    label: Optional[str] = typer.Option(
+        None, "--label", "-l", help="Label for the address (e.g., lan, vpn, external)"
+    ),
+) -> None:
+    """Add an address to a host.
+
+    The first address added to a host is automatically the primary.
+    Additional addresses can be used to reach the host from different
+    network contexts.
+    """
+    try:
+        add_address_to_host(host, address, label)
+        label_str = f" ({label})" if label else ""
+        console.print(f"[green]Address '{rich_escape(address)}'{label_str} added to host '{rich_escape(host)}'[/green]")
+    except AddressError as e:
+        console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        raise typer.Exit(code=1)
+
+
+@address_app.command(name="remove")
+def address_remove(
+    host: str = typer.Argument(..., help="Host hostname or alias"),
+    address: str = typer.Argument(
+        ..., help="Address to remove (use 'clm host address list' to see addresses)"
+    ),
+) -> None:
+    """Remove an address from a host.
+
+    Cannot remove the primary address. Use 'set-primary' to switch
+    to a different address first.
+    """
+    try:
+        remove_address_from_host(host, address)
+        console.print(f"[green]Address '{rich_escape(address)}' removed from host '{rich_escape(host)}'[/green]")
+    except AddressError as e:
+        console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        console.print(f"[dim]Use 'clm host address list {rich_escape(host)}' to see available addresses.[/dim]")
+        raise typer.Exit(code=1)
+
+
+@address_app.command(name="list")
+def address_list(
+    host: str = typer.Argument(..., help="Host hostname or alias"),
+) -> None:
+    """List all addresses for a host.
+
+    Shows the primary address (used for all downstream commands) and
+    any secondary addresses for different network contexts.
+    """
+    try:
+        addresses = get_host_addresses(host)
+    except AddressError as e:
+        console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        raise typer.Exit(code=1)
+
+    if not addresses:
+        console.print(f"No addresses configured for host '{rich_escape(host)}'")
+        return
+
+    table = Table(title=f"Addresses for {rich_escape(host)}")
+    table.add_column("Address", style="white")
+    table.add_column("Primary", style="cyan")
+    table.add_column("Label", style="dim")
+    table.add_column("Added", style="dim")
+
+    for addr in addresses:
+        # Format timestamp for display
+        added_at = addr.get("added_at", "")
+        if added_at:
+            try:
+                # Parse ISO format and display nicely
+                dt = datetime.fromisoformat(added_at.replace("Z", "+00:00"))
+                added_display = dt.strftime("%Y-%m-%d %H:%M")
+            except ValueError:
+                added_display = added_at
+        else:
+            added_display = "-"
+
+        table.add_row(
+            rich_escape(addr.get("address", "?")),
+            "*" if addr.get("is_primary") else "",
+            rich_escape(addr.get("label") or "-"),
+            added_display,
+        )
+
+    console.print(table)
+
+
+@address_app.command(name="set-primary")
+def address_set_primary(
+    host: str = typer.Argument(..., help="Host hostname or alias"),
+    address: str = typer.Argument(..., help="Address to make primary"),
+) -> None:
+    """Set a different address as the primary for a host.
+
+    The primary address is used for all downstream commands (agent
+    install, configure, status checks, etc.). Changing the primary
+    updates the host's hostname field.
+    """
+    try:
+        set_primary_address(host, address)
+        console.print(f"[green]Primary address for '{rich_escape(host)}' set to '{rich_escape(address)}'[/green]")
+    except AddressError as e:
+        console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        console.print(f"[dim]Use 'clm host address list {rich_escape(host)}' to see available addresses.[/dim]")
         raise typer.Exit(code=1)

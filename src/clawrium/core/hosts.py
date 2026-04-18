@@ -1,10 +1,13 @@
 """Host storage operations for Clawrium."""
 
 import fcntl
+import ipaddress
 import json
 import os
+import re
 import tempfile
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Callable
 
 from clawrium.core.config import get_config_dir, init_config_dir
@@ -20,9 +23,14 @@ __all__ = [
     "remove_agent_from_host",
     "get_agent_by_name",
     "alias_exists",
+    "add_address_to_host",
+    "remove_address_from_host",
+    "set_primary_address",
+    "get_host_addresses",
     "HOSTS_FILE",
     "HostsFileCorruptedError",
     "DuplicateHostError",
+    "AddressError",
 ]
 
 HOSTS_FILE = "hosts.json"
@@ -68,7 +76,8 @@ def load_hosts() -> list[dict]:
                         f"See CHANGELOG for breaking changes: {hosts_path}"
                     )
 
-            return data
+            # Migrate hosts to addresses format if needed
+            return [_ensure_addresses(host) for host in data]
     except json.JSONDecodeError as e:
         raise HostsFileCorruptedError(
             f"hosts.json is corrupted: {e}. "
@@ -176,6 +185,96 @@ class DuplicateHostError(Exception):
     pass
 
 
+class AddressError(Exception):
+    """Raised for address operation failures."""
+
+    pass
+
+
+def _validate_address(address: str) -> None:
+    """Validate address format for security and correctness.
+
+    Args:
+        address: The address string to validate.
+
+    Raises:
+        AddressError: If address format is invalid or contains dangerous characters.
+    """
+    if not address or not address.strip():
+        raise AddressError("Address cannot be empty")
+
+    address = address.strip()
+
+    # Reject shell metacharacters and control characters
+    dangerous_chars = r'[|&;$`\'\"\\<>(){}!\n\r\t\x00-\x1f]'
+    if re.search(dangerous_chars, address):
+        raise AddressError(
+            "Address contains invalid characters. "
+            "Use only alphanumeric characters, dots, hyphens, and colons."
+        )
+
+    # Reject user prefix (@)
+    if "@" in address:
+        raise AddressError(
+            "Address cannot contain '@'. Specify user with --user flag instead."
+        )
+
+    # Try to parse as IP address first
+    try:
+        ipaddress.ip_address(address)
+        return  # Valid IP address
+    except ValueError:
+        pass
+
+    # Try to parse as IP network (for CIDR notation rejection)
+    if "/" in address:
+        raise AddressError(
+            "Address cannot contain '/'. Use IP address or hostname without CIDR notation."
+        )
+
+    # Validate as hostname (RFC 1123 compliant)
+    # Allow: alphanumeric, hyphens, dots; max 253 chars total, 63 per label
+    if len(address) > 253:
+        raise AddressError("Address is too long (max 253 characters)")
+
+    hostname_pattern = r'^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
+    if not re.match(hostname_pattern, address):
+        raise AddressError(
+            "Invalid address format. Must be a valid IP address or hostname. "
+            "Hostnames can only contain alphanumeric characters, dots, and hyphens."
+        )
+
+
+def _ensure_addresses(host: dict) -> dict:
+    """Migrate host to addresses format if needed.
+
+    If the host doesn't have an 'addresses' field, creates it from
+    the 'hostname' field with is_primary=True.
+
+    Args:
+        host: Host dictionary to migrate.
+
+    Returns:
+        Modified host dictionary with addresses field.
+    """
+    if "addresses" not in host:
+        hostname = host.get("hostname", "")
+        if hostname:
+            host["addresses"] = [
+                {
+                    "address": hostname,
+                    "is_primary": True,
+                    "label": None,
+                    "added_at": host.get("metadata", {}).get(
+                        "added_at", datetime.now(timezone.utc).isoformat()
+                    ),
+                }
+            ]
+        else:
+            host["addresses"] = []
+    return host
+
+
 def add_host(host: dict) -> None:
     """Add a host to the registry atomically.
 
@@ -197,6 +296,8 @@ def add_host(host: dict) -> None:
             if existing.get("hostname") == hostname:
                 raise DuplicateHostError(f"Host '{hostname}' already exists")
 
+        # Initialize addresses if not present
+        _ensure_addresses(host)
         hosts.append(host)
 
         # Save without re-acquiring lock
@@ -420,3 +521,162 @@ def get_agent_by_name(agent_name: str) -> tuple[dict, str, dict] | None:
         )
 
     return matches[0]
+
+
+def add_address_to_host(hostname: str, address: str, label: str | None = None) -> None:
+    """Add an address to a host.
+
+    Args:
+        hostname: The hostname or alias of the host.
+        address: The address (IP or hostname) to add.
+        label: Optional label for the address (e.g., "lan", "vpn").
+
+    Raises:
+        AddressError: If host not found, address already exists, or address is invalid.
+    """
+    # Validate address format before any operations
+    _validate_address(address)
+
+    host = get_host(hostname)
+    if not host:
+        raise AddressError(f"Host '{hostname}' not found")
+
+    actual_hostname = host["hostname"]
+
+    def updater(h: dict) -> dict:
+        _ensure_addresses(h)
+        addresses = h.get("addresses", [])
+
+        # Check for duplicate
+        for addr in addresses:
+            if addr.get("address") == address:
+                raise AddressError(
+                    f"Address '{address}' already exists on host '{hostname}'"
+                )
+
+        # Add new address
+        addresses.append(
+            {
+                "address": address,
+                "is_primary": False,
+                "label": label,
+                "added_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        h["addresses"] = addresses
+        return h
+
+    if not update_host(actual_hostname, updater):
+        raise AddressError(f"Host '{hostname}' not found")
+
+
+def remove_address_from_host(hostname: str, address: str) -> None:
+    """Remove an address from a host.
+
+    Args:
+        hostname: The hostname or alias of the host.
+        address: The address to remove.
+
+    Raises:
+        AddressError: If host not found, address not found, or address is primary.
+    """
+    host = get_host(hostname)
+    if not host:
+        raise AddressError(f"Host '{hostname}' not found")
+
+    actual_hostname = host["hostname"]
+
+    def updater(h: dict) -> dict:
+        _ensure_addresses(h)
+        addresses = h.get("addresses", [])
+
+        # Find the address
+        found_idx = None
+        for i, addr in enumerate(addresses):
+            if addr.get("address") == address:
+                found_idx = i
+                break
+
+        if found_idx is None:
+            raise AddressError(f"Address '{address}' not found on host '{hostname}'")
+
+        # Check if primary
+        if addresses[found_idx].get("is_primary"):
+            raise AddressError("Cannot remove primary address. Use 'set-primary' first")
+
+        # Remove the address
+        addresses.pop(found_idx)
+        h["addresses"] = addresses
+        return h
+
+    if not update_host(actual_hostname, updater):
+        raise AddressError(f"Host '{hostname}' not found")
+
+
+def set_primary_address(hostname: str, address: str) -> None:
+    """Set a different address as primary for a host.
+
+    Updates the hostname field to match the new primary address.
+
+    Args:
+        hostname: The hostname or alias of the host.
+        address: The address to make primary.
+
+    Raises:
+        AddressError: If host not found, address not found, or address is invalid.
+    """
+    # Validate address format before any operations
+    _validate_address(address)
+
+    host = get_host(hostname)
+    if not host:
+        raise AddressError(f"Host '{hostname}' not found")
+
+    actual_hostname = host["hostname"]
+
+    def updater(h: dict) -> dict:
+        _ensure_addresses(h)
+        addresses = h.get("addresses", [])
+
+        # Find the address
+        found = False
+        for addr in addresses:
+            if addr.get("address") == address:
+                found = True
+                break
+
+        if not found:
+            raise AddressError(
+                f"Address '{address}' not found. Add it first with 'host address add'"
+            )
+
+        # Update primary flags and hostname
+        for addr in addresses:
+            addr["is_primary"] = addr.get("address") == address
+
+        h["addresses"] = addresses
+        h["hostname"] = address
+        return h
+
+    if not update_host(actual_hostname, updater):
+        raise AddressError(f"Host '{hostname}' not found")
+
+
+def get_host_addresses(hostname: str) -> list[dict]:
+    """Get all addresses for a host.
+
+    Args:
+        hostname: The hostname or alias of the host.
+
+    Returns:
+        List of address dictionaries.
+
+    Raises:
+        AddressError: If host not found.
+    """
+    host = get_host(hostname)
+    if not host:
+        raise AddressError(f"Host '{hostname}' not found")
+
+    _ensure_addresses(host)
+    return host.get("addresses", [])

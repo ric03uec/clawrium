@@ -833,3 +833,318 @@ def test_host_tag_not_found(isolated_config: Path):
 
     assert result.exit_code == 1
     assert "not found" in result.output.lower()
+
+
+# Tests for clm host address commands
+
+
+def test_address_add_success(isolated_config: Path, sample_host_data: dict):
+    """clm host address add adds address successfully."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app, ["host", "address", "add", "192.168.1.100", "10.0.0.100"], env=os.environ
+    )
+
+    assert result.exit_code == 0
+    assert "10.0.0.100" in result.output
+    assert "added" in result.output.lower()
+
+    # Verify persisted
+    hosts = json.loads(hosts_file.read_text())
+    addresses = hosts[0].get("addresses", [])
+    assert len(addresses) == 2
+    assert any(a["address"] == "10.0.0.100" for a in addresses)
+
+
+def test_address_add_with_label(isolated_config: Path, sample_host_data: dict):
+    """clm host address add with --label stores label."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app,
+        ["host", "address", "add", "192.168.1.100", "10.0.0.100", "--label", "vpn"],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 0
+    assert "vpn" in result.output
+
+    # Verify label persisted
+    hosts = json.loads(hosts_file.read_text())
+    addresses = hosts[0].get("addresses", [])
+    vpn_addr = [a for a in addresses if a["address"] == "10.0.0.100"][0]
+    assert vpn_addr["label"] == "vpn"
+
+
+def test_address_add_duplicate_fails(isolated_config: Path, sample_host_data: dict):
+    """clm host address add fails for duplicate address."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    # Try to add the same address that already exists (hostname)
+    result = runner.invoke(
+        app, ["host", "address", "add", "192.168.1.100", "192.168.1.100"], env=os.environ
+    )
+
+    assert result.exit_code == 1
+    assert "already exists" in result.output.lower()
+
+
+def test_address_remove_success(isolated_config: Path):
+    """clm host address remove removes non-primary address."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host_data = {
+        "hostname": "192.168.1.100",
+        "port": 22,
+        "user": "xclm",
+        "auth_method": "key",
+        "addresses": [
+            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
+            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+        ],
+        "hardware": {},
+        "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
+    }
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app, ["host", "address", "remove", "192.168.1.100", "10.0.0.100"], env=os.environ
+    )
+
+    assert result.exit_code == 0
+    assert "removed" in result.output.lower()
+
+    # Verify removed
+    hosts = json.loads(hosts_file.read_text())
+    addresses = hosts[0].get("addresses", [])
+    assert len(addresses) == 1
+    assert addresses[0]["address"] == "192.168.1.100"
+
+
+def test_address_remove_primary_fails(isolated_config: Path):
+    """clm host address remove fails for primary address."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host_data = {
+        "hostname": "192.168.1.100",
+        "port": 22,
+        "user": "xclm",
+        "auth_method": "key",
+        "addresses": [
+            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
+            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+        ],
+        "hardware": {},
+        "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
+    }
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app, ["host", "address", "remove", "192.168.1.100", "192.168.1.100"], env=os.environ
+    )
+
+    assert result.exit_code == 1
+    assert "cannot remove primary" in result.output.lower()
+
+
+def test_address_list_shows_all(isolated_config: Path):
+    """clm host address list shows all addresses."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host_data = {
+        "hostname": "192.168.1.100",
+        "port": 22,
+        "user": "xclm",
+        "auth_method": "key",
+        "addresses": [
+            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
+            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+        ],
+        "hardware": {},
+        "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
+    }
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app, ["host", "address", "list", "192.168.1.100"], env=os.environ
+    )
+
+    assert result.exit_code == 0
+    assert "192.168.1.100" in result.output
+    assert "10.0.0.100" in result.output
+    assert "lan" in result.output
+    assert "vpn" in result.output
+
+
+def test_address_set_primary_success(isolated_config: Path):
+    """clm host address set-primary switches primary address."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host_data = {
+        "hostname": "192.168.1.100",
+        "port": 22,
+        "user": "xclm",
+        "auth_method": "key",
+        "addresses": [
+            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
+            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+        ],
+        "hardware": {},
+        "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
+    }
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app, ["host", "address", "set-primary", "192.168.1.100", "10.0.0.100"], env=os.environ
+    )
+
+    assert result.exit_code == 0
+    assert "10.0.0.100" in result.output
+
+    # Verify hostname updated
+    hosts = json.loads(hosts_file.read_text())
+    assert hosts[0]["hostname"] == "10.0.0.100"
+
+
+def test_host_list_shows_additional_count(isolated_config: Path):
+    """clm host list shows [+N] for hosts with multiple addresses."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host_data = {
+        "hostname": "192.168.1.100",
+        "alias": "mybox",
+        "port": 22,
+        "user": "xclm",
+        "auth_method": "key",
+        "addresses": [
+            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
+            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+            {"address": "mybox.example.com", "is_primary": False, "label": "external", "added_at": "2024-01-03T00:00:00Z"},
+        ],
+        "hardware": {},
+        "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
+    }
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(app, ["host", "list"], env=os.environ)
+
+    assert result.exit_code == 0
+    assert "[+2]" in result.output
+
+
+def test_host_ps_shows_all_addresses(isolated_config: Path, mock_ssh_client):
+    """clm host ps shows all addresses when multiple exist."""
+    import json
+
+    create_test_keypair(isolated_config, "192.168.1.100")
+    host_data = {
+        "hostname": "192.168.1.100",
+        "key_id": "192.168.1.100",
+        "port": 22,
+        "user": "xclm",
+        "auth_method": "key",
+        "addresses": [
+            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
+            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+        ],
+        "hardware": {},
+        "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
+    }
+    hosts_file = isolated_config / "hosts.json"
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file.write_text(json.dumps([host_data]))
+
+    with patch(
+        "clawrium.core.ssh_connection.paramiko.SSHClient", return_value=mock_ssh_client
+    ):
+        result = runner.invoke(app, ["host", "ps", "192.168.1.100"], env=os.environ)
+
+    assert result.exit_code == 0
+    assert "Addresses:" in result.output
+    assert "192.168.1.100" in result.output
+    assert "10.0.0.100" in result.output
+    assert "(lan)" in result.output
+    assert "(vpn)" in result.output
+
+
+def test_address_add_host_not_found(isolated_config: Path):
+    """clm host address add fails when host not found."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+
+    result = runner.invoke(
+        app, ["host", "address", "add", "nonexistent-host", "10.0.0.1"], env=os.environ
+    )
+
+    assert result.exit_code == 1
+    assert "not found" in result.output.lower()
+
+
+def test_address_add_invalid_empty(isolated_config: Path, sample_host_data: dict):
+    """clm host address add rejects empty address."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app, ["host", "address", "add", "192.168.1.100", ""], env=os.environ
+    )
+
+    assert result.exit_code == 1
+    assert "empty" in result.output.lower()
+
+
+def test_address_add_invalid_shell_chars(isolated_config: Path, sample_host_data: dict):
+    """clm host address add rejects addresses with shell metacharacters."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app, ["host", "address", "add", "192.168.1.100", "host;rm -rf /"], env=os.environ
+    )
+
+    assert result.exit_code == 1
+    assert "invalid" in result.output.lower()
+
+
+def test_address_add_invalid_user_prefix(isolated_config: Path, sample_host_data: dict):
+    """clm host address add rejects addresses with @ symbol."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app, ["host", "address", "add", "192.168.1.100", "user@host.example.com"], env=os.environ
+    )
+
+    assert result.exit_code == 1
+    assert "@" in result.output
