@@ -108,8 +108,8 @@ clm agent start my-assistant
 
 # Check fleet status
 clm ps
-# NAME           TYPE      HOST      STATUS   UPTIME
-# my-assistant   openclaw  worker-1  running  2m
+# NAME           TYPE      PROVIDER  HOST      STATUS   UPTIME
+# my-assistant   openclaw  openai    worker-1  running  2m
 
 # Chat with your agent
 clm chat my-assistant

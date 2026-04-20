@@ -91,10 +91,10 @@ Detecting hardware capabilities...
 clm ps
 ```
 ```
-HOST        AGENT          TYPE       STATUS    UPTIME
-─────────────────────────────────────────────────────────
-homelab     oc-discord     openclaw   running   3d 4h
-nuc-01      oc-work        openclaw   running   12h
+HOST        AGENT          TYPE       PROVIDER   STATUS    UPTIME
+──────────────────────────────────────────────────────────────────
+homelab     oc-discord     openclaw   openai     running   3d 4h
+nuc-01      oc-work        openclaw   anthropic  running   12h
 ```
 
 ```bash

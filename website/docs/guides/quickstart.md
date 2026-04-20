@@ -209,9 +209,9 @@ Verify your fleet:
 clm ps
 ```
 ```
-HOST        AGENT          TYPE       STATUS    UPTIME
-─────────────────────────────────────────────────────────
-homelab     my-assistant   openclaw   running   1m
+HOST        AGENT          TYPE       PROVIDER   STATUS    UPTIME
+──────────────────────────────────────────────────────────────────
+homelab     my-assistant   openclaw   anthropic  running   1m
 ```
 
 ## Step 8: Chat with Your Agent
