@@ -125,10 +125,15 @@ class DetailCards(Grid):
         if agent.get("missing_secrets"):
             secrets_status = f"missing: {len(agent['missing_secrets'])} key(s)"
 
+        gateway_port = agent.get("gateway_port")
+        gateway_port_display = (
+            str(gateway_port) if gateway_port is not None else "not configured"
+        )
+
         config_rows = [
             ("provider", agent.get("provider") or "not configured"),
             ("provider type", agent.get("provider_type") or "not configured"),
-            ("gateway port", "N/A"),
+            ("gateway port", gateway_port_display),
             ("secrets", secrets_status),
         ]
 

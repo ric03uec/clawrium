@@ -319,6 +319,165 @@ class TestGetFleetData:
         assert agents[0]["provider"] == "anthropic"
         assert agents[0]["provider_type"] == "anthropic"
 
+    def test_gateway_port_extracted_from_config(self, isolated_config):
+        """Gateway port should be extracted from config.gateway.port."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "192.168.1.100",
+                "alias": "testhost",
+                "agents": {
+                    "openclaw": {
+                        "type": "openclaw",
+                        "agent_name": "opc-test",
+                        "config": {
+                            "gateway": {"port": 40123},
+                        },
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 4,
+            "memory_total_mb": 8192,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            agents, _ = get_fleet_data()
+
+        assert agents[0]["gateway_port"] == 40123
+
+    def test_gateway_port_none_when_not_configured(self, isolated_config):
+        """Gateway port should be None when not configured."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "192.168.1.100",
+                "agents": {
+                    "zeroclaw": {
+                        "type": "zeroclaw",
+                        "agent_name": "zc-test",
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "zeroclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 2,
+            "memory_total_mb": 4096,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            agents, _ = get_fleet_data()
+
+        assert agents[0]["gateway_port"] is None
+
+    def test_gateway_port_string_value_ignored(self, isolated_config):
+        """String port value should be ignored (type validation)."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "192.168.1.100",
+                "agents": {
+                    "openclaw": {
+                        "type": "openclaw",
+                        "agent_name": "opc-test",
+                        "config": {
+                            "gateway": {"port": "40123"},  # String instead of int
+                        },
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 4,
+            "memory_total_mb": 8192,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            agents, _ = get_fleet_data()
+
+        # String port value should be rejected, resulting in None
+        assert agents[0]["gateway_port"] is None
+
+    def test_gateway_port_empty_gateway_config(self, isolated_config):
+        """Empty gateway config should result in None port."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "192.168.1.100",
+                "agents": {
+                    "openclaw": {
+                        "type": "openclaw",
+                        "agent_name": "opc-test",
+                        "config": {
+                            "gateway": {},  # Empty gateway config
+                        },
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 4,
+            "memory_total_mb": 8192,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            agents, _ = get_fleet_data()
+
+        assert agents[0]["gateway_port"] is None
+
 
 class TestGetAgentDetail:
     def test_found(self, isolated_config):
@@ -372,3 +531,46 @@ class TestGetAgentDetail:
     def test_invalid_agent_key_rejected(self):
         result = get_agent_detail("../../../etc/passwd", "somehost")
         assert result is None
+
+    def test_gateway_port_extracted(self, isolated_config):
+        """Gateway port should be extracted in get_agent_detail."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "192.168.1.100",
+                "alias": "myhost",
+                "agents": {
+                    "openclaw": {
+                        "type": "openclaw",
+                        "agent_name": "opc-test",
+                        "version": "1.0.0",
+                        "config": {
+                            "gateway": {"port": 40456},
+                        },
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 4,
+            "memory_total_mb": 8192,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            detail = get_agent_detail("openclaw", "192.168.1.100")
+
+        assert detail is not None
+        assert detail["gateway_port"] == 40456

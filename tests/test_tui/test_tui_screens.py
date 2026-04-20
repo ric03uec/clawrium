@@ -36,6 +36,7 @@ SAMPLE_AGENT = AgentViewModel(
     provider_type="openai",
     cpu_count=4,
     memory_total_mb=16384,
+    gateway_port=40123,
 )
 
 
@@ -159,6 +160,7 @@ class TestDetailCards:
             provider_type="openai",
             cpu_count=4,
             memory_total_mb=8192,
+            gateway_port=40000,
         )
         cards = DetailCards(agent=agent)
         built = cards._build_cards(agent)
@@ -196,6 +198,7 @@ class TestDetailCards:
             provider_type=None,
             cpu_count=None,
             memory_total_mb=None,
+            gateway_port=None,
         )
         cards = DetailCards(agent=agent)
         built = cards._build_cards(agent)
@@ -308,6 +311,33 @@ class TestDetailCards:
         config_card = built[2]
         provider_type_row = [r for r in config_card._rows if r[0] == "provider type"][0]
         assert provider_type_row[1] == "not configured"
+
+    def test_gateway_port_displayed(self):
+        """Gateway port should be displayed in config card."""
+        agent = AgentViewModel(**{**SAMPLE_AGENT, "gateway_port": 40789})
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        config_card = built[2]
+        gateway_port_row = [r for r in config_card._rows if r[0] == "gateway port"][0]
+        assert gateway_port_row[1] == "40789"
+
+    def test_gateway_port_none_shows_not_configured(self):
+        """None gateway port should show 'not configured'."""
+        agent = AgentViewModel(**{**SAMPLE_AGENT, "gateway_port": None})
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        config_card = built[2]
+        gateway_port_row = [r for r in config_card._rows if r[0] == "gateway port"][0]
+        assert gateway_port_row[1] == "not configured"
+
+    def test_gateway_port_zero_displays_correctly(self):
+        """Port 0 should display as '0' (edge case for explicit is not None check)."""
+        agent = AgentViewModel(**{**SAMPLE_AGENT, "gateway_port": 0})
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        config_card = built[2]
+        gateway_port_row = [r for r in config_card._rows if r[0] == "gateway port"][0]
+        assert gateway_port_row[1] == "0"
 
 
 class TestConfirmModal:
