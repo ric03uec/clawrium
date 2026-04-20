@@ -158,7 +158,7 @@ def test_status_host_filter(mock_hosts_with_claws):
 
     with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
         with patch("clawrium.cli.status.check_claw_health", mock_health):
-            result = runner.invoke(app, ["ps", "--host", "server1"])
+            result = runner.invoke(app, ["ps", "--host", "server1"], env={"COLUMNS": "200"})
 
     assert result.exit_code == 0
     assert "server1" in result.output
@@ -1028,3 +1028,126 @@ def test_status_shows_dash_when_config_empty():
 
     assert result.exit_code == 0
     assert "Port" in result.output
+
+
+# Tests for provider column - Issue #296
+
+
+def test_status_shows_provider_type_when_configured():
+    """Provider column displays provider type when configured."""
+    hosts = [
+        {
+            "hostname": "192.168.1.100",
+            "alias": "server1",
+            "agents": {
+                "openclaw": {
+                    "version": "0.1.0",
+                    "status": "installed",
+                    "installed_at": "2026-03-21T10:00:00Z",
+                    "agent_name": "opc-server1",
+                    "config": {"provider": {"type": "openai", "default_model": "gpt-4o"}},
+                }
+            },
+        }
+    ]
+
+    mock_health = MagicMock(
+        return_value={
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "agent_name": "opc-server1",
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+        }
+    )
+
+    with patch("clawrium.cli.status.load_hosts", return_value=hosts):
+        with patch("clawrium.cli.status.check_claw_health", mock_health):
+            result = runner.invoke(app, ["ps"], env={"COLUMNS": "200"})
+
+    assert result.exit_code == 0
+    assert "openai" in result.output
+
+
+def test_status_shows_dash_when_provider_missing():
+    """Provider column displays '-' when provider not configured."""
+    hosts = [
+        {
+            "hostname": "192.168.1.100",
+            "alias": "server1",
+            "agents": {
+                "openclaw": {
+                    "version": "0.1.0",
+                    "status": "installed",
+                    "installed_at": "2026-03-21T10:00:00Z",
+                    "agent_name": "opc-server1",
+                }
+            },
+        }
+    ]
+
+    mock_health = MagicMock(
+        return_value={
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "agent_name": "opc-server1",
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+        }
+    )
+
+    with patch("clawrium.cli.status.load_hosts", return_value=hosts):
+        with patch("clawrium.cli.status.check_claw_health", mock_health):
+            result = runner.invoke(app, ["ps"], env={"COLUMNS": "200"})
+
+    assert result.exit_code == 0
+    # Table should have Provider column header
+    assert "Provider" in result.output
+
+
+def test_status_shows_dash_when_provider_config_empty():
+    """Provider column displays '-' when config exists but provider type missing."""
+    hosts = [
+        {
+            "hostname": "192.168.1.100",
+            "alias": "server1",
+            "agents": {
+                "openclaw": {
+                    "version": "0.1.0",
+                    "status": "installed",
+                    "installed_at": "2026-03-21T10:00:00Z",
+                    "agent_name": "opc-server1",
+                    "config": {"provider": {}},
+                }
+            },
+        }
+    ]
+
+    mock_health = MagicMock(
+        return_value={
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "agent_name": "opc-server1",
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+        }
+    )
+
+    with patch("clawrium.cli.status.load_hosts", return_value=hosts):
+        with patch("clawrium.cli.status.check_claw_health", mock_health):
+            result = runner.invoke(app, ["ps"], env={"COLUMNS": "200"})
+
+    assert result.exit_code == 0
+    assert "Provider" in result.output

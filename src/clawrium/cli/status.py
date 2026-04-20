@@ -143,6 +143,7 @@ def status(
     table = Table(title="[bold]Agent Fleet Status[/bold]")
     table.add_column("Name", style="cyan bold")
     table.add_column("Agent Type", style="dim")
+    table.add_column("Provider", style="dim")
     table.add_column("Host", style="white")
     table.add_column("Address", style="dim")
     table.add_column("Port", style="dim")
@@ -170,6 +171,9 @@ def status(
 
             port = claw_record.get("config", {}).get("gateway", {}).get("port")
             port_display = str(port) if port else "-"
+
+            provider_type = claw_record.get("config", {}).get("provider", {}).get("type")
+            provider_display = provider_type if provider_type else "-"
 
             # Get live status with color coding
             result = health_results.get((claw_name, h["hostname"]))
@@ -255,6 +259,7 @@ def status(
             table.add_row(
                 escape(full_name),
                 escape(agent_type),
+                escape(provider_display),
                 escape(display_host),
                 escape(address),
                 port_display,

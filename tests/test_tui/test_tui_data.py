@@ -227,6 +227,97 @@ class TestGetFleetData:
 
         assert agents[0]["model"] == "-"
         assert agents[0]["provider"] is None
+        assert agents[0]["provider_type"] is None
+
+    def test_provider_type_extracted_from_config(self, isolated_config):
+        """Provider type should be extracted from config.provider.type."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "192.168.1.100",
+                "alias": "testhost",
+                "port": 22,
+                "agents": {
+                    "openclaw": {
+                        "version": "0.1.0",
+                        "status": "installed",
+                        "agent_name": "opc-testhost",
+                        "type": "openclaw",
+                        "config": {
+                            "provider": {
+                                "name": "my-openai",
+                                "type": "openai",
+                                "default_model": "gpt-4o",
+                            }
+                        },
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 8,
+            "memory_total_mb": 32768,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            agents, _ = get_fleet_data()
+
+        assert agents[0]["provider"] == "my-openai"
+        assert agents[0]["provider_type"] == "openai"
+        assert agents[0]["model"] == "gpt-4o"
+
+    def test_provider_name_fallback_to_type(self, isolated_config):
+        """Provider name should fallback to type if name is not set."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "192.168.1.100",
+                "agents": {
+                    "zeroclaw": {
+                        "type": "zeroclaw",
+                        "agent_name": "zc-test",
+                        "config": {"provider": {"type": "anthropic"}},
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "zeroclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 2,
+            "memory_total_mb": 4096,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            agents, _ = get_fleet_data()
+
+        # provider fallbacks to type when name is not set
+        assert agents[0]["provider"] == "anthropic"
+        assert agents[0]["provider_type"] == "anthropic"
 
 
 class TestGetAgentDetail:

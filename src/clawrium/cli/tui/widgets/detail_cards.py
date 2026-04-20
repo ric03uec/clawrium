@@ -127,6 +127,7 @@ class DetailCards(Grid):
 
         config_rows = [
             ("provider", agent.get("provider") or "not configured"),
+            ("provider type", agent.get("provider_type") or "not configured"),
             ("gateway port", "N/A"),
             ("secrets", secrets_status),
         ]

@@ -33,6 +33,7 @@ SAMPLE_AGENT = AgentViewModel(
     health_error=None,
     addresses=[{"address": "192.168.1.100", "is_primary": True, "label": None}],
     provider="openai",
+    provider_type="openai",
     cpu_count=4,
     memory_total_mb=16384,
 )
@@ -155,6 +156,7 @@ class TestDetailCards:
             health_error=None,
             addresses=[],
             provider="openai",
+            provider_type="openai",
             cpu_count=4,
             memory_total_mb=8192,
         )
@@ -191,6 +193,7 @@ class TestDetailCards:
             health_error="Host [red]unreachable[/red]",
             addresses=[],
             provider=None,
+            provider_type=None,
             cpu_count=None,
             memory_total_mb=None,
         )
@@ -287,6 +290,24 @@ class TestDetailCards:
         config_card = built[2]
         provider_row = [r for r in config_card._rows if r[0] == "provider"][0]
         assert provider_row[1] == "not configured"
+
+    def test_provider_type_displayed(self):
+        """Provider type should be displayed in config card."""
+        agent = AgentViewModel(**{**SAMPLE_AGENT, "provider_type": "anthropic"})
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        config_card = built[2]
+        provider_type_row = [r for r in config_card._rows if r[0] == "provider type"][0]
+        assert provider_type_row[1] == "anthropic"
+
+    def test_provider_type_none_shows_not_configured(self):
+        """None provider type should show 'not configured'."""
+        agent = AgentViewModel(**{**SAMPLE_AGENT, "provider_type": None})
+        cards = DetailCards(agent=agent)
+        built = cards._build_cards(agent)
+        config_card = built[2]
+        provider_type_row = [r for r in config_card._rows if r[0] == "provider type"][0]
+        assert provider_type_row[1] == "not configured"
 
 
 class TestConfirmModal:

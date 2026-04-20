@@ -31,6 +31,7 @@ class AgentViewModel(TypedDict):
     health_error: str | None
     addresses: list[dict]
     provider: str | None
+    provider_type: str | None
     cpu_count: int | None
     memory_total_mb: int | None
 
@@ -104,11 +105,13 @@ def get_fleet_data(
             config = claw_record.get("config", {})
             model = "-"
             provider_name = None
+            provider_type = None
             if isinstance(config, dict):
                 provider_cfg = config.get("provider")
                 if isinstance(provider_cfg, dict):
                     model = provider_cfg.get("default_model", "-")
                     provider_name = provider_cfg.get("name") or provider_cfg.get("type")
+                    provider_type = provider_cfg.get("type")
 
             started_at = None
             runtime = claw_record.get("runtime", {})
@@ -139,6 +142,7 @@ def get_fleet_data(
                     health_error=result.get("error"),
                     addresses=h.get("addresses", []),
                     provider=provider_name,
+                    provider_type=provider_type,
                     cpu_count=result.get("cpu_count"),
                     memory_total_mb=result.get("memory_total_mb"),
                 )
@@ -204,11 +208,13 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
         config = claw_record.get("config", {})
         model = "-"
         provider_name = None
+        provider_type = None
         if isinstance(config, dict):
             provider_cfg = config.get("provider")
             if isinstance(provider_cfg, dict):
                 model = provider_cfg.get("default_model", "-")
                 provider_name = provider_cfg.get("name") or provider_cfg.get("type")
+                provider_type = provider_cfg.get("type")
 
         started_at = None
         runtime = claw_record.get("runtime", {})
@@ -233,6 +239,7 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
             health_error=result.get("error"),
             addresses=h.get("addresses", []),
             provider=provider_name,
+            provider_type=provider_type,
             cpu_count=result.get("cpu_count"),
             memory_total_mb=result.get("memory_total_mb"),
         )
