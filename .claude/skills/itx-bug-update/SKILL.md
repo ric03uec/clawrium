@@ -58,3 +58,9 @@ Add a comment to an existing GitHub bug issue.
 
 - Warn if the issue doesn't have a `bug` label (may be wrong issue type)
 - Include relevant technical details from the conversation
+
+## Prompt Logging
+
+**REQUIRED**: Append prompt log to `.itx/<N>/00_PLAN.md`.
+
+See [AGENTS.md](../../../AGENTS.md#prompt-logging-standard) for format specification.

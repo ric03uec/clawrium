@@ -115,7 +115,7 @@ New Issue → /itx:triage → /itx:plan-create → /itx:plan-scaffold → /itx:e
 | `/itx:plan-scaffold <n>` | Create phased execution with entry/exit criteria |
 | `/itx:execute <n>` | Execute issue (parent or subtask) |
 | `/itx:verify` | Run tests and lint |
-| `/itx:review-pr [n]` | ATX review of PR |
+| `/itx:review-pr [n]` | Review PR (MCP or manual) |
 
 ### Task-Based Execution
 
@@ -124,7 +124,7 @@ The `/itx:execute` skill uses a structured task checklist approach to prevent ge
 **Planning Phase (Mandatory)**:
 1. Read implementation plan from issue
 2. Create implementation tasks using `TaskCreate()` for each phase/step
-3. Create verification tasks (tests, lint, ATX review)
+3. Create verification tasks (tests, lint, review if MCP enabled)
 4. Set dependencies between tasks if needed
 5. Review task list to confirm structure
 
@@ -162,11 +162,28 @@ If execution feels unclear or you lose orientation:
 
 ## Review
 
+Review requirements depend on whether MCP-based automated review is configured in `.claude/itx-config.json`.
+
+### Check Review Mode
+
+```bash
+ITX_CONFIG="$(git rev-parse --show-toplevel)/.claude/itx-config.json"
+if [ -f "$ITX_CONFIG" ]; then
+  REVIEW_ENABLED=$(jq -r '.mcp.review_enabled // false' "$ITX_CONFIG")
+else
+  REVIEW_ENABLED="false"
+fi
+```
+
+---
+
+## If MCP Review Enabled (ATX)
+
 <atx-review-requirements>
-**MANDATORY**: All code changes MUST include @atx-ci review before merging.
+When `mcp.review_enabled` is `true`, all code changes MUST include automated review before merging.
 
 ### Iteration Requirements
-1. Request review using `mcp__atx__review_changes` or `mcp__atx__request_review`
+1. Request review using the configured MCP tool (default: `mcp__atx__request_review`)
 2. Fix ALL blocking issues (B1, B2, etc.)
 3. Iterate until: Rating > 3/5 AND no blocking issues remain
 4. Document each review iteration in commit message and PR body
@@ -177,8 +194,8 @@ If execution feels unclear or you lose orientation:
 - Before marking PR as ready for merge
 </atx-review-requirements>
 
-<commit-format>
-### Commit Message Format
+<commit-format-atx>
+### Commit Message Format (ATX)
 
 Include ATX review summary after the commit body:
 
@@ -206,10 +223,10 @@ Warnings:
 Co-Authored-By: Claude <noreply@anthropic.com>
 Co-Authored-By: @atx-ci <269048218+atx-ci@users.noreply.github.com>
 ```
-</commit-format>
+</commit-format-atx>
 
-<pr-format>
-### PR Body Format
+<pr-format-atx>
+### PR Body Format (ATX)
 
 Include detailed ATX review after Summary and Testing sections:
 
@@ -256,14 +273,88 @@ Co-Authored-By: @atx-ci <269048218+atx-ci@users.noreply.github.com>
 ```
 
 See PRs #19, #21, and #205 for real examples of this format.
-</pr-format>
+</pr-format-atx>
 
-<enforcement>
-### Enforcement Rules
+<enforcement-atx>
+### Enforcement Rules (ATX)
 
 1. **No merge without review**: PRs lacking ATX review section will be rejected
 2. **No unresolved blockers**: All `B#` issues must be `Fixed` or `Out-of-scope` with justification
 3. **Rating threshold**: Final review must be > 3/5
 4. **Attribution required**: `Co-Authored-By: @atx-ci` must appear in both commit and PR
 5. **Iteration tracking**: Each review round must be documented with its rating
-</enforcement>
+</enforcement-atx>
+
+---
+
+## If MCP Review Not Enabled (Manual Review)
+
+<manual-review-requirements>
+When `mcp.review_enabled` is `false` or not configured, use manual review with self-attestation.
+
+### Requirements
+1. Run all tests and ensure they pass
+2. Run linter and fix any issues
+3. Self-review changes for quality and security
+4. Document testing approach in PR
+</manual-review-requirements>
+
+<commit-format-manual>
+### Commit Message Format (Manual)
+
+```
+feat(component): short description
+
+Detailed explanation of changes.
+
+Closes #XX
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+</commit-format-manual>
+
+<pr-format-manual>
+### PR Body Format (Manual)
+
+```markdown
+## Summary
+<1-3 bullet points describing what this PR does>
+
+## Testing
+
+### Test Results
+- [ ] All existing tests pass (`make test`)
+- [ ] Linter passes (`make lint`)
+- [ ] New tests added for new functionality
+
+### Test Coverage
+- Files changed: <list files>
+- New tests: <list new test files or "N/A">
+- Coverage impact: <increased/maintained/decreased>
+
+### Manual Testing
+<Describe any manual testing performed>
+
+### Security Checklist
+- [ ] No hardcoded secrets or credentials
+- [ ] Input validation for user-provided data
+- [ ] No SQL injection, XSS, or command injection risks
+- [ ] Dependencies are from trusted sources
+
+## Reviewer Notes
+<Any additional context for reviewers>
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+</pr-format-manual>
+
+<enforcement-manual>
+### Enforcement Rules (Manual)
+
+1. **Tests must pass**: All tests must pass before merge
+2. **Linter must pass**: No lint errors allowed
+3. **Testing documented**: PR must include Testing section
+4. **Security reviewed**: Security checklist must be completed
+</enforcement-manual>

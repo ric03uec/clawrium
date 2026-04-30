@@ -77,3 +77,9 @@ Find and triage issues that don't have workflow labels.
 - Focus on issues that fell through the cracks
 - Don't re-triage issues that already have workflow labels
 - Be conservative - when in doubt, use `needs-triage`
+
+## Prompt Logging
+
+**REQUIRED**: For each triaged issue, append prompt log to `.itx/<N>/00_PLAN.md`.
+
+See [AGENTS.md](../../../AGENTS.md#prompt-logging-standard) for format specification.

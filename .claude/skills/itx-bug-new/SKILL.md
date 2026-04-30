@@ -15,19 +15,19 @@ Create a GitHub issue for a bug based on the current conversation context.
    - Error messages and stack traces
    - Unexpected behavior descriptions
    - Steps that led to the issue
-   - Environment details (Python version, OS, etc.)
+   - Environment details (version, OS, etc.)
 
 2. **Ask for Customer Outcome**: Use `AskUserQuestion` to ask:
    > "What should the user be able to do when this bug is fixed?"
 
    Example outcomes:
-   - "User can install claws without version mismatch errors"
-   - "User can add hosts with special characters in names"
+   - "User can install dependencies without version mismatch errors"
+   - "User can add resources with special characters in names"
    - "User can run status command without timeout"
 
 3. **Form Issue Title**: Use the customer outcome as the issue title.
    - Format: `<outcome>` (what the user can do after fix)
-   - Example: "User can install claws without version mismatch errors"
+   - Example: "User can install dependencies without version mismatch errors"
    - The user can change this later if needed
 
 4. **Gather Details**:
@@ -35,7 +35,22 @@ Create a GitHub issue for a bug based on the current conversation context.
    - Identify steps to reproduce if available
    - Note environment details
 
-5. **Create Issue**: Use `gh issue create` with:
+5. **Load Project Name** (for environment section):
+   ```bash
+   ITX_CONFIG="$(git rev-parse --show-toplevel)/.claude/itx-config.json"
+   if [ -f "$ITX_CONFIG" ]; then
+     PROJECT_NAME=$(jq -r '.project.name // ""' "$ITX_CONFIG")
+     VERSION_LABEL=$(jq -r '.project.version_label // "Version"' "$ITX_CONFIG")
+   fi
+
+   # Fallback: use repository name if no config
+   if [ -z "$PROJECT_NAME" ]; then
+     REMOTE_URL=$(git config --get remote.origin.url)
+     PROJECT_NAME=$(echo "$REMOTE_URL" | sed -E 's/.*[:/]([^/]+\/[^/]+)(\.git)?$/\1/' | cut -d'/' -f2)
+   fi
+   ```
+
+6. **Create Issue**: Use `gh issue create` with:
    ```bash
    gh issue create \
      --title "<customer outcome from step 3>" \
@@ -44,7 +59,7 @@ Create a GitHub issue for a bug based on the current conversation context.
      --body "<structured bug report>"
    ```
 
-6. **Bug Report Body Format**:
+7. **Bug Report Body Format**:
    ```markdown
    ## Customer Outcome
    <The outcome statement - what user can do when fixed>
@@ -63,9 +78,9 @@ Create a GitHub issue for a bug based on the current conversation context.
    <What actually happens>
 
    ## Environment
-   - Clawrium version: <version>
-   - Python version: <version>
-   - OS: <os>
+   - <project name> version: <version>
+   - Platform: <os/platform>
+   - Other relevant details: <details>
 
    ---
 
@@ -84,7 +99,7 @@ Create a GitHub issue for a bug based on the current conversation context.
    </details>
    ```
 
-7. **Return**: The issue URL and number
+8. **Return**: The issue URL and number
 
 ## Notes
 
@@ -93,3 +108,15 @@ Create a GitHub issue for a bug based on the current conversation context.
 - Always add `needs-triage` label for new bugs
 - Include as much context as available from the conversation
 - If steps to reproduce are unclear, note that in the issue
+- Project name dynamically detected or loaded from config
+
+## Prompt Logging
+
+**REQUIRED**: After creating the issue, append prompt log to `.itx/<N>/00_PLAN.md`.
+
+See [AGENTS.md](../../../AGENTS.md#prompt-logging-standard) for format specification.
+
+```bash
+mkdir -p .itx/<issue-number>
+# Append prompt log to .itx/<issue-number>/00_PLAN.md
+```

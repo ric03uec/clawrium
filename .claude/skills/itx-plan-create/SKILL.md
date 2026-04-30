@@ -5,7 +5,7 @@ argument-hint: "<issue-number>"
 ---
 name: itx:plan-create
 
-# Implementation Planning (Build Phase)
+# Implementation Planning (Create Phase)
 
 Create a high-level implementation plan for a GitHub issue with product output and technical details.
 
@@ -28,20 +28,32 @@ Create a high-level implementation plan for a GitHub issue with product output a
    - Define test strategy
    - Note potential risks
 
-4. **Decide on Subtasks**:
+4. **Save Plan to File**:
+   ```bash
+   mkdir -p .itx/<number>
+   # Write plan to .itx/<number>/00_PLAN.md
+   ```
+
+5. **Decide on Subtasks**:
    - **Simple issue** (< 3 files, single concern): No subtasks needed
    - **Complex issue** (multiple files, multiple concerns): Create subtasks
 
-5. **If Subtasks Needed**: Create subtask issues and link as sub-issues
+6. **If Subtasks Needed**: Detect repository info and create subtask issues with sub-issue links
     ```bash
+    # Extract repository info
+    REMOTE_URL=$(git config --get remote.origin.url)
+    OWNER_REPO=$(echo "$REMOTE_URL" | sed -E 's/.*[:/]([^/]+\/[^/]+)(\.git)?$/\1/')
+    OWNER=$(echo "$OWNER_REPO" | cut -d'/' -f1)
+    REPO=$(echo "$OWNER_REPO" | cut -d'/' -f2)
+
     # Create subtask
     CHILD_URL=$(gh issue create \
       --title "[Parent #<parent>] <subtask description>" \
       --label "ready" \
       --body "<subtask details>")
     CHILD_NUM=$(basename $CHILD_URL)
-    
-    # Link as sub-issue using GraphQL
+
+    # Link as sub-issue using GraphQL with dynamic repo
     gh api graphql -f query='
       mutation($parentId: ID!, $childId: ID!) {
         addSubIssue(input: {issueId: $parentId, subIssueId: $childId}) {
@@ -49,11 +61,11 @@ Create a high-level implementation plan for a GitHub issue with product output a
           subIssue { number }
         }
       }' \
-      -f parentId=$(gh api graphql -f query='query($owner: String!, $repo: String!, $issue: Int!) { repository(owner: $owner, name: $repo) { issue(number: $issue) { id } } }' -f owner=OWNER -f repo=REPO -F issue=$PARENT_NUM | jq -r '.data.repository.issue.id') \
-      -f childId=$(gh api graphql -f query='query($owner: String!, $repo: String!, $issue: Int!) { repository(owner: $owner, name: $repo) { issue(number: $issue) { id } } }' -f owner=OWNER -f repo=REPO -F issue=$CHILD_NUM | jq -r '.data.repository.issue.id')
+      -f parentId=$(gh api graphql -f query='query($owner: String!, $repo: String!, $issue: Int!) { repository(owner: $owner, name: $repo) { issue(number: $issue) { id } } }' -f owner="$OWNER" -f repo="$REPO" -F issue=$PARENT_NUM | jq -r '.data.repository.issue.id') \
+      -f childId=$(gh api graphql -f query='query($owner: String!, $repo: String!, $issue: Int!) { repository(owner: $owner, name: $repo) { issue(number: $issue) { id } } }' -f owner="$OWNER" -f repo="$REPO" -F issue=$CHILD_NUM | jq -r '.data.repository.issue.id')
     ```
 
-6. **Post Plan**: Add plan as comment on parent issue
+7. **Post Plan**: Add plan as comment on parent issue
    ```markdown
    ## Implementation Plan
 
@@ -80,8 +92,8 @@ Create a high-level implementation plan for a GitHub issue with product output a
    <details>
    <summary>Prompt Log</summary>
 
-**Stage**: planning
-    **Skill**: /itx:plan-create
+   **Stage**: planning
+   **Skill**: /itx:plan-create
    **Timestamp**: <ISO timestamp>
    **Model**: <model>
 
@@ -92,18 +104,18 @@ Create a high-level implementation plan for a GitHub issue with product output a
    </details>
    ```
 
-7. **Update Labels**:
+8. **Update Labels**:
    ```bash
    gh issue edit <number> --remove-label "planning" --add-label "planned"
    ```
 
-8. **Return**: Plan summary and any subtask issue numbers
+9. **Return**: Plan summary and any subtask issue numbers
 
 ## Subtask Guidelines
 
 - Each subtask should be independently executable
 - Subtasks should have clear boundaries
-- Order subtasks by dependency (execute first → last)
+- Order subtasks by dependency (execute first -> last)
 - Subtask title format: `[Parent #N] <action verb> <target>`
 
 ## Notes
@@ -111,3 +123,10 @@ Create a high-level implementation plan for a GitHub issue with product output a
 - Use expensive models (Opus/Sonnet) for planning - this is where thinking matters
 - Execution can use cheaper models (Haiku)
 - Plans should be detailed enough that any developer can execute
+- Plan file saved to `.itx/<N>/00_PLAN.md` for reference
+
+## Prompt Logging
+
+**REQUIRED**: Append prompt log to `.itx/<N>/00_PLAN.md`.
+
+See [AGENTS.md](../../../AGENTS.md#prompt-logging-standard) for format specification.

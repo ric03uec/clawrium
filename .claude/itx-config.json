@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "ITX Skills Configuration for Clawrium",
+  "build": {
+    "test_command": "make test",
+    "lint_command": "make lint",
+    "coverage_command": "make test-cov"
+  },
+  "github": {
+    "project_board": {
+      "enabled": true,
+      "project_id": "PVT_kwHOABDzzM4BSDdU",
+      "status_field_id": "PVTSSF_lAHOABDzzM4BSDdUzg_s1SU",
+      "status_options": {
+        "backlog": "d1b8c82d",
+        "ready": "e68a5cf4",
+        "executing": "47fc9ee4",
+        "in_review": "e78b7dd8",
+        "done": "4aea9290"
+      }
+    }
+  },
+  "mcp": {
+    "review_enabled": true,
+    "review_tool": "mcp__atx__request_review"
+  },
+  "project": {
+    "name": "Clawrium",
+    "version_label": "Version"
+  }
+}
