@@ -53,5 +53,10 @@ Check the status of open pull requests for this repository.
 ## Notes
 
 - This is a read-only status check
-- No prompt logging (read-only operation)
 - Use to identify what needs attention
+
+## Prompt Logging
+
+**REQUIRED**: Append prompt log to `.itx/<N>/02_VERIFY.md`.
+
+See [AGENTS.md](../../../AGENTS.md#prompt-logging-standard) for format specification.

@@ -21,13 +21,13 @@ Create a GitHub issue for a feature request or improvement.
    > "What should the user be able to do when this is implemented?"
 
    Example outcomes:
-   - "User can deploy multiple claws in a single command"
-   - "User can see token usage across all agents"
-   - "User can backup claw configurations automatically"
+   - "User can deploy multiple components in a single command"
+   - "User can see resource usage across all services"
+   - "User can backup configurations automatically"
 
 3. **Form Issue Title**: Use the customer outcome as the issue title.
    - Format: `<outcome>` (what the user can do after implementation)
-   - Example: "User can deploy multiple claws in a single command"
+   - Example: "User can deploy multiple components in a single command"
    - The user can change this later if needed
 
 4. **Gather Details**:
@@ -86,3 +86,14 @@ Create a GitHub issue for a feature request or improvement.
 - Do not add labels by default (let triage decide)
 - Focus on the problem/need, not just the solution
 - Include acceptance criteria when possible
+
+## Prompt Logging
+
+**REQUIRED**: After creating the issue, append prompt log to `.itx/<N>/00_PLAN.md`.
+
+See [AGENTS.md](../../../AGENTS.md#prompt-logging-standard) for format specification.
+
+```bash
+mkdir -p .itx/<issue-number>
+# Append prompt log to .itx/<issue-number>/00_PLAN.md
+```

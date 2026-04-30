@@ -52,6 +52,11 @@ name: itx:note
 ## Notes
 
 - This is a local operation only
-- No prompt logging to GitHub (local file)
 - Use for quick capture during development
 - Review NOTES.md periodically to process captured ideas
+
+## Prompt Logging
+
+**REQUIRED**: Append prompt log to `NOTES.md`.
+
+See [AGENTS.md](../../../AGENTS.md#prompt-logging-standard) for format specification.

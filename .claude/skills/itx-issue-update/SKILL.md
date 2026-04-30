@@ -58,3 +58,9 @@ Add a comment to an existing GitHub issue.
 
 - Works for any issue type (bug, feature, etc.)
 - Warn if the issue is closed
+
+## Prompt Logging
+
+**REQUIRED**: Append prompt log to `.itx/<N>/00_PLAN.md`.
+
+See [AGENTS.md](../../../AGENTS.md#prompt-logging-standard) for format specification.

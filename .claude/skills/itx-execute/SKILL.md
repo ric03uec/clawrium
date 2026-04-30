@@ -20,9 +20,9 @@ Triggered by `in a subtree` or `--worktree` in arguments. Enables working on mul
 
 Example:
 ```
-~/projects/clawrium/           # Main repo
-~/projects/clawrium-issue-35/  # Worktree for issue 35
-~/projects/clawrium-issue-42/  # Worktree for issue 42
+~/projects/myrepo/           # Main repo
+~/projects/myrepo-issue-35/  # Worktree for issue 35
+~/projects/myrepo-issue-42/  # Worktree for issue 42
 ```
 
 ### Worktree Execution Steps
@@ -64,47 +64,70 @@ Example:
 After PR is merged:
 ```bash
 # Remove worktree
-git worktree remove ../clawrium-issue-35
+git worktree remove ../<repo>-issue-35
 
 # Or force remove if dirty
-git worktree remove --force ../clawrium-issue-35
+git worktree remove --force ../<repo>-issue-35
 
 # Clean up tmux window
 tmux kill-window -t "itx/exec:issue-35"
 ```
 
-## GitHub Project Board
+## GitHub Project Board (Optional)
 
-Project ID: `PVT_kwHOABDzzM4BSDdU`
-Status Field ID: `PVTSSF_lAHOABDzzM4BSDdUzg_s1SU`
+Project board integration is **optional** and controlled via `.claude/itx-config.json`.
 
-Status Options:
-- Backlog: `d1b8c82d`
-- Ready: `e68a5cf4`
-- Executing: `47fc9ee4`
-- In Review: `e78b7dd8`
-- Done: `4aea9290`
-
-### Add Issue to Project & Set Status
+### Check if Project Board is Enabled
 
 ```bash
+ITX_CONFIG="$(git rev-parse --show-toplevel)/.claude/itx-config.json"
+if [ -f "$ITX_CONFIG" ]; then
+  PROJECT_ENABLED=$(jq -r '.github.project_board.enabled // false' "$ITX_CONFIG")
+  if [ "$PROJECT_ENABLED" = "true" ]; then
+    # Load project board configuration
+    PROJECT_ID=$(jq -r '.github.project_board.project_id' "$ITX_CONFIG")
+    STATUS_FIELD_ID=$(jq -r '.github.project_board.status_field_id' "$ITX_CONFIG")
+    BACKLOG_ID=$(jq -r '.github.project_board.status_options.backlog' "$ITX_CONFIG")
+    READY_ID=$(jq -r '.github.project_board.status_options.ready' "$ITX_CONFIG")
+    EXECUTING_ID=$(jq -r '.github.project_board.status_options.executing' "$ITX_CONFIG")
+    IN_REVIEW_ID=$(jq -r '.github.project_board.status_options.in_review' "$ITX_CONFIG")
+    DONE_ID=$(jq -r '.github.project_board.status_options.done' "$ITX_CONFIG")
+  fi
+else
+  PROJECT_ENABLED="false"
+fi
+```
+
+### Add Issue to Project & Set Status (if enabled)
+
+**Only execute if `PROJECT_ENABLED="true"`**:
+
+```bash
+# Extract repository info
+REMOTE_URL=$(git config --get remote.origin.url)
+OWNER_REPO=$(echo "$REMOTE_URL" | sed -E 's/.*[:/]([^/]+\/[^/]+)(\.git)?$/\1/')
+OWNER=$(echo "$OWNER_REPO" | cut -d'/' -f1)
+REPO=$(echo "$OWNER_REPO" | cut -d'/' -f2)
+
 # Get issue node ID
-NODE_ID=$(gh api repos/ric03uec/clawrium/issues/<number> --jq '.node_id')
+NODE_ID=$(gh api repos/$OWNER/$REPO/issues/<number> --jq '.node_id')
 
 # Add to project (returns item ID)
 ITEM_ID=$(gh api graphql -f query='
-  mutation {
+  mutation($projectId: ID!, $contentId: ID!) {
     addProjectV2ItemById(input: {
-      projectId: "PVT_kwHOABDzzM4BSDdU"
-      contentId: "'"$NODE_ID"'"
+      projectId: $projectId
+      contentId: $contentId
     }) { item { id } }
   }
-' --jq '.data.addProjectV2ItemById.item.id')
+' -f projectId="$PROJECT_ID" -f contentId="$NODE_ID" --jq '.data.addProjectV2ItemById.item.id')
 
 # Set status to Executing
-gh project item-edit --project-id PVT_kwHOABDzzM4BSDdU --id "$ITEM_ID" \
-  --field-id PVTSSF_lAHOABDzzM4BSDdUzg_s1SU --single-select-option-id 47fc9ee4
+gh project item-edit --project-id "$PROJECT_ID" --id "$ITEM_ID" \
+  --field-id "$STATUS_FIELD_ID" --single-select-option-id "$EXECUTING_ID"
 ```
+
+**If project board not enabled**, skip all project board operations silently.
 
 ## Branch Protection
 
@@ -163,11 +186,25 @@ Always:
    </details>
    ```
 
-2. **Update Status to Executing**: Use the project board commands at top of file
+2. **Update Status to Executing** (if project board enabled):
+   Use the conditional project board commands above.
+   If not enabled, skip this step silently.
 
-3. **Read Plan**: Find the implementation plan in issue comments
+3. **Read Plan**: Find the implementation plan in issue comments or `.itx/<N>/01_EXECUTION.md`
 
-4. **Create Execution Checklist**:
+4. **Load Build Configuration**:
+   ```bash
+   ITX_CONFIG="$(git rev-parse --show-toplevel)/.claude/itx-config.json"
+   if [ -f "$ITX_CONFIG" ]; then
+     TEST_CMD=$(jq -r '.build.test_command // "make test"' "$ITX_CONFIG")
+     LINT_CMD=$(jq -r '.build.lint_command // "make lint"' "$ITX_CONFIG")
+   else
+     TEST_CMD="make test"
+     LINT_CMD="make lint"
+   fi
+   ```
+
+5. **Create Execution Checklist**:
 
    **CRITICAL**: ALWAYS create task checklist before any execution. Do not skip this step.
 
@@ -187,20 +224,14 @@ Always:
       ```
       TaskCreate(
           subject="Run test suite",
-          description="Execute 'make test' and ensure all tests pass",
+          description="Execute configured test command and ensure all tests pass",
           activeForm="Running tests"
       )
 
       TaskCreate(
           subject="Run linter",
-          description="Execute 'make lint' and fix any issues",
+          description="Execute configured lint command and fix any issues",
           activeForm="Running linter"
-      )
-
-      TaskCreate(
-          subject="Verify ATX review requirements",
-          description="Request ATX review and address all blocking issues",
-          activeForm="Running ATX review"
       )
       ```
 
@@ -217,7 +248,7 @@ Always:
       TaskList()  # Confirm all tasks created correctly
       ```
 
-5. **Execute Tasks Systematically**:
+6. **Execute Tasks Systematically**:
 
    a. Get Next Task: `TaskList()` - Find first pending task with no blockedBy
 
@@ -234,15 +265,15 @@ Always:
 
    f. Repeat until all implementation tasks are completed
 
-6. **Execute Verification Tasks**:
+7. **Execute Verification Tasks**:
 
    Follow the same pattern as implementation:
    - Mark verification task as in_progress
-   - Run verification (tests, lint, ATX review)
+   - Run verification using configured commands ($TEST_CMD, $LINT_CMD)
    - Mark as completed
    - Move to next verification task
 
-7. **Create PR**:
+8. **Create PR**:
 
    **If in worktree mode**: Branch already exists (created during worktree setup)
    ```bash
@@ -283,22 +314,21 @@ activeForm: "Implementing <what>"
 
 Examples:
 ```
-subject: "Implement: Update CLI help text for agent terminology"
-description: "Update all help text in src/clawrium/cli/agent.py to use 'agent' instead of 'claw'"
+subject: "Implement: Update CLI help text for new terminology"
+description: "Update all help text in src/cli/main.py to use new terminology"
 activeForm: "Updating CLI help text"
 
-subject: "Implement: Refactor lifecycle.py function names"
-description: "Rename functions: start_claw → start_agent, stop_claw → stop_agent"
-activeForm: "Refactoring lifecycle.py"
+subject: "Implement: Refactor service.py function names"
+description: "Rename functions: old_name -> new_name, another_old -> another_new"
+activeForm: "Refactoring service.py"
 ```
 
 ### Standard Verification Checklist
 
 Always create these verification tasks:
-1. Run test suite (`make test`)
-2. Run linter (`make lint`)
-3. Request and address ATX review
-4. Verify no regressions
+1. Run test suite (using configured test command)
+2. Run linter (using configured lint command)
+3. Verify no regressions
 
 ### When You Get Lost
 
@@ -331,13 +361,38 @@ After completing a subtask, check if all sibling subtasks are done:
 # If all closed, close the parent
 ```
 
+## Configuration
+
+Build commands are configurable via `.claude/itx-config.json`:
+
+```json
+{
+  "build": {
+    "test_command": "npm test",
+    "lint_command": "npm run lint"
+  }
+}
+```
+
+**Defaults** (no config): `make test`, `make lint`
+
+See [CONFIG.md](../../CONFIG.md) for full configuration options.
+
 ## Notes
 
 - **ALWAYS create task checklist before execution** - Do not skip this step
 - **Use TaskList() frequently** to maintain awareness of progress
 - **Complete tasks sequentially** unless explicitly marked as parallel
 - **If you feel lost**, check TaskList() to reorient
+- Project board updates are optional and only execute if configured
+- Build commands automatically adapt to project configuration
 - Subtasks can use cheaper/faster models (Haiku)
 - Parent orchestration can use any model
 - Always verify before marking complete
 - Don't skip the verification step
+
+## Prompt Logging
+
+**REQUIRED**: Append prompt log to `.itx/<N>/01_EXECUTION.md`.
+
+See [AGENTS.md](../../../AGENTS.md#prompt-logging-standard) for format specification.
