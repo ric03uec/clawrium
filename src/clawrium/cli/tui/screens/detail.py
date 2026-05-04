@@ -6,12 +6,14 @@ from rich.markup import escape
 
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.containers import VerticalScroll
 from textual import work
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Label, Static
 from textual.worker import get_current_worker
 
 from clawrium.cli.tui.data import AgentViewModel, get_agent_detail
+from clawrium.cli.tui.widgets.chat_panel import ChatPanel
 from clawrium.cli.tui.widgets.detail_cards import DetailCards
 from clawrium.core.health import ClawStatus
 from clawrium.core.lifecycle import restart_agent, stop_agent
@@ -46,16 +48,60 @@ class DetailScreen(Screen):
         Binding("r", "restart_agent", "Restart", show=True),
     ]
 
+    DEFAULT_CSS = """
+    DetailScreen {
+        layout: vertical;
+    }
+    DetailScreen > #detail-top {
+        height: 1fr;
+        min-height: 10;
+    }
+    DetailScreen > #detail-bottom {
+        height: 1fr;
+        min-height: 10;
+    }
+    DetailScreen > #detail-bottom-placeholder {
+        height: 1fr;
+        min-height: 10;
+        border: round $primary-darken-2;
+        padding: 1 2;
+        content-align: center middle;
+    }
+    """
+
     def __init__(self, agent: AgentViewModel, **kwargs) -> None:
         super().__init__(**kwargs)
         self._agent = agent
+
+    def _is_chat_enabled(self) -> bool:
+        """Check if chat is available for this agent."""
+        return (
+            self._agent["agent_type"] == "openclaw"
+            and self._agent.get("gateway_url") is not None
+            and self._agent.get("gateway_auth") is not None
+        )
 
     def compose(self) -> ComposeResult:
         yield Label(
             f"AGENT DETAIL — {escape(self._agent['agent_name'])}",
             id="detail-label",
         )
-        yield DetailCards(agent=self._agent, id="detail-cards")
+        with VerticalScroll(id="detail-top"):
+            yield DetailCards(agent=self._agent, id="detail-cards")
+        if self._is_chat_enabled():
+            yield ChatPanel(
+                agent_name=self._agent["agent_name"],
+                gateway_url=self._agent["gateway_url"],  # type: ignore[arg-type]
+                gateway_auth=self._agent["gateway_auth"],  # type: ignore[arg-type]
+                device_id=self._agent.get("device_id"),
+                device_private_key=self._agent.get("device_private_key"),
+                id="detail-bottom",
+            )
+        else:
+            yield Static(
+                "[dim]Chat not available for this agent type[/dim]",
+                id="detail-bottom-placeholder",
+            )
         yield Static(
             "[dim]Press 's' to stop, 'r' to restart, 'esc' to go back[/dim]",
             id="detail-hint",

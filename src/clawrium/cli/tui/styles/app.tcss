@@ -37,3 +37,21 @@ DataTable {
 AgentTable {
     height: 1fr;
 }
+
+/* Chat panel styles */
+#detail-top {
+    scrollbar-gutter: stable;
+}
+
+ChatPanel {
+    background: $surface;
+}
+
+ChatPanel #chat-log {
+    background: $surface-darken-1;
+}
+
+ChatPanel #chat-input {
+    background: $surface;
+    border: tall $primary-darken-2;
+}

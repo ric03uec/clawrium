@@ -35,6 +35,10 @@ class AgentViewModel(TypedDict):
     cpu_count: int | None
     memory_total_mb: int | None
     gateway_port: int | None
+    gateway_url: str | None
+    gateway_auth: str | None
+    device_id: str | None
+    device_private_key: str | None
 
 
 class FleetSummary(TypedDict):
@@ -108,6 +112,10 @@ def get_fleet_data(
             provider_name = None
             provider_type = None
             gateway_port = None
+            gateway_url = None
+            gateway_auth = None
+            device_id = None
+            device_private_key = None
             if isinstance(config, dict):
                 provider_cfg = config.get("provider")
                 if isinstance(provider_cfg, dict):
@@ -119,6 +127,23 @@ def get_fleet_data(
                     port_val = gateway_cfg.get("port")
                     if isinstance(port_val, int):
                         gateway_port = port_val
+                    auth_val = gateway_cfg.get("auth")
+                    if isinstance(auth_val, str) and auth_val.strip():
+                        gateway_auth = auth_val
+                    # Reconstruct gateway URL using host's current address and port
+                    # Use wss:// by default, ws:// only for localhost
+                    if gateway_port is not None:
+                        scheme = "ws" if hostname in ("localhost", "127.0.0.1") else "wss"
+                        gateway_url = f"{scheme}://{hostname}:{gateway_port}"
+                    # Extract device credentials for operator.write scope
+                    device_cfg = gateway_cfg.get("device")
+                    if isinstance(device_cfg, dict):
+                        dev_id = device_cfg.get("id")
+                        dev_key = device_cfg.get("privateKey")
+                        if isinstance(dev_id, str) and dev_id.strip():
+                            device_id = dev_id
+                        if isinstance(dev_key, str) and dev_key.strip():
+                            device_private_key = dev_key
 
             started_at = None
             runtime = claw_record.get("runtime", {})
@@ -153,6 +178,10 @@ def get_fleet_data(
                     cpu_count=result.get("cpu_count"),
                     memory_total_mb=result.get("memory_total_mb"),
                     gateway_port=gateway_port,
+                    gateway_url=gateway_url,
+                    gateway_auth=gateway_auth,
+                    device_id=device_id,
+                    device_private_key=device_private_key,
                 )
             )
 
@@ -218,6 +247,10 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
         provider_name = None
         provider_type = None
         gateway_port = None
+        gateway_url = None
+        gateway_auth = None
+        device_id = None
+        device_private_key = None
         if isinstance(config, dict):
             provider_cfg = config.get("provider")
             if isinstance(provider_cfg, dict):
@@ -229,6 +262,23 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
                 port_val = gateway_cfg.get("port")
                 if isinstance(port_val, int):
                     gateway_port = port_val
+                auth_val = gateway_cfg.get("auth")
+                if isinstance(auth_val, str) and auth_val.strip():
+                    gateway_auth = auth_val
+                # Reconstruct gateway URL using host's current address and port
+                # Use wss:// by default, ws:// only for localhost
+                if gateway_port is not None:
+                    scheme = "ws" if hostname in ("localhost", "127.0.0.1") else "wss"
+                    gateway_url = f"{scheme}://{hostname}:{gateway_port}"
+                # Extract device credentials for operator.write scope
+                device_cfg = gateway_cfg.get("device")
+                if isinstance(device_cfg, dict):
+                    dev_id = device_cfg.get("id")
+                    dev_key = device_cfg.get("privateKey")
+                    if isinstance(dev_id, str) and dev_id.strip():
+                        device_id = dev_id
+                    if isinstance(dev_key, str) and dev_key.strip():
+                        device_private_key = dev_key
 
         started_at = None
         runtime = claw_record.get("runtime", {})
@@ -257,5 +307,9 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
             cpu_count=result.get("cpu_count"),
             memory_total_mb=result.get("memory_total_mb"),
             gateway_port=gateway_port,
+            gateway_url=gateway_url,
+            gateway_auth=gateway_auth,
+            device_id=device_id,
+            device_private_key=device_private_key,
         )
     return None

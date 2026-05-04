@@ -37,6 +37,10 @@ SAMPLE_AGENT = AgentViewModel(
     cpu_count=4,
     memory_total_mb=16384,
     gateway_port=40123,
+    gateway_url=None,  # No gateway config to avoid chat panel in existing tests
+    gateway_auth=None,
+    device_id=None,
+    device_private_key=None,
 )
 
 
