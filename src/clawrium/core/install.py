@@ -48,6 +48,7 @@ from clawrium.core.registry import (
 from clawrium.core.secrets import (
     get_instance_key,
     get_instance_secrets,
+    set_instance_secret,
 )
 from clawrium.core.onboarding import initialize_onboarding
 
@@ -508,23 +509,33 @@ def run_installation(
     # Hermes: generate (or reuse) the API_SERVER_KEY that gates the local
     # OpenAI-compatible gateway on 127.0.0.1:8642. Generated once on first
     # install so reconfigure flows can rely on the same token across runs.
-    # Idempotency: if a previous install record already has the key, reuse it
-    # so existing API consumers don't break on a re-install.
+    # Persisted in secrets.json under the canonical instance key so
+    # remove_instance_secrets() cleans it up alongside provider keys when the
+    # agent is removed; hosts.json only carries the non-sensitive shape
+    # (enabled / host / port).
     hermes_api_server_key = None
     if claw_name == "hermes":
-        existing_host = get_host(hostname)
-        existing_key = (
-            (existing_host or {})
-            .get("agents", {})
-            .get(agent_name, {})
-            .get("config", {})
-            .get("api_server", {})
-            .get("key")
+        instance_key = get_instance_key(hostname, claw_name, agent_name)
+        existing_entry = get_instance_secrets(instance_key).get(
+            "HERMES_API_SERVER_KEY"
         )
-        if isinstance(existing_key, str) and len(existing_key) == 64:
+        existing_key = existing_entry["value"] if existing_entry else None
+        # Validate well-formed 64-char lowercase hex so a corrupted secrets.json
+        # doesn't silently propagate a broken token.
+        if (
+            isinstance(existing_key, str)
+            and len(existing_key) == 64
+            and all(c in "0123456789abcdef" for c in existing_key)
+        ):
             hermes_api_server_key = existing_key
         else:
             hermes_api_server_key = secrets.token_hex(32)  # 64-char hex token
+            set_instance_secret(
+                instance_key,
+                "HERMES_API_SERVER_KEY",
+                hermes_api_server_key,
+                description="Bearer token for hermes local OpenAI-compatible API gateway (loopback only).",
+            )
         config["api_server"] = {
             "enabled": True,
             "host": "127.0.0.1",
@@ -811,8 +822,10 @@ def run_installation(
                             "privateKey": device_private_key,
                         }
 
-                # Persist Hermes API_SERVER_KEY (loopback gateway auth) so
-                # reconfigure flows can reuse it without rotating the token.
+                # Persist non-sensitive hermes api_server shape (enabled / host
+                # / port) into hosts.json. The bearer token itself lives in
+                # secrets.json (see HERMES_API_SERVER_KEY persistence above) so
+                # remove_instance_secrets() cleans it up on agent removal.
                 if claw_name == "hermes" and hermes_api_server_key:
                     if "config" not in h["agents"][agent_name]:
                         h["agents"][agent_name]["config"] = {}
@@ -820,7 +833,6 @@ def run_installation(
                         "enabled": True,
                         "host": "127.0.0.1",
                         "port": 8642,
-                        "key": hermes_api_server_key,
                     }
             return h
 

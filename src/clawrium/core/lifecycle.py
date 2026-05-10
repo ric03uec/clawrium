@@ -726,26 +726,40 @@ def configure_agent(
     # Use inner agent_name (Unix username) if available, otherwise fall back to dict key
     unix_agent_name = agent_record.get("agent_name") or agent_key
 
-    # Hermes: hydrate persisted api_server block (generated at install time)
-    # into config_data so the configure playbook can render API_SERVER_KEY into
-    # ~/.hermes/.env. Reconfigure flows reuse the persisted token verbatim
-    # (idempotency contract — clients reading the gateway don't see rotation).
+    # Hermes: hydrate the persisted api_server block (non-sensitive shape from
+    # hosts.json) PLUS the bearer token from secrets.json into config_data so
+    # the configure playbook can render API_SERVER_KEY into ~/.hermes/.env.
+    # Reconfigure flows reuse the persisted token verbatim (idempotency
+    # contract — clients reading the gateway don't see rotation).
     if resolved_type == "hermes":
         persisted_api_server = agent_record.get("config", {}).get("api_server")
-        if isinstance(persisted_api_server, dict) and persisted_api_server.get("key"):
+        instance_key = get_instance_key(hostname, resolved_type, unix_agent_name)
+        secret_entry = get_instance_secrets(instance_key).get("HERMES_API_SERVER_KEY")
+        api_server_key = secret_entry["value"] if secret_entry else None
+
+        if not (isinstance(api_server_key, str) and len(api_server_key) == 64):
+            return (
+                False,
+                "Hermes agent missing HERMES_API_SERVER_KEY in secrets.json. "
+                "Re-run 'clm agent install --type hermes ...' to generate one.",
+            )
+
+        if isinstance(persisted_api_server, dict):
             existing_api_server = config_data.get("api_server") or {}
             if not isinstance(existing_api_server, dict):
                 existing_api_server = {}
-            # Persisted values are authoritative for key/host/port; user-supplied
-            # config_data may carry transient fields we want to preserve.
             merged_api_server = {**existing_api_server, **persisted_api_server}
+            merged_api_server["key"] = api_server_key
             config_data["api_server"] = merged_api_server
         else:
-            return (
-                False,
-                "Hermes agent missing api_server.key in hosts.json. "
-                "Re-run 'clm agent install --type hermes ...' to generate one.",
-            )
+            # hosts.json shape missing (legacy/corrupted); reconstruct defaults
+            # alongside the token from secrets.json so the playbook can run.
+            config_data["api_server"] = {
+                "enabled": True,
+                "host": "127.0.0.1",
+                "port": 8642,
+                "key": api_server_key,
+            }
 
     # Validate config data before running Ansible
     # Validate required provider fields (must check dict type first)

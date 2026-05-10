@@ -302,7 +302,7 @@ class TestConfigureAgentApiServerKey:
     """configure_agent() must enforce + reuse the persisted api_server.key for hermes."""
 
     def test_hermes_without_persisted_key_returns_error(self):
-        """Reject configure when hermes agent record has no api_server.key."""
+        """Reject configure when secrets.json has no HERMES_API_SERVER_KEY."""
         host = {
             "hostname": "test-host",
             "key_id": "test",
@@ -310,7 +310,7 @@ class TestConfigureAgentApiServerKey:
                 "hermes-test": {
                     "type": "hermes",
                     "agent_name": "hermes-test",
-                    "config": {},  # no api_server block
+                    "config": {},
                 }
             },
         }
@@ -323,15 +323,22 @@ class TestConfigureAgentApiServerKey:
             },
         }
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
-            success, error = configure_agent(
-                "test-host", "hermes", config_data, agent_name="hermes-test"
-            )
+            # Empty secrets.json for this instance — should trigger the
+            # "missing HERMES_API_SERVER_KEY" branch.
+            with patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value={}
+            ):
+                success, error = configure_agent(
+                    "test-host", "hermes", config_data, agent_name="hermes-test"
+                )
         assert success is False
-        assert "api_server.key" in error
+        assert "HERMES_API_SERVER_KEY" in error
         assert "install" in error  # remediation pointer
 
     def test_hermes_with_persisted_key_passes_to_ansible(self, tmp_path: Path):
-        """When a key is persisted, configure_agent merges it into the ansible config var."""
+        """When the bearer token is persisted in secrets.json, configure_agent
+        hydrates it into the ansible config var alongside the non-sensitive
+        shape from hosts.json."""
         persisted_key = "b" * 64
         host = {
             "hostname": "test-host",
@@ -345,7 +352,6 @@ class TestConfigureAgentApiServerKey:
                             "enabled": True,
                             "host": "127.0.0.1",
                             "port": 8642,
-                            "key": persisted_key,
                         }
                     },
                 }
@@ -385,13 +391,26 @@ class TestConfigureAgentApiServerKey:
             ),
             patch("clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run),
             patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value={
+                    "HERMES_API_SERVER_KEY": {
+                        "key": "HERMES_API_SERVER_KEY",
+                        "value": persisted_key,
+                        "created_at": "2026-05-10T00:00:00+00:00",
+                        "updated_at": "2026-05-10T00:00:00+00:00",
+                        "description": "",
+                    }
+                },
+            ),
         ):
             success, error = configure_agent(
                 "test-host", "hermes", config_data, agent_name="hermes-test"
             )
 
         assert success is True, error
-        # api_server.key must reach the playbook unchanged (idempotency contract).
+        # api_server.key must reach the playbook (idempotency contract);
+        # value is now sourced from secrets.json, not hosts.json.
         sent_config = captured["inventory"]["all"]["vars"]["config"]
         assert sent_config["api_server"]["key"] == persisted_key
         assert sent_config["api_server"]["host"] == "127.0.0.1"
@@ -399,7 +418,7 @@ class TestConfigureAgentApiServerKey:
 
     def test_hermes_reconfigure_does_not_rotate_persisted_key(self, tmp_path: Path):
         """A second configure call with the same persisted record must use the same key
-        (idempotency: keys never rotate on reconfigure)."""
+        (idempotency: keys never rotate on reconfigure). Key lives in secrets.json."""
         persisted_key = "c" * 64
         host = {
             "hostname": "test-host",
@@ -413,14 +432,14 @@ class TestConfigureAgentApiServerKey:
                             "enabled": True,
                             "host": "127.0.0.1",
                             "port": 8642,
-                            "key": persisted_key,
                         }
                     },
                 }
             },
         }
-        # Caller passes config_data WITHOUT api_server (simulates _sync_provider_config
-        # forgetting to carry it through). configure_agent must hydrate from hosts.json.
+        # Caller passes config_data WITHOUT api_server (simulates
+        # _sync_provider_config not carrying it through). configure_agent must
+        # hydrate the shape from hosts.json and the bearer token from secrets.json.
         config_data = {
             "gateway": {"host": "127.0.0.1", "port": 8642},
             "provider": {"name": "p", "type": "ollama", "default_model": "x", "endpoint": "http://h:1/v1"},
@@ -430,6 +449,16 @@ class TestConfigureAgentApiServerKey:
         key_path.write_text("k")
         playbook = tmp_path / "configure.yaml"
         playbook.write_text("---\n")
+
+        secret_entry = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": persisted_key,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "",
+            }
+        }
 
         seen_keys = []
 
@@ -457,6 +486,10 @@ class TestConfigureAgentApiServerKey:
                     "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
                 ),
                 patch("clawrium.core.lifecycle.update_host", return_value=True),
+                patch(
+                    "clawrium.core.lifecycle.get_instance_secrets",
+                    return_value=secret_entry,
+                ),
             ):
                 success, error = configure_agent(
                     "test-host", "hermes", dict(config_data), agent_name="hermes-test"

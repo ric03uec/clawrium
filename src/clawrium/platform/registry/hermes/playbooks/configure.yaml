@@ -54,7 +54,7 @@
           [Install]
           WantedBy=multi-user.target
         mode: "0644"
-      notify: Reload systemd and restart hermes service
+      notify: Restart hermes service
 
     # Render ~/.hermes/.env (provider API key + API_SERVER_* + low-priority
     # provider/model env-var fallback). force: yes overwrites the populated
@@ -154,7 +154,6 @@
       changed_when: false
       failed_when: api_server_key_check.rc != 0
       no_log: true
-      no_log: true
 
     # Force the restart handler to fire NOW so probes below run against the
     # newly-rendered config.
@@ -183,14 +182,11 @@
           Service: hermes-{{ agent_name }}.service (active)
 
   handlers:
+    # Single canonical restart handler. Always does daemon_reload so it covers
+    # both unit-file changes (from install.yaml) and pure env changes (from
+    # the template/config tasks above). All `notify` directives above point at
+    # this handler so first-configure restarts the service exactly once.
     - name: Restart hermes service
-      ansible.builtin.systemd:
-        name: "{{ agent_type }}-{{ agent_name }}"
-        state: restarted
-        enabled: yes
-        daemon_reload: yes
-
-    - name: Reload systemd and restart hermes service
       ansible.builtin.systemd:
         name: "{{ agent_type }}-{{ agent_name }}"
         state: restarted
