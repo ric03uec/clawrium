@@ -80,6 +80,11 @@ def _result_with_events(tmp_path, events):
 def test_install_reuses_existing_installed_name_and_reports_skip(monkeypatch, tmp_path):
     from clawrium.core.install import run_installation
 
+    preserved_device = {
+        "id": "device-abc",
+        "token": "token-xyz",
+        "privateKey": "PEM-DATA-HERE",
+    }
     host = {
         "hostname": "test-host",
         "key_id": "test-host",
@@ -96,7 +101,13 @@ def test_install_reuses_existing_installed_name_and_reports_skip(monkeypatch, tm
                 "error": None,
                 "agent_name": "existing-agent",
                 "version": "2026.4.2",
-                "config": {"gateway": {"url": "ws://example:40001"}},
+                "config": {
+                    "gateway": {
+                        "url": "ws://example:40001",
+                        "auth": "preserved-gateway-token-aaaaaaaaaaaaaa",
+                        "device": preserved_device,
+                    }
+                },
             }
         },
     }
@@ -120,6 +131,24 @@ def test_install_reuses_existing_installed_name_and_reports_skip(monkeypatch, tm
                 {
                     "event": "runner_on_ok",
                     "event_data": {
+                        "task": "Get installed openclaw version",
+                        "res": {"stdout": "openclaw 2026.4.2", "rc": 0},
+                    },
+                },
+                {
+                    "event": "runner_on_ok",
+                    "event_data": {
+                        "task": "Parse installed openclaw version",
+                        "res": {
+                            "ansible_facts": {
+                                "openclaw_installed_version": "2026.4.2",
+                            }
+                        },
+                    },
+                },
+                {
+                    "event": "runner_on_ok",
+                    "event_data": {
                         "task": "Set install skip condition",
                         "res": {
                             "ansible_facts": {
@@ -134,7 +163,7 @@ def test_install_reuses_existing_installed_name_and_reports_skip(monkeypatch, tm
                     "event_data": {
                         "task": "Mark install as skipped when already installed",
                         "res": {
-                            "msg": "OpenClaw already installed at /usr/local/bin/openclaw. Skipping binary install."
+                            "msg": "OpenClaw v2026.4.2 already installed at /usr/local/bin/openclaw. Skipping binary install."
                         },
                     },
                 },
@@ -150,14 +179,23 @@ def test_install_reuses_existing_installed_name_and_reports_skip(monkeypatch, tm
     assert result["skipped"] is True
     assert result["skip_reason"] == "already_installed"
     assert host_state[0]["agents"]["openclaw"]["agent_name"] == "existing-agent"
-    assert (
-        host_state[0]["agents"]["openclaw"]["config"]["gateway"]["url"]
-        == "ws://example:40001"
-    )
+    # Existing gateway URL, auth token, and device credentials must be byte-identical
+    # after the skip — proves pairing did not re-run and rotate credentials.
+    gateway = host_state[0]["agents"]["openclaw"]["config"]["gateway"]
+    assert gateway["url"] == "ws://example:40001"
+    assert gateway["auth"] == "preserved-gateway-token-aaaaaaaaaaaaaa"
+    assert gateway["device"] == preserved_device
     assert mock_run.call_count == 2
 
 
-def test_install_existing_agent_any_version_reports_skip(monkeypatch, tmp_path):
+def test_install_existing_agent_different_version_proceeds_with_install(
+    monkeypatch, tmp_path
+):
+    """When the installed version differs from the requested version, the
+    playbook does NOT emit the skip marker (openclaw_already_installed=false),
+    so installation proceeds. Validates the version-aware skip introduced in
+    issue #163.
+    """
     from clawrium.core.install import run_installation
 
     host = {
@@ -184,6 +222,8 @@ def test_install_existing_agent_any_version_reports_skip(monkeypatch, tmp_path):
 
     import ansible_runner
 
+    # Mismatched version: installed=2026.3.1, target=2026.4.2 (from manifest in
+    # _setup_common). Playbook emits the version facts but NOT the skip marker.
     run_side_effect = [
         _result_with_events(tmp_path, []),
         _result_with_events(
@@ -199,11 +239,17 @@ def test_install_existing_agent_any_version_reports_skip(monkeypatch, tmp_path):
                 {
                     "event": "runner_on_ok",
                     "event_data": {
-                        "task": "Set install skip condition",
+                        "task": "Get installed openclaw version",
+                        "res": {"stdout": "openclaw 2026.3.1", "rc": 0},
+                    },
+                },
+                {
+                    "event": "runner_on_ok",
+                    "event_data": {
+                        "task": "Parse installed openclaw version",
                         "res": {
                             "ansible_facts": {
-                                "openclaw_already_installed": True,
-                                "openclaw_runtime_binary": "/usr/local/bin/openclaw",
+                                "openclaw_installed_version": "2026.3.1",
                             }
                         },
                     },
@@ -211,9 +257,12 @@ def test_install_existing_agent_any_version_reports_skip(monkeypatch, tmp_path):
                 {
                     "event": "runner_on_ok",
                     "event_data": {
-                        "task": "Mark install as skipped when already installed",
+                        "task": "Set install skip condition",
                         "res": {
-                            "msg": "OpenClaw already installed at /usr/local/bin/openclaw. Skipping binary install."
+                            "ansible_facts": {
+                                "openclaw_already_installed": False,
+                                "openclaw_runtime_binary": "/usr/local/bin/openclaw",
+                            }
                         },
                     },
                 },
@@ -226,8 +275,8 @@ def test_install_existing_agent_any_version_reports_skip(monkeypatch, tmp_path):
     result = run_installation("openclaw", "test-host")
 
     assert result["success"] is True
-    assert result["skipped"] is True
-    assert result["skip_reason"] == "already_installed"
+    assert result.get("skipped") is not True
+    assert result.get("skip_reason") is None
     assert mock_run.call_count == 2
 
 
@@ -314,3 +363,205 @@ def test_install_failure_sets_failed_status_without_installed_timestamp(
 
     assert host_state[0]["agents"][test_agent_name]["status"] == "failed"
     assert host_state[0]["agents"][test_agent_name]["installed_at"] is None
+
+
+def _capture_inventory_run(captured: list):
+    """Build a mock for ansible_runner.run that captures the inventory it
+    receives so tests can assert on extra_vars (e.g., force_install)."""
+
+    def _runner(*args, **kwargs):
+        captured.append(kwargs.get("inventory"))
+
+        class Result:
+            status = "successful"
+
+            class Config:
+                artifact_dir = "/tmp/nonexistent"
+
+            config = Config()
+            events = []
+
+        return Result()
+
+    return _runner
+
+
+def test_install_with_force_skips_skip_logic(monkeypatch, tmp_path):
+    """force=True must inject force_install=true into the playbook inventory
+    AND not result in skipped=True even when the installed version matches.
+    """
+    from clawrium.core.install import run_installation
+
+    host = {
+        "hostname": "test-host",
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+        "agents": {
+            "openclaw": {
+                "status": "installed",
+                "installed_at": "2026-04-10T00:00:00+00:00",
+                "error": None,
+                "agent_name": "existing-agent",
+                "version": "2026.4.2",
+                "config": {
+                    "gateway": {
+                        "url": "ws://example:40001",
+                        "auth": "preserved-gateway-token-aaaaaaaaaaaaaa",
+                        "device": {
+                            "id": "d",
+                            "token": "t",
+                            "privateKey": "k",
+                        },
+                    }
+                },
+            }
+        },
+    }
+
+    _setup_common(monkeypatch, tmp_path, host)
+
+    import ansible_runner
+
+    captured_inventories: list = []
+    monkeypatch.setattr(
+        ansible_runner, "run", _capture_inventory_run(captured_inventories)
+    )
+
+    result = run_installation("openclaw", "test-host", force=True)
+
+    # Two playbooks run: base + agent. Both receive the same inventory vars.
+    assert len(captured_inventories) == 2
+    for inv in captured_inventories:
+        assert inv["all"]["vars"]["force_install"] is True
+
+    # No skip marker in the (empty) event stream -> not skipped.
+    assert result["success"] is True
+    assert result.get("skipped") is not True
+
+
+def test_install_without_force_passes_force_install_false(monkeypatch, tmp_path):
+    """Default force=False propagates as force_install=false into inventory."""
+    from clawrium.core.install import run_installation
+
+    host = {
+        "hostname": "test-host",
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    _setup_common(monkeypatch, tmp_path, host)
+
+    import ansible_runner
+
+    captured_inventories: list = []
+    monkeypatch.setattr(
+        ansible_runner, "run", _capture_inventory_run(captured_inventories)
+    )
+
+    run_installation("openclaw", "test-host", name="fresh-agent")
+
+    assert len(captured_inventories) == 2
+    for inv in captured_inventories:
+        assert inv["all"]["vars"]["force_install"] is False
+
+
+def test_install_with_unparseable_version_proceeds_with_install(monkeypatch, tmp_path):
+    """If `openclaw --version` produces output that doesn't match the SemVer
+    regex, the playbook treats installed_version as empty -> not equal to
+    target -> installation proceeds (safe default to reinstall).
+
+    This test exercises the Python-side detection: when the playbook does NOT
+    emit the skip marker (because version parsing failed and produced empty
+    string != target), the result is not skipped.
+    """
+    from clawrium.core.install import run_installation
+
+    host = {
+        "hostname": "test-host",
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+        "agents": {
+            "openclaw": {
+                "status": "installed",
+                "installed_at": "2026-04-10T00:00:00+00:00",
+                "error": None,
+                "agent_name": "existing-agent",
+                "version": "2026.4.2",
+            }
+        },
+    }
+    _setup_common(monkeypatch, tmp_path, host)
+
+    import ansible_runner
+
+    # Playbook reports binary exists but version output is garbage; skip marker
+    # is NOT emitted because installed_version != target_version.
+    run_side_effect = [
+        _result_with_events(tmp_path, []),
+        _result_with_events(
+            tmp_path,
+            [
+                {
+                    "event": "runner_on_ok",
+                    "event_data": {
+                        "task": "Discover openclaw binary in PATH",
+                        "res": {"stdout": "/usr/local/bin/openclaw", "rc": 0},
+                    },
+                },
+                {
+                    "event": "runner_on_ok",
+                    "event_data": {
+                        "task": "Get installed openclaw version",
+                        "res": {
+                            "stdout": "openclaw: command moved, please reinstall",
+                            "rc": 0,
+                        },
+                    },
+                },
+                {
+                    "event": "runner_on_ok",
+                    "event_data": {
+                        "task": "Parse installed openclaw version",
+                        "res": {
+                            "ansible_facts": {
+                                "openclaw_installed_version": "",
+                            }
+                        },
+                    },
+                },
+                {
+                    "event": "runner_on_ok",
+                    "event_data": {
+                        "task": "Set install skip condition",
+                        "res": {
+                            "ansible_facts": {
+                                "openclaw_already_installed": False,
+                                "openclaw_runtime_binary": "/usr/local/bin/openclaw",
+                            }
+                        },
+                    },
+                },
+            ],
+        ),
+    ]
+    mock_run = Mock(side_effect=run_side_effect)
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    result = run_installation("openclaw", "test-host")
+
+    assert result["success"] is True
+    assert result.get("skipped") is not True

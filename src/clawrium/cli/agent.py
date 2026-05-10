@@ -88,10 +88,21 @@ def install(
         help="Remove incomplete or failed installation of this agent type before retrying",
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Force reinstall even if the same version is already installed",
+    ),
 ) -> None:
     """Install an agent on a host."""
     install_command(
-        claw=claw, host=host, name=name, cleanup_failed=cleanup_failed, yes=yes
+        claw=claw,
+        host=host,
+        name=name,
+        cleanup_failed=cleanup_failed,
+        yes=yes,
+        force=force,
     )
 
 

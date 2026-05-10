@@ -181,6 +181,7 @@ def run_installation(
     on_event: Callable[[str, str], None] | None = None,
     cleanup_failed: bool = False,
     resume: bool = False,
+    force: bool = False,
 ) -> InstallResult:
     """Run full installation of an agent on a host.
 
@@ -192,6 +193,9 @@ def run_installation(
         on_event: Optional callback for progress events (stage, message)
         cleanup_failed: Force cleanup of failed agent before installation
         resume: Resume existing installation using existing agent name
+        force: Override the "already installed" skip and reinstall the binary
+            even when the same version is present. Also re-runs the pairing
+            block, rotating gateway token and device credentials.
 
     Returns:
         InstallResult with success status and details
@@ -500,6 +504,7 @@ def run_installation(
                 "claw_sha256": claw_sha256,
                 "config": config,
                 "template_path": str(template_path),
+                "force_install": force,
                 **secret_vars,  # Inject secrets as ansible vars
             },
         }
@@ -689,16 +694,42 @@ def run_installation(
                 )
 
         if claw_name == "openclaw":
-            if not gateway_token:
-                emit(
-                    "warn",
-                    "Gateway token not captured - manual configuration may be needed",
+            if install_skipped:
+                # Skip path: playbook intentionally did not emit credential facts
+                # (template-write + pairing block were gated). Verify that the
+                # existing hosts.json record actually has the credentials before
+                # going silent — otherwise surface a warning so corrupt state is
+                # visible.
+                existing_host = get_host(hostname)
+                existing_gateway = (
+                    (existing_host or {})
+                    .get("agents", {})
+                    .get(agent_name, {})
+                    .get("config", {})
+                    .get("gateway", {})
                 )
-            if not gateway_url or not gateway_url.startswith(("ws://", "wss://")):
-                emit(
-                    "warn",
-                    "Gateway URL not captured - manual configuration may be needed",
+                has_existing_creds = bool(
+                    existing_gateway.get("auth") and existing_gateway.get("device")
                 )
+                if has_existing_creds:
+                    emit("claw", "Reusing existing gateway credentials (skip path)")
+                else:
+                    emit(
+                        "warn",
+                        "Skip path taken but existing gateway credentials are missing - "
+                        "rerun with --force to re-pair",
+                    )
+            else:
+                if not gateway_token:
+                    emit(
+                        "warn",
+                        "Gateway token not captured - manual configuration may be needed",
+                    )
+                if not gateway_url or not gateway_url.startswith(("ws://", "wss://")):
+                    emit(
+                        "warn",
+                        "Gateway URL not captured - manual configuration may be needed",
+                    )
 
         # Step 10: Update host with success status and gateway auth
         def set_installed(h: dict) -> dict:

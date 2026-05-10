@@ -28,15 +28,41 @@
              openclaw_which_result.stdout.startswith('/usr/bin/') or
              openclaw_which_result.stdout.startswith('/home/'))
 
+    - name: Get installed openclaw version
+      ansible.builtin.command: "{{ openclaw_which_result.stdout }} --version"
+      register: openclaw_version_check
+      changed_when: false
+      failed_when: false
+      when: (openclaw_which_result.rc | default(1)) == 0
+
+    # Defensive parse: empty string on no-match means a version check failure
+    # is treated as "version unknown" -> not a match -> reinstall (safe default).
+    - name: Parse installed openclaw version
+      ansible.builtin.set_fact:
+        openclaw_installed_version: "{{ (openclaw_version_check.stdout | default('')) | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+)') | default('', true) }}"
+      when:
+        - openclaw_version_check is defined
+        - (openclaw_version_check.rc | default(1)) == 0
+
     - name: Set install skip condition
       ansible.builtin.set_fact:
-        openclaw_already_installed: "{{ (openclaw_which_result.rc | default(1)) == 0 }}"
+        openclaw_already_installed: >-
+          {{ (openclaw_which_result.rc | default(1)) == 0
+             and (openclaw_installed_version | default('')) == openclaw_target_version
+             and not (force_install | default(false) | bool) }}
         openclaw_runtime_binary: "{{ openclaw_which_result.stdout if (openclaw_which_result.rc | default(1)) == 0 else '/home/' ~ agent_name ~ '/.openclaw/bin/openclaw' }}"
 
     - name: Mark install as skipped when already installed
       ansible.builtin.debug:
-        msg: "OpenClaw already installed at {{ openclaw_which_result.stdout }}. Skipping binary install."
+        msg: "OpenClaw v{{ openclaw_installed_version | default('unknown') }} already installed at {{ openclaw_which_result.stdout }}. Skipping binary install."
       when: openclaw_already_installed
+
+    - name: Note that --force was supplied (overriding skip)
+      ansible.builtin.debug:
+        msg: "force=true: reinstalling OpenClaw at {{ openclaw_which_result.stdout | default('<no prior install>') }}"
+      when:
+        - (openclaw_which_result.rc | default(1)) == 0
+        - force_install | default(false) | bool
 
     - name: Download OpenClaw installer script
       ansible.builtin.get_url:
@@ -92,6 +118,9 @@
       ansible.builtin.set_fact:
         openclaw_port: "{{ 40000 + ((agent_name | hash('md5') | int(base=16)) % 2000) }}"
 
+    # Skip on already-installed path: rewriting openclaw.json would rotate the
+    # gateway token in the running daemon and invalidate the credentials cached
+    # in hosts.json. The existing config on disk is preserved verbatim.
     - name: Write openclaw config from template
       ansible.builtin.template:
         src: "{{ template_path }}/openclaw.json.j2"
@@ -99,6 +128,7 @@
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
+      when: not openclaw_already_installed
 
     - name: Write exec approvals policy from template
       ansible.builtin.template:
@@ -161,24 +191,31 @@
       delegate_to: localhost
       become: no
 
+    # The pairing block below is gated on `not openclaw_already_installed` so
+    # we don't re-pair (and rotate device credentials) on every re-install.
+    # `npm install ws` alone is the dominant cost; pairing also generates new
+    # device credentials that would invalidate any cached client tokens.
     - name: Read gateway authentication token from config file
       ansible.builtin.slurp:
         src: "/home/{{ agent_name }}/.openclaw/openclaw.json"
       register: openclaw_config_raw
       no_log: true
+      when: not openclaw_already_installed
 
     - name: Parse gateway token from config
       ansible.builtin.set_fact:
         gateway_token_result_stdout: "{{ (openclaw_config_raw.content | b64decode | from_json).gateway.auth.token }}"
       no_log: true
+      when: not openclaw_already_installed
 
     - name: Validate gateway token format
       ansible.builtin.fail:
         msg: "Gateway token not found or invalid format"
-      when: >
-        gateway_token_result_stdout is not defined or
-        gateway_token_result_stdout | length < 32 or
-        not (gateway_token_result_stdout is regex('^[a-zA-Z0-9_-]+$'))
+      when:
+        - not openclaw_already_installed
+        - gateway_token_result_stdout is not defined or
+          gateway_token_result_stdout | length < 32 or
+          not (gateway_token_result_stdout is regex('^[a-zA-Z0-9_-]+$'))
 
     - name: Copy device pairing script
       ansible.builtin.copy:
@@ -187,6 +224,7 @@
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0700"
+      when: not openclaw_already_installed
 
     - name: Install ws package for pairing script
       ansible.builtin.command:
@@ -194,6 +232,7 @@
         chdir: "/home/{{ agent_name }}"
       become_user: "{{ agent_name }}"
       changed_when: true
+      when: not openclaw_already_installed
 
     - name: Run device pairing via localhost
       ansible.builtin.command:
@@ -202,16 +241,20 @@
       become_user: "{{ agent_name }}"
       register: pairing_result
       no_log: true
+      when: not openclaw_already_installed
 
     - name: Parse device credentials
       ansible.builtin.set_fact:
         device_credentials: "{{ pairing_result.stdout | from_json }}"
       no_log: true
+      when: not openclaw_already_installed
 
     - name: Validate device credentials
       ansible.builtin.fail:
         msg: "Device pairing failed: {{ device_credentials.error | default('unknown error') }}"
-      when: device_credentials.deviceToken is not defined or device_credentials.deviceToken | length < 10
+      when:
+        - not openclaw_already_installed
+        - device_credentials.deviceToken is not defined or device_credentials.deviceToken | length < 10
 
     - name: Clean up pairing script
       ansible.builtin.file:
@@ -232,6 +275,7 @@
         openclaw_device_private_key: "{{ device_credentials.privateKeyPem }}"
         cacheable: true
       no_log: true
+      when: not openclaw_already_installed
 
   handlers:
     - name: Reload systemd

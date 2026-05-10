@@ -139,6 +139,7 @@ def _run_installation_with_progress(
     name: str | None,
     cleanup_failed: bool,
     resume: bool,
+    force: bool = False,
 ) -> dict:
     """Run installation with progress spinner.
 
@@ -167,6 +168,7 @@ def _run_installation_with_progress(
             on_event=update_progress,
             cleanup_failed=cleanup_failed,
             resume=resume,
+            force=force,
         )
 
     return result
@@ -192,6 +194,12 @@ def install(
         help="Remove incomplete or failed installation of this agent type before retrying",
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Force reinstall even if the same version is already installed",
+    ),
 ) -> None:
     """Install an agent on a host.
 
@@ -259,7 +267,7 @@ def install(
 
     try:
         result = _run_installation_with_progress(
-            selected_claw, selected_host, name, cleanup_failed, resume
+            selected_claw, selected_host, name, cleanup_failed, resume, force
         )
 
         # Success
@@ -283,7 +291,7 @@ def install(
             )
             try:
                 result = _run_installation_with_progress(
-                    selected_claw, selected_host, None, True, False
+                    selected_claw, selected_host, None, True, False, force
                 )
                 if result.get("skipped"):
                     console.print(
@@ -302,7 +310,7 @@ def install(
             # Retry installation with user's choice
             try:
                 result = _run_installation_with_progress(
-                    selected_claw, selected_host, name, cleanup_failed, resume
+                    selected_claw, selected_host, name, cleanup_failed, resume, force
                 )
 
                 # Success
