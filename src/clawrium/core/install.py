@@ -55,6 +55,18 @@ from clawrium.core.onboarding import initialize_onboarding
 logger = logging.getLogger(__name__)
 
 
+def _is_valid_hermes_api_server_key(value: object) -> bool:
+    """Return True if `value` is a well-formed 64-char lowercase hex string.
+
+    Used by both install.py (existing-key reuse on idempotent install) and
+    lifecycle.configure_agent() (hydration from secrets.json) so a corrupted
+    secrets.json can't silently propagate a broken bearer token to Ansible.
+    """
+    if not isinstance(value, str) or len(value) != 64:
+        return False
+    return all(c in "0123456789abcdef" for c in value)
+
+
 class InstallationError(Exception):
     """Raised when installation fails."""
 
@@ -523,15 +535,15 @@ def run_installation(
             "HERMES_API_SERVER_KEY"
         )
         existing_key = existing_entry["value"] if existing_entry else None
-        # Validate well-formed 64-char lowercase hex so a corrupted secrets.json
-        # doesn't silently propagate a broken token.
-        if (
-            isinstance(existing_key, str)
-            and len(existing_key) == 64
-            and all(c in "0123456789abcdef" for c in existing_key)
-        ):
+        if _is_valid_hermes_api_server_key(existing_key):
             hermes_api_server_key = existing_key
         else:
+            if existing_key is not None:
+                logger.warning(
+                    "Existing HERMES_API_SERVER_KEY for %s is corrupted "
+                    "(not 64-char lowercase hex); regenerating.",
+                    instance_key,
+                )
             hermes_api_server_key = secrets.token_hex(32)  # 64-char hex token
             set_instance_secret(
                 instance_key,

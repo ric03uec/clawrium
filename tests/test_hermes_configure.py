@@ -498,3 +498,248 @@ class TestConfigureAgentApiServerKey:
 
         assert len(seen_keys) == 2
         assert seen_keys[0] == seen_keys[1] == persisted_key
+
+
+class TestHermesApiServerKeySecretsHygiene:
+    """Regression guards for the B3 migration and its iter-2 follow-ups."""
+
+    def test_is_valid_hermes_api_server_key_accepts_canonical(self):
+        """64-char lowercase hex is accepted."""
+        from clawrium.core.install import _is_valid_hermes_api_server_key
+
+        assert _is_valid_hermes_api_server_key("a" * 64) is True
+        assert _is_valid_hermes_api_server_key("0123456789abcdef" * 4) is True
+
+    def test_is_valid_hermes_api_server_key_rejects_invalid(self):
+        """Anything non-64-lowercase-hex is rejected."""
+        from clawrium.core.install import _is_valid_hermes_api_server_key
+
+        assert _is_valid_hermes_api_server_key("a" * 63) is False  # short
+        assert _is_valid_hermes_api_server_key("a" * 65) is False  # long
+        assert _is_valid_hermes_api_server_key("A" * 64) is False  # uppercase
+        assert _is_valid_hermes_api_server_key("g" * 64) is False  # non-hex
+        assert _is_valid_hermes_api_server_key(None) is False
+        assert _is_valid_hermes_api_server_key(123) is False
+        assert _is_valid_hermes_api_server_key("") is False
+
+    def test_configure_strips_api_server_key_from_persisted_hosts_json(
+        self, tmp_path: Path
+    ):
+        """B3 invariant: the bearer token must NOT land in hosts.json after configure.
+
+        The hydration path puts it on config_data['api_server']['key'] for
+        Ansible, but the updater closure must strip it before persisting.
+        """
+        persisted_key = "d" * 64
+        host = {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": {
+                        "api_server": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 8642,
+                        }
+                    },
+                }
+            },
+        }
+        config_data = {
+            "gateway": {"host": "127.0.0.1", "port": 8642},
+            "provider": {
+                "name": "p",
+                "type": "openrouter",
+                "default_model": "x",
+            },
+        }
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+
+        captured_updater_arg = {}
+
+        def fake_update_host(hostname_arg, updater):
+            # Run the updater on a copy of the host fixture to capture what
+            # configure_agent intends to persist.
+            updated = updater({"agents": dict(host["agents"])})
+            captured_updater_arg["agents"] = updated["agents"]
+            return True
+
+        secrets_fixture = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": persisted_key,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "",
+            }
+        }
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch("clawrium.core.lifecycle.get_host_private_key", return_value=key_path),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                return_value=MagicMock(status="successful", events=[]),
+            ),
+            patch(
+                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value=secrets_fixture,
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host", "hermes", config_data, agent_name="hermes-test"
+            )
+
+        assert success is True, error
+        persisted_api_server = (
+            captured_updater_arg["agents"]["hermes-test"]
+            .get("config", {})
+            .get("api_server", {})
+        )
+        # B3 invariant — the bearer token must not be persisted to hosts.json.
+        assert "key" not in persisted_api_server, (
+            "hermes bearer token leaked into hosts.json: " f"{persisted_api_server}"
+        )
+        # Non-sensitive shape is preserved.
+        assert persisted_api_server.get("enabled") is True
+        assert persisted_api_server.get("host") == "127.0.0.1"
+        assert persisted_api_server.get("port") == 8642
+
+    def test_configure_rejects_invalid_hex_key_in_secrets(self, tmp_path: Path):
+        """A corrupted (non-hex / wrong length) HERMES_API_SERVER_KEY is rejected
+        before reaching the Ansible playbook."""
+        host = {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": {"api_server": {"enabled": True, "host": "127.0.0.1", "port": 8642}},
+                }
+            },
+        }
+        bad_secrets = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": "G" * 64,  # uppercase / non-hex
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "",
+            }
+        }
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value=bad_secrets,
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "hermes",
+                {"provider": {"name": "p", "type": "openrouter", "default_model": "x"}},
+                agent_name="hermes-test",
+            )
+        assert success is False
+        assert "invalid" in error.lower()
+        assert "HERMES_API_SERVER_KEY" in error
+
+    def test_configure_uses_canonical_hostname_for_instance_key(self, tmp_path: Path):
+        """Regression guard for commit 27d1ea8 + W1 from ATX iter 2: instance_key
+        must derive from host['hostname'], not the alias passed by the CLI."""
+        persisted_key = "e" * 64
+        host = {
+            "hostname": "192.168.1.100",  # canonical
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": {"api_server": {"enabled": True, "host": "127.0.0.1", "port": 8642}},
+                }
+            },
+        }
+        secrets_fixture = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": persisted_key,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "",
+            }
+        }
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+        get_secrets_mock = MagicMock(return_value=secrets_fixture)
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch("clawrium.core.lifecycle.get_host_private_key", return_value=key_path),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                return_value=MagicMock(status="successful", events=[]),
+            ),
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                side_effect=get_secrets_mock,
+            ),
+        ):
+            # Caller passes the ALIAS form. Internally configure_agent must
+            # resolve via host['hostname'] (canonical) for the instance_key.
+            success, _ = configure_agent(
+                "wolf-i",
+                "hermes",
+                {"provider": {"name": "p", "type": "openrouter", "default_model": "x"}},
+                agent_name="hermes-test",
+            )
+        assert success is True
+        # instance_key passed to get_instance_secrets must be the canonical form.
+        # Ignore additional calls (lifecycle queries secrets for other purposes).
+        called_keys = [args[0] for args, _ in get_secrets_mock.call_args_list]
+        assert "192.168.1.100:hermes:hermes-test" in called_keys, called_keys
+        assert "wolf-i:hermes:hermes-test" not in called_keys, called_keys
+
+
+class TestConfigureYamlHandlerShape:
+    """B1 (iter 1) regression guard: configure.yaml must have exactly one
+    restart handler — having two caused a double restart on first configure."""
+
+    def test_configure_playbook_has_single_restart_handler(self):
+        playbook_path = (
+            Path(__file__).parent.parent
+            / "src/clawrium/platform/registry/hermes/playbooks/configure.yaml"
+        )
+        data = yaml.safe_load(playbook_path.read_text())
+        assert isinstance(data, list) and len(data) == 1
+        play = data[0]
+        handlers = play.get("handlers", [])
+        # All handlers must be restarts (no daemon-only handlers).
+        restart_handlers = [
+            h for h in handlers if "Restart" in h.get("name", "")
+        ]
+        assert len(handlers) == len(restart_handlers) == 1, (
+            f"expected exactly 1 restart handler, got {len(handlers)} total / "
+            f"{len(restart_handlers)} restart: "
+            f"{[h.get('name') for h in handlers]}"
+        )

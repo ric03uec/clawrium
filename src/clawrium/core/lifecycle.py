@@ -732,15 +732,24 @@ def configure_agent(
     # Reconfigure flows reuse the persisted token verbatim (idempotency
     # contract — clients reading the gateway don't see rotation).
     if resolved_type == "hermes":
+        from clawrium.core.install import _is_valid_hermes_api_server_key
+
         persisted_api_server = agent_record.get("config", {}).get("api_server")
-        instance_key = get_instance_key(hostname, resolved_type, unix_agent_name)
+        # Use canonical hostname (host['hostname']) instead of the raw hostname
+        # parameter so the lookup matches install.py's instance_key even when
+        # callers pass an alias. CLI paths today always resolve canonical, but
+        # programmatic callers may not.
+        instance_key = get_instance_key(
+            host["hostname"], resolved_type, unix_agent_name
+        )
         secret_entry = get_instance_secrets(instance_key).get("HERMES_API_SERVER_KEY")
         api_server_key = secret_entry["value"] if secret_entry else None
 
-        if not (isinstance(api_server_key, str) and len(api_server_key) == 64):
+        if not _is_valid_hermes_api_server_key(api_server_key):
             return (
                 False,
-                "Hermes agent missing HERMES_API_SERVER_KEY in secrets.json. "
+                "Hermes agent missing or invalid HERMES_API_SERVER_KEY in "
+                "secrets.json (expected 64-char lowercase hex). "
                 "Re-run 'clm agent install --type hermes ...' to generate one.",
             )
 
@@ -1004,7 +1013,18 @@ def configure_agent(
             existing_gateway = existing_config.get("gateway", {})
             device_creds = existing_gateway.get("device")
 
-            h["agents"][agent_key]["config"] = config_data
+            # Strip the hermes bearer token before persisting to hosts.json.
+            # The token was hydrated into config_data['api_server']['key']
+            # earlier in this call (line ~752) so the ansible playbook could
+            # render it, but the canonical store is secrets.json. Keeping it
+            # in hosts.json after configure would defeat the B3 migration.
+            persisted_config = dict(config_data)
+            if resolved_type == "hermes" and "api_server" in persisted_config:
+                api_server_persisted = dict(persisted_config["api_server"])
+                api_server_persisted.pop("key", None)
+                persisted_config["api_server"] = api_server_persisted
+
+            h["agents"][agent_key]["config"] = persisted_config
 
             # Restore device credentials if they existed
             if device_creds:
