@@ -1,0 +1,48 @@
+---
+- hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    memory_top_level_files:
+      - SOUL.md
+      - IDENTITY.md
+      - USER.md
+      - TOOLS.md
+  tasks:
+    - name: Set workspace path
+      ansible.builtin.set_fact:
+        memory_workspace_path: "/home/{{ agent_name }}/.openclaw/workspace"
+
+    - name: Stat top-level workspace files
+      ansible.builtin.stat:
+        path: "{{ memory_workspace_path }}/{{ item }}"
+      register: top_level_stats
+      loop: "{{ memory_top_level_files }}"
+
+    - name: Find daily memory files
+      ansible.builtin.find:
+        paths: "{{ memory_workspace_path }}/memory"
+        patterns: "*.md"
+        file_type: file
+      register: daily_files
+      failed_when: false
+
+    - name: Emit workspace path
+      ansible.builtin.debug:
+        msg: "WORKSPACE_PATH={{ memory_workspace_path }}"
+
+    - name: Emit top-level file stats
+      ansible.builtin.debug:
+        msg: >-
+          TOP {{ item.item }}
+          {{ (item.stat.size | default(-1)) if item.stat.exists else -1 }}
+      loop: "{{ top_level_stats.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Emit daily file stats
+      ansible.builtin.debug:
+        msg: "DAILY {{ item.path | basename }} {{ item.size }}"
+      loop: "{{ daily_files.files | default([]) }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
