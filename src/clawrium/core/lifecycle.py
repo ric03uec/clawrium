@@ -726,6 +726,27 @@ def configure_agent(
     # Use inner agent_name (Unix username) if available, otherwise fall back to dict key
     unix_agent_name = agent_record.get("agent_name") or agent_key
 
+    # Hermes: hydrate persisted api_server block (generated at install time)
+    # into config_data so the configure playbook can render API_SERVER_KEY into
+    # ~/.hermes/.env. Reconfigure flows reuse the persisted token verbatim
+    # (idempotency contract — clients reading the gateway don't see rotation).
+    if resolved_type == "hermes":
+        persisted_api_server = agent_record.get("config", {}).get("api_server")
+        if isinstance(persisted_api_server, dict) and persisted_api_server.get("key"):
+            existing_api_server = config_data.get("api_server") or {}
+            if not isinstance(existing_api_server, dict):
+                existing_api_server = {}
+            # Persisted values are authoritative for key/host/port; user-supplied
+            # config_data may carry transient fields we want to preserve.
+            merged_api_server = {**existing_api_server, **persisted_api_server}
+            config_data["api_server"] = merged_api_server
+        else:
+            return (
+                False,
+                "Hermes agent missing api_server.key in hosts.json. "
+                "Re-run 'clm agent install --type hermes ...' to generate one.",
+            )
+
     # Validate config data before running Ansible
     # Validate required provider fields (must check dict type first)
     required_provider_fields = ["name", "type", "default_model"]
@@ -923,13 +944,18 @@ def configure_agent(
 
     emit("configure", "Running Ansible playbook...")
 
+    # Hermes' configure flow restarts the service and probes /health with up
+    # to 20×3s retries (60s) — leave generous headroom for slow first-startup
+    # path that loads the agent venv. Other claws keep the legacy 60s budget.
+    configure_timeout = 240 if resolved_type == "hermes" else 60
+
     try:
         result = ansible_runner.run(
             private_data_dir=str(operation_log_dir),
             inventory=inventory,
             playbook=str(playbook_path),
             quiet=True,
-            timeout=60,
+            timeout=configure_timeout,
         )
 
         if result.status == "timeout":

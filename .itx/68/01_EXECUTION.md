@@ -375,4 +375,45 @@ E2E findings worth carrying into Phase 2:
 
 6. Per-host start/stop via `clm agent <name>` is gated by onboarding state (`pending_onboard`). Phase 1 leaves the agent in PENDING state by design (no `onboarding.stages` declared yet); Phase 2 / Phase 4 unblock the start path. Direct `systemctl start hermes-<name>.service` confirms the documented "service exits immediately, status 1, log says 'Gateway service is not installed'" behavior.
 
+---
+
+**Stage**: execution
+**Skill**: /itx:execute
+**Timestamp**: 2026-05-10T18:30:00Z
+**Model**: claude-opus-4-7
+**Subtask**: #313 (Phase 2)
+**Branch**: `issue-68-phase-2-configuration` (stacked on `issue-68-phase-1-installation`)
+
+```prompt
+/itx:execute 313 (sub-agent invocation)
+```
+
+Implementation outcomes:
+
+1. Hermes uses TWO config files (research finding pinned above): `config.yaml` for `model.provider` / `model.default` / `model.base_url`, and `.env` for API keys + `API_SERVER_*`. Phase 2 renders both. `HERMES_INFERENCE_MODEL` is NOT a recognized env var (the plan mentioned it incorrectly) — model selection happens via `model.default` in `config.yaml` only.
+
+2. `model.provider: custom` with `model.base_url: <endpoint>/v1` drives the local Ollama / vLLM / llama.cpp / any OpenAI-compatible endpoint. clm `provider.type=ollama` maps to it. The hermes `custom` provider has `env_vars=()` so no API key is required for local endpoints.
+
+3. **Phase 1 carryover bug discovered during E2E and fixed in Phase 2**: Phase 1's install.yaml dropped a systemd unit with `ExecStart=... hermes gateway start`, but `hermes gateway start` delegates to a per-user systemd unit installed via `hermes gateway install` (which we don't run). It exits 1 with "Gateway service is not installed". The correct foreground-supervisor command is `hermes gateway run`. Phase 2's `configure.yaml` re-renders the unit with `gateway run` before the restart handler fires. Phase 1's unit file remains as a placeholder until configure runs (which is the expected lifecycle: install → configure → ready). Filing a follow-up suggestion to update Phase 1's `install.yaml` and `start.yaml` to use `gateway run` directly is recommended; tracked in PR description.
+
+4. Configure timeout in `core/lifecycle.py` was 60s — too short for hermes (service restart + 20×3s `/health` retries). Bumped to 240s for `resolved_type == "hermes"`.
+
+5. `lineinfile` in `check_mode` does NOT correctly verify a credential is present — it always reports `changed=true` when the regexp matches a value-bearing line that differs from the placeholder. (This pattern is also broken in openclaw's `configure.yaml`; out-of-scope to fix here.) Phase 2 uses `command: grep -q '^KEY='` instead, which gives a clean rc=0/1 contract.
+
+6. `/health` endpoint on the hermes API server is **unauthenticated** (verified during E2E: `curl http://127.0.0.1:8642/health` returns 200 without bearer header). `/v1/*` endpoints DO require `Authorization: Bearer $API_SERVER_KEY`.
+
+7. `API_SERVER_KEY` generation moved to `core/install.py` (not `core/lifecycle.py::configure_agent` as one reading of the plan suggested). This mirrors openclaw's gateway-token pattern: install generates the secret, persists it in `hosts.json`, and configure reuses it. Idempotency comes from re-using the persisted key when an existing 64-char hex value is found in the agent record at install time (covers re-install scenarios) and from `configure_agent` hydrating from `hosts.json` on every reconfigure.
+
+E2E results on wolf-i (192.168.1.36) against `local-inx` provider (Ollama @ 192.168.1.17:11434, model `qwen3-coder:30b-128k`):
+
+- `clm agent install --type hermes --host wolf-i --name hermes-test` succeeded; `API_SERVER_KEY` persisted in `hosts.json`.
+- `clm agent configure hermes-test --stage providers` (with `local-inx` selected) succeeded; service active+running.
+- `~/.hermes/.env` rendered 0600, contains `API_SERVER_KEY` + `HERMES_INFERENCE_PROVIDER=custom`.
+- `~/.hermes/config.yaml` rendered 0600 with `model: {provider: custom, base_url: http://192.168.1.17:11434/v1, default: qwen3-coder:30b-128k}`.
+- `curl http://127.0.0.1:8642/health` → `{"status": "ok", "platform": "hermes-agent"}` (200, no auth).
+- `curl http://127.0.0.1:8642/v1/models -H "Authorization: Bearer ..."` → `[{"id": "hermes-agent", ...}]`.
+- `curl -X POST http://127.0.0.1:8642/v1/chat/completions -H "Authorization: Bearer ..." -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Say only the word OK and nothing else."}],"max_tokens":16}'` → `{"choices":[{"message":{"role":"assistant","content":"OK"}}], ...}`. Full hermes-via-clm-via-ollama-via-DGX-Spark roundtrip works.
+- Reconfigure with `local-inx.default_model` rotated to `gpt-oss:20b-128k` succeeded; `API_SERVER_KEY` byte-identical across reconfigures (idempotency contract verified); `model.default` rotated; service still active.
+- `clm agent remove hermes-test --force` cleaned up: user removed, `~/.hermes/` deleted, systemd unit removed, `~/.local/bin/hermes` symlink removed, `hosts.json` agent record (with `api_server.key`) removed.
+
 </details>

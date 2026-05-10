@@ -505,6 +505,33 @@ def run_installation(
         }
     }
 
+    # Hermes: generate (or reuse) the API_SERVER_KEY that gates the local
+    # OpenAI-compatible gateway on 127.0.0.1:8642. Generated once on first
+    # install so reconfigure flows can rely on the same token across runs.
+    # Idempotency: if a previous install record already has the key, reuse it
+    # so existing API consumers don't break on a re-install.
+    hermes_api_server_key = None
+    if claw_name == "hermes":
+        existing_host = get_host(hostname)
+        existing_key = (
+            (existing_host or {})
+            .get("agents", {})
+            .get(agent_name, {})
+            .get("config", {})
+            .get("api_server", {})
+            .get("key")
+        )
+        if isinstance(existing_key, str) and len(existing_key) == 64:
+            hermes_api_server_key = existing_key
+        else:
+            hermes_api_server_key = secrets.token_hex(32)  # 64-char hex token
+        config["api_server"] = {
+            "enabled": True,
+            "host": "127.0.0.1",
+            "port": 8642,
+            "key": hermes_api_server_key,
+        }
+
     inventory = {
         "all": {
             "hosts": {
@@ -783,6 +810,18 @@ def run_installation(
                             "token": device_token,
                             "privateKey": device_private_key,
                         }
+
+                # Persist Hermes API_SERVER_KEY (loopback gateway auth) so
+                # reconfigure flows can reuse it without rotating the token.
+                if claw_name == "hermes" and hermes_api_server_key:
+                    if "config" not in h["agents"][agent_name]:
+                        h["agents"][agent_name]["config"] = {}
+                    h["agents"][agent_name]["config"]["api_server"] = {
+                        "enabled": True,
+                        "host": "127.0.0.1",
+                        "port": 8642,
+                        "key": hermes_api_server_key,
+                    }
             return h
 
         update_host(host["hostname"], set_installed)

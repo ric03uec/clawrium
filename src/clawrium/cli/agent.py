@@ -333,6 +333,12 @@ def _sync_provider_config(
     if "channels" in existing_config:
         config_data["channels"] = existing_config["channels"]
 
+    # Preserve existing api_server block (Hermes loopback gateway auth).
+    # configure_agent re-hydrates this from hosts.json too, but carrying it
+    # through here keeps the persisted record consistent across rotations.
+    if "api_server" in existing_config:
+        config_data["api_server"] = existing_config["api_server"]
+
     # Call configure_agent to apply configuration via Ansible
     success, error = configure_agent(
         host,
