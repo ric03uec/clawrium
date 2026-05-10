@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from rich.markup import escape
@@ -13,7 +12,6 @@ from textual.containers import Vertical
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Input, RichLog
-from textual.worker import get_current_worker
 
 from clawrium.core.chat import (
     ChatAuthenticationError,
@@ -124,11 +122,9 @@ class ChatPanel(Widget):
         color = {"error": "red", "warning": "yellow", "info": "dim"}.get(severity, "dim")
         log.write(f"[{color}]{escape(message)}[/{color}]")
 
-    @work(thread=True)
-    def _connect_async(self) -> None:
-        worker = get_current_worker()
-
-        async def _connect() -> None:
+    @work(exclusive=True, group="chat-connect")
+    async def _connect_async(self) -> None:
+        try:
             self._client = OpenClawChatClient(
                 gateway_url=self._gateway_url,
                 auth_token=SecretStr(self._gateway_auth),
@@ -137,52 +133,24 @@ class ChatPanel(Widget):
                 timeout_seconds=30.0,
             )
             await self._client.connect()
-
-        try:
-            asyncio.run(_connect())
-            if worker.is_cancelled:
-                return
             self._connected = True
-            self.app.call_from_thread(
-                self._add_system_message, "Connected to agent", "info"
-            )
+            self._add_system_message("Connected to agent", "info")
         except ChatAuthenticationError:
-            if worker.is_cancelled:
-                return
-            self.app.call_from_thread(
-                self._add_system_message, "Authentication failed", "error"
-            )
-            self.app.call_from_thread(
-                self.post_message, self.ChatError("Authentication failed")
-            )
+            self._add_system_message("Authentication failed", "error")
+            self.post_message(self.ChatError("Authentication failed"))
         except ChatConnectionError:
-            if worker.is_cancelled:
-                return
-            self.app.call_from_thread(
-                self._add_system_message,
-                "Connection failed - check agent status",
-                "error",
+            self._add_system_message(
+                "Connection failed - check agent status", "error"
             )
-            self.app.call_from_thread(
-                self.post_message, self.ChatError("Connection failed")
-            )
+            self.post_message(self.ChatError("Connection failed"))
         except Exception:
-            if worker.is_cancelled:
-                return
-            self.app.call_from_thread(
-                self._add_system_message, "Connection error", "error"
-            )
-            self.app.call_from_thread(
-                self.post_message, self.ChatError("Connection error")
-            )
+            self._add_system_message("Connection error", "error")
+            self.post_message(self.ChatError("Connection error"))
 
-    @work(thread=True)
-    def _send_message_async(self, message: str) -> None:
-        worker = get_current_worker()
+    @work(group="chat-send")
+    async def _send_message_async(self, message: str) -> None:
         if not self._connected or self._client is None:
-            self.app.call_from_thread(
-                self._add_system_message, "Not connected to agent", "warning"
-            )
+            self._add_system_message("Not connected to agent", "warning")
             return
 
         response_chunks: list[str] = []
@@ -192,62 +160,39 @@ class ChatPanel(Widget):
             nonlocal first_chunk
             response_chunks.append(delta)
             if first_chunk:
-                self.app.call_from_thread(self._add_agent_delta, delta, True)
+                self._add_agent_delta(delta, True)
                 first_chunk = False
 
-        async def _send() -> str:
-            if self._client is None:
-                raise ChatConnectionError("Client not initialized")
-            return await self._client.send_message(
+        try:
+            final_response = await self._client.send_message(
                 message=message,
                 session_key=self._session_key,
                 on_delta=on_delta,
                 response_timeout_seconds=120.0,
             )
-
-        try:
-            final_response = asyncio.run(_send())
-            if worker.is_cancelled:
-                return
-            # If we didn't get any deltas, show the full response
             if not response_chunks:
-                self.app.call_from_thread(self._add_agent_message, final_response)
+                self._add_agent_message(final_response)
             else:
-                # Store the complete response
                 self._messages.append(("agent", final_response))
-        except ChatProtocolError:
-            if worker.is_cancelled:
-                return
-            self.app.call_from_thread(
-                self._add_system_message, "Message failed - protocol error", "error"
+        except ChatProtocolError as exc:
+            self._add_system_message(
+                f"Message failed - protocol error: {exc}", "error"
             )
-        except ChatConnectionError:
-            if worker.is_cancelled:
-                return
-            self.app.call_from_thread(
-                self._add_system_message, "Connection lost", "error"
-            )
+        except ChatConnectionError as exc:
+            self._add_system_message(f"Connection lost: {exc}", "error")
             self._connected = False
-        except Exception:
-            if worker.is_cancelled:
-                return
-            self.app.call_from_thread(
-                self._add_system_message, "Message failed", "error"
-            )
+        except Exception as exc:
+            self._add_system_message(f"Message failed: {exc}", "error")
 
     def on_unmount(self) -> None:
         if self._client is not None:
-            # Close the client connection in a background task
             self._close_client_async()
 
-    @work(thread=True)
-    def _close_client_async(self) -> None:
-        async def _close() -> None:
+    @work(group="chat-close")
+    async def _close_client_async(self) -> None:
+        try:
             if self._client is not None:
                 await self._client.close()
-
-        try:
-            asyncio.run(_close())
         except Exception:
             pass
         finally:

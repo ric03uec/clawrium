@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 
 from clawrium.cli.tui.data import (
+    _gateway_scheme,
     calculate_uptime,
     get_fleet_data,
     get_agent_detail,
@@ -49,6 +50,30 @@ class TestCalculateUptime:
         naive = now.replace(tzinfo=None)
         result = calculate_uptime(naive.isoformat())
         assert "1h" in result
+
+
+class TestGatewayScheme:
+    def test_stored_ws_returns_ws(self):
+        assert _gateway_scheme("ws://192.168.1.36:40198") == "ws"
+
+    def test_stored_wss_returns_wss(self):
+        assert _gateway_scheme("wss://gateway.example.com:443") == "wss"
+
+    def test_none_returns_default_ws(self):
+        assert _gateway_scheme(None) == "ws"
+
+    def test_empty_string_returns_default_ws(self):
+        assert _gateway_scheme("") == "ws"
+
+    def test_non_string_returns_default_ws(self):
+        assert _gateway_scheme(12345) == "ws"
+
+    def test_no_scheme_returns_default_ws(self):
+        assert _gateway_scheme("192.168.1.36:40198") == "ws"
+
+    def test_unsupported_scheme_returns_default_ws(self):
+        assert _gateway_scheme("http://192.168.1.36:40198") == "ws"
+        assert _gateway_scheme("https://gateway.example.com") == "ws"
 
 
 class TestLoadHostsSafe:
@@ -478,6 +503,132 @@ class TestGetFleetData:
 
         assert agents[0]["gateway_port"] is None
 
+    def test_gateway_url_preserves_stored_ws_scheme(self, isolated_config):
+        """Gateway URL should preserve ws:// from stored config (matches CLI)."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "192.168.1.100",
+                "agents": {
+                    "openclaw": {
+                        "type": "openclaw",
+                        "agent_name": "opc-test",
+                        "config": {
+                            "gateway": {
+                                "port": 40123,
+                                "url": "ws://192.168.1.100:40123",
+                            },
+                        },
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 4,
+            "memory_total_mb": 8192,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            agents, _ = get_fleet_data()
+
+        assert agents[0]["gateway_url"] == "ws://192.168.1.100:40123"
+
+    def test_gateway_url_preserves_stored_wss_scheme(self, isolated_config):
+        """Gateway URL should preserve wss:// from stored config."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "gateway.example.com",
+                "agents": {
+                    "openclaw": {
+                        "type": "openclaw",
+                        "agent_name": "opc-test",
+                        "config": {
+                            "gateway": {
+                                "port": 443,
+                                "url": "wss://gateway.example.com:443",
+                            },
+                        },
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "openclaw",
+            "host": "gateway.example.com",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 4,
+            "memory_total_mb": 8192,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            agents, _ = get_fleet_data()
+
+        assert agents[0]["gateway_url"] == "wss://gateway.example.com:443"
+
+    def test_gateway_url_defaults_to_ws_when_no_stored_url(self, isolated_config):
+        """Gateway URL falls back to ws:// when stored URL is missing."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "192.168.1.100",
+                "agents": {
+                    "openclaw": {
+                        "type": "openclaw",
+                        "agent_name": "opc-test",
+                        "config": {
+                            "gateway": {"port": 40123},
+                        },
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 4,
+            "memory_total_mb": 8192,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            agents, _ = get_fleet_data()
+
+        assert agents[0]["gateway_url"] == "ws://192.168.1.100:40123"
+
 
 class TestGetAgentDetail:
     def test_found(self, isolated_config):
@@ -574,3 +725,95 @@ class TestGetAgentDetail:
 
         assert detail is not None
         assert detail["gateway_port"] == 40456
+
+    def test_gateway_url_preserves_stored_ws_scheme(self, isolated_config):
+        """get_agent_detail should preserve ws:// from stored config."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "192.168.1.100",
+                "alias": "myhost",
+                "agents": {
+                    "openclaw": {
+                        "type": "openclaw",
+                        "agent_name": "opc-test",
+                        "version": "1.0.0",
+                        "config": {
+                            "gateway": {
+                                "port": 40456,
+                                "url": "ws://192.168.1.100:40456",
+                            },
+                        },
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "openclaw",
+            "host": "192.168.1.100",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 4,
+            "memory_total_mb": 8192,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            detail = get_agent_detail("openclaw", "192.168.1.100")
+
+        assert detail is not None
+        assert detail["gateway_url"] == "ws://192.168.1.100:40456"
+
+    def test_gateway_url_preserves_stored_wss_scheme(self, isolated_config):
+        """get_agent_detail should preserve wss:// from stored config."""
+        import json
+
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts = [
+            {
+                "hostname": "gateway.example.com",
+                "alias": "remote",
+                "agents": {
+                    "openclaw": {
+                        "type": "openclaw",
+                        "agent_name": "opc-test",
+                        "version": "1.0.0",
+                        "config": {
+                            "gateway": {
+                                "port": 443,
+                                "url": "wss://gateway.example.com:443",
+                            },
+                        },
+                    }
+                },
+            }
+        ]
+        (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+
+        mock_result = {
+            "agent": "openclaw",
+            "host": "gateway.example.com",
+            "status": ClawStatus.RUNNING,
+            "user": None,
+            "error": None,
+            "missing_secrets": None,
+            "onboarding_step": None,
+            "process_running": True,
+            "onboarding_stages": None,
+            "cpu_count": 4,
+            "memory_total_mb": 8192,
+        }
+
+        with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
+            detail = get_agent_detail("openclaw", "gateway.example.com")
+
+        assert detail is not None
+        assert detail["gateway_url"] == "wss://gateway.example.com:443"

@@ -6,6 +6,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import TypedDict
+from urllib.parse import urlparse
 
 from clawrium.core.health import ClawStatus, HealthResult, check_claw_health
 from clawrium.core.hosts import HostsFileCorruptedError, load_hosts
@@ -74,6 +75,19 @@ def calculate_uptime(started_at: str | None) -> str:
         return "-"
 
 
+def _gateway_scheme(stored_url: object) -> str:
+    """Return the scheme from a stored gateway URL, defaulting to ws.
+
+    The gateway serves plain WebSocket; using wss by default would break
+    connections to gateways that aren't fronted by TLS.
+    """
+    if isinstance(stored_url, str) and stored_url:
+        parsed_scheme = urlparse(stored_url).scheme
+        if parsed_scheme in {"ws", "wss"}:
+            return parsed_scheme
+    return "ws"
+
+
 def get_fleet_data(
     host_filter: str | None = None,
 ) -> tuple[list[AgentViewModel], FleetSummary]:
@@ -130,10 +144,10 @@ def get_fleet_data(
                     auth_val = gateway_cfg.get("auth")
                     if isinstance(auth_val, str) and auth_val.strip():
                         gateway_auth = auth_val
-                    # Reconstruct gateway URL using host's current address and port
-                    # Use wss:// by default, ws:// only for localhost
+                    # Reconstruct gateway URL using host's current address and port,
+                    # preserving the scheme stored at install/configure time.
                     if gateway_port is not None:
-                        scheme = "ws" if hostname in ("localhost", "127.0.0.1") else "wss"
+                        scheme = _gateway_scheme(gateway_cfg.get("url"))
                         gateway_url = f"{scheme}://{hostname}:{gateway_port}"
                     # Extract device credentials for operator.write scope
                     device_cfg = gateway_cfg.get("device")
@@ -265,10 +279,10 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
                 auth_val = gateway_cfg.get("auth")
                 if isinstance(auth_val, str) and auth_val.strip():
                     gateway_auth = auth_val
-                # Reconstruct gateway URL using host's current address and port
-                # Use wss:// by default, ws:// only for localhost
+                # Reconstruct gateway URL using host's current address and port,
+                # preserving the scheme stored at install/configure time.
                 if gateway_port is not None:
-                    scheme = "ws" if hostname in ("localhost", "127.0.0.1") else "wss"
+                    scheme = _gateway_scheme(gateway_cfg.get("url"))
                     gateway_url = f"{scheme}://{hostname}:{gateway_port}"
                 # Extract device credentials for operator.write scope
                 device_cfg = gateway_cfg.get("device")
