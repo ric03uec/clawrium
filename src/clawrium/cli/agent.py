@@ -2126,7 +2126,6 @@ def memory_delete(
     file: Optional[str] = typer.Option(
         None,
         "--file",
-        "-f",
         help="Single memory file to delete (e.g., SOUL.md or memory/2026-05-09.md).",
     ),
     all_files: bool = typer.Option(
@@ -2137,7 +2136,8 @@ def memory_delete(
     force: bool = typer.Option(
         False,
         "--force",
-        help="Skip the per-file confirmation prompt. Required for --all.",
+        "-f",
+        help="Skip the per-file confirmation prompt; required gate for --all.",
     ),
 ) -> None:
     """Delete one memory file or every memory file for the agent."""

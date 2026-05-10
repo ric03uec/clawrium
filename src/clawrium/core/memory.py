@@ -288,6 +288,16 @@ def _run_memory_playbook(
 
 
 def _extract_failure_message(result, default: str) -> str:
+    # SSH/network failures land as runner_on_unreachable, not runner_on_failed.
+    # Prefer that signal so the user sees "Host unreachable: <reason>" rather
+    # than the generic playbook status string.
+    for event in result.events:
+        if event.get("event") == "runner_on_unreachable":
+            res = event.get("event_data", {}).get("res", {})
+            msg = res.get("msg")
+            if msg:
+                return f"Host unreachable: {msg}"
+            return "Host unreachable"
     for event in result.events:
         if event.get("event") == "runner_on_failed":
             res = event.get("event_data", {}).get("res", {})
@@ -496,10 +506,15 @@ def write_memory_file(
     except MemoryOpError as e:
         return False, str(e)
 
+    # Pass content as base64 so user-supplied bytes are never interpreted
+    # as Jinja2 by the playbook. Pairs with the b64decode filter in
+    # memory_write.yaml.
     extra_vars = {
         "agent_name": unix_name,
         "memory_filename": filename,
-        "memory_content": content,
+        "memory_content_b64": base64.b64encode(
+            content.encode("utf-8")
+        ).decode("ascii"),
     }
     result, log_dir, setup_error = _run_memory_playbook(
         host, "memory_write", extra_vars, timeout=60

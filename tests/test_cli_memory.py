@@ -1,12 +1,26 @@
 """Tests for CLI memory commands (clm agent <name> memory show|delete)."""
 
 import os
+import contextlib
 from typer.testing import CliRunner
 from unittest.mock import patch
 
 from clawrium.cli.main import app
 
 runner = CliRunner()
+
+
+@contextlib.contextmanager
+def _fake_tty():
+    """Make the CLI's TTY check return True for the duration of the block.
+
+    The CliRunner-injected stdin is a non-TTY pipe, which the --all --force
+    path correctly rejects. Tests that exercise the typed-confirmation
+    flow opt in to a TTY-like environment by patching the small helper
+    that wraps the isatty call.
+    """
+    with patch("clawrium.cli.memory._stdin_is_tty", return_value=True):
+        yield
 
 
 # `hosts_with_installed_claw` (defined in conftest.py) registers a single
@@ -210,7 +224,7 @@ def test_delete_all_force_requires_typed_confirmation(
             },
         ],
     }
-    with patch(
+    with _fake_tty(), patch(
         "clawrium.cli.memory.get_memory_info", return_value=info
     ), patch(
         "clawrium.cli.memory.delete_memory_files", return_value=(True, None)
@@ -254,7 +268,7 @@ def test_delete_all_force_with_correct_name_proceeds(
             },
         ],
     }
-    with patch(
+    with _fake_tty(), patch(
         "clawrium.cli.memory.get_memory_info", return_value=info
     ), patch(
         "clawrium.cli.memory.delete_memory_files", return_value=(True, None)
@@ -278,7 +292,7 @@ def test_delete_all_force_when_no_files(hosts_with_installed_claw):
         "total_bytes": 0,
         "files": [],
     }
-    with patch(
+    with _fake_tty(), patch(
         "clawrium.cli.memory.get_memory_info", return_value=info
     ), patch(
         "clawrium.cli.memory.delete_memory_files", return_value=(True, None)
@@ -294,7 +308,7 @@ def test_delete_all_force_when_no_files(hosts_with_installed_claw):
 
 
 def test_delete_all_force_offline_host(hosts_with_installed_claw):
-    with patch(
+    with _fake_tty(), patch(
         "clawrium.cli.memory.get_memory_info", return_value=None
     ), patch(
         "clawrium.cli.memory.delete_memory_files", return_value=(True, None)
@@ -307,3 +321,105 @@ def test_delete_all_force_offline_host(hosts_with_installed_claw):
     assert result.exit_code != 0
     assert "unavailable" in result.output.lower()
     mock_delete.assert_not_called()
+
+
+def test_delete_all_force_refuses_when_stdin_not_tty(hosts_with_installed_claw):
+    """B4: piped input must not be able to satisfy the typed confirmation.
+
+    The CliRunner default already provides a non-TTY stdin, so we just
+    invoke without _fake_tty and confirm the early refusal fires."""
+    with patch(
+        "clawrium.cli.memory.get_memory_info"
+    ) as mock_info, patch(
+        "clawrium.cli.memory.delete_memory_files"
+    ) as mock_delete:
+        result = runner.invoke(
+            app,
+            ["agent", "memory", "delete", "work", "--all", "--force"],
+            input="work\n",
+            env=os.environ,
+        )
+    assert result.exit_code != 0
+    assert "TTY" in result.output
+    # The TTY guard fires before either core call.
+    mock_info.assert_not_called()
+    mock_delete.assert_not_called()
+
+
+# ----- routing fix coverage (B7) -------------------------------------------
+
+
+def test_show_rejects_non_openclaw_agent(isolated_config):
+    """Routing fix: agents with type != openclaw must be rejected with a
+    clear message rather than running memory ops against them."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    (isolated_config / "hosts.json").write_text(
+        json.dumps(
+            [
+                {
+                    "hostname": "192.168.1.100",
+                    "alias": "server1",
+                    "port": 22,
+                    "agent_name": "xclm",
+                    "agents": {
+                        "zerowork": {
+                            "type": "zeroclaw",
+                            "agent_name": "zerowork",
+                            "name": "zerowork",
+                        }
+                    },
+                }
+            ]
+        )
+    )
+
+    result = runner.invoke(
+        app, ["agent", "memory", "show", "zerowork"], env=os.environ
+    )
+    assert result.exit_code != 0
+    assert "openclaw" in result.output.lower()
+    assert "zeroclaw" in result.output.lower()
+
+
+def test_delete_rejects_nonexistent_agent(hosts_with_installed_claw):
+    result = runner.invoke(
+        app,
+        ["agent", "memory", "delete", "ghost", "--file", "SOUL.md", "--force"],
+        env=os.environ,
+    )
+    assert result.exit_code != 0
+    assert "not found" in result.output.lower()
+
+
+def test_delete_all_surfaces_core_failure(hosts_with_installed_claw):
+    """When the underlying delete_memory_files returns (False, error) on the
+    --all path, the CLI must surface that error and exit non-zero rather
+    than printing a misleading success line."""
+    info = {
+        "workspace_path": "/home/opc-work/.openclaw/workspace",
+        "total_bytes": 50,
+        "files": [
+            {
+                "name": "SOUL.md",
+                "exists": True,
+                "size_bytes": 50,
+                "relative_path": "SOUL.md",
+            }
+        ],
+    }
+    with _fake_tty(), patch(
+        "clawrium.cli.memory.get_memory_info", return_value=info
+    ), patch(
+        "clawrium.cli.memory.delete_memory_files",
+        return_value=(False, "Host unreachable: timed out"),
+    ):
+        result = runner.invoke(
+            app,
+            ["agent", "memory", "delete", "work", "--all", "--force"],
+            input="work\n",
+            env=os.environ,
+        )
+    assert result.exit_code != 0
+    assert "Host unreachable" in result.output

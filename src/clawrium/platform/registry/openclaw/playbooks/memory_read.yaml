@@ -30,7 +30,11 @@
       when: not memory_stat.stat.exists
 
     - name: Read memory file content
+      # no_log is intentionally NOT set: it would censor the runner event
+      # to {"censored": ...} and Python would never see the file content.
+      # The slurp result is base64-encoded and the runner's private data
+      # directory is 0700 with auto-cleanup of artifacts/ and env/ via
+      # _cleanup_artifacts, so this is acceptable for memory data.
       ansible.builtin.slurp:
         src: "{{ memory_target }}"
       register: memory_content
-      no_log: true
