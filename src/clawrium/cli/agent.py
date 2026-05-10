@@ -2102,6 +2102,53 @@ def secret_import(
 agent_app.add_typer(secret_app, name="secret")
 
 
+# Memory inspection and management for agents
+memory_app = typer.Typer(
+    name="memory",
+    help="Inspect and manage memory for openclaw agents",
+    no_args_is_help=True,
+)
+
+
+@memory_app.command(name="show")
+def memory_show(
+    claw_name: str = typer.Argument(..., help="Agent instance name"),
+) -> None:
+    """Show memory file paths and sizes for an openclaw agent."""
+    from clawrium.cli.memory import show_cmd
+
+    show_cmd(claw_name=claw_name)
+
+
+@memory_app.command(name="delete")
+def memory_delete(
+    claw_name: str = typer.Argument(..., help="Agent instance name"),
+    file: Optional[str] = typer.Option(
+        None,
+        "--file",
+        help="Single memory file to delete (e.g., SOUL.md or memory/2026-05-09.md).",
+    ),
+    all_files: bool = typer.Option(
+        False,
+        "--all",
+        help="Delete every memory file. Requires --force and a typed confirmation.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Skip the per-file confirmation prompt; required gate for --all.",
+    ),
+) -> None:
+    """Delete one memory file or every memory file for the agent."""
+    from clawrium.cli.memory import delete_cmd
+
+    delete_cmd(claw_name=claw_name, file=file, all_files=all_files, force=force)
+
+
+agent_app.add_typer(memory_app, name="memory")
+
+
 # Integration management for agents
 integration_app = typer.Typer(
     name="integration",

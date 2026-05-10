@@ -33,10 +33,13 @@
       when: memory_filename is match('^memory/.*$')
 
     - name: Write memory file content
+      # Content is passed as base64 from Python so user-supplied bytes are
+      # never interpreted as Jinja2. Decoding via the b64decode filter
+      # produces the literal payload without re-templating.
       ansible.builtin.copy:
-        content: "{{ memory_content }}"
+        content: "{{ memory_content_b64 | b64decode }}"
         dest: "/home/{{ agent_name }}/.openclaw/workspace/{{ memory_filename }}"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
-        mode: "0644"
+        mode: "0600"
       no_log: true

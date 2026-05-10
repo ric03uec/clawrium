@@ -204,9 +204,13 @@ def _cleanup_artifacts(operation_log_dir: Path) -> None:
     """Remove ansible-runner artifacts that may contain inventory secrets.
 
     Mirrors the cleanup used in lifecycle._cleanup_ansible_artifacts so memory
-    operations do not leak SSH key paths or inventory contents on disk.
+    operations do not leak SSH key paths, extravars, or inventory contents on
+    disk. ``inventory/`` is included alongside ``artifacts/`` and ``env/``
+    because ansible-runner writes ``memory_content_b64`` and other extravars
+    there; without this, the security justification for removing ``no_log``
+    from the read playbook would only hold partway.
     """
-    for sub in ("artifacts", "env"):
+    for sub in ("artifacts", "env", "inventory"):
         target = operation_log_dir / sub
         if target.exists():
             try:
@@ -288,6 +292,16 @@ def _run_memory_playbook(
 
 
 def _extract_failure_message(result, default: str) -> str:
+    # SSH/network failures land as runner_on_unreachable, not runner_on_failed.
+    # Prefer that signal so the user sees "Host unreachable: <reason>" rather
+    # than the generic playbook status string.
+    for event in result.events:
+        if event.get("event") == "runner_on_unreachable":
+            res = event.get("event_data", {}).get("res", {})
+            msg = res.get("msg")
+            if msg:
+                return f"Host unreachable: {msg}"
+            return "Host unreachable"
     for event in result.events:
         if event.get("event") == "runner_on_failed":
             res = event.get("event_data", {}).get("res", {})
@@ -362,11 +376,13 @@ def get_memory_info(hostname: str, agent_name: str) -> MemoryStats | None:
             return None
 
         # The memory_info playbook emits structured lines via the debug
-        # module (one msg per runner_on_ok event). Concatenate every msg
-        # value and parse the combined buffer.
+        # module. Standalone debug tasks surface as runner_on_ok events;
+        # debug tasks under a loop surface as runner_item_on_ok per
+        # iteration (the runner_on_ok aggregate just says "All items
+        # completed"). Collect msg from both.
         lines: list[str] = []
         for event in result.events:
-            if event.get("event") != "runner_on_ok":
+            if event.get("event") not in {"runner_on_ok", "runner_item_on_ok"}:
                 continue
             res = event.get("event_data", {}).get("res", {})
             msg = res.get("msg")
@@ -494,10 +510,15 @@ def write_memory_file(
     except MemoryOpError as e:
         return False, str(e)
 
+    # Pass content as base64 so user-supplied bytes are never interpreted
+    # as Jinja2 by the playbook. Pairs with the b64decode filter in
+    # memory_write.yaml.
     extra_vars = {
         "agent_name": unix_name,
         "memory_filename": filename,
-        "memory_content": content,
+        "memory_content_b64": base64.b64encode(
+            content.encode("utf-8")
+        ).decode("ascii"),
     }
     result, log_dir, setup_error = _run_memory_playbook(
         host, "memory_write", extra_vars, timeout=60
