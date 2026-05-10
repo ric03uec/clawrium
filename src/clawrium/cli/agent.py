@@ -2146,6 +2146,42 @@ def memory_delete(
     delete_cmd(claw_name=claw_name, file=file, all_files=all_files, force=force)
 
 
+@memory_app.command(name="edit")
+def memory_edit(
+    claw_name: str = typer.Argument(..., help="Agent instance name"),
+    file: str = typer.Argument(
+        ...,
+        help="Workspace-relative file (e.g., SOUL.md or memory/2026-05-09.md).",
+    ),
+    editor: Optional[str] = typer.Option(
+        None,
+        "--editor",
+        help="Editor command. Defaults to $VISUAL, then $EDITOR, then 'vi'.",
+    ),
+    no_restart: bool = typer.Option(
+        False,
+        "--no-restart",
+        help="Save the edit but skip restarting the agent.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Skip the restart confirmation prompt.",
+    ),
+) -> None:
+    """Edit a memory file in $EDITOR; sync changes back and restart agent."""
+    from clawrium.cli.memory import edit_cmd
+
+    edit_cmd(
+        claw_name=claw_name,
+        file=file,
+        editor=editor,
+        no_restart=no_restart,
+        force=force,
+    )
+
+
 agent_app.add_typer(memory_app, name="memory")
 
 
