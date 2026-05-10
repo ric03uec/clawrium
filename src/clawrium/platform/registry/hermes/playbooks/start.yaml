@@ -27,7 +27,7 @@
           User={{ agent_name }}
           WorkingDirectory=/home/{{ agent_name }}/.hermes
           EnvironmentFile=/home/{{ agent_name }}/.hermes/.env
-          ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway start
+          ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway run
           Restart=on-failure
           RestartSec=5
 
@@ -49,10 +49,13 @@
         daemon_reload: yes
       register: start_result
 
-    # The service is expected to come up and stay active when a provider is
-    # configured. Before Phase 2 wires up `.env`, the gateway starts then
-    # exits (no platforms enabled). We still report whatever systemd shows so
-    # operators see the truth instead of a misleading "started successfully".
+    # Brief settle window so systemd has time to either reach `active` or
+    # crash through `Restart=on-failure` cycles. Without this, ActiveState can
+    # still read `activating` when we immediately query it.
+    - name: Pause briefly to let service reach steady state
+      ansible.builtin.pause:
+        seconds: 3
+
     - name: Capture service active state
       ansible.builtin.systemd:
         name: "{{ agent_type }}-{{ agent_name }}"
@@ -64,4 +67,19 @@
           Hermes service {{ agent_type }}-{{ agent_name }} is
           {{ service_status.status.ActiveState }}
           (sub-state: {{ service_status.status.SubState }}).
-          {{ 'Note: service may exit immediately until ~/.hermes/.env is configured.' if service_status.status.ActiveState != 'active' else '' }}
+
+    # Fail loudly if the unit is not running. Previously the playbook
+    # reported success regardless of ActiveState, so the Python lifecycle
+    # layer wrote runtime.status='running' even when the service had exited
+    # with rc=1. This caused state divergence between clm and systemd.
+    - name: Fail if service is not active
+      ansible.builtin.fail:
+        msg: >-
+          Hermes service {{ agent_type }}-{{ agent_name }} failed to reach
+          'active' state (currently
+          {{ service_status.status.ActiveState }}/{{ service_status.status.SubState }}).
+          Inspect logs with:
+            sudo journalctl -u {{ agent_type }}-{{ agent_name }} -n 100 --no-pager
+          Common cause: ~/.hermes/.env is missing required provider credentials.
+          Run `clm agent configure {{ agent_name }}` to provision a provider.
+      when: service_status.status.ActiveState not in ['active', 'activating']

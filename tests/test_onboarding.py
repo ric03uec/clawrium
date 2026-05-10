@@ -350,6 +350,47 @@ class TestInitializeOnboarding:
         with pytest.raises(AgentNotFoundError):
             initialize_onboarding("nonexistent", "openclaw")
 
+    def test_initialize_hermes_auto_skips_to_ready(self, isolated_config):
+        """hermes manifest declares auto_skip:true on every stage, so
+        initialize_onboarding must short-circuit straight to READY with all
+        stages marked SKIPPED. This unblocks `clm agent start` without --force
+        for the Phase 1 placeholder onboarding pipeline (ATX B2)."""
+        hosts_data = [
+            {
+                "hostname": "192.168.1.100",
+                "alias": "server1",
+                "port": 22,
+                "agent_name": "xclm",
+                "agents": {
+                    "hermes-test": {
+                        "type": "hermes",
+                        "version": "2026.5.7",
+                        "status": "installed",
+                        "agent_name": "hermes-test",
+                    }
+                },
+            }
+        ]
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_path = isolated_config / "hosts.json"
+        hosts_path.write_text(json.dumps(hosts_data))
+
+        result = initialize_onboarding("server1", "hermes-test")
+        assert result is True
+
+        from clawrium.core.hosts import get_host
+
+        host = get_host("server1")
+        onboarding = host["agents"]["hermes-test"]["onboarding"]
+
+        assert onboarding["state"] == "ready"
+        for stage_name, stage_data in onboarding["stages"].items():
+            assert stage_data["status"] == "skipped", (
+                f"hermes stage {stage_name} should be skipped, got "
+                f"{stage_data['status']}"
+            )
+            assert stage_data["completed_at"] is not None
+
 
 class TestCanSkipStage:
     """Tests for can_skip_stage function."""

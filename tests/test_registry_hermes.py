@@ -1,5 +1,7 @@
 """Tests for the hermes agent type registration in the bundled registry."""
 
+import pytest
+
 from clawrium.core.registry import (
     check_compatibility,
     get_claw_info,
@@ -132,7 +134,13 @@ def test_hermes_install_playbook_shape():
     assert "which rg" in content
     assert "which ffmpeg" in content
     # Service unit MUST NOT be enabled or started in install.yaml.
-    assert "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway start" in content
+    # ExecStart must use `hermes gateway run` (NOT `start`): the `start`
+    # subcommand fails with "Gateway service is not installed" because hermes
+    # treats `start` as a systemd-managed alias and refuses to spawn the
+    # foreground process. `run` is the daemon entrypoint suitable for
+    # `Type=simple` systemd units.
+    assert "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway run" in content
+    assert "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway start" not in content
     assert "EnvironmentFile=/home/{{ agent_name }}/.hermes/.env" in content
 
     data = yaml.safe_load(content)
@@ -216,3 +224,476 @@ def test_hermes_install_env_file_permissions_enforced():
     file_args = enforce[0]["ansible.builtin.file"]
     assert file_args["path"] == "/home/{{ agent_name }}/.hermes/.env"
     assert file_args["mode"] == "0600"
+
+
+def test_hermes_install_env_file_created_with_mode_0600():
+    """The `copy` task that creates ~/.hermes/.env must declare mode=0600 ON
+    the task itself (not via a separate chmod) so the file is never world-
+    readable, even momentarily. This closes the TOCTOU window flagged by ATX
+    review B1."""
+    from importlib.resources import files
+    import yaml
+
+    hermes_pkg = files("clawrium.platform.registry.hermes")
+    install_path = hermes_pkg / "playbooks" / "install.yaml"
+    data = yaml.safe_load(install_path.read_text())
+    tasks = data[0]["tasks"]
+
+    create_tasks = [
+        t for t in tasks if t.get("name", "").startswith("Create empty Hermes environment file")
+    ]
+    assert create_tasks, "install.yaml must have a task that creates ~/.hermes/.env"
+    copy_args = create_tasks[0]["ansible.builtin.copy"]
+    assert copy_args["dest"] == "/home/{{ agent_name }}/.hermes/.env"
+    assert copy_args["mode"] == "0600", (
+        "the create task must set mode=0600 directly to avoid a TOCTOU window"
+    )
+
+
+def test_hermes_manifest_onboarding_all_auto_skip():
+    """All four canonical stages in the hermes manifest must be auto_skip:true
+    so initialize_onboarding short-circuits to READY. Phase 4 will replace
+    this with a real onboarding pipeline."""
+    manifest = load_manifest("hermes")
+    onboarding = manifest.get("onboarding") or {}
+    stages = onboarding.get("stages") or {}
+    for stage_name in ("providers", "identity", "channels", "validate"):
+        assert stage_name in stages, f"hermes onboarding missing stage: {stage_name}"
+        assert stages[stage_name].get("auto_skip") is True, (
+            f"hermes onboarding stage '{stage_name}' must declare auto_skip: true"
+        )
+
+
+def test_hermes_start_playbook_fails_on_inactive_service():
+    """start.yaml must FAIL when the service is not in active/activating state
+    so the Python lifecycle layer does not record runtime.status='running' for
+    a service that has already exited (state divergence)."""
+    from importlib.resources import files
+    import yaml
+
+    hermes_pkg = files("clawrium.platform.registry.hermes")
+    start_path = hermes_pkg / "playbooks" / "start.yaml"
+    data = yaml.safe_load(start_path.read_text())
+    tasks = data[0]["tasks"]
+
+    fail_tasks = [
+        t for t in tasks
+        if t.get("ansible.builtin.fail") is not None
+        and "not active" in t.get("name", "").lower()
+    ]
+    assert fail_tasks, "start.yaml must explicitly fail when the service is not active"
+    # The fail must be gated on a non-active ActiveState.
+    when_clause = fail_tasks[0].get("when", "")
+    assert "ActiveState" in when_clause
+    assert "active" in when_clause
+
+
+def test_hermes_start_playbook_uses_gateway_run():
+    """The re-rendered systemd unit in start.yaml must use `hermes gateway run`,
+    not `hermes gateway start` (which is a CLI alias that fails)."""
+    from importlib.resources import files
+
+    hermes_pkg = files("clawrium.platform.registry.hermes")
+    start_path = hermes_pkg / "playbooks" / "start.yaml"
+    content = start_path.read_text()
+    assert "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway run" in content
+    assert "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway start" not in content
+
+
+def test_hermes_stop_playbook_pgrep_matches_python_process():
+    """W5: hermes is a Python app; `pgrep -u <user> hermes` won't match the
+    python process. The verification must use `pgrep -f 'hermes gateway run'`."""
+    from importlib.resources import files
+
+    hermes_pkg = files("clawrium.platform.registry.hermes")
+    stop_path = hermes_pkg / "playbooks" / "stop.yaml"
+    content = stop_path.read_text()
+    # The pgrep invocation must use `-f` and match against the daemon command.
+    assert "-f \"hermes gateway run\"" in content or "-f 'hermes gateway run'" in content
+
+
+# ---------------------------------------------------------------------------
+# ansible_runner mock tests for hermes (B7 — parity with openclaw test suite).
+#
+# These tests exercise run_installation('hermes', ...) end-to-end with a mocked
+# ansible_runner so we can assert extra_vars, playbook path, inventory shape,
+# and skip-detection behavior without touching the network.
+# ---------------------------------------------------------------------------
+
+
+def _hermes_install_setup(monkeypatch, tmp_path, host_record: dict, version: str = "2026.5.7"):
+    """Shared setup for hermes install mock tests. Mirrors the openclaw
+    pattern in tests/test_install_skip.py."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "hermes",
+        "entries": [
+            {
+                "version": version,
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "b34368cb0628d5acbdc48fe6f4160fb6f51bb33377e8f5a7415fd790a57456e5",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.11"},
+                },
+            }
+        ],
+    }
+
+    import clawrium.core.install
+
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: {
+            "compatible": True,
+            "matched_entry": mock_manifest["entries"][0],
+            "reasons": [],
+        },
+    )
+
+    host_state = [host_record]
+
+    def mock_get_host(_):
+        return host_state[0]
+
+    def mock_update_host(_, updater):
+        host_state[0] = updater(host_state[0])
+        return True
+
+    monkeypatch.setattr(clawrium.core.install, "get_host", mock_get_host)
+    monkeypatch.setattr(clawrium.core.install, "update_host", mock_update_host)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda _: key_file
+    )
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", lambda h, c: True
+    )
+
+    return host_state
+
+
+def _capture_run(captured: list):
+    """Mock for ansible_runner.run that captures call kwargs and returns a
+    successful result with the recorded events."""
+
+    def _runner(*args, **kwargs):
+        captured.append(kwargs)
+
+        class Result:
+            status = "successful"
+
+            class Config:
+                artifact_dir = "/tmp/nonexistent"
+
+            config = Config()
+            events = kwargs.get("_events", [])
+
+        return Result()
+
+    return _runner
+
+
+def test_hermes_install_passes_correct_extra_vars(monkeypatch, tmp_path):
+    """run_installation('hermes', ...) must inject agent_type='hermes',
+    claw_version='v2026.5.7', and the manifest sha256 into the playbook inventory."""
+    from clawrium.core.install import run_installation
+
+    host = {
+        "hostname": "test-host",
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    _hermes_install_setup(monkeypatch, tmp_path, host)
+
+    import ansible_runner
+
+    captured: list = []
+    monkeypatch.setattr(ansible_runner, "run", _capture_run(captured))
+
+    result = run_installation("hermes", "test-host", name="hermes-test")
+
+    assert result["success"] is True
+    assert result["agent"] == "hermes"
+    assert result["version"] == "2026.5.7"
+    # base + claw playbook
+    assert len(captured) == 2
+    inv_vars = captured[1]["inventory"]["all"]["vars"]
+    assert inv_vars["agent_name"] == "hermes-test"
+    assert inv_vars["agent_type"] == "hermes"
+    assert inv_vars["claw_version"] == "v2026.5.7"
+    assert (
+        inv_vars["claw_sha256"]
+        == "b34368cb0628d5acbdc48fe6f4160fb6f51bb33377e8f5a7415fd790a57456e5"
+    )
+    assert inv_vars["force_install"] is False
+
+
+def test_hermes_install_uses_hermes_playbook(monkeypatch, tmp_path):
+    """The second ansible_runner call must target the hermes install.yaml,
+    not openclaw's or another agent's playbook."""
+    from clawrium.core.install import run_installation
+
+    host = {
+        "hostname": "test-host",
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    _hermes_install_setup(monkeypatch, tmp_path, host)
+
+    import ansible_runner
+
+    captured: list = []
+    monkeypatch.setattr(ansible_runner, "run", _capture_run(captured))
+
+    run_installation("hermes", "test-host", name="hermes-test")
+
+    playbook_path = captured[1]["playbook"]
+    assert "registry/hermes/playbooks/install.yaml" in playbook_path
+
+
+def test_hermes_install_force_propagates_force_install_true(monkeypatch, tmp_path):
+    """force=True must propagate as force_install=true into the playbook inventory."""
+    from clawrium.core.install import run_installation
+
+    host = {
+        "hostname": "test-host",
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+        "agents": {
+            "hermes-test": {
+                "type": "hermes",
+                "status": "installed",
+                "installed_at": "2026-05-09T00:00:00+00:00",
+                "error": None,
+                "agent_name": "hermes-test",
+                "version": "2026.5.7",
+            }
+        },
+    }
+    _hermes_install_setup(monkeypatch, tmp_path, host)
+
+    import ansible_runner
+
+    captured: list = []
+    monkeypatch.setattr(ansible_runner, "run", _capture_run(captured))
+
+    run_installation("hermes", "test-host", force=True)
+
+    for entry in captured:
+        assert entry["inventory"]["all"]["vars"]["force_install"] is True
+
+
+def test_hermes_install_skip_detection_via_fact(monkeypatch, tmp_path):
+    """When the hermes playbook emits `hermes_already_installed=true`,
+    `_install_was_skipped` must detect it and run_installation reports
+    skipped=True. Proves the generalized (non-openclaw-specific) skip
+    detection introduced for W8."""
+    from clawrium.core.install import run_installation
+
+    host = {
+        "hostname": "test-host",
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+        "agents": {
+            "hermes-test": {
+                "type": "hermes",
+                "status": "installed",
+                "installed_at": "2026-05-09T00:00:00+00:00",
+                "error": None,
+                "agent_name": "hermes-test",
+                "version": "2026.5.7",
+            }
+        },
+    }
+    _hermes_install_setup(monkeypatch, tmp_path, host)
+
+    import ansible_runner
+    from unittest.mock import Mock
+
+    class Result:
+        def __init__(self, events):
+            self.events = events
+
+        status = "successful"
+
+        class Config:
+            artifact_dir = "/tmp/nonexistent"
+
+        config = Config()
+
+    base_result = Result([])
+    claw_result = Result(
+        [
+            {
+                "event": "runner_on_ok",
+                "event_data": {
+                    "task": "Set install skip condition",
+                    "res": {"ansible_facts": {"hermes_already_installed": True}},
+                },
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        ansible_runner, "run", Mock(side_effect=[base_result, claw_result])
+    )
+
+    result = run_installation("hermes", "test-host")
+
+    assert result["success"] is True
+    assert result["skipped"] is True
+    assert result["skip_reason"] == "already_installed"
+
+
+def test_install_was_skipped_handles_hermes_fact():
+    """Unit test for the generalized skip detection helper."""
+    from clawrium.core.install import _install_was_skipped
+
+    class Result:
+        events = [
+            {
+                "event": "runner_on_ok",
+                "event_data": {
+                    "task": "Set install skip condition",
+                    "res": {"ansible_facts": {"hermes_already_installed": True}},
+                },
+            }
+        ]
+
+    assert _install_was_skipped(Result(), "hermes") is True
+    # openclaw fact does not trigger hermes skip detection.
+    assert _install_was_skipped(Result(), "openclaw") is False
+
+
+def test_hermes_install_checksum_failure_raises(monkeypatch, tmp_path):
+    """B9: when the get_url task fails (e.g., installer checksum mismatch),
+    ansible_runner returns status='failed' and run_installation must raise
+    InstallationError. Guards the security-critical installer-pinning path."""
+    from clawrium.core.install import InstallationError, run_installation
+
+    host = {
+        "hostname": "test-host",
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    _hermes_install_setup(monkeypatch, tmp_path, host)
+
+    import ansible_runner
+    from unittest.mock import Mock
+
+    class BaseResult:
+        status = "successful"
+
+        class Config:
+            artifact_dir = "/tmp/nonexistent"
+
+        config = Config()
+        events = []
+
+    class FailedResult:
+        # Simulates the claw playbook failing partway through (e.g., on the
+        # get_url task) because the SHA256 of the downloaded installer does
+        # not match the manifest-pinned checksum.
+        status = "failed"
+
+        class Config:
+            artifact_dir = "/tmp/nonexistent"
+
+        config = Config()
+        events = [
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "task": "Download Hermes installer script",
+                    "res": {
+                        "msg": (
+                            "The checksum for /home/hermes-test/hermes-install.sh "
+                            "did not match the expected value."
+                        ),
+                        "failed": True,
+                    },
+                },
+            }
+        ]
+
+    monkeypatch.setattr(
+        ansible_runner, "run", Mock(side_effect=[BaseResult(), FailedResult()])
+    )
+
+    with pytest.raises(InstallationError, match="Agent playbook failed"):
+        run_installation("hermes", "test-host", name="hermes-test")
+
+
+# ---------------------------------------------------------------------------
+# Version-parsing regex tests (B8).
+#
+# The Jinja2 regex pipeline in install.yaml that parses `hermes --version`
+# output is encoded as a single expression. Rather than re-execute Jinja2 in
+# unit tests, we extract the regex into a pure-Python helper and test it
+# directly. The playbook continues to use the same regex (kept in sync via
+# the shared constant in core.registry).
+# ---------------------------------------------------------------------------
+
+
+def test_parse_hermes_version_matches_canonical_output():
+    """Canonical `hermes --version` output -> parsed upstream tag."""
+    from clawrium.core.registry import parse_hermes_version
+
+    assert parse_hermes_version("Hermes Agent v0.13.0 (2026.5.7)") == "2026.5.7"
+
+
+def test_parse_hermes_version_different_release_tag():
+    """A different patch tag still parses correctly."""
+    from clawrium.core.registry import parse_hermes_version
+
+    assert parse_hermes_version("Hermes Agent v0.13.0 (2026.5.10)") == "2026.5.10"
+
+
+def test_parse_hermes_version_unparseable_returns_empty_string():
+    """Garbage / unexpected output returns '' so the playbook treats it as
+    'version unknown' and triggers a safe reinstall."""
+    from clawrium.core.registry import parse_hermes_version
+
+    assert parse_hermes_version("hermes: command moved, please reinstall") == ""
+    assert parse_hermes_version("") == ""
+    assert parse_hermes_version("Hermes Agent v0.13.0") == ""
+
+
+def test_parse_hermes_version_handles_absent_binary():
+    """When the binary is absent, callers pass None; helper must not crash."""
+    from clawrium.core.registry import parse_hermes_version
+
+    assert parse_hermes_version(None) == ""

@@ -198,7 +198,10 @@ def install(
         False,
         "--force",
         "-f",
-        help="Force reinstall even if the same version is already installed",
+        help=(
+            "Force reinstall, even if same version installed. "
+            "WARNING: rotates gateway tokens and device credentials."
+        ),
     ),
 ) -> None:
     """Install an agent on a host.

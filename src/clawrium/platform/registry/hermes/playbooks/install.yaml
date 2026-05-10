@@ -10,12 +10,17 @@
       ansible.builtin.set_fact:
         hermes_target_branch: "v{{ hermes_target_version }}"
 
+    # Use /usr/sbin/nologin since the agent user is a service account: it
+    # runs `hermes gateway run` under systemd and is not meant for interactive
+    # login. Reduces lateral-movement attack surface if the account is ever
+    # compromised. The hermes installer is invoked via `become_user` + ansible,
+    # not via an interactive shell, so this does not affect installation.
     - name: Create agent user
       ansible.builtin.user:
         name: "{{ agent_name }}"
         state: present
         create_home: yes
-        shell: /bin/bash
+        shell: /usr/sbin/nologin
 
     # Preflight: hermes upstream installer requires `rg` and `ffmpeg` on PATH.
     # We treat their absence as a hard failure with a clear remediation message
@@ -156,6 +161,10 @@
 
     # `force: no` so a second install (or the hermes upstream installer)
     # does not get its `.env` clobbered. Phase 2 owns the `.env` content.
+    # `mode: "0600"` is set ON the create task itself (not via a separate
+    # chmod) so the file is never world-readable, even momentarily, when
+    # ansible.builtin.copy creates it. This closes a TOCTOU window where
+    # the file would briefly exist at 0644 between create and chmod tasks.
     - name: Create empty Hermes environment file (preserved across re-installs)
       ansible.builtin.copy:
         dest: "/home/{{ agent_name }}/.hermes/.env"
@@ -167,7 +176,9 @@
 
     # The hermes upstream installer writes its own template `.env` with mode
     # 0644. Tighten permissions unconditionally so any provider keys placed
-    # there in Phase 2 are not world-readable.
+    # there in Phase 2 are not world-readable. This is a backstop for the
+    # case where the upstream installer already created the file at 0644
+    # before our `copy` (with `force: no`) ran.
     - name: Enforce 0600 permissions on Hermes environment file
       ansible.builtin.file:
         path: "/home/{{ agent_name }}/.hermes/.env"
@@ -202,7 +213,7 @@
           User={{ agent_name }}
           WorkingDirectory=/home/{{ agent_name }}/.hermes
           EnvironmentFile=/home/{{ agent_name }}/.hermes/.env
-          ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway start
+          ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway run
           Restart=on-failure
           RestartSec=5
 

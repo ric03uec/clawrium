@@ -26,6 +26,33 @@ secrets:
     - key: OPENAI_API_KEY
       description: "OpenAI API key"
 
+# Onboarding workflow configuration.
+#
+# Phase 1 ships a placeholder pipeline where every stage is auto-skipped so
+# fresh installs reach READY immediately and `clm agent start` works without
+# `--force`. Phase 4 will replace this with the real onboarding flow that
+# walks through provider selection, identity bootstrapping, and channel
+# configuration for hermes. Until then, configuration is performed by
+# `clm agent configure` (Phase 2), which writes ~/.hermes/.env directly.
+onboarding:
+  stages:
+    providers:
+      required: false
+      auto_skip: true
+      description: "Provider configuration deferred to `clm agent configure` (Phase 2)"
+    identity:
+      required: false
+      auto_skip: true
+      description: "Identity bootstrapping deferred to Phase 4"
+    channels:
+      required: false
+      auto_skip: true
+      description: "Channel configuration deferred to Phase 4"
+    validate:
+      required: false
+      auto_skip: true
+      description: "Validation deferred to Phase 4"
+
 # Note: The hermes installer is a single bash script served from
 # raw.githubusercontent.com at the pinned tag. The same script content is
 # fetched for both Ubuntu 22.04 and 24.04, so the sha256 below is identical
