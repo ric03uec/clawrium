@@ -155,6 +155,33 @@
       failed_when: api_server_key_check.rc != 0
       no_log: true
 
+    # Discord platform verification — only runs when channels.discord.enabled
+    # is true. Confirms the bot token landed in .env and the allowlist guard
+    # (at least one of DISCORD_ALLOWED_USERS / DISCORD_ALLOW_ALL_USERS) is
+    # present, since hermes denies every message without one of those.
+    - name: Verify .env contains DISCORD_BOT_TOKEN when Discord enabled
+      ansible.builtin.command:
+        cmd: grep -q '^DISCORD_BOT_TOKEN=' "/home/{{ agent_name }}/.hermes/.env"
+      register: discord_token_check
+      changed_when: false
+      failed_when: discord_token_check.rc != 0
+      no_log: true
+      when:
+        - config.channels is defined
+        - config.channels.discord is defined
+        - config.channels.discord.enabled | default(false)
+
+    - name: Verify .env declares Discord user allowlist when Discord enabled
+      ansible.builtin.shell: |
+        grep -qE '^(DISCORD_ALLOWED_USERS=.+|DISCORD_ALLOW_ALL_USERS=true)' "/home/{{ agent_name }}/.hermes/.env"
+      register: discord_allowlist_check
+      changed_when: false
+      failed_when: discord_allowlist_check.rc != 0
+      when:
+        - config.channels is defined
+        - config.channels.discord is defined
+        - config.channels.discord.enabled | default(false)
+
     # Force the restart handler to fire NOW so probes below run against the
     # newly-rendered config.
     - name: Apply pending restart before probing

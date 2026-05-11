@@ -399,4 +399,21 @@ If implementation surfaces a chunk that wants to land separately (e.g. the `conf
 
 Context: triggered after #324 was filed by the orchestrator. Plan-create explores the codebase (which already has Discord wiring for openclaw/zeroclaw) and narrows the scope significantly — Phase 6 is mostly removing the hermes guard + translating the existing config shape into hermes' env-var contract + a B3-pattern token persistence path.
 
+---
+
+**Stage**: execution
+**Skill**: /itx:execute
+**Timestamp**: 2026-05-10T20:55:00Z
+**Model**: claude-opus-4-7
+
+Implementation completed in a single sub-agent pass. Key deviations from the plan during execution:
+
+1. **Token persistence order had to flip for hermes.** Original plan: store secret AFTER successful sync (W4 invariant inherited from openclaw). Reality: hermes' `configure_agent` reads `DISCORD_BOT_TOKEN` from `secrets.json` during hydration BEFORE running the playbook (the playbook needs the token rendered into `.env`). For openclaw the order stays "sync first, then secret"; for hermes it's "secret first, then sync." Branched on `claw_type` in `_run_channels_stage`.
+
+2. **`.env.j2` had to switch from attribute-access to `dict.get()`.** Ansible 2.20's strict Jinja mode errors on undefined attribute access against dicts (`discord.allow_all_users` → `'dict' object has no attribute 'allow_all_users'`). All Discord-block accesses changed to `discord.get('key')` form.
+
+3. **Channels list for hermes is `[cli, discord]`** (not the openclaw `[cli, discord, slack]` — slack isn't wired for hermes yet).
+
+E2E on wolf-i / espresso: snapshot captured, channels stage migrated to clm-managed wiring, `.env` re-rendered with manual comment stripped, service auto-restarted, /health 200, ESTAB Discord connection preserved, idempotent re-run produces byte-identical `.env` (md5 match). Test suite: 1566 → 1589 (+23 new). Lint clean.
+
 </details>
