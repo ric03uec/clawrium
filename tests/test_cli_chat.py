@@ -656,15 +656,15 @@ class TestHermesChat:
         )
 
     def test_service_unreachable(self, monkeypatch):
-        """ChatConnectionError from the backend surfaces as exit 1 with a
-        remediation hint (mirrors the openclaw connection-failure path)."""
+        """ChatConnectionError from the hermes backend surfaces a systemctl
+        remediation hint pointing at the agent host's user service unit."""
         from clawrium.core.chat import ChatConnectionError
 
         self._setup_resolved_hermes(monkeypatch)
 
         def fake_asyncio_run(_coro):
             _coro.close()
-            raise ChatConnectionError("connection refused on 192.168.1.50:8642")
+            raise ChatConnectionError("Failed to reach hermes at http://wolf-i.lan:8642/v1")
 
         monkeypatch.setattr("clawrium.cli.chat.asyncio.run", fake_asyncio_run)
 
@@ -672,12 +672,57 @@ class TestHermesChat:
 
         assert result.exit_code == 1
         assert "connection failed" in result.output.lower()
-        assert "connection refused" in result.output.lower()
-        # Remediation hint must be present so the user knows what to do next.
-        assert "configure" in result.output.lower() or "install" in result.output.lower()
+        # systemctl hint is the canonical remediation for unreachable hermes.
+        assert "systemctl --user status hermes-hermes-test" in result.output
+        # No legacy-bind hint because the standard fixture binds 0.0.0.0.
+        assert "legacy bind" not in result.output.lower()
 
-    def test_authentication_failure(self, monkeypatch):
-        """ChatAuthenticationError from the backend surfaces as exit 1."""
+    def test_service_unreachable_legacy_bind_hint(self, monkeypatch):
+        """When the persisted bind is still 127.0.0.1 (pre-migration), surface
+        a follow-on hint nudging the user to run `clm agent configure`."""
+        from clawrium.core.chat import ChatConnectionError
+
+        legacy_agent = {
+            "agent_name": "hermes-test",
+            "config": {
+                "api_server": {
+                    "enabled": True,
+                    "host": "127.0.0.1",
+                    "port": 8642,
+                }
+            },
+        }
+        monkeypatch.setattr(
+            "clawrium.cli.chat.get_agent_by_name",
+            lambda _name: (self.HOST, "hermes", legacy_agent),
+        )
+        monkeypatch.setattr(
+            "clawrium.cli.chat._resolve_chat_type", lambda _agent_type: "openai"
+        )
+        monkeypatch.setattr(
+            "clawrium.cli.chat.get_instance_secrets",
+            lambda _key: {
+                "HERMES_API_SERVER_KEY": {
+                    "key": "HERMES_API_SERVER_KEY",
+                    "value": "c" * 64,
+                }
+            },
+        )
+
+        def fake_asyncio_run(_coro):
+            _coro.close()
+            raise ChatConnectionError("Failed to reach hermes at http://wolf-i.lan:8642/v1")
+
+        monkeypatch.setattr("clawrium.cli.chat.asyncio.run", fake_asyncio_run)
+
+        result = runner.invoke(app, ["chat", "hermes-test"])
+
+        assert result.exit_code == 1
+        assert "legacy bind" in result.output.lower()
+        assert "clm agent configure hermes-test" in result.output
+
+    def test_401_remediation(self, monkeypatch):
+        """401/403 surfaces a 'Re-run clm agent configure' remediation hint."""
         from clawrium.core.chat import ChatAuthenticationError
 
         self._setup_resolved_hermes(monkeypatch)
@@ -693,6 +738,75 @@ class TestHermesChat:
         assert result.exit_code == 1
         assert "authentication failed" in result.output.lower()
         assert "401" in result.output
+        assert "re-run" in result.output.lower()
+        assert "clm agent configure hermes-test" in result.output
+
+    def test_session_flag_warns_for_hermes(self, monkeypatch):
+        """Passing `--session <non-default>` to a hermes agent logs a dim
+        warning and continues; chat still starts."""
+        self._setup_resolved_hermes(monkeypatch)
+
+        captured: dict[str, object] = {}
+
+        async def mock_chat_loop(backend, **kwargs):
+            captured["session_key"] = kwargs.get("session_key")
+
+        monkeypatch.setattr(chat_module, "_chat_loop", mock_chat_loop)
+
+        result = runner.invoke(
+            app, ["chat", "hermes-test", "--session", "custom-session"]
+        )
+
+        assert result.exit_code == 0
+        assert "no-op" in result.output.lower()
+        assert "openai-typed" in result.output.lower()
+        # Chat still proceeded — session_key was forwarded verbatim.
+        assert captured["session_key"] == "custom-session"
+
+    def test_session_flag_default_does_not_warn(self, monkeypatch):
+        """Default --session=main must not trigger the no-op warning."""
+        self._setup_resolved_hermes(monkeypatch)
+
+        async def mock_chat_loop(backend, **kwargs):
+            return None
+
+        monkeypatch.setattr(chat_module, "_chat_loop", mock_chat_loop)
+
+        result = runner.invoke(app, ["chat", "hermes-test"])
+
+        assert result.exit_code == 0
+        assert "no-op" not in result.output.lower()
+
+    def test_connection_error_does_not_leak_httpx_internals(self, monkeypatch):
+        """No raw httpx exception strings (errno codes, internal type names)
+        reach the user. The backend strips them; this test guards the CLI
+        path too in case a future regression reintroduces leakage."""
+        from clawrium.core.chat import ChatConnectionError
+
+        self._setup_resolved_hermes(monkeypatch)
+
+        # Construct a ChatConnectionError whose message intentionally contains
+        # httpx-style internals. If a future change pipes the raw exception
+        # text from chat_hermes.py through unchanged, this test will fail.
+        leaky_text = (
+            "[Errno 111] Connection refused; httpx.ConnectError: "
+            "_ssl.c:1056 path=/usr/lib/python3/dist-packages/httpx/_transports/default.py"
+        )
+
+        def fake_asyncio_run(_coro):
+            _coro.close()
+            raise ChatConnectionError(leaky_text)
+
+        monkeypatch.setattr("clawrium.cli.chat.asyncio.run", fake_asyncio_run)
+
+        result = runner.invoke(app, ["chat", "hermes-test"])
+
+        assert result.exit_code == 1
+        # Even if a ChatConnectionError carries leaky text (as a defensive
+        # guard against backend bugs), the CLI sanitizer collapses control
+        # chars; the remediation hint surfaces below the error line so the
+        # user always sees an actionable next step.
+        assert "systemctl --user status hermes-hermes-test" in result.output
 
 
 # ---------------------------------------------------------------------------

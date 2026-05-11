@@ -107,8 +107,11 @@ class HermesOpenAIBackend:
                 timeout=response_timeout_seconds,
             )
         except httpx.ConnectError as exc:
+            # Drop raw httpx text — it leaks transport internals (e.g. errno,
+            # socket addrs) into user-facing errors. Slice 4 owns the friendly
+            # remediation hint at the CLI layer.
             raise ChatConnectionError(
-                f"Failed to reach hermes at {self._base_url}: {exc}"
+                f"Failed to reach hermes at {self._base_url}"
             ) from exc
         except httpx.TimeoutException as exc:
             raise ChatConnectionError(
@@ -116,7 +119,7 @@ class HermesOpenAIBackend:
                 f"{response_timeout_seconds}s"
             ) from exc
         except httpx.HTTPError as exc:
-            raise ChatConnectionError(f"HTTP error talking to hermes: {exc}") from exc
+            raise ChatConnectionError("HTTP error talking to hermes") from exc
 
         if response.status_code in (401, 403):
             raise ChatAuthenticationError(
