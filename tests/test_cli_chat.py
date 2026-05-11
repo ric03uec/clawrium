@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from typer.testing import CliRunner
 
 from clawrium.cli import chat as chat_module
@@ -395,6 +396,45 @@ def test_chat_sanitizes_gateway_error_output(monkeypatch):
     assert "secret" not in result.output
 
 
+@pytest.mark.parametrize(
+    "raw,secret",
+    [
+        # Plain keyword forms (one per new sanitizer keyword).
+        ("token=secret-tok-1", "secret-tok-1"),
+        ("auth=secret-auth-1", "secret-auth-1"),
+        ("password=hunter2", "hunter2"),
+        ("key=k-001", "k-001"),
+        ("bearer=b-001", "b-001"),
+        ("secret=s-001", "s-001"),
+        ("apikey=ak-001", "ak-001"),
+        ("authorization=auth-001", "auth-001"),
+        # Embedded keyword forms — \b alone doesn't fire between _ and K, so
+        # the old regex missed these. The replacement pattern must catch them.
+        ("HERMES_API_SERVER_KEY=deadbeef-cafef00d", "deadbeef-cafef00d"),
+        ("api_key=sk-abc123xyz", "sk-abc123xyz"),
+        ("X-Auth-Token: abc-tok-123", "abc-tok-123"),
+        # Whitespace separator — matches `Authorization: Bearer <value>`-style
+        # headers and `bearer <value>` shorthand.
+        ("bearer beartok123", "beartok123"),
+    ],
+)
+def test_sanitize_exception_redacts_secret_keywords(raw, secret):
+    """Each new sanitizer keyword (and embedded/space variants) must redact
+    the secret value while leaving the keyword identifier visible."""
+    redacted = chat_module._sanitize_exception_text(Exception(raw))
+    assert secret not in redacted, (
+        f"secret '{secret}' leaked through sanitizer: {redacted!r}"
+    )
+    assert "***" in redacted
+
+
+def test_sanitize_exception_preserves_non_secret_text():
+    """Non-secret text must pass through cleanly so error messages stay
+    readable."""
+    text = "Hermes returned HTTP 500: internal server error"
+    assert chat_module._sanitize_exception_text(Exception(text)) == text
+
+
 def test_chat_loop_handles_idle_timeout_and_closes_client(monkeypatch):
     fake_client = FakeChatClient()
 
@@ -422,12 +462,16 @@ class FakeChatClient:
         self.connected = False
         self.closed = False
         self.last_kwargs: dict[str, object] = {}
+        self.clear_history_calls = 0
 
     async def connect(self):
         self.connected = True
 
     async def close(self):
         self.closed = True
+
+    def clear_history(self) -> None:
+        self.clear_history_calls += 1
 
     async def send_message(self, message: str, **kwargs):
         self.messages.append(message)
@@ -482,6 +526,102 @@ def test_chat_loop_handles_eof_and_closes_client(monkeypatch):
 
     assert fake_client.connected is True
     assert fake_client.closed is True
+
+
+def test_chat_loop_reset_command_invokes_clear_history(monkeypatch, capsys):
+    """On openai-typed agents /reset must call clear_history() AND print the
+    cleared confirmation. The /reset literal must not be sent as a message."""
+    fake_client = FakeChatClient()
+    inputs = iter(["hello", "/reset", "world", "/exit"])
+
+    async def fake_read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
+        return next(inputs)
+
+    monkeypatch.setattr(chat_module, "_read_user_input", fake_read_user_input)
+
+    asyncio.run(
+        chat_module._chat_loop(
+            backend=fake_client,
+            session_key="main",
+            response_timeout_seconds=30.0,
+            idle_timeout_seconds=10.0,
+            chat_type="openai",
+        )
+    )
+
+    assert fake_client.clear_history_calls == 1
+    assert fake_client.messages == ["hello", "world"]
+    captured = capsys.readouterr().out
+    assert "Conversation history cleared" in captured
+
+
+def test_chat_loop_reset_on_websocket_backend_is_explicit_noop(monkeypatch, capsys):
+    """On websocket-typed agents /reset must NOT call clear_history (the
+    gateway owns session state) and must surface a yellow no-op notice so
+    the user knows the command didn't do what they expected."""
+    backend = FakeChatClient()
+    inputs = iter(["/reset", "/exit"])
+
+    async def fake_read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
+        return next(inputs)
+
+    monkeypatch.setattr(chat_module, "_read_user_input", fake_read_user_input)
+
+    asyncio.run(
+        chat_module._chat_loop(
+            backend=backend,
+            session_key="main",
+            response_timeout_seconds=30.0,
+            idle_timeout_seconds=10.0,
+            chat_type="websocket",
+        )
+    )
+
+    assert backend.clear_history_calls == 0
+    assert backend.messages == []
+    captured = capsys.readouterr().out
+    assert "Conversation history cleared" not in captured
+    assert "no-op for this agent type" in captured
+
+
+def test_chat_loop_surfaces_history_truncation_notice(monkeypatch, capsys):
+    """When the backend reports a non-zero last_send_dropped_turns, the REPL
+    must surface a yellow notice so the user knows context was silently
+    trimmed."""
+
+    class TruncatingBackend(FakeChatClient):
+        def __init__(self):
+            super().__init__()
+            self.last_send_dropped_turns = 0
+            self._call = 0
+
+        async def send_message(self, message: str, **kwargs):
+            self._call += 1
+            # First call clean, second call reports a 3-turn drop.
+            self.last_send_dropped_turns = 0 if self._call == 1 else 3
+            return await super().send_message(message, **kwargs)
+
+    backend = TruncatingBackend()
+    inputs = iter(["one", "two", "/exit"])
+
+    async def fake_read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
+        return next(inputs)
+
+    monkeypatch.setattr(chat_module, "_read_user_input", fake_read_user_input)
+
+    asyncio.run(
+        chat_module._chat_loop(
+            backend=backend,
+            session_key="main",
+            response_timeout_seconds=30.0,
+            idle_timeout_seconds=10.0,
+            chat_type="openai",
+        )
+    )
+
+    captured = capsys.readouterr().out
+    assert "dropped 3 oldest turns" in captured
+    assert "Use /reset to start fresh" in captured
 
 
 def test_chat_loop_handles_keyboard_interrupt_and_closes_client(monkeypatch):

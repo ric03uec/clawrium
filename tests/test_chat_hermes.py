@@ -1,4 +1,9 @@
-"""Unit tests for HermesOpenAIBackend (phase 1: non-streaming, single-turn)."""
+"""Unit tests for HermesOpenAIBackend.
+
+Phase 1 covered non-streaming single-turn behavior. Slice 2 (this file's
+additions) covers client-side conversation history accumulation, /reset
+semantics, and failure-atomicity of history mutations.
+"""
 
 from __future__ import annotations
 
@@ -230,6 +235,247 @@ def test_content_blocks_list_is_concatenated():
         _run(backend.close())
 
     assert result == "part one part two"
+
+
+def test_history_grows_across_turns():
+    """Each subsequent request body must carry all prior user+assistant turns."""
+    captured_bodies: list[list[dict[str, str]]] = []
+    replies = iter(["4", "8", "16"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        captured_bodies.append(body["messages"])
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": next(replies)}}]},
+        )
+
+    backend = _build_backend(httpx.MockTransport(handler))
+    try:
+        assert _run(backend.send_message("what's 2+2?")) == "4"
+        assert _run(backend.send_message("double that")) == "8"
+        assert _run(backend.send_message("double again")) == "16"
+    finally:
+        _run(backend.close())
+
+    assert captured_bodies[0] == [{"role": "user", "content": "what's 2+2?"}]
+    assert captured_bodies[1] == [
+        {"role": "user", "content": "what's 2+2?"},
+        {"role": "assistant", "content": "4"},
+        {"role": "user", "content": "double that"},
+    ]
+    assert captured_bodies[2] == [
+        {"role": "user", "content": "what's 2+2?"},
+        {"role": "assistant", "content": "4"},
+        {"role": "user", "content": "double that"},
+        {"role": "assistant", "content": "8"},
+        {"role": "user", "content": "double again"},
+    ]
+
+
+def test_history_resumes_accumulating_after_reset():
+    """After clear_history(), new turns must accumulate cleanly with no
+    pre-reset bleed-through on turn 1 and a correct pair on turn 2."""
+    captured_bodies: list[list[dict[str, str]]] = []
+    replies = iter(["4", "fresh", "still-fresh"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        captured_bodies.append(body["messages"])
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": next(replies)}}]},
+        )
+
+    backend = _build_backend(httpx.MockTransport(handler))
+    try:
+        _run(backend.send_message("what's 2+2?"))
+        assert backend._history
+        backend.clear_history()
+        assert backend._history == []
+        _run(backend.send_message("new topic"))
+        _run(backend.send_message("follow-up"))
+    finally:
+        _run(backend.close())
+
+    # Turn after reset: single user message, no pre-reset content.
+    assert captured_bodies[1] == [{"role": "user", "content": "new topic"}]
+    # Second turn after reset: the freshly-accumulated pair plus the new user
+    # message — and crucially, none of the pre-reset history.
+    assert captured_bodies[2] == [
+        {"role": "user", "content": "new topic"},
+        {"role": "assistant", "content": "fresh"},
+        {"role": "user", "content": "follow-up"},
+    ]
+
+
+def test_reset_on_empty_history_is_noop():
+    """clear_history() before any turn must not raise."""
+    backend = HermesOpenAIBackend(
+        base_url="http://hermes.test:8642/v1",
+        auth_token=SecretStr("tok"),
+    )
+    backend.clear_history()
+    backend.clear_history()
+    assert backend._history == []
+
+
+def test_history_not_appended_on_failure():
+    """A failed turn must not corrupt history — a retry sees the original state."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom")
+
+    backend = _build_backend(httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ChatProtocolError):
+            _run(backend.send_message("ping"))
+        assert backend._history == []
+    finally:
+        _run(backend.close())
+
+
+def test_history_not_corrupted_on_mid_conversation_failure():
+    """Two successful turns then a 500 — history must equal pre-failure state."""
+    call_count = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        call_count["n"] += 1
+        if call_count["n"] <= 2:
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": f"reply{call_count['n']}"}}]},
+            )
+        return httpx.Response(500, text="boom")
+
+    backend = _build_backend(httpx.MockTransport(handler))
+    try:
+        _run(backend.send_message("one"))
+        _run(backend.send_message("two"))
+        pre_failure_snapshot = list(backend._history)
+        with pytest.raises(ChatProtocolError):
+            _run(backend.send_message("three"))
+        assert backend._history == pre_failure_snapshot
+        assert len(backend._history) == 4
+    finally:
+        _run(backend.close())
+
+
+def test_history_caps_at_max_turns():
+    """Once cap is exceeded, oldest entries are dropped while preserving
+    user/assistant pair alignment."""
+    from clawrium.core.chat_hermes import MAX_HISTORY_TURNS
+
+    captured_bodies: list[list[dict[str, str]]] = []
+    n = {"i": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        captured_bodies.append(body["messages"])
+        n["i"] += 1
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": f"r{n['i']}"}}]},
+        )
+
+    backend = _build_backend(httpx.MockTransport(handler))
+    try:
+        for i in range(MAX_HISTORY_TURNS + 5):
+            _run(backend.send_message(f"u{i}"))
+    finally:
+        _run(backend.close())
+
+    # In-memory state is bounded.
+    assert len(backend._history) == MAX_HISTORY_TURNS * 2
+    assert backend._history[0]["role"] == "user"
+    assert backend._history[1]["role"] == "assistant"
+    # Oldest preserved turn is u5 (first 5 turns dropped).
+    assert backend._history[0]["content"] == "u5"
+
+    # Wire payload size is bounded too — the request body must never exceed
+    # the cap (prior history) + 1 new user message. The overshoot is exactly
+    # 1 message because truncation runs *after* the request is sent; that
+    # transient overshoot is the documented behavior.
+    for i, msgs in enumerate(captured_bodies):
+        assert len(msgs) <= MAX_HISTORY_TURNS * 2 + 1, (
+            f"turn {i} sent {len(msgs)} messages, exceeds cap+1"
+        )
+
+    # Turn 101 (index 100) is the first call where the cap matters: history
+    # is full (200 entries) and the new user message makes 201 on the wire.
+    assert len(captured_bodies[100]) == MAX_HISTORY_TURNS * 2 + 1
+    # Subsequent turns hold steady at the cap+1 size — they don't grow.
+    assert len(captured_bodies[104]) == MAX_HISTORY_TURNS * 2 + 1
+
+
+def test_truncation_notifies_via_last_send_dropped_turns():
+    """The REPL polls last_send_dropped_turns after each call; the backend
+    must report the number of turns it just trimmed, and reset to 0 on the
+    next clean call."""
+    from clawrium.core.chat_hermes import MAX_HISTORY_TURNS
+
+    n = {"i": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        n["i"] += 1
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": f"r{n['i']}"}}]},
+        )
+
+    backend = _build_backend(httpx.MockTransport(handler))
+    try:
+        for i in range(MAX_HISTORY_TURNS):
+            _run(backend.send_message(f"u{i}"))
+            assert backend.last_send_dropped_turns == 0, (
+                f"turn {i} should not have dropped anything"
+            )
+        # Turn 101: history full → exactly 1 pair dropped.
+        _run(backend.send_message("u100"))
+        assert backend.last_send_dropped_turns == 1
+        # Turn 102: still 1 pair dropped per turn.
+        _run(backend.send_message("u101"))
+        assert backend.last_send_dropped_turns == 1
+        # clear_history() resets the counter too.
+        backend.clear_history()
+        assert backend.last_send_dropped_turns == 0
+        _run(backend.send_message("u-fresh"))
+        assert backend.last_send_dropped_turns == 0
+    finally:
+        _run(backend.close())
+
+
+def test_on_delta_failure_does_not_pollute_history():
+    """If on_delta raises (e.g. broken pipe, TUI disconnect), history must
+    remain untouched so the next request does not carry a phantom turn."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "would-be-reply"}}]},
+        )
+
+    backend = _build_backend(httpx.MockTransport(handler))
+
+    def boom(_text: str) -> None:
+        raise RuntimeError("broken pipe")
+
+    try:
+        # First turn succeeds and commits history.
+        _run(backend.send_message("hello"))
+        pre_failure_history = list(backend._history)
+        assert len(pre_failure_history) == 2
+
+        # Second turn: on_delta raises. The reply was received but we must
+        # not commit the turn — otherwise a retry duplicates it server-side.
+        with pytest.raises(RuntimeError, match="broken pipe"):
+            _run(backend.send_message("second", on_delta=boom))
+
+        assert backend._history == pre_failure_history, (
+            "history was mutated despite on_delta failure"
+        )
+    finally:
+        _run(backend.close())
 
 
 def test_connect_is_idempotent():

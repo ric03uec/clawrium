@@ -84,6 +84,15 @@ class ChatBackend(Protocol):
 
     async def close(self) -> None: ...
 
+    def clear_history(self) -> None:
+        """Reset any client-side conversation buffer the backend keeps.
+
+        Backends with no client-side history (e.g. WebSocket backends whose
+        gateway owns the session state) MUST implement this as a no-op so
+        the REPL `/reset` command never crashes.
+        """
+        ...
+
 
 class OpenClawChatClient:
     """Minimal WebSocket client for OpenClaw gateway chat RPC."""
@@ -250,6 +259,9 @@ class OpenClawChatClient:
             except Exception:
                 pass
             self._ws = None
+
+    def clear_history(self) -> None:
+        """No-op: openclaw's gateway owns conversation state, not the client."""
 
     async def send_message(
         self,
