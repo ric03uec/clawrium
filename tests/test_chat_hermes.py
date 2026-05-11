@@ -92,10 +92,15 @@ def test_unauthorized_response_raises_auth_error():
 
     backend = _build_backend(httpx.MockTransport(handler))
     try:
-        with pytest.raises(ChatAuthenticationError, match="401"):
+        with pytest.raises(ChatAuthenticationError) as excinfo:
             _run(backend.send_message("ping"))
     finally:
         _run(backend.close())
+
+    # The exception message must not echo the raw HTTP status — the type
+    # alone discriminates auth failures from other errors.
+    assert "401" not in str(excinfo.value)
+    assert "rejected bearer token" in str(excinfo.value)
 
 
 def test_forbidden_response_raises_auth_error():
@@ -104,10 +109,13 @@ def test_forbidden_response_raises_auth_error():
 
     backend = _build_backend(httpx.MockTransport(handler))
     try:
-        with pytest.raises(ChatAuthenticationError, match="403"):
+        with pytest.raises(ChatAuthenticationError) as excinfo:
             _run(backend.send_message("ping"))
     finally:
         _run(backend.close())
+
+    assert "403" not in str(excinfo.value)
+    assert "rejected bearer token" in str(excinfo.value)
 
 
 def test_server_error_raises_protocol_error():
@@ -256,6 +264,32 @@ def test_connection_error_does_not_leak_httpx_internals():
     assert "httpx" not in message
     assert "/usr/lib" not in message
     assert "Failed to reach hermes" in message
+
+
+def test_protocol_error_body_strips_control_chars():
+    """ChatProtocolError messages route response bodies through _short_body,
+    which must drop ANSI/control sequences as defence in depth — a future
+    caller that bypasses the CLI sanitizer should still not be able to
+    smuggle terminal escapes via a 4xx/5xx response body."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            500,
+            content=b"boom\r\x1b[31mred\x1b[0m\x07bell",
+            headers={"content-type": "text/plain"},
+        )
+
+    backend = _build_backend(httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ChatProtocolError) as excinfo:
+            _run(backend.send_message("ping"))
+    finally:
+        _run(backend.close())
+
+    message = str(excinfo.value)
+    assert "\x1b" not in message
+    assert "\r" not in message
+    assert "\x07" not in message
 
 
 def test_http_error_does_not_leak_httpx_internals():

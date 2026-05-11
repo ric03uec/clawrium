@@ -7,6 +7,7 @@ messaging (phase 4) land in follow-up slices of #322.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 import httpx
@@ -122,9 +123,11 @@ class HermesOpenAIBackend:
             raise ChatConnectionError("HTTP error talking to hermes") from exc
 
         if response.status_code in (401, 403):
-            raise ChatAuthenticationError(
-                f"Hermes rejected bearer token ({response.status_code})"
-            )
+            # Drop the raw HTTP status from the exception message — the
+            # remediation hint at the CLI layer is what the user needs, not
+            # the wire-level code. (Internal callers can still distinguish
+            # via the exception type.)
+            raise ChatAuthenticationError("Hermes rejected bearer token")
         if response.status_code >= 400:
             raise ChatProtocolError(
                 f"Hermes returned HTTP {response.status_code}: "
@@ -176,6 +179,10 @@ def _extract_assistant_text(payload: Any) -> str:
 
 def _short_body(body: str, limit: int = 200) -> str:
     cleaned = body.strip().replace("\n", " ")
+    # Strip remaining control chars (\r, \b, NULs, etc.) defensively so a
+    # ChatProtocolError carrying this body cannot smuggle terminal control
+    # sequences even if a future caller skips the CLI sanitizer.
+    cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", cleaned)
     if len(cleaned) > limit:
         return cleaned[:limit] + "..."
     return cleaned
