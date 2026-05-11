@@ -68,13 +68,23 @@ onboarding:
 
     channels:
       required: true
-      description: "Configure communication channel (cli only; external messaging gateways deferred)"
+      description: "Configure communication channels (cli always on; discord optional)"
       tasks:
         - id: confirm_cli
           name: "Confirm CLI channel"
           type: confirm
           message: "Hermes will use the loopback api_server platform on 127.0.0.1:8642 as its CLI-equivalent endpoint."
           default: true
+        - id: select_discord
+          name: "Enable Discord channel (optional)"
+          type: confirm
+          message: "Enable Discord messaging for this agent?"
+          default: false
+        # When select_discord=yes, the CLI prompts interactively for the bot
+        # token, allowed-user IDs, optional home channel, optional allowed
+        # channel allowlist, and require-mention toggle. Token persists to
+        # secrets.json under DISCORD_BOT_TOKEN; the rest land in hosts.json
+        # under config.channels.discord.
 
     validate:
       required: true

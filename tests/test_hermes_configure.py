@@ -743,3 +743,800 @@ class TestConfigureYamlHandlerShape:
             f"{len(restart_handlers)} restart: "
             f"{[h.get('name') for h in handlers]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Discord channel — .env.j2 rendering + lifecycle hydration + B3 strip
+# ---------------------------------------------------------------------------
+
+
+class TestEnvTemplateDiscordBranch:
+    """Verify the Discord block in .env.j2 emits the right env vars under
+    each config shape (issue #324)."""
+
+    def _base_config(self) -> dict:
+        return {
+            "provider": {"type": "openrouter", "default_model": "anthropic/x"},
+            "api_server": {
+                "key": "a" * 64,
+                "host": "127.0.0.1",
+                "port": 8642,
+                "enabled": True,
+            },
+        }
+
+    def test_discord_block_omitted_when_disabled(self):
+        cfg = self._base_config()
+        cfg["channels"] = {"discord": {"enabled": False}}
+        rendered = _render_env(cfg, provider_api_key="sk-x")
+        assert "DISCORD_BOT_TOKEN" not in rendered
+        assert "DISCORD_ALLOWED_USERS" not in rendered
+
+    def test_discord_block_omitted_when_channels_missing(self):
+        rendered = _render_env(self._base_config(), provider_api_key="sk-x")
+        assert "DISCORD_" not in rendered
+
+    def test_discord_block_omitted_when_enabled_but_no_token(self):
+        """Partial config — enabled but token missing — must not emit an
+        empty DISCORD_BOT_TOKEN= line that would crash discord.py."""
+        cfg = self._base_config()
+        cfg["channels"] = {
+            "discord": {
+                "enabled": True,
+                "allowed_users": ["740723459344302120"],
+            }
+        }
+        rendered = _render_env(cfg, provider_api_key="sk-x")
+        assert "DISCORD_BOT_TOKEN" not in rendered
+        # Other DISCORD_* lines guarded behind the same `if` should also be absent.
+        assert "DISCORD_ALLOWED_USERS" not in rendered
+
+    def test_discord_minimal_renders_token_and_allowed_users(self):
+        cfg = self._base_config()
+        cfg["channels"] = {
+            "discord": {
+                "enabled": True,
+                "bot_token": "BOT.TOKEN.VALUE",
+                "allowed_users": ["740723459344302120"],
+            }
+        }
+        rendered = _render_env(cfg, provider_api_key="sk-x")
+        assert "DISCORD_BOT_TOKEN=BOT.TOKEN.VALUE" in rendered
+        assert "DISCORD_ALLOWED_USERS=740723459344302120" in rendered
+        # Optional vars not provided should not appear as empty lines.
+        assert "DISCORD_HOME_CHANNEL=" not in rendered
+        assert "DISCORD_ALLOWED_CHANNELS=" not in rendered
+
+    def test_discord_full_renders_all_envvars(self):
+        cfg = self._base_config()
+        cfg["channels"] = {
+            "discord": {
+                "enabled": True,
+                "bot_token": "BOT.TOKEN.VALUE",
+                "allowed_users": ["111111111111111111", "222222222222222222"],
+                "home_channel": "333333333333333333",
+                "home_channel_name": "General",
+                "home_channel_thread_id": "444444444444444444",
+                "allowed_channels": ["555555555555555555", "666666666666666666"],
+                "require_mention": True,
+            }
+        }
+        rendered = _render_env(cfg, provider_api_key="sk-x")
+        assert "DISCORD_BOT_TOKEN=BOT.TOKEN.VALUE" in rendered
+        assert (
+            "DISCORD_ALLOWED_USERS=111111111111111111,222222222222222222"
+            in rendered
+        )
+        assert "DISCORD_HOME_CHANNEL=333333333333333333" in rendered
+        assert "DISCORD_HOME_CHANNEL_NAME=General" in rendered
+        assert "DISCORD_HOME_CHANNEL_THREAD_ID=444444444444444444" in rendered
+        assert (
+            "DISCORD_ALLOWED_CHANNELS=555555555555555555,666666666666666666"
+            in rendered
+        )
+        assert "DISCORD_REQUIRE_MENTION=true" in rendered
+        # allow_all_users defaults absent
+        assert "DISCORD_ALLOW_ALL_USERS" not in rendered
+
+    def test_discord_allow_all_users_renders_when_true(self):
+        cfg = self._base_config()
+        cfg["channels"] = {
+            "discord": {
+                "enabled": True,
+                "bot_token": "BOT.TOKEN.VALUE",
+                "allow_all_users": True,
+            }
+        }
+        rendered = _render_env(cfg, provider_api_key="sk-x")
+        assert "DISCORD_ALLOW_ALL_USERS=true" in rendered
+
+    def test_discord_require_mention_false_renders_lowercase(self):
+        cfg = self._base_config()
+        cfg["channels"] = {
+            "discord": {
+                "enabled": True,
+                "bot_token": "BOT.TOKEN.VALUE",
+                "allowed_users": ["111111111111111111"],
+                "require_mention": False,
+            }
+        }
+        rendered = _render_env(cfg, provider_api_key="sk-x")
+        assert "DISCORD_REQUIRE_MENTION=false" in rendered
+
+
+class TestHermesDiscordHydration:
+    """lifecycle.configure_agent hydrates DISCORD_BOT_TOKEN from secrets.json
+    and threads it onto config_data['channels']['discord']['bot_token'] when
+    the user has enabled the Discord channel for the agent."""
+
+    def _make_host(self, discord_persisted: dict | None = None) -> dict:
+        agent_config: dict = {
+            "api_server": {"enabled": True, "host": "127.0.0.1", "port": 8642},
+            "provider": {
+                "name": "p",
+                "type": "openrouter",
+                "default_model": "x",
+            },
+        }
+        if discord_persisted is not None:
+            agent_config["channels"] = {"discord": discord_persisted}
+        return {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": agent_config,
+                }
+            },
+        }
+
+    def _secrets_with(self, api_key: str, discord_token: str | None) -> dict:
+        s = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": api_key,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "",
+            }
+        }
+        if discord_token is not None:
+            s["DISCORD_BOT_TOKEN"] = {
+                "key": "DISCORD_BOT_TOKEN",
+                "value": discord_token,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "Discord bot token",
+            }
+        return s
+
+    def test_discord_token_hydrated_into_ansible_config(self, tmp_path: Path):
+        token = "B" * 64
+        host = self._make_host(
+            discord_persisted={
+                "enabled": True,
+                "allowed_users": ["740723459344302120"],
+                "home_channel": "1503238729962356777",
+                "home_channel_name": "Home",
+                "require_mention": True,
+            }
+        )
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+        captured = {}
+
+        def fake_run(**kwargs):
+            captured["inventory"] = kwargs["inventory"]
+            m = MagicMock()
+            m.status = "successful"
+            m.events = []
+            return m
+
+        secrets = self._secrets_with("a" * 64, token)
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
+            ),
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "hermes",
+                {
+                    "provider": {
+                        "name": "p",
+                        "type": "openrouter",
+                        "default_model": "x",
+                    }
+                },
+                agent_name="hermes-test",
+            )
+
+        assert success is True, error
+        sent = captured["inventory"]["all"]["vars"]["config"]
+        assert sent["channels"]["discord"]["bot_token"] == token
+        # Persisted shape from hosts.json is merged onto config_data.
+        assert sent["channels"]["discord"]["allowed_users"] == ["740723459344302120"]
+        assert sent["channels"]["discord"]["home_channel"] == "1503238729962356777"
+
+    def test_discord_disabled_does_not_hydrate(self, tmp_path: Path):
+        """When discord.enabled is False (or missing), no DISCORD_BOT_TOKEN is
+        threaded onto config_data, even if the token exists in secrets.json."""
+        host = self._make_host(discord_persisted=None)
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+        captured = {}
+
+        def fake_run(**kwargs):
+            captured["inventory"] = kwargs["inventory"]
+            m = MagicMock()
+            m.status = "successful"
+            m.events = []
+            return m
+
+        # Discord secret exists but channels.discord block doesn't — hydration
+        # block should be a no-op.
+        secrets = self._secrets_with("a" * 64, "Z" * 64)
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
+            ),
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "hermes",
+                {
+                    "provider": {
+                        "name": "p",
+                        "type": "openrouter",
+                        "default_model": "x",
+                    }
+                },
+                agent_name="hermes-test",
+            )
+
+        assert success is True, error
+        sent = captured["inventory"]["all"]["vars"]["config"]
+        # channels block either absent or, if present, no bot_token field.
+        discord = sent.get("channels", {}).get("discord", {})
+        assert "bot_token" not in discord
+
+    def test_discord_enabled_without_token_rejected(self, tmp_path: Path):
+        host = self._make_host(
+            discord_persisted={
+                "enabled": True,
+                "allowed_users": ["740723459344302120"],
+            }
+        )
+        # secrets.json has only api_server key, no DISCORD_BOT_TOKEN
+        secrets = self._secrets_with("a" * 64, None)
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "hermes",
+                {
+                    "provider": {
+                        "name": "p",
+                        "type": "openrouter",
+                        "default_model": "x",
+                    }
+                },
+                agent_name="hermes-test",
+            )
+        assert success is False
+        assert "DISCORD_BOT_TOKEN" in error
+        assert "secrets.json" in error or "configure" in error.lower()
+
+    def test_discord_reconfigure_does_not_rotate_token(self, tmp_path: Path):
+        """Two configure calls must hydrate the byte-identical token from
+        secrets.json (idempotency)."""
+        token = "C" * 64
+        host = self._make_host(
+            discord_persisted={
+                "enabled": True,
+                "allowed_users": ["740723459344302120"],
+            }
+        )
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+        secrets = self._secrets_with("a" * 64, token)
+        seen_tokens = []
+
+        def fake_run(**kwargs):
+            sent = kwargs["inventory"]["all"]["vars"]["config"]
+            seen_tokens.append(sent["channels"]["discord"]["bot_token"])
+            m = MagicMock()
+            m.status = "successful"
+            m.events = []
+            return m
+
+        for _ in range(2):
+            with (
+                patch("clawrium.core.lifecycle.get_host", return_value=host),
+                patch(
+                    "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                    return_value=playbook,
+                ),
+                patch(
+                    "clawrium.core.lifecycle.get_host_private_key",
+                    return_value=key_path,
+                ),
+                patch(
+                    "clawrium.core.lifecycle.ansible_runner.run",
+                    side_effect=fake_run,
+                ),
+                patch("clawrium.core.lifecycle.update_host", return_value=True),
+                patch(
+                    "clawrium.core.lifecycle.get_instance_secrets",
+                    return_value=secrets,
+                ),
+            ):
+                success, error = configure_agent(
+                    "test-host",
+                    "hermes",
+                    {
+                        "provider": {
+                            "name": "p",
+                            "type": "openrouter",
+                            "default_model": "x",
+                        }
+                    },
+                    agent_name="hermes-test",
+                )
+                assert success is True, error
+
+        assert len(seen_tokens) == 2
+        assert seen_tokens[0] == seen_tokens[1] == token
+
+
+class TestHermesDiscordSecretsHygiene:
+    """B3 invariant for Discord: bot_token must never appear in hosts.json
+    after configure (mirror of the api_server.key strip)."""
+
+    def test_configure_strips_discord_bot_token_from_persisted_hosts_json(
+        self, tmp_path: Path
+    ):
+        token = "D" * 64
+        host = {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": {
+                        "api_server": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 8642,
+                        },
+                        "channels": {
+                            "discord": {
+                                "enabled": True,
+                                "allowed_users": ["740723459344302120"],
+                                "home_channel": "1503238729962356777",
+                            }
+                        },
+                    },
+                }
+            },
+        }
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+
+        captured = {}
+
+        def fake_update_host(hostname_arg, updater):
+            updated = updater({"agents": dict(host["agents"])})
+            captured["agents"] = updated["agents"]
+            return True
+
+        secrets = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": "a" * 64,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "",
+            },
+            "DISCORD_BOT_TOKEN": {
+                "key": "DISCORD_BOT_TOKEN",
+                "value": token,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "Discord bot token",
+            },
+        }
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                return_value=MagicMock(status="successful", events=[]),
+            ),
+            patch(
+                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "hermes",
+                {
+                    "provider": {
+                        "name": "p",
+                        "type": "openrouter",
+                        "default_model": "x",
+                    }
+                },
+                agent_name="hermes-test",
+            )
+
+        assert success is True, error
+        persisted_discord = (
+            captured["agents"]["hermes-test"]
+            .get("config", {})
+            .get("channels", {})
+            .get("discord", {})
+        )
+        # B3 invariant: bot_token must NOT be persisted.
+        assert "bot_token" not in persisted_discord, (
+            "Discord bot token leaked into hosts.json: " f"{persisted_discord}"
+        )
+        # Non-sensitive shape preserved.
+        assert persisted_discord.get("enabled") is True
+        assert persisted_discord.get("allowed_users") == ["740723459344302120"]
+        assert persisted_discord.get("home_channel") == "1503238729962356777"
+
+
+class TestConfigureYamlDiscordVerifyTasks:
+    """The configure.yaml playbook gates Discord verification tasks on the
+    enabled flag — they must not run for cli-only agents."""
+
+    def _playbook(self) -> dict:
+        playbook_path = (
+            Path(__file__).parent.parent
+            / "src/clawrium/platform/registry/hermes/playbooks/configure.yaml"
+        )
+        return yaml.safe_load(playbook_path.read_text())[0]
+
+    def test_discord_token_verify_task_gated_on_enabled(self):
+        play = self._playbook()
+        tasks = play.get("tasks", [])
+        names = [t.get("name", "") for t in tasks]
+        token_tasks = [
+            t for t in tasks if "DISCORD_BOT_TOKEN" in t.get("name", "")
+        ]
+        assert token_tasks, (
+            "expected a DISCORD_BOT_TOKEN verify task in configure.yaml: " f"{names}"
+        )
+        for task in token_tasks:
+            when_clauses = task.get("when") or []
+            joined = " ".join(when_clauses) if isinstance(when_clauses, list) else str(
+                when_clauses
+            )
+            assert "channels" in joined and "discord" in joined and "enabled" in joined, (
+                f"DISCORD_BOT_TOKEN task missing gating clause: {when_clauses}"
+            )
+
+    def test_discord_allowlist_verify_task_gated_on_enabled(self):
+        play = self._playbook()
+        tasks = play.get("tasks", [])
+        allowlist_tasks = [
+            t for t in tasks if "allowlist" in t.get("name", "").lower()
+        ]
+        assert allowlist_tasks, "expected a Discord allowlist verify task"
+        for task in allowlist_tasks:
+            when_clauses = task.get("when") or []
+            joined = " ".join(when_clauses) if isinstance(when_clauses, list) else str(
+                when_clauses
+            )
+            assert "channels" in joined and "discord" in joined and "enabled" in joined
+
+
+class TestHermesDiscordSecretsHygieneNegative:
+    """B3 negative guard: even if an upstream caller injects bot_token into
+    config_data directly, the updater closure strips it before persisting."""
+
+    def test_strip_runs_even_when_bot_token_injected_into_config_data(
+        self, tmp_path: Path
+    ):
+        """Simulate a future code path (or test harness) that accidentally
+        passes config_data with bot_token already set — the updater closure
+        MUST still strip it. This is the failure mode the strip exists to
+        guard against; we test it explicitly here."""
+        token = "E" * 64
+        host = {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": {
+                        "api_server": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 8642,
+                        },
+                        "channels": {
+                            "discord": {
+                                "enabled": True,
+                                "allowed_users": ["111111111111111111"],
+                            }
+                        },
+                    },
+                }
+            },
+        }
+        # Caller passes config_data with bot_token already inlined — this is
+        # the leaky scenario the strip exists to defeat.
+        config_data = {
+            "provider": {
+                "name": "p",
+                "type": "openrouter",
+                "default_model": "x",
+            },
+            "channels": {
+                "discord": {
+                    "enabled": True,
+                    "allowed_users": ["111111111111111111"],
+                    "bot_token": "INJECTED-FROM-CALLER",  # must be stripped
+                }
+            },
+        }
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+        captured: dict = {}
+
+        def fake_update_host(hostname_arg, updater):
+            updated = updater({"agents": dict(host["agents"])})
+            captured["agents"] = updated["agents"]
+            return True
+
+        secrets = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": "a" * 64,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "",
+            },
+            "DISCORD_BOT_TOKEN": {
+                "key": "DISCORD_BOT_TOKEN",
+                "value": token,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "Discord bot token",
+            },
+        }
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                return_value=MagicMock(status="successful", events=[]),
+            ),
+            patch(
+                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host", "hermes", config_data, agent_name="hermes-test"
+            )
+
+        assert success is True, error
+        persisted_discord = (
+            captured["agents"]["hermes-test"]
+            .get("config", {})
+            .get("channels", {})
+            .get("discord", {})
+        )
+        # Even though the caller passed bot_token, the strip layer caught it.
+        assert "bot_token" not in persisted_discord, (
+            f"Strip layer failed to catch injected bot_token: {persisted_discord}"
+        )
+
+
+class TestHermesDiscordIdempotency:
+    """Re-running channels configure with the same inputs must produce
+    byte-identical .env output and same DISCORD_BOT_TOKEN value."""
+
+    def test_reconfigure_renders_byte_identical_env(self, tmp_path: Path):
+        """Two configure calls hydrate the same DISCORD_BOT_TOKEN value and
+        the same channels.discord shape; .env.j2 against both produces
+        byte-identical output (no field reordering, no whitespace drift)."""
+        token = "F" * 64
+        host = {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": {
+                        "api_server": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 8642,
+                        },
+                        "channels": {
+                            "discord": {
+                                "enabled": True,
+                                "allowed_users": ["111111111111111111"],
+                                "home_channel": "222222222222222222",
+                                "home_channel_name": "Home",
+                                "require_mention": True,
+                            }
+                        },
+                    },
+                }
+            },
+        }
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+        secrets = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": "a" * 64,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "",
+            },
+            "DISCORD_BOT_TOKEN": {
+                "key": "DISCORD_BOT_TOKEN",
+                "value": token,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "Discord bot token",
+            },
+        }
+        renders: list[str] = []
+
+        def fake_run(**kwargs):
+            sent = kwargs["inventory"]["all"]["vars"]["config"]
+            # Render .env.j2 with the hydrated config and capture the output.
+            from jinja2 import Environment, FileSystemLoader
+
+            env_jinja = Environment(
+                loader=FileSystemLoader(str(HERMES_TEMPLATES)),
+                keep_trailing_newline=True,
+            )
+            tpl = env_jinja.get_template(".env.j2")
+            renders.append(
+                tpl.render(config=sent, provider_api_key="sk-x", agent_name="h")
+            )
+            m = MagicMock()
+            m.status = "successful"
+            m.events = []
+            return m
+
+        for _ in range(2):
+            with (
+                patch("clawrium.core.lifecycle.get_host", return_value=host),
+                patch(
+                    "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                    return_value=playbook,
+                ),
+                patch(
+                    "clawrium.core.lifecycle.get_host_private_key",
+                    return_value=key_path,
+                ),
+                patch(
+                    "clawrium.core.lifecycle.ansible_runner.run",
+                    side_effect=fake_run,
+                ),
+                patch("clawrium.core.lifecycle.update_host", return_value=True),
+                patch(
+                    "clawrium.core.lifecycle.get_instance_secrets",
+                    return_value=secrets,
+                ),
+            ):
+                success, error = configure_agent(
+                    "test-host",
+                    "hermes",
+                    {
+                        "provider": {
+                            "name": "p",
+                            "type": "openrouter",
+                            "default_model": "x",
+                        }
+                    },
+                    agent_name="hermes-test",
+                )
+                assert success is True, error
+
+        assert len(renders) == 2
+        assert renders[0] == renders[1], "non-idempotent .env render"
+        # And the rendered token is the expected value.
+        assert f"DISCORD_BOT_TOKEN={token}" in renders[0]
+
+
+class TestDiscordSecretRemoval:
+    """clm agent remove purges DISCORD_BOT_TOKEN alongside HERMES_API_SERVER_KEY
+    via remove_instance_secrets() — no Discord-specific code path needed."""
+
+    def test_remove_instance_secrets_purges_discord_token(self, tmp_path: Path):
+        import os
+
+        from clawrium.core.secrets import (
+            list_instances_with_secrets,
+            remove_instance_secrets,
+            set_instance_secret,
+        )
+
+        os.environ["CLAWRIUM_CONFIG_DIR"] = str(tmp_path)
+        try:
+            ik = "host:hermes:agent"
+            set_instance_secret(ik, "HERMES_API_SERVER_KEY", "a" * 64, "")
+            set_instance_secret(ik, "DISCORD_BOT_TOKEN", "B" * 64, "Discord")
+            assert ik in list_instances_with_secrets()
+
+            assert remove_instance_secrets(ik) is True
+            assert ik not in list_instances_with_secrets()
+        finally:
+            os.environ.pop("CLAWRIUM_CONFIG_DIR", None)

@@ -770,6 +770,52 @@ def configure_agent(
                 "key": api_server_key,
             }
 
+        # Hermes Discord: merge persisted channels.discord shape from hosts.json
+        # with anything passed in config_data, then hydrate the bot token from
+        # secrets.json. Mirrors the api_server.key pattern. If discord is not
+        # enabled this block is a no-op — .env.j2 emits no DISCORD_* lines.
+        persisted_channels = agent_record.get("config", {}).get("channels") or {}
+        if not isinstance(persisted_channels, dict):
+            persisted_channels = {}
+        persisted_discord = persisted_channels.get("discord") or {}
+        if not isinstance(persisted_discord, dict):
+            persisted_discord = {}
+
+        incoming_channels = config_data.get("channels") or {}
+        if not isinstance(incoming_channels, dict):
+            incoming_channels = {}
+        incoming_discord = incoming_channels.get("discord") or {}
+        if not isinstance(incoming_discord, dict):
+            incoming_discord = {}
+
+        # Merge persisted onto incoming so an explicit caller-provided field
+        # wins, but fields the caller didn't set (e.g. _sync_provider_config
+        # only carrying provider) inherit from hosts.json.
+        merged_discord = {**persisted_discord, **incoming_discord}
+
+        if merged_discord.get("enabled"):
+            discord_secret = get_instance_secrets(instance_key).get(
+                "DISCORD_BOT_TOKEN"
+            )
+            discord_token = (
+                discord_secret["value"]
+                if isinstance(discord_secret, dict)
+                else None
+            )
+            if not isinstance(discord_token, str) or len(discord_token) < 50:
+                return (
+                    False,
+                    "Discord enabled for this agent but DISCORD_BOT_TOKEN is "
+                    "missing or invalid in secrets.json. Re-run "
+                    "'clm agent configure <name> --stage channels' to set it.",
+                )
+            merged_discord["bot_token"] = discord_token
+
+        if persisted_discord or incoming_discord:
+            merged_channels = {**persisted_channels, **incoming_channels}
+            merged_channels["discord"] = merged_discord
+            config_data["channels"] = merged_channels
+
     # Validate config data before running Ansible
     # Validate required provider fields (must check dict type first)
     required_provider_fields = ["name", "type", "default_model"]
@@ -1019,10 +1065,36 @@ def configure_agent(
             # render it, but the canonical store is secrets.json. Keeping it
             # in hosts.json after configure would defeat the B3 migration.
             persisted_config = dict(config_data)
-            if resolved_type == "hermes" and "api_server" in persisted_config:
-                api_server_persisted = dict(persisted_config["api_server"])
-                api_server_persisted.pop("key", None)
-                persisted_config["api_server"] = api_server_persisted
+            if resolved_type == "hermes":
+                if "api_server" in persisted_config:
+                    api_server_persisted = dict(persisted_config["api_server"])
+                    api_server_persisted.pop("key", None)
+                    persisted_config["api_server"] = api_server_persisted
+                # B3 invariant for Discord: bot_token lives in secrets.json
+                # only. Mirror the api_server.key strip so re-persisting
+                # config_data doesn't leak the token back into hosts.json.
+                # Defense in depth: if channels is an unexpected type, drop
+                # it entirely rather than risk leaking a misplaced token.
+                channels_persisted = persisted_config.get("channels")
+                if "channels" in persisted_config:
+                    if isinstance(channels_persisted, dict):
+                        channels_persisted = dict(channels_persisted)
+                        discord_persisted = channels_persisted.get("discord")
+                        if isinstance(discord_persisted, dict):
+                            discord_persisted = dict(discord_persisted)
+                            discord_persisted.pop("bot_token", None)
+                            channels_persisted["discord"] = discord_persisted
+                        persisted_config["channels"] = channels_persisted
+                    else:
+                        # Unexpected shape (string/list/etc.) — drop rather
+                        # than risk persisting a token via an unknown path.
+                        logger.warning(
+                            "Dropping unexpected channels block (type=%s) for "
+                            "agent %s during persist to avoid B3 violation.",
+                            type(channels_persisted).__name__,
+                            agent_key,
+                        )
+                        persisted_config.pop("channels", None)
 
             h["agents"][agent_key]["config"] = persisted_config
 

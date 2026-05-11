@@ -2404,3 +2404,525 @@ class TestEditConfigWorkflow:
             assert Path(preserved_path).exists(), (
                 f"Preserved file should exist: {preserved_path}"
             )
+
+
+class TestRunChannelsStageHermesDiscord:
+    """Tests for the hermes-specific Discord channels branch (issue #324)."""
+
+    def _valid_token(self) -> str:
+        # 50-120 chars matching ^[A-Za-z0-9._+/=-]+$
+        return "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMw"
+
+    def test_hermes_channel_list_includes_discord(self, isolated_config: Path):
+        """The hermes guard is gone: discord is offered to hermes agents."""
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(isolated_config, claw_type="hermes")
+
+        # Choose option 1 (cli) — we only want to inspect the rendered menu.
+        result = runner.invoke(
+            app,
+            ["agent", "configure", "assistant", "--stage", "channels"],
+            input="1\n",
+            env=os.environ,
+        )
+
+        assert "cli" in result.output.lower()
+        assert "discord" in result.output.lower()
+        # Slack stays out of the hermes list (no wiring yet).
+        assert "slack" not in result.output.lower()
+
+    def test_hermes_discord_writes_token_secret_and_hosts_config(
+        self, isolated_config: Path
+    ):
+        """Selecting discord on hermes stores the token in secrets.json and
+        the non-sensitive config (allowed_users / home_channel / etc.) in
+        hosts.json — no bot_token in the synced shape."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            onboarding_state="channels",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        stored_secrets: list[dict] = []
+        synced_configs: list[dict] = []
+
+        def capture_secret(instance_key, key, value, description):
+            stored_secrets.append(
+                {"instance_key": instance_key, "key": key, "value": value}
+            )
+
+        def capture_sync(host, claw_type, channels_config, installed_name):
+            synced_configs.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch(
+                "clawrium.core.secrets.set_instance_secret", side_effect=capture_secret
+            ),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,  # Select discord
+                self._valid_token(),  # Bot token
+                "740723459344302120",  # Allowed user IDs
+                "1503238729962356777",  # Home channel ID
+                "Home",  # Home channel name
+                "",  # Allowed channels (any)
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+
+        assert result is True
+        assert len(stored_secrets) == 1
+        assert stored_secrets[0]["key"] == "DISCORD_BOT_TOKEN"
+        assert stored_secrets[0]["value"] == self._valid_token()
+
+        assert len(synced_configs) == 1
+        discord_cfg = synced_configs[0]["discord"]
+        # Hermes shape — flat, env-var-mapped.
+        assert discord_cfg["enabled"] is True
+        assert discord_cfg["allowed_users"] == ["740723459344302120"]
+        assert discord_cfg["allow_all_users"] is False
+        assert discord_cfg["home_channel"] == "1503238729962356777"
+        assert discord_cfg["home_channel_name"] == "Home"
+        assert discord_cfg["require_mention"] is True
+        # CRITICAL: bot_token must NOT be in the hosts.json shape.
+        assert "bot_token" not in discord_cfg
+        # And we must not regress to the openclaw guilds-shape.
+        assert "guilds" not in discord_cfg
+        assert "groupPolicy" not in discord_cfg
+
+    def test_hermes_discord_rejects_invalid_user_id(self, isolated_config: Path):
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,  # Select discord
+                self._valid_token(),
+                "1234",  # Invalid user ID (too short)
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+        assert result is False
+
+    def test_hermes_discord_all_requires_confirmation(
+        self, isolated_config: Path
+    ):
+        """Passing 'all' for allowed users triggers a second confirm prompt
+        and only sets allow_all_users when the user confirms."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            onboarding_state="channels",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(host, claw_type, channels_config, installed_name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm") as mock_c,
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,
+                self._valid_token(),
+                "all",  # open-bot
+                "",  # home channel skip
+                "",  # allowed channels any
+            ]
+            # First confirm = open-bot acceptance, second = require_mention default
+            mock_c.side_effect = [True, True]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+
+        assert result is True
+        assert synced[0]["discord"]["allow_all_users"] is True
+        assert synced[0]["discord"]["allowed_users"] == []
+
+    def test_hermes_discord_all_aborts_when_not_confirmed(
+        self, isolated_config: Path
+    ):
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=False),
+        ):
+            mock_p.side_effect = [
+                2,
+                self._valid_token(),
+                "all",
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+        assert result is False
+
+    def test_hermes_discord_skip_home_channel(self, isolated_config: Path):
+        """An empty home_channel input is accepted; home_channel and
+        home_channel_name are absent from the synced shape."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            onboarding_state="channels",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(host, claw_type, channels_config, installed_name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,
+                self._valid_token(),
+                "740723459344302120",
+                "",  # skip home channel
+                "",  # allowed channels any
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+
+        assert result is True
+        d = synced[0]["discord"]
+        assert "home_channel" not in d
+        assert "home_channel_name" not in d
+
+    def test_hermes_discord_allowed_channels_validated(
+        self, isolated_config: Path
+    ):
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            onboarding_state="channels",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,
+                self._valid_token(),
+                "740723459344302120",
+                "1503238729962356777",  # home channel
+                "Home",
+                "abc,123",  # invalid allowed channels
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+
+        assert result is False
+
+    def test_hermes_discord_rejects_newline_in_home_channel_name(
+        self, isolated_config: Path
+    ):
+        """Newline (or other shell metachars) in home_channel_name would
+        inject arbitrary env vars into .env on render. CLI must reject
+        before persisting."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            onboarding_state="channels",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,  # discord
+                self._valid_token(),
+                "740723459344302120",
+                "1503238729962356777",  # home channel
+                "Home\nMALICIOUS_VAR=pwned",  # injection attempt
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+        assert result is False
+
+    def test_hermes_discord_rejects_too_long_home_channel_name(
+        self, isolated_config: Path
+    ):
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,
+                self._valid_token(),
+                "740723459344302120",
+                "1503238729962356777",
+                "A" * 100,  # > 64 chars
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+        assert result is False
+
+    def test_hermes_discord_rejects_user_id_boundaries(
+        self, isolated_config: Path
+    ):
+        """User IDs outside the 17-19 digit range are rejected before any
+        secret is stored. Tests both ends of the boundary plus a shell-meta
+        injection attempt."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        for bad_id in [
+            "1234567890123456",  # 16 digits — too short
+            "12345678901234567890",  # 20 digits — too long
+            "1234567890123456789;rm -rf /",  # shell metachar injection
+            "[bold red]inject[/bold red]",  # rich markup injection
+        ]:
+            with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+                mock_p.side_effect = [
+                    2,  # discord
+                    self._valid_token(),
+                    bad_id,
+                ]
+                result = _run_channels_stage(
+                    "192.168.1.100", "hermes", False, "assistant"
+                )
+            assert result is False, f"accepted invalid user ID: {bad_id!r}"
+
+    def test_hermes_discord_rejects_home_channel_id_boundaries(
+        self, isolated_config: Path
+    ):
+        """Home channel ID outside 17-19 digits is rejected."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        for bad_id in [
+            "1234567890123456",  # 16 digits
+            "12345678901234567890",  # 20 digits
+            "1234567890123456789;evil",
+        ]:
+            with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+                mock_p.side_effect = [
+                    2,
+                    self._valid_token(),
+                    "740723459344302120",
+                    bad_id,  # invalid home channel
+                ]
+                result = _run_channels_stage(
+                    "192.168.1.100", "hermes", False, "assistant"
+                )
+            assert result is False, f"accepted invalid home channel: {bad_id!r}"
+
+    def test_hermes_discord_rejects_allowed_channels_boundaries(
+        self, isolated_config: Path
+    ):
+        """Any malformed allowed_channels entry rejects the whole list."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,
+                self._valid_token(),
+                "740723459344302120",
+                "1503238729962356777",  # home channel
+                "Home",
+                # Mix of valid + invalid — the invalid entry must reject.
+                "1503238729962356777,not-a-channel",
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+        assert result is False
+
+    def test_openclaw_discord_still_uses_guilds_shape(
+        self, isolated_config: Path
+    ):
+        """Regression guard: openclaw's existing guilds-{} shape is preserved
+        — the hermes branch must not infect non-hermes claws."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="openclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "p", "type": "openai"}},
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(host, claw_type, channels_config, installed_name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,
+                self._valid_token(),
+                "123456789012345678",  # guild ID
+                "987654321098765432",  # channel ID
+                "740723459344302120",  # user ID
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
+
+        assert result is True
+        d = synced[0]["discord"]
+        # openclaw shape preserved
+        assert "guilds" in d
+        assert "123456789012345678" in d["guilds"]
+        assert d["groupPolicy"] == "allowlist"
+        # And the hermes-only flat fields are NOT injected.
+        assert "allowed_users" not in d
+        assert "home_channel" not in d

@@ -708,11 +708,11 @@ def _run_channels_stage(
     """
     from clawrium.core.secrets import get_instance_key, set_instance_secret
 
-    # Hermes ships with only the loopback api_server platform in this iteration.
-    # External messaging gateways (Discord/Slack/Telegram/etc.) are tracked as
-    # a separate follow-up issue; offering them here would mislead the user.
+    # Hermes supports cli (loopback api_server) and discord. Slack is not
+    # wired for hermes yet (separate follow-up). openclaw/zeroclaw still get
+    # the full cli/discord/slack list.
     if claw_type == "hermes":
-        channels = ["cli"]
+        channels = ["cli", "discord"]
     else:
         channels = ["cli", "discord", "slack"]
 
@@ -754,44 +754,178 @@ def _run_channels_stage(
             console.print("[red]Error:[/red] Invalid bot token format")
             return False
 
-        # Prompt for guild ID with validation
-        guild_id = typer.prompt("Discord server (guild) ID")
-        if not re.match(r"^\d{17,19}$", guild_id):
-            console.print("[red]Error:[/red] Invalid guild ID format (17-19 digits)")
-            return False
+        if claw_type == "hermes":
+            # Hermes shape: env-var-driven, no guild/channel routing. Prompt
+            # for an allowed-user allowlist (comma-separated IDs or 'all'),
+            # optional home channel, optional allowed-channels allowlist,
+            # require-mention toggle.
+            allowed_users_raw = typer.prompt(
+                "Allowed Discord user IDs (comma-separated, or 'all' for open access)"
+            )
+            allowed_users_raw = (allowed_users_raw or "").strip()
+            allow_all_users = False
+            allowed_users: list[str] = []
+            if allowed_users_raw.lower() == "all":
+                console.print(
+                    "[red]WARNING:[/red] 'all' allows ANY Discord user who can see the "
+                    "bot to invoke it. This is an open bot."
+                )
+                confirm = typer.confirm(
+                    "Are you sure you want to allow ALL users?", default=False
+                )
+                if not confirm:
+                    console.print("[yellow]Aborted.[/yellow] Re-run and pass user IDs.")
+                    return False
+                allow_all_users = True
+            else:
+                ids = [s.strip() for s in allowed_users_raw.split(",") if s.strip()]
+                if not ids:
+                    console.print(
+                        "[red]Error:[/red] At least one allowed user ID required (or 'all')."
+                    )
+                    return False
+                for uid in ids:
+                    if not re.match(r"^\d{17,19}$", uid):
+                        console.print(
+                            f"[red]Error:[/red] Invalid user ID '{rich_escape(uid)}' (17-19 digits required)"
+                        )
+                        return False
+                allowed_users = ids
 
-        # Prompt for channel ID with validation
-        channel_id = typer.prompt("Discord channel ID")
-        if not re.match(r"^\d{17,19}$", channel_id):
-            console.print("[red]Error:[/red] Invalid channel ID format (17-19 digits)")
-            return False
+            home_channel_raw = typer.prompt(
+                "Discord home channel ID (Enter to skip)", default="", show_default=False
+            ).strip()
+            if home_channel_raw and not re.match(r"^\d{17,19}$", home_channel_raw):
+                console.print(
+                    "[red]Error:[/red] Invalid home channel ID format (17-19 digits)"
+                )
+                return False
+            if not home_channel_raw:
+                console.print(
+                    "[yellow]Note:[/yellow] without DISCORD_HOME_CHANNEL, hermes will "
+                    "nudge users to run /sethome on every cold start. Set it later via "
+                    "'clm agent configure <name> --stage channels'."
+                )
 
-        # Prompt for user ID(s) to allowlist
-        user_id = typer.prompt("Your Discord user ID (for auto-approve)")
-        if not re.match(r"^\d{17,19}$", user_id):
-            console.print("[red]Error:[/red] Invalid user ID format (17-19 digits)")
-            return False
+            home_channel_name = "Home"
+            if home_channel_raw:
+                home_channel_name_raw = typer.prompt(
+                    "Discord home channel name", default="Home"
+                ).strip() or "Home"
+                # Reject control chars (especially newlines) so a pasted value
+                # can't inject `\nMALICIOUS_VAR=...` into ~/.hermes/.env. Allow
+                # printable ASCII + common punctuation; cap length.
+                if len(home_channel_name_raw) > 64 or not re.match(
+                    r"^[A-Za-z0-9 _\-./#]+$", home_channel_name_raw
+                ):
+                    console.print(
+                        "[red]Error:[/red] Home channel name must be 1-64 chars "
+                        "of letters/digits/spaces/_-./# (no newlines or shell metachars)."
+                    )
+                    return False
+                home_channel_name = home_channel_name_raw
 
-        channels_config = {
-            "discord": {
+            allowed_channels_raw = typer.prompt(
+                "Allowed Discord channel IDs (comma-separated, Enter for any channel)",
+                default="",
+                show_default=False,
+            ).strip()
+            allowed_channels: list[str] = []
+            if allowed_channels_raw:
+                for cid in (
+                    s.strip() for s in allowed_channels_raw.split(",") if s.strip()
+                ):
+                    if not re.match(r"^\d{17,19}$", cid):
+                        console.print(
+                            f"[red]Error:[/red] Invalid channel ID '{rich_escape(cid)}' (17-19 digits required)"
+                        )
+                        return False
+                    allowed_channels.append(cid)
+
+            require_mention = typer.confirm(
+                "Require @mention to respond?", default=True
+            )
+
+            discord_cfg: dict = {
                 "enabled": True,
-                "token": {
-                    "source": "env",
-                    "provider": "default",
-                    "id": "DISCORD_BOT_TOKEN",
-                },
-                "allowFrom": [user_id],
-                "groupPolicy": "allowlist",
-                "guilds": {
-                    guild_id: {
-                        "users": [user_id],
-                        "channels": {channel_id: {"allow": True}},
-                    }
-                },
+                "allowed_users": allowed_users,
+                "allow_all_users": allow_all_users,
+                "require_mention": require_mention,
             }
-        }
+            if home_channel_raw:
+                discord_cfg["home_channel"] = home_channel_raw
+                discord_cfg["home_channel_name"] = home_channel_name
+            if allowed_channels:
+                discord_cfg["allowed_channels"] = allowed_channels
 
-        # Sync channel config to agent first
+            channels_config = {"discord": discord_cfg}
+        else:
+            # Prompt for guild ID with validation
+            guild_id = typer.prompt("Discord server (guild) ID")
+            if not re.match(r"^\d{17,19}$", guild_id):
+                console.print(
+                    "[red]Error:[/red] Invalid guild ID format (17-19 digits)"
+                )
+                return False
+
+            # Prompt for channel ID with validation
+            channel_id = typer.prompt("Discord channel ID")
+            if not re.match(r"^\d{17,19}$", channel_id):
+                console.print(
+                    "[red]Error:[/red] Invalid channel ID format (17-19 digits)"
+                )
+                return False
+
+            # Prompt for user ID(s) to allowlist
+            user_id = typer.prompt("Your Discord user ID (for auto-approve)")
+            if not re.match(r"^\d{17,19}$", user_id):
+                console.print(
+                    "[red]Error:[/red] Invalid user ID format (17-19 digits)"
+                )
+                return False
+
+            channels_config = {
+                "discord": {
+                    "enabled": True,
+                    "token": {
+                        "source": "env",
+                        "provider": "default",
+                        "id": "DISCORD_BOT_TOKEN",
+                    },
+                    "allowFrom": [user_id],
+                    "groupPolicy": "allowlist",
+                    "guilds": {
+                        guild_id: {
+                            "users": [user_id],
+                            "channels": {channel_id: {"allow": True}},
+                        }
+                    },
+                }
+            }
+
+        # Resolve canonical instance_key up-front so the token can be stored
+        # against the same key lifecycle.configure_agent will look up.
+        host_data = get_host(host)
+        if not host_data:
+            console.print(f"[red]Error:[/red] Host '{host}' not found")
+            return False
+        canonical_hostname = host_data["hostname"]
+        instance_key = get_instance_key(
+            canonical_hostname, claw_type, installed_name or claw_type
+        )
+
+        # For hermes, configure_agent's hydration block reads
+        # DISCORD_BOT_TOKEN from secrets.json BEFORE running the ansible
+        # playbook (the playbook needs the token to render .env). So the
+        # secret must be persisted first. For openclaw the sync uses the
+        # ansible-vars passthrough and W4 keeps the "sync first" order.
+        if claw_type == "hermes":
+            set_instance_secret(
+                instance_key, "DISCORD_BOT_TOKEN", bot_token, "Discord bot token"
+            )
+            console.print("[green]✓[/green] Discord bot token stored securely")
+
+        # Sync channel config to agent
         console.print("Syncing channel config to agent... ", end="")
         try:
             _sync_channel_config(host, claw_type, channels_config, installed_name)
@@ -804,20 +938,13 @@ def _run_channels_stage(
             )
             return False
 
-        # Store bot token as secret only after successful sync (W4)
-        # Use canonical hostname for instance_key to match lifecycle.py (B3)
-        host_data = get_host(host)
-        if not host_data:
-            console.print(f"[red]Error:[/red] Host '{host}' not found")
-            return False
-        canonical_hostname = host_data["hostname"]
-        instance_key = get_instance_key(
-            canonical_hostname, claw_type, installed_name or claw_type
-        )
-        set_instance_secret(
-            instance_key, "DISCORD_BOT_TOKEN", bot_token, "Discord bot token"
-        )
-        console.print("[green]✓[/green] Discord bot token stored securely")
+        # Store bot token as secret only after successful sync (W4) — for
+        # openclaw/zeroclaw. Hermes already stored it above.
+        if claw_type != "hermes":
+            set_instance_secret(
+                instance_key, "DISCORD_BOT_TOKEN", bot_token, "Discord bot token"
+            )
+            console.print("[green]✓[/green] Discord bot token stored securely")
 
     elif selected_channel == "slack":
         console.print("\n[bold]Slack Configuration (Socket Mode)[/bold]")
