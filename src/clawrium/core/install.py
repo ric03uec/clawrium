@@ -152,9 +152,19 @@ def _get_logs_dir() -> Path:
     return logs_dir
 
 
-def _openclaw_install_was_skipped(playbook_result: object) -> bool:
-    """Detect whether OpenClaw install task was skipped by Ansible conditions."""
+def _install_was_skipped(playbook_result: object, agent_type: str) -> bool:
+    """Detect whether the agent's install task was skipped by Ansible conditions.
+
+    All agent install playbooks share the same skip-marker convention:
+      * A task named "Mark install as skipped when already installed" emits a
+        runner_on_ok event when the binary at the target version is present.
+      * The "Set install skip condition" task sets a fact named
+        `<agent_type>_already_installed` to True when the skip applies.
+
+    Either signal is sufficient.
+    """
     events = getattr(playbook_result, "events", None) or []
+    skip_fact = f"{agent_type}_already_installed"
 
     for event in events:
         if event.get("event") != "runner_on_ok":
@@ -168,10 +178,18 @@ def _openclaw_install_was_skipped(playbook_result: object) -> bool:
             return True
 
         ansible_facts = result.get("ansible_facts", {})
-        if ansible_facts.get("openclaw_already_installed") is True:
+        if ansible_facts.get(skip_fact) is True:
             return True
 
     return False
+
+
+def _openclaw_install_was_skipped(playbook_result: object) -> bool:
+    """Backward-compatible wrapper around `_install_was_skipped` for openclaw.
+
+    Retained because existing tests import this symbol directly.
+    """
+    return _install_was_skipped(playbook_result, "openclaw")
 
 
 def run_installation(
@@ -574,14 +592,16 @@ def run_installation(
         playbooks_run.append(str(claw_playbook))
         install_skipped = False
         skip_reason = None
-        if claw_name == "openclaw":
-            install_skipped = _openclaw_install_was_skipped(result)
-            if install_skipped:
-                skip_reason = "already_installed"
-                emit(
-                    "claw",
-                    "OpenClaw already installed; skipped binary install task",
-                )
+        # Skip detection is generic: every agent's install.yaml emits the same
+        # task name + `<agent_type>_already_installed` fact when the binary is
+        # already at the target version. See `_install_was_skipped`.
+        install_skipped = _install_was_skipped(result, claw_name)
+        if install_skipped:
+            skip_reason = "already_installed"
+            emit(
+                "claw",
+                f"{claw_name} already installed; skipped binary install task",
+            )
         if not install_skipped:
             emit("claw", f"{claw_name} installed successfully")
 

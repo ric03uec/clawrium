@@ -339,16 +339,18 @@ def check_claw_health(
         }
     }
 
-    # Determine process name based on agent type.
-    # openclaw sets process title to "openclaw"/"openclaw-gateway", not "node".
+    # Build the pgrep command per agent type.
+    # openclaw sets process title to "openclaw"; hermes runs as python3 invoking
+    # `hermes gateway run`, so match the full command line via -f.
     agent_type = claw_record.get("type", "")
-    process_name = "openclaw" if agent_type == "openclaw" else "node"
-
-    # Check for process owned by claw user using pgrep.
-    # claw_user is already validated by VALID_USERNAME_PATTERN (alphanumeric/hyphen/underscore).
-    # Using module='command' avoids shell interpretation entirely.
-    # pgrep exits 0 (process found) → runner_on_ok; exits 1 (not found) → runner_on_failed rc=1.
-    check_cmd = f"pgrep -u {claw_user} {process_name}"
+    if agent_type == "openclaw":
+        check_cmd = f"pgrep -u {claw_user} openclaw"
+    elif agent_type == "hermes":
+        # Quote the -f pattern so ansible's command module shlex-splits it into a
+        # single argument; otherwise pgrep would treat 'gateway run' as extra args.
+        check_cmd = f'pgrep -u {claw_user} -f "hermes gateway run"'
+    else:
+        check_cmd = f"pgrep -u {claw_user} node"
 
     with tempfile.TemporaryDirectory() as tmpdir:
         os.chmod(tmpdir, 0o700)

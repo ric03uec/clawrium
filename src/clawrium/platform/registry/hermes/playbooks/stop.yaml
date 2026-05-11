@@ -1,0 +1,49 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: Check if systemd service exists
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+      register: service_file
+
+    - name: Stop hermes service gracefully
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        state: stopped
+      register: stop_result
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    - name: Disable hermes service
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        enabled: no
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    - name: Wait for service to stop
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+      register: service_status
+      until: service_status.status.ActiveState != "active"
+      retries: 10
+      delay: 2
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    # hermes is a Python application invoked as `python3 ... hermes gateway run`.
+    # A plain `pgrep -u <user> hermes` matches only the executable basename and
+    # will miss the python process even when the gateway is still running.
+    # Match against the full command line with `-f 'hermes gateway run'` so the
+    # check is meaningful regardless of the underlying interpreter.
+    - name: Verify hermes process is stopped
+      ansible.builtin.command:
+        cmd: pgrep -u {{ agent_name }} -f "hermes gateway run"
+      register: process_check
+      changed_when: false
+      failed_when: process_check.rc == 0
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg: "Hermes service {{ agent_type }}-{{ agent_name }} stopped and disabled. ~/.hermes/ preserved."

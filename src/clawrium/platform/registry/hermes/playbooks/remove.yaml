@@ -1,0 +1,86 @@
+---
+- hosts: all
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Check if systemd service exists
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+      register: service_file
+
+    - name: Stop hermes service if running
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        state: stopped
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    - name: Disable hermes service
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        enabled: no
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    - name: Remove systemd service file
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+        state: absent
+      notify: Reload systemd
+
+    - name: Check if hermes config directory exists
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/.hermes"
+      register: hermes_config_dir
+
+    - name: Remove hermes config and code directory
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.hermes"
+        state: absent
+      when: hermes_config_dir.stat.exists
+
+    - name: Remove hermes binary symlink (~/.local/bin/hermes)
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.local/bin/hermes"
+        state: absent
+
+    - name: Check if agent user exists
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ agent_name }}"
+      register: user_check
+      ignore_errors: yes
+
+    # Hermes calls `loginctl enable-linger` so its user-D-Bus stays up; that
+    # keeps a per-user systemd manager + pipewire/dbus around even after we
+    # stop the system unit, blocking userdel. Disable linger and stop the
+    # user manager before deletion.
+    - name: Disable linger for agent user (releases per-user systemd manager)
+      ansible.builtin.command: loginctl disable-linger {{ agent_name }}
+      register: disable_linger
+      changed_when: disable_linger.rc == 0
+      failed_when: false
+      when: user_check is not failed
+
+    - name: Terminate any lingering per-user processes before userdel
+      ansible.builtin.command: pkill -KILL -u {{ agent_name }}
+      register: pkill_result
+      changed_when: pkill_result.rc == 0
+      failed_when: false
+      when: user_check is not failed
+
+    - name: Remove agent user account (and home directory)
+      ansible.builtin.user:
+        name: "{{ agent_name }}"
+        state: absent
+        remove: yes
+      when: user_check is not failed
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg: "Hermes agent '{{ agent_name }}' removed (service, ~/.hermes/, ~/.local/bin/hermes, user)."
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes

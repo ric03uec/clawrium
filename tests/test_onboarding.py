@@ -124,8 +124,12 @@ class TestTransitions:
     """Tests for TRANSITIONS state machine."""
 
     def test_pending_transitions(self):
-        """pending can only transition to providers."""
-        assert TRANSITIONS["pending"] == ["providers"]
+        """pending transitions to providers (normal) or ready (all stages auto_skip)."""
+        assert "providers" in TRANSITIONS["pending"]
+        # Direct PENDING → READY supports manifests whose stages are all
+        # auto_skip:true (e.g. hermes Phase 1 placeholder); transition_state()
+        # must not raise InvalidTransitionError on this path.
+        assert "ready" in TRANSITIONS["pending"]
 
     def test_providers_transitions(self):
         """providers can only transition to identity."""
@@ -195,11 +199,15 @@ class TestTransitionState:
         state = get_onboarding_state("server1", "openclaw")
         assert state == OnboardingState.PROVIDERS
 
-    def test_invalid_transition_pending_to_ready(self, host_with_onboarding):
-        """Rejects invalid transition from pending to ready."""
-        with pytest.raises(InvalidTransitionError) as exc_info:
-            transition_state("server1", "openclaw", OnboardingState.READY)
-        assert "cannot transition" in str(exc_info.value).lower()
+    def test_valid_transition_pending_to_ready_auto_skip(self, host_with_onboarding):
+        """Allows direct pending → ready (auto-skip path for all-skipped manifests)."""
+        # PENDING → READY is the auto_skip short-circuit; transition_state() must
+        # accept it so hermes Phase 1 (and any future all-auto-skip manifest) can
+        # reach READY without walking through providers/identity/channels/validate.
+        result = transition_state("server1", "openclaw", OnboardingState.READY)
+        assert result is True
+        state = get_onboarding_state("server1", "openclaw")
+        assert state == OnboardingState.READY
 
     def test_invalid_transition_pending_to_validate(self, host_with_onboarding):
         """Rejects skipping states."""
@@ -349,6 +357,47 @@ class TestInitializeOnboarding:
 
         with pytest.raises(AgentNotFoundError):
             initialize_onboarding("nonexistent", "openclaw")
+
+    def test_initialize_hermes_auto_skips_to_ready(self, isolated_config):
+        """hermes manifest declares auto_skip:true on every stage, so
+        initialize_onboarding must short-circuit straight to READY with all
+        stages marked SKIPPED. This unblocks `clm agent start` without --force
+        for the Phase 1 placeholder onboarding pipeline (ATX B2)."""
+        hosts_data = [
+            {
+                "hostname": "192.168.1.100",
+                "alias": "server1",
+                "port": 22,
+                "agent_name": "xclm",
+                "agents": {
+                    "hermes-test": {
+                        "type": "hermes",
+                        "version": "2026.5.7",
+                        "status": "installed",
+                        "agent_name": "hermes-test",
+                    }
+                },
+            }
+        ]
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        hosts_path = isolated_config / "hosts.json"
+        hosts_path.write_text(json.dumps(hosts_data))
+
+        result = initialize_onboarding("server1", "hermes-test")
+        assert result is True
+
+        from clawrium.core.hosts import get_host
+
+        host = get_host("server1")
+        onboarding = host["agents"]["hermes-test"]["onboarding"]
+
+        assert onboarding["state"] == "ready"
+        for stage_name, stage_data in onboarding["stages"].items():
+            assert stage_data["status"] == "skipped", (
+                f"hermes stage {stage_name} should be skipped, got "
+                f"{stage_data['status']}"
+            )
+            assert stage_data["completed_at"] is not None
 
 
 class TestCanSkipStage:

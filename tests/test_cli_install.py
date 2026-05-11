@@ -221,6 +221,68 @@ def test_install_force_flag_propagates(isolated_config: Path):
         assert kwargs.get("force") is True
 
 
+def test_install_force_without_yes_aborts_when_user_declines(isolated_config: Path):
+    """`clm agent install --force` (no --yes) prompts for confirmation; declining aborts."""
+    create_test_keypair(isolated_config, "testhost")
+    create_host(isolated_config, "192.168.1.100", alias="testhost", key_id="testhost")
+
+    with patch("clawrium.cli.install.run_installation") as mock_install:
+        result = runner.invoke(
+            app,
+            [
+                "agent",
+                "install",
+                "--type",
+                "openclaw",
+                "--host",
+                "testhost",
+                "--force",
+            ],
+            input="n\n",
+            env=os.environ,
+        )
+
+        assert result.exit_code == 0
+        assert "rotate gateway tokens" in result.stdout
+        assert "Installation cancelled." in result.stdout
+        mock_install.assert_not_called()
+
+
+def test_install_force_with_yes_skips_confirmation_prompt(isolated_config: Path):
+    """`--force --yes` proceeds without the force-specific confirmation prompt."""
+    create_test_keypair(isolated_config, "testhost")
+    create_host(isolated_config, "192.168.1.100", alias="testhost", key_id="testhost")
+
+    with patch("clawrium.cli.install.run_installation") as mock_install:
+        mock_install.return_value = {
+            "success": True,
+            "agent": "openclaw",
+            "version": "2026.4.2",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+        result = runner.invoke(
+            app,
+            [
+                "agent",
+                "install",
+                "--type",
+                "openclaw",
+                "--host",
+                "testhost",
+                "--yes",
+                "--force",
+            ],
+            env=os.environ,
+        )
+
+        assert result.exit_code == 0
+        mock_install.assert_called_once()
+        assert mock_install.call_args.kwargs.get("force") is True
+
+
 def test_install_default_force_is_false(isolated_config: Path):
     """Without --force, run_installation receives force=False."""
     create_test_keypair(isolated_config, "testhost")

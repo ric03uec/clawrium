@@ -1,0 +1,84 @@
+agent:
+  type: hermes
+  description: "Nous Research self-improving AI agent (Python)"
+
+# Workspace metadata consumed by cross-claw subsystems (memory CLI, etc.).
+# Phase 3 will read this to dispatch memory operations to ~/.hermes/memories/.
+workspace:
+  memory_path: "~/.hermes/memories"
+
+# Capability flags advertised by this manifest.
+features:
+  memory: true
+
+# Secrets configuration.
+# All provider keys are optional: Phase 1 installs the binary in an inert state.
+# Phase 2 (configure) writes ~/.hermes/.env with the active provider's key and
+# the API_SERVER_KEY needed to bring the gateway online.
+secrets:
+  required: []
+
+  optional:
+    - key: OPENROUTER_API_KEY
+      description: "OpenRouter API key (200+ models)"
+    - key: ANTHROPIC_API_KEY
+      description: "Anthropic API key"
+    - key: OPENAI_API_KEY
+      description: "OpenAI API key"
+
+# Onboarding workflow configuration.
+#
+# Phase 1 ships a placeholder pipeline where every stage is auto-skipped so
+# fresh installs reach READY immediately and `clm agent start` works without
+# `--force`. Phase 4 will replace this with the real onboarding flow that
+# walks through provider selection, identity bootstrapping, and channel
+# configuration for hermes. Until then, configuration is performed by
+# `clm agent configure` (Phase 2), which writes ~/.hermes/.env directly.
+onboarding:
+  stages:
+    providers:
+      required: false
+      auto_skip: true
+      description: "Provider configuration deferred to `clm agent configure` (Phase 2)"
+    identity:
+      required: false
+      auto_skip: true
+      description: "Identity bootstrapping deferred to Phase 4"
+    channels:
+      required: false
+      auto_skip: true
+      description: "Channel configuration deferred to Phase 4"
+    validate:
+      required: false
+      auto_skip: true
+      description: "Validation deferred to Phase 4"
+
+# Note: The hermes installer is a single bash script served from
+# raw.githubusercontent.com at the pinned tag. The same script content is
+# fetched for both Ubuntu 22.04 and 24.04, so the sha256 below is identical
+# across platform entries by design.
+platforms:
+  - version: "2026.5.7"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    sha256: "b34368cb0628d5acbdc48fe6f4160fb6f51bb33377e8f5a7415fd790a57456e5"
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        python: ">=3.11"
+        ripgrep: "*"
+        ffmpeg: "*"
+  - version: "2026.5.7"
+    os: ubuntu
+    os_version: "22.04"
+    arch: x86_64
+    sha256: "b34368cb0628d5acbdc48fe6f4160fb6f51bb33377e8f5a7415fd790a57456e5"
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        python: ">=3.11"
+        ripgrep: "*"
+        ffmpeg: "*"

@@ -2,6 +2,16 @@ agent:
   type: openclaw
   description: "Open-source AI assistant framework"
 
+# Workspace metadata consumed by cross-claw subsystems (memory CLI, etc.).
+# Path matches the location previously hard-coded in core/memory.py so the
+# memory dispatcher can read it without behavior change.
+workspace:
+  memory_path: "~/.openclaw/workspace/memory"
+
+# Capability flags advertised by this manifest.
+features:
+  memory: true
+
 # Secrets configuration
 # Note: Provider-specific API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
 # are managed through provider configuration, not as standalone secrets.

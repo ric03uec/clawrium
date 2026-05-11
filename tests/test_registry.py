@@ -966,6 +966,64 @@ def test_onboarding_stage_required_field():
     assert validate.get("required", False) is False or validate.get("required") is None
 
 
+def test_manifest_accepts_workspace_and_features_fields(monkeypatch):
+    """A manifest with optional workspace/features blocks validates and round-trips."""
+    from clawrium.core import registry
+
+    manifest = _valid_manifest()
+    manifest["workspace"] = {"memory_path": "~/.openclaw/workspace/memory"}
+    manifest["features"] = {"memory": True}
+    monkeypatch.setattr(registry.yaml, "safe_load", lambda _: manifest)
+
+    parsed = registry.load_manifest("openclaw")
+    assert parsed.get("workspace", {}).get("memory_path") == (
+        "~/.openclaw/workspace/memory"
+    )
+    assert parsed.get("features", {}).get("memory") is True
+
+
+def test_manifest_workspace_optional_for_legacy_types():
+    """Legacy zeroclaw manifest (no workspace/features) still validates."""
+    manifest = load_manifest("zeroclaw")
+    # zeroclaw does not declare workspace or features in Phase 1; both must be absent
+    # (or empty) without breaking validation.
+    assert "workspace" not in manifest
+    assert "features" not in manifest
+
+
+def test_manifest_rejects_invalid_workspace_memory_path(monkeypatch):
+    """workspace.memory_path must be a non-empty string when supplied."""
+    from clawrium.core import registry
+
+    manifest = _valid_manifest()
+    manifest["workspace"] = {"memory_path": ""}
+    monkeypatch.setattr(registry.yaml, "safe_load", lambda _: manifest)
+
+    with pytest.raises(ManifestParseError, match="workspace.memory_path"):
+        load_manifest("openclaw")
+
+
+def test_manifest_rejects_invalid_features_memory(monkeypatch):
+    """features.memory must be a boolean when supplied."""
+    from clawrium.core import registry
+
+    manifest = _valid_manifest()
+    manifest["features"] = {"memory": "yes"}
+    monkeypatch.setattr(registry.yaml, "safe_load", lambda _: manifest)
+
+    with pytest.raises(ManifestParseError, match="features.memory"):
+        load_manifest("openclaw")
+
+
+def test_openclaw_manifest_now_declares_memory_workspace():
+    """Phase 1 backfill: openclaw manifest carries the memory metadata for Phase 3."""
+    manifest = load_manifest("openclaw")
+    assert manifest.get("workspace", {}).get("memory_path") == (
+        "~/.openclaw/workspace/memory"
+    )
+    assert manifest.get("features", {}).get("memory") is True
+
+
 def test_onboarding_backward_compatibility(monkeypatch):
     """Test that manifests can be loaded even if they don't have onboarding section."""
     from clawrium.core import registry

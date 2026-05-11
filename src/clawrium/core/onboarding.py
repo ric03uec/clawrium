@@ -49,7 +49,10 @@ class StageStatus(str, Enum):
 
 # Valid state transitions
 TRANSITIONS: dict[str, list[str]] = {
-    "pending": ["providers"],
+    # 'ready' under 'pending' supports manifests whose stages are all
+    # auto_skip:true (e.g. hermes Phase 1 placeholder) so the auto_skip path
+    # can transition PENDING → READY without InvalidTransitionError.
+    "pending": ["providers", "ready"],
     "providers": ["identity"],
     "identity": ["channels"],
     "channels": ["validate"],
@@ -364,23 +367,52 @@ def initialize_onboarding(host: str, claw_name: str) -> bool:
     hostname = host_data["hostname"]
     now = datetime.now(timezone.utc).isoformat()
 
+    # Determine whether every stage in this agent type's manifest is marked
+    # `auto_skip: true`. When that's the case there is nothing for the operator
+    # to do during onboarding, so we mark the agent READY immediately. This
+    # lets agent types whose configuration is performed entirely outside the
+    # onboarding pipeline (e.g., hermes Phase 1, where `clm agent configure`
+    # writes ~/.hermes/.env directly) advance to `clm agent start` without
+    # requiring `--force`.
+    agent_type = claw.get("type") or claw_name
+    stages_initial: dict[str, dict[str, Any]] = {
+        "providers": {
+            "status": StageStatus.PENDING.value,
+            "completed_at": None,
+            "provider_id": None,
+        },
+        "identity": {"status": StageStatus.PENDING.value, "completed_at": None},
+        "channels": {"status": StageStatus.PENDING.value, "completed_at": None},
+        "validate": {"status": StageStatus.PENDING.value, "completed_at": None},
+    }
+    initial_state = OnboardingState.PENDING.value
+    try:
+        manifest = load_manifest(agent_type)
+        manifest_stages = (manifest.get("onboarding") or {}).get("stages") or {}
+        # All four canonical stages must be present AND auto_skip:true to
+        # short-circuit to READY. Missing stages (legacy manifests) fall back
+        # to the standard PENDING flow.
+        canonical = ("providers", "identity", "channels", "validate")
+        if manifest_stages and all(
+            (manifest_stages.get(s) or {}).get("auto_skip") is True for s in canonical
+        ):
+            initial_state = OnboardingState.READY.value
+            for stage_name in canonical:
+                stages_initial[stage_name]["status"] = StageStatus.SKIPPED.value
+                stages_initial[stage_name]["completed_at"] = now
+    except Exception:
+        # Manifest lookup failure must not block onboarding init; fall back
+        # to the default PENDING flow.
+        pass
+
     def updater(h: dict) -> dict:
         agent_key = _resolve_agent_key(h, claw_name)
         if not agent_key:
             raise AgentNotFoundError(f"Agent '{claw_name}' not found on host '{host}'")
         h["agents"][agent_key]["onboarding"] = {
-            "state": OnboardingState.PENDING.value,
+            "state": initial_state,
             "started_at": now,
-            "stages": {
-                "providers": {
-                    "status": StageStatus.PENDING.value,
-                    "completed_at": None,
-                    "provider_id": None,
-                },
-                "identity": {"status": StageStatus.PENDING.value, "completed_at": None},
-                "channels": {"status": StageStatus.PENDING.value, "completed_at": None},
-                "validate": {"status": StageStatus.PENDING.value, "completed_at": None},
-            },
+            "stages": stages_initial,
         }
         return h
 

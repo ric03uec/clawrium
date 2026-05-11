@@ -121,6 +121,18 @@ class AgentInfo(TypedDict):
     description: str
 
 
+class WorkspaceConfig(TypedDict):
+    """Workspace metadata consumed by cross-claw subsystems (e.g. memory CLI)."""
+
+    memory_path: NotRequired[str]
+
+
+class FeaturesConfig(TypedDict):
+    """Capability flags advertised by an agent manifest."""
+
+    memory: NotRequired[bool]
+
+
 class AgentManifest(TypedDict):
     """Complete agent manifest."""
 
@@ -128,6 +140,8 @@ class AgentManifest(TypedDict):
     platforms: list[PlatformEntry]
     secrets: NotRequired[ManifestSecrets]
     onboarding: NotRequired[OnboardingConfig]
+    workspace: NotRequired[WorkspaceConfig]
+    features: NotRequired[FeaturesConfig]
 
 
 class CompatibilityResult(TypedDict):
@@ -464,6 +478,39 @@ def _validate_onboarding(
     return validated
 
 
+def _validate_workspace(workspace_value: object, agent_type: str) -> WorkspaceConfig:
+    """Validate workspace metadata block."""
+    workspace = _as_dict(workspace_value, "workspace", agent_type)
+    validated: WorkspaceConfig = {}
+
+    if "memory_path" in workspace:
+        memory_path = workspace["memory_path"]
+        if not isinstance(memory_path, str) or not memory_path:
+            _raise_parse_error(
+                agent_type,
+                "has invalid `workspace.memory_path` (expected non-empty string)",
+            )
+        validated["memory_path"] = memory_path
+
+    return validated
+
+
+def _validate_features(features_value: object, agent_type: str) -> FeaturesConfig:
+    """Validate features capability block."""
+    features = _as_dict(features_value, "features", agent_type)
+    validated: FeaturesConfig = {}
+
+    if "memory" in features:
+        memory_flag = features["memory"]
+        if not isinstance(memory_flag, bool):
+            _raise_parse_error(
+                agent_type, "has invalid `features.memory` (expected boolean)"
+            )
+        validated["memory"] = memory_flag
+
+    return validated
+
+
 def _validate_manifest(manifest_data: object, agent_type: str) -> AgentManifest:
     """Validate the full manifest and return normalized data."""
     root = _as_dict(manifest_data, "root", agent_type)
@@ -525,6 +572,18 @@ def _validate_manifest(manifest_data: object, agent_type: str) -> AgentManifest:
     if "onboarding" in root:
         validated_manifest["onboarding"] = _validate_onboarding(
             root["onboarding"],
+            agent_type,
+        )
+
+    if "workspace" in root:
+        validated_manifest["workspace"] = _validate_workspace(
+            root["workspace"],
+            agent_type,
+        )
+
+    if "features" in root:
+        validated_manifest["features"] = _validate_features(
+            root["features"],
             agent_type,
         )
 
@@ -791,3 +850,40 @@ def check_compatibility(
         "matched_entry": None,
         "reasons": unique_reasons,
     }
+
+
+# ---------------------------------------------------------------------------
+# Hermes version parsing
+#
+# `hermes --version` emits a string like:
+#   Hermes Agent v0.13.0 (2026.5.7)
+# The triple OUTSIDE the parentheses is the Python package version (changes
+# rarely); the triple INSIDE is the upstream release tag pinned in the
+# manifest. We match against the parenthesised tag because that aligns with
+# the manifest's per-platform `version` field.
+#
+# The hermes install.yaml playbook encodes the same regex in Jinja2; this
+# helper exists primarily so the regex is testable in pure Python.
+# ---------------------------------------------------------------------------
+
+_HERMES_VERSION_RE = re.compile(r"\(([0-9]+\.[0-9]+\.[0-9]+)\)")
+
+
+def parse_hermes_version(output: str | None) -> str:
+    """Parse the upstream release tag from `hermes --version` output.
+
+    Args:
+        output: stdout from `hermes --version`, or None when the binary is
+            absent. Multiline / leading-whitespace output is supported.
+
+    Returns:
+        The parenthesised semver tag (e.g., "2026.5.7"), or "" if the output
+        cannot be parsed. An empty return signals "version unknown" to callers
+        so the install path can fall back to a safe reinstall.
+    """
+    if not output:
+        return ""
+    match = _HERMES_VERSION_RE.search(output)
+    if not match:
+        return ""
+    return match.group(1)
