@@ -131,6 +131,14 @@ def chat(
                 response_timeout_seconds=timeout,
             )
         elif chat_type == "openai":
+            # `--session` has no server-side effect for OpenAI-typed agents in
+            # phase 1 (history is client-side). Warn dim once so the user
+            # understands the flag is accepted but ignored; chat continues.
+            if session != "main":
+                console.print(
+                    "[dim]`--session` is a no-op for OpenAI-typed agents "
+                    "(phase 1 has no server-side session routing).[/dim]"
+                )
             backend = _build_hermes_backend(
                 agent_record=agent_record,
                 host_record=host_record,
@@ -172,14 +180,40 @@ def chat(
         console.print(
             f"[red]Authentication failed:[/red] {rich_escape(_sanitize_exception_text(exc))}"
         )
+        if chat_type == "openai":
+            console.print(
+                f"Token mismatch. Re-run 'clm agent configure {rich_escape(str(canonical_name))}'."
+            )
         raise typer.Exit(code=1)
     except ChatConnectionError as exc:
         console.print(
             f"[red]Connection failed:[/red] {rich_escape(_sanitize_exception_text(exc))}"
         )
-        console.print(
-            "Verify the host is online and the recorded gateway URL/token are current (re-run configure/install if needed)."
-        )
+        if chat_type == "openai":
+            console.print(
+                f"Check 'systemctl --user status hermes-{rich_escape(str(canonical_name))}' on the agent host."
+            )
+            # Legacy install hint: persisted bind still on loopback means the
+            # opportunistic 127.0.0.1 → 0.0.0.0 migration in lifecycle hasn't
+            # run for this agent yet. Re-running configure flips it.
+            api_server = (
+                agent_record.get("config", {}).get("api_server")
+                if isinstance(agent_record.get("config"), dict)
+                else None
+            )
+            if (
+                isinstance(api_server, dict)
+                and api_server.get("host") == "127.0.0.1"
+            ):
+                console.print(
+                    f"Legacy bind detected (127.0.0.1). "
+                    f"Re-run 'clm agent configure {rich_escape(str(canonical_name))}' "
+                    f"to bind a reachable interface."
+                )
+        else:
+            console.print(
+                "Verify the host is online and the recorded gateway URL/token are current (re-run configure/install if needed)."
+            )
         raise typer.Exit(code=1)
     except ChatProtocolError as exc:
         console.print(

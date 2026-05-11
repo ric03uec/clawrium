@@ -482,6 +482,50 @@ def test_on_delta_failure_does_not_pollute_history():
         _run(backend.close())
 
 
+def test_connection_error_does_not_leak_httpx_internals():
+    """httpx exception text (errno codes, file paths, internal types) MUST NOT
+    appear in the ChatConnectionError message. The CLI surfaces the error
+    string verbatim, so any leakage reaches the user."""
+    leaky_message = (
+        "[Errno 111] Connection refused; "
+        "/usr/lib/python3/dist-packages/httpx/_transports/default.py"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(leaky_message)
+
+    backend = _build_backend(httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ChatConnectionError) as excinfo:
+            _run(backend.send_message("ping"))
+    finally:
+        _run(backend.close())
+
+    message = str(excinfo.value)
+    assert "Errno" not in message
+    assert "httpx" not in message
+    assert "/usr/lib" not in message
+    assert "Failed to reach hermes" in message
+
+
+def test_http_error_does_not_leak_httpx_internals():
+    """Generic httpx.HTTPError (non-connect, non-timeout) also gets sanitized."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.HTTPError("internal httpx error: pool_timeout etc")
+
+    backend = _build_backend(httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ChatConnectionError) as excinfo:
+            _run(backend.send_message("ping"))
+    finally:
+        _run(backend.close())
+
+    message = str(excinfo.value)
+    assert "pool_timeout" not in message
+    assert "httpx" not in message
+
+
 def test_connect_is_idempotent():
     """Repeated connect() calls do not replace an existing client (resource leak guard)."""
     backend = HermesOpenAIBackend(
