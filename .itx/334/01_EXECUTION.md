@@ -127,3 +127,29 @@ Suggestion S-1 (canonical stdin pipe pattern): not incorporated — adds impleme
 Round 3 also surfaced unrelated carry-forward items (`docs/agent-support/hermes.md:191,116`, Slice 1 test gaps). All belong to #322 Slices 1/3, not this PR.
 
 </details>
+
+<details>
+<summary>ATX Review (manual CLI, Round 4 — final)</summary>
+
+**Tool**: `atx review request`
+**Timestamp**: 2026-05-11T15:46:00Z
+**Rating**: 4/5 ✅ (threshold > 3/5 cleared)
+**Blockers**: 0
+**Warnings**: 1 (W-R4-1, deferred-to-Slice-3)
+**Suggestions**: 4 (all deferred to Slice 3 or noted as quality-of-life)
+**Composite specialist ratings**: security-secrets 4/5, cli-ux 4/5, test-coverage 3/5
+
+W-R4-1 (no xfail anchor for the sanitizer gap): acknowledged. Belongs to Slice 3 of #322, not this docs-only PR. Suggestions S-R4-1..S-R4-4 all queued for Slice 3.
+
+**Disposition**: PR #335 ready to merge.
+
+</details>
+
+## ATX iteration summary
+
+| Round | Rating | Blockers | Disposition |
+|-------|--------|----------|-------------|
+| 1 | 2/5 | B1, B2 | Both fixed |
+| 2 | 3/5 | 0 | 7 warnings — all fixed |
+| 3 | blocked | B1 (uncommitted) | Fixed by commit `dea2408` + 2 warnings fixed |
+| 4 | **4/5** | 0 | Merge-eligible; 1 deferred warning belongs to Slice 3 of #322 |
