@@ -494,4 +494,31 @@ E2E results on wolf-i (192.168.1.36) against provider `clm-openrouter`:
 - `clm agent configure hermes-test --yes --stage validate` (with service stopped) — **correctly failed**: "api_server /health did not return 200 for agent 'hermes-test' on host 'wolf-i'. The hermes service is not healthy. Inspect 'journalctl -u hermes-hermes-test.service'." Validate stage fails loudly when /health is down, exactly as intended.
 - `clm agent remove hermes-test --force` — cleaned up the agent user, systemd unit, `~/.hermes/`, binary symlink, and `hosts.json` record.
 
+---
+
+**Stage**: execution
+**Skill**: /itx:execute
+**Timestamp**: 2026-05-10T20:30:00Z
+**Model**: claude-opus-4-7
+**Subtask**: #316 (Phase 5)
+**Branch**: `issue-68-phase-5-docs` (base: `main` @ 3cb2952)
+
+```prompt
+/itx:execute 316 (sub-agent invocation, Phase 5 — Docs + parent close-out)
+```
+
+Implementation outcomes:
+
+1. Published `docs/agent-support/hermes.md` — capability matrix (providers / channels / features), pinned version (`v2026.5.7`), install + configure walkthrough, local OpenAI-compatible API `curl` example with `jq` extraction of `HERMES_API_SERVER_KEY` from `secrets.json` (post-PR #318 location), SSH-tunnel recipe for off-host access, hermes-specific caveats (no `clm chat` linking #322; deferred gateways; identity auto-skip; bearer token storage path; memory size limits; atomic-write safety), troubleshooting (service won't start / `/health` non-200 / provider connectivity / oversize memory / `userdel` stuck), deferred-items section linking back to `.itx/68/00_PLAN.md`.
+
+2. Published `docs/agent-support/memory.md` — manifest-driven dispatch model (`features.memory` + `workspace.memory_path`), per-claw on-disk layouts (hermes two-file with hard caps; openclaw daily-files + top-level identity), atomic-write safety (stage-then-rename via `rename(2)`), explicit out-of-scope list (pluggable backends, `state.db`, identity-file editing, alt filesystem layouts).
+
+3. Updated `docs/agent-support/index.md` — added hermes row under "In Development", replaced the 2-column Quick Comparison with a 3-column matrix covering Status, Transport, `clm chat`, Multi-Provider, Memory, Identity, Messaging gateways, External integrations, Onboarding, Resource usage. Added a "Use Hermes when" guidance block.
+
+4. Updated `README.md` FAQ #2 — added a hermes paragraph noting `🚧 In Development` status, the local OpenAI-compatible API at `127.0.0.1:8642`, the gaps (no `clm chat`, no external gateways), and a link to the hermes docs page. The Quickstart section was inspected and intentionally left alone — it walks through OpenClaw only as the canonical first-time example, which is still the right onboarding path.
+
+5. `make lint` clean. `make test` → 1566 passed (no code touched).
+
+Documentation-blocking findings: none. One pre-existing nit observed but NOT fixed (out of scope for docs-only PR): `_run_validate_stage` description in the manifest still references the Phase 1 placeholder pipeline language in some comments; harmless but worth a follow-up cleanup pass.
+
 </details>

@@ -143,6 +143,8 @@ Other Linux distributions may work, but they are not currently part of the test 
 
 [OpenClaw](https://github.com/openclaw/openclaw) is officially supported and tested end-to-end.
 
+[Hermes](https://github.com/NousResearch/hermes-agent) (Nous Research) is supported in `🚧 In Development` status — install, configure, and a local OpenAI-compatible HTTP API on `127.0.0.1:8642` are wired end-to-end. `clm chat` and external messaging gateways are not yet supported for hermes. See the [Hermes Support Matrix](https://ric03uec.github.io/clawrium/docs/agent-support/hermes) for details.
+
 Additional agent types are planned.
 
 ### 3. Is Claude subscription supported?
