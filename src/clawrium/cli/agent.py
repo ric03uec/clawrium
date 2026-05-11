@@ -2111,7 +2111,7 @@ agent_app.add_typer(secret_app, name="secret")
 # Memory inspection and management for agents
 memory_app = typer.Typer(
     name="memory",
-    help="Inspect and manage memory for openclaw agents",
+    help="Inspect and manage memory for memory-capable agents",
     no_args_is_help=True,
 )
 
@@ -2120,7 +2120,7 @@ memory_app = typer.Typer(
 def memory_show(
     claw_name: str = typer.Argument(..., help="Agent instance name"),
 ) -> None:
-    """Show memory file paths and sizes for an openclaw agent."""
+    """Show memory file paths and sizes for a memory-capable agent."""
     from clawrium.cli.memory import show_cmd
 
     show_cmd(claw_name=claw_name)

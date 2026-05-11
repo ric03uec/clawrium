@@ -1,0 +1,37 @@
+---
+# Hermes uses a fixed two-file memory model under ~/.hermes/memories/:
+#   - MEMORY.md  (agent notes, ≤ 2200 chars enforced by hermes runtime)
+#   - USER.md    (user profile, ≤ 1375 chars enforced by hermes runtime)
+# There is no "daily memory" concept (that is openclaw-specific), so this
+# playbook emits only the TOP lines. The empty DAILY section keeps the
+# Python parser happy: zero DAILY entries is valid output.
+- hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    memory_top_level_files:
+      - MEMORY.md
+      - USER.md
+  tasks:
+    - name: Set workspace path
+      ansible.builtin.set_fact:
+        memory_workspace_path: "/home/{{ agent_name }}/.hermes/memories"
+
+    - name: Stat top-level memory files
+      ansible.builtin.stat:
+        path: "{{ memory_workspace_path }}/{{ item }}"
+      register: top_level_stats
+      loop: "{{ memory_top_level_files }}"
+
+    - name: Emit workspace path
+      ansible.builtin.debug:
+        msg: "WORKSPACE_PATH={{ memory_workspace_path }}"
+
+    - name: Emit top-level file stats
+      ansible.builtin.debug:
+        msg: >-
+          TOP {{ item.item }}
+          {{ (item.stat.size | default(-1)) if item.stat.exists else -1 }}
+      loop: "{{ top_level_stats.results }}"
+      loop_control:
+        label: "{{ item.item }}"

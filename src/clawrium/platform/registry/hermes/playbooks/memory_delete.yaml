@@ -1,0 +1,34 @@
+---
+# Hermes memory delete — targets ~/.hermes/memories/<filename>. Restricted
+# to the canonical two-file model so the daemon never has to recover from
+# unexpected file absence beyond what the hermes runtime already handles.
+- hosts: all
+  become: yes
+  gather_facts: false
+  tasks:
+    - name: Validate memory filenames pattern
+      ansible.builtin.fail:
+        msg: "Invalid memory filename"
+      loop: "{{ memory_files }}"
+      when:
+        - item is not match('^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$')
+
+    - name: Reject path-traversal components in filenames
+      ansible.builtin.fail:
+        msg: "Invalid memory filename: traversal components not allowed"
+      loop: "{{ memory_files }}"
+      when:
+        - item.split('/') | intersect(['', '.', '..']) | length > 0
+
+    - name: Restrict to hermes memory allowlist
+      ansible.builtin.fail:
+        msg: "hermes memory accepts only MEMORY.md and USER.md"
+      loop: "{{ memory_files }}"
+      when:
+        - item not in ['MEMORY.md', 'USER.md']
+
+    - name: Delete memory files
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.hermes/memories/{{ item }}"
+        state: absent
+      loop: "{{ memory_files }}"

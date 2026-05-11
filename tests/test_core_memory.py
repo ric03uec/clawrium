@@ -13,6 +13,7 @@ from clawrium.core.memory import (
     _cleanup_artifacts,
     _extract_failure_message,
     _parse_memory_info_stdout,
+    _resolve_agent_with_memory,
     _resolve_openclaw_agent,
     _validate_agent_name,
     _validate_memory_filename,
@@ -358,7 +359,7 @@ def _setup_playbook_env(tmp_path: Path, operation: str) -> tuple[Path, Path]:
 
 class TestGetMemoryInfo:
     def test_returns_none_when_agent_unresolved(self):
-        with patch("clawrium.core.memory._resolve_openclaw_agent", return_value=(None, "test-reason")):
+        with patch("clawrium.core.memory._resolve_agent_with_memory", return_value=(None, "test-reason", None)):
             assert get_memory_info("192.168.1.100", "x") is None
 
     def test_returns_none_on_missing_playbook(self, tmp_path: Path):
@@ -366,8 +367,8 @@ class TestGetMemoryInfo:
             {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
         )
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch(
             "clawrium.core.memory._PLAYBOOK_DIR", tmp_path / "missing"
         ):
@@ -383,8 +384,8 @@ class TestGetMemoryInfo:
         playbook_dir.mkdir()
         (playbook_dir / "memory_info.yaml").write_text("---\n")
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=None
         ):
@@ -418,8 +419,8 @@ class TestGetMemoryInfo:
         result = _runner_result("successful", events)
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -451,8 +452,8 @@ class TestGetMemoryInfo:
         result = _runner_result("timeout", [])
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -472,8 +473,8 @@ class TestGetMemoryInfo:
         ssh_key.write_text("key")
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -491,7 +492,7 @@ class TestReadMemoryFile:
         assert read_memory_file("h", "a", "../bad") is None
 
     def test_returns_none_when_unresolved(self):
-        with patch("clawrium.core.memory._resolve_openclaw_agent", return_value=(None, "test-reason")):
+        with patch("clawrium.core.memory._resolve_agent_with_memory", return_value=(None, "test-reason", None)):
             assert read_memory_file("h", "a", "SOUL.md") is None
 
     def test_returns_decoded_content_on_success(self, tmp_path: Path):
@@ -511,8 +512,8 @@ class TestReadMemoryFile:
         result = _runner_result("successful", events)
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -529,8 +530,8 @@ class TestReadMemoryFile:
         result = _runner_result("failed", [])
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -545,8 +546,8 @@ class TestReadMemoryFile:
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_read")
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -563,8 +564,8 @@ class TestReadMemoryFile:
         result = _runner_result("timeout", [])
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -586,8 +587,8 @@ class TestReadMemoryFile:
         result = _runner_result("successful", events)
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -610,8 +611,8 @@ class TestReadMemoryFile:
         result = _runner_result("successful", events)
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -630,7 +631,7 @@ class TestWriteMemoryFile:
         assert err is not None and "Invalid" in err
 
     def test_returns_false_when_unresolved(self):
-        with patch("clawrium.core.memory._resolve_openclaw_agent", return_value=(None, "test-reason")):
+        with patch("clawrium.core.memory._resolve_agent_with_memory", return_value=(None, "test-reason", None)):
             ok, err = write_memory_file("h", "a", "SOUL.md", "x")
         assert ok is False
         assert err is not None
@@ -648,8 +649,8 @@ class TestWriteMemoryFile:
         result = _runner_result("successful", [])
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -674,8 +675,8 @@ class TestWriteMemoryFile:
         result = _runner_result("failed", events)
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -694,8 +695,8 @@ class TestWriteMemoryFile:
         result = _runner_result("timeout", [])
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -712,8 +713,8 @@ class TestWriteMemoryFile:
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_write")
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -742,8 +743,8 @@ class TestWriteMemoryFile:
 
         for size in (MAX_MEMORY_CONTENT_BYTES - 1, MAX_MEMORY_CONTENT_BYTES):
             with patch(
-                "clawrium.core.memory._resolve_openclaw_agent",
-                return_value=(host, "opc-work"),
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
             ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
                 "clawrium.core.memory.core_keys.get_host_private_key",
                 return_value=ssh_key,
@@ -763,8 +764,8 @@ class TestWriteMemoryFile:
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_write")
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -791,7 +792,7 @@ class TestDeleteMemoryFiles:
         assert err is not None
 
     def test_returns_false_when_unresolved(self):
-        with patch("clawrium.core.memory._resolve_openclaw_agent", return_value=(None, "test-reason")):
+        with patch("clawrium.core.memory._resolve_agent_with_memory", return_value=(None, "test-reason", None)):
             ok, err = delete_memory_files("h", "a", ["SOUL.md"])
         assert ok is False
 
@@ -804,8 +805,8 @@ class TestDeleteMemoryFiles:
         result = _runner_result("successful", [])
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -833,8 +834,8 @@ class TestDeleteMemoryFiles:
         result = _runner_result("timeout", [])
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -851,8 +852,8 @@ class TestDeleteMemoryFiles:
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_delete")
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -924,8 +925,8 @@ class TestCleanupArtifacts:
         )
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -967,8 +968,8 @@ class TestCleanupArtifacts:
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, operation)
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
         ), patch(
@@ -1014,8 +1015,8 @@ class TestCleanupArtifacts:
         playbook_dir, _ = _setup_playbook_env(tmp_path, operation)
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=None
         ):
@@ -1046,8 +1047,8 @@ class TestCleanupArtifacts:
         playbook_dir, _ = _setup_playbook_env(tmp_path, operation)
 
         with patch(
-            "clawrium.core.memory._resolve_openclaw_agent",
-            return_value=(host, "opc-work"),
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
         ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
             "clawrium.core.memory.core_keys.get_host_private_key", return_value=None
         ):
@@ -1072,3 +1073,583 @@ class TestCleanupArtifacts:
             _cleanup_artifacts(tmp_path)  # must not raise
 
 
+
+
+# ----- Phase 3: cross-claw memory dispatch ---------------------------------
+#
+# These tests cover the manifest-driven dispatch added in #314:
+#   - _resolve_agent_with_memory selects candidates by features.memory==true
+#   - hermes claw type lists MEMORY.md / USER.md via the hermes playbook dir
+#   - hermes write enforces the per-file character limits client-side
+#   - zeroclaw (features.memory absent) is rejected via claw_supports_memory
+
+
+from clawrium.core.memory import (  # noqa: E402 - imports grouped per-section
+    _get_playbook_dir,
+    _manifest_workspace_path,
+    claw_supports_memory,
+)
+
+
+class TestClawSupportsMemory:
+    def test_openclaw_supports_memory(self):
+        assert claw_supports_memory("openclaw") is True
+
+    def test_hermes_supports_memory(self):
+        assert claw_supports_memory("hermes") is True
+
+    def test_zeroclaw_does_not_support_memory(self):
+        # zeroclaw's manifest does not declare features.memory.
+        assert claw_supports_memory("zeroclaw") is False
+
+    def test_unknown_claw_returns_false(self):
+        # Unknown / unloadable manifest treated as unsupported rather than
+        # raising — keeps the CLI error friendly.
+        assert claw_supports_memory("nonexistent-claw") is False
+
+
+class TestGetPlaybookDir:
+    def test_openclaw_uses_module_global_for_back_compat(self):
+        from clawrium.core import memory as memmod
+
+        # The module-global _PLAYBOOK_DIR is preserved so legacy tests that
+        # patch it continue to inject a temp playbook directory.
+        assert _get_playbook_dir("openclaw") == memmod._PLAYBOOK_DIR
+
+    def test_hermes_resolves_to_hermes_playbooks(self):
+        path = _get_playbook_dir("hermes")
+        assert path.name == "playbooks"
+        assert path.parent.name == "hermes"
+
+    def test_zeroclaw_resolves_to_registry_dir_even_if_absent(self):
+        # Resolution is path-only; the dir may not contain memory_*.yaml
+        # because zeroclaw has features.memory=false. The dispatcher checks
+        # support before running, so an absent playbook surfaces as
+        # "Playbook not found" rather than this helper raising.
+        path = _get_playbook_dir("zeroclaw")
+        assert path.name == "playbooks"
+        assert path.parent.name == "zeroclaw"
+
+
+class TestManifestWorkspacePath:
+    def test_openclaw_expands_tilde_with_agent_home(self):
+        assert _manifest_workspace_path("openclaw", "opc-work") == (
+            "/home/opc-work/.openclaw/workspace/memory"
+        )
+
+    def test_hermes_expands_tilde_with_agent_home(self):
+        assert _manifest_workspace_path("hermes", "hermes-test") == (
+            "/home/hermes-test/.hermes/memories"
+        )
+
+    def test_returns_empty_string_for_unknown_claw(self):
+        assert _manifest_workspace_path("nonexistent-claw", "x") == ""
+
+
+def _host_with_hermes() -> dict:
+    return {
+        "hostname": "192.168.1.36",
+        "key_id": "wolf-i",
+        "alias": "wolf-i",
+        "port": 22,
+        "user": "xclm",
+        "agents": {
+            "hermes-test": {
+                "type": "hermes",
+                "agent_name": "hermes-test",
+                "name": "hermes-test",
+                "status": "installed",
+            }
+        },
+    }
+
+
+def _host_with_zeroclaw() -> dict:
+    return {
+        "hostname": "192.168.1.36",
+        "key_id": "wolf-i",
+        "alias": "wolf-i",
+        "port": 22,
+        "user": "xclm",
+        "agents": {
+            "zeroclaw": {
+                "type": "zeroclaw",
+                "agent_name": "zc-work",
+                "name": "zc-work",
+                "status": "installed",
+            }
+        },
+    }
+
+
+class TestResolveAgentWithMemoryHermes:
+    def test_resolves_hermes_by_name(self):
+        host = _host_with_hermes()
+        with patch("clawrium.core.memory.get_host", return_value=host):
+            result = _resolve_agent_with_memory("192.168.1.36", "hermes-test")
+        assert result[0] is not None
+        assert result[1] == "hermes-test"
+        assert result[2] == "hermes"
+
+    def test_rejects_zeroclaw_as_unsupported(self):
+        host = _host_with_zeroclaw()
+        with patch("clawrium.core.memory.get_host", return_value=host):
+            h, reason, claw_type = _resolve_agent_with_memory("192.168.1.36", "zc-work")
+        assert h is None
+        assert claw_type is None
+        # Reason carries the "memory-capable agent not found" wording so the
+        # caller's error message clearly signals it is a capability gap, not
+        # a missing agent record.
+        assert "memory-capable" in reason
+
+
+class TestGetMemoryInfoHermes:
+    def test_show_hermes_lists_memory_user_files(self, tmp_path: Path):
+        """Phase 3 acceptance: `clm agent memory show <hermes>` returns the
+        canonical MEMORY.md + USER.md stats from the hermes memory_info
+        playbook output."""
+        host = _host_with_hermes()
+        playbook_dir = tmp_path / "hermes-pb"
+        playbook_dir.mkdir()
+        (playbook_dir / "memory_info.yaml").write_text("---\n")
+        ssh_key = tmp_path / "id_rsa"
+        ssh_key.write_text("key")
+
+        msgs = [
+            "WORKSPACE_PATH=/home/hermes-test/.hermes/memories",
+            "TOP MEMORY.md 120",
+            "TOP USER.md 80",
+        ]
+        events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"msg": m}}}
+            for m in msgs
+        ]
+        result = _runner_result("successful", events)
+
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "hermes-test", "hermes"),
+        ), patch(
+            "clawrium.core.memory._get_playbook_dir",
+            return_value=playbook_dir,
+        ), patch(
+            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
+        ), patch(
+            "clawrium.core.memory.ansible_runner.run", return_value=result
+        ):
+            stats = get_memory_info("192.168.1.36", "hermes-test")
+
+        assert stats is not None
+        assert stats["workspace_path"] == "/home/hermes-test/.hermes/memories"
+        files_by_name = {f["name"]: f for f in stats["files"]}
+        assert files_by_name["MEMORY.md"]["exists"] is True
+        assert files_by_name["MEMORY.md"]["size_bytes"] == 120
+        assert files_by_name["USER.md"]["exists"] is True
+        assert files_by_name["USER.md"]["size_bytes"] == 80
+        # Hermes does not have a "daily" notion — total is just the two files.
+        assert stats["total_bytes"] == 200
+
+
+class TestWriteMemoryFileHermesLimits:
+    def test_rejects_user_md_over_1375_chars(self):
+        """Per-file char limit enforced client-side before any SSH dispatch."""
+        host = _host_with_hermes()
+        with patch("clawrium.core.memory.get_host", return_value=host):
+            ok, err = write_memory_file(
+                "192.168.1.36", "hermes-test", "USER.md", "a" * 1376
+            )
+        assert ok is False
+        assert err is not None
+        assert "USER.md" in err
+        assert "1375" in err
+        assert "1376" in err
+
+    def test_rejects_memory_md_over_2200_chars(self):
+        host = _host_with_hermes()
+        with patch("clawrium.core.memory.get_host", return_value=host):
+            ok, err = write_memory_file(
+                "192.168.1.36", "hermes-test", "MEMORY.md", "a" * 2201
+            )
+        assert ok is False
+        assert err is not None
+        assert "MEMORY.md" in err
+        assert "2200" in err
+
+    def test_accepts_user_md_at_1375_chars(self, tmp_path: Path):
+        host = _host_with_hermes()
+        playbook_dir = tmp_path / "hermes-pb"
+        playbook_dir.mkdir()
+        (playbook_dir / "memory_write.yaml").write_text("---\n")
+        ssh_key = tmp_path / "id_rsa"
+        ssh_key.write_text("key")
+        result = _runner_result("successful", [])
+
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "hermes-test", "hermes"),
+        ), patch(
+            "clawrium.core.memory._get_playbook_dir",
+            return_value=playbook_dir,
+        ), patch(
+            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
+        ), patch(
+            "clawrium.core.memory.ansible_runner.run", return_value=result
+        ):
+            ok, err = write_memory_file(
+                "192.168.1.36", "hermes-test", "USER.md", "a" * 1375
+            )
+        assert ok is True
+        assert err is None
+
+    def test_rejects_non_allowlisted_filename(self):
+        """Hermes accepts only MEMORY.md and USER.md — other names rejected
+        with the documented error string."""
+        host = _host_with_hermes()
+        with patch("clawrium.core.memory.get_host", return_value=host):
+            ok, err = write_memory_file(
+                "192.168.1.36", "hermes-test", "FOO.md", "bar"
+            )
+        assert ok is False
+        assert err is not None
+        assert "hermes memory accepts only MEMORY.md and USER.md" in err
+
+
+class TestUnsupportedTypeFriendlyError:
+    def test_resolve_unsupported_type_returns_friendly_reason(self):
+        """zeroclaw (features.memory absent) resolution emits a clear
+        'memory-capable agent not found' message rather than a misleading
+        'openclaw agent not found' string."""
+        host = _host_with_zeroclaw()
+        with patch("clawrium.core.memory.get_host", return_value=host):
+            h, reason, claw_type = _resolve_agent_with_memory(
+                "192.168.1.36", "zc-work"
+            )
+        assert h is None
+        assert claw_type is None
+        assert "memory-capable" in reason
+
+
+# ----- ATX iter 1 fixups (B1, B2, W10, W11) --------------------------------
+
+
+class TestLegacyResolveOpenclawAgentShim:
+    """B1: the backward-compat shim must keep returning a 2-tuple
+    constrained to openclaw, even when hermes (also memory-capable) agents
+    coexist on the same host. The new dispatcher is unaware of this shim
+    — these tests pin the contract so refactors do not silently regress
+    pre-Phase-3 callers."""
+
+    def test_shim_returns_two_tuple_for_openclaw(self):
+        host = _host(
+            {
+                "opc-work": {
+                    "type": "openclaw",
+                    "agent_name": "opc-work",
+                    "name": "work",
+                },
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "name": "hermes-test",
+                },
+            }
+        )
+        with patch("clawrium.core.memory.get_host", return_value=host):
+            result = _resolve_openclaw_agent("192.168.1.100", "opc-work")
+        # 2-tuple, not 3-tuple — backward compat preserved.
+        assert len(result) == 2
+        host_record, unix_name = result
+        assert host_record is not None
+        assert unix_name == "opc-work"
+
+    def test_shim_does_not_match_hermes_records(self):
+        host = _host(
+            {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "name": "hermes-test",
+                },
+            }
+        )
+        with patch("clawrium.core.memory.get_host", return_value=host):
+            h, reason = _resolve_openclaw_agent("192.168.1.100", "hermes-test")
+        assert h is None
+        # The shim's wording is openclaw-specific and must not change.
+        assert "openclaw agent 'hermes-test' not found" in reason
+
+
+class TestHermesCharLimitBoundaries:
+    """B2: parametrized boundary tests for the hermes per-file char limits."""
+
+    @pytest.fixture
+    def hermes_host(self):
+        return _host_with_hermes()
+
+    @pytest.fixture
+    def hermes_write_env(self, tmp_path: Path):
+        playbook_dir = tmp_path / "hermes-pb"
+        playbook_dir.mkdir()
+        (playbook_dir / "memory_write.yaml").write_text("---\n")
+        ssh_key = tmp_path / "id_rsa"
+        ssh_key.write_text("key")
+        return playbook_dir, ssh_key
+
+    @pytest.mark.parametrize(
+        "filename,length,should_accept",
+        [
+            ("USER.md", 0, True),  # empty content
+            ("USER.md", 1, True),
+            ("USER.md", 1374, True),
+            ("USER.md", 1375, True),  # exactly at limit
+            ("USER.md", 1376, False),
+            ("USER.md", 5000, False),
+            ("MEMORY.md", 0, True),
+            ("MEMORY.md", 2199, True),
+            ("MEMORY.md", 2200, True),  # exactly at limit
+            ("MEMORY.md", 2201, False),
+            ("MEMORY.md", 10000, False),
+        ],
+    )
+    def test_char_limit_boundary(
+        self,
+        hermes_host,
+        hermes_write_env,
+        filename: str,
+        length: int,
+        should_accept: bool,
+    ):
+        playbook_dir, ssh_key = hermes_write_env
+        result = _runner_result("successful", [])
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(hermes_host, "hermes-test", "hermes"),
+        ), patch(
+            "clawrium.core.memory._get_playbook_dir",
+            return_value=playbook_dir,
+        ), patch(
+            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
+        ), patch(
+            "clawrium.core.memory.ansible_runner.run", return_value=result
+        ):
+            ok, err = write_memory_file(
+                "192.168.1.36", "hermes-test", filename, "a" * length
+            )
+
+        if should_accept:
+            assert ok is True, f"size {length} should be accepted for {filename}"
+            assert err is None
+        else:
+            assert ok is False, f"size {length} should be rejected for {filename}"
+            assert err is not None
+            assert filename in err
+            assert str(length) in err
+
+    def test_multibyte_utf8_uses_codepoint_count_not_byte_count(
+        self, hermes_host, hermes_write_env
+    ):
+        """Hermes documents memory file limits in CHARACTERS (codepoints),
+        not bytes. A string of N multi-byte characters must be validated
+        against the char limit, not the byte limit; otherwise a user can
+        only write half the documented capacity for non-ASCII content."""
+        playbook_dir, ssh_key = hermes_write_env
+        result = _runner_result("successful", [])
+
+        # 1375 codepoints of multi-byte (each "é" is 2 bytes in UTF-8).
+        content = "é" * 1375
+        assert len(content) == 1375
+        assert len(content.encode("utf-8")) == 2750
+
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(hermes_host, "hermes-test", "hermes"),
+        ), patch(
+            "clawrium.core.memory._get_playbook_dir",
+            return_value=playbook_dir,
+        ), patch(
+            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
+        ), patch(
+            "clawrium.core.memory.ansible_runner.run", return_value=result
+        ):
+            ok, err = write_memory_file(
+                "192.168.1.36", "hermes-test", "USER.md", content
+            )
+        # 1375 codepoints at exactly the documented limit — accept.
+        assert ok is True, err
+
+        # 1376 codepoints — reject.
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(hermes_host, "hermes-test", "hermes"),
+        ), patch(
+            "clawrium.core.memory._get_playbook_dir",
+            return_value=playbook_dir,
+        ), patch(
+            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
+        ), patch(
+            "clawrium.core.memory.ansible_runner.run", return_value=result
+        ):
+            ok, err = write_memory_file(
+                "192.168.1.36", "hermes-test", "USER.md", "é" * 1376
+            )
+        assert ok is False
+        assert err is not None and "1376" in err and "1375" in err
+
+
+class TestHermesReadAndDelete:
+    """W10: cross-claw dispatch coverage for read + delete on hermes."""
+
+    def test_read_hermes_dispatches_to_hermes_playbook_dir(self, tmp_path: Path):
+        host = _host_with_hermes()
+        playbook_dir = tmp_path / "hermes-pb"
+        playbook_dir.mkdir()
+        (playbook_dir / "memory_read.yaml").write_text("---\n")
+        ssh_key = tmp_path / "id_rsa"
+        ssh_key.write_text("key")
+
+        encoded = base64.b64encode(b"hermes user profile").decode("ascii")
+        events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"content": encoded}}}
+        ]
+        result = _runner_result("successful", events)
+
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "hermes-test", "hermes"),
+        ), patch(
+            "clawrium.core.memory._get_playbook_dir",
+            return_value=playbook_dir,
+        ) as get_dir, patch(
+            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
+        ), patch(
+            "clawrium.core.memory.ansible_runner.run", return_value=result
+        ):
+            content = read_memory_file("192.168.1.36", "hermes-test", "USER.md")
+        assert content == "hermes user profile"
+        # Confirm dispatch consulted the hermes playbook dir.
+        get_dir.assert_called_with("hermes")
+
+    def test_delete_hermes_dispatches_to_hermes_playbook_dir(self, tmp_path: Path):
+        host = _host_with_hermes()
+        playbook_dir = tmp_path / "hermes-pb"
+        playbook_dir.mkdir()
+        (playbook_dir / "memory_delete.yaml").write_text("---\n")
+        ssh_key = tmp_path / "id_rsa"
+        ssh_key.write_text("key")
+        result = _runner_result("successful", [])
+
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "hermes-test", "hermes"),
+        ), patch(
+            "clawrium.core.memory._get_playbook_dir",
+            return_value=playbook_dir,
+        ) as get_dir, patch(
+            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
+        ), patch(
+            "clawrium.core.memory.ansible_runner.run", return_value=result
+        ) as mock_run:
+            ok, err = delete_memory_files(
+                "192.168.1.36", "hermes-test", ["USER.md"]
+            )
+        assert ok is True
+        assert err is None
+        get_dir.assert_called_with("hermes")
+        # Confirm the inventory carries the filename list as-is.
+        inv = mock_run.call_args.kwargs["inventory"]
+        assert inv["all"]["vars"]["memory_files"] == ["USER.md"]
+
+
+class TestHermesFilenameRejection:
+    """W11: hermes filename allowlist tests beyond the existing single case."""
+
+    @pytest.mark.parametrize(
+        "bad_filename",
+        [
+            "SOUL.md",
+            "IDENTITY.md",
+            "TOOLS.md",
+            "memory/2026-05-10.md",  # openclaw daily naming
+            "agent.md",
+            "RANDOM.txt",
+        ],
+    )
+    def test_hermes_rejects_non_allowlisted_filenames(self, bad_filename: str):
+        host = _host_with_hermes()
+        with patch("clawrium.core.memory.get_host", return_value=host):
+            ok, err = write_memory_file(
+                "192.168.1.36", "hermes-test", bad_filename, "ok"
+            )
+        assert ok is False
+        assert err is not None
+        # The allowlist error wording is part of the user-facing contract.
+        assert "hermes memory accepts only MEMORY.md and USER.md" in err
+
+    def test_openclaw_does_not_apply_hermes_allowlist(self, tmp_path: Path):
+        """Regression guard: the per-claw allowlist must not bleed across
+        types — openclaw still accepts SOUL.md, IDENTITY.md, daily files."""
+        host = _host(
+            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
+        )
+        playbook_dir = tmp_path / "openclaw-pb"
+        playbook_dir.mkdir()
+        (playbook_dir / "memory_write.yaml").write_text("---\n")
+        ssh_key = tmp_path / "id_rsa"
+        ssh_key.write_text("key")
+        result = _runner_result("successful", [])
+
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(host, "opc-work", "openclaw"),
+        ), patch(
+            "clawrium.core.memory._get_playbook_dir",
+            return_value=playbook_dir,
+        ), patch(
+            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
+        ), patch(
+            "clawrium.core.memory.ansible_runner.run", return_value=result
+        ):
+            for filename in ("SOUL.md", "IDENTITY.md", "memory/2026-05-10.md"):
+                ok, err = write_memory_file(
+                    "192.168.1.100", "opc-work", filename, "content"
+                )
+                assert ok is True, f"openclaw must accept {filename}: {err}"
+
+
+class TestClawSupportsMemoryFallback:
+    """B3: claw_supports_memory must downgrade gracefully when manifest
+    loading raises — both the documented exceptions and any unexpected
+    error type — without re-raising into the public memory functions."""
+
+    def test_returns_false_on_manifest_not_found(self):
+        from clawrium.core.registry import ManifestNotFoundError
+
+        with patch(
+            "clawrium.core.memory.load_manifest",
+            side_effect=ManifestNotFoundError("nope"),
+        ):
+            assert claw_supports_memory("nonexistent") is False
+
+    def test_returns_false_on_manifest_parse_error(self):
+        from clawrium.core.registry import ManifestParseError
+
+        with patch(
+            "clawrium.core.memory.load_manifest",
+            side_effect=ManifestParseError("broken"),
+        ):
+            assert claw_supports_memory("broken-claw") is False
+
+    def test_returns_false_on_unexpected_exception(self, caplog):
+        """A bug inside load_manifest (e.g. TypeError) must surface in logs
+        rather than silently masking all memory ops."""
+        import logging
+
+        with patch(
+            "clawrium.core.memory.load_manifest",
+            side_effect=TypeError("internal bug"),
+        ), caplog.at_level(logging.WARNING, logger="clawrium.core.memory"):
+            result = claw_supports_memory("borked")
+        assert result is False
+        # Unexpected errors are logged at WARNING level; expected ones at DEBUG.
+        warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any("unexpected error" in r.getMessage() for r in warning_records)

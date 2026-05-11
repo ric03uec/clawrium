@@ -1,7 +1,12 @@
-"""Agent memory inspection and management for openclaw agents.
+"""Agent memory inspection and management across claw types.
 
-Operations target the openclaw workspace at
-``/home/<agent_name>/.openclaw/workspace/`` and run via ansible-runner.
+Dispatches per-agent memory operations to the appropriate
+``memory_<op>`` playbook. The set of memory-capable claws is driven by
+each manifest's ``features.memory: true`` flag — see
+``clawrium.core.registry.AgentManifest``. The on-disk workspace path is
+encoded in each claw's own playbooks (e.g. ``~/.openclaw/workspace`` for
+openclaw, ``~/.hermes/memories`` for hermes); the manifest's
+``workspace.memory_path`` is surfaced to users for display.
 
 Public functions:
     - get_memory_info(hostname, agent_name) -> MemoryStats | None
@@ -30,6 +35,11 @@ import ansible_runner
 from clawrium.core import keys as core_keys
 from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import get_host
+from clawrium.core.registry import (
+    ManifestNotFoundError,
+    ManifestParseError,
+    load_manifest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +49,7 @@ __all__ = [
     "MemoryFileInfo",
     "MemoryStats",
     "MemoryOpError",
+    "claw_supports_memory",
     "get_memory_info",
     "read_memory_file",
     "write_memory_file",
@@ -60,6 +71,23 @@ MEMORY_TOP_LEVEL_FILES: tuple[str, ...] = (
     "TOOLS.md",
 )
 
+# Per-claw character limits applied during memory_write. None = no limit.
+# Hermes enforces strict caps for its two-file memory model; openclaw uses
+# the global MAX_MEMORY_CONTENT_BYTES cap only.
+_MEMORY_WRITE_CHAR_LIMITS: dict[str, dict[str, int]] = {
+    "hermes": {
+        "MEMORY.md": 2200,
+        "USER.md": 1375,
+    },
+}
+
+# Per-claw filename allowlists for memory_write. None = any valid filename
+# (subject to filename pattern + traversal rejection). Hermes restricts to
+# its fixed two-file model.
+_MEMORY_WRITE_ALLOWED_FILES: dict[str, tuple[str, ...]] = {
+    "hermes": ("MEMORY.md", "USER.md"),
+}
+
 # Workspace-relative path validation: filename or memory/<filename>.
 # Mirrors the pattern enforced in the playbooks.
 _MEMORY_FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$")
@@ -67,13 +95,13 @@ _MEMORY_FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$")
 # Agent-name validation matches the rule used elsewhere in lifecycle.py.
 _AGENT_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
-_PLAYBOOK_DIR = (
-    Path(__file__).parent.parent
-    / "platform"
-    / "registry"
-    / "openclaw"
-    / "playbooks"
-)
+_REGISTRY_DIR = Path(__file__).parent.parent / "platform" / "registry"
+
+# Backward-compatible default playbook dir (openclaw). Existing tests patch
+# this symbol to inject a temporary playbook directory; the new
+# ``_get_playbook_dir`` helper falls back here for the openclaw claw type so
+# those patches continue to work without modification.
+_PLAYBOOK_DIR = _REGISTRY_DIR / "openclaw" / "playbooks"
 
 
 class MemoryFileInfo(TypedDict):
@@ -119,15 +147,158 @@ def _validate_memory_filename(filename: str) -> None:
             )
 
 
+def claw_supports_memory(claw_type: str) -> bool:
+    """Return True iff the claw_type's manifest declares features.memory: true.
+
+    Used by the CLI layer to emit a friendly error before attempting any
+    Ansible dispatch on an unsupported agent type. Treats manifest-missing
+    or parse-error cases as "no" so a partially-installed registry does
+    not appear memory-capable.
+    """
+    try:
+        manifest = load_manifest(claw_type)
+    except (ManifestNotFoundError, ManifestParseError) as e:
+        # Expected: unknown claw type or malformed manifest. Treat as
+        # unsupported so the caller surfaces a friendly "type X not memory-
+        # capable" error rather than crashing.
+        logger.debug(
+            "Memory support check: manifest load failed for '%s': %s",
+            claw_type,
+            e,
+        )
+        return False
+    except Exception as e:  # pragma: no cover — defensive
+        # Unexpected: a bug inside load_manifest (e.g. TypeError) should NOT
+        # silently mask all memory ops. Log loudly so it shows up in
+        # operator output, then conservatively treat the type as
+        # unsupported. The previous `except Exception` clause swallowed
+        # these without a warning, which made debugging hard.
+        logger.warning(
+            "Memory support check: unexpected error loading manifest for "
+            "'%s': %s",
+            claw_type,
+            e,
+        )
+        return False
+    features = manifest.get("features") or {}
+    return bool(features.get("memory") is True)
+
+
+def _get_playbook_dir(claw_type: str) -> Path:
+    """Resolve the registry playbook dir for a claw type.
+
+    Returns ``_PLAYBOOK_DIR`` for openclaw so legacy tests that patch the
+    module-global ``_PLAYBOOK_DIR`` continue to work. For other claw types
+    the path is computed from the registry layout.
+    """
+    if claw_type == "openclaw":
+        return _PLAYBOOK_DIR
+    return _REGISTRY_DIR / claw_type / "playbooks"
+
+
+def _resolve_agent_with_memory(
+    hostname: str, agent_name: str
+) -> tuple[dict, str, str] | tuple[None, str, None]:
+    """Resolve agent identifier to (host_record, unix_agent_name, claw_type).
+
+    Filters candidates by manifest features.memory == true rather than by a
+    hard-coded claw type. On miss, returns ``(None, reason, None)`` so
+    callers can distinguish "not found" / "not ready" / "unsupported" and
+    emit accurate messages.
+    """
+    host = get_host(hostname)
+    if not host:
+        logger.warning("Memory op: host '%s' not found", hostname)
+        return None, f"host '{hostname}' not found", None
+
+    agents = host.get("agents", {})
+    if not isinstance(agents, dict):
+        return None, f"host '{hostname}' has no agents registry", None
+
+    # Build (key, record) candidates whose stored type advertises memory.
+    memory_capable_records: list[tuple[str, dict]] = []
+    for key, record in agents.items():
+        if not isinstance(record, dict):
+            continue
+        record_type = record.get("type")
+        if not isinstance(record_type, str) or not record_type:
+            continue
+        if not claw_supports_memory(record_type):
+            continue
+        memory_capable_records.append((key, record))
+
+    matches: list[tuple[str, dict]] = []
+    direct = agents.get(agent_name)
+    if isinstance(direct, dict):
+        direct_type = direct.get("type")
+        if isinstance(direct_type, str) and claw_supports_memory(direct_type):
+            matches.append((agent_name, direct))
+
+    if not matches:
+        for key, record in memory_capable_records:
+            if (
+                key == agent_name
+                or record.get("agent_name") == agent_name
+                or record.get("name") == agent_name
+            ):
+                matches.append((key, record))
+
+    if not matches:
+        logger.warning(
+            "Memory op: memory-capable agent '%s' not found on '%s'",
+            agent_name,
+            hostname,
+        )
+        return None, (
+            f"memory-capable agent '{agent_name}' not found on '{hostname}'"
+        ), None
+
+    if len({k for k, _ in matches}) > 1:
+        keys = sorted({k for k, _ in matches})
+        logger.warning(
+            "Memory op: multiple memory-capable agents match '%s' on '%s': %s",
+            agent_name,
+            hostname,
+            keys,
+        )
+        return None, (
+            f"multiple memory-capable agents match '{agent_name}' on '{hostname}': "
+            f"{', '.join(keys)}"
+        ), None
+
+    key, record = matches[0]
+    claw_type = record.get("type")
+    # Allowlist: only records with status='installed' or no status field run
+    # memory ops. install.py writes status='installing' before Ansible runs and
+    # 'installed' on success — None means a pre-convention legacy record, not
+    # a partial new install. Treating None as installed keeps backward compat
+    # while a future status (e.g. 'removing') is rejected by default rather
+    # than silently passing through a blocklist gap.
+    status = record.get("status")
+    if status is not None and status != "installed":
+        logger.warning(
+            "Memory op: agent '%s' on '%s' has status '%s' (must be 'installed')",
+            agent_name,
+            hostname,
+            status,
+        )
+        return None, (
+            f"agent '{agent_name}' on '{hostname}' is not ready "
+            f"(status='{status}', expected 'installed')"
+        ), None
+
+    unix_name = record.get("agent_name") or key
+    return host, unix_name, claw_type
+
+
 def _resolve_openclaw_agent(
     hostname: str, agent_name: str
 ) -> tuple[dict, str] | tuple[None, str]:
-    """Resolve agent identifier to (host_record, unix_agent_name).
+    """Legacy two-tuple resolver constrained to the openclaw claw type.
 
-    On miss, returns ``(None, reason)`` so callers can distinguish
-    "not found" from "not ready" and emit accurate messages — a user
-    debugging a visible agent that's still installing should not see
-    "agent not found".
+    Kept for backward compatibility with code/tests that pre-date the
+    cross-claw memory dispatcher. New code should use
+    ``_resolve_agent_with_memory``.
     """
     host = get_host(hostname)
     if not host:
@@ -171,12 +342,6 @@ def _resolve_openclaw_agent(
         )
 
     record = agents[matches[0]]
-    # Allowlist: only records with status='installed' or no status field run
-    # memory ops. install.py writes status='installing' before Ansible runs and
-    # 'installed' on success — None means a pre-convention legacy record, not
-    # a partial new install. Treating None as installed keeps backward compat
-    # while a future status (e.g. 'removing') is rejected by default rather
-    # than silently passing through a blocklist gap.
     status = record.get("status")
     if status is not None and status != "installed":
         logger.warning(
@@ -238,6 +403,7 @@ def _build_inventory(
 
 def _run_memory_playbook(
     host: dict,
+    claw_type: str,
     operation: str,
     extra_vars: dict,
     timeout: int = 30,
@@ -249,7 +415,8 @@ def _run_memory_playbook(
     via their ``finally`` block — this function never calls
     ``_cleanup_artifacts`` to avoid double-fire on exception paths.
     """
-    playbook_path = _PLAYBOOK_DIR / f"{operation}.yaml"
+    playbook_dir = _get_playbook_dir(claw_type)
+    playbook_path = playbook_dir / f"{operation}.yaml"
     if not playbook_path.exists():
         return None, None, f"Playbook not found: {playbook_path}"
 
@@ -269,7 +436,7 @@ def _run_memory_playbook(
         logs_dir = _get_logs_dir()
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         host_display = host.get("alias") or host.get("key_id") or host["hostname"]
-        log_dir = logs_dir / f"{operation}-openclaw-{host_display}-{timestamp}"
+        log_dir = logs_dir / f"{operation}-{claw_type}-{host_display}-{timestamp}"
         log_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(log_dir, 0o700)
     except OSError as e:
@@ -342,9 +509,41 @@ def _parse_memory_info_stdout(stdout: str) -> dict:
     return {"workspace_path": workspace_path, "top": top, "daily": daily}
 
 
+def _manifest_workspace_path(claw_type: str, unix_name: str) -> str:
+    """Return the workspace path from the manifest, with `~` expanded for the
+    agent's home directory. Falls back to an empty string on lookup failure;
+    callers substitute a sensible default.
+    """
+    try:
+        manifest = load_manifest(claw_type)
+    except (ManifestNotFoundError, ManifestParseError) as e:
+        logger.debug(
+            "Memory workspace lookup: manifest load failed for '%s': %s",
+            claw_type,
+            e,
+        )
+        return ""
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning(
+            "Memory workspace lookup: unexpected error for '%s': %s",
+            claw_type,
+            e,
+        )
+        return ""
+    workspace = manifest.get("workspace") or {}
+    raw = workspace.get("memory_path") or ""
+    if not raw:
+        return ""
+    if raw.startswith("~/"):
+        return f"/home/{unix_name}/{raw[2:]}"
+    if raw == "~":
+        return f"/home/{unix_name}"
+    return raw
+
+
 def get_memory_info(hostname: str, agent_name: str) -> MemoryStats | None:
-    """Return memory stats for the openclaw agent or None if unavailable."""
-    host, unix_name = _resolve_openclaw_agent(hostname, agent_name)
+    """Return memory stats for a memory-capable agent or None if unavailable."""
+    host, unix_name, claw_type = _resolve_agent_with_memory(hostname, agent_name)
     if host is None:
         return None
 
@@ -356,7 +555,7 @@ def get_memory_info(hostname: str, agent_name: str) -> MemoryStats | None:
 
     extra_vars = {"agent_name": unix_name}
     result, log_dir, setup_error = _run_memory_playbook(
-        host, "memory_info", extra_vars, timeout=30
+        host, claw_type, "memory_info", extra_vars, timeout=30
     )
     if log_dir is None and setup_error:
         logger.warning("Memory info setup error: %s", setup_error)
@@ -418,9 +617,13 @@ def get_memory_info(hostname: str, agent_name: str) -> MemoryStats | None:
             files.append(entry)
             total += size
 
+        # Workspace path precedence:
+        #   1. Playbook-emitted WORKSPACE_PATH= line (authoritative)
+        #   2. Manifest workspace.memory_path expanded against agent home
+        #   3. Empty string — UI renders a placeholder
+        fallback = _manifest_workspace_path(claw_type, unix_name)
         return {
-            "workspace_path": parsed["workspace_path"]
-            or f"/home/{unix_name}/.openclaw/workspace",
+            "workspace_path": parsed["workspace_path"] or fallback,
             "total_bytes": total,
             "files": files,
         }
@@ -439,7 +642,7 @@ def read_memory_file(
         logger.warning("Memory read: %s", e)
         return None
 
-    host, unix_name = _resolve_openclaw_agent(hostname, agent_name)
+    host, unix_name, claw_type = _resolve_agent_with_memory(hostname, agent_name)
     if host is None:
         return None
 
@@ -450,7 +653,7 @@ def read_memory_file(
 
     extra_vars = {"agent_name": unix_name, "memory_filename": filename}
     result, log_dir, setup_error = _run_memory_playbook(
-        host, "memory_read", extra_vars, timeout=30
+        host, claw_type, "memory_read", extra_vars, timeout=30
     )
     if log_dir is None and setup_error:
         logger.warning("Memory read setup error: %s", setup_error)
@@ -501,9 +704,27 @@ def write_memory_file(
             f"({encoded_size} > {MAX_MEMORY_CONTENT_BYTES} bytes)"
         )
 
-    host, unix_name = _resolve_openclaw_agent(hostname, agent_name)
+    host, unix_name, claw_type = _resolve_agent_with_memory(hostname, agent_name)
     if host is None:
         return False, unix_name
+
+    # Per-claw filename allowlist (e.g. hermes accepts only MEMORY.md and
+    # USER.md) — enforce before SSH so the user gets an immediate, clear
+    # error rather than an Ansible failure.
+    allowed = _MEMORY_WRITE_ALLOWED_FILES.get(claw_type)
+    if allowed is not None and filename not in allowed:
+        return False, (
+            f"{claw_type} memory accepts only {' and '.join(allowed)}"
+        )
+
+    # Per-claw per-file character limit (hermes: MEMORY.md ≤ 2200, USER.md ≤ 1375).
+    char_limits = _MEMORY_WRITE_CHAR_LIMITS.get(claw_type) or {}
+    char_cap = char_limits.get(filename)
+    if char_cap is not None and len(content) > char_cap:
+        return False, (
+            f"{claw_type} memory file '{filename}' exceeds character limit "
+            f"({len(content)} > {char_cap} chars)"
+        )
 
     try:
         _validate_agent_name(unix_name)
@@ -521,7 +742,7 @@ def write_memory_file(
         ).decode("ascii"),
     }
     result, log_dir, setup_error = _run_memory_playbook(
-        host, "memory_write", extra_vars, timeout=60
+        host, claw_type, "memory_write", extra_vars, timeout=60
     )
     if log_dir is None and setup_error:
         return False, setup_error
@@ -555,7 +776,7 @@ def delete_memory_files(
         except MemoryOpError as e:
             return False, str(e)
 
-    host, unix_name = _resolve_openclaw_agent(hostname, agent_name)
+    host, unix_name, claw_type = _resolve_agent_with_memory(hostname, agent_name)
     if host is None:
         return False, unix_name
 
@@ -566,7 +787,7 @@ def delete_memory_files(
 
     extra_vars = {"agent_name": unix_name, "memory_files": list(files)}
     result, log_dir, setup_error = _run_memory_playbook(
-        host, "memory_delete", extra_vars, timeout=30
+        host, claw_type, "memory_delete", extra_vars, timeout=30
     )
     if log_dir is None and setup_error:
         return False, setup_error

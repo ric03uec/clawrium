@@ -352,8 +352,10 @@ def test_delete_all_force_refuses_when_stdin_not_tty(hosts_with_installed_claw):
 
 
 def test_show_rejects_non_openclaw_agent(isolated_config):
-    """Routing fix: agents with type != openclaw must be rejected with a
-    clear message rather than running memory ops against them."""
+    """Phase 3 manifest-driven gating: agents whose manifest does not
+    declare features.memory:true (e.g. zeroclaw) must be rejected with a
+    clear, type-named message rather than running memory ops against
+    them."""
     import json
 
     isolated_config.mkdir(parents=True, exist_ok=True)
@@ -379,8 +381,9 @@ def test_show_rejects_non_openclaw_agent(isolated_config):
 
     result = runner.invoke(app, ["agent", "memory", "show", "zerowork"], env=os.environ)
     assert result.exit_code != 0
-    assert "openclaw" in result.output.lower()
-    assert "zeroclaw" in result.output.lower()
+    output = result.output.lower()
+    assert "memory operations not supported" in output
+    assert "zeroclaw" in output
 
 
 def test_delete_rejects_nonexistent_agent(hosts_with_installed_claw):
@@ -826,7 +829,9 @@ def test_edit_rejects_non_openclaw_agent(isolated_config):
         env=os.environ,
     )
     assert result.exit_code != 0
-    assert "openclaw" in result.output.lower()
+    output = result.output.lower()
+    assert "memory operations not supported" in output
+    assert "zeroclaw" in output
 
 
 def test_edit_restart_returns_failure_surfaces_error(hosts_with_installed_claw):

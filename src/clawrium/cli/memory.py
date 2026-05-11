@@ -1,8 +1,12 @@
-"""Memory management commands for openclaw agents.
+"""Memory management commands for memory-capable agents.
 
-Surfaces ``clm agent <name> memory show|delete|edit`` (registered by
+Surfaces ``clm agent memory show|delete|edit <name>`` (registered by
 ``clawrium.cli.agent``). Thin layer over ``clawrium.core.memory`` —
 argument parsing, confirmation flows, and human-readable rendering.
+
+Agent support is gated by each claw manifest's ``features.memory: true``
+flag; unsupported types receive a friendly error before any Ansible
+dispatch happens.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from clawrium.core.hosts import get_host
 from clawrium.core.lifecycle import LifecycleError, restart_agent
 from clawrium.core.memory import (
     MAX_MEMORY_CONTENT_BYTES,
+    claw_supports_memory,
     delete_memory_files,
     get_memory_info,
     read_memory_file,
@@ -59,12 +64,12 @@ def _human_size(num_bytes: int) -> str:
     return f"{num_bytes / (1024 * 1024):.1f} MB"
 
 
-def _resolve_openclaw_for_cli(claw_name: str) -> tuple[str, str]:
-    """Resolve agent name to (hostname, unix_agent_name) or exit 1.
+def _resolve_agent_for_memory_cli(claw_name: str) -> tuple[str, str, str]:
+    """Resolve agent name to (hostname, unix_agent_name, claw_type) or exit 1.
 
-    Restricts memory ops to openclaw agents — other types are not
-    supported in this iteration. Returns the unix-level ``agent_name``
-    the core module needs.
+    Gates memory operations by manifest ``features.memory: true``. Agents
+    of types whose manifest does not advertise memory capability receive
+    a friendly error before any Ansible dispatch.
     """
     try:
         hostname, agent_key, name = get_installed_claw(claw_name)
@@ -86,21 +91,36 @@ def _resolve_openclaw_for_cli(claw_name: str) -> tuple[str, str]:
     record = host.get("agents", {}).get(agent_key, {})
     actual_type = record.get("type") if isinstance(record, dict) else None
 
-    if actual_type != "openclaw":
+    if not isinstance(actual_type, str) or not actual_type:
         console.print(
-            f"[red]Error:[/red] memory is only supported for openclaw agents "
-            f"(got '{rich_escape(actual_type or 'unknown')}')."
+            f"[red]Error:[/red] agent '{rich_escape(claw_name)}' has no "
+            f"recorded type; cannot determine memory support."
         )
         raise typer.Exit(code=1)
 
+    if not claw_supports_memory(actual_type):
+        console.print(
+            f"[red]Error:[/red] memory operations not supported for "
+            f"agent type '{rich_escape(actual_type)}'."
+        )
+        raise typer.Exit(code=1)
+
+    return hostname, name, actual_type
+
+
+# Backward-compatible alias for the rename. Pre-Phase-3 callers received a
+# 2-tuple from ``_resolve_openclaw_for_cli``; that function now lives under
+# ``_resolve_agent_for_memory_cli`` and returns the additional claw_type.
+def _resolve_openclaw_for_cli(claw_name: str) -> tuple[str, str]:
+    hostname, name, _claw_type = _resolve_agent_for_memory_cli(claw_name)
     return hostname, name
 
 
 def show_cmd(
     claw_name: str = typer.Argument(..., help="Agent instance name"),
 ) -> None:
-    """Show memory file paths and sizes for an openclaw agent."""
-    hostname, agent_name = _resolve_openclaw_for_cli(claw_name)
+    """Show memory file paths and sizes for a memory-capable agent."""
+    hostname, agent_name, _claw_type = _resolve_agent_for_memory_cli(claw_name)
     safe_claw = rich_escape(claw_name)
     safe_host = rich_escape(hostname)
 
@@ -180,7 +200,7 @@ def delete_cmd(
         console.print("[red]Error:[/red] --file and --all are mutually exclusive.")
         raise typer.Exit(code=1)
 
-    hostname, agent_name = _resolve_openclaw_for_cli(claw_name)
+    hostname, agent_name, _claw_type = _resolve_agent_for_memory_cli(claw_name)
     safe_claw = rich_escape(claw_name)
 
     if all_files:
@@ -332,7 +352,7 @@ def edit_cmd(
     ),
 ) -> None:
     """Edit a memory file in $EDITOR; sync changes back and restart agent."""
-    hostname, agent_name = _resolve_openclaw_for_cli(claw_name)
+    hostname, agent_name, claw_type = _resolve_agent_for_memory_cli(claw_name)
     safe_claw = rich_escape(claw_name)
     safe_host = rich_escape(hostname)
     safe_file = rich_escape(file)
@@ -426,7 +446,7 @@ def edit_cmd(
                 return
 
         try:
-            result = restart_agent(hostname, "openclaw", agent_name=agent_name)
+            result = restart_agent(hostname, claw_type, agent_name=agent_name)
         except LifecycleError as e:
             console.print(f"[green]Saved '{safe_file}' to '{safe_claw}'.[/green]")
             console.print(

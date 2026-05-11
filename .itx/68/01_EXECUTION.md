@@ -416,4 +416,35 @@ E2E results on wolf-i (192.168.1.36) against `local-inx` provider (Ollama @ 192.
 - Reconfigure with `local-inx.default_model` rotated to `gpt-oss:20b-128k` succeeded; `API_SERVER_KEY` byte-identical across reconfigures (idempotency contract verified); `model.default` rotated; service still active.
 - `clm agent remove hermes-test --force` cleaned up: user removed, `~/.hermes/` deleted, systemd unit removed, `~/.local/bin/hermes` symlink removed, `hosts.json` agent record (with `api_server.key`) removed.
 
+---
+
+**Stage**: execution
+**Skill**: /itx:execute
+**Timestamp**: 2026-05-10T19:30:00Z
+**Model**: claude-opus-4-7
+**Subtask**: #314 (Phase 3)
+**Branch**: `issue-68-phase-3-memory-generic` (base: `main`)
+
+```prompt
+/itx:execute 314 (sub-agent invocation)
+```
+
+Implementation outcomes:
+
+1. `core/memory.py` refactored to dispatch by manifest. New `_resolve_agent_with_memory()` returns a 3-tuple `(host, unix_name, claw_type)` and filters candidates by `claw_supports_memory(claw_type)` (which reads `features.memory: true` from each manifest) rather than the old hard-coded `record.get("type") == "openclaw"` check. The legacy `_resolve_openclaw_agent()` is preserved as a backward-compat function for code/tests that pre-date the refactor (no external CLI surface still calls it on the public path).
+
+2. `_PLAYBOOK_DIR` module-global preserved (points at openclaw playbooks) as a fallback for `_get_playbook_dir("openclaw")`. The runner now selects the registry playbook directory dynamically from `claw_type`, so hermes' four `memory_*.yaml` playbooks ship in `registry/hermes/playbooks/` and are picked up automatically.
+
+3. Per-claw filename allowlist + character limits enforced client-side in `write_memory_file()`. Hermes: only `MEMORY.md` and `USER.md` accepted; `MEMORY.md ≤ 2200` chars, `USER.md ≤ 1375` chars. Mismatches return the explicit error string ahead of any Ansible dispatch, so the user sees an immediate, actionable error.
+
+4. `memory_write.yaml` for hermes uses a stage-then-atomic-rename pattern (write to `.<file>.tmp`, then `mv -f` in the same directory). Since `mv` within a filesystem is `rename(2)`, the hermes daemon never observes a partial write. The per-file char limit is also enforced in the playbook as defense-in-depth.
+
+5. `cli/memory.py`: `_resolve_openclaw_for_cli` renamed to `_resolve_agent_for_memory_cli` and now gates on `claw_supports_memory(actual_type)`. Unsupported types emit `"memory operations not supported for agent type '<type>'"` and exit non-zero. The old name is kept as a thin shim returning the legacy 2-tuple. `edit_cmd` now passes the resolved claw_type to `restart_agent()` instead of the hard-coded `"openclaw"` string.
+
+6. Two existing `tests/test_cli_memory.py` cases (`test_show_rejects_non_openclaw_agent`, `test_edit_rejects_non_openclaw_agent`) were updated to match the new error wording. All other openclaw test paths in `tests/test_core_memory.py` continue to assert identical behavior — they were updated to patch the renamed resolver and return the 3-tuple, which is a mechanical change with zero behavior delta.
+
+7. `make test` → 1508 passed. `make lint` → clean.
+
+E2E results on wolf-i (192.168.1.36) — captured after the next "E2E" log entry below.
+
 </details>
