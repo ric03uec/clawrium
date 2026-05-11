@@ -18,6 +18,7 @@ __all__ = [
     "get_onboarding_state",
     "transition_state",
     "complete_stage",
+    "update_stage_metadata",
     "initialize_onboarding",
     "can_skip_stage",
     "get_stage_tasks",
@@ -328,6 +329,76 @@ def complete_stage(
         if metadata:
             for key, value in metadata.items():
                 stage_data[key] = value
+        return h
+
+    return update_host(hostname, updater)
+
+
+_PROTECTED_STAGE_KEYS = frozenset({"status", "completed_at"})
+
+
+def update_stage_metadata(
+    host: str,
+    claw_name: str,
+    stage: str,
+    metadata: dict[str, Any],
+) -> bool:
+    """Patch metadata fields on a stage record without changing status,
+    completed_at, or running the state-transition check.
+
+    Use this when re-running a stage handler whose status is already
+    `complete` (e.g. changing providers on a re-configure) and the
+    metadata needs to stay in sync with the new selection. Calling
+    `complete_stage` from a later state would raise InvalidTransitionError.
+
+    The keys `status` and `completed_at` are reserved and cannot be set
+    through this function; pass them via `complete_stage` instead.
+    Only stages currently in `complete` status may be patched — patching
+    a `skipped` or `pending` stage would corrupt the state machine's
+    invariants and is rejected.
+    """
+    valid_stages = {"providers", "identity", "channels", "validate"}
+    if stage not in valid_stages:
+        raise ValueError(f"Invalid stage '{stage}'. Valid stages: {valid_stages}")
+
+    reserved = _PROTECTED_STAGE_KEYS & metadata.keys()
+    if reserved:
+        raise ValueError(
+            f"Reserved keys cannot be patched via update_stage_metadata: "
+            f"{sorted(reserved)}. Use complete_stage to change status/completed_at."
+        )
+
+    claw = _get_claw_record(host, claw_name)
+    if claw is None:
+        raise AgentNotFoundError(f"Agent '{claw_name}' not found on host '{host}'")
+    if claw.get("onboarding") is None:
+        raise OnboardingNotFoundError(
+            f"Onboarding not initialized for '{claw_name}' on '{host}'"
+        )
+
+    host_data = get_host(host)
+    if not host_data:
+        raise AgentNotFoundError(f"Host '{host}' not found")
+    hostname = host_data["hostname"]
+
+    def updater(h: dict) -> dict:
+        agent_key = _resolve_agent_key(h, claw_name)
+        if not agent_key:
+            raise AgentNotFoundError(f"Agent '{claw_name}' not found on host '{host}'")
+        stages = h["agents"][agent_key].get("onboarding", {}).get("stages", {})
+        if stage not in stages:
+            raise OnboardingNotFoundError(
+                f"Stage '{stage}' not found for '{claw_name}' on '{host}'"
+            )
+        current_status = stages[stage].get("status")
+        if current_status != StageStatus.COMPLETE.value:
+            raise InvalidTransitionError(
+                f"Cannot patch metadata on stage '{stage}' with status "
+                f"'{current_status}'. update_stage_metadata only operates on "
+                f"complete stages."
+            )
+        for key, value in metadata.items():
+            stages[stage][key] = value
         return h
 
     return update_host(hostname, updater)
