@@ -157,8 +157,28 @@ def claw_supports_memory(claw_type: str) -> bool:
     """
     try:
         manifest = load_manifest(claw_type)
-    except (ManifestNotFoundError, ManifestParseError, Exception) as e:
-        logger.debug("Memory support check: manifest load failed for '%s': %s", claw_type, e)
+    except (ManifestNotFoundError, ManifestParseError) as e:
+        # Expected: unknown claw type or malformed manifest. Treat as
+        # unsupported so the caller surfaces a friendly "type X not memory-
+        # capable" error rather than crashing.
+        logger.debug(
+            "Memory support check: manifest load failed for '%s': %s",
+            claw_type,
+            e,
+        )
+        return False
+    except Exception as e:  # pragma: no cover — defensive
+        # Unexpected: a bug inside load_manifest (e.g. TypeError) should NOT
+        # silently mask all memory ops. Log loudly so it shows up in
+        # operator output, then conservatively treat the type as
+        # unsupported. The previous `except Exception` clause swallowed
+        # these without a warning, which made debugging hard.
+        logger.warning(
+            "Memory support check: unexpected error loading manifest for "
+            "'%s': %s",
+            claw_type,
+            e,
+        )
         return False
     features = manifest.get("features") or {}
     return bool(features.get("memory") is True)
@@ -496,7 +516,19 @@ def _manifest_workspace_path(claw_type: str, unix_name: str) -> str:
     """
     try:
         manifest = load_manifest(claw_type)
-    except Exception:  # pragma: no cover — defensive
+    except (ManifestNotFoundError, ManifestParseError) as e:
+        logger.debug(
+            "Memory workspace lookup: manifest load failed for '%s': %s",
+            claw_type,
+            e,
+        )
+        return ""
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning(
+            "Memory workspace lookup: unexpected error for '%s': %s",
+            claw_type,
+            e,
+        )
         return ""
     workspace = manifest.get("workspace") or {}
     raw = workspace.get("memory_path") or ""

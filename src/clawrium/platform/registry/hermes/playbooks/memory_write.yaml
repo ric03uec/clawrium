@@ -13,6 +13,16 @@
       MEMORY.md: 2200
       USER.md: 1375
   tasks:
+    # Defense-in-depth: Python core/memory.py already validates agent_name,
+    # but a tampered Ansible inventory could still bypass that. Reject
+    # anything that does not match the same pattern enforced in Python
+    # (^[a-z][a-z0-9_-]{0,31}$) before we use it in a filesystem path.
+    - name: Validate agent_name format
+      ansible.builtin.fail:
+        msg: "Invalid agent_name format"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
     - name: Validate memory filename pattern
       ansible.builtin.fail:
         msg: "Invalid memory filename"
@@ -45,6 +55,15 @@
       when:
         - memory_decoded_content | length > memory_char_limits[memory_filename]
 
+    # Unset the decoded-content fact: Ansible facts can be persisted via the
+    # fact cache, and we have already used the value for length validation.
+    # The base64 form is re-decoded by the copy task below from the original
+    # extravar, so no information is lost.
+    - name: Drop decoded content from facts
+      ansible.builtin.set_fact:
+        memory_decoded_content: ""
+      no_log: true
+
     - name: Ensure memories directory exists
       ansible.builtin.file:
         path: "/home/{{ agent_name }}/.hermes/memories"
@@ -52,6 +71,16 @@
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0700"
+
+    # Drop any leftover staging file before write. A leftover symlink from
+    # a previous run (or planted by a local attacker between this play's
+    # tasks) would otherwise let `copy` follow the symlink to an
+    # attacker-chosen target. `state: absent` removes the path whether it
+    # is a symlink or a real file without following it.
+    - name: Clear any stale staging file
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.hermes/memories/.{{ memory_filename }}.tmp"
+        state: absent
 
     - name: Write memory file content to staging path
       # Stage to ".<file>.tmp" then atomically rename so a concurrent
@@ -66,6 +95,24 @@
         mode: "0600"
       no_log: true
 
+    # TOCTOU guard: between `copy` and `mv`, a local attacker with write
+    # access to ~/.hermes/memories/ could swap the staging file for a
+    # symlink to an attacker-chosen path. Verify the staging file is a
+    # regular file (not a symlink) right before the rename.
+    - name: Verify staging file is a regular file (TOCTOU guard)
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/.hermes/memories/.{{ memory_filename }}.tmp"
+        follow: false
+      register: hermes_staging_stat
+
+    - name: Fail if staging file is a symlink or missing
+      ansible.builtin.fail:
+        msg: "Staging file is not a regular file (possible TOCTOU symlink race)"
+      when:
+        - not (hermes_staging_stat.stat.exists | default(false))
+          or (hermes_staging_stat.stat.islnk | default(false))
+          or not (hermes_staging_stat.stat.isreg | default(false))
+
     - name: Atomically replace memory file
       # `mv` on the same filesystem is an atomic rename(2). The staging
       # file shares the target directory so the rename never crosses
@@ -76,3 +123,4 @@
           /home/{{ agent_name }}/.hermes/memories/.{{ memory_filename }}.tmp
           /home/{{ agent_name }}/.hermes/memories/{{ memory_filename }}
       changed_when: true
+      no_log: true
