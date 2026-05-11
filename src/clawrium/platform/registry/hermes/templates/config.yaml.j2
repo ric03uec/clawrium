@@ -1,0 +1,34 @@
+# Managed by clawrium (clm). Do not edit by hand — re-render with
+# `clm agent configure {{ agent_name }}`.
+#
+# Hermes deep-merges this file with its DEFAULT_CONFIG at load time, so any
+# top-level keys not listed here retain their hermes defaults.
+{% set provider = config.provider | default({}) %}
+{% set provider_type = provider.type | default('') %}
+{% set model_id = provider.default_model | default('') %}
+{% set endpoint = provider.endpoint | default('') %}
+
+model:
+{% if provider_type == 'openrouter' %}
+  provider: "openrouter"
+  base_url: "https://openrouter.ai/api/v1"
+{% elif provider_type == 'anthropic' %}
+  provider: "anthropic"
+{% elif provider_type == 'openai' %}
+  provider: "openai"
+{% elif provider_type == 'ollama' %}
+  provider: "custom"
+{# Hermes' custom provider expects an OpenAI-compatible /v1 root. Append /v1
+   when the clm provider endpoint omits it (e.g. raw Ollama base URL). #}
+{% set endpoint_clean = endpoint.rstrip('/') %}
+{% if endpoint_clean and endpoint_clean.endswith('/v1') %}
+  base_url: "{{ endpoint_clean }}"
+{% elif endpoint_clean %}
+  base_url: "{{ endpoint_clean }}/v1"
+{% endif %}
+{% else %}
+  provider: "auto"
+{% endif %}
+{% if model_id %}
+  default: "{{ model_id }}"
+{% endif %}

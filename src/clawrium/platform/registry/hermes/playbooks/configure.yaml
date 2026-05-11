@@ -1,0 +1,194 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: Check if agent user exists
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ agent_name }}"
+      failed_when: false
+      register: user_check
+
+    - name: Fail if hermes not installed
+      ansible.builtin.fail:
+        msg: "Agent user '{{ agent_name }}' not found. Run 'clm agent install --type hermes ...' first."
+      when: user_check.msg is defined
+
+    - name: Verify API_SERVER_KEY is present in config
+      ansible.builtin.fail:
+        msg: |
+          api_server.key is missing for agent '{{ agent_name }}'.
+          Re-run 'clm agent install --type hermes --host <h> --name {{ agent_name }}' to regenerate.
+      when: config.api_server is not defined or not config.api_server.key
+
+    - name: Ensure ~/.hermes config directory exists
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.hermes"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    # Re-render the systemd unit to use `hermes gateway run` (foreground,
+    # supervisor-friendly) instead of `hermes gateway start` (which delegates
+    # to a pre-installed per-user systemd unit and exits 1 if that unit isn't
+    # there — see `hermes gateway --help`). Phase 1's install.yaml dropped the
+    # initial unit; configure.yaml owns the runtime ExecStart.
+    - name: Sync hermes systemd unit (Phase 2 ExecStart)
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+        content: |
+          [Unit]
+          Description=Hermes AI Agent ({{ agent_name }})
+          After=network.target
+
+          [Service]
+          Type=simple
+          User={{ agent_name }}
+          WorkingDirectory=/home/{{ agent_name }}/.hermes
+          EnvironmentFile=/home/{{ agent_name }}/.hermes/.env
+          ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway run
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+      notify: Restart hermes service
+
+    # Render ~/.hermes/.env (provider API key + API_SERVER_* + low-priority
+    # provider/model env-var fallback). force: yes overwrites the populated
+    # template .env that hermes' upstream installer drops.
+    - name: Render ~/.hermes/.env from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/.env.j2"
+        dest: "/home/{{ agent_name }}/.hermes/.env"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        force: yes
+      no_log: true
+      notify: Restart hermes service
+
+    # Render ~/.hermes/config.yaml (model.provider, model.default,
+    # model.base_url). Hermes deep-merges with DEFAULT_CONFIG so omitted
+    # top-level keys keep their hermes defaults.
+    - name: Render ~/.hermes/config.yaml from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/config.yaml.j2"
+        dest: "/home/{{ agent_name }}/.hermes/config.yaml"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        force: yes
+      notify: Restart hermes service
+
+    # Per-provider credential verification — uses `grep -q` so we get a clean
+    # zero/non-zero exit status without leaking the rendered key into logs.
+    - name: Verify .env credentials for OpenRouter provider
+      ansible.builtin.command:
+        cmd: grep -q '^OPENROUTER_API_KEY=' "/home/{{ agent_name }}/.hermes/.env"
+      register: openrouter_check
+      changed_when: false
+      failed_when: openrouter_check.rc != 0
+      no_log: true
+      when:
+        - config.provider is defined
+        - config.provider.type == 'openrouter'
+        - provider_api_key | default('') | length > 0
+
+    - name: Verify .env credentials for Anthropic provider
+      ansible.builtin.command:
+        cmd: grep -q '^ANTHROPIC_API_KEY=' "/home/{{ agent_name }}/.hermes/.env"
+      register: anthropic_check
+      changed_when: false
+      failed_when: anthropic_check.rc != 0
+      no_log: true
+      when:
+        - config.provider is defined
+        - config.provider.type == 'anthropic'
+        - provider_api_key | default('') | length > 0
+
+    - name: Verify .env credentials for OpenAI provider
+      ansible.builtin.command:
+        cmd: grep -q '^OPENAI_API_KEY=' "/home/{{ agent_name }}/.hermes/.env"
+      register: openai_check
+      changed_when: false
+      failed_when: openai_check.rc != 0
+      no_log: true
+      when:
+        - config.provider is defined
+        - config.provider.type == 'openai'
+        - provider_api_key | default('') | length > 0
+
+    # Ollama / custom OpenAI-compatible endpoint: no API key, but the
+    # config.yaml must declare model.provider: custom and model.base_url.
+    - name: Verify config.yaml declares custom provider for Ollama
+      ansible.builtin.command:
+        cmd: grep -qE '^\s*provider:\s*"custom"' "/home/{{ agent_name }}/.hermes/config.yaml"
+      register: custom_provider_check
+      changed_when: false
+      failed_when: custom_provider_check.rc != 0
+      when:
+        - config.provider is defined
+        - config.provider.type == 'ollama'
+
+    - name: Verify config.yaml declares base_url for Ollama provider
+      ansible.builtin.command:
+        cmd: grep -qE '^\s*base_url:\s+' "/home/{{ agent_name }}/.hermes/config.yaml"
+      register: base_url_check
+      changed_when: false
+      failed_when: base_url_check.rc != 0
+      when:
+        - config.provider is defined
+        - config.provider.type == 'ollama'
+
+    # Verify the API_SERVER block always renders, regardless of provider.
+    # Use grep -q rather than lineinfile check_mode because the latter reports
+    # `changed: true` whenever the matched line differs from the placeholder
+    # (i.e., always — the real key never equals our placeholder).
+    - name: Verify .env contains API_SERVER_KEY
+      ansible.builtin.command:
+        cmd: grep -q '^API_SERVER_KEY=' "/home/{{ agent_name }}/.hermes/.env"
+      register: api_server_key_check
+      changed_when: false
+      failed_when: api_server_key_check.rc != 0
+      no_log: true
+
+    # Force the restart handler to fire NOW so probes below run against the
+    # newly-rendered config.
+    - name: Apply pending restart before probing
+      ansible.builtin.meta: flush_handlers
+
+    # Wait for the gateway to come up. /health is unauthenticated (verified
+    # against gateway/platforms/api_server.py at v2026.5.7), so we don't pass
+    # the bearer token here.
+    - name: Probe hermes /health endpoint
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ config.api_server.port | default(8642) | int }}/health"
+        method: GET
+        status_code: 200
+        timeout: 5
+      register: health_probe
+      retries: 20
+      delay: 3
+      until: health_probe.status == 200
+
+    - name: Display configure success
+      ansible.builtin.debug:
+        msg: |
+          Hermes agent '{{ agent_name }}' configured for provider '{{ config.provider.type | default('auto') }}'.
+          Local OpenAI-compatible API: http://127.0.0.1:{{ config.api_server.port | default(8642) | int }}
+          Service: hermes-{{ agent_name }}.service (active)
+
+  handlers:
+    # Single canonical restart handler. Always does daemon_reload so it covers
+    # both unit-file changes (from install.yaml) and pure env changes (from
+    # the template/config tasks above). All `notify` directives above point at
+    # this handler so first-configure restarts the service exactly once.
+    - name: Restart hermes service
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
