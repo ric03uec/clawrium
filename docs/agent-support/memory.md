@@ -3,12 +3,13 @@
 Clawrium's `memory` CLI inspects and edits the on-disk memory files of running agents. As of issue #68, the dispatcher is **manifest-driven**, so a single CLI surface works across openclaw, hermes, and any future claw type that opts in.
 
 ```bash
-clm agent <name> memory show
-clm agent <name> memory read <file>
-clm agent <name> memory write <file> [--content "..."]
-clm agent <name> memory edit <file>           # opens $EDITOR
-clm agent <name> memory delete <file>
+clm agent memory show <name>                     # list memory files + sizes
+clm agent memory edit <name> <file>              # opens $EDITOR; atomic-write on save
+clm agent memory delete <name> --file <file>     # delete one file
+clm agent memory delete <name> --all --force     # delete every memory file
 ```
+
+Note: in this iteration the CLI exposes `show`, `edit`, and `delete`. `read` and `write` are not separate subcommands — use `edit` for both (read = view in `$EDITOR`; write = save in `$EDITOR`). The underlying `read_memory_file` / `write_memory_file` primitives in `core/memory.py` are wired for future expansion.
 
 ---
 
@@ -69,28 +70,31 @@ Other filenames are rejected on `memory write` with `"hermes memory accepts only
 ### OpenClaw
 
 ```
-~/.openclaw/workspace/memory/
-├── SOUL.md          # Identity (top-level)
-├── IDENTITY.md      # Identity (top-level)
-├── USER.md          # User profile (top-level)
-├── TOOLS.md         # Tools (top-level)
+~/.openclaw/workspace/
+├── SOUL.md             # Identity (top-level)
+├── IDENTITY.md         # Identity (top-level)
+├── USER.md             # User profile (top-level)
+├── TOOLS.md            # Tools (top-level)
 └── memory/
-    └── YYYY-MM-DD.md  # Daily files (dynamic listing)
+    └── YYYY-MM-DD.md   # Daily files (dynamic listing)
 ```
 
-OpenClaw uses a daily-file model under `memory/`, plus a fixed set of top-level identity/profile files. There are no per-file character caps; the global cap is `MAX_MEMORY_CONTENT_BYTES = 5 MiB` (a transport safety bound, not a per-claw policy).
+OpenClaw uses a daily-file model under `memory/`, plus a fixed set of top-level identity/profile files at the workspace root. There are no per-file character caps; the global cap is `MAX_MEMORY_CONTENT_BYTES = 5 MiB` (a transport safety bound, not a per-claw policy).
 
 ---
 
-## Atomic-write safety
+## Write safety
 
-Both claws can be edited concurrently with the running daemon. Memory writes use a stage-then-rename pattern:
+The two claws use different write strategies:
+
+**Hermes** (`registry/hermes/playbooks/memory_write.yaml`) uses a stage-then-rename pattern:
 
 1. Write the new content to a sibling temp file in the same directory (`.<file>.tmp`).
-2. `fsync` the temp file.
-3. `rename(2)` the temp file over the target.
+2. `rename(2)` the temp file over the target (single `mv -f` within the same filesystem).
 
-Because `rename(2)` within a single filesystem is atomic on Linux, the daemon never observes a partial or torn file — it sees either the old content or the new content. This is implemented identically in `registry/hermes/playbooks/memory_write.yaml` and `registry/openclaw/playbooks/memory_write.yaml`.
+Because `rename(2)` within a single filesystem is visible-atomic on Linux, the hermes daemon never observes a partial or torn file — it sees either the old content or the new content. (Note: the playbook does not currently issue an explicit `fsync` before rename, so the new content is atomic from the daemon's perspective but not guaranteed durable across a hard-crash power loss until the kernel flushes the page cache. This is acceptable for the memory CLI's use case — content lost in a crash window can be re-written.)
+
+**OpenClaw** (`registry/openclaw/playbooks/memory_write.yaml`) uses `ansible.builtin.copy` directly — no staging file, no rename. Concurrent writes between the openclaw daemon and `clm memory write` are not protected against torn reads. In practice this has not been observed as a problem because openclaw's memory model is daily-files (write contention is rare); a follow-up may align openclaw's write playbook with the hermes stage-then-rename pattern for consistency.
 
 ---
 
