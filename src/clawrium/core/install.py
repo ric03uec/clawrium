@@ -534,7 +534,10 @@ def run_installation(
         existing_entry = get_instance_secrets(instance_key).get(
             "HERMES_API_SERVER_KEY"
         )
-        existing_key = existing_entry["value"] if existing_entry else None
+        # `.get("value")` not `["value"]`: a truthy-but-malformed entry (no
+        # "value" field, e.g. hand-edited secrets.json) would otherwise raise
+        # KeyError straight out of the install flow.
+        existing_key = existing_entry.get("value") if existing_entry else None
         if _is_valid_hermes_api_server_key(existing_key):
             hermes_api_server_key = existing_key
         else:

@@ -2021,6 +2021,120 @@ def test_install_openclaw_without_token_succeeds(monkeypatch, tmp_path):
     assert result["error"] is None
 
 
+def test_install_hermes_malformed_existing_secret_entry(monkeypatch, tmp_path):
+    """A pre-existing HERMES_API_SERVER_KEY secrets entry that is missing the
+    "value" field (truthy dict, no 'value' key — e.g. hand-edited
+    secrets.json) must NOT raise KeyError out of run_installation. The
+    install path should treat it as a corrupted entry and regenerate.
+
+    Regression guard for the `existing_entry["value"]` access pattern."""
+    from clawrium.core.install import run_installation
+    import clawrium.core.install
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "hermes",
+        "entries": [
+            {
+                "version": "2026.5.7",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.11"},
+                },
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install, "load_manifest", lambda x: mock_manifest
+    )
+
+    compatible_host = {
+        "hostname": "test-host",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host", lambda x: compatible_host
+    )
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *a, **k: {
+            "compatible": True,
+            "matched_entry": mock_manifest["entries"][0],
+            "reasons": [],
+        },
+    )
+
+    key_file = tmp_path / "key"
+    key_file.write_text("k")
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    persistent_host = dict(compatible_host)
+
+    def mock_update_host(hostname, updater):
+        nonlocal persistent_host
+        if "agents" not in persistent_host:
+            persistent_host["agents"] = {}
+        persistent_host = updater(persistent_host)
+        return True
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", mock_update_host)
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", lambda h, c: True
+    )
+    # Truthy dict, no "value" field — would have raised KeyError before fix.
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "get_instance_secrets",
+        lambda _k: {"HERMES_API_SERVER_KEY": {"key": "HERMES_API_SERVER_KEY"}},
+    )
+    set_calls: list = []
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "set_instance_secret",
+        lambda *a, **k: set_calls.append((a, k)) or True,
+    )
+
+    class SuccessfulResult:
+        status = "successful"
+
+        class Config:
+            artifact_dir = tmp_path / "artifacts"
+
+        config = Config()
+
+    import ansible_runner
+
+    monkeypatch.setattr(ansible_runner, "run", Mock(return_value=SuccessfulResult()))
+
+    # The load-bearing assertion: this call must not raise KeyError.
+    result = run_installation("hermes", "test-host", name="hermes-test")
+
+    assert result["success"] is True
+    # Malformed entry → treated as corrupted → fresh key generated and
+    # persisted under the canonical instance key.
+    assert len(set_calls) == 1
+    args, _kwargs = set_calls[0]
+    # set_instance_secret(instance_key, "HERMES_API_SERVER_KEY", token, ...)
+    assert args[1] == "HERMES_API_SERVER_KEY"
+    assert isinstance(args[2], str) and len(args[2]) == 64
+
+
 def test_install_hermes_persists_zero_bind_in_hosts_json(monkeypatch, tmp_path):
     """New hermes installs must persist api_server.host == "0.0.0.0" so the
     next configure picks up a network-reachable bind. The bearer token lives

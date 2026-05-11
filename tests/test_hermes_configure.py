@@ -301,6 +301,47 @@ class TestConfigurePlaybookShape:
 class TestConfigureAgentApiServerKey:
     """configure_agent() must enforce + reuse the persisted api_server.key for hermes."""
 
+    def test_hermes_malformed_secret_entry_missing_value_returns_error(self):
+        """A secrets.json entry that exists but is missing the 'value' field
+        must NOT raise KeyError out of configure_agent. The existing missing-
+        key error path catches it via the validity check (value resolves to
+        None) and returns a friendly remediation tuple."""
+        host = {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": {},
+                }
+            },
+        }
+        config_data = {
+            "gateway": {"host": "127.0.0.1", "port": 8642},
+            "provider": {
+                "name": "p",
+                "type": "openrouter",
+                "default_model": "x",
+            },
+        }
+        # Truthy dict, no "value" key — the original `secret_entry["value"]`
+        # access would raise KeyError before the validity check ran.
+        malformed_secrets = {
+            "HERMES_API_SERVER_KEY": {"key": "HERMES_API_SERVER_KEY"}
+        }
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value=malformed_secrets,
+            ):
+                success, error = configure_agent(
+                    "test-host", "hermes", config_data, agent_name="hermes-test"
+                )
+        assert success is False
+        assert "HERMES_API_SERVER_KEY" in error
+        assert "install" in error
+
     def test_hermes_without_persisted_key_returns_error(self):
         """Reject configure when secrets.json has no HERMES_API_SERVER_KEY."""
         host = {
