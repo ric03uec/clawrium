@@ -868,3 +868,122 @@ def test_sse_read_error_mid_stream_raises_connection_error():
             _run(backend.send_message("ping"))
     finally:
         _run(backend.close())
+
+
+def test_sse_on_delta_failure_mid_stream_does_not_pollute_history():
+    """The "render before history" invariant must hold for the SSE path,
+    not just the JSON fallback. Returns N SSE chunks; on_delta raises on
+    chunk 2. After the failure, history must equal its pre-call snapshot —
+    no phantom partial turn (which would inflate every subsequent request).
+    """
+    chunk_count = {"n": 0}
+
+    def boom_on_chunk_two(_text: str) -> None:
+        chunk_count["n"] += 1
+        if chunk_count["n"] == 2:
+            raise RuntimeError("broken pipe mid-stream")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = (
+            b'data: {"choices":[{"delta":{"content":"first"}}]}\n\n'
+            b'data: {"choices":[{"delta":{"content":"second"}}]}\n\n'
+            b'data: {"choices":[{"delta":{"content":"third"}}]}\n\n'
+            b"data: [DONE]\n\n"
+        )
+        return _sse_response(body)
+
+    backend = _build_backend(httpx.MockTransport(handler))
+
+    try:
+        # First, prime history with one successful turn so we have a non-empty
+        # snapshot to assert against.
+        def first_handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, json={"choices": [{"message": {"content": "prime"}}]}
+            )
+
+        backend._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(first_handler), timeout=30.0
+        )
+        _run(backend.send_message("warmup"))
+        pre_failure_snapshot = list(backend._history)
+        assert len(pre_failure_snapshot) == 2
+
+        # Swap to the SSE handler and trigger the mid-stream raise.
+        backend._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), timeout=30.0
+        )
+        with pytest.raises(RuntimeError, match="broken pipe mid-stream"):
+            _run(backend.send_message("failing", on_delta=boom_on_chunk_two))
+
+        assert backend._history == pre_failure_snapshot, (
+            "SSE path corrupted _history despite on_delta raising mid-stream"
+        )
+    finally:
+        _run(backend.close())
+
+
+def test_assistant_text_bidi_overrides_are_stripped():
+    """Unicode bidi-override characters (RTLO, ZWSP, etc.) can flip the
+    visual order of displayed text or hide invisible payloads in
+    copy-pasted output. Strip them at the backend boundary so neither the
+    CLI's console.print nor the TUI's RichLog.write is fooled.
+    """
+    leaky = "rm -rf /‮tmp‬"  # RTLO + PDF — visual reverse
+    invisible = "before​after"  # ZWSP — invisible in terminal
+    bom = "﻿trailing"  # BOM/ZWNBSP — invisible
+    payload = leaky + invisible + bom
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": payload}}]}
+        )
+
+    backend = _build_backend(httpx.MockTransport(handler))
+    try:
+        result = _run(backend.send_message("hi"))
+    finally:
+        _run(backend.close())
+
+    # Each bidi/zero-width char must be gone.
+    for char in ("‮", "‬", "​", "﻿"):
+        assert char not in result, f"{hex(ord(char))} survived sanitizer"
+
+
+def test_response_timeout_seconds_defaults_to_instance_timeout():
+    """Constructor's `timeout_seconds` must control per-request timeout when
+    no explicit value is passed to send_message. The prior signature hardcoded
+    120s in the kwarg default, silently overriding any caller-supplied
+    instance timeout (W4 in the v2 review).
+    """
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # httpx exposes the request timeout via extensions when set
+        captured["timeout"] = request.extensions.get("timeout")
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": "ok"}}]}
+        )
+
+    backend = HermesOpenAIBackend(
+        base_url="http://hermes.test:8642/v1",
+        auth_token=SecretStr("tok"),
+        timeout_seconds=7.5,
+    )
+    backend._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), timeout=7.5
+    )
+    try:
+        _run(backend.send_message("ping"))
+    finally:
+        _run(backend.close())
+
+    # httpx records per-call timeout under all four phases when explicitly set
+    timeout = captured["timeout"]
+    assert timeout is not None
+    # All four phases set to the instance default (7.5s), not 120s
+    for phase in ("connect", "read", "write", "pool"):
+        if phase in timeout and timeout[phase] is not None:
+            assert timeout[phase] == 7.5, (
+                f"{phase} timeout was {timeout[phase]}, expected 7.5"
+            )

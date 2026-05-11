@@ -99,7 +99,7 @@ class HermesOpenAIBackend:
         message: str,
         session_key: str = "main",
         on_delta: Callable[[str], None] | None = None,
-        response_timeout_seconds: float = 120.0,
+        response_timeout_seconds: float | None = None,
     ) -> str:
         """POST a user message with accumulated history and return the reply.
 
@@ -133,6 +133,13 @@ class HermesOpenAIBackend:
         """
         if self._client is None:
             raise ChatConnectionError("Hermes chat backend not connected")
+
+        # Honor caller-supplied per-request timeout; otherwise fall back to
+        # the instance default set at __init__ (the prior code shipped a
+        # hardcoded 120s here, silently overriding any `timeout_seconds=X`
+        # passed to the constructor — W4 in the v2 review).
+        if response_timeout_seconds is None:
+            response_timeout_seconds = self._timeout_seconds
 
         self.last_send_dropped_turns = 0
         outgoing_messages = self._history + [{"role": "user", "content": message}]
@@ -358,15 +365,28 @@ def _extract_delta_content(chunk: Any) -> str:
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 _WHITESPACE_RUN_RE = re.compile(r" +")
 
-# Strip C0/C1 control characters from server-supplied assistant text before it
-# reaches any renderer. Preserves only \t (\x09) and \n (\x0a) — LLM replies
-# legitimately contain newlines (markdown, code, paragraphs) and occasional
-# tabs (indented code). Everything else — including \r (overwrite), \x1b
-# (ANSI escape), \x07 (bell), \x08 (backspace), and the C1 block — is
-# stripped at the backend boundary so neither the CLI's direct console.print
-# nor the TUI's RichLog.write can be tricked into terminal manipulation by a
-# malicious or compromised hermes server.
-_ASSISTANT_TEXT_STRIP_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+# Strip control / display-manipulating characters from server-supplied
+# assistant text before it reaches any renderer. Preserves only \t (\x09) and
+# \n (\x0a) — LLM replies legitimately contain newlines (markdown, code,
+# paragraphs) and occasional tabs (indented code).
+#
+# Stripped:
+#   - C0 (\x00-\x08, \x0b-\x1f) — \r overwrite, \x1b ANSI, \x07 bell, etc.
+#   - DEL + C1 (\x7f-\x9f) — including the 8-bit CSI alias at \x9b.
+#   - Unicode bidi formatting controls (‪-‮, ⁦-⁩) — RTLO
+#     and friends can reverse the visual order of displayed text, e.g. let
+#     a malicious server flip "rm -rf /tmp" into something that LOOKS benign
+#     in the terminal but copy-pastes as destructive.
+#   - Zero-width characters (​ ZWSP, ‌ ZWNJ, ‍ ZWJ, ⁠
+#     WORD JOINER, ﻿ BOM/ZWNBSP) — hide invisible payloads in
+#     copy-pasted output.
+# Rich's markup=False blocks `[…]` escapes but does not strip any of the above.
+_ASSISTANT_TEXT_STRIP_RE = re.compile(
+    r"[\x00-\x08\x0b-\x1f\x7f-\x9f"
+    r"​-‍⁠﻿"
+    r"‪-‮⁦-⁩"
+    r"]"
+)
 
 
 def _sanitize_assistant_text(text: str) -> str:
