@@ -10,6 +10,9 @@ workspace:
 # Capability flags advertised by this manifest.
 features:
   memory: true
+  # Chat dispatch resolves to the OpenAI-compatible HTTP backend for hermes.
+  chat:
+    type: openai
 
 # Secrets configuration.
 # All provider keys are optional: Phase 1 installs the binary in an inert state.
@@ -41,9 +44,11 @@ secrets:
 #              AGENTS.md) inside ~/.hermes/ on the agent host; clm does not
 #              push identity files in this iteration. The wizard records this
 #              stage as SKIPPED and advances.
-#   channels   default `cli`. The api_server platform (loopback
-#              OpenAI-compatible HTTP API at 127.0.0.1:8642) is the local
-#              CLI-equivalent endpoint. External messaging gateways
+#   channels   default `cli`. The api_server platform exposes an
+#              OpenAI-compatible HTTP API on 0.0.0.0:8642 (all interfaces,
+#              bearer-token protected via HERMES_API_SERVER_KEY) so
+#              `clm chat <hermes>` can reach it at http://<host-ip>:8642/v1
+#              from any clm machine on the LAN. External messaging gateways
 #              (Discord/Slack/Telegram/etc.) are out of scope and tracked as a
 #              separate follow-up issue.
 #   validate   Composite shell-level check: `hermes --version` succeeds,
@@ -73,7 +78,7 @@ onboarding:
         - id: confirm_cli
           name: "Confirm CLI channel"
           type: confirm
-          message: "Hermes will use the loopback api_server platform on 127.0.0.1:8642 as its CLI-equivalent endpoint."
+          message: "Hermes will expose its OpenAI-compatible API on all interfaces (0.0.0.0:8642), bearer-token protected, reachable at http://<host-ip>:8642/v1 from any clm machine on the LAN."
           default: true
         - id: select_discord
           name: "Enable Discord channel (optional)"
@@ -102,7 +107,7 @@ onboarding:
         - id: health_check
           name: "Verify api_server /health returns 200"
           type: command
-          command: "curl -fsS http://127.0.0.1:8642/health"
+          command: "curl -fsS http://0.0.0.0:8642/health"
 
 # Note: The hermes installer is a single bash script served from
 # raw.githubusercontent.com at the pinned tag. The same script content is

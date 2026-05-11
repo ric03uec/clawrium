@@ -6,7 +6,7 @@ platform compatibility, onboarding metadata, and secret requirements.
 
 import logging
 import re
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 import yaml
 from packaging.version import InvalidVersion, Version
@@ -127,10 +127,17 @@ class WorkspaceConfig(TypedDict):
     memory_path: NotRequired[str]
 
 
+class ChatFeatureConfig(TypedDict):
+    """Chat capability descriptor."""
+
+    type: Literal["openai", "websocket"]
+
+
 class FeaturesConfig(TypedDict):
     """Capability flags advertised by an agent manifest."""
 
     memory: NotRequired[bool]
+    chat: NotRequired[ChatFeatureConfig]
 
 
 class AgentManifest(TypedDict):
@@ -495,6 +502,9 @@ def _validate_workspace(workspace_value: object, agent_type: str) -> WorkspaceCo
     return validated
 
 
+_ALLOWED_CHAT_TYPES = ("openai", "websocket")
+
+
 def _validate_features(features_value: object, agent_type: str) -> FeaturesConfig:
     """Validate features capability block."""
     features = _as_dict(features_value, "features", agent_type)
@@ -507,6 +517,18 @@ def _validate_features(features_value: object, agent_type: str) -> FeaturesConfi
                 agent_type, "has invalid `features.memory` (expected boolean)"
             )
         validated["memory"] = memory_flag
+
+    if "chat" in features:
+        chat_value = features["chat"]
+        chat_block = _as_dict(chat_value, "features.chat", agent_type)
+        chat_type = chat_block.get("type")
+        if chat_type not in _ALLOWED_CHAT_TYPES:
+            allowed = ", ".join(repr(t) for t in _ALLOWED_CHAT_TYPES)
+            _raise_parse_error(
+                agent_type,
+                f"has invalid `features.chat.type` (expected one of {allowed})",
+            )
+        validated["chat"] = {"type": chat_type}
 
     return validated
 

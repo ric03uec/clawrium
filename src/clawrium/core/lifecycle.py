@@ -754,6 +754,34 @@ def configure_agent(
             )
 
         if isinstance(persisted_api_server, dict):
+            # Opportunistic migration: legacy hermes installs persisted
+            # host="127.0.0.1". The OpenAI-compatible gateway must bind a
+            # reachable interface so `clm chat <hermes>` works from any clm
+            # machine. Hermes' own startup check (api_server.py:3150) refuses
+            # to bind non-loopback unless a strong API_SERVER_KEY is set; we
+            # always generate a 64-char hex key, so the safety check passes.
+            # Rewrite in-memory and persist before merging.
+            if persisted_api_server.get("host") == "127.0.0.1":
+                persisted_api_server = {**persisted_api_server, "host": "0.0.0.0"}
+
+                def _migrate_bind(h: dict) -> dict:
+                    agents = h.get("agents") or {}
+                    record = agents.get(agent_key)
+                    if not isinstance(record, dict):
+                        return h
+                    config = record.get("config")
+                    if not isinstance(config, dict):
+                        return h
+                    api_server = config.get("api_server")
+                    if (
+                        isinstance(api_server, dict)
+                        and api_server.get("host") == "127.0.0.1"
+                    ):
+                        api_server["host"] = "0.0.0.0"
+                    return h
+
+                update_host(host["hostname"], _migrate_bind)
+
             existing_api_server = config_data.get("api_server") or {}
             if not isinstance(existing_api_server, dict):
                 existing_api_server = {}
@@ -765,7 +793,7 @@ def configure_agent(
             # alongside the token from secrets.json so the playbook can run.
             config_data["api_server"] = {
                 "enabled": True,
-                "host": "127.0.0.1",
+                "host": "0.0.0.0",
                 "port": 8642,
                 "key": api_server_key,
             }

@@ -1,4 +1,10 @@
-"""Interactive chat command for OpenClaw agents."""
+"""Interactive chat command for installed agents.
+
+Dispatch is driven by `features.chat.type` in the agent manifest:
+
+- ``websocket`` → openclaw gateway over WebSocket (existing behavior).
+- ``openai``    → hermes (and future agents) over OpenAI-compatible HTTP.
+"""
 
 from __future__ import annotations
 
@@ -12,12 +18,20 @@ from rich.markup import escape as rich_escape
 
 from clawrium.core.chat import (
     ChatAuthenticationError,
+    ChatBackend,
     ChatConnectionError,
     ChatProtocolError,
     OpenClawChatClient,
     SecretStr,
 )
+from clawrium.core.chat_hermes import HermesOpenAIBackend
 from clawrium.core.hosts import get_agent_by_name, HostsFileCorruptedError
+from clawrium.core.registry import (
+    ManifestNotFoundError,
+    ManifestParseError,
+    load_manifest,
+)
+from clawrium.core.secrets import get_instance_key, get_instance_secrets
 
 console = Console()
 
@@ -42,7 +56,13 @@ def chat(
         "main",
         "--session",
         "-s",
-        help="Gateway session key (for example: main, direct:<channel>, or thread-specific key)",
+        help=(
+            "Gateway session key for WebSocket-backed agents "
+            "(for example: main, direct:<channel>, or thread-specific key). "
+            "OpenAI-backed agents (e.g. hermes) accept the flag but ignore it "
+            "in Phase 1 — server-side session routing is not wired through "
+            "/v1/chat/completions yet."
+        ),
     ),
     timeout: float = typer.Option(
         120.0,
@@ -75,45 +95,63 @@ def chat(
         raise typer.Exit(code=1)
 
     host_record, agent_type, agent_record = resolved
-    if agent_type != "openclaw":
-        console.print(
-            f"[red]Error:[/red] Chat is currently supported for OpenClaw only (got {rich_escape(agent_type)})"
-        )
-        raise typer.Exit(code=1)
 
     try:
-        gateway = _extract_gateway_config(agent_record, host_record)
+        chat_type = _resolve_chat_type(agent_type)
     except ValueError as exc:
         console.print(f"[red]Error:[/red] {rich_escape(str(exc))}")
         raise typer.Exit(code=1)
-    gateway_url = gateway["url"]
-    auth_token = SecretStr(gateway["auth"])
 
     display_host = (
         host_record.get("alias") or host_record.get("hostname") or "unknown-host"
     )
+    # `canonical_name` is the Unix-level agent name used in secret instance
+    # keys (host:type:name). Must NOT fall back to `agent_type` — that would
+    # mint a wrong instance_key (e.g. host:hermes:hermes) and the bearer
+    # lookup would silently miss the real entry.
+    canonical_name = agent_record.get("agent_name") or agent_name
+    # `display_agent` is for printing only; safe to fall back further.
     display_agent = (
         agent_record.get("agent_name")
         or agent_record.get("name")
         or agent_name
-        or "openclaw"
+        or agent_type
     )
+
+    try:
+        if chat_type == "websocket":
+            backend = _build_openclaw_backend(
+                agent_record=agent_record,
+                host_record=host_record,
+                response_timeout_seconds=timeout,
+            )
+        elif chat_type == "openai":
+            backend = _build_hermes_backend(
+                agent_record=agent_record,
+                host_record=host_record,
+                agent_type=agent_type,
+                agent_name=str(canonical_name),
+                response_timeout_seconds=timeout,
+            )
+        else:
+            console.print(
+                f"[red]Error:[/red] Chat is not supported for agent type "
+                f"'{rich_escape(agent_type)}'."
+            )
+            raise typer.Exit(code=1)
+    except ValueError as exc:
+        console.print(f"[red]Error:[/red] {rich_escape(str(exc))}")
+        raise typer.Exit(code=1)
 
     console.print(
         f"[green]Connected target:[/green] {rich_escape(str(display_agent))} on {rich_escape(str(display_host))}"
     )
     console.print("Type /exit or press Ctrl+D to end the chat session.")
 
-    device_id = gateway.get("device_id")
-    device_private_key = gateway.get("device_private_key")
-
     try:
         asyncio.run(
             _chat_loop(
-                gateway_url=str(gateway_url),
-                auth_token=auth_token,
-                device_id=device_id,
-                device_private_key=device_private_key,
+                backend=backend,
                 session_key=session,
                 response_timeout_seconds=timeout,
                 idle_timeout_seconds=idle_timeout,
@@ -140,23 +178,13 @@ def chat(
 
 
 async def _chat_loop(
-    gateway_url: str,
-    auth_token: SecretStr,
-    device_id: str | None,
-    device_private_key: str | None,
+    backend: ChatBackend,
     session_key: str,
     response_timeout_seconds: float,
     idle_timeout_seconds: float,
 ) -> None:
-    client = OpenClawChatClient(
-        gateway_url=gateway_url,
-        auth_token=auth_token,
-        device_id=device_id,
-        device_private_key=device_private_key,
-        timeout_seconds=response_timeout_seconds,
-    )
-    with console.status("Connecting to gateway...", spinner="dots"):
-        await client.connect()
+    with console.status("Connecting to agent...", spinner="dots"):
+        await backend.connect()
 
     try:
         while True:
@@ -190,7 +218,7 @@ async def _chat_loop(
                     shown_prefix = True
                 console.print(delta, end="", markup=False, highlight=False)
 
-            final_text = await client.send_message(
+            final_text = await backend.send_message(
                 message=message,
                 session_key=session_key,
                 on_delta=on_delta,
@@ -203,7 +231,7 @@ async def _chat_loop(
             else:
                 console.print("agent> [no response]", markup=False, highlight=False)
     finally:
-        await client.close()
+        await backend.close()
 
 
 async def _read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
@@ -215,6 +243,100 @@ async def _read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
     except TimeoutError:
         task.cancel()
         raise
+
+
+def _resolve_chat_type(agent_type: str) -> str:
+    """Read `features.chat.type` from the agent manifest.
+
+    Raises ValueError when the manifest cannot be loaded or does not advertise
+    chat support, so the caller can surface a friendly typer.Exit(1).
+    """
+    try:
+        manifest = load_manifest(agent_type)
+    except (ManifestNotFoundError, ManifestParseError) as exc:
+        raise ValueError(
+            f"Could not load manifest for agent type '{agent_type}': {exc}"
+        ) from exc
+
+    features = manifest.get("features") or {}
+    chat = features.get("chat") if isinstance(features, dict) else None
+    if not isinstance(chat, dict):
+        raise ValueError(
+            f"Chat is not supported for agent type '{agent_type}'."
+        )
+    chat_type = chat.get("type")
+    if not isinstance(chat_type, str) or not chat_type:
+        raise ValueError(
+            f"Chat is not supported for agent type '{agent_type}'."
+        )
+    return chat_type
+
+
+def _build_openclaw_backend(
+    agent_record: dict[str, Any],
+    host_record: dict[str, Any],
+    response_timeout_seconds: float,
+) -> ChatBackend:
+    gateway = _extract_gateway_config(agent_record, host_record)
+    return OpenClawChatClient(
+        gateway_url=gateway["url"],
+        auth_token=SecretStr(gateway["auth"]),
+        device_id=gateway.get("device_id"),
+        device_private_key=gateway.get("device_private_key"),
+        timeout_seconds=response_timeout_seconds,
+    )
+
+
+def _build_hermes_backend(
+    agent_record: dict[str, Any],
+    host_record: dict[str, Any],
+    agent_type: str,
+    agent_name: str,
+    response_timeout_seconds: float,
+) -> ChatBackend:
+    """Construct a HermesOpenAIBackend from the persisted hosts.json record.
+
+    - URL: `http://{host_record.hostname}:{api_server.port}/v1` — mirrors
+      openclaw's `_reconstruct_gateway_url`, which uses the host record's
+      reachable address rather than `api_server.host` (that's the bind, not
+      the dial target).
+    - Bearer: `secrets.json[<instance_key>].HERMES_API_SERVER_KEY` — mirrors
+      lifecycle.py:734-771.
+    """
+    config = agent_record.get("config")
+    if not isinstance(config, dict):
+        raise ValueError("Agent config missing. Re-run 'clm agent configure'.")
+    api_server = config.get("api_server")
+    if not isinstance(api_server, dict):
+        raise ValueError(
+            "Hermes api_server config missing. Re-run 'clm agent configure'."
+        )
+
+    port = api_server.get("port")
+    if not isinstance(port, int) or port <= 0:
+        raise ValueError(
+            "Hermes api_server.port missing or invalid. Re-run 'clm agent configure'."
+        )
+
+    hostname = host_record.get("hostname")
+    if not isinstance(hostname, str) or not hostname.strip():
+        raise ValueError("Host primary address not found.")
+
+    instance_key = get_instance_key(hostname, agent_type, agent_name)
+    secret_entry = get_instance_secrets(instance_key).get("HERMES_API_SERVER_KEY")
+    raw_token = secret_entry["value"] if secret_entry else None
+    if not isinstance(raw_token, str) or not raw_token.strip():
+        raise ValueError(
+            "HERMES_API_SERVER_KEY missing from secrets.json. "
+            "Re-run 'clm agent install --type hermes ...' to generate one."
+        )
+
+    base_url = f"http://{hostname}:{port}/v1"
+    return HermesOpenAIBackend(
+        base_url=base_url,
+        auth_token=SecretStr(raw_token),
+        timeout_seconds=response_timeout_seconds,
+    )
 
 
 def _extract_gateway_config(

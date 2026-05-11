@@ -11,6 +11,9 @@ workspace:
 # Capability flags advertised by this manifest.
 features:
   memory: true
+  # Chat dispatch resolves to the WebSocket gateway client for openclaw.
+  chat:
+    type: websocket
 
 # Secrets configuration
 # Note: Provider-specific API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)

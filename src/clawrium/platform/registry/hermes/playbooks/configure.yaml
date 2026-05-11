@@ -206,7 +206,8 @@
       ansible.builtin.debug:
         msg: |
           Hermes agent '{{ agent_name }}' configured for provider '{{ config.provider.type | default('auto') }}'.
-          Local OpenAI-compatible API: http://127.0.0.1:{{ config.api_server.port | default(8642) | int }}
+          OpenAI-compatible API exposed on all interfaces (0.0.0.0:{{ config.api_server.port | default(8642) | int }}), bearer-token protected (HERMES_API_SERVER_KEY).
+          Reachable at http://<host-ip>:{{ config.api_server.port | default(8642) | int }}/v1 from any clm machine on the LAN.
           Service: hermes-{{ agent_name }}.service (active)
 
   handlers:

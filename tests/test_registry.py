@@ -205,6 +205,66 @@ def test_load_manifest_negative_min_memory(monkeypatch):
         load_manifest("openclaw")
 
 
+def test_load_manifest_rejects_unknown_chat_type(monkeypatch):
+    """Manifest validator must reject `features.chat.type` outside the closed enum."""
+    from clawrium.core import registry
+
+    manifest = deepcopy(_valid_manifest())
+    manifest["features"] = {"chat": {"type": "bogus"}}
+    monkeypatch.setattr(registry.yaml, "safe_load", lambda _: manifest)
+
+    with pytest.raises(ManifestParseError, match="features.chat.type"):
+        load_manifest("openclaw")
+
+
+def test_load_manifest_accepts_chat_type_openai(monkeypatch):
+    """`features.chat.type: openai` is a valid value and survives normalization."""
+    from clawrium.core import registry
+
+    manifest = deepcopy(_valid_manifest())
+    manifest["features"] = {"chat": {"type": "openai"}}
+    monkeypatch.setattr(registry.yaml, "safe_load", lambda _: manifest)
+
+    loaded = load_manifest("openclaw")
+    assert loaded.get("features", {}).get("chat", {}).get("type") == "openai"
+
+
+def test_load_manifest_accepts_chat_type_websocket(monkeypatch):
+    """`features.chat.type: websocket` is a valid value and survives normalization."""
+    from clawrium.core import registry
+
+    manifest = deepcopy(_valid_manifest())
+    manifest["features"] = {"chat": {"type": "websocket"}}
+    monkeypatch.setattr(registry.yaml, "safe_load", lambda _: manifest)
+
+    loaded = load_manifest("openclaw")
+    assert loaded.get("features", {}).get("chat", {}).get("type") == "websocket"
+
+
+def test_load_manifest_chat_block_must_be_object(monkeypatch):
+    """`features.chat` must be a dict, not a scalar — rejects sloppy YAML."""
+    from clawrium.core import registry
+
+    manifest = deepcopy(_valid_manifest())
+    manifest["features"] = {"chat": "openai"}
+    monkeypatch.setattr(registry.yaml, "safe_load", lambda _: manifest)
+
+    with pytest.raises(ManifestParseError, match="features.chat"):
+        load_manifest("openclaw")
+
+
+def test_hermes_manifest_declares_chat_openai():
+    """The bundled hermes manifest must advertise the OpenAI chat backend."""
+    manifest = load_manifest("hermes")
+    assert manifest.get("features", {}).get("chat", {}).get("type") == "openai"
+
+
+def test_openclaw_manifest_declares_chat_websocket():
+    """The bundled openclaw manifest must advertise the WebSocket chat backend."""
+    manifest = load_manifest("openclaw")
+    assert manifest.get("features", {}).get("chat", {}).get("type") == "websocket"
+
+
 def test_list_claws():
     """Test list_claws returns openclaw and zeroclaw."""
     claws = list_claws()

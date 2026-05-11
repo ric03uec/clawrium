@@ -2019,3 +2019,113 @@ def test_install_openclaw_without_token_succeeds(monkeypatch, tmp_path):
     # Verify installation succeeded
     assert result["success"] is True
     assert result["error"] is None
+
+
+def test_install_hermes_persists_zero_bind_in_hosts_json(monkeypatch, tmp_path):
+    """New hermes installs must persist api_server.host == "0.0.0.0" so the
+    next configure picks up a network-reachable bind. The bearer token lives
+    in secrets.json, not hosts.json (B3 invariant)."""
+    from clawrium.core.install import run_installation
+    import clawrium.core.install
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "hermes",
+        "entries": [
+            {
+                "version": "2026.5.7",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.11"},
+                },
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install, "load_manifest", lambda x: mock_manifest
+    )
+
+    compatible_host = {
+        "hostname": "test-host",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host", lambda x: compatible_host
+    )
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *a, **k: {
+            "compatible": True,
+            "matched_entry": mock_manifest["entries"][0],
+            "reasons": [],
+        },
+    )
+
+    key_file = tmp_path / "key"
+    key_file.write_text("k")
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+
+    persistent_host = dict(compatible_host)
+    update_calls: list = []
+
+    def mock_update_host(hostname, updater):
+        nonlocal persistent_host
+        if "agents" not in persistent_host:
+            persistent_host["agents"] = {}
+        persistent_host = updater(persistent_host)
+        update_calls.append((hostname, persistent_host.copy()))
+        return True
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", mock_update_host)
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", lambda h, c: True
+    )
+    monkeypatch.setattr(
+        clawrium.core.install, "get_instance_secrets", lambda _k: {}
+    )
+    set_calls: list = []
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "set_instance_secret",
+        lambda *a, **k: set_calls.append((a, k)) or True,
+    )
+
+    class SuccessfulResult:
+        status = "successful"
+
+        class Config:
+            artifact_dir = tmp_path / "artifacts"
+
+        config = Config()
+
+    import ansible_runner
+
+    monkeypatch.setattr(ansible_runner, "run", Mock(return_value=SuccessfulResult()))
+
+    result = run_installation("hermes", "test-host", name="hermes-test")
+
+    assert result["success"] is True
+
+    final = update_calls[-1][1]
+    api_server = final["agents"]["hermes-test"]["config"]["api_server"]
+    assert api_server["enabled"] is True
+    assert api_server["host"] == "0.0.0.0"
+    assert api_server["port"] == 8642
+    # B3 invariant: bearer never lands in hosts.json
+    assert "key" not in api_server

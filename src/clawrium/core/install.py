@@ -846,7 +846,7 @@ def run_installation(
                         h["agents"][agent_name]["config"] = {}
                     h["agents"][agent_name]["config"]["api_server"] = {
                         "enabled": True,
-                        "host": "127.0.0.1",
+                        "host": "0.0.0.0",
                         "port": 8642,
                     }
             return h

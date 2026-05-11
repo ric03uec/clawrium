@@ -8,7 +8,7 @@ import json
 import time
 import uuid
 from collections import deque
-from typing import Any, Callable
+from typing import Any, Callable, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 import websockets
@@ -21,6 +21,7 @@ __all__ = [
     "ChatConnectionError",
     "ChatAuthenticationError",
     "ChatProtocolError",
+    "ChatBackend",
     "SecretStr",
     "OpenClawChatClient",
 ]
@@ -59,6 +60,29 @@ class SecretStr:
 
     def __str__(self) -> str:
         return "***"
+
+
+@runtime_checkable
+class ChatBackend(Protocol):
+    """Protocol implemented by transport-specific chat clients.
+
+    Implementations must be safely usable from `cli/chat.py:_chat_loop` —
+    connect once, send N messages, then close. `send_message` MUST invoke
+    `on_delta` for incremental output when streaming is supported, and return
+    the assembled final text when the turn completes.
+    """
+
+    async def connect(self) -> None: ...
+
+    async def send_message(
+        self,
+        message: str,
+        session_key: str,
+        on_delta: Callable[[str], None] | None = None,
+        response_timeout_seconds: float = 120.0,
+    ) -> str: ...
+
+    async def close(self) -> None: ...
 
 
 class OpenClawChatClient:
