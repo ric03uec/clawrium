@@ -743,7 +743,10 @@ def configure_agent(
             host["hostname"], resolved_type, unix_agent_name
         )
         secret_entry = get_instance_secrets(instance_key).get("HERMES_API_SERVER_KEY")
-        api_server_key = secret_entry["value"] if secret_entry else None
+        # `.get("value")` not `["value"]`: a truthy-but-malformed entry (no
+        # "value" field) would otherwise raise KeyError out of configure
+        # instead of routing through the validity check below.
+        api_server_key = secret_entry.get("value") if secret_entry else None
 
         if not _is_valid_hermes_api_server_key(api_server_key):
             return (
