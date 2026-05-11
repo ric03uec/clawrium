@@ -234,20 +234,44 @@ async def _chat_loop(
                 continue
 
             shown_prefix = False
+            status = console.status("Waiting for agent...", spinner="dots")
+            status.start()
+            status_stopped = False
+
+            def _stop_status() -> None:
+                nonlocal status_stopped
+                if not status_stopped:
+                    status.stop()
+                    status_stopped = True
 
             def on_delta(delta: str) -> None:
                 nonlocal shown_prefix
+                _stop_status()
                 if not shown_prefix:
                     console.print("agent> ", end="", markup=False, highlight=False)
                     shown_prefix = True
                 console.print(delta, end="", markup=False, highlight=False)
 
-            final_text = await backend.send_message(
-                message=message,
-                session_key=session_key,
-                on_delta=on_delta,
-                response_timeout_seconds=response_timeout_seconds,
-            )
+            try:
+                final_text = await backend.send_message(
+                    message=message,
+                    session_key=session_key,
+                    on_delta=on_delta,
+                    response_timeout_seconds=response_timeout_seconds,
+                )
+            except ChatProtocolError as exc:
+                _stop_status()
+                if shown_prefix:
+                    console.print("")
+                console.print(
+                    f"[red]Protocol error:[/red] "
+                    f"{rich_escape(_sanitize_exception_text(exc))}"
+                )
+                console.print("[dim]Continuing chat session.[/dim]")
+                continue
+            finally:
+                _stop_status()
+
             if shown_prefix:
                 console.print("")
             elif final_text:

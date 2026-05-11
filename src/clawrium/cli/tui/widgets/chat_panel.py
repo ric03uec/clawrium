@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from rich.markup import escape
@@ -20,6 +21,13 @@ from clawrium.core.chat import (
     OpenClawChatClient,
     SecretStr,
 )
+
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _scrub_exception(exc: BaseException, limit: int = 200) -> str:
+    """Strip C0/C1 controls (incl. CR, ANSI) from exception text for safe display."""
+    return _CONTROL_CHARS_RE.sub(" ", str(exc))[:limit]
 
 
 class ChatPanel(Widget):
@@ -176,13 +184,17 @@ class ChatPanel(Widget):
                 self._messages.append(("agent", final_response))
         except ChatProtocolError as exc:
             self._add_system_message(
-                f"Message failed - protocol error: {exc}", "error"
+                f"Message failed - protocol error: {_scrub_exception(exc)}", "error"
             )
         except ChatConnectionError as exc:
-            self._add_system_message(f"Connection lost: {exc}", "error")
+            self._add_system_message(
+                f"Connection lost: {_scrub_exception(exc)}", "error"
+            )
             self._connected = False
         except Exception as exc:
-            self._add_system_message(f"Message failed: {exc}", "error")
+            self._add_system_message(
+                f"Message failed: {_scrub_exception(exc)}", "error"
+            )
 
     def on_unmount(self) -> None:
         if self._client is not None:
