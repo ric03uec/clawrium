@@ -829,7 +829,7 @@ def configure_agent(
                 "DISCORD_BOT_TOKEN"
             )
             discord_token = (
-                discord_secret["value"]
+                discord_secret.get("value")
                 if isinstance(discord_secret, dict)
                 else None
             )
