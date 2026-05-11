@@ -157,9 +157,11 @@ class HermesOpenAIBackend:
                 timeout=response_timeout_seconds,
             ) as response:
                 if response.status_code in (401, 403):
-                    raise ChatAuthenticationError(
-                        f"Hermes rejected bearer token ({response.status_code})"
-                    )
+                    # Drop the raw HTTP status from the exception message —
+                    # the remediation hint at the CLI layer is what the user
+                    # needs, not the wire-level code. (Internal callers can
+                    # still distinguish via the exception type.)
+                    raise ChatAuthenticationError("Hermes rejected bearer token")
                 if response.status_code >= 400:
                     await response.aread()
                     raise ChatProtocolError(
