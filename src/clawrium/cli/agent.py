@@ -1599,12 +1599,36 @@ def configure(
                 continue
 
             if can_skip_stage(claw_type, stage_name):
-                # Print a one-line breadcrumb so the user sees that a stage
-                # was deliberately skipped rather than silently swallowed.
-                console.print(
-                    f"[dim]Stage {i + 1}/{total_stages}: "
-                    f"{stage_name.upper()} — auto-skipped[/dim]"
-                )
+                # Print a one-line breadcrumb so the user sees WHY a stage was
+                # skipped rather than silently swallowed. The reason comes
+                # from the manifest stage's `description` field (set by the
+                # claw author), e.g. "Hermes manages SOUL.md/AGENTS.md
+                # inside ~/.hermes/; clm does not push identity files in
+                # this iteration".
+                from clawrium.core.registry import load_manifest
+
+                skip_reason = ""
+                try:
+                    _manifest = load_manifest(claw_type)
+                    _stage_cfg = (
+                        (_manifest.get("onboarding") or {})
+                        .get("stages", {})
+                        .get(stage_name, {})
+                    )
+                    skip_reason = _stage_cfg.get("description", "") or ""
+                except Exception:
+                    pass
+                if skip_reason:
+                    console.print(
+                        f"[dim]Stage {i + 1}/{total_stages}: "
+                        f"{rich_escape(stage_name.upper())} — auto-skipped "
+                        f"({rich_escape(skip_reason)})[/dim]"
+                    )
+                else:
+                    console.print(
+                        f"[dim]Stage {i + 1}/{total_stages}: "
+                        f"{rich_escape(stage_name.upper())} — auto-skipped[/dim]"
+                    )
                 try:
                     complete_stage(
                         hostname, installed_name, stage_name, StageStatus.SKIPPED
@@ -1718,7 +1742,7 @@ def _show_start_blocked_error(
     completed_count = sum(
         1
         for stage_name in [s[0] for s in STAGES]
-        if stages_data.get(stage_name, {}).get("status") == "complete"
+        if stages_data.get(stage_name, {}).get("status") in ("complete", "skipped")
     )
 
     total_stages = len(STAGES)
