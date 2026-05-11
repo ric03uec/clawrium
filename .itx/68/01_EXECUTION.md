@@ -37,6 +37,45 @@ Implementation notes (research during Phase 2 worktree work):
 - `tests/test_hermes_configure.py` adds `ollama`/custom branch coverage.
 - Phase 2 acceptance criteria (`01_EXECUTION.md` + subtask #313 body) get an additional row: "ollama provider drives `.env` correctly; service comes up; `/v1/models` returns hermes-agent identity using local-inx model".
 
+### Hermes env-var research (pinned before coding, tag v2026.5.7)
+
+Sources read:
+- `gateway/config.py` — only the API_SERVER_* gateway/platform env vars, not provider/model selection.
+- `hermes_cli/config.py` — hermes runtime config layout: TWO files in `~/.hermes/`:
+  - `config.yaml` — `model.provider`, `model.default`, `model.base_url` (the canonical model selection).
+  - `.env` — API keys (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) + platform vars (`API_SERVER_*`).
+- `hermes_cli/runtime_provider.py` — provider resolution precedence:
+  1. explicit `--provider` flag (CLI only, not relevant for daemon)
+  2. `model.provider` in `config.yaml`
+  3. `HERMES_INFERENCE_PROVIDER` env var (read but lower-priority than config.yaml)
+  4. `"auto"` (auto-detect from credentials present in env).
+- `hermes_cli/providers.py` — provider catalogue.
+- `cli-config.yaml.example` — default config.yaml shipped at install time.
+- `plugins/model-providers/custom/__init__.py` — `custom` is the provider that backs local Ollama / vLLM / llama.cpp / any user-OpenAI-compatible URL. The aliases `ollama`, `local`, `vllm`, `llamacpp`, `llama.cpp`, `llama-cpp` all map to `custom`. `env_vars=()` (no fixed key — base_url + optional api_key come from `model.base_url` in `config.yaml`).
+
+Findings:
+
+| Need | Mechanism |
+|------|-----------|
+| Cloud provider selection | `model.provider: openrouter` (or `anthropic`, `openai`, `auto`) in `config.yaml`. Equivalent override `HERMES_INFERENCE_PROVIDER=<name>` in `.env` is honored but lower-precedence than config.yaml. |
+| Model selection | `model.default: <id>` in `config.yaml`. `HERMES_INFERENCE_MODEL` is NOT honored (the env-var fallback in `runtime_provider.py` only looks at `HERMES_INFERENCE_PROVIDER`); plan's mention of `HERMES_INFERENCE_MODEL` was incorrect — model must be in `config.yaml`. |
+| Cloud API key | `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` in `.env` (matches plan). |
+| Custom OpenAI-compatible endpoint (local Ollama, vLLM, etc.) | `model.provider: custom` (alias `ollama` works) + `model.base_url: http://host:port/v1` + `model.default: <model_id>` in `config.yaml`. No required env var. The `custom` provider's `env_vars=()` means hermes does NOT need any API key to call a local endpoint — it sends `Authorization: Bearer ` (empty) which Ollama accepts. |
+| Gateway daemon (local OpenAI-compatible API on 127.0.0.1:8642) | `API_SERVER_ENABLED=1` + `API_SERVER_KEY=<token>` in `.env` (matches plan). Optional `API_SERVER_HOST=127.0.0.1`, `API_SERVER_PORT=8642`. The `/health` endpoint does NOT require the bearer header (verified during Phase 2 E2E; `/v1/*` endpoints DO). |
+
+Decision: Phase 2 renders BOTH files:
+1. `~/.hermes/.env` (mode 0600) — cloud provider API keys + `API_SERVER_*` block. `HERMES_INFERENCE_PROVIDER` ALSO emitted as a redundant safety net (low-priority anyway).
+2. `~/.hermes/config.yaml` (mode 0600) — partial config containing only the `model:` block. Hermes deep-merges this with `DEFAULT_CONFIG` at load time, so omitted top-level keys retain hermes defaults. The installer's previously-written `config.yaml` is safe to overwrite (it was the example template).
+
+Per-provider mapping:
+
+| clm `provider.type` | rendered `model.provider` | rendered `model.base_url` | rendered `.env` key |
+|---------------------|---------------------------|----------------------------|---------------------|
+| `openrouter` | `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| `anthropic` | `anthropic` | (omitted; hermes default) | `ANTHROPIC_API_KEY` |
+| `openai` | `openai` | (omitted; hermes default) | `OPENAI_API_KEY` |
+| `ollama` | `custom` | `<provider.endpoint>/v1` (suffix `/v1` appended if missing) | (none) |
+
 
 
 **Rationale**: Plan (`.itx/68/00_PLAN.md`) explicitly enumerates 5 independent PRs with one strict ordering edge: Phase 1 (installation primitives + manifest schema) must land before any other phase compiles meaningfully. Phase 3 (memory generalization) depends on Phase 1's manifest fields (`workspace.memory_path`, `features.memory`). Phase 2 (configuration), Phase 4 (onboarding metadata), Phase 5 (docs) depend only on Phase 1. Phases 2/3 may run in parallel after Phase 1 lands; phases 4/5 may run in parallel after their respective deps. Splitting reduces review surface (each PR ≤ ~600 LOC) and bounds blast radius — a regression in memory generalization (Phase 3) cannot block hermes lifecycle (Phases 1+2).
@@ -335,5 +374,46 @@ E2E findings worth carrying into Phase 2:
 5. Hermes calls `loginctl enable-linger` on first start, which keeps a per-user systemd manager + dbus running even after we stop the system unit. `userdel` then fails with "user is currently used by process". `remove.yaml` now runs `loginctl disable-linger` + `pkill -KILL -u <user>` before `userdel`.
 
 6. Per-host start/stop via `clm agent <name>` is gated by onboarding state (`pending_onboard`). Phase 1 leaves the agent in PENDING state by design (no `onboarding.stages` declared yet); Phase 2 / Phase 4 unblock the start path. Direct `systemctl start hermes-<name>.service` confirms the documented "service exits immediately, status 1, log says 'Gateway service is not installed'" behavior.
+
+---
+
+**Stage**: execution
+**Skill**: /itx:execute
+**Timestamp**: 2026-05-10T18:30:00Z
+**Model**: claude-opus-4-7
+**Subtask**: #313 (Phase 2)
+**Branch**: `issue-68-phase-2-configuration` (stacked on `issue-68-phase-1-installation`)
+
+```prompt
+/itx:execute 313 (sub-agent invocation)
+```
+
+Implementation outcomes:
+
+1. Hermes uses TWO config files (research finding pinned above): `config.yaml` for `model.provider` / `model.default` / `model.base_url`, and `.env` for API keys + `API_SERVER_*`. Phase 2 renders both. `HERMES_INFERENCE_MODEL` is NOT a recognized env var (the plan mentioned it incorrectly) — model selection happens via `model.default` in `config.yaml` only.
+
+2. `model.provider: custom` with `model.base_url: <endpoint>/v1` drives the local Ollama / vLLM / llama.cpp / any OpenAI-compatible endpoint. clm `provider.type=ollama` maps to it. The hermes `custom` provider has `env_vars=()` so no API key is required for local endpoints.
+
+3. **Phase 1 carryover bug discovered during E2E and fixed in Phase 2**: Phase 1's install.yaml dropped a systemd unit with `ExecStart=... hermes gateway start`, but `hermes gateway start` delegates to a per-user systemd unit installed via `hermes gateway install` (which we don't run). It exits 1 with "Gateway service is not installed". The correct foreground-supervisor command is `hermes gateway run`. Phase 2's `configure.yaml` re-renders the unit with `gateway run` before the restart handler fires. Phase 1's unit file remains as a placeholder until configure runs (which is the expected lifecycle: install → configure → ready). Filing a follow-up suggestion to update Phase 1's `install.yaml` and `start.yaml` to use `gateway run` directly is recommended; tracked in PR description.
+
+4. Configure timeout in `core/lifecycle.py` was 60s — too short for hermes (service restart + 20×3s `/health` retries). Bumped to 240s for `resolved_type == "hermes"`.
+
+5. `lineinfile` in `check_mode` does NOT correctly verify a credential is present — it always reports `changed=true` when the regexp matches a value-bearing line that differs from the placeholder. (This pattern is also broken in openclaw's `configure.yaml`; out-of-scope to fix here.) Phase 2 uses `command: grep -q '^KEY='` instead, which gives a clean rc=0/1 contract.
+
+6. `/health` endpoint on the hermes API server is **unauthenticated** (verified during E2E: `curl http://127.0.0.1:8642/health` returns 200 without bearer header). `/v1/*` endpoints DO require `Authorization: Bearer $API_SERVER_KEY`.
+
+7. `API_SERVER_KEY` generation moved to `core/install.py` (not `core/lifecycle.py::configure_agent` as one reading of the plan suggested). This mirrors openclaw's gateway-token pattern: install generates the secret, persists it in `hosts.json`, and configure reuses it. Idempotency comes from re-using the persisted key when an existing 64-char hex value is found in the agent record at install time (covers re-install scenarios) and from `configure_agent` hydrating from `hosts.json` on every reconfigure.
+
+E2E results on wolf-i (192.168.1.36) against `local-inx` provider (Ollama @ 192.168.1.17:11434, model `qwen3-coder:30b-128k`):
+
+- `clm agent install --type hermes --host wolf-i --name hermes-test` succeeded; `API_SERVER_KEY` persisted in `hosts.json`.
+- `clm agent configure hermes-test --stage providers` (with `local-inx` selected) succeeded; service active+running.
+- `~/.hermes/.env` rendered 0600, contains `API_SERVER_KEY` + `HERMES_INFERENCE_PROVIDER=custom`.
+- `~/.hermes/config.yaml` rendered 0600 with `model: {provider: custom, base_url: http://192.168.1.17:11434/v1, default: qwen3-coder:30b-128k}`.
+- `curl http://127.0.0.1:8642/health` → `{"status": "ok", "platform": "hermes-agent"}` (200, no auth).
+- `curl http://127.0.0.1:8642/v1/models -H "Authorization: Bearer ..."` → `[{"id": "hermes-agent", ...}]`.
+- `curl -X POST http://127.0.0.1:8642/v1/chat/completions -H "Authorization: Bearer ..." -d '{"model":"hermes-agent","messages":[{"role":"user","content":"Say only the word OK and nothing else."}],"max_tokens":16}'` → `{"choices":[{"message":{"role":"assistant","content":"OK"}}], ...}`. Full hermes-via-clm-via-ollama-via-DGX-Spark roundtrip works.
+- Reconfigure with `local-inx.default_model` rotated to `gpt-oss:20b-128k` succeeded; `API_SERVER_KEY` byte-identical across reconfigures (idempotency contract verified); `model.default` rotated; service still active.
+- `clm agent remove hermes-test --force` cleaned up: user removed, `~/.hermes/` deleted, systemd unit removed, `~/.local/bin/hermes` symlink removed, `hosts.json` agent record (with `api_server.key`) removed.
 
 </details>

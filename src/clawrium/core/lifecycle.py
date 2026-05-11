@@ -726,6 +726,50 @@ def configure_agent(
     # Use inner agent_name (Unix username) if available, otherwise fall back to dict key
     unix_agent_name = agent_record.get("agent_name") or agent_key
 
+    # Hermes: hydrate the persisted api_server block (non-sensitive shape from
+    # hosts.json) PLUS the bearer token from secrets.json into config_data so
+    # the configure playbook can render API_SERVER_KEY into ~/.hermes/.env.
+    # Reconfigure flows reuse the persisted token verbatim (idempotency
+    # contract — clients reading the gateway don't see rotation).
+    if resolved_type == "hermes":
+        from clawrium.core.install import _is_valid_hermes_api_server_key
+
+        persisted_api_server = agent_record.get("config", {}).get("api_server")
+        # Use canonical hostname (host['hostname']) instead of the raw hostname
+        # parameter so the lookup matches install.py's instance_key even when
+        # callers pass an alias. CLI paths today always resolve canonical, but
+        # programmatic callers may not.
+        instance_key = get_instance_key(
+            host["hostname"], resolved_type, unix_agent_name
+        )
+        secret_entry = get_instance_secrets(instance_key).get("HERMES_API_SERVER_KEY")
+        api_server_key = secret_entry["value"] if secret_entry else None
+
+        if not _is_valid_hermes_api_server_key(api_server_key):
+            return (
+                False,
+                "Hermes agent missing or invalid HERMES_API_SERVER_KEY in "
+                "secrets.json (expected 64-char lowercase hex). "
+                "Re-run 'clm agent install --type hermes ...' to generate one.",
+            )
+
+        if isinstance(persisted_api_server, dict):
+            existing_api_server = config_data.get("api_server") or {}
+            if not isinstance(existing_api_server, dict):
+                existing_api_server = {}
+            merged_api_server = {**existing_api_server, **persisted_api_server}
+            merged_api_server["key"] = api_server_key
+            config_data["api_server"] = merged_api_server
+        else:
+            # hosts.json shape missing (legacy/corrupted); reconstruct defaults
+            # alongside the token from secrets.json so the playbook can run.
+            config_data["api_server"] = {
+                "enabled": True,
+                "host": "127.0.0.1",
+                "port": 8642,
+                "key": api_server_key,
+            }
+
     # Validate config data before running Ansible
     # Validate required provider fields (must check dict type first)
     required_provider_fields = ["name", "type", "default_model"]
@@ -923,13 +967,18 @@ def configure_agent(
 
     emit("configure", "Running Ansible playbook...")
 
+    # Hermes' configure flow restarts the service and probes /health with up
+    # to 20×3s retries (60s) — leave generous headroom for slow first-startup
+    # path that loads the agent venv. Other claws keep the legacy 60s budget.
+    configure_timeout = 240 if resolved_type == "hermes" else 60
+
     try:
         result = ansible_runner.run(
             private_data_dir=str(operation_log_dir),
             inventory=inventory,
             playbook=str(playbook_path),
             quiet=True,
-            timeout=60,
+            timeout=configure_timeout,
         )
 
         if result.status == "timeout":
@@ -964,7 +1013,18 @@ def configure_agent(
             existing_gateway = existing_config.get("gateway", {})
             device_creds = existing_gateway.get("device")
 
-            h["agents"][agent_key]["config"] = config_data
+            # Strip the hermes bearer token before persisting to hosts.json.
+            # The token was hydrated into config_data['api_server']['key']
+            # earlier in this call (line ~752) so the ansible playbook could
+            # render it, but the canonical store is secrets.json. Keeping it
+            # in hosts.json after configure would defeat the B3 migration.
+            persisted_config = dict(config_data)
+            if resolved_type == "hermes" and "api_server" in persisted_config:
+                api_server_persisted = dict(persisted_config["api_server"])
+                api_server_persisted.pop("key", None)
+                persisted_config["api_server"] = api_server_persisted
+
+            h["agents"][agent_key]["config"] = persisted_config
 
             # Restore device credentials if they existed
             if device_creds:
