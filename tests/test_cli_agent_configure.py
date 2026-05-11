@@ -2769,6 +2769,117 @@ class TestRunChannelsStageHermesDiscord:
             )
         assert result is False
 
+    def test_hermes_discord_rejects_user_id_boundaries(
+        self, isolated_config: Path
+    ):
+        """User IDs outside the 17-19 digit range are rejected before any
+        secret is stored. Tests both ends of the boundary plus a shell-meta
+        injection attempt."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        for bad_id in [
+            "1234567890123456",  # 16 digits — too short
+            "12345678901234567890",  # 20 digits — too long
+            "1234567890123456789;rm -rf /",  # shell metachar injection
+            "[bold red]inject[/bold red]",  # rich markup injection
+        ]:
+            with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+                mock_p.side_effect = [
+                    2,  # discord
+                    self._valid_token(),
+                    bad_id,
+                ]
+                result = _run_channels_stage(
+                    "192.168.1.100", "hermes", False, "assistant"
+                )
+            assert result is False, f"accepted invalid user ID: {bad_id!r}"
+
+    def test_hermes_discord_rejects_home_channel_id_boundaries(
+        self, isolated_config: Path
+    ):
+        """Home channel ID outside 17-19 digits is rejected."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        for bad_id in [
+            "1234567890123456",  # 16 digits
+            "12345678901234567890",  # 20 digits
+            "1234567890123456789;evil",
+        ]:
+            with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+                mock_p.side_effect = [
+                    2,
+                    self._valid_token(),
+                    "740723459344302120",
+                    bad_id,  # invalid home channel
+                ]
+                result = _run_channels_stage(
+                    "192.168.1.100", "hermes", False, "assistant"
+                )
+            assert result is False, f"accepted invalid home channel: {bad_id!r}"
+
+    def test_hermes_discord_rejects_allowed_channels_boundaries(
+        self, isolated_config: Path
+    ):
+        """Any malformed allowed_channels entry rejects the whole list."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                2,
+                self._valid_token(),
+                "740723459344302120",
+                "1503238729962356777",  # home channel
+                "Home",
+                # Mix of valid + invalid — the invalid entry must reject.
+                "1503238729962356777,not-a-channel",
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+        assert result is False
+
     def test_openclaw_discord_still_uses_guilds_shape(
         self, isolated_config: Path
     ):

@@ -1073,15 +1073,28 @@ def configure_agent(
                 # B3 invariant for Discord: bot_token lives in secrets.json
                 # only. Mirror the api_server.key strip so re-persisting
                 # config_data doesn't leak the token back into hosts.json.
+                # Defense in depth: if channels is an unexpected type, drop
+                # it entirely rather than risk leaking a misplaced token.
                 channels_persisted = persisted_config.get("channels")
-                if isinstance(channels_persisted, dict):
-                    channels_persisted = dict(channels_persisted)
-                    discord_persisted = channels_persisted.get("discord")
-                    if isinstance(discord_persisted, dict):
-                        discord_persisted = dict(discord_persisted)
-                        discord_persisted.pop("bot_token", None)
-                        channels_persisted["discord"] = discord_persisted
-                    persisted_config["channels"] = channels_persisted
+                if "channels" in persisted_config:
+                    if isinstance(channels_persisted, dict):
+                        channels_persisted = dict(channels_persisted)
+                        discord_persisted = channels_persisted.get("discord")
+                        if isinstance(discord_persisted, dict):
+                            discord_persisted = dict(discord_persisted)
+                            discord_persisted.pop("bot_token", None)
+                            channels_persisted["discord"] = discord_persisted
+                        persisted_config["channels"] = channels_persisted
+                    else:
+                        # Unexpected shape (string/list/etc.) — drop rather
+                        # than risk persisting a token via an unknown path.
+                        logger.warning(
+                            "Dropping unexpected channels block (type=%s) for "
+                            "agent %s during persist to avoid B3 violation.",
+                            type(channels_persisted).__name__,
+                            agent_key,
+                        )
+                        persisted_config.pop("channels", None)
 
             h["agents"][agent_key]["config"] = persisted_config
 

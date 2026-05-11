@@ -787,7 +787,7 @@ def _run_channels_stage(
                 for uid in ids:
                     if not re.match(r"^\d{17,19}$", uid):
                         console.print(
-                            f"[red]Error:[/red] Invalid user ID '{uid}' (17-19 digits required)"
+                            f"[red]Error:[/red] Invalid user ID '{rich_escape(uid)}' (17-19 digits required)"
                         )
                         return False
                 allowed_users = ids
@@ -837,7 +837,7 @@ def _run_channels_stage(
                 ):
                     if not re.match(r"^\d{17,19}$", cid):
                         console.print(
-                            f"[red]Error:[/red] Invalid channel ID '{cid}' (17-19 digits required)"
+                            f"[red]Error:[/red] Invalid channel ID '{rich_escape(cid)}' (17-19 digits required)"
                         )
                         return False
                     allowed_channels.append(cid)
