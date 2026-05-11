@@ -14,6 +14,7 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 
 | Agent | Description | Status |
 |-------|-------------|--------|
+| **[Hermes](hermes.md)** | Nous Research self-improving agent — local OpenAI-compatible HTTP API, file-based memory | 🚧 In Development |
 | **[ZeroClaw](zeroclaw.md)** | Minimal CLI-only agent for simple automation | 🚧 In Development |
 
 ## Legend
@@ -23,28 +24,41 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 | ✅ | Fully supported and tested |
 | 🚧 | In development / Planned |
 | ❌ | Not supported |
-| 📋 | Not planned (PRs welcome) |
+| 📋 | Not planned / Deferred (PRs welcome) |
 
 ## Quick Comparison
 
-| Feature | OpenClaw | ZeroClaw |
-|---------|:--------:|:--------:|
-| **Multi-Provider** | ✅ | 🚧 |
-| **CLI Channel** | ✅ | 🚧 |
-| **Discord** | ✅ | ❌ |
-| **Custom Identity** | ✅ (SOUL.md) | ❌ |
-| **Integrations** | 🚧 | ❌ |
-| **Onboarding Wizard** | ✅ | 🚧 |
+| Aspect | OpenClaw | Hermes | ZeroClaw |
+|--------|:--------:|:------:|:--------:|
+| **Status** | ✅ Production Ready | 🚧 In Development | 🚧 In Development |
+| **Transport** | Native daemon | Local OpenAI-compatible HTTP API (`127.0.0.1:8642`) | CLI process |
+| **`clm chat <name>` support** | ✅ | 🚧 ([#322](https://github.com/ric03uec/clawrium/issues/322)) | 🚧 |
+| **Multi-Provider** | ✅ (OpenAI, Anthropic, OpenRouter, Bedrock, Vertex, ZAI, Ollama) | ✅ (OpenRouter, Anthropic, OpenAI, Ollama / custom) | 🚧 (OpenAI, Anthropic, Ollama planned) |
+| **Memory model** | Daily files + identity files | Two fixed files: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars) | ❌ |
+| **Identity management** | clm-managed `SOUL.md` / `IDENTITY.md` | Hermes-managed inside `~/.hermes/` (clm does not push) | ❌ |
+| **Messaging gateways** | Discord ✅, Slack 🚧, Web 🚧 | 📋 All deferred (Discord/Slack/Telegram/WhatsApp/Signal/email/...) | ❌ |
+| **External integrations** | GitHub 🚧, Jira 🚧 | 📋 Deferred | ❌ |
+| **Onboarding wizard** | ✅ 4-stage | ✅ 4-stage (identity auto-skipped) | 🚧 2-stage |
+| **Resource usage** | Moderate | Moderate-to-high (uv venv + npm + playwright) | Low |
 
 ## Choosing an Agent
 
 **Use OpenClaw when:**
-- You need Discord or multi-channel support
-- You want customizable identity/personality
+
+- You need Discord, Slack, or multi-channel support
+- You want clm-managed customizable identity/personality
 - You need integrations with external tools
-- You want a full-featured assistant
+- You want a fully production-ready experience today
+
+**Use Hermes when:**
+
+- You want a local OpenAI-compatible HTTP API in front of your model
+- You want a self-managed-identity agent (hermes manages its own `SOUL.md` / `AGENTS.md`)
+- You're driving a local inference endpoint (Ollama, vLLM, llama.cpp) and want hermes to wrap it
+- You only need loopback access — `clm chat` and external gateways aren't required yet
 
 **Use ZeroClaw when:**
+
 - You only need CLI interaction
 - You want minimal resource usage
 - You need quick automation scripts
