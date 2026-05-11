@@ -385,11 +385,97 @@ def test_history_caps_at_max_turns():
     finally:
         _run(backend.close())
 
+    # In-memory state is bounded.
     assert len(backend._history) == MAX_HISTORY_TURNS * 2
     assert backend._history[0]["role"] == "user"
     assert backend._history[1]["role"] == "assistant"
     # Oldest preserved turn is u5 (first 5 turns dropped).
     assert backend._history[0]["content"] == "u5"
+
+    # Wire payload size is bounded too — the request body must never exceed
+    # the cap (prior history) + 1 new user message. The overshoot is exactly
+    # 1 message because truncation runs *after* the request is sent; that
+    # transient overshoot is the documented behavior.
+    for i, msgs in enumerate(captured_bodies):
+        assert len(msgs) <= MAX_HISTORY_TURNS * 2 + 1, (
+            f"turn {i} sent {len(msgs)} messages, exceeds cap+1"
+        )
+
+    # Turn 101 (index 100) is the first call where the cap matters: history
+    # is full (200 entries) and the new user message makes 201 on the wire.
+    assert len(captured_bodies[100]) == MAX_HISTORY_TURNS * 2 + 1
+    # Subsequent turns hold steady at the cap+1 size — they don't grow.
+    assert len(captured_bodies[104]) == MAX_HISTORY_TURNS * 2 + 1
+
+
+def test_truncation_notifies_via_last_send_dropped_turns():
+    """The REPL polls last_send_dropped_turns after each call; the backend
+    must report the number of turns it just trimmed, and reset to 0 on the
+    next clean call."""
+    from clawrium.core.chat_hermes import MAX_HISTORY_TURNS
+
+    n = {"i": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        n["i"] += 1
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": f"r{n['i']}"}}]},
+        )
+
+    backend = _build_backend(httpx.MockTransport(handler))
+    try:
+        for i in range(MAX_HISTORY_TURNS):
+            _run(backend.send_message(f"u{i}"))
+            assert backend.last_send_dropped_turns == 0, (
+                f"turn {i} should not have dropped anything"
+            )
+        # Turn 101: history full → exactly 1 pair dropped.
+        _run(backend.send_message("u100"))
+        assert backend.last_send_dropped_turns == 1
+        # Turn 102: still 1 pair dropped per turn.
+        _run(backend.send_message("u101"))
+        assert backend.last_send_dropped_turns == 1
+        # clear_history() resets the counter too.
+        backend.clear_history()
+        assert backend.last_send_dropped_turns == 0
+        _run(backend.send_message("u-fresh"))
+        assert backend.last_send_dropped_turns == 0
+    finally:
+        _run(backend.close())
+
+
+def test_on_delta_failure_does_not_pollute_history():
+    """If on_delta raises (e.g. broken pipe, TUI disconnect), history must
+    remain untouched so the next request does not carry a phantom turn."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "would-be-reply"}}]},
+        )
+
+    backend = _build_backend(httpx.MockTransport(handler))
+
+    def boom(_text: str) -> None:
+        raise RuntimeError("broken pipe")
+
+    try:
+        # First turn succeeds and commits history.
+        _run(backend.send_message("hello"))
+        pre_failure_history = list(backend._history)
+        assert len(pre_failure_history) == 2
+
+        # Second turn: on_delta raises. The reply was received but we must
+        # not commit the turn — otherwise a retry duplicates it server-side.
+        with pytest.raises(RuntimeError, match="broken pipe"):
+            _run(backend.send_message("second", on_delta=boom))
+
+        assert backend._history == pre_failure_history, (
+            "history was mutated despite on_delta failure"
+        )
+    finally:
+        _run(backend.close())
 
 
 def test_connect_is_idempotent():

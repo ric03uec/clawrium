@@ -165,6 +165,7 @@ def chat(
                 session_key=session,
                 response_timeout_seconds=timeout,
                 idle_timeout_seconds=idle_timeout,
+                chat_type=chat_type,
             )
         )
     except ChatAuthenticationError as exc:
@@ -192,9 +193,12 @@ async def _chat_loop(
     session_key: str,
     response_timeout_seconds: float,
     idle_timeout_seconds: float,
+    chat_type: str = "websocket",
 ) -> None:
     with console.status("Connecting to agent...", spinner="dots"):
         await backend.connect()
+
+    history_capable = chat_type == "openai"
 
     try:
         while True:
@@ -219,8 +223,14 @@ async def _chat_loop(
                 console.print("[dim]Bye.[/dim]")
                 break
             if message == "/reset":
-                backend.clear_history()
-                console.print("[dim]Conversation history cleared.[/dim]")
+                if history_capable:
+                    backend.clear_history()
+                    console.print("[dim]Conversation history cleared.[/dim]")
+                else:
+                    console.print(
+                        "[yellow]/reset is a no-op for this agent type "
+                        "(the gateway owns session state).[/yellow]"
+                    )
                 continue
 
             shown_prefix = False
@@ -244,6 +254,18 @@ async def _chat_loop(
                 console.print(f"agent> {final_text}", markup=False, highlight=False)
             else:
                 console.print("agent> [no response]", markup=False, highlight=False)
+
+            # Surface a user-visible notice when the backend silently trimmed
+            # the conversation history to stay under MAX_HISTORY_TURNS. Only
+            # backends with client-side history expose this attribute.
+            dropped = getattr(backend, "last_send_dropped_turns", 0)
+            if dropped:
+                console.print(
+                    f"[yellow]Note: dropped {dropped} oldest "
+                    f"{'turn' if dropped == 1 else 'turns'} from history "
+                    f"to stay under the conversation cap. "
+                    f"Use /reset to start fresh.[/yellow]"
+                )
     finally:
         await backend.close()
 
@@ -445,8 +467,23 @@ def _validate_session_key(session_key: str) -> None:
 def _sanitize_exception_text(exc: Exception, max_len: int = 500) -> str:
     cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(exc))
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    # First pass: redact `<scheme> <value>` header forms like
+    # `Authorization: Bearer abc-123` and the shorthand `bearer abc-123`.
+    # Without this pass, the generic regex below stops after consuming
+    # `Bearer` as the "value" and leaves `abc-123` in the clear.
     cleaned = re.sub(
-        r"(?i)\b(token|auth|password|key|bearer|secret|apikey|authorization)\b\s*[:=]\s*([^\s,;]+)",
+        r"(?i)\b(bearer|basic|digest)\s+([^\s,;]+)",
+        r"\1 ***",
+        cleaned,
+    )
+    # Second pass: match keywords that appear *anywhere* inside an identifier
+    # (so e.g. `HERMES_API_SERVER_KEY` matches via `KEY`, `api_key` via
+    # `key`, `BearerToken` via both `bearer` and `token`). The separator is
+    # restricted to `:` or `=` here — a bare-space separator would false-
+    # positive on prose like "no secrets here"; bearer/basic/digest header
+    # forms with a space separator are handled by the first pass above.
+    cleaned = re.sub(
+        r"(?i)\b([A-Za-z0-9_]*(?:token|auth|password|key|bearer|secret|apikey|authorization)[A-Za-z0-9_]*)\s*[:=]\s*([^\s,;]+)",
         r"\1=***",
         cleaned,
     )

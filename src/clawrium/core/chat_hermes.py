@@ -23,9 +23,11 @@ __all__ = ["HermesOpenAIBackend"]
 
 # Cap accumulated turns to bound memory and per-request payload size on long
 # sessions. Each "turn" is a user+assistant pair (2 history entries); 100 turns
-# ≈ 200 entries. Hit-once warning is emitted via `on_delta`-like console hook
-# from the CLI layer is unnecessary — truncation is silent at the backend; the
-# REPL is the right place for any user-facing notice.
+# ≈ 200 entries. When the cap is exceeded the oldest pair is dropped to keep
+# the wire format aligned. The number of *pairs* dropped during the most
+# recent send_message is exposed via `last_send_dropped_turns` so the REPL
+# layer can surface a user-visible notice (the backend itself stays quiet —
+# UI concerns belong in the CLI).
 MAX_HISTORY_TURNS = 100
 
 
@@ -58,10 +60,16 @@ class HermesOpenAIBackend:
         self._timeout_seconds = timeout_seconds
         self._client: httpx.AsyncClient | None = None
         self._history: list[dict[str, str]] = []
+        # Number of full (user, assistant) pairs dropped by the most recent
+        # send_message call due to the MAX_HISTORY_TURNS cap. Reset to 0 at
+        # the start of every send_message. The REPL reads this after each
+        # turn to print a one-line truncation notice.
+        self.last_send_dropped_turns: int = 0
 
     def clear_history(self) -> None:
         """Drop accumulated turns so the next send_message starts fresh."""
         self._history.clear()
+        self.last_send_dropped_turns = 0
 
     async def connect(self) -> None:
         """Open the underlying HTTP client.
@@ -93,14 +101,15 @@ class HermesOpenAIBackend:
         The running `self._history` (prior user+assistant turns) is sent with
         each request so hermes can resolve back-references like "double that".
         On a successful reply the user message and assistant reply are both
-        appended; on any failure neither is appended so a retry sees the same
-        state the failed call started from.
+        appended; on any failure (HTTP error, transport error, or an
+        `on_delta` callback that raises) neither is appended so a retry sees
+        the same state the failed call started from.
 
-        Ordering contract: `_history` is mutated *before* `on_delta` is
-        invoked. If `on_delta` raises (e.g. broken pipe), the turn is already
-        committed to history — callers must NOT retry on the same backend
-        instance without first calling `clear_history()` or dropping the last
-        pair, otherwise the next request will duplicate the turn server-side.
+        Ordering contract: `on_delta(text)` is invoked **before** `_history`
+        is mutated. This means a broken-pipe / TUI-disconnect inside the
+        callback aborts the turn cleanly — no "ghost half-turn" inflates the
+        wire payload of every subsequent request. This matters for Phase 3
+        streaming where `on_delta` is called many times mid-response.
 
         Does not stream. `session_key` is accepted for signature parity with
         the openclaw backend; it is ignored for OpenAI-typed agents (Slice 4
@@ -112,6 +121,7 @@ class HermesOpenAIBackend:
         if self._client is None:
             raise ChatConnectionError("Hermes chat backend not connected")
 
+        self.last_send_dropped_turns = 0
         outgoing_messages = self._history + [{"role": "user", "content": message}]
         body: dict[str, Any] = {
             "model": self._model,
@@ -166,16 +176,21 @@ class HermesOpenAIBackend:
                 "Hermes response missing assistant content"
             )
 
-        self._history.append({"role": "user", "content": message})
-        self._history.append({"role": "assistant", "content": text})
-        # Truncate oldest turns once we exceed the cap. Keep entries aligned to
-        # user/assistant pairs so the wire format never starts mid-pair.
-        max_entries = MAX_HISTORY_TURNS * 2
-        if len(self._history) > max_entries:
-            del self._history[: len(self._history) - max_entries]
-
+        # Render first — if on_delta raises (broken pipe / TUI disconnect),
+        # the turn is aborted before history is touched so the next request
+        # does not carry a phantom user+assistant pair.
         if on_delta is not None:
             on_delta(text)
+
+        self._history.append({"role": "user", "content": message})
+        self._history.append({"role": "assistant", "content": text})
+        # Truncate oldest turns once we exceed the cap. Keep entries aligned
+        # to user/assistant pairs so the wire format never starts mid-pair.
+        max_entries = MAX_HISTORY_TURNS * 2
+        if len(self._history) > max_entries:
+            overflow = len(self._history) - max_entries
+            del self._history[:overflow]
+            self.last_send_dropped_turns = overflow // 2
         return text
 
 
