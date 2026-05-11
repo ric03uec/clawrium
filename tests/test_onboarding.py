@@ -362,18 +362,60 @@ class TestUpdateStageMetadata:
         transition_state("server1", "openclaw", OnboardingState.CHANNELS)
         transition_state("server1", "openclaw", OnboardingState.VALIDATE)
 
+        from clawrium.core.hosts import get_host
+
+        before = get_host("server1")["agents"]["openclaw"]["onboarding"]["stages"][
+            "providers"
+        ]
+        original_completed_at = before["completed_at"]
+        original_status = before["status"]
+
         # Re-configuring providers from VALIDATE state must not raise
         result = update_stage_metadata(
             "server1", "openclaw", "providers", {"provider_id": "new"}
         )
         assert result is True
 
-        from clawrium.core.hosts import get_host
-
         stage = get_host("server1")["agents"]["openclaw"]["onboarding"]["stages"][
             "providers"
         ]
+        # Metadata updated, but the state-machine invariants are preserved
         assert stage["provider_id"] == "new"
+        assert stage["status"] == original_status
+        assert stage["status"] == "complete"
+        assert stage["completed_at"] == original_completed_at
+
+    def test_rejects_reserved_keys(self, host_with_onboarding):
+        """Patching status/completed_at via metadata is rejected (use complete_stage)."""
+        complete_stage(
+            "server1",
+            "openclaw",
+            "providers",
+            StageStatus.COMPLETE,
+            {"provider_id": "x"},
+        )
+        with pytest.raises(ValueError) as exc:
+            update_stage_metadata(
+                "server1", "openclaw", "providers", {"status": "pending"}
+            )
+        assert "reserved" in str(exc.value).lower()
+
+        with pytest.raises(ValueError) as exc:
+            update_stage_metadata(
+                "server1", "openclaw", "providers", {"completed_at": "1970-01-01"}
+            )
+        assert "reserved" in str(exc.value).lower()
+
+    def test_rejects_non_complete_stage(self, host_with_onboarding):
+        """Refuses to patch metadata on a stage whose status is not 'complete'."""
+        # providers stage is still 'pending' in host_with_onboarding fixture
+        from clawrium.core.onboarding import InvalidTransitionError
+
+        with pytest.raises(InvalidTransitionError) as exc:
+            update_stage_metadata(
+                "server1", "openclaw", "providers", {"provider_id": "x"}
+            )
+        assert "complete" in str(exc.value).lower()
 
     def test_invalid_stage_raises(self, host_with_onboarding):
         """Rejects unknown stage names."""
