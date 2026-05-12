@@ -19,15 +19,43 @@
         msg: "OpenClaw service not installed. Run 'clm agent install' first."
       when: not service_file.stat.exists
 
+    - name: Check per-agent openclaw binary
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/.openclaw/bin/openclaw"
+      register: openclaw_per_agent_stat
+
     - name: Discover openclaw binary in PATH
       ansible.builtin.command: which openclaw
       register: openclaw_which_result
       changed_when: false
       failed_when: false
 
-    - name: Set openclaw binary path
+    # W2: a zero-byte or non-executable per-agent file (e.g. crashed mid-flight
+    # install artifact) must NOT be accepted as a working binary — otherwise the
+    # service enters an infinite Restart=always crash-loop.
+    - name: Resolve openclaw binary (per-agent preferred, PATH fallback)
       ansible.builtin.set_fact:
-        openclaw_runtime_binary: "{{ openclaw_which_result.stdout if (openclaw_which_result.rc | default(1)) == 0 else '/home/' ~ agent_name ~ '/.openclaw/bin/openclaw' }}"
+        openclaw_runtime_binary: >-
+          {{ ('/home/' ~ agent_name ~ '/.openclaw/bin/openclaw')
+             if (openclaw_per_agent_stat.stat.exists
+                 and openclaw_per_agent_stat.stat.executable | default(false)
+                 and (openclaw_per_agent_stat.stat.size | default(0)) > 0)
+             else (openclaw_which_result.stdout
+                   if (openclaw_which_result.rc | default(1)) == 0
+                   else ('/home/' ~ agent_name ~ '/.openclaw/bin/openclaw')) }}
+
+    # Validator runs on the RESOLVED variable (the same one written to
+    # ExecStart), not on the raw `which` result. This closes the gap where a
+    # bad per-agent binary gets rejected by W2 but the PATH fallback then
+    # bypasses validation. Per-agent /home/... trivially passes.
+    - name: Validate resolved binary path
+      ansible.builtin.fail:
+        msg: "Resolved openclaw binary at unsafe path: {{ openclaw_runtime_binary }}. Expected under /usr/local/bin/, /usr/bin/, or /home/."
+      when: >
+        (openclaw_runtime_binary | length) > 0 and
+        not (openclaw_runtime_binary.startswith('/usr/local/bin/') or
+             openclaw_runtime_binary.startswith('/usr/bin/') or
+             openclaw_runtime_binary.startswith('/home/'))
 
     - name: Sync systemd service file
       ansible.builtin.copy:
@@ -51,8 +79,17 @@
         mode: "0644"
       register: service_file_changed
 
-    - name: Reload systemd if service file changed
+    # B3 + W3: bundle daemon_reload with the restart so `systemctl restart`
+    # cannot fire against stale unit content if the prior reload step is
+    # reordered or removed. `enabled: yes` (W1) closes the boot-time window
+    # between `state: restarted` and the later `state: started, enabled: yes`
+    # task — otherwise a reboot mid-install would leave the service running
+    # but not registered for boot.
+    - name: Restart openclaw service if unit file changed
       ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        state: restarted
+        enabled: yes
         daemon_reload: yes
       when: service_file_changed.changed
 
@@ -61,7 +98,6 @@
         name: "{{ agent_type }}-{{ agent_name }}"
         state: started
         enabled: yes
-        daemon_reload: yes
       register: start_result
 
     - name: Wait for service to be active

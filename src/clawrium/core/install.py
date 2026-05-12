@@ -34,7 +34,7 @@ import ansible_runner
 from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import get_host, update_host
 from clawrium.core.keys import get_host_private_key
-from clawrium.core.lifecycle import _resolve_agent_type
+from clawrium.core.lifecycle import _cleanup_ansible_artifacts, _resolve_agent_type
 from clawrium.core.names import (
     generate_random_name,
     is_name_available_on_host,
@@ -375,6 +375,12 @@ def run_installation(
     preserved_onboarding = [
         None
     ]  # Capture onboarding to restore after ansible succeeds
+    # #305: capture gateway config (auth token, device credentials, url, port)
+    # before set_installing() wipes the agent record. On the skip path the
+    # playbook intentionally does NOT re-emit these facts, so set_installed()
+    # has nothing to write back — without this capture the credentials would
+    # silently disappear on every clean re-install at the same version.
+    preserved_gateway = [None]
 
     def set_installing(h: dict) -> dict:
         # Check for incomplete installation under lock (unless cleanup or resume)
@@ -423,6 +429,14 @@ def run_installation(
         if resume:
             if chosen_name[0] not in h["agents"]:
                 raise InstallationError("Cannot resume: agent was removed")
+            # Resume path does NOT wipe the record (only fields are reassigned),
+            # but the skip-path warning still reads from `preserved_gateway`.
+            # Capture here too so resume+skip+existing-creds doesn't falsely
+            # warn "credentials missing" (Round 2 W1).
+            if claw_name == "openclaw":
+                preserved_gateway[0] = (
+                    h["agents"][chosen_name[0]].get("config", {}).get("gateway")
+                )
             h["agents"][chosen_name[0]]["status"] = "installing"
             h["agents"][chosen_name[0]]["error"] = None
             h["agents"][chosen_name[0]]["version"] = matched_version  # Update version
@@ -433,6 +447,16 @@ def run_installation(
             # UNLESS cleanup_failed=True, then we force a fresh install
             if chosen_name[0] in h.get("agents", {}) and not cleanup_failed:
                 preserved_onboarding[0] = h["agents"][chosen_name[0]].get("onboarding")
+                # Round 2 W4: scope to openclaw — the restore branch in
+                # set_installed() is the only consumer and is openclaw-specific.
+                # Other agent types may have unrelated `config.gateway` shapes
+                # that should NOT be restored under this code path.
+                if claw_name == "openclaw":
+                    preserved_gateway[0] = (
+                        h["agents"][chosen_name[0]]
+                        .get("config", {})
+                        .get("gateway")
+                    )
 
             h["agents"][chosen_name[0]] = {
                 "type": claw_name,
@@ -772,20 +796,14 @@ def run_installation(
         if claw_name == "openclaw":
             if install_skipped:
                 # Skip path: playbook intentionally did not emit credential facts
-                # (template-write + pairing block were gated). Verify that the
-                # existing hosts.json record actually has the credentials before
-                # going silent — otherwise surface a warning so corrupt state is
-                # visible.
-                existing_host = get_host(hostname)
-                existing_gateway = (
-                    (existing_host or {})
-                    .get("agents", {})
-                    .get(agent_name, {})
-                    .get("config", {})
-                    .get("gateway", {})
-                )
+                # (template-write + pairing block were gated). Read from the
+                # in-memory `preserved_gateway` snapshot captured before
+                # set_installing() wiped the agent record — reading the host
+                # record here would always observe the wiped state and falsely
+                # report "credentials missing" on every clean re-install.
+                preserved = preserved_gateway[0] or {}
                 has_existing_creds = bool(
-                    existing_gateway.get("auth") and existing_gateway.get("device")
+                    preserved.get("auth") and preserved.get("device")
                 )
                 if has_existing_creds:
                     emit("claw", "Reusing existing gateway credentials (skip path)")
@@ -820,6 +838,23 @@ def run_installation(
                 # This is done AFTER ansible succeeds to prevent corrupted state
                 if preserved_onboarding[0]:
                     h["agents"][agent_name]["onboarding"] = preserved_onboarding[0]
+
+                # #305: on the skip path the playbook does not re-emit gateway
+                # facts (template-write + pairing block are gated). Restore the
+                # gateway config we captured in set_installing() so re-running
+                # `clm agent install` at the same version does not silently drop
+                # the agent's auth token + device credentials. Scoped to
+                # openclaw (Round 2 W4) — other agent types do not store
+                # gateway credentials in this shape.
+                if (
+                    claw_name == "openclaw"
+                    and install_skipped
+                    and preserved_gateway[0]
+                    and not gateway_token
+                ):
+                    if "config" not in h["agents"][agent_name]:
+                        h["agents"][agent_name]["config"] = {}
+                    h["agents"][agent_name]["config"]["gateway"] = preserved_gateway[0]
 
                 # Store gateway authentication (OpenClaw only)
                 if gateway_token and gateway_url:
@@ -920,3 +955,14 @@ def run_installation(
 
         # Re-raise the exception
         raise
+    finally:
+        # CWE-312: ansible-runner caches the gateway token, device token, and
+        # device private key under `artifacts/<uuid>/fact_cache/<hostname>`
+        # via `cacheable: true` on the Save-all-credentials task. Without this
+        # cleanup the secrets persist on disk indefinitely. Mirrors the
+        # pattern in lifecycle.py's `_run_lifecycle_playbook`. The two child
+        # dirs are deterministic and `_cleanup_ansible_artifacts` guards
+        # internally with `.exists()`, so it's a safe no-op if a partial
+        # failure aborted before either subdir was created.
+        _cleanup_ansible_artifacts(install_log_dir / "base")
+        _cleanup_ansible_artifacts(install_log_dir / "claw")

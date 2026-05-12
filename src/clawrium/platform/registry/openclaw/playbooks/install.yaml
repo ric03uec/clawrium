@@ -13,27 +13,54 @@
         create_home: yes
         shell: /bin/bash
 
+    - name: Check per-agent openclaw binary
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/.openclaw/bin/openclaw"
+      register: openclaw_per_agent_stat
+
     - name: Discover openclaw binary in PATH
       ansible.builtin.command: which openclaw
       register: openclaw_which_result
       changed_when: false
       failed_when: false
 
+    # W2: a zero-byte or non-executable per-agent file (e.g. crashed mid-flight
+    # install artifact) must NOT be accepted as a working binary — that would
+    # silently produce an ExecStart that crash-loops under systemd's Restart=always.
+    - name: Resolve openclaw binary (per-agent preferred, PATH fallback)
+      ansible.builtin.set_fact:
+        openclaw_discovered_binary: >-
+          {{ ('/home/' ~ agent_name ~ '/.openclaw/bin/openclaw')
+             if (openclaw_per_agent_stat.stat.exists
+                 and openclaw_per_agent_stat.stat.executable | default(false)
+                 and (openclaw_per_agent_stat.stat.size | default(0)) > 0)
+             else (openclaw_which_result.stdout
+                   if (openclaw_which_result.rc | default(1)) == 0
+                   else '') }}
+
+    # The validator runs unconditionally on the RESOLVED binary — not on the
+    # raw `which` result and not gated on stat existence. Round 2 ATX flagged
+    # that gating on `not openclaw_per_agent_stat.stat.exists` creates a
+    # security gap: a zero-byte or non-executable per-agent file is rejected
+    # by W2's executable+size check, falls through to the PATH binary, but
+    # would then bypass this validator. Validating the resolved variable
+    # closes that path. The per-agent /home/... case trivially passes the
+    # allowlist — that's correct, not a no-op.
     - name: Validate discovered binary path
       ansible.builtin.fail:
-        msg: "Discovered openclaw binary at unsafe path: {{ openclaw_which_result.stdout }}. Expected under /usr/local/bin/, /usr/bin/, or /home/."
+        msg: "Discovered openclaw binary at unsafe path: {{ openclaw_discovered_binary }}. Expected under /usr/local/bin/, /usr/bin/, or /home/."
       when: >
-        (openclaw_which_result.rc | default(1)) == 0 and
-        not (openclaw_which_result.stdout.startswith('/usr/local/bin/') or
-             openclaw_which_result.stdout.startswith('/usr/bin/') or
-             openclaw_which_result.stdout.startswith('/home/'))
+        (openclaw_discovered_binary | length) > 0 and
+        not (openclaw_discovered_binary.startswith('/usr/local/bin/') or
+             openclaw_discovered_binary.startswith('/usr/bin/') or
+             openclaw_discovered_binary.startswith('/home/'))
 
     - name: Get installed openclaw version
-      ansible.builtin.command: "{{ openclaw_which_result.stdout }} --version"
+      ansible.builtin.command: "{{ openclaw_discovered_binary }} --version"
       register: openclaw_version_check
       changed_when: false
       failed_when: false
-      when: (openclaw_which_result.rc | default(1)) == 0
+      when: (openclaw_discovered_binary | length) > 0
 
     # Defensive parse: empty string on no-match means a version check failure
     # is treated as "version unknown" -> not a match -> reinstall (safe default).
@@ -47,21 +74,21 @@
     - name: Set install skip condition
       ansible.builtin.set_fact:
         openclaw_already_installed: >-
-          {{ (openclaw_which_result.rc | default(1)) == 0
+          {{ (openclaw_discovered_binary | length) > 0
              and (openclaw_installed_version | default('')) == openclaw_target_version
              and not (force_install | default(false) | bool) }}
-        openclaw_runtime_binary: "{{ openclaw_which_result.stdout if (openclaw_which_result.rc | default(1)) == 0 else '/home/' ~ agent_name ~ '/.openclaw/bin/openclaw' }}"
+        openclaw_runtime_binary: "{{ openclaw_discovered_binary if (openclaw_discovered_binary | length) > 0 else '/home/' ~ agent_name ~ '/.openclaw/bin/openclaw' }}"
 
     - name: Mark install as skipped when already installed
       ansible.builtin.debug:
-        msg: "OpenClaw v{{ openclaw_installed_version | default('unknown') }} already installed at {{ openclaw_which_result.stdout }}. Skipping binary install."
+        msg: "OpenClaw v{{ openclaw_installed_version | default('unknown') }} already installed at {{ openclaw_discovered_binary }}. Skipping binary install."
       when: openclaw_already_installed
 
     - name: Note that --force was supplied (overriding skip)
       ansible.builtin.debug:
-        msg: "force=true: reinstalling OpenClaw at {{ openclaw_which_result.stdout | default('<no prior install>') }}"
+        msg: "force=true: reinstalling OpenClaw at {{ openclaw_discovered_binary | default('<no prior install>') }}"
       when:
-        - (openclaw_which_result.rc | default(1)) == 0
+        - (openclaw_discovered_binary | length) > 0
         - force_install | default(false) | bool
 
     - name: Download OpenClaw installer script
@@ -88,7 +115,6 @@
           - --version
           - "{{ openclaw_target_version }}"
           - --no-onboard
-        creates: "/home/{{ agent_name }}/.openclaw/bin/openclaw"
       become_user: "{{ agent_name }}"
       when: not openclaw_already_installed
 
@@ -174,7 +200,19 @@
           [Install]
           WantedBy=multi-user.target
         mode: "0644"
-      notify: Reload systemd
+      register: openclaw_unit_file_result
+
+    # B3: when the unit file's ExecStart changes (e.g., binary path shifts from
+    # /usr/local/bin/openclaw to /home/<agent>/.openclaw/bin/openclaw), the next
+    # `state: started` is a no-op on already-active services. Force a restart so
+    # the daemon picks up the new binary without waiting for a reboot.
+    - name: Restart openclaw service on ExecStart change
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
+      when: openclaw_unit_file_result.changed
 
     - name: Enable and start openclaw service
       ansible.builtin.systemd:
@@ -276,8 +314,3 @@
         cacheable: true
       no_log: true
       when: not openclaw_already_installed
-
-  handlers:
-    - name: Reload systemd
-      ansible.builtin.systemd:
-        daemon_reload: yes

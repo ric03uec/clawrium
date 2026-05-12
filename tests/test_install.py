@@ -1416,7 +1416,20 @@ def test_install_rejects_duplicate_name_same_host(monkeypatch, tmp_path):
             "os_version": "24.04",
             "memtotal_mb": 4096,
         },
-        "agents": {"zeroclaw": {"agent_name": "work-assistant"}},
+        # R3-B1: keyed by agent name with an explicit `type` and a non-terminal
+        # status so the duplicate-name guard is exercised on its intended code
+        # path. Pre-fix the key was the claw type, which made `h['agents'].get(name)`
+        # return None — `not existing_agent` then short-circuited to the "already
+        # in use" error for the wrong reason (None, not a real conflict).
+        # Status='removing' (not in {installed, failed}) is what trips the guard
+        # at install.py:411 when the record IS found by name.
+        "agents": {
+            "work-assistant": {
+                "type": "zeroclaw",
+                "agent_name": "work-assistant",
+                "status": "removing",
+            }
+        },
     }
     monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: host_with_claw)
 
