@@ -243,7 +243,116 @@ Hermes uses a simpler configuration model — env vars rendered directly into `~
 | **Group policy** | Configurable (`open`, `allowlist`, `disabled`) | Channel membership controls access (invite-only) |
 | **Token storage** | `secrets.json` → rendered to env at runtime | `secrets.json` → rendered to `.env` at configure time |
 
-For the full Hermes Slack setup walkthrough, see [Hermes Support Matrix > Slack walkthrough](../hermes.md#slack-walkthrough).
+Hermes uses **Socket Mode** — the bot maintains an outbound WebSocket to Slack, so no public endpoint or ingress is required on the agent host.
+
+### Interactive setup (Hermes)
+
+```bash
+clm agent configure <hermes-name> --stage channels
+```
+
+The wizard offers `cli`, `discord`, and `slack`. Pick `slack` and the CLI prompts for:
+
+| Prompt | Stored where | Required | Notes |
+|--------|--------------|:--------:|-------|
+| Slack Bot Token | `secrets.json` as `SLACK_BOT_TOKEN` | yes | Masked input. Must start with `xoxb-`. |
+| Slack App Token | `secrets.json` as `SLACK_APP_TOKEN` | yes | Masked input. Must start with `xapp-`. |
+| Allowed Slack user IDs | `hosts.json` `channels.slack.allowed_users` | yes | Comma-separated Member IDs (format: `U` + 8+ alphanumeric chars). |
+| Slack home channel ID | `hosts.json` `channels.slack.home_channel` | optional | Channel for cron/scheduled messages. Format: `C` + alphanumeric. |
+| Slack home channel name | `hosts.json` `channels.slack.home_channel_name` | optional | Display name for the home channel. |
+
+`clm` then runs the configure playbook which re-renders `~/.hermes/.env` with the `SLACK_*` block and restarts `hermes-<name>.service`.
+
+### Resulting on-disk shape (Hermes)
+
+`hosts.json` (non-sensitive only):
+
+```json
+"config": {
+  "api_server": {"enabled": true, "host": "127.0.0.1", "port": 8642},
+  "provider": {...},
+  "channels": {
+    "slack": {
+      "enabled": true,
+      "allowed_users": ["U01ABC2DEF3"],
+      "home_channel": "C01234567890",
+      "home_channel_name": "general"
+    }
+  }
+}
+```
+
+`secrets.json`:
+
+```json
+"192.168.1.36:hermes:<name>": {
+  "HERMES_API_SERVER_KEY": {...},
+  "SLACK_BOT_TOKEN": {"value": "xoxb-...", "description": "Slack bot token", ...},
+  "SLACK_APP_TOKEN": {"value": "xapp-...", "description": "Slack app token", ...}
+}
+```
+
+Both tokens **never** land in `hosts.json` — the configure flow stores them exclusively in `secrets.json` (B3 invariant). Re-running `clm agent configure --stage channels` with the same tokens reuses them byte-identical.
+
+### Rendered `.env` (Slack block, Hermes)
+
+After configure, the relevant section of `~/.hermes/.env` on the agent host looks like:
+
+```env
+# Slack
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+SLACK_ALLOWED_USERS=U01ABC2DEF3
+SLACK_HOME_CHANNEL=C01234567890
+SLACK_HOME_CHANNEL_NAME=general
+```
+
+### Removal (Hermes)
+
+`clm agent remove <name> --force` purges the entire instance entry from `secrets.json`, including both Slack tokens. There is no separate "rotate Slack token" command — re-run the channels stage with new tokens to overwrite.
+
+### Hermes-specific troubleshooting
+
+<details>
+<summary><strong>Bot connects but gets `missing_scope` errors</strong></summary>
+
+Hermes logs will show errors like `slack_bolt: missing_scope: channels:read`. Go to your Slack app's **OAuth & Permissions** > **Scopes** and add the missing scope. Then **reinstall the app** to your workspace (Slack requires reinstall after scope changes). You do NOT need to re-run `clm agent configure` — the tokens remain valid after reinstall.
+
+</details>
+
+<details>
+<summary><strong>Bot gets `not_in_channel` error for home channel</strong></summary>
+
+The bot must be a member of the home channel. In Slack, go to that channel and type `/invite @Hermes`. The `SLACK_HOME_CHANNEL` setting only tells hermes where to post scheduled/cron messages — it doesn't auto-join.
+
+</details>
+
+<details>
+<summary><strong>Bot doesn't respond to DMs</strong></summary>
+
+1. Confirm your Slack Member ID is in `hosts.json` `channels.slack.allowed_users`. Hermes drops messages from non-allowlisted users silently.
+2. Verify `im:history`, `im:read`, and `im:write` scopes are present.
+3. Verify `message.im` event subscription is enabled.
+
+</details>
+
+<details>
+<summary><strong>Bot doesn't respond in channels</strong></summary>
+
+1. The bot only listens for `app_mention` events in channels — you must @-mention it.
+2. Confirm the bot has been invited to the channel (`/invite @Hermes`).
+3. Verify `app_mentions:read` and `channels:read` scopes are enabled.
+
+</details>
+
+<details>
+<summary><strong>Socket Mode not connecting</strong></summary>
+
+1. Verify Socket Mode is enabled in the Slack app settings.
+2. Confirm `SLACK_APP_TOKEN` starts with `xapp-` and has the `connections:write` scope.
+3. Check the journal: `ssh <agent-host> "sudo journalctl -u hermes-<name>.service -n 200 --no-pager | grep -iE 'slack|socket'"`.
+
+</details>
 
 ---
 
