@@ -1,7 +1,8 @@
 ---
-# Hermes memory write — fixed two-file model under ~/.hermes/memories/:
-#   - MEMORY.md  (agent notes, ≤ 2200 chars)
-#   - USER.md    (user profile, ≤ 1375 chars)
+# Hermes memory write — supports:
+#   - MEMORY.md  (agent notes, ≤ 2200 chars)  → ~/.hermes/memories/
+#   - USER.md    (user profile, ≤ 1375 chars)  → ~/.hermes/memories/
+#   - SOUL.md    (agent identity, ≤ 3000 chars) → ~/.hermes/ (root)
 # Hermes's running daemon may concurrently read/write these files. Use
 # write-to-staging-then-rename so any concurrent reader observes either
 # the old or new content, never a partial write.
@@ -12,6 +13,12 @@
     memory_char_limits:
       MEMORY.md: 2200
       USER.md: 1375
+      SOUL.md: 3000
+    # SOUL.md lives at ~/.hermes/SOUL.md; others at ~/.hermes/memories/
+    memory_target_dir: >-
+      {{ '/home/' + agent_name + '/.hermes'
+         if memory_filename == 'SOUL.md'
+         else '/home/' + agent_name + '/.hermes/memories' }}
   tasks:
     # Defense-in-depth: Python core/memory.py already validates agent_name,
     # but a tampered Ansible inventory could still bypass that. Reject
@@ -37,9 +44,9 @@
 
     - name: Restrict to hermes memory allowlist
       ansible.builtin.fail:
-        msg: "hermes memory accepts only MEMORY.md and USER.md"
+        msg: "hermes memory accepts only MEMORY.md, USER.md, and SOUL.md"
       when:
-        - memory_filename not in ['MEMORY.md', 'USER.md']
+        - memory_filename not in ['MEMORY.md', 'USER.md', 'SOUL.md']
 
     - name: Decode content for length validation
       ansible.builtin.set_fact:
@@ -64,9 +71,9 @@
         memory_decoded_content: ""
       no_log: true
 
-    - name: Ensure memories directory exists
+    - name: Ensure target directory exists
       ansible.builtin.file:
-        path: "/home/{{ agent_name }}/.hermes/memories"
+        path: "{{ memory_target_dir | trim }}"
         state: directory
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -79,7 +86,7 @@
     # is a symlink or a real file without following it.
     - name: Clear any stale staging file
       ansible.builtin.file:
-        path: "/home/{{ agent_name }}/.hermes/memories/.{{ memory_filename }}.tmp"
+        path: "{{ memory_target_dir | trim }}/.{{ memory_filename }}.tmp"
         state: absent
 
     - name: Write memory file content to staging path
@@ -89,19 +96,19 @@
       # so user-supplied bytes are never interpreted as Jinja2.
       ansible.builtin.copy:
         content: "{{ memory_content_b64 | b64decode }}"
-        dest: "/home/{{ agent_name }}/.hermes/memories/.{{ memory_filename }}.tmp"
+        dest: "{{ memory_target_dir | trim }}/.{{ memory_filename }}.tmp"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
       no_log: true
 
     # TOCTOU guard: between `copy` and `mv`, a local attacker with write
-    # access to ~/.hermes/memories/ could swap the staging file for a
+    # access to the target directory could swap the staging file for a
     # symlink to an attacker-chosen path. Verify the staging file is a
     # regular file (not a symlink) right before the rename.
     - name: Verify staging file is a regular file (TOCTOU guard)
       ansible.builtin.stat:
-        path: "/home/{{ agent_name }}/.hermes/memories/.{{ memory_filename }}.tmp"
+        path: "{{ memory_target_dir | trim }}/.{{ memory_filename }}.tmp"
         follow: false
       register: hermes_staging_stat
 
@@ -120,7 +127,7 @@
       ansible.builtin.command:
         cmd: >-
           mv -f
-          /home/{{ agent_name }}/.hermes/memories/.{{ memory_filename }}.tmp
-          /home/{{ agent_name }}/.hermes/memories/{{ memory_filename }}
+          {{ memory_target_dir | trim }}/.{{ memory_filename }}.tmp
+          {{ memory_target_dir | trim }}/{{ memory_filename }}
       changed_when: true
       no_log: true

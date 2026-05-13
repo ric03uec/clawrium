@@ -80,10 +80,10 @@ class TestEnvTemplateProviderBranches:
             },
             provider_api_key="sk-or-test-123",
         )
-        assert "OPENROUTER_API_KEY=sk-or-test-123" in rendered
+        assert "OPENROUTER_API_KEY='sk-or-test-123'" in rendered
         assert "ANTHROPIC_API_KEY=" not in rendered
         assert "OPENAI_API_KEY=" not in rendered
-        assert "HERMES_INFERENCE_PROVIDER=openrouter" in rendered
+        assert "HERMES_INFERENCE_PROVIDER='openrouter'" in rendered
 
     def test_anthropic_branch_emits_only_anthropic_key(self):
         rendered = _render_env(
@@ -93,10 +93,10 @@ class TestEnvTemplateProviderBranches:
             },
             provider_api_key="sk-ant-test-456",
         )
-        assert "ANTHROPIC_API_KEY=sk-ant-test-456" in rendered
+        assert "ANTHROPIC_API_KEY='sk-ant-test-456'" in rendered
         assert "OPENROUTER_API_KEY=" not in rendered
         assert "OPENAI_API_KEY=" not in rendered
-        assert "HERMES_INFERENCE_PROVIDER=anthropic" in rendered
+        assert "HERMES_INFERENCE_PROVIDER='anthropic'" in rendered
 
     def test_openai_branch_emits_only_openai_key(self):
         rendered = _render_env(
@@ -106,10 +106,10 @@ class TestEnvTemplateProviderBranches:
             },
             provider_api_key="sk-openai-test-789",
         )
-        assert "OPENAI_API_KEY=sk-openai-test-789" in rendered
+        assert "OPENAI_API_KEY='sk-openai-test-789'" in rendered
         assert "OPENROUTER_API_KEY=" not in rendered
         assert "ANTHROPIC_API_KEY=" not in rendered
-        assert "HERMES_INFERENCE_PROVIDER=openai" in rendered
+        assert "HERMES_INFERENCE_PROVIDER='openai'" in rendered
 
     def test_ollama_branch_emits_no_provider_api_key_and_custom_provider(self):
         """Ollama / custom local endpoint: no API key required; provider maps to 'custom'."""
@@ -140,9 +140,9 @@ class TestEnvTemplateProviderBranches:
             provider_api_key="k",
         )
         assert "API_SERVER_ENABLED=1" in rendered
-        assert "API_SERVER_HOST=127.0.0.1" in rendered
+        assert "API_SERVER_HOST='127.0.0.1'" in rendered
         assert "API_SERVER_PORT=8642" in rendered
-        assert "API_SERVER_KEY=" + ("a" * 64) in rendered
+        assert "API_SERVER_KEY='" + ("a" * 64) + "'" in rendered
 
     def test_no_provider_api_key_omits_credential_line(self):
         """If provider_api_key is empty, the cloud-provider line is omitted entirely."""
@@ -844,8 +844,8 @@ class TestEnvTemplateDiscordBranch:
             }
         }
         rendered = _render_env(cfg, provider_api_key="sk-x")
-        assert "DISCORD_BOT_TOKEN=BOT.TOKEN.VALUE" in rendered
-        assert "DISCORD_ALLOWED_USERS=740723459344302120" in rendered
+        assert "DISCORD_BOT_TOKEN='BOT.TOKEN.VALUE'" in rendered
+        assert "DISCORD_ALLOWED_USERS='740723459344302120'" in rendered
         # Optional vars not provided should not appear as empty lines.
         assert "DISCORD_HOME_CHANNEL=" not in rendered
         assert "DISCORD_ALLOWED_CHANNELS=" not in rendered
@@ -865,19 +865,19 @@ class TestEnvTemplateDiscordBranch:
             }
         }
         rendered = _render_env(cfg, provider_api_key="sk-x")
-        assert "DISCORD_BOT_TOKEN=BOT.TOKEN.VALUE" in rendered
+        assert "DISCORD_BOT_TOKEN='BOT.TOKEN.VALUE'" in rendered
         assert (
-            "DISCORD_ALLOWED_USERS=111111111111111111,222222222222222222"
+            "DISCORD_ALLOWED_USERS='111111111111111111,222222222222222222'"
             in rendered
         )
-        assert "DISCORD_HOME_CHANNEL=333333333333333333" in rendered
-        assert "DISCORD_HOME_CHANNEL_NAME=General" in rendered
-        assert "DISCORD_HOME_CHANNEL_THREAD_ID=444444444444444444" in rendered
+        assert "DISCORD_HOME_CHANNEL='333333333333333333'" in rendered
+        assert "DISCORD_HOME_CHANNEL_NAME='General'" in rendered
+        assert "DISCORD_HOME_CHANNEL_THREAD_ID='444444444444444444'" in rendered
         assert (
-            "DISCORD_ALLOWED_CHANNELS=555555555555555555,666666666666666666"
+            "DISCORD_ALLOWED_CHANNELS='555555555555555555,666666666666666666'"
             in rendered
         )
-        assert "DISCORD_REQUIRE_MENTION=true" in rendered
+        assert "DISCORD_REQUIRE_MENTION='true'" in rendered
         # allow_all_users defaults absent
         assert "DISCORD_ALLOW_ALL_USERS" not in rendered
 
@@ -904,7 +904,7 @@ class TestEnvTemplateDiscordBranch:
             }
         }
         rendered = _render_env(cfg, provider_api_key="sk-x")
-        assert "DISCORD_REQUIRE_MENTION=false" in rendered
+        assert "DISCORD_REQUIRE_MENTION='false'" in rendered
 
 
 class TestHermesDiscordHydration:
@@ -1556,7 +1556,7 @@ class TestHermesDiscordIdempotency:
         assert len(renders) == 2
         assert renders[0] == renders[1], "non-idempotent .env render"
         # And the rendered token is the expected value.
-        assert f"DISCORD_BOT_TOKEN={token}" in renders[0]
+        assert f"DISCORD_BOT_TOKEN='{token}'" in renders[0]
 
 
 class TestDiscordSecretRemoval:
@@ -1786,3 +1786,557 @@ class TestHermesBindMigration:
         sent = captured["inventory"]["all"]["vars"]["config"]
         assert sent["api_server"]["host"] == "0.0.0.0"
         assert sent["api_server"]["port"] == 8642
+
+
+# ---------------------------------------------------------------------------
+# Slack template + hydration tests (mirrors Discord test classes above)
+# ---------------------------------------------------------------------------
+
+
+class TestEnvTemplateSlackBranch:
+    """Verify the Slack block in .env.j2 emits the right env vars under
+    each config shape."""
+
+    def _base_config(self) -> dict:
+        return {
+            "provider": {"type": "openrouter", "default_model": "anthropic/x"},
+            "api_server": {
+                "key": "a" * 64,
+                "host": "127.0.0.1",
+                "port": 8642,
+                "enabled": True,
+            },
+        }
+
+    def test_slack_block_omitted_when_disabled(self):
+        cfg = self._base_config()
+        cfg["channels"] = {"slack": {"enabled": False}}
+        rendered = _render_env(cfg, provider_api_key="sk-x")
+        assert "SLACK_BOT_TOKEN" not in rendered
+        assert "SLACK_APP_TOKEN" not in rendered
+        assert "SLACK_ALLOWED_USERS" not in rendered
+
+    def test_slack_block_omitted_when_channels_missing(self):
+        rendered = _render_env(self._base_config(), provider_api_key="sk-x")
+        assert "SLACK_" not in rendered
+
+    def test_slack_block_omitted_when_enabled_but_no_tokens(self):
+        """Partial config — enabled but tokens missing — must not emit empty
+        SLACK_BOT_TOKEN= line that would crash the Slack connector."""
+        cfg = self._base_config()
+        cfg["channels"] = {
+            "slack": {
+                "enabled": True,
+                "allowed_users": ["U01ABC2DEF3"],
+            }
+        }
+        rendered = _render_env(cfg, provider_api_key="sk-x")
+        assert "SLACK_BOT_TOKEN" not in rendered
+        assert "SLACK_APP_TOKEN" not in rendered
+        assert "SLACK_ALLOWED_USERS" not in rendered
+
+    def test_slack_minimal_renders_tokens_and_allowed_users(self):
+        cfg = self._base_config()
+        cfg["channels"] = {
+            "slack": {
+                "enabled": True,
+                "bot_token": "xoxb-TOKEN-VALUE",
+                "app_token": "xapp-TOKEN-VALUE",
+                "allowed_users": ["U01ABC2DEF3"],
+            }
+        }
+        rendered = _render_env(cfg, provider_api_key="sk-x")
+        assert "SLACK_BOT_TOKEN='xoxb-TOKEN-VALUE'" in rendered
+        assert "SLACK_APP_TOKEN='xapp-TOKEN-VALUE'" in rendered
+        assert "SLACK_ALLOWED_USERS='U01ABC2DEF3'" in rendered
+        # Optional vars not provided should not appear as empty lines.
+        assert "SLACK_HOME_CHANNEL=" not in rendered
+        assert "SLACK_HOME_CHANNEL_NAME=" not in rendered
+
+    def test_slack_full_renders_all_envvars(self):
+        cfg = self._base_config()
+        cfg["channels"] = {
+            "slack": {
+                "enabled": True,
+                "bot_token": "xoxb-TOKEN-VALUE",
+                "app_token": "xapp-TOKEN-VALUE",
+                "allowed_users": ["U01ABC2DEF3", "U99XYZ8PQRS"],
+                "home_channel": "C01234567890",
+                "home_channel_name": "general",
+            }
+        }
+        rendered = _render_env(cfg, provider_api_key="sk-x")
+        assert "SLACK_BOT_TOKEN='xoxb-TOKEN-VALUE'" in rendered
+        assert "SLACK_APP_TOKEN='xapp-TOKEN-VALUE'" in rendered
+        assert "SLACK_ALLOWED_USERS='U01ABC2DEF3,U99XYZ8PQRS'" in rendered
+        assert "SLACK_HOME_CHANNEL='C01234567890'" in rendered
+        assert "SLACK_HOME_CHANNEL_NAME='general'" in rendered
+
+
+class TestHermesSlackHydration:
+    """lifecycle.configure_agent hydrates SLACK_BOT_TOKEN and SLACK_APP_TOKEN
+    from secrets.json and threads them onto config_data['channels']['slack']
+    when the user has enabled the Slack channel for the agent."""
+
+    def _make_host(self, slack_persisted: dict | None = None) -> dict:
+        agent_config: dict = {
+            "api_server": {"enabled": True, "host": "127.0.0.1", "port": 8642},
+            "provider": {
+                "name": "p",
+                "type": "openrouter",
+                "default_model": "x",
+            },
+        }
+        if slack_persisted is not None:
+            agent_config["channels"] = {"slack": slack_persisted}
+        return {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": agent_config,
+                }
+            },
+        }
+
+    def _secrets_with(
+        self, api_key: str, slack_bot: str | None, slack_app: str | None
+    ) -> dict:
+        s = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": api_key,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "",
+            }
+        }
+        if slack_bot is not None:
+            s["SLACK_BOT_TOKEN"] = {
+                "key": "SLACK_BOT_TOKEN",
+                "value": slack_bot,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "Slack bot token",
+            }
+        if slack_app is not None:
+            s["SLACK_APP_TOKEN"] = {
+                "key": "SLACK_APP_TOKEN",
+                "value": slack_app,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "Slack app token",
+            }
+        return s
+
+    def test_slack_tokens_hydrated_into_ansible_config(self, tmp_path: Path):
+        bot_token = "xoxb-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
+        app_token = "xapp-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
+        host = self._make_host(
+            slack_persisted={
+                "enabled": True,
+                "allowed_users": ["U01ABC2DEF3"],
+                "home_channel": "C01234567890",
+                "home_channel_name": "general",
+            }
+        )
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+        captured = {}
+
+        def fake_run(**kwargs):
+            captured["inventory"] = kwargs["inventory"]
+            m = MagicMock()
+            m.status = "successful"
+            m.events = []
+            return m
+
+        secrets = self._secrets_with("a" * 64, bot_token, app_token)
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
+            ),
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "hermes",
+                {
+                    "provider": {
+                        "name": "p",
+                        "type": "openrouter",
+                        "default_model": "x",
+                    }
+                },
+                agent_name="hermes-test",
+            )
+
+        assert success is True, error
+        sent = captured["inventory"]["all"]["vars"]["config"]
+        assert sent["channels"]["slack"]["bot_token"] == bot_token
+        assert sent["channels"]["slack"]["app_token"] == app_token
+        # Persisted shape from hosts.json is merged onto config_data.
+        assert sent["channels"]["slack"]["allowed_users"] == ["U01ABC2DEF3"]
+        assert sent["channels"]["slack"]["home_channel"] == "C01234567890"
+
+    def test_slack_disabled_does_not_hydrate(self, tmp_path: Path):
+        """When slack.enabled is False (or missing), no SLACK_BOT_TOKEN is
+        threaded onto config_data, even if the tokens exist in secrets.json."""
+        host = self._make_host(slack_persisted=None)
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+        captured = {}
+
+        def fake_run(**kwargs):
+            captured["inventory"] = kwargs["inventory"]
+            m = MagicMock()
+            m.status = "successful"
+            m.events = []
+            return m
+
+        secrets = self._secrets_with(
+            "a" * 64,
+            "xoxb-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS",
+            "xapp-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS",
+        )
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
+            ),
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "hermes",
+                {
+                    "provider": {
+                        "name": "p",
+                        "type": "openrouter",
+                        "default_model": "x",
+                    }
+                },
+                agent_name="hermes-test",
+            )
+
+        assert success is True, error
+        sent = captured["inventory"]["all"]["vars"]["config"]
+        # No slack key in channels at all (or if present, no bot_token hydrated)
+        slack_cfg = sent.get("channels", {}).get("slack", {})
+        assert "bot_token" not in slack_cfg
+        assert "app_token" not in slack_cfg
+
+    def test_slack_enabled_without_bot_token_rejected(self, tmp_path: Path):
+        """Slack enabled but token missing from secrets must fail with a clear
+        error message pointing to re-configure."""
+        host = self._make_host(
+            slack_persisted={
+                "enabled": True,
+                "allowed_users": ["U01ABC2DEF3"],
+            }
+        )
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+
+        # No Slack tokens in secrets
+        secrets = self._secrets_with("a" * 64, None, None)
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "hermes",
+                {
+                    "provider": {
+                        "name": "p",
+                        "type": "openrouter",
+                        "default_model": "x",
+                    }
+                },
+                agent_name="hermes-test",
+            )
+
+        assert success is False
+        assert "SLACK_BOT_TOKEN" in error
+        assert "secrets.json" in error
+
+
+class TestHermesSlackSecretsHygiene:
+    """B3 invariant for Slack: bot_token and app_token must never appear in
+    hosts.json after configure (mirror of the Discord strip)."""
+
+    def test_configure_strips_slack_tokens_from_persisted_hosts_json(
+        self, tmp_path: Path
+    ):
+        bot_token = "xoxb-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
+        app_token = "xapp-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
+        host = {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": {
+                        "api_server": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 8642,
+                        },
+                        "channels": {
+                            "slack": {
+                                "enabled": True,
+                                "allowed_users": ["U01ABC2DEF3"],
+                                "home_channel": "C01234567890",
+                                "home_channel_name": "general",
+                            }
+                        },
+                    },
+                }
+            },
+        }
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+
+        captured = {}
+
+        def fake_update_host(hostname_arg, updater):
+            updated = updater({"agents": dict(host["agents"])})
+            captured["agents"] = updated["agents"]
+            return True
+
+        secrets = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": "a" * 64,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "",
+            },
+            "SLACK_BOT_TOKEN": {
+                "key": "SLACK_BOT_TOKEN",
+                "value": bot_token,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "Slack bot token",
+            },
+            "SLACK_APP_TOKEN": {
+                "key": "SLACK_APP_TOKEN",
+                "value": app_token,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "Slack app token",
+            },
+        }
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                return_value=MagicMock(status="successful", events=[]),
+            ),
+            patch(
+                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "hermes",
+                {
+                    "provider": {
+                        "name": "p",
+                        "type": "openrouter",
+                        "default_model": "x",
+                    }
+                },
+                agent_name="hermes-test",
+            )
+
+        assert success is True, error
+        persisted_slack = (
+            captured["agents"]["hermes-test"]
+            .get("config", {})
+            .get("channels", {})
+            .get("slack", {})
+        )
+        assert "bot_token" not in persisted_slack, (
+            f"Slack bot_token leaked into hosts.json: {persisted_slack}"
+        )
+        assert "app_token" not in persisted_slack, (
+            f"Slack app_token leaked into hosts.json: {persisted_slack}"
+        )
+        # Non-sensitive shape preserved.
+        assert persisted_slack.get("enabled") is True
+        assert persisted_slack.get("allowed_users") == ["U01ABC2DEF3"]
+        assert persisted_slack.get("home_channel") == "C01234567890"
+        assert persisted_slack.get("home_channel_name") == "general"
+
+    def test_strip_runs_when_slack_tokens_injected_into_config_data(
+        self, tmp_path: Path
+    ):
+        """Defense-in-depth: even if a caller passes config_data with Slack
+        tokens already inlined, the persist-time strip removes them before
+        hosts.json is written."""
+        host = {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": {
+                        "api_server": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 8642,
+                        }
+                    },
+                }
+            },
+        }
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+        captured = {}
+
+        def fake_update_host(hostname_arg, updater):
+            updated = updater({"agents": dict(host["agents"])})
+            captured["agents"] = updated["agents"]
+            return True
+
+        valid_bot = "xoxb-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
+        valid_app = "xapp-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
+        secrets = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": "a" * 64,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "",
+            },
+            "SLACK_BOT_TOKEN": {
+                "key": "SLACK_BOT_TOKEN",
+                "value": valid_bot,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "Slack bot token",
+            },
+            "SLACK_APP_TOKEN": {
+                "key": "SLACK_APP_TOKEN",
+                "value": valid_app,
+                "created_at": "2026-05-10T00:00:00+00:00",
+                "updated_at": "2026-05-10T00:00:00+00:00",
+                "description": "Slack app token",
+            },
+        }
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                return_value=MagicMock(status="successful", events=[]),
+            ),
+            patch(
+                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "hermes",
+                {
+                    "provider": {
+                        "name": "p",
+                        "type": "openrouter",
+                        "default_model": "x",
+                    },
+                    "channels": {
+                        "slack": {
+                            "enabled": True,
+                            "bot_token": "INJECTED-BOT",
+                            "app_token": "INJECTED-APP",
+                            "allowed_users": ["U01ABC2DEF3"],
+                        }
+                    },
+                },
+                agent_name="hermes-test",
+            )
+
+        assert success is True, error
+        persisted_slack = (
+            captured["agents"]["hermes-test"]
+            .get("config", {})
+            .get("channels", {})
+            .get("slack", {})
+        )
+        assert "bot_token" not in persisted_slack, (
+            f"Strip layer failed to catch injected bot_token: {persisted_slack}"
+        )
+        assert "app_token" not in persisted_slack, (
+            f"Strip layer failed to catch injected app_token: {persisted_slack}"
+        )

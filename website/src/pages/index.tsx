@@ -27,6 +27,8 @@ function HomepageHeader() {
           <br />
           Point it at any machine on your network, and deploy agents like{' '}
           <a href="https://github.com/openclaw/openclaw" className={styles.heroLink}>OpenClaw</a>{' '}
+          and{' '}
+          <a href="https://github.com/NousResearch/hermes-agent" className={styles.heroLink}>Hermes</a>{' '}
           with a single command.
         </p>
         <div className={styles.buttons}>

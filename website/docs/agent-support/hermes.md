@@ -1,4 +1,4 @@
-# Hermes Support Matrix
+# Hermes
 
 Hermes is the [Nous Research self-improving AI agent](https://github.com/NousResearch/hermes-agent) — a Python daemon that exposes a local OpenAI-compatible HTTP API and is designed to maintain its own identity, memory, and skills over time.
 
@@ -61,7 +61,7 @@ Hermes supports three channels managed by clm: a loopback OpenAI-compatible HTTP
 |---------|:------:|-------|
 | **Local API server** | ✅ | `API_SERVER_ENABLED=1` + `API_SERVER_KEY` in `~/.hermes/.env`, bound to `127.0.0.1:8642` |
 | **Multi-provider** | ✅ | openrouter, anthropic, openai, ollama / custom |
-| **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). See [memory.md](memory.md). |
+| **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). See [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md). |
 | **Pluggable memory backends** (Holographic / Honcho / Hindsight / Mem0 / Byterover / OpenViking) | 📋 | Deferred. clm's `memory` CLI sees only the default markdown backend in this iteration. |
 | **Secrets management** | ✅ | `HERMES_API_SERVER_KEY` persisted in `~/.config/clawrium/secrets.json` (NOT `hosts.json`) under the canonical instance key `<host>:hermes:<agent-name>` (single-colon, 3 components). `secrets.json` is chmod 0600 on creation. Per-agent secrets are isolated by instance key. |
 | **Auto-restart** | ✅ | Systemd unit `hermes-<agent_name>.service` with `Restart=on-failure`; systemd is the supervisor (no separate process). |
@@ -210,7 +210,7 @@ clm agent remove <agent-name>    # stop, remove unit, rm ~/.hermes/, userdel
 - **Discord and Slack are the clm-managed messaging gateways today.** Telegram, WhatsApp, Signal, email, Matrix, Mattermost, Teams, Google Chat are tracked as separate follow-ups. See [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration) and [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration).
 - **Identity is hermes-managed by design.** Hermes owns `SOUL.md` and `AGENTS.md` inside `~/.hermes/`; the onboarding `identity` stage auto-skips. `SOUL.md` is editable via `clm agent memory write <name> SOUL.md`, which routes to `~/.hermes/SOUL.md` (other memories live under `~/.hermes/memories/`).
 - **Bearer token lives in `secrets.json`, not `hosts.json`.** As of PR #318, the canonical store for `HERMES_API_SERVER_KEY` is `~/.config/clawrium/secrets.json` keyed by `<host>:hermes:<agent-name>` (single-colon, 3 components). Provider keys use a different schema (`provider:<provider-name>`) in the same file.
-- **Memory has hard size limits.** `MEMORY.md` ≤ 2200 chars, `USER.md` ≤ 1375 chars. Other filenames in `~/.hermes/memories/` are rejected by `clm agent memory edit`. See [memory.md](memory.md).
+- **Memory has hard size limits.** `MEMORY.md` ≤ 2200 chars, `USER.md` ≤ 1375 chars. Other filenames in `~/.hermes/memories/` are rejected by `clm agent memory edit`. See [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md).
 - **Concurrent writes are visible-atomic.** Hermes' `memory_write.yaml` uses a stage-then-rename pattern (`rename(2)` within the same filesystem) so the running hermes daemon never observes a partial file. The pattern is visible-atomic, not crash-durable (no explicit `fsync`).
 
 ---
@@ -226,7 +226,7 @@ Hermes ships a two-file Markdown memory backend at `~/.hermes/memories/`:
 
 Both are managed by `clm agent memory show|edit|delete <hermes-name>`. The dispatcher is driven by the agent's manifest (`workspace.memory_path` + `features.memory: true`), so the CLI surface is identical to openclaw. (Note: `read` and `write` are not separate CLI subcommands in this iteration — use `edit`.)
 
-Full details: [memory.md](memory.md).
+Full details: [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md).
 
 ---
 
@@ -340,7 +340,7 @@ The following are explicitly out of scope for issue #68 and tracked as separate 
 
 ## Next Steps
 
-- [Memory model](memory.md) — manifest-driven memory CLI across claw types
+- [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md) — manifest-driven memory CLI across claw types
 - [OpenClaw Support Matrix](openclaw.md) — full-featured alternative with multi-channel support
-- [Agent Onboarding](../agent-onboarding.md) — detailed onboarding wizard guide
-- [Host Preparation](../host-preparation.md) — installing provider credentials and host prereqs
+- [Agent Onboarding](/docs/guides/agent-onboarding) — detailed onboarding wizard guide
+- [Host Preparation](/docs/guides/host-setup) — installing provider credentials and host prereqs

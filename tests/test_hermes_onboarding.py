@@ -46,9 +46,8 @@ def test_hermes_identity_stage_auto_skips():
 
 
 def test_hermes_channels_stage_default_cli():
-    """channels stage is required and ships a confirm task whose default
-    is the cli channel — there are no Discord/Slack/Telegram options in
-    this iteration."""
+    """channels stage is required and ships confirm tasks — the first one
+    (confirm_cli) defaults to True for the always-on OpenAI API gateway."""
     manifest = load_manifest("hermes")
     channels = manifest["onboarding"]["stages"]["channels"]
     assert channels["required"] is True

@@ -1,10 +1,18 @@
 ---
-# Hermes memory read targets ~/.hermes/memories/<filename>. The Python
-# dispatcher rejects unsupported filenames before reaching this playbook,
-# but the same allowlist is enforced here as defense-in-depth.
+# Hermes memory read targets:
+#   - MEMORY.md, USER.md → ~/.hermes/memories/<filename>
+#   - SOUL.md → ~/.hermes/SOUL.md
+# The Python dispatcher rejects unsupported filenames before reaching this
+# playbook, but the same allowlist is enforced here as defense-in-depth.
 - hosts: all
   become: yes
   gather_facts: false
+  vars:
+    # SOUL.md lives at ~/.hermes/SOUL.md; others at ~/.hermes/memories/
+    memory_target_dir: >-
+      {{ '/home/' + agent_name + '/.hermes'
+         if memory_filename == 'SOUL.md'
+         else '/home/' + agent_name + '/.hermes/memories' }}
   tasks:
     - name: Validate memory filename pattern
       ansible.builtin.fail:
@@ -20,13 +28,13 @@
 
     - name: Restrict to hermes memory allowlist
       ansible.builtin.fail:
-        msg: "hermes memory accepts only MEMORY.md and USER.md"
+        msg: "hermes memory accepts only MEMORY.md, USER.md, and SOUL.md"
       when:
-        - memory_filename not in ['MEMORY.md', 'USER.md']
+        - memory_filename not in ['MEMORY.md', 'USER.md', 'SOUL.md']
 
     - name: Resolve memory file path
       ansible.builtin.set_fact:
-        memory_target: "/home/{{ agent_name }}/.hermes/memories/{{ memory_filename }}"
+        memory_target: "{{ memory_target_dir | trim }}/{{ memory_filename }}"
 
     - name: Verify file exists
       ansible.builtin.stat:

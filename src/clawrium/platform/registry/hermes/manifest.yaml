@@ -73,7 +73,7 @@ onboarding:
 
     channels:
       required: true
-      description: "Configure communication channels (cli always on; discord optional)"
+      description: "Configure communication channels (cli always on; discord/slack optional)"
       tasks:
         - id: confirm_cli
           name: "Confirm CLI channel"
@@ -90,6 +90,16 @@ onboarding:
         # channel allowlist, and require-mention toggle. Token persists to
         # secrets.json under DISCORD_BOT_TOKEN; the rest land in hosts.json
         # under config.channels.discord.
+        - id: select_slack
+          name: "Enable Slack channel (optional)"
+          type: confirm
+          message: "Enable Slack messaging (Socket Mode) for this agent?"
+          default: false
+        # When select_slack=yes, the CLI prompts interactively for the bot
+        # token (xoxb-), app token (xapp-), allowed-user IDs, optional home
+        # channel, and home channel name. Tokens persist to secrets.json
+        # under SLACK_BOT_TOKEN and SLACK_APP_TOKEN; the rest land in
+        # hosts.json under config.channels.slack.
 
     validate:
       required: true

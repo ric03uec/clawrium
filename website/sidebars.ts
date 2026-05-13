@@ -68,6 +68,7 @@ const sidebars: SidebarsConfig = {
       },
       items: [
         'agent-support/openclaw',
+        'agent-support/hermes',
         'agent-support/zeroclaw',
       ],
     },

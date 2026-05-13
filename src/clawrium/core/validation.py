@@ -88,8 +88,8 @@ ERROR_MESSAGES = {
         "No models found on Ollama server. Pull a model with: ollama pull <model>"
     ),
     "bedrock_credentials": (
-        "AWS credentials not configured for Bedrock. "
-        "Run 'aws configure' or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY."
+        "AWS credentials not configured for Bedrock provider '{provider}'. "
+        "Run: clm provider add --type bedrock --name <name>"
     ),
     "vertex_credentials": (
         "GCP credentials not configured for Vertex AI. "
@@ -651,18 +651,19 @@ def _test_ollama_connectivity(provider: dict, timeout: int) -> ValidationResult:
 
 
 def _test_bedrock_connectivity(provider: dict, timeout: int) -> ValidationResult:
-    """Test AWS Bedrock connectivity by checking credentials."""
-    import os
+    """Verify AWS credentials are configured for Bedrock (local check only;
+    no network probe)."""
+    from clawrium.core.providers.storage import get_provider_aws_credentials
 
-    aws_key = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_ACCESS_KEY")
-    aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get(
-        "AWS_SECRET_KEY"
-    )
+    provider_name = provider.get("name", "")
+    aws_key, aws_secret = get_provider_aws_credentials(provider_name)
 
     if not aws_key or not aws_secret:
         return ValidationResult(
             passed=False,
-            errors=[ERROR_MESSAGES["bedrock_credentials"]],
+            errors=[
+                ERROR_MESSAGES["bedrock_credentials"].format(provider=provider_name)
+            ],
         )
 
     return ValidationResult(

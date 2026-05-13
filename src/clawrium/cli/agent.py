@@ -721,13 +721,8 @@ def _run_channels_stage(
     """
     from clawrium.core.secrets import get_instance_key, set_instance_secret
 
-    # Hermes supports cli (loopback api_server) and discord. Slack is not
-    # wired for hermes yet (separate follow-up). openclaw/zeroclaw still get
-    # the full cli/discord/slack list.
-    if claw_type == "hermes":
-        channels = ["cli", "discord"]
-    else:
-        channels = ["cli", "discord", "slack"]
+    # All agent types support cli, discord, and slack channels.
+    channels = ["cli", "discord", "slack"]
 
     console.print("[bold]Select default channel:[/bold]")
     for i, ch in enumerate(channels, 1):
@@ -986,33 +981,130 @@ def _run_channels_stage(
             )
             return False
 
-        user_id = typer.prompt("Your Slack user ID (for allowFrom)")
-        if not re.match(r"^U[A-Z0-9]{8,}$", user_id):
-            console.print(
-                "[red]Error:[/red] Invalid user ID format (must start with U, e.g., U01ABC2DEF)"
+        if claw_type == "hermes":
+            # Hermes shape: env-var-driven, no source-ref routing. Prompt
+            # for an allowed-user allowlist (comma-separated Slack Member IDs),
+            # optional home channel, home channel name.
+            allowed_users_raw = typer.prompt(
+                "Allowed Slack user IDs (comma-separated, e.g., U01ABC2DEF3)"
             )
-            return False
+            allowed_users_raw = (allowed_users_raw or "").strip()
+            allowed_users: list[str] = []
+            if not allowed_users_raw:
+                console.print(
+                    "[red]Error:[/red] At least one allowed user ID required."
+                )
+                return False
+            ids = [s.strip() for s in allowed_users_raw.split(",") if s.strip()]
+            if not ids:
+                console.print(
+                    "[red]Error:[/red] At least one allowed user ID required."
+                )
+                return False
+            for uid in ids:
+                if not re.match(r"^U[A-Z0-9]{8,}$", uid):
+                    console.print(
+                        f"[red]Error:[/red] Invalid Slack user ID '{rich_escape(uid)}' "
+                        f"(must start with U, e.g., U01ABC2DEF3)"
+                    )
+                    return False
+            allowed_users = ids
 
-        channels_config = {
-            "slack": {
+            home_channel_raw = typer.prompt(
+                "Slack home channel ID (Enter to skip)",
+                default="",
+                show_default=False,
+            ).strip()
+            if home_channel_raw and not re.match(r"^C[A-Z0-9]+$", home_channel_raw):
+                console.print(
+                    "[red]Error:[/red] Invalid channel ID format "
+                    "(must start with C, e.g., C01234567890)"
+                )
+                return False
+            if not home_channel_raw:
+                console.print(
+                    "[yellow]Note:[/yellow] without SLACK_HOME_CHANNEL, hermes "
+                    "cannot send scheduled/cron messages to Slack. Set it later "
+                    "via 'clm agent configure <name> --stage channels'."
+                )
+
+            home_channel_name = ""
+            if home_channel_raw:
+                home_channel_name_raw = typer.prompt(
+                    "Slack home channel name", default="general"
+                ).strip() or "general"
+                # Reject control chars so a pasted value can't inject into .env
+                if len(home_channel_name_raw) > 64 or not re.match(
+                    r"^[A-Za-z0-9 _\-./#]+$", home_channel_name_raw
+                ):
+                    console.print(
+                        "[red]Error:[/red] Home channel name must be 1-64 chars "
+                        "of letters/digits/spaces/_-./# (no newlines or shell metachars)."
+                    )
+                    return False
+                home_channel_name = home_channel_name_raw
+
+            slack_cfg: dict = {
                 "enabled": True,
-                "mode": "socket",
-                "appToken": {
-                    "source": "env",
-                    "provider": "default",
-                    "id": "SLACK_APP_TOKEN",
-                },
-                "botToken": {
-                    "source": "env",
-                    "provider": "default",
-                    "id": "SLACK_BOT_TOKEN",
-                },
-                "allowFrom": [user_id],
-                "groupPolicy": "allowlist",
-                "dmPolicy": "pairing",
+                "allowed_users": allowed_users,
             }
-        }
+            if home_channel_raw:
+                slack_cfg["home_channel"] = home_channel_raw
+                slack_cfg["home_channel_name"] = home_channel_name
 
+            channels_config = {"slack": slack_cfg}
+        else:
+            user_id = typer.prompt("Your Slack user ID (for allowFrom)")
+            if not re.match(r"^U[A-Z0-9]{8,}$", user_id):
+                console.print(
+                    "[red]Error:[/red] Invalid user ID format (must start with U, e.g., U01ABC2DEF)"
+                )
+                return False
+
+            channels_config = {
+                "slack": {
+                    "enabled": True,
+                    "mode": "socket",
+                    "appToken": {
+                        "source": "env",
+                        "provider": "default",
+                        "id": "SLACK_APP_TOKEN",
+                    },
+                    "botToken": {
+                        "source": "env",
+                        "provider": "default",
+                        "id": "SLACK_BOT_TOKEN",
+                    },
+                    "allowFrom": [user_id],
+                    "groupPolicy": "allowlist",
+                    "dmPolicy": "pairing",
+                }
+            }
+
+        # Resolve canonical instance_key up-front so the tokens can be stored
+        # against the same key lifecycle.configure_agent will look up.
+        host_data = get_host(host)
+        if not host_data:
+            console.print(f"[red]Error:[/red] Host '{host}' not found")
+            return False
+        canonical_hostname = host_data["hostname"]
+        instance_key = get_instance_key(
+            canonical_hostname, claw_type, installed_name or claw_type
+        )
+
+        # For hermes, configure_agent's hydration block reads Slack tokens
+        # from secrets.json BEFORE running the ansible playbook (the playbook
+        # needs them to render .env). So persist secrets first.
+        if claw_type == "hermes":
+            set_instance_secret(
+                instance_key, "SLACK_BOT_TOKEN", bot_token, "Slack bot token"
+            )
+            set_instance_secret(
+                instance_key, "SLACK_APP_TOKEN", app_token, "Slack app token"
+            )
+            console.print("[green]✓[/green] Slack tokens stored securely")
+
+        # Sync channel config to agent
         console.print("Syncing channel config to agent... ", end="")
         try:
             _sync_channel_config(host, claw_type, channels_config, installed_name)
@@ -1025,21 +1117,16 @@ def _run_channels_stage(
             )
             return False
 
-        host_data = get_host(host)
-        if not host_data:
-            console.print(f"[red]Error:[/red] Host '{host}' not found")
-            return False
-        canonical_hostname = host_data["hostname"]
-        instance_key = get_instance_key(
-            canonical_hostname, claw_type, installed_name or claw_type
-        )
-        set_instance_secret(
-            instance_key, "SLACK_BOT_TOKEN", bot_token, "Slack bot token"
-        )
-        set_instance_secret(
-            instance_key, "SLACK_APP_TOKEN", app_token, "Slack app token"
-        )
-        console.print("[green]✓[/green] Slack tokens stored securely")
+        # Store tokens as secrets after successful sync (W4) — for
+        # openclaw/zeroclaw. Hermes already stored them above.
+        if claw_type != "hermes":
+            set_instance_secret(
+                instance_key, "SLACK_BOT_TOKEN", bot_token, "Slack bot token"
+            )
+            set_instance_secret(
+                instance_key, "SLACK_APP_TOKEN", app_token, "Slack app token"
+            )
+            console.print("[green]✓[/green] Slack tokens stored securely")
 
     # Check if channels stage is already complete - if so, skip complete_stage()
     # This allows re-running the stage to update config without state machine errors

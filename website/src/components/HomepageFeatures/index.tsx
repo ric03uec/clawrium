@@ -40,8 +40,9 @@ const FeatureList: FeatureItem[] = [
     description: (
       <>
         Today, Clawrium supports{' '}
-        <a href="https://github.com/openclaw/openclaw">OpenClaw</a> for end-to-end install,
-        onboarding, and lifecycle management. ZeroClaw and additional claw types are planned.
+        <a href="https://github.com/openclaw/openclaw">OpenClaw</a> and{' '}
+        <a href="https://github.com/NousResearch/hermes-agent">Hermes</a> for end-to-end
+        install, onboarding, and lifecycle management. Additional claw types are planned.
       </>
     ),
   },
@@ -115,7 +116,7 @@ function BeforeAfterSection(): ReactNode {
                 │
                 ├── nuc-01 ───> openclaw
                 │
-                └── dev-box ──> zeroclaw
+                └── dev-box ──> hermes
     
     ✅ Single command center
     ✅ Consistent configuration
@@ -132,7 +133,7 @@ HOST        AGENT          TYPE       STATUS    UPTIME
 ─────────────────────────────────────────────────────────
 pi-lab      oc-discord     openclaw   running   3d 4h
 nuc-01      oc-work        openclaw   running   12h
-dev-box     zc-research    zeroclaw   stopped   -`}
+dev-box     hm-research    hermes     running   2h`}
           </pre>
         </div>
       </div>

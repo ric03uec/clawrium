@@ -118,6 +118,18 @@ def _cleanup_ansible_artifacts(operation_log_dir: Path) -> None:
         except Exception as e:
             logger.warning("Failed to clean up ansible env: %s", e)
 
+    # ansible-runner serializes the inventory dict (which contains provider
+    # API keys, AWS credentials, Discord/Slack tokens, etc. as extravars) to
+    # inventory/hosts.json on every run. Without cleanup these accumulate on
+    # disk indefinitely. Strip alongside artifacts/ and env/.
+    inventory_dir = operation_log_dir / "inventory"
+    if inventory_dir.exists():
+        try:
+            shutil.rmtree(inventory_dir)
+            logger.debug("Cleaned up ansible inventory at %s", inventory_dir)
+        except Exception as e:
+            logger.warning("Failed to clean up ansible inventory: %s", e)
+
 
 def _resolve_agent_record(
     host: dict,
@@ -847,6 +859,63 @@ def configure_agent(
             merged_channels["discord"] = merged_discord
             config_data["channels"] = merged_channels
 
+        # Hermes Slack: merge persisted channels.slack shape from hosts.json
+        # with anything passed in config_data, then hydrate the bot/app tokens
+        # from secrets.json. Mirrors the Discord hydration pattern above.
+        persisted_slack = persisted_channels.get("slack") or {}
+        if not isinstance(persisted_slack, dict):
+            persisted_slack = {}
+
+        incoming_slack = incoming_channels.get("slack") or {}
+        if not isinstance(incoming_slack, dict):
+            incoming_slack = {}
+
+        merged_slack = {**persisted_slack, **incoming_slack}
+
+        if merged_slack.get("enabled"):
+            slack_secrets = get_instance_secrets(instance_key)
+            slack_bot_secret = slack_secrets.get("SLACK_BOT_TOKEN")
+            slack_bot_val = (
+                slack_bot_secret.get("value")
+                if isinstance(slack_bot_secret, dict)
+                else None
+            )
+            slack_app_secret = slack_secrets.get("SLACK_APP_TOKEN")
+            slack_app_val = (
+                slack_app_secret.get("value")
+                if isinstance(slack_app_secret, dict)
+                else None
+            )
+            if (
+                not isinstance(slack_bot_val, str)
+                or not slack_bot_val.startswith("xoxb-")
+            ):
+                return (
+                    False,
+                    "Slack enabled for this agent but SLACK_BOT_TOKEN is "
+                    "missing or invalid in secrets.json. Re-run "
+                    "'clm agent configure <name> --stage channels' to set it.",
+                )
+            if (
+                not isinstance(slack_app_val, str)
+                or not slack_app_val.startswith("xapp-")
+            ):
+                return (
+                    False,
+                    "Slack enabled for this agent but SLACK_APP_TOKEN is "
+                    "missing or invalid in secrets.json. Re-run "
+                    "'clm agent configure <name> --stage channels' to set it.",
+                )
+            merged_slack["bot_token"] = slack_bot_val
+            merged_slack["app_token"] = slack_app_val
+
+        if persisted_slack or incoming_slack:
+            current_channels = config_data.get("channels") or {}
+            if not isinstance(current_channels, dict):
+                current_channels = {}
+            current_channels["slack"] = merged_slack
+            config_data["channels"] = current_channels
+
     # Validate config data before running Ansible
     # Validate required provider fields (must check dict type first)
     required_provider_fields = ["name", "type", "default_model"]
@@ -1115,6 +1184,12 @@ def configure_agent(
                             discord_persisted = dict(discord_persisted)
                             discord_persisted.pop("bot_token", None)
                             channels_persisted["discord"] = discord_persisted
+                        slack_persisted = channels_persisted.get("slack")
+                        if isinstance(slack_persisted, dict):
+                            slack_persisted = dict(slack_persisted)
+                            slack_persisted.pop("bot_token", None)
+                            slack_persisted.pop("app_token", None)
+                            channels_persisted["slack"] = slack_persisted
                         persisted_config["channels"] = channels_persisted
                     else:
                         # Unexpected shape (string/list/etc.) — drop rather

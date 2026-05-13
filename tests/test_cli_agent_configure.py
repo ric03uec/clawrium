@@ -2428,8 +2428,7 @@ class TestRunChannelsStageHermesDiscord:
 
         assert "cli" in result.output.lower()
         assert "discord" in result.output.lower()
-        # Slack stays out of the hermes list (no wiring yet).
-        assert "slack" not in result.output.lower()
+        assert "slack" in result.output.lower()
 
     def test_hermes_discord_writes_token_secret_and_hosts_config(
         self, isolated_config: Path
@@ -2926,3 +2925,270 @@ class TestRunChannelsStageHermesDiscord:
         # And the hermes-only flat fields are NOT injected.
         assert "allowed_users" not in d
         assert "home_channel" not in d
+
+
+class TestRunChannelsStageHermesSlack:
+    """Tests for the hermes-specific Slack channels branch."""
+
+    def _valid_bot_token(self) -> str:
+        return "xoxb-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
+
+    def _valid_app_token(self) -> str:
+        return "xapp-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
+
+    def test_hermes_slack_writes_tokens_and_config(self, isolated_config: Path):
+        """Selecting slack on hermes stores both tokens in secrets.json and
+        the non-sensitive config (allowed_users / home_channel / etc.) in
+        hosts.json — no tokens in the synced shape."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            onboarding_state="channels",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        stored_secrets: list[dict] = []
+        synced_configs: list[dict] = []
+
+        def capture_secret(instance_key, key, value, description):
+            stored_secrets.append(
+                {"instance_key": instance_key, "key": key, "value": value}
+            )
+
+        def capture_sync(host, claw_type, channels_config, installed_name):
+            synced_configs.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch(
+                "clawrium.core.secrets.set_instance_secret", side_effect=capture_secret
+            ),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                3,  # Select slack (cli=1, discord=2, slack=3)
+                self._valid_bot_token(),  # Bot token
+                self._valid_app_token(),  # App token
+                "U01ABC2DEF3",  # Allowed user IDs
+                "C01234567890",  # Home channel ID
+                "general",  # Home channel name
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+
+        assert result is True
+        # Both tokens stored
+        assert len(stored_secrets) == 2
+        token_keys = {s["key"] for s in stored_secrets}
+        assert "SLACK_BOT_TOKEN" in token_keys
+        assert "SLACK_APP_TOKEN" in token_keys
+        assert stored_secrets[0]["value"] == self._valid_bot_token()
+
+        assert len(synced_configs) == 1
+        slack_cfg = synced_configs[0]["slack"]
+        # Hermes shape — flat, env-var-mapped.
+        assert slack_cfg["enabled"] is True
+        assert slack_cfg["allowed_users"] == ["U01ABC2DEF3"]
+        assert slack_cfg["home_channel"] == "C01234567890"
+        assert slack_cfg["home_channel_name"] == "general"
+        # CRITICAL: tokens must NOT be in the hosts.json shape.
+        assert "bot_token" not in slack_cfg
+        assert "app_token" not in slack_cfg
+        # And we must not regress to the openclaw source-ref shape.
+        assert "botToken" not in slack_cfg
+        assert "appToken" not in slack_cfg
+        assert "groupPolicy" not in slack_cfg
+
+    def test_hermes_slack_rejects_invalid_user_id(self, isolated_config: Path):
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                3,  # Select slack
+                self._valid_bot_token(),
+                self._valid_app_token(),
+                "1234",  # Invalid user ID (not U-prefixed)
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+        assert result is False
+
+    def test_hermes_slack_rejects_invalid_bot_token(self, isolated_config: Path):
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                3,  # Select slack
+                "not-a-valid-token",  # Bad bot token
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+        assert result is False
+
+    def test_hermes_slack_rejects_invalid_channel_id(self, isolated_config: Path):
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        with patch("clawrium.cli.agent.typer.prompt") as mock_p:
+            mock_p.side_effect = [
+                3,  # Select slack
+                self._valid_bot_token(),
+                self._valid_app_token(),
+                "U01ABC2DEF3",  # Valid user
+                "not-a-channel",  # Invalid channel ID
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+        assert result is False
+
+    def test_hermes_slack_skips_home_channel(self, isolated_config: Path):
+        """Skipping the home channel is valid — config should not have
+        home_channel or home_channel_name fields."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            onboarding_state="channels",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(host, claw_type, channels_config, installed_name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                3,  # Select slack
+                self._valid_bot_token(),
+                self._valid_app_token(),
+                "U01ABC2DEF3",  # Allowed user IDs
+                "",  # Skip home channel
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+
+        assert result is True
+        slack_cfg = synced[0]["slack"]
+        assert slack_cfg["enabled"] is True
+        assert slack_cfg["allowed_users"] == ["U01ABC2DEF3"]
+        assert "home_channel" not in slack_cfg
+        assert "home_channel_name" not in slack_cfg
+
+    def test_openclaw_slack_still_uses_source_ref_shape(
+        self, isolated_config: Path
+    ):
+        """Regression guard: openclaw's existing source-ref shape is preserved
+        — the hermes branch must not infect non-hermes claws."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="openclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "p", "type": "openai"}},
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(host, claw_type, channels_config, installed_name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                3,  # Select slack
+                self._valid_bot_token(),
+                self._valid_app_token(),
+                "U01ABC2DEF3",  # user ID
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
+
+        assert result is True
+        s = synced[0]["slack"]
+        # openclaw shape preserved — source refs
+        assert "botToken" in s
+        assert "appToken" in s
+        assert s["groupPolicy"] == "allowlist"
+        assert s["mode"] == "socket"
+        # And the hermes-only flat fields are NOT injected.
+        assert "allowed_users" not in s
+        assert "home_channel" not in s

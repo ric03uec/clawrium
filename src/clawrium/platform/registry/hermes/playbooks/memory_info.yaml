@@ -1,27 +1,29 @@
 ---
-# Hermes uses a fixed two-file memory model under ~/.hermes/memories/:
-#   - MEMORY.md  (agent notes, ≤ 2200 chars enforced by hermes runtime)
-#   - USER.md    (user profile, ≤ 1375 chars enforced by hermes runtime)
-# There is no "daily memory" concept (that is openclaw-specific), so this
-# playbook emits only the TOP lines. The empty DAILY section keeps the
-# Python parser happy: zero DAILY entries is valid output.
+# Hermes memory model:
+#   - MEMORY.md  (agent notes, ≤ 2200 chars) → ~/.hermes/memories/
+#   - USER.md    (user profile, ≤ 1375 chars) → ~/.hermes/memories/
+#   - SOUL.md    (agent identity, ≤ 3000 chars) → ~/.hermes/ (root)
+# The empty DAILY section keeps the Python parser happy.
 - hosts: all
   become: yes
   gather_facts: false
   vars:
     memory_top_level_files:
-      - MEMORY.md
-      - USER.md
+      - { name: "MEMORY.md", path: "/home/{{ agent_name }}/.hermes/memories/MEMORY.md" }
+      - { name: "USER.md", path: "/home/{{ agent_name }}/.hermes/memories/USER.md" }
+      - { name: "SOUL.md", path: "/home/{{ agent_name }}/.hermes/SOUL.md" }
   tasks:
     - name: Set workspace path
       ansible.builtin.set_fact:
         memory_workspace_path: "/home/{{ agent_name }}/.hermes/memories"
 
-    - name: Stat top-level memory files
+    - name: Stat memory files
       ansible.builtin.stat:
-        path: "{{ memory_workspace_path }}/{{ item }}"
+        path: "{{ item.path }}"
       register: top_level_stats
       loop: "{{ memory_top_level_files }}"
+      loop_control:
+        label: "{{ item.name }}"
 
     - name: Emit workspace path
       ansible.builtin.debug:
@@ -30,8 +32,8 @@
     - name: Emit top-level file stats
       ansible.builtin.debug:
         msg: >-
-          TOP {{ item.item }}
+          TOP {{ item.item.name }}
           {{ (item.stat.size | default(-1)) if item.stat.exists else -1 }}
       loop: "{{ top_level_stats.results }}"
       loop_control:
-        label: "{{ item.item }}"
+        label: "{{ item.item.name }}"

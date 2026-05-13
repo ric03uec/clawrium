@@ -78,6 +78,7 @@ _MEMORY_WRITE_CHAR_LIMITS: dict[str, dict[str, int]] = {
     "hermes": {
         "MEMORY.md": 2200,
         "USER.md": 1375,
+        "SOUL.md": 3000,
     },
 }
 
@@ -85,7 +86,7 @@ _MEMORY_WRITE_CHAR_LIMITS: dict[str, dict[str, int]] = {
 # (subject to filename pattern + traversal rejection). Hermes restricts to
 # its fixed two-file model.
 _MEMORY_WRITE_ALLOWED_FILES: dict[str, tuple[str, ...]] = {
-    "hermes": ("MEMORY.md", "USER.md"),
+    "hermes": ("MEMORY.md", "USER.md", "SOUL.md"),
 }
 
 # Workspace-relative path validation: filename or memory/<filename>.

@@ -1566,7 +1566,6 @@ class TestHermesFilenameRejection:
     @pytest.mark.parametrize(
         "bad_filename",
         [
-            "SOUL.md",
             "IDENTITY.md",
             "TOOLS.md",
             "memory/2026-05-10.md",  # openclaw daily naming
@@ -1583,7 +1582,7 @@ class TestHermesFilenameRejection:
         assert ok is False
         assert err is not None
         # The allowlist error wording is part of the user-facing contract.
-        assert "hermes memory accepts only MEMORY.md and USER.md" in err
+        assert "hermes memory accepts only MEMORY.md and USER.md and SOUL.md" in err
 
     def test_openclaw_does_not_apply_hermes_allowlist(self, tmp_path: Path):
         """Regression guard: the per-claw allowlist must not bleed across

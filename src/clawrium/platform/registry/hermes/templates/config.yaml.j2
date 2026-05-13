@@ -16,6 +16,8 @@ model:
   provider: "anthropic"
 {% elif provider_type == 'openai' %}
   provider: "openai"
+{% elif provider_type == 'bedrock' %}
+  provider: "bedrock"
 {% elif provider_type == 'ollama' %}
   provider: "custom"
 {# Hermes' custom provider expects an OpenAI-compatible /v1 root. Append /v1
@@ -31,4 +33,9 @@ model:
 {% endif %}
 {% if model_id %}
   default: "{{ model_id }}"
+{% endif %}
+
+{% if provider_type == 'bedrock' %}
+bedrock:
+  region: "{{ provider.region | default('us-east-1') }}"
 {% endif %}
