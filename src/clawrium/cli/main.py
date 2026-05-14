@@ -129,6 +129,33 @@ def tui() -> None:
         raise typer.Exit(code=1)
 
 
+@app.command()
+def gui(
+    port: int = typer.Option(
+        36000,
+        "--port",
+        "-p",
+        min=1,
+        max=65535,
+        help="Local TCP port to bind (1-65535).",
+    ),
+    no_open: bool = typer.Option(
+        False,
+        "--no-open",
+        help="Skip auto-opening the browser. Useful for headless/SSH sessions.",
+    ),
+) -> None:
+    """Launch the local web GUI dashboard.
+
+    Binds to 127.0.0.1 only — never reachable from the network. The server runs
+    in the foreground; press Ctrl+C to stop it. For a terminal-based view
+    instead, use 'clm tui'.
+    """
+    from clawrium.cli.gui import gui as gui_command
+
+    gui_command(port=port, no_open=no_open)
+
+
 # Register agent subcommands (primary interface)
 app.add_typer(agent_app, name="agent")
 

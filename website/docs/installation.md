@@ -69,6 +69,16 @@ uvx --from clawrium clm --help
 
 This runs the latest version without permanent installation - useful for trying it out.
 
+### Web GUI Dependencies
+
+The default install includes the [`clm gui`](./reference/cli/gui.md) dashboard. If you installed Clawrium without extras and `clm gui` reports missing dependencies, reinstall with the `[gui]` extra:
+
+```bash
+uv tool install --force 'clawrium[gui]'
+```
+
+The GUI server binds to `127.0.0.1` only and is never reachable from the network.
+
 ## Verify Installation
 
 Run the `clm` command to verify installation:

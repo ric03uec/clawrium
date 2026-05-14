@@ -37,6 +37,7 @@ Clawrium gives you `kubectl`-style fleet control for AI agents:
 - **Specialized agents.** Run a fleet of purpose-built agents - a research agent, a support agent, an internal assistant - each with its own context and configuration.
 - **Model flexibility.** Use any provider: OpenAI, Anthropic, local Ollama, or self-hosted inference.
 - **Lifecycle management.** Upgrades, rollbacks, secrets rotation - handled from one place.
+- **Local web dashboard.** `clm gui` opens a visual fleet view on `127.0.0.1` — chat with agents, browse topology, manage providers. See the [Web Dashboard guide](./guides/web-dashboard.md).
 
 ## How It Works
 
@@ -107,6 +108,14 @@ Installing openclaw on homelab...
 ✓ Agent user created
 ✓ Configuration deployed
 ✓ Agent 'my-assistant' installed successfully
+```
+
+```bash
+# Open the local web dashboard
+clm gui
+```
+```
+Clawrium GUI starting on http://127.0.0.1:36000 — press Ctrl+C to stop
 ```
 
 ## Key Concepts

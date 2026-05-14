@@ -1,15 +1,25 @@
-.PHONY: help install test test-cov lint format build clean upgrade lock setup-dev
+.PHONY: help install test test-py test-ui test-cov lint lint-py lint-ui format build build-ui clean upgrade lock setup-dev
+
+GUI_DIR := gui
+GUI_OUT := $(GUI_DIR)/out
+GUI_INSTALL_STAMP := $(GUI_DIR)/node_modules/.package-lock.json
+FRONTEND_DEST := src/clawrium/gui/frontend
 
 help:
 	@echo "Clawrium Development Commands"
 	@echo ""
 	@echo "  make setup-dev    Setup development environment (first time)"
 	@echo "  make install      Install production dependencies only"
-	@echo "  make test         Run tests"
-	@echo "  make test-cov     Run tests with coverage"
-	@echo "  make lint         Run linter"
+	@echo "  make test         Run Python and JS tests"
+	@echo "  make test-py      Run Python tests only"
+	@echo "  make test-ui      Run GUI (vitest) tests only"
+	@echo "  make test-cov     Run Python tests with coverage"
+	@echo "  make lint         Run Python and JS linters"
+	@echo "  make lint-py      Run Python linter only"
+	@echo "  make lint-ui      Run GUI (next lint) only"
 	@echo "  make format       Format code"
-	@echo "  make build        Build package"
+	@echo "  make build        Build Python package (includes GUI)"
+	@echo "  make build-ui     Build the GUI frontend and stage it for clm gui"
 	@echo "  make clean        Remove build artifacts"
 	@echo "  make upgrade      Upgrade all dependencies"
 	@echo "  make lock         Update lock file"
@@ -17,24 +27,47 @@ help:
 install:
 	uv sync --no-dev
 
-test:
+test: test-py test-ui
+
+test-py:
 	uv run pytest
+
+test-ui: $(GUI_INSTALL_STAMP)
+	cd $(GUI_DIR) && npm test
 
 test-cov:
 	uv run pytest --cov=src/clawrium --cov-report=term-missing
 
-lint:
+lint: lint-py lint-ui
+
+lint-py:
 	uv run ruff check src tests
+
+lint-ui: $(GUI_INSTALL_STAMP)
+	cd $(GUI_DIR) && npm run lint
 
 format:
 	uv run ruff format src tests
 
-build:
+build: build-ui
 	uv build
+
+$(GUI_INSTALL_STAMP): $(GUI_DIR)/package-lock.json $(GUI_DIR)/package.json
+	@command -v npm >/dev/null 2>&1 || { echo "npm is required to build the GUI"; exit 1; }
+	cd $(GUI_DIR) && npm ci
+	@touch $@
+
+build-ui: $(GUI_INSTALL_STAMP)
+	cd $(GUI_DIR) && npm run build
+	rm -rf $(FRONTEND_DEST)
+	mkdir -p $(FRONTEND_DEST)
+	cp -R $(GUI_OUT)/. $(FRONTEND_DEST)/
+	@echo "GUI built and staged at $(FRONTEND_DEST)/"
 
 clean:
 	rm -rf dist build *.egg-info
 	rm -rf .pytest_cache .coverage .ruff_cache
+	rm -rf $(GUI_OUT) $(GUI_DIR)/.next $(FRONTEND_DEST)
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 upgrade:

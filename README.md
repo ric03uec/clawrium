@@ -115,6 +115,10 @@ clm ps
 clm chat my-assistant
 # → Connected to my-assistant
 # → Type your message...
+
+# Or open the local web dashboard
+clm gui
+# → Clawrium GUI starting on http://127.0.0.1:36000 — press Ctrl+C to stop
 ```
 
 **You should see:** A running agent in `clm ps` output with status `running`.

@@ -24,6 +24,8 @@ dependencies = [
     "msgpack>=1.1.2",
     "textual>=3.0.0,<4.0.0",
     "fuzzyfinder>=2.1.0,<3.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
 ]
 
 [project.scripts]

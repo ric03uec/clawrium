@@ -1,0 +1,1018 @@
+# Clawrium GUI - Local Web Dashboard
+
+## Overview
+
+A local web-based GUI for managing the Clawrium agent fleet. Launched via `clm gui`,
+it starts a local server and opens the browser to a React/Next.js dashboard that
+provides visual fleet management, agent interaction, and configuration.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Browser (localhost:3100)                                     │
+│  Next.js App (React + Tailwind CSS)                          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HTTP/REST + WebSocket
+┌──────────────────────────▼──────────────────────────────────┐
+│  Python Backend (FastAPI)                                     │
+│  - REST API for fleet/provider/settings CRUD                 │
+│  - WebSocket proxy for agent chat                            │
+│  - Token usage tracking middleware                           │
+│  - SSE for real-time status updates                          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ Reuses existing core modules
+┌──────────────────────────▼──────────────────────────────────┐
+│  clawrium.core                                               │
+│  - hosts.py, providers/storage.py, health.py                 │
+│  - chat.py, chat_hermes.py (WebSocket/OpenAI backends)       │
+│  - lifecycle.py, onboarding.py                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Launch Flow
+
+```
+$ clm gui [--port 3100] [--no-open]
+  1. Starts FastAPI backend on localhost:3100/api
+  2. Serves pre-built Next.js static assets from localhost:3100
+  3. Opens browser to localhost:3100 (unless --no-open)
+```
+
+### Tech Stack
+
+| Layer | Technology | Rationale |
+|-------|-----------|-----------|
+| Frontend | Next.js 14 (App Router) | React ecosystem, static export |
+| Styling | Tailwind CSS v4 | Utility-first, matches ocean theme |
+| Charts | Recharts | Lightweight, React-native |
+| Topology | React Flow or custom SVG | Network diagram rendering |
+| State | TanStack Query (React Query) | Server state caching, polling |
+| Icons | Lucide React | Clean, consistent iconography |
+| Backend API | FastAPI | Async, Python-native, OpenAPI |
+| WebSocket | FastAPI WebSocket | Chat proxy |
+| Bundling | Static export via `next build` | Served by FastAPI, no Node runtime needed |
+
+---
+
+## Design System
+
+### Color Tokens (Ocean Teal - Light Theme)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Token               │ Value    │ Usage                    │
+├─────────────────────┼──────────┼──────────────────────────┤
+│ --bg-page           │ #FFFFFF  │ Page background           │
+│ --bg-panel          │ #F8FAFC  │ Sidebar, card backgrounds │
+│ --bg-surface        │ #F0FDFA  │ Teal-tinted surfaces      │
+│ --bg-elevated       │ #FFFFFF  │ Modals, dropdowns         │
+│                     │          │                           │
+│ --color-primary     │ #0D9488  │ Primary actions, links    │
+│ --color-primary-hover│ #0F766E │ Hover states             │
+│ --color-primary-light│ #14B8A6 │ Active tab indicators    │
+│ --color-primary-bg  │ #CCFBF1  │ Primary badges, chips    │
+│ --color-primary-wash│ #F0FDFA  │ Subtle teal backgrounds  │
+│                     │          │                           │
+│ --text-primary      │ #0F172A  │ Headings, primary text    │
+│ --text-secondary    │ #475569  │ Descriptions, labels      │
+│ --text-muted        │ #94A3B8  │ Placeholders, disabled    │
+│                     │          │                           │
+│ --border-default    │ #E2E8F0  │ Card borders, dividers    │
+│ --border-subtle     │ #F1F5F9  │ Inner dividers            │
+│                     │          │                           │
+│ --status-running    │ #10B981  │ Green (running/healthy)   │
+│ --status-warning    │ #F59E0B  │ Amber (provisioning)      │
+│ --status-error      │ #EF4444  │ Red (stopped/error)       │
+│ --status-info       │ #0EA5E9  │ Blue (onboarding)         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Typography
+
+- Font: Inter (system fallback: -apple-system, sans-serif)
+- Headings: 600 weight, slate-900
+- Body: 400 weight, slate-700
+- Mono: JetBrains Mono (for code, logs, chat)
+
+### Spacing Scale
+
+4px base: 4, 8, 12, 16, 20, 24, 32, 40, 48, 64
+
+### Border Radius
+
+- Cards: 12px
+- Buttons: 8px
+- Badges/chips: 6px
+- Avatars: 50%
+
+---
+
+## Navigation & Information Architecture
+
+### Sidebar (Text-Only, No Icons)
+
+The sidebar uses full text labels with no icons. Only the Clawrium logo appears
+at the top left (reused from the website). Active item has a left teal border.
+
+```
+┌──────────────┐
+│  ◈ CLM       │  ← Clawrium logo only (from website)
+│              │
+│┃ Dashboard   │  ← Active: left teal border + teal text
+│              │
+│  Topology    │  ← Normal: gray text, hover: darken
+│              │
+│  Providers   │
+│              │
+│  Settings    │
+│              │
+│              │
+│──────────────│
+│  v26.4.7     │  ← Version at bottom
+└──────────────┘
+```
+
+### Screen Map
+
+```
+Dashboard (landing) ──────► Agent Detail (drill-down)
+    │                            │
+    │                            ├── Chat tab
+    │                            ├── Configuration tab
+    │                            ├── Skills & Tools tab
+    │                            ├── Memory tab
+    │                            └── Logs tab
+    │
+Topology ─────────────────► Agent Modal (read-only, links to detail)
+    │                       Host Modal (read-only)
+    │
+Providers ────────────────► Add Provider (wizard/modal)
+    │                       Edit Provider (inline)
+    │
+Settings ─────────────────► Version, Paths, Preferences
+```
+
+---
+
+## Screen 1: Dashboard (Landing Page)
+
+### Wireframe
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ┌──────────────┐                                                              │
+│ │  ◈ CLM       │                                                              │
+│ │              │  ─────────────────────────────────────────────────────────── │
+│ │┃ Dashboard   │                                                              │
+│ │              │  ┌─────────────────────────────────────────────────────────┐ │
+│ │  Topology    │  │                    METRIC CARDS ROW                      │ │
+│ │              │  │                                                          │ │
+│ │  Providers   │  │ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────┐ ┌──┐│ │
+│ │              │  │ │    3     │ │    2     │ │    4     │ │  12.4K  │ │$2││ │
+│ │  Settings    │  │ │  Agents  │ │ Running  │ │Providers │ │Tok/24h  │ │  ││ │
+│ │              │  │ └──────────┘ └──────────┘ └──────────┘ └─────────┘ └──┘│ │
+│ │              │  │                                                          │ │
+│ │              │  └─────────────────────────────────────────────────────────┘ │
+│ │              │                                                              │
+│ │              │  ┌────────────────────────────────┐ ┌──────────────────────┐ │
+│ │              │  │      TOKEN USAGE (7 DAYS)      │ │    AGENT STATUS      │ │
+│ │              │  │                                │ │                      │ │
+│ │              │  │  ╭─╮                           │ │      ┌───┐           │ │
+│ │              │  │ ╭╯ ╰─╮    ╭─╮                 │ │      │   │Running(2) │ │
+│ │              │  │╭╯    ╰╮  ╭╯ ╰─╮   ╭──╮       │ │      ├───┤           │ │
+│ │              │  ││      ╰──╯    ╰───╯  ╰──╮    │ │      │   │Stopped(1) │ │
+│ │              │  │╰──────────────────────────╯    │ │      └───┘           │ │
+│ │              │  │ Mon Tue Wed Thu Fri Sat Today  │ │                      │ │
+│ │              │  └────────────────────────────────┘ └──────────────────────┘ │
+│ │              │                                                              │
+│ │              │  ┌─────────────────────────────────────────────────────────┐ │
+│ │              │  │  Fleet Agents                           [+ Add Agent]    │ │
+│ │              │  │ ─────────────────────────────────────────────────────── │ │
+│ │              │  │  ●  Name        Type      Host       Model     Uptime   │ │
+│ │              │  │ ─────────────────────────────────────────────────────── │ │
+│ │              │  │  🟢 wolf-i     openclaw   mybox     gpt-4o    2d 14h  → │ │
+│ │              │  │  🟢 hermes-1   hermes     rpi-4     claude    5d 3h   → │ │
+│ │              │  │  🔴 zero-lab   zeroclaw   nas-01    llama3    -       → │ │
+│ │              │  │                                                          │ │
+│ │              │  └─────────────────────────────────────────────────────────┘ │
+│ │──────────────│                                                              │
+│ │  v26.4.7     │                                                              │
+│ └──────────────┘                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Component Breakdown
+
+| Component | Data Source | Interaction |
+|-----------|------------|-------------|
+| MetricCard (Total Agents) | `FleetSummary.total` | Static display |
+| MetricCard (Running) | `FleetSummary.running` | Static display |
+| MetricCard (Providers) | `len(load_providers())` | Static display |
+| MetricCard (Tokens/24h) | Token tracking store (NEW) | Static display |
+| MetricCard (Est. Cost) | Computed from token usage | Static display |
+| TokenUsageChart | Token tracking store (7-day) | Hover tooltips |
+| AgentStatusDonut | Derived from fleet data | Click to filter |
+| AgentTable | `get_fleet_data()` | Click row → detail |
+| AddAgentButton | N/A | Opens wizard modal |
+
+### Add Agent Wizard (Modal)
+
+```
+┌───────────────────────────────────────────────┐
+│  Add New Agent                           [X]  │
+│ ─────────────────────────────────────────────│
+│                                               │
+│  Step 1 of 4: Select Type                     │
+│  ○─────●─────○─────○                         │
+│                                               │
+│  ┌─────────────┐ ┌─────────────┐             │
+│  │  openclaw   │ │   hermes    │             │
+│  │  Full AI    │ │  Lightweight │             │
+│  │  assistant  │ │  chat agent  │             │
+│  │  [  ✓  ]   │ │  [     ]    │             │
+│  └─────────────┘ └─────────────┘             │
+│  ┌─────────────┐                              │
+│  │  zeroclaw   │                              │
+│  │  Minimal    │                              │
+│  │  worker     │                              │
+│  │  [     ]   │                              │
+│  └─────────────┘                              │
+│                                               │
+│            [Cancel]  [Next →]                 │
+└───────────────────────────────────────────────┘
+
+Step 2: Select Host
+Step 3: Configure Provider (select existing or create new)
+Step 4: Name & Review → Install
+```
+
+---
+
+## Screen 2: Providers
+
+### Wireframe
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ┌──────────────┐                                                              │
+│ │  ◈ CLM       │  Providers                                                  │
+│ │              │  ─────────────────────────────────────────────────────────── │
+│ │  Dashboard   │                                                              │
+│ │              │  ┌─────────────────────────────────────────────────────────┐ │
+│ │  Topology    │  │  Configured Providers                 [+ Add Provider]  │ │
+│ │              │  │                                                          │ │
+│ │┃ Providers   │  │  ┌───────────────────────────────────────────────────┐  │ │
+│ │              │  │  │  ┌──┐  my-openai                                   │  │ │
+│ │  Settings    │  │  │  │OA│  Type: openai                               │  │ │
+│ │              │  │  │  └──┘  Model: gpt-4o                              │  │ │
+│ │              │  │  │        Endpoint: api.openai.com/v1                 │  │ │
+│ │              │  │  │        Used by: wolf-i, hermes-1                   │  │ │
+│ │              │  │  │                            [Edit] [Remove]         │  │ │
+│ │              │  │  └───────────────────────────────────────────────────┘  │ │
+│ │              │  │                                                          │ │
+│ │              │  │  ┌───────────────────────────────────────────────────┐  │ │
+│ │              │  │  │  ┌──┐  local-ollama                                │  │ │
+│ │              │  │  │  │OL│  Type: ollama                               │  │ │
+│ │              │  │  │  └──┘  Models: llama3:latest, codellama:7b        │  │ │
+│ │              │  │  │        Endpoint: 192.168.1.17:11434               │  │ │
+│ │              │  │  │        Used by: zero-lab                           │  │ │
+│ │              │  │  │                     [Edit] [Refresh] [Remove]      │  │ │
+│ │              │  │  └───────────────────────────────────────────────────┘  │ │
+│ │              │  │                                                          │ │
+│ │              │  └─────────────────────────────────────────────────────────┘ │
+│ │              │                                                              │
+│ │              │  ┌─────────────────────────────────────────────────────────┐ │
+│ │              │  │  Model Catalog                 [Search: __________ 🔍]  │ │
+│ │              │  │ ─────────────────────────────────────────────────────── │ │
+│ │              │  │  Provider ▼   │ Model           │ Context  │ Tags       │ │
+│ │              │  │ ──────────────┼─────────────────┼──────────┼────────── │ │
+│ │              │  │  openai       │ gpt-4o          │ 128K     │ flagship   │ │
+│ │              │  │  openai       │ gpt-4o-mini     │ 128K     │ fast       │ │
+│ │              │  │  anthropic    │ claude-opus-4   │ 200K     │ flagship   │ │
+│ │              │  │  anthropic    │ claude-sonnet-4 │ 200K     │ balanced   │ │
+│ │              │  │  ...                                                     │ │
+│ │              │  └─────────────────────────────────────────────────────────┘ │
+│ │──────────────│                                                              │
+│ │  v26.4.7     │                                                              │
+│ └──────────────┘                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Add Provider Flow (Inline Expansion or Modal)
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Add Provider                                        │
+│ ────────────────────────────────────────────────────│
+│                                                      │
+│  Provider Name:  [my-new-provider________]           │
+│                                                      │
+│  Type:  ┌───────────────────────┐                    │
+│         │ openai             ▼  │                    │
+│         └───────────────────────┘                    │
+│                                                      │
+│  Default Model:  ┌───────────────────────┐           │
+│                  │ gpt-4o             ▼  │           │
+│                  └───────────────────────┘           │
+│                                                      │
+│  API Key:  [••••••••••••••••••••••_______]  👁       │
+│                                                      │
+│  Endpoint: https://api.openai.com/v1  (auto-filled)  │
+│                                                      │
+│         [Cancel]  [Test Connection]  [Save]          │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+## Screen 3: Settings
+
+### Wireframe
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ┌──────────────┐                                                              │
+│ │  ◈ CLM       │  Settings                                                   │
+│ │              │  ─────────────────────────────────────────────────────────── │
+│ │  Dashboard   │                                                              │
+│ │              │  ┌─────────────────────────────────────────────────────────┐ │
+│ │  Topology    │  │  About                                                   │ │
+│ │              │  │ ─────────────────────────────────────────────────────── │ │
+│ │  Providers   │  │  Version        26.4.7                                   │ │
+│ │              │  │  Config Dir     ~/.config/clawrium/                       │ │
+│ │┃ Settings    │  │  Python         3.11.9                                   │ │
+│ │              │  │  Platform       linux x86_64                              │ │
+│ │              │  │                                                           │ │
+│ │              │  └─────────────────────────────────────────────────────────┘ │
+│ │              │                                                              │
+│ │              │  ┌─────────────────────────────────────────────────────────┐ │
+│ │              │  │  Token Tracking                                          │ │
+│ │              │  │ ─────────────────────────────────────────────────────── │ │
+│ │              │  │  Status:  ● Enabled                                      │ │
+│ │              │  │  Storage: ~/.config/clawrium/usage.db                    │ │
+│ │              │  │  Retention: [30 days ▼]                                  │ │
+│ │              │  │                                                           │ │
+│ │              │  │  [Clear Usage Data]  [Export CSV]                        │ │
+│ │              │  └─────────────────────────────────────────────────────────┘ │
+│ │              │                                                              │
+│ │              │  ┌─────────────────────────────────────────────────────────┐ │
+│ │              │  │  GUI Preferences                                         │ │
+│ │              │  │ ─────────────────────────────────────────────────────── │ │
+│ │              │  │  Port:           [3100____]                              │ │
+│ │              │  │  Auto-open:      [✓] Open browser on launch              │ │
+│ │              │  │  Refresh Rate:   [5s  ▼] (fleet status polling)         │ │
+│ │              │  │                                                           │ │
+│ │              │  └─────────────────────────────────────────────────────────┘ │
+│ │              │                                                              │
+│ │              │  ┌─────────────────────────────────────────────────────────┐ │
+│ │              │  │  Danger Zone                                             │ │
+│ │              │  │ ─────────────────────────────────────────────────────── │ │
+│ │              │  │  [Reset All Configuration]                               │ │
+│ │              │  │  Removes all hosts, agents, providers, and secrets.      │ │
+│ │              │  └─────────────────────────────────────────────────────────┘ │
+│ │──────────────│                                                              │
+│ │  v26.4.7     │                                                              │
+│ └──────────────┘                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Screen 4: Topology (Network Diagram)
+
+### Overview
+
+Displays a hub-and-spoke network diagram showing the control machine, hosts,
+and agents. Based on the architecture from the Clawrium README. Clicking an
+agent or host opens a read-only modal (no right panel).
+
+### Wireframe - Main View
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ┌──────────────┐                                                              │
+│ │  ◈ CLM       │  Topology                                                   │
+│ │              │  ─────────────────────────────────────────────────────────── │
+│ │  Dashboard   │                                                              │
+│ │              │  ┌─────────────────────────────────────────────────────────┐ │
+│ │┃ Topology    │  │                                                          │ │
+│ │              │  │                    ┌───────────────┐                      │ │
+│ │  Providers   │  │                    │  ◈ Control    │                      │ │
+│ │              │  │                    │  (this machine)│                     │ │
+│ │  Settings    │  │                    └───────┬───────┘                      │ │
+│ │              │  │              ┌─────────────┼─────────────┐               │ │
+│ │              │  │              │ SSH         │ SSH         │ SSH            │ │
+│ │              │  │              │             │             │                │ │
+│ │              │  │    ┌─────────▼──────┐  ┌──▼───────────┐ ┌▼────────────┐ │ │
+│ │              │  │    │ mybox          │  │ rpi-4        │ │ nas-01      │ │ │
+│ │              │  │    │ 192.168.1.100  │  │ 192.168.1.50 │ │ 192.168.1.9 │ │ │
+│ │              │  │    │ ────────────── │  │ ──────────── │ │ ──────────  │ │ │
+│ │              │  │    │ 🟢 wolf-i     │  │ 🟢 hermes-1 │ │ 🔴 zero-lab│ │ │
+│ │              │  │    │    openclaw    │  │    hermes    │ │    zeroclaw │ │ │
+│ │              │  │    │               │  │              │ │             │ │ │
+│ │              │  │    └───────────────┘  └──────────────┘ └─────────────┘ │ │
+│ │              │  │                                                          │ │
+│ │              │  │  ┌─────────────────────────────────────────────────────┐ │ │
+│ │              │  │  │ Legend:                                              │ │ │
+│ │              │  │  │ 🟢 Running  🟡 Provisioning  🔴 Stopped  │ SSH     │ │ │
+│ │              │  │  └─────────────────────────────────────────────────────┘ │ │
+│ │              │  │                                        [Zoom +] [Fit]    │ │
+│ │              │  └─────────────────────────────────────────────────────────┘ │
+│ │──────────────│                                                              │
+│ │  v26.4.7     │                                                              │
+│ └──────────────┘                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Wireframe - Agent Clicked (Modal)
+
+Clicking any agent card opens a read-only modal. No editing is allowed.
+The modal provides a link to navigate to the full Agent Detail page.
+
+```
+┌──────────────────────────────────────────────────────┐
+│  wolf-i                                         [X]  │
+│ ────────────────────────────────────────────────────│
+│                                                      │
+│  Status:     🟢 Running                              │
+│  Type:       openclaw                                │
+│  Host:       mybox (192.168.1.100)                   │
+│  Model:      gpt-4o                                  │
+│  Version:    2026.4.2                                │
+│  Uptime:     2d 14h                                  │
+│  Provider:   my-openai                               │
+│  Channels:   Discord (#ai-chat)                      │
+│                                                      │
+│                                                      │
+│            [View Details →]    [Cancel]              │
+│                                                      │
+└──────────────────────────────────────────────────────┘
+```
+
+Note: [View Details →] navigates to `/agents/wolf-i` (the full Agent Detail page).
+
+### Wireframe - Host Clicked (Modal)
+
+Clicking a host box opens a read-only modal. No navigation to other pages.
+
+```
+┌──────────────────────────────────────────────────────┐
+│  mybox                                          [X]  │
+│ ────────────────────────────────────────────────────│
+│                                                      │
+│  IP Address:    192.168.1.100                        │
+│  SSH Status:    ● Connected                          │
+│  OS:            Ubuntu 24.04 (x86_64)                │
+│  Memory:        16 GB                                │
+│                                                      │
+│  Agents:                                             │
+│  ──────                                              │
+│  🟢 wolf-i (openclaw)                                │
+│                                                      │
+│                                                      │
+│                             [Cancel]                 │
+│                                                      │
+└──────────────────────────────────────────────────────┘
+```
+
+### Interaction Rules
+
+- **Click agent card** → Agent modal (read-only info + "View Details" link)
+- **Click host box** → Host modal (read-only info, Cancel only)
+- **Click control node** → No action (it's the local machine)
+- **Zoom +/-** → Scale the diagram
+- **Fit** → Auto-fit all nodes to viewport
+- **No drag-and-drop** → Layout is auto-calculated (top-down hierarchy)
+
+---
+
+## Screen 5: Agent Detail (Drill-down from Dashboard)
+
+### Wireframe
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ┌──────────────┐                                                              │
+│ │  ◈ CLM       │  ← Dashboard  /  wolf-i                                    │
+│ │              │  ─────────────────────────────────────────────────────────── │
+│ │  Dashboard   │                                                              │
+│ │              │  ┌─────────────────────────────────────────────────────────┐ │
+│ │  Topology    │  │  🟢 wolf-i                    openclaw v2026.4.2        │ │
+│ │              │  │  Host: mybox (192.168.1.100)   Model: gpt-4o            │ │
+│ │  Providers   │  │                                                          │ │
+│ │              │  │  [▶ Start]  [⟳ Restart]  [■ Stop]  [⋮ More]            │ │
+│ │  Settings    │  └─────────────────────────────────────────────────────────┘ │
+│ │              │                                                              │
+│ │              │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
+│ │              │  │  2d 14h  │ │   847    │ │  45.2K   │ │  $1.34   │       │
+│ │              │  │  Uptime   │ │ Messages │ │  Tokens  │ │   Cost   │       │
+│ │              │  └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
+│ │              │                                                              │
+│ │              │  ┌─────────────────────────────────────────────────────────┐ │
+│ │              │  │ [Chat] [Configuration] [Skills & Tools] [Memory] [Logs] │ │
+│ │              │  │ ═══════                                                  │ │
+│ │              │  │                                                          │ │
+│ │              │  │  ┌───────────────────────────────────────────────────┐  │ │
+│ │              │  │  │                                                    │  │ │
+│ │              │  │  │  ┌─────────────────────────────────────────────┐  │  │ │
+│ │              │  │  │  │ 🤖 wolf-i: Hello! How can I help you?       │  │  │ │
+│ │              │  │  │  └─────────────────────────────────────────────┘  │  │ │
+│ │              │  │  │                                                    │  │ │
+│ │              │  │  │  ┌─────────────────────────────────────────────┐  │  │ │
+│ │              │  │  │  │ 👤 You: Summarize the project status        │  │  │ │
+│ │              │  │  │  └─────────────────────────────────────────────┘  │  │ │
+│ │              │  │  │                                                    │  │ │
+│ │              │  │  │  ┌─────────────────────────────────────────────┐  │  │ │
+│ │              │  │  │  │ 🤖 wolf-i: Based on the latest data...      │  │  │ │
+│ │              │  │  │  └─────────────────────────────────────────────┘  │  │ │
+│ │              │  │  │                                                    │  │ │
+│ │              │  │  └───────────────────────────────────────────────────┘  │ │
+│ │              │  │                                                          │ │
+│ │              │  │  ┌───────────────────────────────────── [Send ↵]┐      │ │
+│ │              │  │  │ Type a message...                             │      │ │
+│ │              │  │  └──────────────────────────────────────────────┘      │ │
+│ │              │  └─────────────────────────────────────────────────────────┘ │
+│ │──────────────│                                                              │
+│ │  v26.4.7     │                                                              │
+│ └──────────────┘                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Agent Detail - Configuration Tab
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ [Chat] [Configuration] [Skills & Tools] [Memory] [Logs]             │
+│         ═════════════                                                │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │  Provider                                              [Edit]    ││
+│  │ ───────────────────────────────────────────────────────────────  ││
+│  │  Name:      my-openai                                            ││
+│  │  Type:      openai                                               ││
+│  │  Model:     gpt-4o                                               ││
+│  │  Endpoint:  https://api.openai.com/v1                            ││
+│  │  API Key:   ••••••••sk-...7x2F                                   ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │  Gateway                                               [Edit]    ││
+│  │ ───────────────────────────────────────────────────────────────  ││
+│  │  Port:      40123                                                ││
+│  │  Bind:      lan                                                  ││
+│  │  URL:       ws://192.168.1.100:40123                             ││
+│  │  Auth:      ••••••••                                             ││
+│  │  Device ID: dev_abc123                                           ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │  Channels                                              [Edit]    ││
+│  │ ───────────────────────────────────────────────────────────────  ││
+│  │  Discord:  ● Connected (server: my-server, channel: #ai-chat)   ││
+│  │  Slack:    ○ Not configured                                      ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │  Secrets                                         [Manage]        ││
+│  │ ───────────────────────────────────────────────────────────────  ││
+│  │  OPENAI_API_KEY      ● Set                                       ││
+│  │  DISCORD_BOT_TOKEN   ● Set                                       ││
+│  │  WEBHOOK_SECRET      ○ Missing (required)                        ││
+│  └─────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Agent Detail - Skills & Tools Tab
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ [Chat] [Configuration] [Skills & Tools] [Memory] [Logs]             │
+│                         ═══════════════                               │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │  Installed Skills                         [+ Add Skill]          ││
+│  │ ───────────────────────────────────────────────────────────────  ││
+│  │  ┌────────────────────────────────────────────────────────────┐ ││
+│  │  │ web-search         Searches the web for information         │ ││
+│  │  │                    Status: ● Active          [Disable] [X]  │ ││
+│  │  └────────────────────────────────────────────────────────────┘ ││
+│  │  ┌────────────────────────────────────────────────────────────┐ ││
+│  │  │ code-review        Reviews code for quality and security    │ ││
+│  │  │                    Status: ● Active          [Disable] [X]  │ ││
+│  │  └────────────────────────────────────────────────────────────┘ ││
+│  │  ┌────────────────────────────────────────────────────────────┐ ││
+│  │  │ memory-store       Persists information across sessions     │ ││
+│  │  │                    Status: ● Active          [Disable] [X]  │ ││
+│  │  └────────────────────────────────────────────────────────────┘ ││
+│  └─────────────────────────────────────────────────────────────────┘│
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │  Integrations                            [+ Add Integration]     ││
+│  │ ───────────────────────────────────────────────────────────────  ││
+│  │  ┌────────────────────────────────────────────────────────────┐ ││
+│  │  │ discord       Channel: #ai-chat       Status: ● Connected   │ ││
+│  │  └────────────────────────────────────────────────────────────┘ ││
+│  └─────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Agent Detail - Memory Tab
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ [Chat] [Configuration] [Skills & Tools] [Memory] [Logs]             │
+│                                          ════════                    │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │  Agent Memory Files                                              ││
+│  │ ───────────────────────────────────────────────────────────────  ││
+│  │                                                                  ││
+│  │  ┌──────────────────────┐  ┌──────────────────────────────────┐ ││
+│  │  │ Files                │  │ SOUL.md                   [Save]  │ ││
+│  │  │ ──────────────────── │  │ ──────────────────────────────── │ ││
+│  │  │ > SOUL.md        ←   │  │                                  │ ││
+│  │  │   CONTEXT.md         │  │ # Identity                       │ ││
+│  │  │   PREFERENCES.md     │  │                                  │ ││
+│  │  │                      │  │ You are wolf-i, a helpful AI     │ ││
+│  │  │                      │  │ assistant focused on code review  │ ││
+│  │  │                      │  │ and project management.          │ ││
+│  │  │                      │  │                                  │ ││
+│  │  │                      │  │ ## Personality                   │ ││
+│  │  │                      │  │ - Direct and concise             │ ││
+│  │  │                      │  │ - Technical depth                │ ││
+│  │  │                      │  │ ...                              │ ││
+│  │  └──────────────────────┘  └──────────────────────────────────┘ ││
+│  └─────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Agent Detail - Logs Tab
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ [Chat] [Configuration] [Skills & Tools] [Memory] [Logs]             │
+│                                                   ══════             │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │  Live Logs          [Auto-scroll ✓]  [Filter: _____]  [Clear]   ││
+│  │ ───────────────────────────────────────────────────────────────  ││
+│  │  2026-05-13 10:23:01 [INFO]  Gateway connected on :40123        ││
+│  │  2026-05-13 10:23:02 [INFO]  Provider health OK (openai)        ││
+│  │  2026-05-13 10:24:15 [INFO]  Chat session started (session_abc) ││
+│  │  2026-05-13 10:24:16 [DEBUG] Token count: prompt=142, comp=87   ││
+│  │  2026-05-13 10:24:17 [INFO]  Response generated (234ms)         ││
+│  │  2026-05-13 10:25:01 [INFO]  Health check passed                ││
+│  │  2026-05-13 10:30:00 [INFO]  Periodic memory sync completed     ││
+│  │  ...                                                             ││
+│  │                                                                  ││
+│  │  ▼ (auto-scrolling)                                              ││
+│  └─────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Token Usage Tracking (New Feature)
+
+### Design
+
+Token usage is tracked locally by intercepting chat requests/responses through
+the GUI's backend API. This introduces a lightweight SQLite store.
+
+### Schema
+
+```sql
+CREATE TABLE usage_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp   TEXT NOT NULL,          -- ISO 8601
+    agent_key   TEXT NOT NULL,          -- e.g., "wolf-i"
+    provider    TEXT NOT NULL,          -- e.g., "my-openai"
+    model       TEXT NOT NULL,          -- e.g., "gpt-4o"
+    prompt_tokens   INTEGER NOT NULL,
+    completion_tokens INTEGER NOT NULL,
+    total_tokens    INTEGER NOT NULL,
+    estimated_cost  REAL,               -- USD, computed from model pricing
+    session_id  TEXT,                    -- chat session identifier
+    created_at  TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_usage_timestamp ON usage_events(timestamp);
+CREATE INDEX idx_usage_agent ON usage_events(agent_key);
+```
+
+### How It Works
+
+1. GUI backend proxies chat messages to agent gateway
+2. On response, it extracts `usage` data from the response headers/body
+3. Inserts a row into `usage.db`
+4. Dashboard queries aggregate data for charts/cards
+
+### Model Pricing (built-in table)
+
+```python
+MODEL_PRICING = {
+    "gpt-4o": {"input": 2.50, "output": 10.00},         # per 1M tokens
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "claude-opus-4": {"input": 15.00, "output": 75.00},
+    "claude-sonnet-4": {"input": 3.00, "output": 15.00},
+    # ... extensible
+}
+```
+
+---
+
+## Backend API Design
+
+### Endpoints
+
+```
+GET    /api/fleet              → Fleet summary + all agents
+GET    /api/fleet/agents       → Agent list with status
+GET    /api/fleet/agents/:key  → Single agent detail
+POST   /api/fleet/agents       → Install new agent (wizard)
+DELETE /api/fleet/agents/:key  → Remove agent
+
+GET    /api/fleet/topology     → Full topology data (hosts, agents, connections)
+
+POST   /api/agents/:key/start    → Start agent
+POST   /api/agents/:key/stop     → Stop agent
+POST   /api/agents/:key/restart  → Restart agent
+
+GET    /api/providers           → List all providers
+POST   /api/providers           → Add new provider
+PUT    /api/providers/:name     → Update provider
+DELETE /api/providers/:name     → Remove provider
+GET    /api/providers/types     → Available provider types
+GET    /api/providers/models    → Model catalog
+POST   /api/providers/:name/test → Test connection
+
+GET    /api/agents/:key/memory         → List memory files
+GET    /api/agents/:key/memory/:file   → Get file content
+PUT    /api/agents/:key/memory/:file   → Update file content
+
+GET    /api/agents/:key/skills         → List installed skills
+POST   /api/agents/:key/skills         → Add skill
+DELETE /api/agents/:key/skills/:name   → Remove skill
+
+GET    /api/agents/:key/integrations   → List integrations
+
+GET    /api/usage/summary       → Token usage aggregates
+GET    /api/usage/history       → Time-series usage data
+GET    /api/usage/by-agent      → Per-agent breakdown
+DELETE /api/usage               → Clear usage data
+GET    /api/usage/export        → CSV export
+
+GET    /api/settings            → Current settings
+PUT    /api/settings            → Update settings
+GET    /api/settings/version    → Version info
+
+WS     /api/agents/:key/chat    → WebSocket chat proxy
+SSE    /api/fleet/events        → Real-time status updates
+```
+
+---
+
+## Component Library
+
+### Core Components
+
+| Component | Description |
+|-----------|-------------|
+| `<Sidebar>` | Fixed left nav with text labels, logo at top, version at bottom |
+| `<MetricCard>` | Value + label with optional trend indicator |
+| `<StatusDot>` | Colored circle indicating agent status |
+| `<DataTable>` | Sortable, clickable table with row hover |
+| `<LineChart>` | Token usage over time (Recharts) |
+| `<DonutChart>` | Agent status distribution |
+| `<ProviderCard>` | Provider info card with actions |
+| `<WizardModal>` | Multi-step wizard dialog |
+| `<InfoModal>` | Read-only info modal (used by Topology) |
+| `<ChatPanel>` | Message thread + input (reuses WS backend) |
+| `<CodeEditor>` | Markdown editor for memory files |
+| `<LogViewer>` | Auto-scrolling log with filtering |
+| `<SettingsSection>` | Labeled section with form controls |
+| `<Badge>` | Status/type indicator chip |
+| `<ConfirmDialog>` | Destructive action confirmation |
+
+### Topology Components
+
+| Component | Description |
+|-----------|-------------|
+| `<TopologyCanvas>` | SVG/Canvas container for the network diagram |
+| `<ControlNode>` | Central node representing the control machine |
+| `<HostBox>` | Rounded box showing host info + nested agent cards |
+| `<AgentCard>` | Small card inside host box (status dot + name + type) |
+| `<SshLine>` | Connecting line between control node and hosts |
+| `<TopologyLegend>` | Status color legend at bottom |
+| `<ZoomControls>` | Zoom in/out + fit-to-view buttons |
+
+### Layout Components
+
+| Component | Description |
+|-----------|-------------|
+| `<AppShell>` | Sidebar + content area container |
+| `<PageHeader>` | Title + breadcrumb + actions |
+| `<CardGrid>` | Responsive grid of metric cards |
+| `<TabPanel>` | Tab navigation with content panels |
+| `<SplitPane>` | Resizable two-panel layout (memory editor) |
+
+---
+
+## Project Structure
+
+```
+src/clawrium/
+├── gui/                           # NEW: GUI package
+│   ├── __init__.py
+│   ├── server.py                  # FastAPI app + static serving
+│   ├── routes/
+│   │   ├── __init__.py
+│   │   ├── fleet.py              # Fleet/agent endpoints
+│   │   ├── topology.py           # Topology data endpoint
+│   │   ├── providers.py          # Provider CRUD
+│   │   ├── usage.py              # Token tracking
+│   │   ├── settings.py           # Settings endpoints
+│   │   ├── chat.py               # WebSocket chat proxy
+│   │   └── events.py             # SSE real-time events
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── usage_tracker.py      # SQLite usage store
+│   │   └── pricing.py            # Model cost calculations
+│   └── frontend/                  # Built Next.js output (static)
+│       └── ... (generated by build)
+│
+├── cli/
+│   ├── gui.py                     # NEW: `clm gui` command
+│   └── ...
+
+gui/                               # NEW: top-level frontend source
+├── package.json
+├── next.config.js
+├── tailwind.config.ts
+├── tsconfig.json
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx             # AppShell with Sidebar
+│   │   ├── page.tsx               # Dashboard
+│   │   ├── topology/
+│   │   │   └── page.tsx           # Topology network diagram
+│   │   ├── providers/
+│   │   │   └── page.tsx           # Providers screen
+│   │   ├── settings/
+│   │   │   └── page.tsx           # Settings screen
+│   │   └── agents/
+│   │       └── [key]/
+│   │           └── page.tsx       # Agent detail
+│   ├── components/
+│   │   ├── ui/                    # Primitives (Button, Card, Modal, etc.)
+│   │   ├── layout/                # AppShell, Sidebar, PageHeader
+│   │   ├── dashboard/             # MetricCards, Charts, AgentTable
+│   │   ├── topology/              # TopologyCanvas, HostBox, AgentCard, etc.
+│   │   ├── providers/             # ProviderCard, AddProviderForm
+│   │   ├── agents/                # AgentHeader, ChatPanel, tabs
+│   │   └── settings/              # SettingsSections
+│   ├── hooks/
+│   │   ├── use-fleet.ts           # Fleet data fetching
+│   │   ├── use-topology.ts        # Topology data fetching
+│   │   ├── use-providers.ts       # Provider CRUD
+│   │   ├── use-usage.ts           # Usage data
+│   │   ├── use-chat.ts            # WebSocket chat hook
+│   │   └── use-agent.ts           # Single agent detail
+│   ├── lib/
+│   │   ├── api.ts                 # API client
+│   │   └── types.ts               # TypeScript types
+│   └── styles/
+│       └── globals.css            # Tailwind + theme tokens
+└── public/
+    └── ...
+```
+
+---
+
+## Implementation Phases
+
+### Phase 1: Foundation (Backend API + Shell)
+- Set up FastAPI server with static file serving
+- Implement `clm gui` CLI command
+- Create Next.js project with Tailwind + theme tokens
+- Build AppShell layout (text sidebar + content area)
+- Wire up basic fleet data endpoint → Dashboard skeleton
+
+### Phase 2: Dashboard
+- MetricCards component with fleet data
+- AgentTable with status indicators
+- Agent status donut chart
+- Click-through to agent detail (empty)
+- Real-time polling with TanStack Query
+
+### Phase 3: Topology
+- Topology data API endpoint (hosts → agents graph structure)
+- TopologyCanvas with SVG rendering (hub-and-spoke layout)
+- ControlNode, HostBox, AgentCard, SshLine components
+- Auto-layout algorithm (top-down hierarchy)
+- Agent click → read-only InfoModal with "View Details" link
+- Host click → read-only InfoModal with Cancel only
+- Zoom controls + fit-to-view
+- Legend component
+
+### Phase 4: Agent Detail
+- Agent header with status + actions (start/stop/restart)
+- Agent-level metric cards
+- Chat tab with WebSocket proxy
+- Configuration tab (read-only first, then editable)
+- Memory tab with file viewer/editor
+
+### Phase 5: Providers
+- Provider list with cards
+- Add provider wizard (type selection → model → API key → test)
+- Edit provider inline
+- Remove with confirmation
+- Model catalog browser
+
+### Phase 6: Token Tracking
+- SQLite usage store implementation
+- Chat proxy instrumentation (capture usage from responses)
+- Usage API endpoints
+- Token usage line chart on dashboard
+- Per-agent usage in agent detail
+- Cost estimation with model pricing
+
+### Phase 7: Settings & Polish
+- Settings page (version, config, preferences)
+- Add Agent wizard from dashboard
+- Skills & Tools tab in agent detail
+- Logs tab with live streaming
+- Error states, loading skeletons, empty states
+- Responsive refinements
+
+---
+
+## Dependencies to Add
+
+### Python (pyproject.toml)
+```
+fastapi >= 0.115.0
+uvicorn[standard] >= 0.32.0
+```
+
+### Frontend (gui/package.json)
+```json
+{
+  "dependencies": {
+    "next": "^14.2",
+    "react": "^18.3",
+    "react-dom": "^18.3",
+    "@tanstack/react-query": "^5.50",
+    "@xyflow/react": "^12.0",
+    "recharts": "^2.12",
+    "lucide-react": "^0.400",
+    "tailwindcss": "^4.0",
+    "clsx": "^2.1"
+  }
+}
+```
+
+---
+
+## UX Principles
+
+1. **Immediate feedback**: Status changes show optimistic updates, then confirm
+2. **Progressive disclosure**: Simple overview → click for detail → edit
+3. **No dead ends**: Every screen has clear navigation back + forward
+4. **Consistent patterns**: Cards for summaries, tables for lists, modals for creation
+5. **Safe destructive actions**: Always confirm stop/remove with explicit typing
+6. **Offline-resilient**: If an agent is unreachable, show last known state + error
+7. **Keyboard-friendly**: Tab navigation, Enter to confirm, Escape to close
+
+---
+
+## Open Questions / Future Considerations
+
+- [ ] Multi-user support (currently single-user, local only)
+- [ ] Dark mode toggle (theme tokens support it, but light-first)
+- [ ] Mobile/tablet responsiveness (desktop-first, but sidebar collapses)
+- [ ] Agent log streaming protocol (SSH tail vs. push from agent)
+- [ ] Notification system for agent status changes
+- [ ] Bulk operations (start/stop multiple agents)
+# Issue #349 — User can view fleet status and logs through a web UI served by clm
+
+Plan TBD. Created during issue intake. Run `/itx:plan-create 349` to scope.
+
+---
+
+<details>
+<summary>Prompt Log</summary>
+
+**Stage**: issue-creation
+**Skill**: /itx:issue-new
+**Timestamp**: 2026-05-14T00:00:00Z
+**Model**: claude-opus-4-7
+
+```prompt
+add gui support for clawrium
+```
+
+Customer outcome (selected from /itx:issue-new prompt): "View fleet status via web GUI — User can open a local web UI to see fleet status, logs, and basic health, but lifecycle operations (install/configure) still happen via CLI. Read-only-leaning."
+
+</details>

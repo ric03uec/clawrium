@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -225,3 +225,11 @@ website/build/
 website/.docusaurus/
 website/.cache-loader/
 .mcp.json
+
+# GUI (Next.js)
+gui/node_modules/
+gui/out/
+gui/.next/
+*.tsbuildinfo
+src/clawrium/gui/frontend/
+.claude/worktrees/
