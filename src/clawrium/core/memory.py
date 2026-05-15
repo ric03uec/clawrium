@@ -62,14 +62,39 @@ __all__ = [
 # bogus megabytes-of-content write from exhausting the runner.
 MAX_MEMORY_CONTENT_BYTES = 5 * 1024 * 1024  # 5 MiB
 
-# Top-level workspace files surfaced to the user.
+# Top-level workspace files surfaced to the user, keyed by claw type.
 # Daily files under ``memory/`` are discovered dynamically by get_memory_info.
-MEMORY_TOP_LEVEL_FILES: tuple[str, ...] = (
-    "SOUL.md",
-    "IDENTITY.md",
-    "USER.md",
-    "TOOLS.md",
-)
+#
+# The authoritative file list is the one each claw's ``memory_info.yaml``
+# playbook iterates; this mapping documents the same set on the Python side
+# for tests and any future cross-claw inspection that needs to know "what
+# files does claw X surface as memory?" before reaching the daemon.
+#
+# Zeroclaw deliberately omits ``BOOTSTRAP.md``: the runtime generates it on
+# first boot and self-deletes after use, so it must never appear in the
+# operator-facing memory list (issue #358 W8).
+MEMORY_TOP_LEVEL_FILES: dict[str, tuple[str, ...]] = {
+    "openclaw": (
+        "SOUL.md",
+        "IDENTITY.md",
+        "USER.md",
+        "TOOLS.md",
+    ),
+    "hermes": (
+        "MEMORY.md",
+        "USER.md",
+        "SOUL.md",
+    ),
+    "zeroclaw": (
+        "SOUL.md",
+        "IDENTITY.md",
+        "USER.md",
+        "AGENTS.md",
+        "TOOLS.md",
+        "MEMORY.md",
+        "HEARTBEAT.md",
+    ),
+}
 
 # Per-claw character limits applied during memory_write. None = no limit.
 # Hermes enforces strict caps for its two-file memory model; openclaw uses

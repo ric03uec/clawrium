@@ -1,0 +1,25 @@
+---
+# ZeroClaw memory delete — removes files inside ~/.zeroclaw/workspace.
+- hosts: all
+  become: yes
+  gather_facts: false
+  tasks:
+    - name: Validate memory filenames pattern
+      ansible.builtin.fail:
+        msg: "Invalid memory filename"
+      loop: "{{ memory_files }}"
+      when:
+        - item is not match('^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$')
+
+    - name: Reject path-traversal components in filenames
+      ansible.builtin.fail:
+        msg: "Invalid memory filename: traversal components not allowed"
+      loop: "{{ memory_files }}"
+      when:
+        - item.split('/') | intersect(['', '.', '..']) | length > 0
+
+    - name: Delete memory files
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.zeroclaw/workspace/{{ item }}"
+        state: absent
+      loop: "{{ memory_files }}"

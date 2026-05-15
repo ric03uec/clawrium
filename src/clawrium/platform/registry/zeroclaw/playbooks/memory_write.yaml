@@ -1,0 +1,49 @@
+---
+# ZeroClaw memory write — drops content into ~/.zeroclaw/workspace/<filename>.
+# The Python dispatcher applies MAX_MEMORY_CONTENT_BYTES and filename
+# validation before this play runs; the validators below are
+# defense-in-depth against a tampered inventory.
+- hosts: all
+  become: yes
+  gather_facts: false
+  tasks:
+    - name: Validate memory filename pattern
+      ansible.builtin.fail:
+        msg: "Invalid memory filename"
+      when:
+        - memory_filename is not match('^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$')
+
+    - name: Reject path-traversal components
+      ansible.builtin.fail:
+        msg: "Invalid memory filename: traversal components not allowed"
+      when:
+        - memory_filename.split('/') | intersect(['', '.', '..']) | length > 0
+
+    - name: Ensure workspace directory exists
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.zeroclaw/workspace"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    - name: Ensure memory subdirectory exists when needed
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.zeroclaw/workspace/memory"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+      when: memory_filename is match('^memory/.*$')
+
+    - name: Write memory file content
+      # Content is passed as base64 from Python so user-supplied bytes are
+      # never interpreted as Jinja2. Decoding via the b64decode filter
+      # produces the literal payload without re-templating.
+      ansible.builtin.copy:
+        content: "{{ memory_content_b64 | b64decode }}"
+        dest: "/home/{{ agent_name }}/.zeroclaw/workspace/{{ memory_filename }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+      no_log: true

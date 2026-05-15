@@ -94,13 +94,37 @@ class TestValidation:
 
 
 class TestConstants:
-    def test_top_level_files_match_workspace_layout(self):
-        assert set(MEMORY_TOP_LEVEL_FILES) == {
+    def test_openclaw_top_level_files_match_workspace_layout(self):
+        assert set(MEMORY_TOP_LEVEL_FILES["openclaw"]) == {
             "SOUL.md",
             "IDENTITY.md",
             "USER.md",
             "TOOLS.md",
         }
+
+    def test_hermes_top_level_files_match_two_file_model(self):
+        # Hermes surfaces three files via memory_info: MEMORY.md, USER.md
+        # (both under ~/.hermes/memories/) and SOUL.md (at ~/.hermes/).
+        assert set(MEMORY_TOP_LEVEL_FILES["hermes"]) == {
+            "MEMORY.md",
+            "USER.md",
+            "SOUL.md",
+        }
+
+    def test_zeroclaw_top_level_files_cover_seven_personality_files(self):
+        # Per issue #358 W8, zeroclaw must surface the seven personality MD
+        # files rendered by configure (BOOTSTRAP.md is runtime-generated +
+        # self-deleting and must NOT appear here).
+        assert set(MEMORY_TOP_LEVEL_FILES["zeroclaw"]) == {
+            "SOUL.md",
+            "IDENTITY.md",
+            "USER.md",
+            "AGENTS.md",
+            "TOOLS.md",
+            "MEMORY.md",
+            "HEARTBEAT.md",
+        }
+        assert "BOOTSTRAP.md" not in MEMORY_TOP_LEVEL_FILES["zeroclaw"]
 
 
 # ----- _resolve_openclaw_agent ---------------------------------------------
@@ -1098,9 +1122,10 @@ class TestClawSupportsMemory:
     def test_hermes_supports_memory(self):
         assert claw_supports_memory("hermes") is True
 
-    def test_zeroclaw_does_not_support_memory(self):
-        # zeroclaw's manifest does not declare features.memory.
-        assert claw_supports_memory("zeroclaw") is False
+    def test_zeroclaw_supports_memory(self):
+        # Issue #358 wires features.memory: true into the zeroclaw manifest
+        # so the memory CLI routes to zeroclaw's playbooks.
+        assert claw_supports_memory("zeroclaw") is True
 
     def test_unknown_claw_returns_false(self):
         # Unknown / unloadable manifest treated as unsupported rather than
@@ -1191,10 +1216,26 @@ class TestResolveAgentWithMemoryHermes:
         assert result[1] == "hermes-test"
         assert result[2] == "hermes"
 
-    def test_rejects_zeroclaw_as_unsupported(self):
-        host = _host_with_zeroclaw()
+    def test_rejects_unknown_type_as_unsupported(self):
+        # Issue #358 wired memory into zeroclaw, so the unsupported-type
+        # rejection path is exercised with a fictional claw type instead.
+        host = _host(
+            {
+                "future-work": {
+                    "type": "futureclaw",
+                    "agent_name": "future-work",
+                    "name": "future-work",
+                    "status": "installed",
+                }
+            }
+        )
+        host["hostname"] = "192.168.1.36"
+        host["alias"] = "wolf-i"
+        host["key_id"] = "wolf-i"
         with patch("clawrium.core.memory.get_host", return_value=host):
-            h, reason, claw_type = _resolve_agent_with_memory("192.168.1.36", "zc-work")
+            h, reason, claw_type = _resolve_agent_with_memory(
+                "192.168.1.36", "future-work"
+            )
         assert h is None
         assert claw_type is None
         # Reason carries the "memory-capable agent not found" wording so the
@@ -1316,13 +1357,27 @@ class TestWriteMemoryFileHermesLimits:
 
 class TestUnsupportedTypeFriendlyError:
     def test_resolve_unsupported_type_returns_friendly_reason(self):
-        """zeroclaw (features.memory absent) resolution emits a clear
-        'memory-capable agent not found' message rather than a misleading
-        'openclaw agent not found' string."""
-        host = _host_with_zeroclaw()
+        """An agent whose manifest does not declare features.memory emits a
+        clear 'memory-capable agent not found' message rather than a
+        misleading 'openclaw agent not found' string. Issue #358 wired
+        memory into zeroclaw, so the negative case is now exercised with
+        a fictional claw type (no manifest -> unsupported)."""
+        host = _host(
+            {
+                "future-work": {
+                    "type": "futureclaw",
+                    "agent_name": "future-work",
+                    "name": "future-work",
+                    "status": "installed",
+                }
+            }
+        )
+        host["hostname"] = "192.168.1.36"
+        host["alias"] = "wolf-i"
+        host["key_id"] = "wolf-i"
         with patch("clawrium.core.memory.get_host", return_value=host):
             h, reason, claw_type = _resolve_agent_with_memory(
-                "192.168.1.36", "zc-work"
+                "192.168.1.36", "future-work"
             )
         assert h is None
         assert claw_type is None

@@ -1,0 +1,43 @@
+---
+# ZeroClaw memory read — slurps a single file out of ~/.zeroclaw/workspace.
+# The Python dispatcher already validates filename + agent_name before
+# scheduling this play; the same checks run here as defense-in-depth.
+- hosts: all
+  become: yes
+  gather_facts: false
+  tasks:
+    - name: Validate memory filename pattern
+      ansible.builtin.fail:
+        msg: "Invalid memory filename"
+      when:
+        - memory_filename is not match('^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$')
+
+    - name: Reject path-traversal components
+      ansible.builtin.fail:
+        msg: "Invalid memory filename: traversal components not allowed"
+      when:
+        - memory_filename.split('/') | intersect(['', '.', '..']) | length > 0
+
+    - name: Resolve memory file path
+      ansible.builtin.set_fact:
+        memory_target: "/home/{{ agent_name }}/.zeroclaw/workspace/{{ memory_filename }}"
+
+    - name: Verify file exists
+      ansible.builtin.stat:
+        path: "{{ memory_target }}"
+      register: memory_stat
+
+    - name: Fail if file does not exist
+      ansible.builtin.fail:
+        msg: "Memory file not found: {{ memory_filename }}"
+      when: not memory_stat.stat.exists
+
+    - name: Read memory file content
+      # no_log is intentionally NOT set: it would censor the runner event
+      # to {"censored": ...} and Python would never see the file content.
+      # The slurp result is base64-encoded and the runner's private data
+      # directory is 0700 with auto-cleanup of artifacts/ and env/ via
+      # _cleanup_artifacts, so this is acceptable for memory data.
+      ansible.builtin.slurp:
+        src: "{{ memory_target }}"
+      register: memory_content

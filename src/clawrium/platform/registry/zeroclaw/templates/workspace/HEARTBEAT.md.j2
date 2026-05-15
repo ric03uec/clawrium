@@ -1,0 +1,14 @@
+# HEARTBEAT
+
+Liveness contract for this agent. ZeroClaw's runtime updates a heartbeat
+internally; this file documents the operator-visible expectations.
+
+## Cadence
+
+- The daemon emits a heartbeat each interval cycle.
+- A missed cycle is surfaced via `clm ps` and `systemctl status`.
+
+## Recovery
+
+- If the daemon is unresponsive, restart via
+  `clm agent restart {{ agent_name | default('<name>') }}`.

@@ -39,6 +39,37 @@
         group: "{{ agent_name }}"
         mode: "0700"
 
+    # Workspace personality files (issue #358). `force: no` means a
+    # subsequent `clm agent configure` run never clobbers user edits to
+    # these MD files — they seed the daemon on first configure, then the
+    # operator owns the content. BOOTSTRAP.md is intentionally NOT
+    # rendered: the runtime generates it on first boot and self-deletes
+    # after use.
+    - name: Ensure ~/.zeroclaw/workspace directory exists
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.zeroclaw/workspace"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    - name: Render zeroclaw workspace personality files
+      ansible.builtin.template:
+        src: "{{ template_path }}/workspace/{{ item }}.j2"
+        dest: "/home/{{ agent_name }}/.zeroclaw/workspace/{{ item }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        force: no
+      loop:
+        - SOUL.md
+        - IDENTITY.md
+        - USER.md
+        - AGENTS.md
+        - TOOLS.md
+        - MEMORY.md
+        - HEARTBEAT.md
+
     # Render ~/.zeroclaw/config.toml. no_log because provider_api_key is
     # embedded verbatim. 0600 with agent ownership so only the service user
     # (and root) can read. Ansible's default `force: yes` (not set here)

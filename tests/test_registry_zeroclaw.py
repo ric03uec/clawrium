@@ -304,3 +304,131 @@ def test_install_was_skipped_handles_zeroclaw_fact():
         ]
 
     assert _install_was_skipped(HermesResult(), "zeroclaw") is False
+
+
+# ----- Issue #358: workspace + memory CLI wiring -----------------------------
+
+
+def test_zeroclaw_manifest_declares_memory_feature():
+    """features.memory must be true so cli/memory.py routes to zeroclaw playbooks."""
+    manifest = load_manifest("zeroclaw")
+    features = manifest.get("features", {})
+    assert features.get("memory") is True
+    workspace = manifest.get("workspace", {})
+    assert workspace.get("memory_path") == "~/.zeroclaw/workspace"
+
+
+def test_zeroclaw_memory_playbooks_exist():
+    """All four memory_*.yaml playbooks must ship in the zeroclaw registry."""
+    from importlib.resources import files
+
+    zeroclaw_pkg = files("clawrium.platform.registry.zeroclaw")
+    for name in ("memory_read", "memory_write", "memory_delete", "memory_info"):
+        assert (zeroclaw_pkg / "playbooks" / f"{name}.yaml").is_file(), (
+            f"Missing zeroclaw playbook: {name}.yaml"
+        )
+
+
+def test_zeroclaw_memory_info_lists_seven_personality_files():
+    """memory_info must enumerate all 7 personality files (no BOOTSTRAP.md)."""
+    from importlib.resources import files
+    import yaml
+
+    zeroclaw_pkg = files("clawrium.platform.registry.zeroclaw")
+    data = yaml.safe_load((zeroclaw_pkg / "playbooks" / "memory_info.yaml").read_text())
+    top = set(data[0]["vars"]["memory_top_level_files"])
+    assert top == {
+        "SOUL.md",
+        "IDENTITY.md",
+        "USER.md",
+        "AGENTS.md",
+        "TOOLS.md",
+        "MEMORY.md",
+        "HEARTBEAT.md",
+    }
+    # BOOTSTRAP.md must NOT be listed — runtime owns its lifecycle.
+    assert "BOOTSTRAP.md" not in top
+
+
+def test_zeroclaw_memory_playbooks_target_workspace_path():
+    """Each memory_*.yaml must point at ~/.zeroclaw/workspace (not legacy paths)."""
+    from importlib.resources import files
+
+    zeroclaw_pkg = files("clawrium.platform.registry.zeroclaw")
+    for name in ("memory_read", "memory_write", "memory_delete", "memory_info"):
+        content = (zeroclaw_pkg / "playbooks" / f"{name}.yaml").read_text()
+        assert "/home/{{ agent_name }}/.zeroclaw/workspace" in content, (
+            f"{name}.yaml must use ~/.zeroclaw/workspace"
+        )
+        # Legacy ~/workspace path must not leak in (mirror of remove.yaml test).
+        assert "/home/{{ agent_name }}/workspace" not in content, (
+            f"{name}.yaml references legacy ~/workspace path"
+        )
+
+
+def test_zeroclaw_workspace_templates_exist():
+    """All 7 workspace MD templates must ship (no BOOTSTRAP.md)."""
+    from importlib.resources import files
+
+    zeroclaw_pkg = files("clawrium.platform.registry.zeroclaw")
+    ws = zeroclaw_pkg / "templates" / "workspace"
+    expected = {
+        "SOUL.md.j2",
+        "IDENTITY.md.j2",
+        "USER.md.j2",
+        "AGENTS.md.j2",
+        "TOOLS.md.j2",
+        "MEMORY.md.j2",
+        "HEARTBEAT.md.j2",
+    }
+    actual = {p.name for p in ws.iterdir() if p.name.endswith(".j2")}
+    assert expected == actual, f"Workspace templates mismatch: {expected ^ actual}"
+    # BOOTSTRAP.md MUST NOT be rendered by clm — the runtime generates it
+    # on first boot and self-deletes after use.
+    assert not (ws / "BOOTSTRAP.md.j2").exists()
+
+
+def test_zeroclaw_configure_renders_workspace_with_force_no():
+    """configure.yaml must render all 7 templates with force: no so a
+    subsequent `clm agent configure` run never clobbers user edits."""
+    from importlib.resources import files
+    import yaml
+
+    zeroclaw_pkg = files("clawrium.platform.registry.zeroclaw")
+    data = yaml.safe_load(
+        (zeroclaw_pkg / "playbooks" / "configure.yaml").read_text()
+    )
+    tasks = data[0]["tasks"]
+    workspace_renders = [
+        t for t in tasks
+        if isinstance(t.get("ansible.builtin.template"), dict)
+        and "/.zeroclaw/workspace/" in t["ansible.builtin.template"].get("dest", "")
+    ]
+    assert workspace_renders, (
+        "configure.yaml must render templates into ~/.zeroclaw/workspace/"
+    )
+    for task in workspace_renders:
+        block = task["ansible.builtin.template"]
+        # force: no (Ansible YAML parses `no` as the bool False) preserves
+        # user edits across re-configure runs.
+        assert block.get("force") is False, (
+            f"Workspace template render '{task.get('name')}' missing "
+            f"force: no — re-configure would clobber user edits."
+        )
+        assert block.get("mode") == "0600", (
+            f"Workspace template render '{task.get('name')}' must be 0600"
+        )
+    # All 7 personality files must be in the loop (the task uses `loop:` so
+    # check the loop list rather than counting tasks).
+    looped = [t for t in workspace_renders if "loop" in t]
+    assert looped, "Workspace template task must iterate via `loop:`"
+    files_in_loop = set(looped[0]["loop"])
+    assert files_in_loop == {
+        "SOUL.md",
+        "IDENTITY.md",
+        "USER.md",
+        "AGENTS.md",
+        "TOOLS.md",
+        "MEMORY.md",
+        "HEARTBEAT.md",
+    }

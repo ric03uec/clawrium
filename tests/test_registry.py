@@ -1044,16 +1044,19 @@ def test_manifest_accepts_workspace_and_features_fields(monkeypatch):
     assert parsed.get("features", {}).get("memory") is True
 
 
-def test_manifest_workspace_optional_for_legacy_types():
-    """ZeroClaw manifest now declares features.chat (issue #357 wires the
-    WebSocket chat backend) but still does not declare workspace —
-    workspace files land in Subtask C."""
+def test_zeroclaw_manifest_declares_workspace_and_memory():
+    """Issue #358 (Subtask C) wires workspace + memory into zeroclaw.
+
+    The manifest now declares:
+      * workspace.memory_path → ~/.zeroclaw/workspace (mirrors openclaw)
+      * features.memory: true → memory CLI routes to zeroclaw's playbooks
+      * features.chat.type == "zeroclaw" (carried over from #357)
+    """
     manifest = load_manifest("zeroclaw")
-    assert "workspace" not in manifest
-    # features.chat.type == "zeroclaw" advertises the new dispatch value
-    # introduced in #357. Other feature flags remain absent until later
-    # subtasks (e.g. features.memory in Subtask C).
+    workspace = manifest.get("workspace", {})
+    assert workspace.get("memory_path") == "~/.zeroclaw/workspace"
     features = manifest.get("features", {})
+    assert features.get("memory") is True
     assert features.get("chat", {}).get("type") == "zeroclaw"
 
 

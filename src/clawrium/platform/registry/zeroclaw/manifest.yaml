@@ -2,8 +2,18 @@ agent:
   type: zeroclaw
   description: "Lightweight AI assistant for edge devices and Raspberry Pi"
 
+# Workspace metadata consumed by cross-claw subsystems (memory CLI, etc.).
+# Path α (chosen for #358): the workspace dir holds the 7 personality MD
+# files surfaced as "memory" through `clm agent memory show|edit|delete`.
+# See .itx/358/01_EXECUTION.md for the (α vs β) rationale.
+workspace:
+  memory_path: "~/.zeroclaw/workspace"
+
 # Capability flags advertised by this manifest.
 features:
+  # Memory CLI dispatches to zeroclaw/playbooks/memory_*.yaml against the
+  # workspace path above.
+  memory: true
   # Chat dispatch routes to `core/chat_zeroclaw.py` (WebSocket client speaking
   # ZeroClaw's tagged-JSON envelope). Distinct from openclaw's `websocket`
   # value because the frame schemas differ (different `type` values, different

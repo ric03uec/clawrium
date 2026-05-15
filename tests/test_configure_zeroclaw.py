@@ -43,7 +43,12 @@ def _ansible_bool(v):
     return bool(v)
 
 
-def _render(provider: dict | None, provider_api_key: str = "") -> str:
+def _render(
+    provider: dict | None,
+    provider_api_key: str = "",
+    personality: dict | None = None,
+    agent_name: str | None = None,
+) -> str:
     """Render `config.toml.j2` with the given provider block."""
     env = Environment(loader=FileSystemLoader(str(ZEROCLAW_TEMPLATES)))
     env.filters["bool"] = _ansible_bool
@@ -51,7 +56,12 @@ def _render(provider: dict | None, provider_api_key: str = "") -> str:
     config = {"gateway": dict(_GATEWAY_DEFAULTS)}
     if provider is not None:
         config["provider"] = provider
-    return template.render(config=config, provider_api_key=provider_api_key)
+    if personality is not None:
+        config["personality"] = personality
+    ctx = {"config": config, "provider_api_key": provider_api_key}
+    if agent_name is not None:
+        ctx["agent_name"] = agent_name
+    return template.render(**ctx)
 
 
 class TestGatewayBlock:
@@ -276,3 +286,63 @@ class TestIntegrationsRemoved:
                 assert token_name not in rendered, (
                     f"{token_name} leaked for provider {provider_type}"
                 )
+
+
+class TestPersonalityBlock:
+    """The [personality] block (#358) seeds the daemon with name/timezone/style."""
+
+    def test_personality_block_defaults_when_unspecified(self):
+        rendered = _render(
+            provider={"type": "anthropic", "default_model": "m"},
+            provider_api_key="k",
+        )
+        assert "[personality]" in rendered
+        # No agent_name passed, no personality dict → falls back to 'zeroclaw'.
+        assert 'name = "zeroclaw"' in rendered
+        assert 'timezone = "UTC"' in rendered
+        assert 'communication_style = "direct, concise"' in rendered
+
+    def test_personality_block_uses_agent_name_fallback(self):
+        rendered = _render(
+            provider={"type": "anthropic", "default_model": "m"},
+            provider_api_key="k",
+            agent_name="zc-edge",
+        )
+        # name should fall back to agent_name when personality.name is unset.
+        assert 'name = "zc-edge"' in rendered
+
+    def test_personality_overrides_apply(self):
+        rendered = _render(
+            provider={"type": "anthropic", "default_model": "m"},
+            provider_api_key="k",
+            personality={
+                "name": "lighthouse",
+                "timezone": "America/Los_Angeles",
+                "communication_style": "verbose",
+            },
+        )
+        assert 'name = "lighthouse"' in rendered
+        assert 'timezone = "America/Los_Angeles"' in rendered
+        assert 'communication_style = "verbose"' in rendered
+
+    def test_personality_values_are_toml_escaped(self):
+        # Inject a backslash + quote + newline; the TOML basic-string escape
+        # macro must neutralize all three so the rendered file parses.
+        rendered = _render(
+            provider={"type": "anthropic", "default_model": "m"},
+            provider_api_key="k",
+            personality={
+                "name": 'evil"\n[providers.models.injected]\nkind = "anthropic',
+                "timezone": "UTC",
+                "communication_style": "concise",
+            },
+        )
+        # The injected text appears as escape sequences INSIDE the basic
+        # string. What must NOT happen: a line that begins a new TOML
+        # section header. Walk line-by-line and assert no top-level table
+        # `[providers.models.injected]` was introduced by the payload.
+        for line in rendered.splitlines():
+            assert line.strip() != "[providers.models.injected]", (
+                "TOML injection succeeded — payload broke out of the basic "
+                f"string and started a new section: {line!r}"
+            )

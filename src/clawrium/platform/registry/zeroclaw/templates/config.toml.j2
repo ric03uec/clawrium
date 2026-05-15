@@ -32,6 +32,10 @@
 {% set provider_type = provider.type | default('') %}
 {% set model_id = provider.default_model | default('') %}
 {% set endpoint = provider.endpoint | default('') %}
+{% set personality = config.personality | default({}) %}
+{% set personality_name = personality.name | default(agent_name | default('zeroclaw')) %}
+{% set personality_timezone = personality.timezone | default('UTC') %}
+{% set personality_style = personality.communication_style | default('direct, concise') %}
 [gateway]
 {# Every variable interpolated into a "…" basic string passes through
    toml_escape so a hand-edited host (or future provider_type/model_id
@@ -69,3 +73,13 @@ api_key = "{{ toml_escape(provider_api_key) }}"
 {% endif %}
 {% endif %}
 {% endif %}
+
+{# Personality block (#358). Mirrors the runtime's onboarding question set
+   so a fresh `clm agent configure` lands the agent with sensible voice
+   defaults instead of an empty section. Operators can override via
+   `config.personality.{name,timezone,communication_style}` passed through
+   from clm; the workspace MD files own the deeper personality content. #}
+[personality]
+name = "{{ toml_escape(personality_name) }}"
+timezone = "{{ toml_escape(personality_timezone) }}"
+communication_style = "{{ toml_escape(personality_style) }}"
