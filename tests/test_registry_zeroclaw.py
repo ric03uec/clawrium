@@ -72,6 +72,67 @@ def test_zeroclaw_install_playbook_shape():
     )
 
 
+def test_zeroclaw_start_playbook_uses_argv_list_form():
+    """Pin the W9 fix: pgrep in start.yaml MUST use argv-list form, not a
+    `cmd:` string. Unquoted agent_name interpolated into a shell-split string
+    is a command-injection vector if an agent name ever contains whitespace
+    or shell metacharacters."""
+    from importlib.resources import files
+    import yaml
+
+    zeroclaw_pkg = files("clawrium.platform.registry.zeroclaw")
+    start_path = zeroclaw_pkg / "playbooks" / "start.yaml"
+    data = yaml.safe_load(start_path.read_text())
+    tasks = data[0]["tasks"]
+
+    pgrep_tasks = [
+        t
+        for t in tasks
+        if isinstance(t.get("ansible.builtin.command"), dict)
+        and "pgrep" in str(t["ansible.builtin.command"])
+    ]
+    assert pgrep_tasks, "start.yaml must contain at least one pgrep task"
+    for task in pgrep_tasks:
+        cmd_block = task["ansible.builtin.command"]
+        assert "cmd" not in cmd_block, (
+            f"pgrep task '{task.get('name')}' must use argv-list form, not "
+            f"cmd: string (W9). Found: {cmd_block!r}"
+        )
+        assert "argv" in cmd_block, (
+            f"pgrep task '{task.get('name')}' must declare argv: list (W9)."
+        )
+        argv = cmd_block["argv"]
+        assert argv[0] == "pgrep"
+        # The agent_name token must be a standalone argv element so shell
+        # metacharacters in the name cannot split into extra arguments.
+        assert "{{ agent_name }}" in argv
+
+
+def test_zeroclaw_stop_playbook_uses_argv_list_form():
+    """Mirror of test_zeroclaw_start_playbook_uses_argv_list_form for stop.yaml."""
+    from importlib.resources import files
+    import yaml
+
+    zeroclaw_pkg = files("clawrium.platform.registry.zeroclaw")
+    stop_path = zeroclaw_pkg / "playbooks" / "stop.yaml"
+    data = yaml.safe_load(stop_path.read_text())
+    tasks = data[0]["tasks"]
+
+    pgrep_tasks = [
+        t
+        for t in tasks
+        if isinstance(t.get("ansible.builtin.command"), dict)
+        and "pgrep" in str(t["ansible.builtin.command"])
+    ]
+    assert pgrep_tasks, "stop.yaml must contain at least one pgrep task"
+    for task in pgrep_tasks:
+        cmd_block = task["ansible.builtin.command"]
+        assert "cmd" not in cmd_block
+        assert "argv" in cmd_block
+        assert cmd_block["argv"][0] == "pgrep"
+        assert "{{ agent_name }}" in cmd_block["argv"]
+
+
 def test_zeroclaw_remove_playbook_cleans_workspace_and_state():
     """remove.yaml must clean the unit, ~/.zeroclaw (covers workspace+state),
     the bin directory, and the agent user. Must NOT reference the legacy
