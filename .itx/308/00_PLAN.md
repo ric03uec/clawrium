@@ -22,7 +22,7 @@ wiring in `src/clawrium/cli/agent.py`, and a comprehensive test pass in
 
 | File | Change |
 |------|--------|
-| `src/clawrium/cli/memory.py` | Add `edit_cmd(...)` handler + `_resolve_editor()` + `_run_editor()` helpers. Reuse existing `_resolve_openclaw_for_cli`, `_stdin_is_tty`. Export `edit_cmd` in `__all__`. |
+| `src/clawrium/cli/memory.py` | Add `edit_cmd(...)` handler + `_resolve_editor()` + `_run_editor()` helpers. Reuse existing `_resolve_agent_for_memory_cli`, `_stdin_is_tty`. Export `edit_cmd` in `__all__`. |
 | `src/clawrium/cli/agent.py` | Add `@memory_app.command(name="edit")` wrapper that delegates to `edit_cmd`. Mirrors existing `memory_show` / `memory_delete` pattern at lines 2113-2146. |
 | `tests/test_cli_memory.py` | Add tests covering every acceptance-criteria scenario. |
 
@@ -81,8 +81,10 @@ def edit_cmd(
 
 Flow (mirrors the issue's "Flow" section verbatim — the issue is the spec):
 
-1. `hostname, agent_name = _resolve_openclaw_for_cli(claw_name)` — reuses
-   existing non-openclaw / not-found rejection.
+1. `hostname, agent_name, claw_type = _resolve_agent_for_memory_cli(claw_name)`
+   — reuses existing non-memory-capable / not-found rejection. The helper
+   returns a 3-tuple (the 2-tuple shim `_resolve_openclaw_for_cli` was
+   deleted in #358).
 2. `original = read_memory_file(hostname, agent_name, file)`. If `None`,
    print **the same** "Memory unavailable" pair of lines as `show_cmd` and
    `raise typer.Exit(code=1)`. Use the existing wording so error messaging
@@ -133,10 +135,11 @@ Flow (mirrors the issue's "Flow" section verbatim — the issue is the spec):
     - On TTY, prompt `typer.confirm(f"Restart agent '{claw_name}' to apply
       changes?", default=False)`. If declined, print `"Saved. Agent not
       restarted; new memory takes effect on next restart."` and exit 0.
-11. On confirmed restart, call `restart_agent(hostname, "openclaw",
-    agent_name=agent_name)` (`_resolve_openclaw_for_cli` already
-    guaranteed the type is openclaw). Surface result['success'] / error
-    in the standard `[green]/[red]` style.
+11. On confirmed restart, call `restart_agent(hostname, claw_type,
+    agent_name=agent_name)` — `_resolve_agent_for_memory_cli` returns
+    the claw_type, so this handler now works for any memory-capable
+    type (openclaw, hermes, zeroclaw after #358). Surface
+    result['success'] / error in the standard `[green]/[red]` style.
 
 ### Step 4 — Wire into Typer (`cli/agent.py`)
 

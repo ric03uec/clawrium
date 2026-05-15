@@ -1,11 +1,23 @@
 ---
 # Hermes memory delete — targets ~/.hermes/memories/<filename>. Restricted
-# to the canonical two-file model so the daemon never has to recover from
-# unexpected file absence beyond what the hermes runtime already handles.
+# to MEMORY.md and USER.md (the two files hermes writes to memories/).
+#
+# Asymmetry note: memory_write.yaml also accepts SOUL.md, but SOUL.md lives
+# at ~/.hermes/SOUL.md (the agent root), NOT inside memories/. memory_delete
+# only enumerates files under memories/, so SOUL.md is deliberately not in
+# the delete allowlist — deleting an agent's SOUL.md is treated as
+# destructive enough to require manual SSH intervention rather than
+# routing through `clm agent memory delete`.
 - hosts: all
   become: yes
   gather_facts: false
   tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
     - name: Validate memory filenames pattern
       ansible.builtin.fail:
         msg: "Invalid memory filename"
@@ -32,3 +44,4 @@
         path: "/home/{{ agent_name }}/.hermes/memories/{{ item }}"
         state: absent
       loop: "{{ memory_files }}"
+      no_log: true

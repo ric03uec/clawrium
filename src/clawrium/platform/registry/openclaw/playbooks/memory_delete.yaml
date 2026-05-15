@@ -1,8 +1,25 @@
 ---
+# Openclaw memory delete — removes files inside ~/.openclaw/workspace.
+# Structural allowlist mirrors the memory_info file set + the memory/
+# daily-notes naming. Defense-in-depth: Python core/memory.py applies
+# pattern + traversal checks, and this guard catches a tampered Ansible
+# inventory or a future feature that bypasses the dispatcher.
 - hosts: all
   become: yes
   gather_facts: false
+  vars:
+    openclaw_deletable_files:
+      - SOUL.md
+      - IDENTITY.md
+      - USER.md
+      - TOOLS.md
   tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
     - name: Validate memory filenames pattern
       ansible.builtin.fail:
         msg: "Invalid memory filename"
@@ -16,6 +33,17 @@
       loop: "{{ memory_files }}"
       when:
         - item.split('/') | intersect(['', '.', '..']) | length > 0
+
+    - name: Restrict to openclaw personality + daily-notes allowlist
+      ansible.builtin.fail:
+        msg: >-
+          openclaw memory delete rejects '{{ item }}'. Allowed:
+          one of {{ openclaw_deletable_files | join(', ') }}
+          or memory/<file>.
+      loop: "{{ memory_files }}"
+      when:
+        - item not in openclaw_deletable_files
+        - not (item is match('^memory/[A-Za-z0-9._-]+$'))
 
     - name: Delete memory files
       ansible.builtin.file:

@@ -3,6 +3,12 @@
   become: yes
   gather_facts: false
   tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
     - name: Validate memory filename pattern
       ansible.builtin.fail:
         msg: "Invalid memory filename"

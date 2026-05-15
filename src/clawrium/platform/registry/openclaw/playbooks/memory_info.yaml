@@ -9,6 +9,12 @@
       - USER.md
       - TOOLS.md
   tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
     - name: Set workspace path
       ansible.builtin.set_fact:
         memory_workspace_path: "/home/{{ agent_name }}/.openclaw/workspace"
