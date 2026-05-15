@@ -51,63 +51,58 @@ onboarding:
           name: "Verify binary installed"
           type: command
           command: "zeroclaw --version"
-        - id: config_check
-          name: "Verify config exists"
-          type: file_exists
-          paths:
-            - "~/.zeroclaw/config.toml"
 
 # Note: Same statically-linked binary is used across OS versions (Ubuntu 22.04/24.04)
 # so SHA256 checksums are identical per architecture.
 platforms:
   # Raspberry Pi 2/3 (armv7l) - Debian 13 (trixie)
-  - version: "0.5.7"
+  - version: "0.7.5"
     os: debian
     os_version: "13"
     arch: armv7l
-    sha256: "a294a8caac8304c3b895f80334f9750fba5fbf4787ca7675857e112c04914585"
+    sha256: "32b11166fae1647a1ea39bac0d4b14073183cd034c42a25cb543615074aefd77"
     requirements:
       min_memory_mb: 512  # Pi 2 has ~920MB usable (1GB - video mem)
       gpu_required: false
       dependencies:
         python: ">=3.9"
   # Raspberry Pi 4/5 (aarch64) - Ubuntu
-  - version: "0.5.7"
+  - version: "0.7.5"
     os: ubuntu
     os_version: "22.04"
     arch: aarch64
-    sha256: "33e3838ff86c1cbf423bdd9ce539bf1794f9b9641cbf75fa2d5d02cf466bc849"
+    sha256: "0b1197f1d80243e5c748b63a550cc6dfc37e407c4d15f729b32324ba9fe4c2ac"
     requirements:
       min_memory_mb: 1024
       gpu_required: false
       dependencies:
         python: ">=3.9"
-  - version: "0.5.7"
+  - version: "0.7.5"
     os: ubuntu
     os_version: "24.04"
     arch: aarch64
-    sha256: "33e3838ff86c1cbf423bdd9ce539bf1794f9b9641cbf75fa2d5d02cf466bc849"
+    sha256: "0b1197f1d80243e5c748b63a550cc6dfc37e407c4d15f729b32324ba9fe4c2ac"
     requirements:
       min_memory_mb: 1024
       gpu_required: false
       dependencies:
         python: ">=3.9"
   # Desktop/Server x86_64 - Ubuntu
-  - version: "0.5.7"
+  - version: "0.7.5"
     os: ubuntu
     os_version: "22.04"
     arch: x86_64
-    sha256: "c0ab82725795d97e08542b9475aa31db27a3fa76e8e5b1e3c8ec43fbbd3c4ecd"
+    sha256: "8bc8276a8d8faefb3e4a824f33876929e7466f632ee7c5363936368a1af2e4f7"
     requirements:
       min_memory_mb: 1024
       gpu_required: false
       dependencies:
         python: ">=3.9"
-  - version: "0.5.7"
+  - version: "0.7.5"
     os: ubuntu
     os_version: "24.04"
     arch: x86_64
-    sha256: "c0ab82725795d97e08542b9475aa31db27a3fa76e8e5b1e3c8ec43fbbd3c4ecd"
+    sha256: "8bc8276a8d8faefb3e4a824f33876929e7466f632ee7c5363936368a1af2e4f7"
     requirements:
       min_memory_mb: 1024
       gpu_required: false

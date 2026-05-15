@@ -12,7 +12,6 @@
       - aarch64
       - x86_64
     release_arch: "{{ arch_map[ansible_architecture] }}"
-    release_url: "https://github.com/zeroclaw-labs/zeroclaw/releases/download/{{ claw_version }}/zeroclaw-{{ release_arch }}.tar.gz"
 
   pre_tasks:
     - name: Validate architecture is supported
@@ -21,12 +20,24 @@
       when: ansible_architecture not in supported_architectures
 
   tasks:
+    - name: Normalize target ZeroClaw version (strip leading 'v')
+      ansible.builtin.set_fact:
+        zeroclaw_target_version: "{{ (claw_version | default('v0.7.5')) | regex_replace('^v', '') }}"
+
+    - name: Resolve ZeroClaw release tag (always 'v'-prefixed)
+      ansible.builtin.set_fact:
+        zeroclaw_target_tag: "v{{ zeroclaw_target_version }}"
+        release_url: "https://github.com/zeroclaw-labs/zeroclaw/releases/download/v{{ zeroclaw_target_version }}/zeroclaw-{{ release_arch }}.tar.gz"
+
+    # Use /usr/sbin/nologin since the agent user is a service account: it runs
+    # `zeroclaw daemon` under systemd and is not meant for interactive login.
+    # Reduces lateral-movement attack surface if the account is ever compromised.
     - name: Create agent user
       ansible.builtin.user:
         name: "{{ agent_name }}"
         state: present
         create_home: yes
-        shell: /bin/bash
+        shell: /usr/sbin/nologin
 
     - name: Create bin directory
       ansible.builtin.file:
@@ -36,12 +47,57 @@
         group: "{{ agent_name }}"
         mode: "0755"
 
+    # Version-aware skip: re-running install on a host that already has the
+    # target version is a no-op for the binary install step. `--force` (via the
+    # `force_install` extra var) overrides this.
+    - name: Discover zeroclaw binary at agent's install path
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/bin/zeroclaw"
+      register: zeroclaw_binary_stat
+
+    - name: Get installed zeroclaw version
+      ansible.builtin.command: "/home/{{ agent_name }}/bin/zeroclaw --version"
+      register: zeroclaw_version_check
+      changed_when: false
+      failed_when: false
+      become_user: "{{ agent_name }}"
+      when: zeroclaw_binary_stat.stat.exists
+
+    # Defensive parse: empty string on no-match means a version check failure is
+    # treated as "version unknown" -> not a match -> reinstall (safe default).
+    - name: Parse installed zeroclaw version
+      ansible.builtin.set_fact:
+        zeroclaw_installed_version: "{{ (zeroclaw_version_check.stdout | default('')) | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+)') | default('', true) }}"
+      when:
+        - zeroclaw_version_check is defined
+        - (zeroclaw_version_check.rc | default(1)) == 0
+
+    - name: Set install skip condition
+      ansible.builtin.set_fact:
+        zeroclaw_already_installed: >-
+          {{ zeroclaw_binary_stat.stat.exists
+             and (zeroclaw_installed_version | default('')) == zeroclaw_target_version
+             and not (force_install | default(false) | bool) }}
+
+    - name: Mark install as skipped when already installed
+      ansible.builtin.debug:
+        msg: "ZeroClaw v{{ zeroclaw_installed_version | default('unknown') }} already installed at /home/{{ agent_name }}/bin/zeroclaw. Skipping binary install."
+      when: zeroclaw_already_installed
+
+    - name: Note that --force was supplied (overriding skip)
+      ansible.builtin.debug:
+        msg: "force=true: reinstalling ZeroClaw at /home/{{ agent_name }}/bin/zeroclaw"
+      when:
+        - zeroclaw_binary_stat.stat.exists
+        - force_install | default(false) | bool
+
     - name: Download zeroclaw binary
       ansible.builtin.get_url:
         url: "{{ release_url }}"
         dest: "/tmp/zeroclaw-{{ release_arch }}.tar.gz"
         mode: "0644"
         checksum: "sha256:{{ claw_sha256 }}"
+      when: not zeroclaw_already_installed
 
     - name: Extract zeroclaw binary
       ansible.builtin.unarchive:
@@ -50,21 +106,15 @@
         remote_src: yes
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
+      when: not zeroclaw_already_installed
 
     - name: Cleanup tarball
       ansible.builtin.file:
         path: "/tmp/zeroclaw-{{ release_arch }}.tar.gz"
         state: absent
+      when: not zeroclaw_already_installed
 
-    - name: Create workspace directory
-      ansible.builtin.file:
-        path: "/home/{{ agent_name }}/workspace"
-        state: directory
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
-        mode: "0700"
-
-    - name: Create config directory
+    - name: Create zeroclaw config directory
       ansible.builtin.file:
         path: "/home/{{ agent_name }}/.zeroclaw"
         state: directory
@@ -72,29 +122,27 @@
         group: "{{ agent_name }}"
         mode: "0700"
 
-    - name: Calculate unique gateway port (40000-42000 range)
-      ansible.builtin.set_fact:
-        gateway_port: "{{ 40000 + ((agent_name | hash('md5') | int(base=16)) % 2000) }}"
-
-    - name: Create zeroclaw config
-      ansible.builtin.copy:
-        dest: "/home/{{ agent_name }}/.zeroclaw/config.toml"
-        content: |
-          [gateway]
-          host = "0.0.0.0"
-          port = {{ gateway_port }}
-          allow_public_bind = true
-
-          {% if llm_provider_url is defined %}
-          default_provider = "custom:{{ llm_provider_url }}"
-          default_model = "{{ llm_model | default('llama3') }}"
-          api_key = "{{ llm_api_key | default('') }}"
-          {% endif %}
+    - name: Scaffold workspace directory
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.zeroclaw/workspace"
+        state: directory
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
-        mode: "0600"
+        mode: "0700"
 
-    - name: Create systemd service file
+    - name: Scaffold state directory
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.zeroclaw/state"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    # Service is dropped DISABLED and NOT started. `clm agent configure` renders
+    # config.toml with provider credentials and turns the unit on. Inline config
+    # rendering used to live here; it now belongs to configure.yaml so install
+    # remains a pure "binary present, unit dropped" step.
+    - name: Create systemd service file (disabled, not started)
       ansible.builtin.copy:
         dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
         content: |
@@ -105,7 +153,7 @@
           [Service]
           Type=simple
           User={{ agent_name }}
-          WorkingDirectory=/home/{{ agent_name }}/workspace
+          WorkingDirectory=/home/{{ agent_name }}/.zeroclaw
           ExecStart=/home/{{ agent_name }}/bin/zeroclaw daemon
           Restart=on-failure
           RestartSec=5
@@ -115,12 +163,16 @@
         mode: "0644"
       notify: Reload systemd
 
-    - name: Enable and start zeroclaw service
+    - name: Reload systemd to pick up unit file
       ansible.builtin.systemd:
-        name: "{{ agent_type }}-{{ agent_name }}"
-        enabled: yes
-        state: started
         daemon_reload: yes
+
+    - name: Display install success
+      ansible.builtin.debug:
+        msg: |
+          ZeroClaw {{ zeroclaw_target_version }} installed for agent '{{ agent_name }}'.
+          Service unit {{ agent_type }}-{{ agent_name }}.service dropped (disabled, stopped).
+          Run `clm agent configure {{ agent_name }}` to render config.toml and start the daemon.
 
   handlers:
     - name: Reload systemd

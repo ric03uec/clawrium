@@ -974,10 +974,12 @@ def test_load_manifest_zeroclaw_with_onboarding():
     # Validate validate stage structure
     validate = stages["validate"]
     assert "tasks" in validate
-    # Should have binary_check and config_check
+    # binary_check only; config.toml is rendered by configure.yaml, so the
+    # file_exists check belongs to the configure stage now, not install-time
+    # validation.
     task_ids = [t["id"] for t in validate["tasks"]]
     assert "binary_check" in task_ids
-    assert "config_check" in task_ids
+    assert "config_check" not in task_ids
 
 
 def test_onboarding_task_types():
