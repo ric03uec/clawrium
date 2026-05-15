@@ -98,7 +98,7 @@ Select provider [1-2]: 1
 
 **Requirements (varies by agent type):**
 - **OpenClaw**: Requires SOUL.md and IDENTITY.md files
-- **ZeroClaw**: Auto-skipped (minimal identity)
+- **ZeroClaw**: Auto-skipped (workspace MD files are rendered separately by configure; the runtime owns identity through `~/.zeroclaw/workspace/`)
 - **IronClaw**: Governance identity configuration
 
 **Example for OpenClaw:**
@@ -119,7 +119,7 @@ Create IDENTITY.md? This defines your agent's role and context.
 **Example for ZeroClaw:**
 ```bash
 [IDENTITY] Configure agent personality
-✓ Skipped (minimal identity for zeroclaw)
+✓ Skipped (zeroclaw renders ~/.zeroclaw/workspace/{SOUL,IDENTITY,USER,AGENTS,TOOLS,MEMORY,HEARTBEAT}.md via configure)
 ```
 
 ### 3. Channels Stage
@@ -128,7 +128,7 @@ Create IDENTITY.md? This defines your agent's role and context.
 
 **Requirements (varies by agent type):**
 - **OpenClaw**: Select from CLI, WhatsApp, Slack, Discord, web
-- **ZeroClaw**: CLI only (auto-configured)
+- **ZeroClaw**: CLI only (single confirm step; reachable via `clm chat` over the daemon's WebSocket gateway)
 
 **Example:**
 ```bash
@@ -319,9 +319,10 @@ Different agent types have different onboarding requirements:
 - **Typical time**: 3-5 minutes
 
 ### ZeroClaw
-- **Identity**: Auto-skipped (minimal)
-- **Channels**: Auto-configured (CLI only)
-- **Typical time**: 1-2 minutes
+- **Identity**: Auto-skipped (workspace MD files rendered by configure; see [ZeroClaw → Workspace files](agent-support/zeroclaw.md#2-configure-the-agent))
+- **Channels**: CLI only — confirms the WebSocket gateway, no other channels supported
+- **Pairing**: Automated during configure (`GET /pair/code` → `POST /pair`); bearer token persisted to `hosts.json`
+- **Typical time**: 2-3 minutes (binary download dominates)
 
 ### IronClaw
 - **Identity**: Required - Governance and compliance settings

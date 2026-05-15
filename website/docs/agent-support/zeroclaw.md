@@ -1,10 +1,12 @@
 # ZeroClaw
 
-ZeroClaw is a minimal CLI-only agent designed for simple automation tasks and quick scripts.
+ZeroClaw is the [ZeroClaw Labs Rust agent runtime](https://github.com/zeroclaw-labs/zeroclaw) — a single statically linked daemon that exposes a WebSocket chat surface, manages a file-based personality workspace, and pairs with clients over a token-mint handshake.
 
 **Status:** 🚧 In Development
 
-**Best for:** CLI automation, minimal resource usage, quick tasks
+**Best for:** Low-resource hosts (Raspberry Pi 2/3 armv7l, aarch64 SBCs, small x86_64 servers) that need a minimal, single-binary AI agent with file-based personality and a LAN-reachable chat endpoint. ZeroClaw is intentionally narrower than [Hermes](hermes.md) (no OpenAI-compatible HTTP, no MCP integrations) and narrower than [OpenClaw](openclaw.md) (no Discord/web channels).
+
+**Pinned version:** `v0.7.5`. The release tarball SHA256 is pinned per architecture in `src/clawrium/platform/registry/zeroclaw/manifest.yaml` for five `(os, os_version, arch)` combinations; every version bump requires re-pinning all five.
 
 ---
 
@@ -14,71 +16,57 @@ ZeroClaw is a minimal CLI-only agent designed for simple automation tasks and qu
 |--------|---------|
 | ✅ | Fully supported and tested |
 | 🚧 | In development / Planned |
-| ❌ | Not supported |
-| 📋 | Not planned (PRs welcome) |
+| ❌ | Not supported (use a different claw) |
+| 📋 | Deferred — tracked as follow-up |
+
+---
+
+## Supported Platforms
+
+The same statically linked `zeroclaw` binary is reused across Ubuntu major versions for the same architecture (identical SHA256 per arch). The `(os, os_version, arch)` tuple is matched against the host facts at install time.
+
+| OS | Version | Architecture | Min RAM | Notes |
+|----|---------|--------------|--------:|-------|
+| Debian | 13 (trixie) | `armv7l` | 512 MB | Raspberry Pi 2 / 3 |
+| Ubuntu | 22.04 | `aarch64` | 1024 MB | Raspberry Pi 4 / 5, aarch64 SBCs |
+| Ubuntu | 24.04 | `aarch64` | 1024 MB | Raspberry Pi 4 / 5, aarch64 SBCs |
+| Ubuntu | 22.04 | `x86_64` | 1024 MB | Desktops / servers |
+| Ubuntu | 24.04 | `x86_64` | 1024 MB | Desktops / servers |
+
+No GPU required. Python ≥ 3.9 is listed as a manifest dependency for parity with the rest of the agent fleet; the daemon itself is a static Rust binary and has no Python runtime requirement.
 
 ---
 
 ## Provider Support
 
-ZeroClaw will support a limited set of providers focused on efficiency:
+ZeroClaw upstream supports a long catalog of providers (anthropic, openai, ollama, bedrock, gemini, openrouter, openai-compatible, azure-openai, copilot, claude-code, telnyx, kilocli). clm exposes only the four that are wired end-to-end through `config.toml` rendering and validated by the configure playbook.
 
-| Provider | Status | Configuration | Models |
-|----------|:------:|---------------|--------|
-| **[OpenAI](providers/openai.md)** | 🚧 | [In Development](providers/openai.md) | GPT-4o-mini, GPT-3.5 |
-| **[Anthropic](providers/anthropic.md)** | 🚧 | [In Development](providers/anthropic.md) | Claude Haiku |
-| **[Ollama](providers/ollama.md)** | 🚧 | [In Development](providers/ollama.md) | Local models |
-| **[OpenRouter](providers/openrouter.md)** | ❌ | — | Not planned |
-| **[AWS Bedrock](providers/bedrock.md)** | ❌ | — | Not planned |
-| **[Google Vertex](providers/vertex.md)** | ❌ | — | Not planned |
-| **[ZAI / BigModel](providers/zai.md)** | ❌ | — | Not planned |
-| **[Azure OpenAI](providers/azure-openai.md)** | ❌ | — | Not planned |
+| Provider | Status | clm `provider.type` | `kind` discriminator | Rendered keys |
+|----------|:------:|---------------------|----------------------|---------------|
+| **[Anthropic](providers/anthropic.md)** | ✅ | `anthropic` | `anthropic` | `api_key`, `model` |
+| **[OpenAI](providers/openai.md)** | ✅ | `openai` | `openai` | `api_key`, `model` |
+| **[Ollama / OpenAI-compatible](providers/ollama.md)** | ✅ | `ollama` | `ollama` | `base_url`, `model` (no api_key) |
+| **[OpenRouter](providers/openrouter.md)** | ✅ | `openrouter` | `openrouter` | `api_key`, `model` |
+| **AWS Bedrock** | 📋 | — | — | Deferred (no follow-up issue yet) |
+| **Google Gemini / Vertex** | 📋 | — | — | Deferred |
+| **Azure OpenAI** | 📋 | — | — | Deferred |
+| **Copilot / Claude Code / Telnyx / Kilocli** | 📋 | — | — | Deferred |
 
-**Notes:**
-- ZeroClaw focuses on lightweight providers
-- Self-hosted (Ollama) is prioritized for cost efficiency
-- Complex providers (Bedrock, Vertex) are excluded by design
+`config.toml` is rendered from a Jinja template that hard-allows only the four `kind` values above; any other `provider.type` causes the configure playbook to fail with a remediation message.
 
 ---
 
 ## Channel Support
 
-ZeroClaw is CLI-only by design:
+ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/chat`. `clm chat <name>` is a WebSocket client that speaks the daemon's tagged-JSON frame protocol.
 
-| Channel | Status | Configuration | Notes |
-|---------|:------:|---------------|-------|
-| **[CLI](channels/cli.md)** | 🚧 | [In Development](channels/cli.md) | Terminal-only |
-| **Discord** | ❌ | — | Not supported (use OpenClaw) |
-| **[Slack](channels/slack.md)** | ❌ | — | Not supported |
-| **[Web Interface](channels/web.md)** | ❌ | — | Not supported |
-| **[WhatsApp](channels/whatsapp.md)** | ❌ | — | Not supported |
-
-**Philosophy:**
-ZeroClaw intentionally excludes multi-channel support to maintain simplicity. For Discord or web interfaces, use [OpenClaw](openclaw.md).
-
----
-
-## Integration Support
-
-ZeroClaw does not support external integrations by design:
-
-| Integration | Status | Configuration | Notes |
-|-------------|:------:|---------------|-------|
-| **GitHub** | ❌ | — | Not supported |
-| **Jira** | ❌ | — | Not supported |
-| **GitLab** | ❌ | — | Not supported |
-| **Confluence** | ❌ | — | Not supported |
-| **Linear** | ❌ | — | Not supported |
-| **Notion** | ❌ | — | Not supported |
-
-**Philosophy:**
-ZeroClaw is designed for simple, self-contained automation. It focuses on:
-- Quick CLI tasks
-- Local file operations
-- Simple API calls via curl/httpie
-- Scripting and piping
-
-For integrations with GitHub, Jira, etc., use [OpenClaw](openclaw.md).
+| Channel | Status | Notes |
+|---------|:------:|-------|
+| **clm `chat <zeroclaw-name>`** | ✅ | Connects to `ws://<host>:42617/ws/chat` with `Authorization: Bearer <paired-token>`. See [Use the WebSocket chat surface](#3-use-the-websocket-chat-surface). |
+| **OpenAI-compatible HTTP API** | ❌ | Not exposed by upstream ZeroClaw. Use [Hermes](hermes.md) when an OpenAI-style HTTP endpoint is required. |
+| **Discord** | ❌ | Not supported (use [OpenClaw](openclaw.md) or [Hermes](hermes.md)). |
+| **Slack** | ❌ | Not supported (use [OpenClaw](openclaw.md) or [Hermes](hermes.md)). |
+| **Web / WhatsApp / Telegram / Email / Matrix** | ❌ | Not supported. |
 
 ---
 
@@ -86,95 +74,352 @@ For integrations with GitHub, Jira, etc., use [OpenClaw](openclaw.md).
 
 | Feature | Status | Notes |
 |---------|:------:|-------|
-| **Custom Identity** | ❌ | Minimal identity only (no SOUL.md) |
-| **Multi-Provider** | 🚧 | Basic switching planned |
-| **Secrets Management** | 🚧 | Per-instance storage planned |
-| **Token Tracking** | ❌ | Not planned |
-| **MCP Tools** | ❌ | Not planned |
-| **Auto-Restart** | 🚧 | Supervisor-managed planned |
-| **Log Streaming** | 🚧 | Planned |
-| **Onboarding Wizard** | 🚧 | Simplified 2-stage setup |
+| **WebSocket chat endpoint** | ✅ | `GET /ws/chat` on the daemon's gateway port (default `42617`). Auth: `Authorization: Bearer <token>` minted by the pairing handshake. |
+| **Multi-provider** | ✅ | One active provider per agent, rendered as `[providers.models.<name>]` in `config.toml`. Switch providers by re-running `clm agent configure <name> --stage providers`. |
+| **Workspace personality files** | ✅ | 7 files in `~/.zeroclaw/workspace/` (`SOUL.md`, `IDENTITY.md`, `USER.md`, `AGENTS.md`, `TOOLS.md`, `MEMORY.md`, `HEARTBEAT.md`). Rendered with `force: no` so re-configure never clobbers user edits. |
+| **Memory CLI (`clm agent memory show / edit / delete`)** | ✅ | Dispatched via `workspace.memory_path` + `features.memory: true` in the manifest. Surface is identical to hermes / openclaw. |
+| **Pairing handshake** | ✅ | Automated by `clm agent configure`. Reads `/pair/code`, exchanges for a bearer token at `/pair`, persists the token to `hosts.json` under `agents.<name>.config.gateway.auth`. |
+| **LAN-reachable gateway** | ✅ | Bound to `0.0.0.0` with `allow_public_bind = true` + `require_pairing = true`. The pairing token is the only auth boundary. See [Security considerations](#security-considerations). |
+| **Auto-restart** | ✅ | Systemd unit `zeroclaw-<agent_name>.service` with `Restart=on-failure`, `RestartSec=5`. |
+| **Log streaming** | ✅ | `journalctl -u zeroclaw-<agent_name>.service` on the agent host. |
+| **Onboarding wizard** | ✅ | 4 stages: `providers` (required) → `identity` (auto-skipped) → `channels` (required, CLI confirm) → `validate` (`zeroclaw --version`). |
+| **Personality block in `config.toml`** | ✅ | `[personality]` with `name`, `timezone`, `communication_style` defaults; rendered with `force: no` semantics through Ansible's template default — re-running configure preserves the file because `notify` only fires when content actually changes. |
+| **Bootstrap file (`BOOTSTRAP.md`)** | ✅ | **Not rendered by clm.** The ZeroClaw daemon generates `BOOTSTRAP.md` on first boot and self-deletes it after use. Never appears in `clm agent memory show`. |
+| **Integrations (GitHub / Jira / GitLab / Linear / Notion)** | 📋 | Deferred. Upstream ZeroClaw supports an `[integrations]` block; clm does not emit it in this iteration. Tracked as a follow-up to #112. |
+| **Hardware support (GPIO / serial / debug probes)** | 📋 | Deferred. |
+| **Tunnel providers (Cloudflare / Tailscale / Ngrok / custom)** | 📋 | Deferred. Reach the gateway over your own SSH tunnel or LAN. |
+| **Encrypted secrets (ChaCha20-Poly1305)** | 📋 | Deferred. |
+| **Composio / Sovereign tool modes** | 📋 | Deferred. |
+| **Memory backends beyond Markdown** (Sqlite / Lucid / Postgres / Qdrant / None) | 📋 | Deferred. Current iteration uses the upstream default backend; clm's memory CLI only sees the workspace MD files. |
 
 ---
 
-## Comparison with OpenClaw
-
-| Aspect | ZeroClaw | OpenClaw |
-|--------|----------|----------|
-| **Setup Time** | 1-2 minutes | 3-5 minutes |
-| **Channels** | CLI only | CLI, Discord, Web |
-| **Identity** | Minimal | Fully customizable |
-| **Providers** | 3 (lightweight) | 7+ (all major) |
-| **Integrations** | None | GitHub, Jira, etc. |
-| **Resource Usage** | Low | Moderate |
-| **Use Case** | Automation | Assistants |
-
----
-
-## Getting Started (When Available)
+## Getting Started
 
 ### 1. Install ZeroClaw
 
 ```bash
-clm agent install --type zeroclaw --host <host-alias> --name my-script
+clm agent install --type zeroclaw --host <host-alias> --name <agent-name>
 ```
 
-### 2. Configure (Minimal)
+What happens:
+
+1. The host's `(os, os_version, arch)` is matched against the manifest's 5 platform entries. Unknown architecture fails with a clear remediation message.
+2. The release tarball is fetched from `https://github.com/zeroclaw-labs/zeroclaw/releases/download/v0.7.5/zeroclaw-<arch-triple>.tar.gz` and verified against the SHA256 pinned in `manifest.yaml`.
+3. A dedicated Linux user (`<agent-name>`) is created with `/usr/sbin/nologin` (service account, no interactive shell).
+4. The binary is dropped at `/home/<agent-name>/bin/zeroclaw` (mode 0755, owned by the agent user). `~/.zeroclaw/` is created mode 0700.
+5. A systemd unit `/etc/systemd/system/zeroclaw-<agent-name>.service` is dropped, **disabled and not started**:
+
+   ```ini
+   [Unit]
+   Description=ZeroClaw AI Assistant (<agent-name>)
+   After=network.target
+
+   [Service]
+   Type=simple
+   User=<agent-name>
+   WorkingDirectory=/home/<agent-name>/.zeroclaw
+   ExecStart=/home/<agent-name>/bin/zeroclaw daemon
+   Restart=on-failure
+   RestartSec=5
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+6. Re-running install on a host that already has the target version is a no-op (version skip). `--force` (via the `force_install` extra-var) reinstalls cleanly.
+
+Install is a pure "binary present, unit dropped" step. No `config.toml` is rendered, no service is started, no provider is selected. Step 2 (`configure`) is the one that turns the daemon on.
+
+### 2. Configure the agent
 
 ```bash
-clm agent configure my-script
-# Auto-skips identity, configures CLI channel only
+clm agent configure <agent-name>
 ```
 
-### 3. Start and Chat
+The wizard walks through:
+
+| Stage | Behavior |
+|-------|----------|
+| **providers** | Required. Pick from your registered clm providers; clm validates connectivity via `provider_test`. |
+| **identity** | Auto-skipped. ZeroClaw manages its own identity through the workspace MD files (`SOUL.md`, `IDENTITY.md`, …) which clm renders below — there is no separate identity wizard. |
+| **channels** | Required. Confirms the CLI / WebSocket channel (the only one ZeroClaw exposes). |
+| **validate** | Runs `zeroclaw --version` on the agent host. |
+
+Configure renders TWO things on the agent host, then runs the pairing handshake against the freshly started daemon.
+
+#### `~/.zeroclaw/config.toml` (mode 0600, owner `<agent-name>`)
+
+```toml
+[gateway]
+host = "0.0.0.0"
+port = 42617
+allow_public_bind = true
+require_pairing = true
+
+default_provider = "<provider-name>"
+default_model = "<model-id>"
+
+[providers.models.<provider-name>]
+kind = "anthropic"          # or "openai" / "ollama" / "openrouter"
+api_key = "..."             # omitted for ollama
+model = "<model-id>"
+# base_url = "..."          # ollama only
+
+[personality]
+name = "<agent-name>"
+timezone = "UTC"
+communication_style = "direct, concise"
+```
+
+Per-provider rendering:
+
+| clm `provider.type` | Rendered `kind` | `api_key` | `base_url` | Notes |
+|---------------------|------------------|-----------|------------|-------|
+| `anthropic` | `anthropic` | yes (from `provider_api_key` extra-var) | — | — |
+| `openai` | `openai` | yes | — | — |
+| `ollama` | `ollama` | — | `<provider.endpoint>` (as-is) | No API key. Endpoint must be reachable from the **agent host**, not just your control machine. |
+| `openrouter` | `openrouter` | yes | — | — |
+
+#### `~/.zeroclaw/workspace/` (mode 0700, files mode 0600)
+
+Seven personality files seed the daemon on first start:
+
+| File | One-line purpose |
+|------|------------------|
+| `SOUL.md` | High-level voice + values the agent embodies. |
+| `IDENTITY.md` | Role and behavioral boundaries. |
+| `USER.md` | User profile and preferences. |
+| `AGENTS.md` | Defaults and examples for any sub-agents this instance delegates to. |
+| `TOOLS.md` | Built-in and custom tool registry. |
+| `MEMORY.md` | Free-form notes scratchpad. |
+| `HEARTBEAT.md` | Cadence / recovery prompts for long-running sessions. |
+
+All seven are rendered with `force: no` so subsequent `clm agent configure` runs **never** clobber operator edits.
+
+`BOOTSTRAP.md` is intentionally **not** rendered by clm — the ZeroClaw runtime generates it on first daemon start and self-deletes it after use. It will never appear in `clm agent memory show`. Reference: upstream `crates/zeroclaw-runtime/src/agent/personality.rs` const `PERSONALITY_FILES`.
+
+#### Pairing handshake
+
+Once the daemon is started, configure runs an automated two-step handshake against the loopback gateway:
+
+```text
+GET  http://127.0.0.1:42617/pair/code     -> { "code": "<one-shot-code>" }
+POST http://127.0.0.1:42617/pair
+     body: { "code": "<one-shot-code>" }  -> { "token": "<bearer-token>" }
+```
+
+Both calls happen over `127.0.0.1` so the code and token never traverse the LAN before pairing completes. The resulting bearer token is persisted to `hosts.json` under:
+
+```text
+agents.<agent-name>.config.gateway.auth = "<bearer-token>"
+agents.<agent-name>.config.gateway.url  = "ws://<agent-host>:42617/ws/chat"
+```
+
+Re-running `clm agent configure <agent-name>` **reuses** the persisted token by default — live chat sessions stay valid. Pass `--force-repair` to mint a fresh token (invalidates existing sessions).
+
+A non-fatal warning is surfaced when the post-configure readiness probe (`GET /health/providers`) returns 401: the gateway is reachable but the provider credentials likely mismatch the API key supplied in `config.toml`. Re-run with the correct key.
+
+### 3. Use the WebSocket chat surface
 
 ```bash
-clm agent start my-script
-clm chat my-script
+clm chat <agent-name>
 ```
+
+What clm does:
+
+1. Reads `agents.<agent-name>.config.gateway.{auth,url}` from `hosts.json`.
+2. Connects to `ws://<host>:42617/ws/chat` with header `Authorization: Bearer <token>`.
+3. Streams stdin lines as `message` frames; renders streamed reply chunks back to the terminal.
+
+The frame envelope (relevant subset, useful when troubleshooting):
+
+| Direction | `type` | Purpose |
+|-----------|--------|---------|
+| Server → client | `session_start` | Session metadata at the start of a turn. |
+| Server → client | `connected` | Handshake acknowledged. |
+| Server → client | `chunk` | Streamed reply delta. The client appends `text` (or equivalent) to the visible response. |
+| Server → client | `thinking` | Model's reasoning trace (rendered separately when present). |
+| Server → client | `tool_call` / `tool_result` | Tool dispatch / result, for tools the agent invokes. |
+| Server → client | `done` | Terminal frame. Carries the final response, token counts, cost, provider, model. |
+| Server → client | `error` | Terminal frame. Carries an `error` / `message` field. |
+| Server → client | `chunk_reset` / `aborted` | Stream control (rare; emitted on cancellation). |
+| Client → server | `message` | `{"type":"message","content":"<prompt>"}` |
+| Client → server | `connect` | Optional handshake frame. |
+| Client → server | `approval_response` | Reply to a server-side approval request, when the agent gates a tool call on operator confirmation. |
+
+Server-supplied text is passed through a Rich-markup sanitizer in `core/chat_zeroclaw.py` before it reaches the terminal — a model that emits literal `[red]` does not affect the host's terminal formatting.
+
+#### Off-host access from the control machine
+
+The gateway binds `0.0.0.0:42617` so any host on the same LAN can reach it once it holds the pairing token. The token is the only auth boundary — treat it like an API key. From a fully untrusted network, prefer an SSH tunnel:
+
+```bash
+ssh -L 42617:127.0.0.1:42617 <user>@<agent-host>
+# Then in another terminal:
+clm chat <agent-name>   # clm rewrites the URL based on hosts.json
+```
+
+### 4. Lifecycle
+
+```bash
+clm agent start <agent-name>     # systemctl start; gated by onboarding state
+clm agent stop <agent-name>      # systemctl stop; preserves ~/.zeroclaw/
+clm agent remove <agent-name>    # stop, remove unit, rm -rf ~/.zeroclaw, userdel
+```
+
+`clm agent start` is gated by onboarding state — until `configure` completes, `start` is blocked with a remediation message pointing at `clm agent configure <agent-name>`.
+
+### 5. Memory operations
+
+```bash
+clm agent memory show   <agent-name>                # list the 7 workspace files + daily notes
+clm agent memory edit   <agent-name> <file>         # open in $EDITOR, sync back, restart agent
+clm agent memory delete <agent-name> --file <file>  # remove a single file
+clm agent memory delete <agent-name> --all --force  # remove every memory file (typed confirmation required)
+```
+
+`edit` takes the workspace-relative path as a positional argument (e.g. `SOUL.md`, `memory/2026-05-15.md`), not a `--name` flag. `delete` requires `--file` for a single file or `--all --force` for the wipe path.
+
+The dispatcher reads the manifest's `workspace.memory_path` (`~/.zeroclaw/workspace`) and `features.memory: true` — the CLI surface is identical to hermes and openclaw.
 
 ---
 
-## Development Status
+## Security considerations
 
-ZeroClaw is currently in development. Expected features:
+ZeroClaw's threat model is **trusted LAN**, parity with the upstream daemon's defaults adjusted for the deployment shape clm targets.
 
-- **v0.1.0** (Target: Q2 2026)
-  - CLI channel support
-  - OpenAI and Anthropic providers
-  - Basic onboarding
-  - Start/stop lifecycle
-
-- **v0.2.0** (Target: Q3 2026)
-  - Ollama support
-  - Log streaming
-  - Secrets management
-
-Track progress: [GitHub Milestone SEA](https://github.com/ric03uec/clawrium/milestones)
+- **Gateway binds `0.0.0.0`.** Any host that can reach the agent on TCP `42617` can attempt to connect. `require_pairing = true` means an unpaired connection is rejected; the bearer token is the auth boundary.
+- **The pairing token is plaintext over the network.** `ws://` is not TLS. The pairing handshake itself happens loopback-only inside the configure playbook, so the token never leaves the agent host during minting. But every subsequent `clm chat` carries the token in an `Authorization` header over plain WebSocket — fine on a trusted LAN, **not fine** over an untrusted network.
+- **For untrusted networks, tunnel.** Open `ssh -L 42617:127.0.0.1:42617 <user>@<agent-host>` before running `clm chat`. The traffic stays inside SSH; the gateway never has to be reachable from the public internet.
+- **Tokens persist to `hosts.json`.** The file is mode 0644 by default. If your control machine is multi-user, tighten permissions or move tokens out of `hosts.json` manually.
+- **Re-configure does not rotate the token.** `--force-repair` is the explicit knob for rotation; it invalidates existing sessions. Use it when a token is suspected to have leaked.
 
 ---
 
-## When to Use ZeroClaw vs OpenClaw
+## Important caveats
 
-**Choose ZeroClaw when:**
-- ✅ You only need CLI interaction
-- ✅ You want minimal resource usage
-- ✅ You need quick automation scripts
-- ✅ You don't need custom identity
-- ✅ You don't need Discord or web interface
-- ✅ You want fast setup (1-2 minutes)
+- **No OpenAI-compatible HTTP.** ZeroClaw's only chat surface is the WebSocket at `/ws/chat`. If you need to point an OpenAI SDK client at the agent, use [Hermes](hermes.md) instead.
+- **Workspace personality is operator-owned after first configure.** Every workspace template renders with `force: no`. After the initial seed, the daemon and the operator (via `clm agent memory edit`) are the only writers.
+- **`BOOTSTRAP.md` is runtime-generated and self-deletes.** Do not expect to see it in `clm agent memory show`. It only exists between first daemon start and the daemon's own bootstrap cleanup.
+- **`clm chat` requires the daemon to be running.** The CLI does not run the runtime in-process; it speaks to the systemd-managed daemon. If `systemctl status zeroclaw-<name>` is `inactive (dead)`, `clm chat` will fail to connect.
+- **Re-installing preserves the gateway token.** `install.py`'s `preserved_gateway` carry-over keeps `config.gateway.auth` across reinstalls, so re-running install does not break live chat sessions. (Re-running `configure` follows the same rule unless `--force-repair` is set.)
 
-**Choose OpenClaw when:**
-- ✅ You need Discord or web interface
-- ✅ You want customizable personality
-- ✅ You need external integrations (GitHub, Jira)
-- ✅ You need full feature set
-- ✅ You want multi-provider flexibility
+---
+
+## Troubleshooting
+
+<details>
+<summary><strong>Service won't start (<code>clm agent start</code> hangs or exits)</strong></summary>
+
+1. SSH to the agent host and inspect the journal:
+
+   ```bash
+   sudo journalctl -u zeroclaw-<agent-name>.service -n 100 --no-pager
+   ```
+
+2. Confirm `~/.zeroclaw/config.toml` exists and parses. The configure playbook renders it mode 0600 owned by the agent user — if you've edited it by hand and broken TOML, the daemon will fail to start and emit a parse error to the journal.
+
+   ```bash
+   sudo -u <agent-name> cat /home/<agent-name>/.zeroclaw/config.toml | head -40
+   ```
+
+3. Verify the binary is present and executable:
+
+   ```bash
+   sudo -u <agent-name> /home/<agent-name>/bin/zeroclaw --version
+   ```
+
+   Anything other than `0.7.5` here means a stale binary; `clm agent remove` + reinstall.
+
+</details>
+
+<details>
+<summary><strong><code>/health/providers</code> warning during configure</strong></summary>
+
+The configure playbook probes `GET http://127.0.0.1:42617/health/providers` and prints a warning when it returns 401:
+
+> _/health/providers returned 401 — gateway is reachable but provider credentials may be invalid._
+
+The gateway is up; the daemon is rejecting requests at the provider layer. Verify the API key for the active provider (`config.toml` → `[providers.models.<name>] api_key`) and re-run `clm agent configure <agent-name>`. For `ollama`, ensure the `base_url` is reachable from the **agent host**, not just your control machine:
+
+```bash
+ssh <agent-host> "curl -fsS <endpoint>/api/tags"
+```
+
+</details>
+
+<details>
+<summary><strong>Pairing handshake fails (no token minted)</strong></summary>
+
+Both pairing steps validate their responses; failure modes:
+
+- `GET /pair/code` returned non-200, or a body missing the `code` field → daemon is up but pairing endpoint is disabled. Check the journal for upstream errors.
+- `POST /pair` returned non-200, or a token shorter than 16 chars → the code expired or was already consumed.
+
+Recovery:
+
+```bash
+clm agent configure <agent-name> --force-repair
+```
+
+This forces a fresh `GET /pair/code` → `POST /pair` cycle and overwrites the persisted token. Existing chat sessions using the old token will fail at the next message.
+
+</details>
+
+<details>
+<summary><strong><code>clm chat</code> fails after a reinstall</strong></summary>
+
+`install.py preserved_gateway` carries `config.gateway.auth` across reinstalls so this is rare. If it happens, the most likely cause is a manual edit to `hosts.json` between install and chat. Re-run:
+
+```bash
+clm agent configure <agent-name> --force-repair
+```
+
+to mint a fresh token aligned with the rebuilt daemon state.
+
+</details>
+
+<details>
+<summary><strong><code>clm agent memory edit SOUL.md</code> fails with "file not found"</strong></summary>
+
+The 7 personality files are rendered by `clm agent configure`, not `install`. If you ran `install` but skipped `configure`, the workspace will be empty. Run:
+
+```bash
+clm agent configure <agent-name>
+```
+
+The render is idempotent (force: no), so this is safe to run against a partially configured agent.
+
+</details>
+
+<details>
+<summary><strong><code>BOOTSTRAP.md</code> appeared in <code>memory show</code> output</strong></summary>
+
+`BOOTSTRAP.md` is filtered out of the memory listing by design — the runtime generates it transiently and deletes it once bootstrap completes. If it's still on disk, the daemon either failed to complete its first-run bootstrap or never started. Check the journal and confirm `systemctl status zeroclaw-<agent-name>` is `active (running)`.
+
+</details>
+
+---
+
+## Deferred items / follow-ups
+
+The following are explicitly out of scope for issue #112 and tracked as separate follow-ups:
+
+- **Integrations** — GitHub, GitLab, Atlassian (Jira + Confluence), Linear, Notion. Upstream ZeroClaw supports an `[integrations]` block; clm does not emit it in this iteration.
+- **Hardware** — GPIO, serial, debug-probe support.
+- **Tunnel providers** — Cloudflare Tunnel, Tailscale, Ngrok, custom tunnels. Use SSH tunneling in the meantime.
+- **Encrypted secrets** — ChaCha20-Poly1305 secret encryption is upstream-only for now.
+- **Composio / Sovereign tool modes.**
+- **Memory backends beyond the Markdown workspace** — Sqlite, Lucid, Postgres, Qdrant. clm's memory CLI only sees the workspace MD files in this iteration.
+- **Additional providers** — Bedrock, Gemini / Vertex, Azure OpenAI, Copilot, Claude Code, Telnyx, Kilocli.
+- **Installer-checksum refresh helper** — every version bump re-pins five SHA256s by hand.
 
 ---
 
 ## Next Steps
 
-- [OpenClaw Support Matrix](openclaw.md) - Full-featured alternative
-- [Agent Onboarding](/docs/guides/agent-onboarding) - Onboarding process overview
-- [CLI Reference](/docs/reference/cli/agent) - Command documentation
+- [Hermes Support Matrix](hermes.md) — OpenAI-compatible HTTP alternative with MCP integration support.
+- [OpenClaw Support Matrix](openclaw.md) — full-featured alternative with Discord / Slack / web channels.
+- [Agent Onboarding](/docs/guides/agent-onboarding) — the onboarding wizard, stage by stage.
+- [Host Preparation](/docs/guides/host-setup) — host prereqs and provider credential setup.
