@@ -50,3 +50,4 @@
         path: "/home/{{ agent_name }}/.openclaw/workspace/{{ item }}"
         state: absent
       loop: "{{ memory_files }}"
+      no_log: true

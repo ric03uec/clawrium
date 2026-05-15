@@ -45,7 +45,13 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "MAX_MEMORY_CONTENT_BYTES",
-    "MEMORY_TOP_LEVEL_FILES",
+    # ``MEMORY_TOP_LEVEL_FILES`` (and the per-claw mapping it became after
+    # #358) is intentionally NOT re-exported. The shape changed from
+    # ``tuple[str, ...]`` to ``dict[str, tuple[str, ...]]``, which would
+    # silently change behavior for any external consumer doing membership
+    # tests or iteration. The constant is only used internally + by tests
+    # (which import it explicitly by name); the public dispatcher uses
+    # the playbook-level file list as authoritative.
     "MemoryFileInfo",
     "MemoryStats",
     "MemoryOpError",
@@ -114,14 +120,24 @@ _MEMORY_WRITE_CHAR_LIMITS: dict[str, dict[str, int]] = {
 # boot and self-deletes after use, so a clm-side write would corrupt the
 # bootstrap protocol (ATX round 1 W3 for #358).
 #
-# Intent: this allowlist is STRUCTURAL, not phase-gated. clm has no
+# Intent: these allowlists are STRUCTURAL, not phase-gated. clm has no
 # visibility into ZeroClaw's bootstrap phase, so a runtime check
 # ("bootstrap completed?") is not feasible from the dispatcher. Treating
 # BOOTSTRAP.md as permanently unwritable from clm avoids ever having to
 # answer "what phase is the agent in?" — the contract is simpler and
 # correct for both fresh and long-running agents.
+#
+# Openclaw mirrors the four files surfaced by its memory_info playbook so
+# the Python-side defense matches the playbook-level guard added in iter
+# 3 of #358 (the prior asymmetry was W_NEW1).
 _MEMORY_WRITE_ALLOWED_FILES: dict[str, tuple[str, ...]] = {
     "hermes": ("MEMORY.md", "USER.md", "SOUL.md"),
+    "openclaw": (
+        "SOUL.md",
+        "IDENTITY.md",
+        "USER.md",
+        "TOOLS.md",
+    ),
     "zeroclaw": (
         "SOUL.md",
         "IDENTITY.md",
@@ -132,6 +148,15 @@ _MEMORY_WRITE_ALLOWED_FILES: dict[str, tuple[str, ...]] = {
         "HEARTBEAT.md",
     ),
 }
+
+# Claw types whose workspace supports daily-note files under memory/.
+# A filename matching ``memory/<name>`` bypasses the static allowlist for
+# these claws. Hermes is intentionally absent — its workspace has a fixed
+# two-file model with no daily-notes concept.
+_MEMORY_WRITE_DAILY_NOTES: set[str] = {"openclaw", "zeroclaw"}
+
+# Pattern for daily-note filenames (memory/<file> with safe components).
+_MEMORY_DAILY_NOTE_PATTERN = re.compile(r"^memory/[A-Za-z0-9._-]+$")
 
 # Workspace-relative path validation: filename or memory/<filename>.
 # Mirrors the pattern enforced in the playbooks.
@@ -753,14 +778,24 @@ def write_memory_file(
     if host is None:
         return False, unix_name
 
-    # Per-claw filename allowlist (e.g. hermes accepts only MEMORY.md and
-    # USER.md) — enforce before SSH so the user gets an immediate, clear
-    # error rather than an Ansible failure.
+    # Per-claw filename allowlist (e.g. hermes accepts only MEMORY.md,
+    # USER.md, SOUL.md) — enforce before SSH so the user gets an
+    # immediate, clear error rather than an Ansible failure. Claws in
+    # ``_MEMORY_WRITE_DAILY_NOTES`` additionally accept ``memory/<file>``
+    # daily notes that don't appear in the static allowlist.
     allowed = _MEMORY_WRITE_ALLOWED_FILES.get(claw_type)
     if allowed is not None and filename not in allowed:
-        return False, (
-            f"{claw_type} memory accepts only {' and '.join(allowed)}"
+        is_daily_note = (
+            claw_type in _MEMORY_WRITE_DAILY_NOTES
+            and _MEMORY_DAILY_NOTE_PATTERN.match(filename) is not None
         )
+        if not is_daily_note:
+            return False, (
+                f"{claw_type} memory accepts only "
+                f"{' and '.join(allowed)} (or memory/<file>)"
+                if claw_type in _MEMORY_WRITE_DAILY_NOTES
+                else f"{claw_type} memory accepts only {' and '.join(allowed)}"
+            )
 
     # Per-claw per-file character limit (hermes: MEMORY.md ≤ 2200, USER.md ≤ 1375).
     char_limits = _MEMORY_WRITE_CHAR_LIMITS.get(claw_type) or {}

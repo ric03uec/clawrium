@@ -56,3 +56,4 @@
         path: "/home/{{ agent_name }}/.zeroclaw/workspace/{{ item }}"
         state: absent
       loop: "{{ memory_files }}"
+      no_log: true
