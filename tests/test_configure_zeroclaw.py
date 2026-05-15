@@ -15,6 +15,7 @@ template by #357 and tracked as a follow-up outside #112.
 
 from pathlib import Path
 
+import pytest
 from jinja2 import Environment, FileSystemLoader
 
 
@@ -325,24 +326,34 @@ class TestPersonalityBlock:
         assert 'timezone = "America/Los_Angeles"' in rendered
         assert 'communication_style = "verbose"' in rendered
 
-    def test_personality_values_are_toml_escaped(self):
-        # Inject a backslash + quote + newline; the TOML basic-string escape
-        # macro must neutralize all three so the rendered file parses.
+    @pytest.mark.parametrize(
+        "field",
+        ["name", "timezone", "communication_style"],
+    )
+    def test_personality_values_are_toml_escaped(self, field: str):
+        # ATX iter 1 W8: each personality field must independently pass
+        # through toml_escape. A regression that drops the macro from a
+        # single field would otherwise slip past a name-only test (the
+        # same shape of bug ATX flagged for `api_key` in earlier rounds).
+        payload = (
+            'evil"\n[providers.models.injected]\nkind = "anthropic'
+        )
+        personality = {
+            "name": "ok-name",
+            "timezone": "UTC",
+            "communication_style": "concise",
+        }
+        personality[field] = payload
         rendered = _render(
             provider={"type": "anthropic", "default_model": "m"},
             provider_api_key="k",
-            personality={
-                "name": 'evil"\n[providers.models.injected]\nkind = "anthropic',
-                "timezone": "UTC",
-                "communication_style": "concise",
-            },
+            personality=personality,
         )
-        # The injected text appears as escape sequences INSIDE the basic
-        # string. What must NOT happen: a line that begins a new TOML
-        # section header. Walk line-by-line and assert no top-level table
-        # `[providers.models.injected]` was introduced by the payload.
+        # The injected text must appear as escape sequences INSIDE the
+        # basic string. What must NOT happen: a line that begins a new
+        # TOML section header.
         for line in rendered.splitlines():
             assert line.strip() != "[providers.models.injected]", (
-                "TOML injection succeeded — payload broke out of the basic "
-                f"string and started a new section: {line!r}"
+                f"TOML injection succeeded via personality.{field} — "
+                f"payload broke out of basic string: {line!r}"
             )

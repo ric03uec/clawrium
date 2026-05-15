@@ -1199,8 +1199,16 @@ def configure_agent(
 
     # Hermes' configure flow restarts the service and probes /health with up
     # to 20×3s retries (60s) — leave generous headroom for slow first-startup
-    # path that loads the agent venv. Other claws keep the legacy 60s budget.
-    configure_timeout = 240 if resolved_type == "hermes" else 60
+    # path that loads the agent venv. Zeroclaw's configure does a pairing
+    # handshake + /health/providers probe (30×2s = 60s upper bound) plus 7
+    # workspace template renders after #358 — 60s leaves no margin, so the
+    # claw gets a 180s budget. Other claws keep the legacy 60s budget.
+    if resolved_type == "hermes":
+        configure_timeout = 240
+    elif resolved_type == "zeroclaw":
+        configure_timeout = 180
+    else:
+        configure_timeout = 60
 
     try:
         result = ansible_runner.run(
