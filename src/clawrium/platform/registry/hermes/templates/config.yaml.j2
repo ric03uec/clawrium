@@ -3,6 +3,13 @@
 #
 # Hermes deep-merges this file with its DEFAULT_CONFIG at load time, so any
 # top-level keys not listed here retain their hermes defaults.
+{# YAML-safe single-quote escaping. Single-quoted YAML scalars do not
+   interpret escapes, so doubling embedded single quotes is sufficient to
+   neutralize tokens containing colons, quotes, newlines, etc. Mirrors the
+   shell_quote pattern in openclaw/.env.j2. #}
+{%- macro yaml_quote(value) -%}
+'{{ value | string | replace("'", "''") }}'
+{%- endmacro -%}
 {% set provider = config.provider | default({}) %}
 {% set provider_type = provider.type | default('') %}
 {% set model_id = provider.default_model | default('') %}
@@ -38,4 +45,49 @@ model:
 {% if provider_type == 'bedrock' %}
 bedrock:
   region: "{{ provider.region | default('us-east-1') }}"
+{% endif %}
+
+{# --- MCP Servers (from assigned integrations) ---
+   Each atlassian integration becomes a stdio MCP server entry. Credentials
+   are emitted as single-quoted YAML scalars via yaml_quote to prevent token
+   contents from breaking out of the scalar. CONFLUENCE_URL is derived as
+   ATLASSIAN_URL + '/wiki' (Atlassian Cloud convention only — Data Center /
+   Server installs use a different URL layout and are out of scope). #}
+{% if integrations is defined and integrations | length > 0 %}
+{% set mcp_entries = [] %}
+{% for name, integration in integrations.items() %}
+{% if integration.type == 'atlassian' %}{% if mcp_entries.append(name) %}{% endif %}{% endif %}
+{% endfor %}
+{% if mcp_entries | length > 0 %}
+mcp_servers:
+{% for name in mcp_entries %}
+{% set intg = integrations[name] %}
+{% set server_name = name | replace('-', '_') %}
+{# Strip trailing slash on the instance URL before deriving CONFLUENCE_URL so
+   a user-entered 'https://co.atlassian.net/' doesn't render '//wiki'. #}
+{% set atlassian_url = (intg.ATLASSIAN_URL | default('')).rstrip('/') %}
+  {{ server_name }}:
+    command: "/home/{{ agent_name }}/.local/bin/uvx"
+    {# Pin runtime version with --from so a missing tool venv (manual delete,
+       partial cleanup) does not silently resolve to mcp-atlassian latest. #}
+    {# `mcp_atlassian_version` is required: the playbook supplies it via
+       `vars:` so install and runtime stay in lockstep. No Jinja fallback —
+       drift between pre-install pin and runtime pin would silently install
+       one version and launch another. #}
+    args: ["--from", "mcp-atlassian=={{ mcp_atlassian_version }}", "mcp-atlassian"]
+    env:
+      JIRA_URL: {{ yaml_quote(atlassian_url) }}
+      JIRA_USERNAME: {{ yaml_quote(intg.ATLASSIAN_EMAIL | default('')) }}
+      JIRA_API_TOKEN: {{ yaml_quote(intg.ATLASSIAN_API_TOKEN | default('')) }}
+      CONFLUENCE_URL: {{ yaml_quote(atlassian_url + '/wiki') }}
+      CONFLUENCE_USERNAME: {{ yaml_quote(intg.ATLASSIAN_EMAIL | default('')) }}
+      CONFLUENCE_API_TOKEN: {{ yaml_quote(intg.ATLASSIAN_API_TOKEN | default('')) }}
+{% if intg.CONFLUENCE_SPACES_FILTER is defined and intg.CONFLUENCE_SPACES_FILTER %}
+      CONFLUENCE_SPACES_FILTER: {{ yaml_quote(intg.CONFLUENCE_SPACES_FILTER) }}
+{% endif %}
+{% if intg.JIRA_PROJECTS_FILTER is defined and intg.JIRA_PROJECTS_FILTER %}
+      JIRA_PROJECTS_FILTER: {{ yaml_quote(intg.JIRA_PROJECTS_FILTER) }}
+{% endif %}
+{% endfor %}
+{% endif %}
 {% endif %}

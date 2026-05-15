@@ -1,6 +1,22 @@
 ---
 - hosts: all
   become: yes
+  vars:
+    # Pinned versions for the Atlassian MCP integration toolchain.
+    # Bump these deliberately after verifying the new release's env-var
+    # interface; both are exercised on every `clm agent configure`.
+    mcp_atlassian_version: "0.21.1"
+    uv_version: "0.5.20"
+    # Precomputed convenience flag — true iff this run has at least one
+    # atlassian integration assigned. Avoids repeating the dict2items filter
+    # chain on every `when:` clause below.
+    atlassian_integration_assigned: >-
+      {{
+        integrations is defined
+        and (integrations | dict2items
+              | selectattr('value.type', 'equalto', 'atlassian')
+              | list | length > 0)
+      }}
   tasks:
     - name: Check if agent user exists
       ansible.builtin.getent:
@@ -72,7 +88,8 @@
 
     # Render ~/.hermes/config.yaml (model.provider, model.default,
     # model.base_url). Hermes deep-merges with DEFAULT_CONFIG so omitted
-    # top-level keys keep their hermes defaults.
+    # top-level keys keep their hermes defaults. no_log because mcp_servers
+    # entries now contain the Atlassian API token verbatim.
     - name: Render ~/.hermes/config.yaml from template
       ansible.builtin.template:
         src: "{{ template_path }}/config.yaml.j2"
@@ -81,6 +98,7 @@
         group: "{{ agent_name }}"
         mode: "0600"
         force: yes
+      no_log: true
       notify: Restart hermes service
 
     # Per-provider credential verification — uses `grep -q` so we get a clean
@@ -182,6 +200,57 @@
         - config.channels is defined
         - config.channels.discord is defined
         - config.channels.discord.enabled | default(false)
+
+    # MCP toolchain bootstrap — only runs when an atlassian integration is
+    # assigned, so non-MCP agents pay zero overhead.
+    #
+    # Why pip instead of astral.sh's install.sh:
+    # `pip install` verifies the downloaded wheel against PyPI's published
+    # hashes — no separate `get_url` + `checksum:` ceremony required, no
+    # post-install cleanup of an installer script, and no curl|sh execution
+    # of remote code. Pinned version keeps the toolchain reproducible.
+    - name: Install pinned uv for agent user (via pip)
+      ansible.builtin.pip:
+        name: "uv=={{ uv_version }}"
+        extra_args: "--user"
+      become: true
+      become_user: "{{ agent_name }}"
+      when:
+        - atlassian_integration_assigned | bool
+
+    - name: Assert uv binary is present
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/.local/bin/uv"
+      register: uv_binary_stat
+      when:
+        - atlassian_integration_assigned | bool
+
+    - name: Fail with clear message if uv install did not land the binary
+      ansible.builtin.fail:
+        msg: >-
+          uv installation failed for agent '{{ agent_name }}': expected
+          /home/{{ agent_name }}/.local/bin/uv to exist after `pip install
+          --user uv=={{ uv_version }}`. Verify outbound access to PyPI from
+          the agent host and re-run `clm agent configure {{ agent_name }}`.
+      when:
+        - atlassian_integration_assigned | bool
+        - not (uv_binary_stat.stat.exists | default(false))
+
+    # Install MCP server packages for assigned integrations. `uv tool install
+    # --force` is idempotent when the version matches and surfaces actual
+    # upgrades when the pin moves — preferable to a `creates:` guard pointing
+    # at a non-version-stamped venv path (which would silently skip the task
+    # on version bumps).
+    - name: Pre-install mcp-atlassian (pinned, force-idempotent)
+      ansible.builtin.command:
+        cmd: "/home/{{ agent_name }}/.local/bin/uv tool install --force mcp-atlassian=={{ mcp_atlassian_version }}"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: mcp_atlassian_install
+      changed_when: "'Installed' in (mcp_atlassian_install.stdout | default(''))"
+      no_log: true
+      when:
+        - atlassian_integration_assigned | bool
 
     # Force the restart handler to fire NOW so probes below run against the
     # newly-rendered config.

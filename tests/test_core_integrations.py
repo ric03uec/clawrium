@@ -115,7 +115,7 @@ class TestIntegrationTypes:
 
     def test_integration_types_has_expected_types(self):
         """INTEGRATION_TYPES contains expected integration types."""
-        expected_types = {"github", "gitlab", "jira", "confluence", "linear", "notion"}
+        expected_types = {"github", "gitlab", "atlassian", "linear", "notion"}
         assert set(INTEGRATION_TYPES.keys()) == expected_types
 
     def test_each_type_has_description_and_credentials(self):
@@ -131,13 +131,13 @@ class TestIntegrationTypes:
         keys = [c["key"] for c in github["credentials"]]
         assert "GITHUB_TOKEN" in keys
 
-    def test_jira_has_required_credentials(self):
-        """Jira integration requires URL, email, and token."""
-        jira = INTEGRATION_TYPES["jira"]
-        keys = [c["key"] for c in jira["credentials"]]
-        assert "JIRA_URL" in keys
-        assert "JIRA_EMAIL" in keys
-        assert "JIRA_API_TOKEN" in keys
+    def test_atlassian_has_required_credentials(self):
+        """Atlassian integration requires URL, email, and token."""
+        atlassian = INTEGRATION_TYPES["atlassian"]
+        keys = [c["key"] for c in atlassian["credentials"]]
+        assert "ATLASSIAN_URL" in keys
+        assert "ATLASSIAN_EMAIL" in keys
+        assert "ATLASSIAN_API_TOKEN" in keys
 
 
 class TestIntegrationInstanceKey:
@@ -168,7 +168,7 @@ class TestLoadIntegrations:
         """Loads integrations from valid JSON file."""
         integrations = [
             {"name": "work-github", "type": "github"},
-            {"name": "company-jira", "type": "jira"},
+            {"name": "company-atlassian", "type": "atlassian"},
         ]
         integrations_file = tmp_path / INTEGRATIONS_FILE
         integrations_file.write_text(json.dumps(integrations))
@@ -177,7 +177,7 @@ class TestLoadIntegrations:
             result = load_integrations()
             assert len(result) == 2
             assert result[0]["name"] == "work-github"
-            assert result[1]["type"] == "jira"
+            assert result[1]["type"] == "atlassian"
 
     def test_raises_on_invalid_json(self, tmp_path):
         """Raises IntegrationsFileCorruptedError on invalid JSON."""
@@ -249,16 +249,16 @@ class TestGetIntegration:
         """Returns integration dict when name matches."""
         integrations = [
             {"name": "work-github", "type": "github"},
-            {"name": "company-jira", "type": "jira"},
+            {"name": "company-atlassian", "type": "atlassian"},
         ]
         integrations_file = tmp_path / INTEGRATIONS_FILE
         integrations_file.write_text(json.dumps(integrations))
 
         with patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path):
-            result = get_integration("company-jira")
+            result = get_integration("company-atlassian")
             assert result is not None
-            assert result["name"] == "company-jira"
-            assert result["type"] == "jira"
+            assert result["name"] == "company-atlassian"
+            assert result["type"] == "atlassian"
 
     def test_returns_none_when_not_found(self, tmp_path):
         """Returns None when integration name not found."""
@@ -277,7 +277,7 @@ class TestRemoveIntegration:
         """Removes integration and returns True."""
         integrations = [
             {"name": "work-github", "type": "github"},
-            {"name": "company-jira", "type": "jira"},
+            {"name": "company-atlassian", "type": "atlassian"},
         ]
         integrations_file = tmp_path / INTEGRATIONS_FILE
         integrations_file.write_text(json.dumps(integrations))
@@ -294,7 +294,7 @@ class TestRemoveIntegration:
             assert result is True
             remaining = load_integrations()
             assert len(remaining) == 1
-            assert remaining[0]["name"] == "company-jira"
+            assert remaining[0]["name"] == "company-atlassian"
 
     def test_returns_false_when_not_found(self, tmp_path):
         """Returns False when integration not found."""

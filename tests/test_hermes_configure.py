@@ -2340,3 +2340,225 @@ class TestHermesSlackSecretsHygiene:
         assert "app_token" not in persisted_slack, (
             f"Strip layer failed to catch injected app_token: {persisted_slack}"
         )
+
+
+# ---------------------------------------------------------------------------
+# config.yaml.j2 rendering — MCP servers from integrations
+# ---------------------------------------------------------------------------
+
+
+def _render_config_yaml_with_integrations(
+    config: dict,
+    integrations: dict,
+    agent_name: str = "h",
+    mcp_atlassian_version: str = "0.21.1",
+) -> str:
+    env = Environment(
+        loader=FileSystemLoader(str(HERMES_TEMPLATES)),
+        keep_trailing_newline=True,
+    )
+    template = env.get_template("config.yaml.j2")
+    return template.render(
+        config=config,
+        integrations=integrations,
+        agent_name=agent_name,
+        mcp_atlassian_version=mcp_atlassian_version,
+    )
+
+
+class TestConfigYamlMCPServers:
+    """Verify MCP server blocks render correctly from integrations."""
+
+    def _base_config(self) -> dict:
+        return {
+            "provider": {"type": "bedrock", "default_model": "anthropic.claude-sonnet-4-20250514-v1:0", "region": "us-east-1"},
+        }
+
+    def test_no_mcp_servers_when_no_integrations(self):
+        """config.yaml has no mcp_servers key when integrations is empty."""
+        rendered = _render_config_yaml_with_integrations(self._base_config(), {})
+        assert "mcp_servers" not in rendered
+
+    def test_no_mcp_servers_when_integrations_undefined(self):
+        """config.yaml has no mcp_servers key when integrations is not passed."""
+        rendered = _render_config_yaml(self._base_config())
+        assert "mcp_servers" not in rendered
+
+    def test_no_mcp_servers_for_non_atlassian_integrations(self):
+        """Non-atlassian integrations don't produce mcp_servers."""
+        integrations = {
+            "work-github": {
+                "type": "github",
+                "GITHUB_TOKEN": "ghp_test123",
+            }
+        }
+        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        assert "mcp_servers" not in rendered
+
+    def test_atlassian_integration_renders_mcp_server(self):
+        """Atlassian integration renders mcp-atlassian server config."""
+        integrations = {
+            "work-atlassian": {
+                "type": "atlassian",
+                "ATLASSIAN_URL": "https://company.atlassian.net",
+                "ATLASSIAN_EMAIL": "dev@company.com",
+                "ATLASSIAN_API_TOKEN": "secret_token_123",
+            }
+        }
+        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        parsed = yaml.safe_load(rendered)
+
+        assert "mcp_servers" in parsed
+        # Server name: hyphens replaced with underscores
+        assert "work_atlassian" in parsed["mcp_servers"]
+        server = parsed["mcp_servers"]["work_atlassian"]
+        assert server["command"] == "/home/h/.local/bin/uvx"
+        # args pin the runtime mcp-atlassian version via `--from` so a missing
+        # uv tool venv cannot silently resolve to latest.
+        assert server["args"] == ["--from", "mcp-atlassian==0.21.1", "mcp-atlassian"]
+        assert server["env"]["JIRA_URL"] == "https://company.atlassian.net"
+        assert server["env"]["JIRA_USERNAME"] == "dev@company.com"
+        assert server["env"]["JIRA_API_TOKEN"] == "secret_token_123"
+        assert server["env"]["CONFLUENCE_URL"] == "https://company.atlassian.net/wiki"
+        assert server["env"]["CONFLUENCE_USERNAME"] == "dev@company.com"
+        assert server["env"]["CONFLUENCE_API_TOKEN"] == "secret_token_123"
+
+    def test_atlassian_with_space_and_project_filters(self):
+        """Optional CONFLUENCE_SPACES_FILTER and JIRA_PROJECTS_FILTER render."""
+        integrations = {
+            "filtered-atlassian": {
+                "type": "atlassian",
+                "ATLASSIAN_URL": "https://co.atlassian.net",
+                "ATLASSIAN_EMAIL": "user@co.com",
+                "ATLASSIAN_API_TOKEN": "token",
+                "CONFLUENCE_SPACES_FILTER": "ENG,PROD",
+                "JIRA_PROJECTS_FILTER": "PROJ,OPS",
+            }
+        }
+        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        parsed = yaml.safe_load(rendered)
+
+        server = parsed["mcp_servers"]["filtered_atlassian"]
+        assert server["env"]["CONFLUENCE_SPACES_FILTER"] == "ENG,PROD"
+        assert server["env"]["JIRA_PROJECTS_FILTER"] == "PROJ,OPS"
+
+    def test_atlassian_without_optional_filters_omits_them(self):
+        """When no filters are provided, those keys are absent from env."""
+        integrations = {
+            "plain-atlassian": {
+                "type": "atlassian",
+                "ATLASSIAN_URL": "https://co.atlassian.net",
+                "ATLASSIAN_EMAIL": "user@co.com",
+                "ATLASSIAN_API_TOKEN": "token",
+            }
+        }
+        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        parsed = yaml.safe_load(rendered)
+
+        server = parsed["mcp_servers"]["plain_atlassian"]
+        assert "CONFLUENCE_SPACES_FILTER" not in server["env"]
+        assert "JIRA_PROJECTS_FILTER" not in server["env"]
+
+    def test_multiple_atlassian_integrations_render_separate_servers(self):
+        """Multiple atlassian integrations each get their own server entry."""
+        integrations = {
+            "team-a": {
+                "type": "atlassian",
+                "ATLASSIAN_URL": "https://teama.atlassian.net",
+                "ATLASSIAN_EMAIL": "a@team.com",
+                "ATLASSIAN_API_TOKEN": "token_a",
+            },
+            "team-b": {
+                "type": "atlassian",
+                "ATLASSIAN_URL": "https://teamb.atlassian.net",
+                "ATLASSIAN_EMAIL": "b@team.com",
+                "ATLASSIAN_API_TOKEN": "token_b",
+            },
+        }
+        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        parsed = yaml.safe_load(rendered)
+
+        assert "team_a" in parsed["mcp_servers"]
+        assert "team_b" in parsed["mcp_servers"]
+        assert parsed["mcp_servers"]["team_a"]["env"]["JIRA_URL"] == "https://teama.atlassian.net"
+        assert parsed["mcp_servers"]["team_b"]["env"]["JIRA_URL"] == "https://teamb.atlassian.net"
+
+    def test_mixed_integrations_only_atlassian_renders_mcp(self):
+        """Only atlassian types produce mcp_servers entries; others ignored."""
+        integrations = {
+            "my-github": {
+                "type": "github",
+                "GITHUB_TOKEN": "ghp_xxx",
+            },
+            "my-atlassian": {
+                "type": "atlassian",
+                "ATLASSIAN_URL": "https://co.atlassian.net",
+                "ATLASSIAN_EMAIL": "u@co.com",
+                "ATLASSIAN_API_TOKEN": "tok",
+            },
+        }
+        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        parsed = yaml.safe_load(rendered)
+
+        assert "mcp_servers" in parsed
+        assert len(parsed["mcp_servers"]) == 1
+        assert "my_atlassian" in parsed["mcp_servers"]
+
+    def test_trailing_slash_url_does_not_produce_double_slash(self):
+        """ATLASSIAN_URL with trailing slash collapses to a single slash before /wiki."""
+        integrations = {
+            "trailing-slash": {
+                "type": "atlassian",
+                "ATLASSIAN_URL": "https://co.atlassian.net/",
+                "ATLASSIAN_EMAIL": "u@co.com",
+                "ATLASSIAN_API_TOKEN": "tok",
+            }
+        }
+        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        parsed = yaml.safe_load(rendered)
+
+        server = parsed["mcp_servers"]["trailing_slash"]
+        assert server["env"]["JIRA_URL"] == "https://co.atlassian.net"
+        assert server["env"]["CONFLUENCE_URL"] == "https://co.atlassian.net/wiki"
+
+    def test_token_with_special_chars_does_not_break_yaml(self):
+        """A token containing characters that could break out of a YAML scalar is neutralized.
+
+        Single-quoted YAML scalars fold newlines into spaces, so we check the
+        token does NOT inject top-level keys rather than asserting byte
+        equality (folding is a property of YAML, not an injection)."""
+        nasty_token = "abc'def\"\nrogue: true\nadmin: yes\n: sneaky"
+        integrations = {
+            "nasty": {
+                "type": "atlassian",
+                "ATLASSIAN_URL": "https://co.atlassian.net",
+                "ATLASSIAN_EMAIL": "u@co.com",
+                "ATLASSIAN_API_TOKEN": nasty_token,
+            }
+        }
+        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        parsed = yaml.safe_load(rendered)
+
+        env = parsed["mcp_servers"]["nasty"]["env"]
+        # Both JIRA_API_TOKEN and CONFLUENCE_API_TOKEN render via the same
+        # yaml_quote macro — assert symmetrically so a macro removal on either
+        # line is caught.
+        for token_key in ("JIRA_API_TOKEN", "CONFLUENCE_API_TOKEN"):
+            assert isinstance(env[token_key], str), token_key
+            assert "abc'def" in env[token_key], token_key
+            # Injection text stays inside the scalar; it does NOT escape.
+            assert "rogue" in env[token_key], token_key
+
+        # No injected top-level keys.
+        assert "rogue" not in parsed
+        assert "admin" not in parsed
+        # No injected sibling keys inside the env dict either.
+        assert set(env.keys()) <= {
+            "JIRA_URL",
+            "JIRA_USERNAME",
+            "JIRA_API_TOKEN",
+            "CONFLUENCE_URL",
+            "CONFLUENCE_USERNAME",
+            "CONFLUENCE_API_TOKEN",
+        }
+

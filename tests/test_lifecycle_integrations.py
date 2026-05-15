@@ -18,7 +18,7 @@ class TestConfigureAgentIntegrationLoading:
                 "test-agent": {
                     "type": "openclaw",
                     "status": "installed",
-                    "integrations": ["work-github", "company-jira"],
+                    "integrations": ["work-github", "company-atlassian"],
                 }
             },
         }
@@ -69,14 +69,14 @@ class TestConfigureAgentIntegrationLoading:
             (template_dir / "config.toml.j2").write_text("# config")
 
             mock_resolve.return_value = ("test-agent", "openclaw", mock_host["agents"]["test-agent"])
-            mock_get_integrations.return_value = ["work-github", "company-jira"]
+            mock_get_integrations.return_value = ["work-github", "company-atlassian"]
             mock_get_integration.side_effect = [
                 {"name": "work-github", "type": "github"},
-                {"name": "company-jira", "type": "jira"},
+                {"name": "company-atlassian", "type": "atlassian"},
             ]
             mock_get_credentials.side_effect = [
                 {"GITHUB_TOKEN": "ghp_test123"},
-                {"JIRA_URL": "https://jira.example.com", "JIRA_EMAIL": "test@example.com", "JIRA_API_TOKEN": "jira_token"},
+                {"ATLASSIAN_URL": "https://company.atlassian.net", "ATLASSIAN_EMAIL": "test@example.com", "ATLASSIAN_API_TOKEN": "atlassian_token"},
             ]
             mock_run.return_value = mock_ansible_success
 
@@ -241,3 +241,108 @@ class TestConfigureAgentIntegrationLoading:
 
             # Should continue without failing
             mock_run.assert_called_once()
+
+    def test_unknown_type_integration_emits_warning_and_is_excluded(
+        self, mock_host, mock_ansible_success, tmp_path
+    ):
+        """A stale `jira`-typed record fires the configure-stage warning and is
+        excluded from ansible extravars, rather than silently shipping a green
+        configure with the broken record loaded.
+        """
+        events: list[tuple[str, str]] = []
+
+        with patch(
+            "clawrium.core.lifecycle.get_host", return_value=mock_host
+        ), patch(
+            "clawrium.core.lifecycle._resolve_agent_record"
+        ) as mock_resolve, patch(
+            "clawrium.core.integrations.get_agent_integrations"
+        ) as mock_get_integrations, patch(
+            "clawrium.core.integrations.get_integration"
+        ) as mock_get_integration, patch(
+            "clawrium.core.integrations.get_integration_credentials"
+        ) as mock_get_credentials, patch(
+            "clawrium.core.lifecycle.ansible_runner.run"
+        ) as mock_run, patch(
+            "clawrium.core.lifecycle.update_host", return_value=True
+        ), patch(
+            "clawrium.core.lifecycle.get_host_private_key", return_value="ssh-key-content"
+        ), patch(
+            "clawrium.core.lifecycle._get_lifecycle_playbook_path"
+        ) as mock_playbook_path, patch(
+            "clawrium.core.lifecycle._resolve_agent_type", return_value="openclaw"
+        ), patch(
+            "clawrium.core.lifecycle.get_instance_secrets", return_value={}
+        ), patch(
+            "clawrium.core.lifecycle._cleanup_ansible_artifacts"
+        ), patch(
+            "clawrium.core.lifecycle._get_logs_dir", return_value=tmp_path / "logs"
+        ):
+            playbook = tmp_path / "configure.yaml"
+            playbook.write_text("---\n- hosts: all\n")
+            mock_playbook_path.return_value = playbook
+
+            mock_resolve.return_value = (
+                "test-agent",
+                "openclaw",
+                mock_host["agents"]["test-agent"],
+            )
+            mock_get_integrations.return_value = ["old-jira", "work-github"]
+            mock_get_integration.side_effect = [
+                {"name": "old-jira", "type": "jira"},
+                {"name": "work-github", "type": "github"},
+            ]
+            # Keyed-by-name side_effect: robust to ordering. If the guard
+            # regresses and credentials are fetched for the stale record, the
+            # `call_count` assertion below produces a clean failure rather
+            # than a StopIteration traceback.
+            def _credentials_by_name(name: str) -> dict:
+                return {
+                    "old-jira": {"JIRA_API_TOKEN": "would-be-leaked"},
+                    "work-github": {"GITHUB_TOKEN": "ghp_test"},
+                }.get(name, {})
+
+            mock_get_credentials.side_effect = _credentials_by_name
+            mock_run.return_value = mock_ansible_success
+
+            from clawrium.core.lifecycle import configure_agent
+
+            with patch("clawrium.core.lifecycle.Path") as mock_path_cls:
+                mock_template_path = MagicMock()
+                mock_template_path.exists.return_value = True
+                mock_path_cls.return_value.parent.parent.__truediv__.return_value.__truediv__.return_value.__truediv__.return_value.__truediv__.return_value = mock_template_path
+
+                result, _ = configure_agent(
+                    "test-host",
+                    "test-agent",
+                    {},
+                    on_event=lambda stage, msg: events.append((stage, msg)),
+                )
+
+            assert result is True
+            # Warning fired on the configure stage for the stale record.
+            unknown_events = [(s, m) for s, m in events if "unknown type" in m.lower()]
+            assert unknown_events, f"WARNING never emitted; events={events!r}"
+            assert all(s == "configure" for s, _ in unknown_events), (
+                f"WARNING fired on wrong stage; events={unknown_events!r}"
+            )
+            warning_messages = [m for _, m in unknown_events]
+            assert any("old-jira" in m for m in warning_messages)
+            assert any("jira" in m for m in warning_messages)
+            # Valid-types hint included for actionability.
+            assert any("Valid types" in m for m in warning_messages)
+
+            # Credentials were NOT requested for the stale record (continue
+            # fires before credential load). Only the github load remains.
+            assert mock_get_credentials.call_count == 1
+
+            # Stale record is excluded from the ansible vars; the valid one
+            # passes through. Vars travel inside inventory[all][vars].
+            inventory = mock_run.call_args.kwargs["inventory"]
+            ansible_vars = inventory["all"]["vars"]
+            integrations_var = ansible_vars.get("integrations", {})
+            assert "old-jira" not in integrations_var
+            assert "work-github" in integrations_var
+            assert integrations_var["work-github"]["type"] == "github"
+            # Credential payload reaches inventory, not just the record shape.
+            assert integrations_var["work-github"]["GITHUB_TOKEN"] == "ghp_test"

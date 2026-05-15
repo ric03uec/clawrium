@@ -714,6 +714,7 @@ def configure_agent(
     """
     from clawrium.core.providers import get_provider_api_key, get_provider_aws_credentials
     from clawrium.core.integrations import (
+        INTEGRATION_TYPES,
         get_agent_integrations,
         get_integration,
         get_integration_credentials,
@@ -1017,6 +1018,23 @@ def configure_agent(
             )
             continue
         integration_type = integration.get("type", "")
+        # Surface unknown types (e.g., a stale `jira`/`confluence` record from
+        # before this PR, or a missing/empty `type` from a hand-edited file)
+        # so the user knows MCP wiring will be a no-op rather than silently
+        # shipping a green configure with no Atlassian access. Empty string is
+        # not a key in INTEGRATION_TYPES, so the same branch catches both.
+        if integration_type not in INTEGRATION_TYPES:
+            valid = ", ".join(sorted(INTEGRATION_TYPES.keys()))
+            warning_msg = (
+                f"WARNING: integration '{integration_name}' has unknown type "
+                f"'{integration_type}' — skipping. Valid types: {valid}. "
+                f"Run `clm integration remove {integration_name}` and "
+                f"`clm integration add {integration_name} --type <valid-type>` "
+                "to recover."
+            )
+            emit("configure", warning_msg)
+            logger.warning(warning_msg)
+            continue
         credentials = get_integration_credentials(integration_name)
         if credentials:
             # Store by integration_name with type and credentials

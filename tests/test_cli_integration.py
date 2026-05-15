@@ -21,8 +21,7 @@ class TestIntegrationTypes:
         assert result.exit_code == 0
         assert "github" in result.output
         assert "gitlab" in result.output
-        assert "jira" in result.output
-        assert "confluence" in result.output
+        assert "atlassian" in result.output
         assert "linear" in result.output
         assert "notion" in result.output
 
@@ -42,7 +41,7 @@ class TestIntegrationList:
         isolated_config.mkdir(parents=True, exist_ok=True)
         integrations = [
             {"name": "work-github", "type": "github", "created_at": "2026-04-15T10:00:00Z"},
-            {"name": "company-jira", "type": "jira", "created_at": "2026-04-15T11:00:00Z"},
+            {"name": "company-atlassian", "type": "atlassian", "created_at": "2026-04-15T11:00:00Z"},
         ]
         (isolated_config / INTEGRATIONS_FILE).write_text(json.dumps(integrations))
 
@@ -50,9 +49,9 @@ class TestIntegrationList:
 
         assert result.exit_code == 0
         assert "work-github" in result.output
-        assert "company-jira" in result.output
+        assert "company-atlassian" in result.output
         assert "github" in result.output
-        assert "jira" in result.output
+        assert "atlassian" in result.output
 
 
 class TestIntegrationAdd:
@@ -314,3 +313,69 @@ class TestIntegrationCredentials:
         assert "GITHUB_TOKEN" in result.output
         # Token should be masked
         assert "ghp_test123" not in result.output
+
+
+class TestIntegrationStaleType:
+    """Tests for CLI behavior on integration records with an unknown type.
+
+    A stale `jira`/`confluence` record (or any manual edit pointing at a type
+    not in INTEGRATION_TYPES) must NOT raise an unhandled exception, must
+    surface a remediation message, and — for non-display commands — must exit
+    non-zero so script chains don't silently proceed.
+    """
+
+    def _seed_stale_jira(self, isolated_config):
+        # Deliberately pick a name that does NOT contain 'jira' so that an
+        # assertion like `'jira' in result.output` proves the *type* was
+        # rendered, not just the name.
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        (isolated_config / INTEGRATIONS_FILE).write_text(
+            json.dumps([{"name": "stale-ticket", "type": "jira"}])
+        )
+
+    def test_show_with_unknown_type_exits_nonzero_with_remediation(self, isolated_config):
+        self._seed_stale_jira(isolated_config)
+        result = runner.invoke(app, ["integration", "show", "stale-ticket"])
+
+        assert result.exit_code == 1
+        assert result.exception is None or isinstance(
+            result.exception, SystemExit
+        ), f"Unexpected exception: {result.exception!r}"
+        assert "not a known type" in result.output.lower()
+        assert "Error:" in result.output
+        # Remediation must interpolate the actual integration name, not <name>.
+        assert "stale-ticket" in result.output
+        assert "<name>" not in result.output
+
+    def test_credentials_read_with_unknown_type_exits_nonzero(self, isolated_config):
+        self._seed_stale_jira(isolated_config)
+        result = runner.invoke(app, ["integration", "credentials", "stale-ticket"])
+
+        assert result.exit_code == 1
+        assert "not a known type" in result.output.lower()
+        assert "Error:" in result.output
+        assert "stale-ticket" in result.output
+        assert "<name>" not in result.output
+
+    def test_credentials_update_with_unknown_type_exits_nonzero(self, isolated_config):
+        self._seed_stale_jira(isolated_config)
+        result = runner.invoke(
+            app, ["integration", "credentials", "stale-ticket", "--update"]
+        )
+
+        assert result.exit_code == 1
+        assert "not a known type" in result.output.lower()
+        assert "Error:" in result.output
+        assert "stale-ticket" in result.output
+        assert "<name>" not in result.output
+
+    def test_list_marks_unknown_type_with_indicator(self, isolated_config):
+        self._seed_stale_jira(isolated_config)
+        result = runner.invoke(app, ["integration", "list"])
+
+        assert result.exit_code == 0
+        # Both halves of the rendered cell must survive: the stale type name
+        # and the "(unknown)" suffix.
+        assert "(unknown)" in result.output
+        assert "jira" in result.output
+        assert "stale-ticket" in result.output

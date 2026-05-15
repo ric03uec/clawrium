@@ -31,9 +31,28 @@ console = Console()
 
 integration_app = typer.Typer(
     name="integration",
-    help="Manage external service integrations (GitHub, Jira, etc.)",
+    help="Manage external service integrations (GitHub, Atlassian, etc.)",
     no_args_is_help=True,
 )
+
+
+def _supported_types_help() -> str:
+    return "Integration type (" + ", ".join(sorted(INTEGRATION_TYPES.keys())) + ")"
+
+
+def _unknown_type_remediation(integration_type: str, name: str) -> str:
+    # rich_escape both fields because integration_type comes from
+    # integrations.json (potentially hand-edited) and could contain Rich
+    # markup tokens like `[bold]`. name is regex-validated at add-time, but
+    # escaping it costs nothing.
+    safe_type = rich_escape(integration_type)
+    safe_name = rich_escape(name)
+    return (
+        f"Integration type '{safe_type}' is not a known type "
+        f"({', '.join(sorted(INTEGRATION_TYPES.keys()))}). "
+        f"Run `clm integration remove {safe_name}` then "
+        f"`clm integration add {safe_name} --type <valid-type>` to recover."
+    )
 
 
 def _mask_credential(value: str | None) -> str:
@@ -109,9 +128,16 @@ def list_integrations() -> None:
         else:
             cred_display = "none"
 
+        # Surface unknown types (manual edits, removed types) at-a-glance so a
+        # fleet audit catches them before configure runs.
+        if integration_type not in INTEGRATION_TYPES:
+            type_cell = f"[yellow]{rich_escape(integration_type)} (unknown)[/yellow]"
+        else:
+            type_cell = rich_escape(integration_type)
+
         table.add_row(
             rich_escape(integration_name),
-            rich_escape(integration_type),
+            type_cell,
             cred_display,
             added,
         )
@@ -126,7 +152,7 @@ def add(
         ...,
         "--type",
         "-t",
-        help="Integration type (github, gitlab, jira, confluence, linear, notion)",
+        help=_supported_types_help(),
     ),
 ) -> None:
     """Add a new external service integration.
@@ -135,7 +161,7 @@ def add(
 
     Examples:
         clm integration add my-github --type github
-        clm integration add work-jira --type jira
+        clm integration add work-atlassian --type atlassian
     """
     # Validate integration name
     try:
@@ -243,8 +269,15 @@ def show(
 
     integration_type = integration.get("type", "?")
 
+    # Match `list`'s yellow `(unknown)` indicator so a stale entry is
+    # spottable at-a-glance, not just at the error block below.
+    if integration_type not in INTEGRATION_TYPES:
+        type_display = f"[yellow]{rich_escape(integration_type)} (unknown)[/yellow]"
+    else:
+        type_display = rich_escape(integration_type)
+
     console.print(f"\n[bold]Integration: {rich_escape(name)}[/bold]\n")
-    console.print(f"  Type: {rich_escape(integration_type)}")
+    console.print(f"  Type: {type_display}")
     console.print(f"  Created: {integration.get('created_at', '-')}")
     console.print(f"  Updated: {integration.get('updated_at', '-')}")
 
@@ -257,8 +290,15 @@ def show(
     else:
         console.print("\n  [yellow]No credentials configured[/yellow]")
 
-    # Show required credentials for this type
-    credential_defs = get_credentials_for_type(integration_type)
+    # Show required credentials for this type. An unknown type (e.g., a
+    # manual edit to integrations.json) surfaces a clean remediation message
+    # and exits non-zero so scripts that `&&`-chain on `clm integration show`
+    # halt rather than silently proceeding.
+    try:
+        credential_defs = get_credentials_for_type(integration_type)
+    except InvalidIntegrationTypeError:
+        console.print(f"\n  [red]Error:[/red] {_unknown_type_remediation(integration_type, name)}")
+        raise typer.Exit(code=1)
     required_keys = {c["key"] for c in credential_defs if c.get("required", False)}
     missing_keys = required_keys - set(credentials.keys())
 
@@ -280,7 +320,7 @@ def remove(
     unless --force is used.
 
     Examples:
-        clm integration remove old-jira
+        clm integration remove old-atlassian
         clm integration remove my-github --force
     """
     # Check integration exists
@@ -363,8 +403,12 @@ def credentials(
         else:
             console.print("  No credentials configured")
 
-        # Show what's required
-        credential_defs = get_credentials_for_type(integration_type)
+        # Show what's required. Unknown type → exit 1 so scripts notice.
+        try:
+            credential_defs = get_credentials_for_type(integration_type)
+        except InvalidIntegrationTypeError:
+            console.print(f"\n  [red]Error:[/red] {_unknown_type_remediation(integration_type, name)}")
+            raise typer.Exit(code=1)
         required_keys = {c["key"] for c in credential_defs if c.get("required", False)}
         missing = required_keys - set(credentials_dict.keys())
         if missing:
@@ -373,7 +417,11 @@ def credentials(
         return
 
     # Update mode - prompt for all credentials
-    credential_defs = get_credentials_for_type(integration_type)
+    try:
+        credential_defs = get_credentials_for_type(integration_type)
+    except InvalidIntegrationTypeError:
+        console.print(f"\n  [red]Error:[/red] {_unknown_type_remediation(integration_type, name)}")
+        raise typer.Exit(code=1)
     credentials_to_store: list[tuple[str, str, str]] = []
 
     console.print(f"\n[bold]Update credentials for {rich_escape(name)}:[/bold]\n")

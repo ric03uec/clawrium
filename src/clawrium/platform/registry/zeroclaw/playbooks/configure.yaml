@@ -29,6 +29,10 @@
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
+      # The rendered config.toml embeds integration secrets (github_token,
+      # jira_api_token, confluence_api_token, etc.); suppress Ansible's default
+      # diff/callback so the rendered file body does not surface in logs.
+      no_log: true
       notify: Restart zeroclaw service
 
     - name: Ensure service is enabled

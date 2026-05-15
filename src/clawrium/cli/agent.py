@@ -116,6 +116,19 @@ def ps(
     status_command(host=host)
 
 
+def _print_configure_warnings(_stage: str, message: str) -> None:
+    """on_event callback for configure_agent that surfaces WARNING-prefixed
+    messages to the terminal so silent lifecycle gaps (e.g. an integration
+    with an unknown type) become visible during `clm agent configure`."""
+    if message.startswith("WARNING:"):
+        # Escape `message` before embedding in a Rich markup span — the
+        # lifecycle warning interpolates `integration_type` from
+        # integrations.json, which may be hand-edited and contain Rich
+        # tokens like `[bold]`. Without escape Rich would either garble the
+        # output or raise MarkupError mid-configure.
+        console.print(f"  [yellow]{rich_escape(message)}[/yellow]")
+
+
 def _validate_name_component(name: str, component_type: str) -> None:
     """Validate a name component against safe character set.
 
@@ -339,12 +352,15 @@ def _sync_provider_config(
     if "api_server" in existing_config:
         config_data["api_server"] = existing_config["api_server"]
 
-    # Call configure_agent to apply configuration via Ansible
+    # Call configure_agent to apply configuration via Ansible. The on_event
+    # callback surfaces lifecycle WARNINGs (e.g. an integration with an unknown
+    # type) so they don't get swallowed into logger.info.
     success, error = configure_agent(
         host,
         claw_type,
         config_data,
         agent_name=installed_name,
+        on_event=_print_configure_warnings,
     )
 
     if not success:
@@ -615,6 +631,7 @@ def _run_identity_stage(
             existing_config,
             agent_name=agent_name,
             extra_vars={"identity_files": identity_vars},
+            on_event=_print_configure_warnings,
         )
         if success:
             console.print("[green]✓[/green]")
@@ -697,6 +714,7 @@ def _sync_channel_config(
         claw_type,
         existing_config,
         agent_name=installed_name,
+        on_event=_print_configure_warnings,
     )
 
     if not success:
@@ -1558,6 +1576,7 @@ def _run_edit_config(
             claw_type,
             edited_config,
             agent_name=installed_name,
+            on_event=_print_configure_warnings,
         )
 
         if not success:
@@ -2629,7 +2648,7 @@ def integrations_add(
 
     Examples:
         clm agent integration add my-agent work-github
-        clm agent integration add my-agent company-jira
+        clm agent integration add my-agent work-atlassian
     """
     from clawrium.core.integrations import (
         add_agent_integration,

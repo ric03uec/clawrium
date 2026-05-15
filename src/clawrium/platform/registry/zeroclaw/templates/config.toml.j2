@@ -37,26 +37,22 @@ gitlab_token = "{{ integration.GITLAB_TOKEN | replace('\\', '\\\\') | replace('"
 gitlab_url = "{{ integration.GITLAB_URL }}"
 {% endif %}
 {% endif %}
-{% if integration.type == 'jira' %}
-{% if integration.JIRA_URL is defined %}
-jira_url = "{{ integration.JIRA_URL }}"
+{% if integration.type == 'atlassian' %}
+{# Unified Atlassian credentials drive both jira_* and confluence_* TOML keys.
+   CONFLUENCE_URL is derived as ATLASSIAN_URL + '/wiki' (Cloud convention only;
+   Data Center / Server use a different URL layout, out of scope). #}
+{% if integration.ATLASSIAN_URL is defined %}
+{% set atlassian_url = integration.ATLASSIAN_URL.rstrip('/') %}
+jira_url = "{{ atlassian_url }}"
+confluence_url = "{{ atlassian_url }}/wiki"
 {% endif %}
-{% if integration.JIRA_EMAIL is defined %}
-jira_email = "{{ integration.JIRA_EMAIL }}"
+{% if integration.ATLASSIAN_EMAIL is defined %}
+jira_email = "{{ integration.ATLASSIAN_EMAIL }}"
+confluence_email = "{{ integration.ATLASSIAN_EMAIL }}"
 {% endif %}
-{% if integration.JIRA_API_TOKEN is defined %}
-jira_api_token = "{{ integration.JIRA_API_TOKEN | replace('\\', '\\\\') | replace('"', '\\"') }}"
-{% endif %}
-{% endif %}
-{% if integration.type == 'confluence' %}
-{% if integration.CONFLUENCE_URL is defined %}
-confluence_url = "{{ integration.CONFLUENCE_URL }}"
-{% endif %}
-{% if integration.CONFLUENCE_EMAIL is defined %}
-confluence_email = "{{ integration.CONFLUENCE_EMAIL }}"
-{% endif %}
-{% if integration.CONFLUENCE_API_TOKEN is defined %}
-confluence_api_token = "{{ integration.CONFLUENCE_API_TOKEN | replace('\\', '\\\\') | replace('"', '\\"') }}"
+{% if integration.ATLASSIAN_API_TOKEN is defined %}
+jira_api_token = "{{ integration.ATLASSIAN_API_TOKEN | replace('\\', '\\\\') | replace('"', '\\"') }}"
+confluence_api_token = "{{ integration.ATLASSIAN_API_TOKEN | replace('\\', '\\\\') | replace('"', '\\"') }}"
 {% endif %}
 {% endif %}
 {% if integration.type == 'linear' and integration.LINEAR_API_KEY is defined %}

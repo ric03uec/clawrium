@@ -1,7 +1,8 @@
 """Integration storage operations for Clawrium.
 
 Integrations are external services that agents can connect to for
-enhanced functionality (e.g., GitHub for code review, Jira for tickets).
+enhanced functionality (e.g., GitHub for code review, Atlassian (Jira +
+Confluence) for project tracking and docs).
 """
 
 import fcntl
@@ -74,43 +75,33 @@ INTEGRATION_TYPES: dict[str, dict] = {
             },
         ],
     },
-    "jira": {
-        "description": "Jira for issue tracking and project management",
+    "atlassian": {
+        "description": "Atlassian Cloud (Jira + Confluence) via API token",
         "credentials": [
             {
-                "key": "JIRA_URL",
-                "description": "Jira instance URL (e.g., https://company.atlassian.net)",
+                "key": "ATLASSIAN_URL",
+                "description": "Atlassian instance URL (e.g., https://company.atlassian.net)",
                 "required": True,
             },
             {
-                "key": "JIRA_EMAIL",
-                "description": "Email address for authentication",
+                "key": "ATLASSIAN_EMAIL",
+                "description": "Account email for authentication",
                 "required": True,
             },
             {
-                "key": "JIRA_API_TOKEN",
-                "description": "API token for authentication",
-                "required": True,
-            },
-        ],
-    },
-    "confluence": {
-        "description": "Confluence for documentation and knowledge base",
-        "credentials": [
-            {
-                "key": "CONFLUENCE_URL",
-                "description": "Confluence instance URL",
+                "key": "ATLASSIAN_API_TOKEN",
+                "description": "API token (create at https://id.atlassian.com/manage-profile/security/api-tokens)",
                 "required": True,
             },
             {
-                "key": "CONFLUENCE_EMAIL",
-                "description": "Email address for authentication",
-                "required": True,
+                "key": "CONFLUENCE_SPACES_FILTER",
+                "description": "Comma-separated Confluence space keys to filter (optional)",
+                "required": False,
             },
             {
-                "key": "CONFLUENCE_API_TOKEN",
-                "description": "API token for authentication",
-                "required": True,
+                "key": "JIRA_PROJECTS_FILTER",
+                "description": "Comma-separated Jira project keys to filter (optional)",
+                "required": False,
             },
         ],
     },
@@ -308,7 +299,6 @@ def load_integrations() -> list[dict]:
     try:
         with open(integrations_path) as f:
             data = json.load(f)
-            # Validate it's a list of dicts
             if not isinstance(data, list):
                 raise IntegrationsFileCorruptedError(
                     f"integrations.json is not a list: {integrations_path}"

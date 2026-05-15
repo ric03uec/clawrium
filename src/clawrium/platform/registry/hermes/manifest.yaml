@@ -28,6 +28,10 @@ secrets:
       description: "Anthropic API key"
     - key: OPENAI_API_KEY
       description: "OpenAI API key"
+    # Atlassian credentials are NOT listed here: they live in the per-integration
+    # credential store (managed via `clm integration credentials`) and a single
+    # hermes agent may have multiple atlassian integrations (team-a, team-b)
+    # with distinct tokens — a single manifest key would be ambiguous.
 
 # Onboarding workflow configuration.
 #
@@ -136,6 +140,7 @@ platforms:
         python: ">=3.11"
         ripgrep: "*"
         ffmpeg: "*"
+        uv: "*"
   - version: "2026.5.7"
     os: ubuntu
     os_version: "22.04"
@@ -148,3 +153,4 @@ platforms:
         python: ">=3.11"
         ripgrep: "*"
         ffmpeg: "*"
+        uv: "*"
