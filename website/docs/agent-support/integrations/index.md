@@ -4,14 +4,13 @@ Integrations allow agents to interact with external tools and services, extendin
 
 ## Available Integrations
 
-| Integration | Agents | Use Case |
-|-------------|--------|----------|
-| **[GitHub](github.md)** | OpenClaw (planned) | PR reviews, issues |
-| **[Jira](jira.md)** | OpenClaw (planned) | Issue tracking |
-| **[GitLab](gitlab.md)** | Not planned | Alternative to GitHub |
-| **[Confluence](confluence.md)** | Not planned | Documentation |
-| **[Linear](linear.md)** | Not planned | Issue tracking |
-| **[Notion](notion.md)** | Not planned | Knowledge base |
+| Integration | Status | Agents | Use Case |
+|-------------|:------:|--------|----------|
+| **[Atlassian (Jira + Confluence)](atlassian.md)** | ✅ | Hermes (MCP), OpenClaw, ZeroClaw | Issue tracking, docs / knowledge base |
+| **[GitHub](github.md)** | 🚧 | OpenClaw (planned) | PR reviews, issues |
+| **[GitLab](gitlab.md)** | 📋 | Not planned | Alternative to GitHub |
+| **[Linear](linear.md)** | 📋 | Not planned | Issue tracking |
+| **[Notion](notion.md)** | 📋 | Not planned | Knowledge base |
 
 ## Integration vs Provider vs Channel
 

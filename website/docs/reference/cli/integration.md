@@ -1,12 +1,12 @@
 # Integration Commands
 
-Manage external service integrations (GitHub, Jira, etc.) for agents.
+Manage external service integrations (GitHub, Atlassian, etc.) for agents.
 
 ```bash
 clm integration <command> [options]
 ```
 
-Integrations connect your agents to external services like GitHub, Jira, and Confluence. Credentials are stored securely in `~/.config/clawrium/secrets.yml`.
+Integrations connect your agents to external services like GitHub and Atlassian (Jira + Confluence). Credentials are stored securely in `~/.config/clawrium/secrets.json` keyed by integration name, isolated from per-agent and provider secrets.
 
 ## Commands
 
@@ -35,12 +35,16 @@ clm integration types
 $ clm integration types
 Supported integration types:
 
-  github      - GitHub repositories, issues, and PRs
-  gitlab      - GitLab repositories and merge requests
-  jira        - Jira issues and projects
-  confluence  - Confluence pages and spaces
-  linear      - Linear issues and projects
-  notion      - Notion pages and databases
+  atlassian   - Atlassian Cloud (Jira + Confluence) via API token
+    Required credentials: 3
+  github      - GitHub for code hosting, PRs, and issues
+    Required credentials: 1
+  gitlab      - GitLab for code hosting, MRs, and issues
+    Required credentials: 1
+  linear      - Linear for issue tracking and project management
+    Required credentials: 1
+  notion      - Notion for documentation and workspace management
+    Required credentials: 1
 ```
 
 ### Exit Codes
@@ -63,14 +67,16 @@ clm integration list
 
 ```bash
 $ clm integration list
-                    Configured Integrations
-┏━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
-┃ Name         ┃ Type     ┃ Credential          ┃ Added      ┃
-┡━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
-│ my-github    │ github   │ ghp_...abc          │ 2026-04-01 │
-│ work-jira    │ jira     │ https://...         │ 2026-04-02 │
-└──────────────┴──────────┴─────────────────────┴────────────┘
+                       Configured Integrations
+┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Name              ┃ Type       ┃ Credentials    ┃ Added      ┃
+┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ my-github         │ github     │ 1 configured   │ 2026-04-01 │
+│ work-atlassian    │ atlassian  │ 3 configured   │ 2026-05-14 │
+└───────────────────┴────────────┴────────────────┴────────────┘
 ```
+
+Stale records (e.g. a `jira` or `confluence` row left over from a previous release) are surfaced with a `(unknown)` indicator in the Type column so they're easy to spot during a fleet audit. See the [Atlassian integration migration notes](../../agent-support/integrations/atlassian.md#migrating-from-the-old-jira--confluence-types).
 
 No integrations configured:
 
@@ -108,7 +114,7 @@ Credentials are collected securely via interactive prompts.
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--type` | `-t` | Integration type (required): github, gitlab, jira, confluence, linear, notion |
+| `--type` | `-t` | Integration type (required): atlassian, github, gitlab, linear, notion |
 
 ### Examples
 
@@ -120,15 +126,20 @@ Enter GitHub personal access token: ********
 Integration 'my-github' added successfully!
 ```
 
-Add a Jira integration:
+Add an Atlassian integration (single record covers both Jira and Confluence):
 
 ```bash
-$ clm integration add work-jira --type jira
-Enter Jira instance URL: https://mycompany.atlassian.net
-Enter Jira email: user@company.com
-Enter Jira API token: ********
-Integration 'work-jira' added successfully!
+$ clm integration add work-atlassian --type atlassian
+Atlassian instance URL (e.g., https://company.atlassian.net): https://mycompany.atlassian.net
+Account email for authentication: user@company.com
+API token (create at https://id.atlassian.com/manage-profile/security/api-tokens): ********
+Comma-separated Confluence space keys to filter (optional):
+Comma-separated Jira project keys to filter (optional):
+
+Integration 'work-atlassian' added successfully!
 ```
+
+See [Atlassian integration](../../agent-support/integrations/atlassian.md) for the end-to-end flow (creating the API token, assigning the integration to an agent, and the MCP wiring on Hermes).
 
 ### Exit Codes
 

@@ -115,9 +115,8 @@ const sidebars: SidebarsConfig = {
       },
       items: [
         'agent-support/integrations/github',
-        'agent-support/integrations/jira',
+        'agent-support/integrations/atlassian',
         'agent-support/integrations/gitlab',
-        'agent-support/integrations/confluence',
         'agent-support/integrations/linear',
         'agent-support/integrations/notion',
       ],

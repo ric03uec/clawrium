@@ -78,9 +78,9 @@ If implemented, Linear integration could:
 
 ## Alternatives
 
-### Use Jira
+### Use Atlassian (Jira + Confluence)
 
-[Jira integration](jira.md) will be available Q2 2026 and serves similar needs.
+The [Atlassian integration](atlassian.md) is supported today and covers issue tracking on Jira plus knowledge-base access on Confluence with a single credential set.
 
 ### Use GitHub Issues
 

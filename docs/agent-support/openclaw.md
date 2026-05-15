@@ -67,10 +67,9 @@ Integrations allow the agent to interact with external tools and services:
 
 | Integration | Status | Configuration | Use Case |
 |-------------|:------:|---------------|----------|
+| **[Atlassian (Jira + Confluence)](integrations/atlassian.md)** | ✅ | Single API token covers both Jira and Confluence | Issue tracking, docs / knowledge base |
 | **[GitHub](integrations/github.md)** | 🚧 | [Milestone SEA](integrations/github.md) | PR reviews, issues |
-| **[Jira](integrations/jira.md)** | 🚧 | [Milestone SEA](integrations/jira.md) | Issue tracking |
 | **[GitLab](integrations/gitlab.md)** | 📋 | [Not Planned](integrations/gitlab.md) | PRs welcome |
-| **[Confluence](integrations/confluence.md)** | 📋 | [Not Planned](integrations/confluence.md) | PRs welcome |
 | **[Linear](integrations/linear.md)** | 📋 | [Not Planned](integrations/linear.md) | PRs welcome |
 | **[Notion](integrations/notion.md)** | 📋 | [Not Planned](integrations/notion.md) | PRs welcome |
 

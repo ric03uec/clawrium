@@ -68,7 +68,7 @@ Hermes supports three channels managed by clm: a loopback OpenAI-compatible HTTP
 | **Log streaming** | ✅ | `journalctl -u hermes-<agent_name>.service` on the agent host |
 | **Onboarding wizard** | ✅ | 4 stages: `providers` (required) → `identity` (auto-skipped) → `channels` (cli, discord, slack) → `validate` |
 | **Identity files (`SOUL.md` / `AGENTS.md`)** | ✅ | Hermes-managed inside `~/.hermes/`. The identity onboarding stage auto-skips (by design — hermes owns these). `SOUL.md` is reachable via `clm agent memory read/write/info` (routed to `~/.hermes/SOUL.md`). |
-| **MCP server registration** | 📋 | Deferred |
+| **MCP server registration** | ✅ | Supported for `atlassian` integrations — hermes launches `uvx --from mcp-atlassian==<pinned> mcp-atlassian` as a subprocess and exposes Jira + Confluence tools. See [Atlassian integration](integrations/atlassian.md). |
 | **`~/.hermes/state.db` (session/transcript history)** | 📋 | Out of scope for memory CLI |
 | **OAuth / webhook secrets** | 📋 | Deferred |
 
@@ -331,7 +331,6 @@ The following are explicitly out of scope for issue #68 and tracked as separate 
 
 - Messaging gateway pairing: Telegram, WhatsApp, Signal, email, Teams, Google Chat, Matrix, Mattermost, QQBot, Feishu, DingTalk. (Discord and Slack shipped — see [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration) and [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration).)
 - Pluggable memory backends: Holographic, Honcho, Hindsight, Mem0, Byterover, OpenViking. clm's `memory` CLI only sees the default markdown backend.
-- MCP server registration.
 - `~/.hermes/state.db` (session / transcript history) inspection via clm.
 - OAuth file (`HERMES_OAUTH_FILE`) and webhook secrets.
 - Installer-checksum refresh helper (manifest must be re-pinned every version bump — currently manual).
