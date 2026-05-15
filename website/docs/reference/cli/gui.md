@@ -48,7 +48,7 @@ The dashboard surfaces the same data as the CLI, with a few interactive niceties
 - **Agent detail** — chat with a running agent, view logs, edit memory, inspect config
 - **Settings** — version info, usage DB controls (export / clear), Danger Zone
 
-A walkthrough with screenshots lives in the [Web Dashboard guide](../../guides/web-dashboard.md).
+A walkthrough with screenshots lives in the [Web Dashboard guide](../../web-dashboard.md).
 
 ## Installation requirement
 

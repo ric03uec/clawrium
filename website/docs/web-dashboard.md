@@ -1,5 +1,4 @@
 ---
-sidebar_position: 5
 description: Walk through the Clawrium web dashboard - fleet overview, topology, providers, agent detail, and settings.
 keywords: [gui, web dashboard, ui, fleet, topology, providers, chat]
 ---
@@ -76,4 +75,4 @@ The GUI is a read-leaning convenience layer; the CLI remains the source of truth
 
 ## Troubleshooting
 
-See the [`clm gui` CLI reference](../reference/cli/gui.md#troubleshooting) for symptom / fix pairs (port-in-use, missing extras, dev-vs-prod port confusion).
+See the [`clm gui` CLI reference](./reference/cli/gui.md#troubleshooting) for symptom / fix pairs (port-in-use, missing extras, dev-vs-prod port confusion).

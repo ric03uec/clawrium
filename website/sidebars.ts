@@ -2,9 +2,10 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
 // Sidebar ordered for adoption funnel:
 // 1. Quick wins first (Quickstart, Installation)
-// 2. Concepts (What is a Claw?, Architecture)
-// 3. Deep dives (Guides, Agent Support)
-// 4. Reference last
+// 2. Practical guides
+// 3. Agent surface area (Agent Support, Web Dashboard)
+// 4. Operational sections (Scenarios, Host Configuration, Providers, Channels, Integrations)
+// 5. Reference and architecture last
 
 const sidebars: SidebarsConfig = {
   tutorialSidebar: [
@@ -19,10 +20,22 @@ const sidebars: SidebarsConfig = {
         'guides/host-setup',
         'guides/agent-onboarding',
         'guides/fleet-management',
-        'guides/web-dashboard',
       ],
     },
-    'architecture',
+    {
+      type: 'category',
+      label: 'Agent Support',
+      link: {
+        type: 'doc',
+        id: 'agent-support/index',
+      },
+      items: [
+        'agent-support/openclaw',
+        'agent-support/hermes',
+        'agent-support/zeroclaw',
+      ],
+    },
+    'web-dashboard',
     {
       type: 'category',
       label: 'Scenarios',
@@ -58,19 +71,6 @@ const sidebars: SidebarsConfig = {
             'host-configuration/os-support/macos',
           ],
         },
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Agent Support',
-      link: {
-        type: 'doc',
-        id: 'agent-support/index',
-      },
-      items: [
-        'agent-support/openclaw',
-        'agent-support/hermes',
-        'agent-support/zeroclaw',
       ],
     },
     {
@@ -145,6 +145,7 @@ const sidebars: SidebarsConfig = {
         },
       ],
     },
+    'architecture',
     'troubleshooting',
     'contributing',
   ],
