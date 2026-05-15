@@ -206,9 +206,12 @@
     - name: Validate pairing code shape
       ansible.builtin.fail:
         msg: >-
-          /pair/code did not return a usable code field. Re-run
-          `clm agent configure {{ agent_name }} --force-repair` and
-          check daemon logs at
+          /pair/code did not return a usable code field. Rotate the
+          gateway token: clear
+          agents.{{ agent_name }}.config.gateway.auth in
+          ~/.config/clawrium/hosts.json, then re-run
+          `clm agent configure {{ agent_name }}`. See the ZeroClaw
+          docs section "Rotating the gateway token". Daemon logs:
           `journalctl --unit {{ agent_type }}-{{ agent_name }}`.
       when:
         - zeroclaw_needs_pairing
@@ -234,9 +237,11 @@
     - name: Validate bearer token shape
       ansible.builtin.fail:
         msg: >-
-          /pair did not return a usable token. Re-run
-          `clm agent configure {{ agent_name }} --force-repair`; check
-          daemon logs at
+          /pair did not return a usable token. Rotate the gateway
+          token: clear agents.{{ agent_name }}.config.gateway.auth in
+          ~/.config/clawrium/hosts.json, then re-run
+          `clm agent configure {{ agent_name }}`. See the ZeroClaw
+          docs section "Rotating the gateway token". Daemon logs:
           `journalctl --unit {{ agent_type }}-{{ agent_name }}`.
       when:
         - zeroclaw_needs_pairing
@@ -274,7 +279,7 @@
           ZeroClaw agent '{{ agent_name }}' configured with provider
           '{{ config.provider.type }}'.
           Pairing: {{ 'fresh token minted' if zeroclaw_needs_pairing
-                      else 'existing token reused (use --force-repair to rotate)' }}.
+                      else 'existing token reused (clear gateway.auth in hosts.json and re-run to rotate)' }}.
           Service: {{ agent_type }}-{{ agent_name }}.service (active)
 
   handlers:
