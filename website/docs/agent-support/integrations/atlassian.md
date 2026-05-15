@@ -87,7 +87,7 @@ For **ZeroClaw**, Atlassian (and all other) integrations are not wired in this i
 ### 5. Verify
 
 ```bash
-clm agent chat my-hermes
+clm chat my-hermes
 > list my open jira tickets
 > search confluence for "onboarding docs"
 ```

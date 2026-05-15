@@ -143,8 +143,8 @@ The wizard walks through:
 |-------|----------|
 | **providers** | Required. Pick from your registered clm providers; clm validates connectivity via `provider_test`. |
 | **identity** | Auto-skipped. ZeroClaw manages its own identity through the workspace MD files (`SOUL.md`, `IDENTITY.md`, …) which clm renders below — there is no separate identity wizard. |
-| **channels** | Required. Confirms the CLI / WebSocket channel (the only one ZeroClaw exposes). |
-| **validate** | Runs `zeroclaw --version` on the agent host. |
+| **channels** | Required. The wizard presents `cli`, `discord`, and `slack` for all agent types — pick `cli` for ZeroClaw. `discord` / `slack` are selectable but **non-functional** on ZeroClaw; only the CLI path (`clm chat`) routes to the WebSocket gateway. |
+| **validate** | Per the manifest, runs `zeroclaw --version` on the agent host. Note that the configure playbook itself does not call this — the wizard's validate stage does — and the playbook's own readiness probe is `GET /health/providers`. |
 
 Configure renders TWO things on the agent host, then runs the pairing handshake against the freshly started daemon.
 
@@ -216,9 +216,18 @@ agents.<agent-name>.config.gateway.auth = "<bearer-token>"
 agents.<agent-name>.config.gateway.url  = "ws://<agent-host>:42617/ws/chat"
 ```
 
-Re-running `clm agent configure <agent-name>` **reuses** the persisted token by default — live chat sessions stay valid. Pass `--force-repair` to mint a fresh token (invalidates existing sessions).
+Re-running `clm agent configure <agent-name>` **reuses** the persisted token by default — live chat sessions stay valid. See [Rotating the gateway token](#rotating-the-gateway-token) below for the rotation workaround (no Typer flag exists yet; rotation is driven through an Ansible extra-var).
 
 A non-fatal warning is surfaced when the post-configure readiness probe (`GET /health/providers`) returns 401: the gateway is reachable but the provider credentials likely mismatch the API key supplied in `config.toml`. Re-run with the correct key.
+
+#### Rotating the gateway token
+
+The pairing token can be invalidated and re-minted, but `clm agent configure` does not yet surface a Typer flag for this. Today, the rotation flow is:
+
+1. Edit `~/.config/clawrium/hosts.json` and clear `agents.<agent-name>.config.gateway.auth` (set it to an empty string or delete the key).
+2. Re-run `clm agent configure <agent-name>`. The configure playbook detects the missing token and runs a fresh `GET /pair/code` → `POST /pair` handshake.
+
+Alternatively, if you are scripting against the playbook directly, pass `force_repair=true` as an Ansible extra-var — the configure playbook honors it and forces the mint path. This bypasses the higher-level CLI; live chat sessions using the previous token will fail at their next message.
 
 ### 3. Use the WebSocket chat surface
 
@@ -244,21 +253,23 @@ The frame envelope (relevant subset, useful when troubleshooting):
 | Server → client | `done` | Terminal frame. Carries the final response, token counts, cost, provider, model. |
 | Server → client | `error` | Terminal frame. Carries an `error` / `message` field. |
 | Server → client | `chunk_reset` / `aborted` | Stream control (rare; emitted on cancellation). |
+| Server → client | `approval_request` | Terminal frame for `clm chat`. The current client does **not** support inline tool approval — receipt closes the WebSocket and raises a remediation error. Pre-approve tools in `~/.zeroclaw/config.toml` on the agent host. |
 | Client → server | `message` | `{"type":"message","content":"<prompt>"}` |
-| Client → server | `connect` | Optional handshake frame. |
-| Client → server | `approval_response` | Reply to a server-side approval request, when the agent gates a tool call on operator confirmation. |
+| Client → server | `connect` | Protocol-level handshake frame; `clm chat` does not send this — it relies on the bearer header alone. |
+| Client → server | `approval_response` | Defined upstream; **not sent by `clm chat`** (the session is terminated on `approval_request` instead). |
 
-Server-supplied text is passed through a Rich-markup sanitizer in `core/chat_zeroclaw.py` before it reaches the terminal — a model that emits literal `[red]` does not affect the host's terminal formatting.
+Server-supplied text is passed through `sanitize_server_text` in `core/chat_zeroclaw.py` before it reaches the terminal — every visible field is stripped of C0/C1 controls, zero-width codepoints, BIDI overrides, and line/paragraph separators. Rich-markup escaping is the responsibility of the CLI render layer, not this sanitizer.
 
 #### Off-host access from the control machine
 
-The gateway binds `0.0.0.0:42617` so any host on the same LAN can reach it once it holds the pairing token. The token is the only auth boundary — treat it like an API key. From a fully untrusted network, prefer an SSH tunnel:
+The gateway binds `0.0.0.0:42617` so any host on the same LAN can reach it once it holds the pairing token. The token is the only auth boundary — treat it like an API key.
 
-```bash
-ssh -L 42617:127.0.0.1:42617 <user>@<agent-host>
-# Then in another terminal:
-clm chat <agent-name>   # clm rewrites the URL based on hosts.json
-```
+`clm chat` rebuilds the gateway URL from `hosts[<host>].hostname` (the registered primary address), not from `127.0.0.1` — see `_reconstruct_gateway_url` in `cli/chat.py`. A plain `ssh -L 42617:…` tunnel therefore **does not** redirect `clm chat`; the client still dials the registered hostname directly. Two workable paths:
+
+1. **Verify with a raw WebSocket client.** Open `ssh -L 42617:127.0.0.1:42617 <user>@<agent-host>`, then point `wscat` or `websocat` at `ws://localhost:42617/ws/chat` with `-H "Authorization: Bearer <token>"`.
+2. **Register the host with a routable address.** If the agent host is reachable over Tailscale or another overlay, register that address as the host's primary in `clm host add` so the URL `clm chat` rebuilds points there.
+
+The pairing token itself never leaves the agent host during minting (the handshake is loopback-only inside the configure playbook), so the LAN attack surface is bounded by the token's confidentiality after it has been written to `hosts.json` on the control machine.
 
 ### 4. Lifecycle
 
@@ -285,15 +296,19 @@ The dispatcher reads the manifest's `workspace.memory_path` (`~/.zeroclaw/worksp
 
 ---
 
-## Security considerations
+## Security Considerations
 
 ZeroClaw's threat model is **trusted LAN**, parity with the upstream daemon's defaults adjusted for the deployment shape clm targets.
 
 - **Gateway binds `0.0.0.0`.** Any host that can reach the agent on TCP `42617` can attempt to connect. `require_pairing = true` means an unpaired connection is rejected; the bearer token is the auth boundary.
-- **The pairing token is plaintext over the network.** `ws://` is not TLS. The pairing handshake itself happens loopback-only inside the configure playbook, so the token never leaves the agent host during minting. But every subsequent `clm chat` carries the token in an `Authorization` header over plain WebSocket — fine on a trusted LAN, **not fine** over an untrusted network.
-- **For untrusted networks, tunnel.** Open `ssh -L 42617:127.0.0.1:42617 <user>@<agent-host>` before running `clm chat`. The traffic stays inside SSH; the gateway never has to be reachable from the public internet.
-- **Tokens persist to `hosts.json`.** The file is mode 0644 by default. If your control machine is multi-user, tighten permissions or move tokens out of `hosts.json` manually.
-- **Re-configure does not rotate the token.** `--force-repair` is the explicit knob for rotation; it invalidates existing sessions. Use it when a token is suspected to have leaked.
+- **API keys land in `config.toml` on the agent host (mode 0600, owner `<agent-name>`).** The configure playbook renders that file with `no_log: true` so the API key never appears in Ansible output even at `-vvv`. The same `no_log: true` covers the pairing-code and pairing-token tasks.
+- **The pairing token is plaintext over the network.** `ws://` is not TLS. The pairing handshake itself happens loopback-only inside the configure playbook, so the code/token never leave the agent host during minting. But every subsequent `clm chat` carries the token in an `Authorization` header over plain WebSocket — fine on a trusted LAN, **not fine** over an untrusted network.
+- **For untrusted networks, prefer a direct SSH tunnel + raw WebSocket client.** `clm chat` rebuilds the gateway URL from the host record's primary address in `hosts.json` (see [Off-host access](#off-host-access-from-the-control-machine) below), so a simple `ssh -L 42617:127.0.0.1:42617` does not redirect `clm chat`. For ad-hoc verification, point a raw client (`wscat`, `websocat`) at the tunnelled loopback instead.
+- **Tokens persist to `hosts.json` on the control machine.** Treat the file like any other credential store; review its permissions (it is not chmod-0600 by default) and avoid checking it into version control. On a multi-user control machine, tighten the file mode manually.
+- **Re-configure preserves the existing token by default.** clm only mints a fresh token when `force_repair` is supplied via Ansible extra-vars (see [Rotating the gateway token](#rotating-the-gateway-token)). There is no Typer flag for this yet — rotate by clearing the stored token first.
+- **Server-supplied text is BIDI / control-char sanitized before rendering.** `core/chat_zeroclaw.py` routes every visible field from server frames through `sanitize_server_text` (which strips C0/C1 controls, zero-width codepoints, BIDI overrides U+202A–U+202E and U+2066–U+2069, line/paragraph separators, and the word-joiner). Rich-markup escaping is handled separately by the CLI render layer, not by this sanitizer.
+- **`approval_request` frames tear down the session.** Inline tool approval is not implemented; the client closes the WebSocket and raises a remediation error pointing operators at `~/.zeroclaw/config.toml`. Pre-approve or disable tools at the agent host before invoking them. See [Use the WebSocket chat surface](#3-use-the-websocket-chat-surface) for the full frame envelope.
+- **Treat `config.toml` as an audited surface.** clm only emits `[gateway]`, `[providers.models.<name>]`, and `[personality]`. Any block manually added (e.g. `[integrations]`, `[hardware]`) is honored by the daemon but **invisible to `clm`** — `clm agent configure` will not validate it and `clm` cannot detect drift between renders and manual edits.
 
 ---
 
@@ -303,7 +318,7 @@ ZeroClaw's threat model is **trusted LAN**, parity with the upstream daemon's de
 - **Workspace personality is operator-owned after first configure.** Every workspace template renders with `force: no`. After the initial seed, the daemon and the operator (via `clm agent memory edit`) are the only writers.
 - **`BOOTSTRAP.md` is runtime-generated and self-deletes.** Do not expect to see it in `clm agent memory show`. It only exists between first daemon start and the daemon's own bootstrap cleanup.
 - **`clm chat` requires the daemon to be running.** The CLI does not run the runtime in-process; it speaks to the systemd-managed daemon. If `systemctl status zeroclaw-<name>` is `inactive (dead)`, `clm chat` will fail to connect.
-- **Re-installing preserves the gateway token.** `install.py`'s `preserved_gateway` carry-over keeps `config.gateway.auth` across reinstalls, so re-running install does not break live chat sessions. (Re-running `configure` follows the same rule unless `--force-repair` is set.)
+- **Re-installing preserves the gateway token.** `install.py`'s `preserved_gateway` carry-over keeps `config.gateway.auth` across reinstalls, so re-running install does not break live chat sessions. Re-running `configure` follows the same rule — see [Rotating the gateway token](#rotating-the-gateway-token) for the explicit rotation path.
 
 ---
 
@@ -321,7 +336,8 @@ ZeroClaw's threat model is **trusted LAN**, parity with the upstream daemon's de
 2. Confirm `~/.zeroclaw/config.toml` exists and parses. The configure playbook renders it mode 0600 owned by the agent user — if you've edited it by hand and broken TOML, the daemon will fail to start and emit a parse error to the journal.
 
    ```bash
-   sudo -u <agent-name> cat /home/<agent-name>/.zeroclaw/config.toml | head -40
+   # Redact the api_key line so it does not get pasted into chat / logs.
+   sudo -u <agent-name> grep -v '^api_key' /home/<agent-name>/.zeroclaw/config.toml
    ```
 
 3. Verify the binary is present and executable:
@@ -357,26 +373,14 @@ Both pairing steps validate their responses; failure modes:
 - `GET /pair/code` returned non-200, or a body missing the `code` field → daemon is up but pairing endpoint is disabled. Check the journal for upstream errors.
 - `POST /pair` returned non-200, or a token shorter than 16 chars → the code expired or was already consumed.
 
-Recovery:
-
-```bash
-clm agent configure <agent-name> --force-repair
-```
-
-This forces a fresh `GET /pair/code` → `POST /pair` cycle and overwrites the persisted token. Existing chat sessions using the old token will fail at the next message.
+Recovery is a token rotation — see [Rotating the gateway token](#rotating-the-gateway-token). Tl;dr: clear `agents.<agent-name>.config.gateway.auth` from `hosts.json`, then re-run `clm agent configure <agent-name>`. The empty token triggers a fresh `GET /pair/code` → `POST /pair` cycle. Existing chat sessions using the old token will fail at the next message.
 
 </details>
 
 <details>
 <summary><strong><code>clm chat</code> fails after a reinstall</strong></summary>
 
-`install.py preserved_gateway` carries `config.gateway.auth` across reinstalls so this is rare. If it happens, the most likely cause is a manual edit to `hosts.json` between install and chat. Re-run:
-
-```bash
-clm agent configure <agent-name> --force-repair
-```
-
-to mint a fresh token aligned with the rebuilt daemon state.
+`install.py preserved_gateway` carries `config.gateway.auth` across reinstalls so this is rare. If it happens, the most likely cause is a manual edit to `hosts.json` between install and chat. Rotate the token (clear `gateway.auth` and re-run `clm agent configure <agent-name>` — see [Rotating the gateway token](#rotating-the-gateway-token)) to mint a fresh token aligned with the rebuilt daemon state.
 
 </details>
 
