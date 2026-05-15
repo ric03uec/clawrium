@@ -166,11 +166,13 @@
 
     # ATX B3: skip the pairing handshake when configure_agent already
     # passed an existing bearer token from hosts.json. The persisted
-    # token remains valid across configure runs unless --force-repair is
-    # supplied, so re-running configure does NOT invalidate live chat
-    # sessions. The token is echoed back as a cacheable fact so
-    # configure_agent's fact-extraction path always finds it (skip and
-    # mint paths emit the same fact).
+    # token remains valid across configure runs by default — rotate by
+    # clearing agents.<n>.config.gateway.auth in hosts.json and
+    # re-running configure (or passing force_repair=true as a playbook
+    # extra-var when scripting against ansible-runner directly). The
+    # token is echoed back as a cacheable fact so configure_agent's
+    # fact-extraction path always finds it (skip and mint paths emit
+    # the same fact).
     #
     # `existing_gateway_token` and `force_repair` are top-level Ansible
     # vars passed in by configure_agent via extra_vars (see
@@ -200,9 +202,15 @@
       no_log: true
       when: zeroclaw_needs_pairing
 
-    # ATX B4: validation fails must not echo `pair_code_response.json.keys()`
-    # into logs (registered var from a `no_log: true` task). Keep the
-    # diagnostic generic. Operators can re-run at higher verbosity if needed.
+    # ATX Round 3 B_new1: do NOT set `no_log: true` on this fail task.
+    # The msg body is pure template-literal text (`agent_name`, `agent_type`
+    # — both safe to log) and contains the operator-facing rotation
+    # instructions. With `no_log: true`, Ansible would replace the msg
+    # with "the output has been hidden" and the operator would never see
+    # the recovery path at the exact moment they need it. The original
+    # ATX B4 concern (registered var from a `no_log: true` task leaking
+    # into logs) does not apply here because we never reference
+    # pair_code_response.json fields inside the msg.
     - name: Validate pairing code shape
       ansible.builtin.fail:
         msg: >-
@@ -218,7 +226,6 @@
         - pair_code_response.json is not defined
           or pair_code_response.json.code is not defined
           or pair_code_response.json.code | length < 1
-      no_log: true
 
     - name: Exchange pairing code for bearer token
       ansible.builtin.uri:
@@ -234,6 +241,9 @@
       no_log: true
       when: zeroclaw_needs_pairing
 
+    # ATX Round 3 B_new1: same rationale as the Validate-pairing-code
+    # task above — keep this fail visible. The msg never references
+    # `pair_response.json.token`; only `agent_name`/`agent_type`.
     - name: Validate bearer token shape
       ansible.builtin.fail:
         msg: >-
@@ -248,7 +258,6 @@
         - pair_response.json is not defined
           or pair_response.json.token is not defined
           or pair_response.json.token | length < 16
-      no_log: true
 
     # Resolve the final bearer-token value: freshly minted on the mint
     # path, echoed-back from hosts.json on the skip path. Surfaced via a
@@ -279,7 +288,7 @@
           ZeroClaw agent '{{ agent_name }}' configured with provider
           '{{ config.provider.type }}'.
           Pairing: {{ 'fresh token minted' if zeroclaw_needs_pairing
-                      else 'existing token reused (clear gateway.auth in hosts.json and re-run to rotate)' }}.
+                      else 'existing token reused (clear agents.' ~ agent_name ~ '.config.gateway.auth in ~/.config/clawrium/hosts.json and re-run to rotate)' }}.
           Service: {{ agent_type }}-{{ agent_name }}.service (active)
 
   handlers:
