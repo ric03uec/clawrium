@@ -128,11 +128,24 @@ def test_hermes_install_playbook_shape():
     assert "--hermes-home" in content
     assert "/home/{{ agent_name }}/.hermes" in content
     assert "/home/{{ agent_name }}/.local/bin/hermes" in content
-    # Preflight checks reference the canonical binary names. We use `which`
-    # (executable in /usr/bin) rather than the shell builtin `command -v`,
-    # since ansible.builtin.command does not invoke a shell.
-    assert "which rg" in content
-    assert "which ffmpeg" in content
+    # Hermes upstream installer requires ripgrep and ffmpeg. Verify the
+    # playbook installs them via apt rather than expecting them to be
+    # pre-provisioned on the target host (issue #344). Structural check
+    # (not substring) so a change to state=latest or removal of
+    # cache_valid_time is caught here, not in production.
+    parsed = yaml.safe_load(content)
+    parsed_tasks = parsed[0]["tasks"]
+    apt_tasks = [t for t in parsed_tasks if "ansible.builtin.apt" in t]
+    assert len(apt_tasks) == 1, (
+        "install.yaml must have exactly one apt task installing hermes system deps"
+    )
+    apt_args = apt_tasks[0]["ansible.builtin.apt"]
+    assert apt_args["state"] == "present", (
+        "apt task must use state=present (not latest) to remain idempotent"
+    )
+    assert set(apt_args["name"]) >= {"ripgrep", "ffmpeg"}
+    assert apt_args["update_cache"] is True
+    assert apt_args["cache_valid_time"] == 3600
     # Service unit MUST NOT be enabled or started in install.yaml.
     # ExecStart must use `hermes gateway run` (NOT `start`): the `start`
     # subcommand fails with "Gateway service is not installed" because hermes
@@ -707,6 +720,86 @@ def test_hermes_install_checksum_failure_raises(monkeypatch, tmp_path):
 
     with pytest.raises(InstallationError, match="Agent playbook failed"):
         run_installation("hermes", "test-host", name="hermes-test")
+
+
+def test_hermes_install_playbook_apt_idempotency_attrs():
+    """Dedicated guard for the apt task's idempotency contract (issue #344
+    ATX review B3): a code change to state=latest or removal of
+    cache_valid_time must fail CI even if the broader playbook-shape test
+    is refactored."""
+    from importlib.resources import files
+    import yaml
+
+    hermes_pkg = files("clawrium.platform.registry.hermes")
+    install_path = hermes_pkg / "playbooks" / "install.yaml"
+    data = yaml.safe_load(install_path.read_text())
+    tasks = data[0]["tasks"]
+
+    apt_tasks = [t for t in tasks if "ansible.builtin.apt" in t]
+    assert len(apt_tasks) == 1
+    apt_args = apt_tasks[0]["ansible.builtin.apt"]
+    assert apt_args["state"] == "present"
+    assert apt_args["cache_valid_time"] == 3600
+    assert apt_args["update_cache"] is True
+    assert set(apt_args["name"]) >= {"ripgrep", "ffmpeg"}
+
+
+def test_hermes_install_apt_failure_raises(monkeypatch, tmp_path):
+    """Issue #344 ATX review B2: when the apt task fails (e.g. package
+    not found, mirror unreachable), ansible_runner returns status='failed'
+    and run_installation must raise InstallationError."""
+    from clawrium.core.install import InstallationError, run_installation
+
+    host = {
+        "hostname": "test-host",
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    _hermes_install_setup(monkeypatch, tmp_path, host)
+
+    import ansible_runner
+    from unittest.mock import Mock
+
+    class BaseResult:
+        status = "successful"
+
+        class Config:
+            artifact_dir = "/tmp/nonexistent"
+
+        config = Config()
+        events = []
+
+    class AptFailedResult:
+        # Simulates `apt-get install ripgrep` failing with
+        # "E: Unable to locate package". Error detection in
+        # run_installation is status-driven, not event-driven, so the
+        # events list is intentionally empty.
+        status = "failed"
+
+        class Config:
+            artifact_dir = "/tmp/nonexistent"
+
+        config = Config()
+        events = []
+
+    # run() is called twice: base playbook (success) then claw install.yaml
+    # (apt fails). The match= string below matches every claw-side failure,
+    # since the error is status-driven (see core/install.py:677) — this is
+    # intentional and matches test_hermes_install_checksum_failure_raises.
+    mock_run = Mock(side_effect=[BaseResult(), AptFailedResult()])
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    with pytest.raises(InstallationError, match="Agent playbook failed"):
+        run_installation("hermes", "test-host", name="hermes-test")
+
+    # Guard against a future short-circuit that skips the claw playbook
+    # entirely — the apt failure can only be reached if both calls fire.
+    assert mock_run.call_count == 2
 
 
 # ---------------------------------------------------------------------------

@@ -22,34 +22,19 @@
         create_home: yes
         shell: /usr/sbin/nologin
 
-    # Preflight: hermes upstream installer requires `rg` and `ffmpeg` on PATH.
-    # We treat their absence as a hard failure with a clear remediation message
-    # rather than letting hermes-install.sh fail mid-flight.
-    - name: Preflight — check ripgrep (rg) is installed
-      ansible.builtin.command: which rg
-      register: hermes_rg_check
-      changed_when: false
-      failed_when: false
-
-    - name: Preflight — fail if ripgrep missing
-      ansible.builtin.fail:
-        msg: |
-          ripgrep (binary `rg`) is required by hermes but was not found on this host.
-          Install it with: sudo apt-get update && sudo apt-get install -y ripgrep
-      when: hermes_rg_check.rc != 0
-
-    - name: Preflight — check ffmpeg is installed
-      ansible.builtin.command: which ffmpeg
-      register: hermes_ffmpeg_check
-      changed_when: false
-      failed_when: false
-
-    - name: Preflight — fail if ffmpeg missing
-      ansible.builtin.fail:
-        msg: |
-          ffmpeg is required by hermes but was not found on this host.
-          Install it with: sudo apt-get update && sudo apt-get install -y ffmpeg
-      when: hermes_ffmpeg_check.rc != 0
+    # Hermes upstream installer requires `rg` and `ffmpeg` on PATH. Install
+    # them via apt before invoking the installer rather than failing with a
+    # manual-remediation message. The play already runs `become: yes`, so no
+    # extra escalation is needed. `cache_valid_time` avoids hammering apt
+    # mirrors when the cache is recent.
+    - name: Install hermes system dependencies (ripgrep, ffmpeg)
+      ansible.builtin.apt:
+        name:
+          - ripgrep
+          - ffmpeg
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
 
     # Version-aware skip: re-running install on a host that already has the
     # target version is a no-op for the binary install step. `--force` (via
