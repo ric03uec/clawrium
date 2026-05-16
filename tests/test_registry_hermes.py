@@ -740,6 +740,8 @@ def test_hermes_install_playbook_apt_idempotency_attrs():
     apt_args = apt_tasks[0]["ansible.builtin.apt"]
     assert apt_args["state"] == "present"
     assert apt_args["cache_valid_time"] == 3600
+    assert apt_args["update_cache"] is True
+    assert set(apt_args["name"]) >= {"ripgrep", "ffmpeg"}
 
 
 def test_hermes_install_apt_failure_raises(monkeypatch, tmp_path):
@@ -773,24 +775,17 @@ def test_hermes_install_apt_failure_raises(monkeypatch, tmp_path):
         events = []
 
     class AptFailedResult:
+        # Simulates `apt-get install ripgrep` failing with
+        # "E: Unable to locate package". Error detection in
+        # run_installation is status-driven, not event-driven, so the
+        # events list is intentionally empty.
         status = "failed"
 
         class Config:
             artifact_dir = "/tmp/nonexistent"
 
         config = Config()
-        events = [
-            {
-                "event": "runner_on_failed",
-                "event_data": {
-                    "task": "Install hermes system dependencies (ripgrep, ffmpeg)",
-                    "res": {
-                        "msg": "E: Unable to locate package ripgrep",
-                        "failed": True,
-                    },
-                },
-            }
-        ]
+        events = []
 
     monkeypatch.setattr(
         ansible_runner, "run", Mock(side_effect=[BaseResult(), AptFailedResult()])
