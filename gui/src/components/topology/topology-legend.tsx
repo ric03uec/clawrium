@@ -21,10 +21,26 @@ export function TopologyLegend() {
           </div>
         ))}
       </div>
-      <div className="mt-2 pt-2 border-t border-default">
+      <div className="mt-2 pt-2 border-t border-default space-y-1.5">
         <div className="flex items-center gap-1.5">
           <span className="w-4 border-t border-dashed border-primary" />
           <span className="text-xs text-secondary">SSH connection</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-4 border-t border-solid border-slate-500" />
+          <span className="text-xs text-secondary">Agent &rarr; Provider</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-4 border-t border-dashed border-slate-400" />
+          <span className="text-xs text-secondary">Unconfigured connection</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-3 rounded border-2 border-primary/50 bg-white" />
+          <span className="text-xs text-secondary">Provider node</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-3 rounded border-2 border-dashed border-default bg-white" />
+          <span className="text-xs text-secondary">Unconfigured</span>
         </div>
       </div>
     </div>

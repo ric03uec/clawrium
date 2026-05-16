@@ -91,8 +91,9 @@ export interface TopologyAgent {
   model: string;
   version: string;
   uptime: string;
-  provider: string;
-  provider_type: string;
+  provider: string | null;
+  provider_type: string | null;
+  provider_endpoint: string | null;
 }
 
 export interface TopologyConnection {

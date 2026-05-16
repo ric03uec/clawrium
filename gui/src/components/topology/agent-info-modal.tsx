@@ -26,6 +26,9 @@ export function AgentInfoModal({ agent, hostAlias, onClose }: AgentInfoModalProp
     { label: "Uptime", value: agent.uptime || "—" },
     { label: "Provider", value: agent.provider || "—" },
     { label: "Provider Type", value: agent.provider_type || "—" },
+    ...(agent.provider_endpoint
+      ? [{ label: "Provider Endpoint", value: agent.provider_endpoint }]
+      : []),
   ];
 
   return (
@@ -62,7 +65,10 @@ export function AgentInfoModal({ agent, hostAlias, onClose }: AgentInfoModalProp
                 </span>
               </span>
             ) : (
-              <span className="text-xs font-medium text-primary-text">
+              <span
+                className="text-xs font-medium text-primary-text truncate max-w-[220px]"
+                title={typeof value === "string" ? value : undefined}
+              >
                 {value}
               </span>
             )}

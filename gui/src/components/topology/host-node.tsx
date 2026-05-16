@@ -43,21 +43,28 @@ export function HostNode({ data }: NodeProps) {
           <div className="text-xs text-muted text-center py-2">No agents</div>
         ) : (
           agents.map((agent) => (
-            <button
-              key={agent.agent_key}
-              onClick={() => onAgentClick(agent)}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface transition-colors text-left"
-            >
-              <StatusDot status={agent.status as AgentStatus} size="sm" />
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-primary-text truncate">
-                  {agent.agent_name}
+            <div key={agent.agent_key} className="relative">
+              <button
+                onClick={() => onAgentClick(agent)}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface transition-colors text-left"
+              >
+                <StatusDot status={agent.status as AgentStatus} size="sm" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-primary-text truncate">
+                    {agent.agent_name}
+                  </div>
+                  <div className="text-[10px] text-muted truncate">
+                    {agent.agent_type} &middot; {agent.model || "no model"}
+                  </div>
                 </div>
-                <div className="text-[10px] text-muted truncate">
-                  {agent.agent_type} &middot; {agent.model || "no model"}
-                </div>
-              </div>
-            </button>
+              </button>
+              <Handle
+                type="source"
+                position={Position.Bottom}
+                id={agent.agent_key}
+                className="!bg-slate-400 !w-1.5 !h-1.5 !border-0 !left-1/2 !-translate-x-1/2"
+              />
+            </div>
           ))
         )}
       </div>

@@ -13,10 +13,42 @@ from fastapi import APIRouter
 
 from clawrium.cli.tui.data import get_fleet_data, load_hosts_safe
 from clawrium.core.health import ClawStatus
+from clawrium.core.providers.storage import (
+    ProvidersFileCorruptedError,
+    load_providers,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/fleet", tags=["topology"])
+
+
+def _load_provider_endpoints() -> dict[str, str | None]:
+    """Return a {provider_name: endpoint} map from providers.json.
+
+    Endpoint is only present on provider types that need one (e.g. ollama).
+    Returns an empty dict if the providers file is missing, unreadable, or
+    corrupted, so topology never fails just because providers can't be loaded.
+    PermissionError is a subclass of OSError and is therefore covered.
+    """
+    try:
+        providers = load_providers()
+    except (ProvidersFileCorruptedError, OSError) as exc:
+        logger.warning("providers unavailable; topology omits endpoints: %s", exc)
+        return {}
+    return {
+        p.get("name"): (_normalize_endpoint(p.get("endpoint")))
+        for p in providers
+        if p.get("name")
+    }
+
+
+def _normalize_endpoint(ep: object) -> str | None:
+    """Coerce missing / blank / whitespace endpoint values to None."""
+    if not isinstance(ep, str):
+        return None
+    stripped = ep.strip()
+    return stripped or None
 
 
 @router.get("/topology")
@@ -30,6 +62,7 @@ async def get_topology():
     """
     agents, summary = await asyncio.to_thread(get_fleet_data, None)
     hosts_raw = await asyncio.to_thread(load_hosts_safe)
+    provider_endpoints = await asyncio.to_thread(_load_provider_endpoints)
 
     # Build host map with nested agents
     hosts: list[dict[str, Any]] = []
@@ -58,6 +91,11 @@ async def get_topology():
                         "uptime": agent["uptime"],
                         "provider": agent["provider"],
                         "provider_type": agent["provider_type"],
+                        "provider_endpoint": provider_endpoints.get(
+                            agent["provider"]
+                        )
+                        if agent["provider"]
+                        else None,
                     }
                 )
 
