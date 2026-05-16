@@ -835,6 +835,283 @@ def test_host_tag_not_found(isolated_config: Path):
     assert "not found" in result.output.lower()
 
 
+# Tests for clm host update command
+
+
+def test_host_update_alias(isolated_config: Path, sample_host_data: dict):
+    """clm host update --alias updates alias."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app,
+        ["host", "update", "192.168.1.100", "--alias", "renamed"],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 0
+    assert "renamed" in result.output
+
+    hosts = json.loads(hosts_file.read_text())
+    assert hosts[0].get("alias") == "renamed"
+
+
+def test_host_update_description_set(isolated_config: Path, sample_host_data: dict):
+    """clm host update --description stores description in metadata."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app,
+        ["host", "update", "192.168.1.100", "--description", "Primary build server"],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 0
+    hosts = json.loads(hosts_file.read_text())
+    assert hosts[0]["metadata"]["description"] == "Primary build server"
+
+
+def test_host_update_description_clear(isolated_config: Path, sample_host_data: dict):
+    """clm host update --description '' clears existing description."""
+    import json
+    import copy
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host_data = copy.deepcopy(sample_host_data)
+    host_data["metadata"]["description"] = "old text"
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app,
+        ["host", "update", "192.168.1.100", "--description", ""],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 0
+    hosts = json.loads(hosts_file.read_text())
+    assert "description" not in hosts[0]["metadata"]
+
+
+def test_host_update_replace_tags(isolated_config: Path, sample_host_data: dict):
+    """clm host update --tags replaces all tags."""
+    import json
+    import copy
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host_data = copy.deepcopy(sample_host_data)
+    host_data["metadata"]["tags"] = ["old"]
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app,
+        ["host", "update", "192.168.1.100", "--tags", "prod,linux"],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 0
+    hosts = json.loads(hosts_file.read_text())
+    assert hosts[0]["metadata"]["tags"] == ["prod", "linux"]
+
+
+def test_host_update_add_remove_tags(isolated_config: Path, sample_host_data: dict):
+    """clm host update --add-tag and --remove-tag modify tags incrementally."""
+    import json
+    import copy
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host_data = copy.deepcopy(sample_host_data)
+    host_data["metadata"]["tags"] = ["web", "api"]
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host_data]))
+
+    result = runner.invoke(
+        app,
+        [
+            "host",
+            "update",
+            "192.168.1.100",
+            "--add-tag",
+            "prod",
+            "--remove-tag",
+            "api",
+        ],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 0
+    hosts = json.loads(hosts_file.read_text())
+    tags = hosts[0]["metadata"]["tags"]
+    assert "prod" in tags
+    assert "web" in tags
+    assert "api" not in tags
+
+
+def test_host_update_combined_fields(isolated_config: Path, sample_host_data: dict):
+    """clm host update can update alias, description, and tags in one call."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app,
+        [
+            "host",
+            "update",
+            "192.168.1.100",
+            "--alias",
+            "combined",
+            "--description",
+            "all in one",
+            "--tags",
+            "a,b",
+        ],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 0
+    hosts = json.loads(hosts_file.read_text())
+    assert hosts[0]["alias"] == "combined"
+    assert hosts[0]["metadata"]["description"] == "all in one"
+    assert hosts[0]["metadata"]["tags"] == ["a", "b"]
+
+
+def test_host_update_requires_field(isolated_config: Path, sample_host_data: dict):
+    """clm host update with no fields shows error."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app, ["host", "update", "192.168.1.100"], env=os.environ
+    )
+
+    assert result.exit_code == 1
+    assert "at least one field" in result.output.lower()
+
+
+def test_host_update_tags_mutually_exclusive(
+    isolated_config: Path, sample_host_data: dict
+):
+    """--tags cannot combine with --add-tag/--remove-tag."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app,
+        [
+            "host",
+            "update",
+            "192.168.1.100",
+            "--tags",
+            "a,b",
+            "--add-tag",
+            "c",
+        ],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 1
+    assert "cannot be combined" in result.output.lower()
+
+
+def test_host_update_alias_conflict(isolated_config: Path, sample_host_data: dict):
+    """clm host update --alias rejects duplicate alias."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    host1 = sample_host_data.copy()
+    host2 = {
+        "hostname": "192.168.1.101",
+        "alias": "taken",
+        "port": 22,
+        "user": "xclm",
+        "auth_method": "key",
+        "hardware": {},
+        "metadata": {"added_at": "2026-03-21", "last_seen": "2026-03-21", "tags": []},
+    }
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([host1, host2]))
+
+    result = runner.invoke(
+        app,
+        ["host", "update", "192.168.1.100", "--alias", "taken"],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 1
+    assert "already in use" in result.output.lower()
+
+
+def test_host_update_empty_alias_rejected(
+    isolated_config: Path, sample_host_data: dict
+):
+    """clm host update --alias '' is rejected."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    result = runner.invoke(
+        app,
+        ["host", "update", "192.168.1.100", "--alias", "   "],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 1
+    assert "cannot be empty" in result.output.lower()
+
+
+def test_host_update_not_found(isolated_config: Path):
+    """clm host update shows error when host not found."""
+    isolated_config.mkdir(parents=True, exist_ok=True)
+
+    result = runner.invoke(
+        app,
+        ["host", "update", "nonexistent", "--alias", "foo"],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 1
+    assert "not found" in result.output.lower()
+
+
+def test_host_update_by_alias(isolated_config: Path, sample_host_data: dict):
+    """clm host update can target host by current alias."""
+    import json
+
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    hosts_file = isolated_config / "hosts.json"
+    hosts_file.write_text(json.dumps([sample_host_data]))
+
+    # sample_host_data has alias "testhost"
+    result = runner.invoke(
+        app,
+        ["host", "update", "testhost", "--description", "via alias"],
+        env=os.environ,
+    )
+
+    assert result.exit_code == 0
+    hosts = json.loads(hosts_file.read_text())
+    assert hosts[0]["metadata"]["description"] == "via alias"
+
+
 # Tests for clm host address commands
 
 
