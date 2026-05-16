@@ -642,6 +642,163 @@ def tag(
 
 
 @host_app.command()
+def update(
+    host: str = typer.Argument(..., help="Host hostname or alias"),
+    alias: Optional[str] = typer.Option(
+        None, "--alias", "-a", help="Update host alias"
+    ),
+    description: Optional[str] = typer.Option(
+        None,
+        "--description",
+        "-d",
+        help="Set host description (pass empty string to clear)",
+    ),
+    add_tag: Optional[list[str]] = typer.Option(
+        None, "--add-tag", help="Add tag(s) (repeatable)"
+    ),
+    remove_tag: Optional[list[str]] = typer.Option(
+        None, "--remove-tag", help="Remove tag(s) (repeatable)"
+    ),
+    set_tags: Optional[str] = typer.Option(
+        None, "--tags", help="Replace all tags (comma-separated; '' to clear)"
+    ),
+) -> None:
+    """Update host metadata fields (alias, description, tags).
+
+    Combine multiple fields in one call. Use --tags to replace all tags,
+    or --add-tag/--remove-tag to modify incrementally.
+    """
+    # Require at least one field to update
+    if (
+        alias is None
+        and description is None
+        and not add_tag
+        and not remove_tag
+        and set_tags is None
+    ):
+        console.print(
+            "[red]Error:[/red] Specify at least one field to update "
+            "(--alias, --description, --add-tag, --remove-tag, or --tags)"
+        )
+        raise typer.Exit(code=1)
+
+    # --tags is mutually exclusive with --add-tag/--remove-tag
+    if set_tags is not None and (add_tag or remove_tag):
+        console.print(
+            "[red]Error:[/red] --tags cannot be combined with --add-tag or --remove-tag"
+        )
+        raise typer.Exit(code=1)
+
+    # Validate alias is non-empty whitespace
+    if alias is not None and not alias.strip():
+        console.print("[red]Error:[/red] --alias cannot be empty")
+        raise typer.Exit(code=1)
+
+    # Find host by hostname or alias
+    try:
+        host_record = get_host(host)
+    except HostsFileCorruptedError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    if not host_record:
+        console.print(f"[red]Error:[/red] Host '{host}' not found")
+        raise typer.Exit(code=1)
+
+    hostname = host_record["hostname"]
+
+    # Validate alias uniqueness (if changing)
+    if alias is not None:
+        new_alias = alias.strip()
+        if new_alias != host_record.get("alias"):
+            exists, conflicting_host = alias_exists(
+                new_alias, exclude_hostname=hostname
+            )
+            if exists:
+                if conflicting_host == new_alias:
+                    console.print(
+                        f"[red]Error:[/red] Alias '{new_alias}' conflicts with existing hostname"
+                    )
+                else:
+                    console.print(
+                        f"[red]Error:[/red] Alias '{new_alias}' already in use by host '{conflicting_host}'"
+                    )
+                raise typer.Exit(code=1)
+
+    changes: list[str] = []
+
+    def apply_update(h: dict) -> dict:
+        if "metadata" not in h:
+            h["metadata"] = {}
+
+        if alias is not None:
+            new_alias = alias.strip()
+            old_alias = h.get("alias")
+            if new_alias != old_alias:
+                h["alias"] = new_alias
+                changes.append(f"alias: {old_alias or '-'} -> {new_alias}")
+
+        if description is not None:
+            old_desc = h["metadata"].get("description")
+            if description == "":
+                if "description" in h["metadata"]:
+                    del h["metadata"]["description"]
+                    changes.append("description: cleared")
+            else:
+                new_desc = description.strip()
+                if new_desc != old_desc:
+                    h["metadata"]["description"] = new_desc
+                    changes.append("description updated")
+
+        # Tag operations
+        current_tags = list(h["metadata"].get("tags", []))
+        if set_tags is not None:
+            new_tags = (
+                [t.strip() for t in set_tags.split(",") if t.strip()]
+                if set_tags
+                else []
+            )
+            if new_tags != current_tags:
+                h["metadata"]["tags"] = new_tags
+                changes.append(
+                    f"tags: {', '.join(new_tags) if new_tags else '(cleared)'}"
+                )
+        elif add_tag or remove_tag:
+            if add_tag:
+                for t in add_tag:
+                    tag_clean = t.strip()
+                    if tag_clean and tag_clean not in current_tags:
+                        current_tags.append(tag_clean)
+            if remove_tag:
+                for t in remove_tag:
+                    tag_clean = t.strip()
+                    if tag_clean in current_tags:
+                        current_tags.remove(tag_clean)
+            h["metadata"]["tags"] = current_tags
+            changes.append(
+                f"tags: {', '.join(current_tags) if current_tags else '(cleared)'}"
+            )
+
+        return h
+
+    if not update_host(hostname, apply_update):
+        console.print("[red]Error:[/red] Failed to update host")
+        raise typer.Exit(code=1)
+
+    display_name = (
+        alias.strip() if alias is not None else (host_record.get("alias") or hostname)
+    )
+
+    if not changes:
+        console.print(f"No changes for '{display_name}'.")
+        return
+
+    console.print(f"[green]Host '{display_name}' updated:[/green]")
+    for change in changes:
+        console.print(f"  - {change}")
+
+
+@host_app.command()
 def ps(
     hostname: str = typer.Argument(..., help="Host hostname or alias to check"),
     refresh: bool = typer.Option(
@@ -751,6 +908,8 @@ def ps(
     table.add_row("Added", meta.get("added_at", "Unknown"))
     table.add_row("Last Seen", meta.get("last_seen", "Unknown"))
     table.add_row("Tags", ", ".join(meta.get("tags", [])) or "-")
+    if meta.get("description"):
+        table.add_row("Description", meta["description"])
 
     if hw:
         table.add_row("Architecture", hw.get("architecture", "?"))
