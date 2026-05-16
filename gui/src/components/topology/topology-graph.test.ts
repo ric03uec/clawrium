@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { type TopologyAgent, type TopologyResponse } from "@/lib/types";
 
@@ -210,6 +210,41 @@ describe("computeTopology", () => {
       .filter(Boolean)
       .sort();
     expect(handles).toEqual(["n1", "o1", "z1"]);
+  });
+
+  it("threads onAgentClick and onHostClick into host node data", () => {
+    const onAgentClick = vi.fn();
+    const onHostClick = vi.fn();
+    const agent = makeAgent({ agent_key: "espresso" });
+    const data = makeData([
+      { hostname: "wolf-i", alias: "wolf-i-alias", agents: [agent] },
+    ]);
+
+    const { nodes } = computeTopology(data, { onAgentClick, onHostClick });
+    const hostNode = nodes.find((n) => n.type === "host");
+    expect(hostNode).toBeDefined();
+    const hostData = hostNode!.data as {
+      onAgentClick: (a: TopologyAgent) => void;
+      onHostClick: (h: string) => void;
+    };
+
+    hostData.onAgentClick(agent);
+    expect(onAgentClick).toHaveBeenCalledWith(agent, "wolf-i-alias");
+
+    hostData.onHostClick("wolf-i");
+    expect(onHostClick).toHaveBeenCalledWith("wolf-i");
+  });
+
+  it("leaves host node callbacks undefined when no opts are passed", () => {
+    const data = makeData([{ hostname: "h1", agents: [] }]);
+    const { nodes } = computeTopology(data);
+    const hostNode = nodes.find((n) => n.type === "host");
+    const hostData = hostNode!.data as {
+      onAgentClick?: unknown;
+      onHostClick?: unknown;
+    };
+    expect(hostData.onAgentClick).toBeUndefined();
+    expect(hostData.onHostClick).toBeUndefined();
   });
 
   it("emits an SSH edge per host as before", () => {

@@ -10,8 +10,8 @@ interface HostNodeData {
   user: string;
   agentCount: number;
   agents: TopologyAgent[];
-  onAgentClick: (agent: TopologyAgent) => void;
-  onHostClick: (hostname: string) => void;
+  onAgentClick?: (agent: TopologyAgent) => void;
+  onHostClick?: (hostname: string) => void;
 }
 
 export function HostNode({ data }: NodeProps) {
@@ -28,7 +28,7 @@ export function HostNode({ data }: NodeProps) {
 
       {/* Host header */}
       <button
-        onClick={() => onHostClick(hostname)}
+        onClick={() => onHostClick?.(hostname)}
         className="w-full px-4 py-3 border-b border-default text-left hover:bg-surface transition-colors rounded-t-xl"
       >
         <div className="text-sm font-semibold text-primary-text">{alias}</div>
@@ -45,7 +45,7 @@ export function HostNode({ data }: NodeProps) {
           agents.map((agent) => (
             <div key={agent.agent_key} className="relative">
               <button
-                onClick={() => onAgentClick(agent)}
+                onClick={() => onAgentClick?.(agent)}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface transition-colors text-left"
               >
                 <StatusDot status={agent.status as AgentStatus} size="sm" />

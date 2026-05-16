@@ -45,7 +45,9 @@ export function AgentInfoModal({ agent, hostAlias, onClose }: AgentInfoModalProp
             variant="primary"
             size="sm"
             onClick={() => {
-              router.push(`/agents?key=${agent.agent_key}`);
+              router.push(
+                `/agents?key=${encodeURIComponent(agent.agent_key)}`
+              );
             }}
           >
             View Details →
@@ -61,7 +63,7 @@ export function AgentInfoModal({ agent, hostAlias, onClose }: AgentInfoModalProp
               <span className="flex items-center gap-1.5">
                 <StatusDot status={agent.status} size="sm" />
                 <span className="text-xs font-medium text-primary-text capitalize">
-                  {agent.status.replace("_", " ")}
+                  {agent.status.replace(/_/g, " ")}
                 </span>
               </span>
             ) : (
