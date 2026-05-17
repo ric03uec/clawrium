@@ -2794,3 +2794,8 @@ def registry_show(
 
 
 agent_app.add_typer(registry_app, name="registry")
+
+
+from clawrium.cli.agent_skill import agent_skill_app  # noqa: E402
+
+agent_app.add_typer(agent_skill_app, name="skill")

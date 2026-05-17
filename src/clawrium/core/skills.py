@@ -74,6 +74,18 @@ class SchemaValidationError(SkillError):
     """Raised when a skill's frontmatter/meta fails its registry's schema."""
 
 
+class IncompatibleSkillRegistry(SkillError):
+    """Raised when a skill is requested on an agent type it can't run on.
+
+    - `<claw>/<name>`: only installable on agents whose type matches the
+      registry exactly. Cross-claw native installs are a hard error,
+      not a warning — the SKILL.md is in a per-claw native format.
+    - `clawrium/<name>`: installable on any agent type whose entry in
+      the skill's `_meta.yaml.compatibility` map is truthy. A
+      `compatibility: {hermes: false}` flag fails closed.
+    """
+
+
 @dataclass(frozen=True)
 class SkillRef:
     """Parsed `<registry>/<name>` pair."""
@@ -356,6 +368,109 @@ def validate_skill(skill: Skill) -> None:
             )
 
 
+def check_agent_compatibility(skill: Skill, agent_type: str) -> None:
+    """Raise ``IncompatibleSkillRegistry`` if ``skill`` cannot run on
+    ``agent_type``.
+
+    Compatibility rules (locked in `.itx/364/00_PLAN.md`):
+
+    - ``clawrium/<name>``: read the ``compatibility`` map in `_meta.yaml`.
+      Default-true if the key is missing (a normalized skill is meant to
+      run anywhere); explicit ``false`` fails closed. Unknown agent
+      types fail closed too — better a clear error than a "silently
+      installed and never invoked" surprise.
+    - ``<claw>/<name>`` (native): must match ``agent_type`` exactly.
+      Cross-claw native installs are a hard error because the SKILL.md
+      is already in a per-claw frontmatter shape.
+    """
+    if agent_type not in NATIVE_REGISTRIES:
+        raise IncompatibleSkillRegistry(
+            f"Unknown agent type {agent_type!r}. "
+            f"Supported: {', '.join(sorted(NATIVE_REGISTRIES))}."
+        )
+
+    if skill.ref.registry == "clawrium":
+        compat = skill.metadata.get("compatibility") or {}
+        if not isinstance(compat, dict):
+            raise IncompatibleSkillRegistry(
+                f"Skill {skill.ref}: `compatibility` must be a mapping, "
+                f"got {type(compat).__name__}."
+            )
+        if not compat.get(agent_type, False):
+            raise IncompatibleSkillRegistry(
+                f"Skill {skill.ref} is not compatible with agent type "
+                f"{agent_type!r} (compatibility flag is "
+                f"{compat.get(agent_type)!r})."
+            )
+        return
+
+    # Native registry: registry name == required agent type.
+    if skill.ref.registry != agent_type:
+        raise IncompatibleSkillRegistry(
+            f"Skill {skill.ref} is a {skill.ref.registry!r}-native skill "
+            f"and cannot be installed on a {agent_type!r} agent. "
+            f"Use the corresponding {agent_type}/* skill instead."
+        )
+
+
+def materialize_for_claw(skill: Skill, claw: str) -> tuple[dict[str, Any], str]:
+    """Return the (frontmatter, body) pair that should be written on a
+    ``claw``-type agent for ``skill``.
+
+    For a ``<claw>/<name>`` skill the SKILL.md already carries the
+    correct native frontmatter — return it verbatim.
+
+    For a ``clawrium/<name>`` skill we synthesize a native frontmatter
+    by taking the union of:
+
+      1. ``name``, ``description``, ``version``, ``license``, ``author``,
+         ``platforms``, ``prerequisites`` from `_meta.yaml`
+         (only fields that are present);
+      2. ``native.<claw>`` overrides verbatim — currently used by
+         ``clawrium/tdd`` to inject ``metadata.hermes.tags``.
+
+    The function never writes to disk; the caller is responsible for
+    serializing the frontmatter (YAML) and staging the file.
+    """
+    if claw not in NATIVE_REGISTRIES:
+        raise IncompatibleSkillRegistry(
+            f"Unknown claw {claw!r}. Supported: {', '.join(sorted(NATIVE_REGISTRIES))}."
+        )
+
+    if skill.ref.registry != "clawrium":
+        # Native skill: SKILL.md frontmatter is already correct.
+        return dict(skill.skill_md_frontmatter), skill.body
+
+    meta = skill.metadata
+    frontmatter: dict[str, Any] = {}
+    # Keys lifted into native frontmatter from the normalized shape.
+    # Order is the canonical "name/description first" UX hermes/openclaw
+    # rely on for `skills list` rendering.
+    for key in (
+        "name",
+        "description",
+        "version",
+        "license",
+        "author",
+        "platforms",
+        "prerequisites",
+    ):
+        if key in meta and meta[key] not in (None, "", [], {}):
+            frontmatter[key] = meta[key]
+
+    native = meta.get("native") or {}
+    if isinstance(native, dict):
+        claw_overrides = native.get(claw) or {}
+        if isinstance(claw_overrides, dict):
+            # Verbatim merge. The _meta.yaml schema is the gate that
+            # decides which keys are allowed under native.<claw>; we
+            # don't second-guess it here.
+            for key, value in claw_overrides.items():
+                frontmatter[key] = value
+
+    return frontmatter, skill.body
+
+
 def _split_frontmatter(text: str) -> tuple[str, dict[str, Any]]:
     """Split a SKILL.md into (body, frontmatter dict).
 
@@ -463,8 +578,11 @@ __all__ = [
     "ExternalSourceBlocked",
     "SkillNotFound",
     "SchemaValidationError",
+    "IncompatibleSkillRegistry",
     "parse_skill_ref",
     "list_skills",
     "load_skill",
     "validate_skill",
+    "check_agent_compatibility",
+    "materialize_for_claw",
 ]

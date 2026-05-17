@@ -1,0 +1,115 @@
+---
+# Hermes skills_apply — reconciles ~/.hermes/skills/clawrium/ with the
+# clawrium desired state for one agent.
+#
+# Inputs (extravars):
+#   - agent_name:           unix user that owns the hermes install
+#   - staging_dir:          control-machine path with one
+#                           `<name>/SKILL.md` per desired skill
+#   - desired_skill_names:  list of slug names currently in desired state
+#                           (empty list = uninstall everything we own)
+#
+# Invariants:
+#   - Only ever reads/writes under ~/.hermes/skills/clawrium/. Other
+#     directories under ~/.hermes/skills/ (upstream bundled skills,
+#     user-authored skills, other categories) are never touched.
+#   - Every install is idempotent: re-running with the same state is a
+#     no-op aside from `changed` flags on files whose content drifted on
+#     the remote.
+#   - The hermes daemon may concurrently read SKILL.md files. Writes
+#     stage to a tempfile in the dest dir and rename atomically (this is
+#     `ansible.builtin.copy`'s default), so a concurrent reader sees
+#     either the old or new content, never a partial write.
+- hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    skills_root: "/home/{{ agent_name }}/.hermes/skills/clawrium"
+  tasks:
+    - name: Validate agent_name format
+      ansible.builtin.fail:
+        msg: "Invalid agent_name format"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate desired_skill_names is a list
+      ansible.builtin.fail:
+        msg: "desired_skill_names must be a list"
+      when:
+        - desired_skill_names is not iterable
+          or desired_skill_names is string
+          or desired_skill_names is mapping
+
+    # Defense-in-depth: Python core/skills.py validates the slug pattern
+    # before each entry is written to the state file, but the playbook
+    # also enforces it so a tampered extravar can't escape the skills_root
+    # directory via path traversal.
+    - name: Validate every desired skill name
+      ansible.builtin.fail:
+        msg: "Invalid skill name in desired_skill_names: '{{ item }}'"
+      loop: "{{ desired_skill_names }}"
+      when:
+        - item is not match('^[a-z0-9][a-z0-9_-]*$')
+
+    - name: Ensure clawrium-managed skills root exists
+      ansible.builtin.file:
+        path: "{{ skills_root }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0755"
+
+    - name: List existing clawrium-managed skill directories on host
+      ansible.builtin.find:
+        paths: "{{ skills_root }}"
+        file_type: directory
+        # depth: 1 — top-level dirs only. The find module's `depth`
+        # parameter limits the walk so we never enumerate (and thus
+        # never prune) anything deeper than this dir.
+        depth: 1
+      register: existing_skill_dirs
+
+    - name: Compute set of skill directories to prune
+      # `extras` = (on-host names) - (desired names). Pruning is bounded
+      # to this set; we never compute a delete list from anywhere else.
+      ansible.builtin.set_fact:
+        skills_to_prune: >-
+          {{ existing_skill_dirs.files
+             | map(attribute='path')
+             | map('basename')
+             | difference(desired_skill_names) }}
+
+    - name: Prune skill directories no longer in desired state
+      ansible.builtin.file:
+        path: "{{ skills_root }}/{{ item }}"
+        state: absent
+      loop: "{{ skills_to_prune }}"
+      # Each `item` is a directory name validated by the find above
+      # (taken from `basename` of a child path), so it can't contain `/`
+      # or traversal segments. The skills_root prefix is fixed, so the
+      # final path is always inside the clawrium-owned subtree.
+      when:
+        - item is match('^[a-z0-9][a-z0-9_-]*$')
+
+    - name: Ensure per-skill directory exists for each desired skill
+      ansible.builtin.file:
+        path: "{{ skills_root }}/{{ item }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0755"
+      loop: "{{ desired_skill_names }}"
+
+    - name: Materialize SKILL.md for each desired skill
+      # `copy` writes to a tempfile in the dest dir and renames into
+      # place — atomic against a concurrent hermes daemon read.
+      # `src` lives on the control machine inside our process-owned
+      # staging dir (0700, freshly created); Ansible reads it locally
+      # and ships the bytes.
+      ansible.builtin.copy:
+        src: "{{ staging_dir }}/{{ item }}/SKILL.md"
+        dest: "{{ skills_root }}/{{ item }}/SKILL.md"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0644"
+      loop: "{{ desired_skill_names }}"
