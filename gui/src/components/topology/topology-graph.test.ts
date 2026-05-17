@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { type TopologyAgent, type TopologyResponse } from "@/lib/types";
 
 import { computeTopology, providerNodeKey } from "./topology-graph";
+import { AGENT_COL_WIDTH, HOST_PADDING } from "./host-node";
 
 function makeAgent(overrides: Partial<TopologyAgent> = {}): TopologyAgent {
   return {
@@ -245,6 +246,66 @@ describe("computeTopology", () => {
     };
     expect(hostData.onAgentClick).toBeUndefined();
     expect(hostData.onHostClick).toBeUndefined();
+  });
+
+  it("positions wider hosts (more agents) without colliding with neighbours", () => {
+    const data = makeData([
+      {
+        hostname: "wide",
+        agents: [
+          makeAgent({ agent_key: "a1" }),
+          makeAgent({ agent_key: "a2" }),
+          makeAgent({ agent_key: "a3" }),
+          makeAgent({ agent_key: "a4" }),
+        ],
+      },
+      {
+        hostname: "narrow",
+        agents: [makeAgent({ agent_key: "b1" })],
+      },
+    ]);
+
+    const { nodes } = computeTopology(data);
+    const wideNode = nodes.find(
+      (n) => n.id === "host-wide",
+    ) as { position: { x: number } };
+    const narrowNode = nodes.find(
+      (n) => n.id === "host-narrow",
+    ) as { position: { x: number } };
+    expect(wideNode).toBeDefined();
+    expect(narrowNode).toBeDefined();
+
+    // Real non-overlap invariant: the wide host's right edge must sit at
+    // or before the narrow host's left edge. Anchored to AGENT_COL_WIDTH
+    // so the assertion stays correct if the column width changes.
+    const wideWidth = 4 * AGENT_COL_WIDTH + HOST_PADDING * 2;
+    expect(wideNode.position.x + wideWidth).toBeLessThanOrEqual(
+      narrowNode.position.x,
+    );
+  });
+
+  it("attaches the agent model name as the edge label", () => {
+    const data = makeData([
+      {
+        hostname: "h",
+        agents: [makeAgent({ agent_key: "a1", model: "claude-sonnet-4-6" })],
+      },
+    ]);
+    const { edges } = computeTopology(data);
+    const agentEdge = edges.find((e) => e.sourceHandle === "a1");
+    expect(agentEdge?.label).toBe("claude-sonnet-4-6");
+  });
+
+  it("omits the edge label when the agent has no model set", () => {
+    const data = makeData([
+      {
+        hostname: "h",
+        agents: [makeAgent({ agent_key: "a1", model: "" })],
+      },
+    ]);
+    const { edges } = computeTopology(data);
+    const agentEdge = edges.find((e) => e.sourceHandle === "a1");
+    expect(agentEdge?.label).toBeUndefined();
   });
 
   it("emits an SSH edge per host as before", () => {

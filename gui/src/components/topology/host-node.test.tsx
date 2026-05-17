@@ -22,7 +22,19 @@ vi.mock("@xyflow/react", () => ({
 }));
 
 import { HostNode } from "./host-node";
-import { type TopologyAgent } from "@/lib/types";
+import { type HostHardware, type TopologyAgent } from "@/lib/types";
+
+function makeHardware(overrides: Partial<HostHardware> = {}): HostHardware {
+  return {
+    architecture: null,
+    cores: null,
+    memtotal_mb: null,
+    gpu: { present: false, vendor: null, error: null },
+    product_name: null,
+    system_vendor: null,
+    ...overrides,
+  };
+}
 
 function makeAgent(overrides: Partial<TopologyAgent> = {}): TopologyAgent {
   const merged = {
@@ -48,15 +60,18 @@ function renderHost(
   callbacks: {
     onAgentClick?: (agent: TopologyAgent) => void;
     onHostClick?: (hostname: string) => void;
+    hardware?: HostHardware | null;
   } = {}
 ) {
+  const { hardware, ...cb } = callbacks;
   const data = {
     hostname: "wolf-i",
     alias: "wolf-i",
     user: "alice",
     agentCount: agents.length,
     agents,
-    ...callbacks,
+    hardware: hardware ?? null,
+    ...cb,
   };
   const props = { data } as unknown as Parameters<typeof HostNode>[0];
   return render(<HostNode {...props} />);
@@ -124,5 +139,124 @@ describe("HostNode", () => {
     // Clicking the agent and the host should be no-ops, not throws.
     fireEvent.click(screen.getByText("espresso"));
     fireEvent.click(screen.getByText("wolf-i"));
+  });
+
+  it("renders agents as columns (each with its own bottom source handle)", () => {
+    const agents = [
+      makeAgent({ agent_key: "espresso", model: "claude-1" }),
+      makeAgent({ agent_key: "maurice", model: "gpt-4" }),
+    ];
+    renderHost(agents);
+    const sources = screen
+      .getAllByTestId("rf-handle")
+      .filter((h) => h.getAttribute("data-handle-type") === "source");
+    expect(sources).toHaveLength(2);
+    sources.forEach((h) =>
+      expect(h.getAttribute("data-handle-position")).toBe("bottom"),
+    );
+  });
+
+  it("renders architecture badge when known", () => {
+    renderHost([makeAgent()], {
+      hardware: makeHardware({ architecture: "aarch64" }),
+    });
+    expect(screen.getByText("aarch64")).toBeInTheDocument();
+  });
+
+  it("omits architecture badge when architecture is 'unknown'", () => {
+    renderHost([makeAgent()], {
+      hardware: makeHardware({ architecture: "unknown" }),
+    });
+    expect(screen.queryByText("unknown")).not.toBeInTheDocument();
+  });
+
+  it("renders NVIDIA GPU badge with vendor text when GPU detected", () => {
+    renderHost([makeAgent()], {
+      hardware: makeHardware({
+        architecture: "x86_64",
+        gpu: { present: true, vendor: "nvidia", error: null },
+      }),
+    });
+    expect(screen.getByText("NVIDIA")).toBeInTheDocument();
+  });
+
+  it("renders AMD GPU badge with vendor text when GPU detected", () => {
+    renderHost([makeAgent()], {
+      hardware: makeHardware({
+        gpu: { present: true, vendor: "amd", error: null },
+      }),
+    });
+    expect(screen.getByText("AMD")).toBeInTheDocument();
+  });
+
+  it("renders Intel GPU badge with vendor text when GPU detected", () => {
+    renderHost([makeAgent()], {
+      hardware: makeHardware({
+        gpu: { present: true, vendor: "intel", error: null },
+      }),
+    });
+    expect(screen.getByText("Intel")).toBeInTheDocument();
+  });
+
+  it("renders generic GPU badge when vendor is unknown", () => {
+    renderHost([makeAgent()], {
+      hardware: makeHardware({
+        gpu: { present: true, vendor: "unknown", error: null },
+      }),
+    });
+    expect(screen.getByText("GPU")).toBeInTheDocument();
+  });
+
+  it("does not render a GPU badge when GPU is absent", () => {
+    renderHost([makeAgent()], {
+      hardware: makeHardware({
+        gpu: { present: false, vendor: null, error: null },
+      }),
+    });
+    expect(screen.queryByText("NVIDIA")).not.toBeInTheDocument();
+    expect(screen.queryByText("AMD")).not.toBeInTheDocument();
+    expect(screen.queryByText("Intel")).not.toBeInTheDocument();
+    expect(screen.queryByText("GPU")).not.toBeInTheDocument();
+  });
+
+  it("renders product_name as a sub-line for NVIDIA system vendor", () => {
+    renderHost([makeAgent()], {
+      hardware: makeHardware({
+        system_vendor: "nvidia",
+        product_name: "DGX Spark",
+      }),
+    });
+    expect(screen.getByText("DGX Spark")).toBeInTheDocument();
+  });
+
+  it("renders product_name sub-line even when GPU was not detected on NVIDIA system", () => {
+    renderHost([makeAgent()], {
+      hardware: makeHardware({
+        system_vendor: "nvidia",
+        product_name: "DGX Spark",
+        gpu: { present: false, vendor: null, error: null },
+      }),
+    });
+    expect(screen.getByText("DGX Spark")).toBeInTheDocument();
+  });
+
+  it("renders product_name without a vendor logo when system_vendor is not nvidia", () => {
+    renderHost([makeAgent()], {
+      hardware: makeHardware({
+        system_vendor: "dell inc.",
+        product_name: "PowerEdge R750",
+      }),
+    });
+    expect(screen.getByText("PowerEdge R750")).toBeInTheDocument();
+    expect(screen.queryByText("NVIDIA")).not.toBeInTheDocument();
+  });
+
+  it("renders nothing hardware-related when host has no hardware block", () => {
+    renderHost([makeAgent()]);
+    expect(screen.queryByText("aarch64")).not.toBeInTheDocument();
+    expect(screen.queryByText("NVIDIA")).not.toBeInTheDocument();
+    expect(screen.queryByText("AMD")).not.toBeInTheDocument();
+    expect(screen.queryByText("Intel")).not.toBeInTheDocument();
+    expect(screen.queryByText("GPU")).not.toBeInTheDocument();
   });
 });

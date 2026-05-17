@@ -241,6 +241,40 @@ class TestAddIntegration:
             with pytest.raises(InvalidIntegrationTypeError):
                 add_integration({"name": "myint", "type": "invalid-type"})
 
+    def test_stamps_created_at_and_updated_at(self, tmp_path):
+        """add_integration stamps timestamps when caller omits them."""
+        with patch(
+            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
+        ), patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path):
+            add_integration({"name": "myint", "type": "github"})
+            saved = load_integrations()
+            assert len(saved) == 1
+            rec = saved[0]
+            assert isinstance(rec.get("created_at"), str)
+            assert isinstance(rec.get("updated_at"), str)
+            assert rec["created_at"] == rec["updated_at"]
+            # ISO-8601 UTC: must end with +00:00 and contain a T separator
+            assert "T" in rec["created_at"]
+            assert rec["created_at"].endswith("+00:00")
+
+    def test_preserves_caller_supplied_timestamps(self, tmp_path):
+        """setdefault semantics: caller-supplied timestamps are not overwritten."""
+        ts = "2025-01-01T00:00:00+00:00"
+        with patch(
+            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
+        ), patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path):
+            add_integration(
+                {
+                    "name": "myint",
+                    "type": "github",
+                    "created_at": ts,
+                    "updated_at": ts,
+                }
+            )
+            saved = load_integrations()
+            assert saved[0]["created_at"] == ts
+            assert saved[0]["updated_at"] == ts
+
 
 class TestGetIntegration:
     """Tests for get_integration function."""
@@ -307,6 +341,51 @@ class TestRemoveIntegration:
             result = remove_integration("nonexistent")
             assert result is False
 
+    def test_removes_credentials_before_json_record(self, tmp_path):
+        """Regression guard for W2: credential cleanup must run BEFORE the
+        JSON record is rewritten. At the moment ``remove_integration_credentials``
+        is invoked, the integrations.json file still contains the target
+        record — so a crash between the two steps leaves the integration
+        visible (recoverable) rather than orphaning secrets.
+        """
+        integrations = [
+            {"name": "work-github", "type": "github"},
+            {"name": "other", "type": "atlassian"},
+        ]
+        integrations_file = tmp_path / INTEGRATIONS_FILE
+        integrations_file.write_text(json.dumps(integrations))
+
+        observed: dict[str, bool] = {}
+
+        def observing_remove(name: str) -> bool:
+            # Read the on-disk file while inside the cleanup hook — the
+            # JSON record must still be present at this exact moment.
+            current = json.loads(integrations_file.read_text())
+            observed["record_present_during_cred_cleanup"] = any(
+                rec.get("name") == name for rec in current
+            )
+            return True
+
+        with patch(
+            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
+        ), patch(
+            "clawrium.core.integrations.init_config_dir", return_value=tmp_path
+        ), patch(
+            "clawrium.core.integrations.remove_integration_credentials",
+            side_effect=observing_remove,
+        ):
+            result = remove_integration("work-github")
+            assert result is True
+
+        assert observed.get("record_present_during_cred_cleanup") is True, (
+            "remove_integration must call remove_integration_credentials "
+            "BEFORE saving the new integrations.json"
+        )
+
+        # And the final on-disk state should reflect the removal.
+        final = json.loads(integrations_file.read_text())
+        assert [r["name"] for r in final] == ["other"]
+
 
 class TestCredentialStorage:
     """Tests for credential storage functions."""
@@ -343,6 +422,24 @@ class TestCredentialStorage:
             result = remove_integration_credentials("my-github")
             assert result is True
             mock_remove.assert_called_once_with("integration:my-github")
+
+    def test_get_integration_credentials_skips_malformed_entry(self):
+        """Entries missing a 'value' key are filtered, not crashed on.
+
+        Regression guard for B1 — a malformed SecretEntry (manual edit,
+        future writer bug) must not raise KeyError; valid entries should
+        still come through unchanged.
+        """
+        with patch(
+            "clawrium.core.secrets.get_instance_secrets"
+        ) as mock_get:
+            mock_get.return_value = {
+                "GOOD_KEY": {"value": "abc"},
+                "MISSING_VALUE_KEY": {"description": "no value"},
+                "NON_DICT_KEY": "scalar",
+            }
+            creds = get_integration_credentials("my-github")
+            assert creds == {"GOOD_KEY": "abc"}
 
 
 class TestAgentIntegrations:

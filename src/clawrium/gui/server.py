@@ -10,7 +10,15 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from clawrium.gui.routes import agents, fleet, topology, providers, settings, usage
+from clawrium.gui.routes import (
+    agents,
+    fleet,
+    integrations,
+    providers,
+    settings,
+    topology,
+    usage,
+)
 
 app = FastAPI(
     title="Clawrium GUI",
@@ -33,6 +41,7 @@ app.include_router(providers.router)
 app.include_router(settings.router)
 app.include_router(usage.router)
 app.include_router(agents.router)
+app.include_router(integrations.router)
 
 
 @app.get("/api/health")

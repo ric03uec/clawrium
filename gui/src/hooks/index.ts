@@ -4,3 +4,11 @@ export { useProviders, useProviderTypes, useModelCatalog, useCreateProvider, use
 export { useUsageSummary, useUsageHistory, useUsageByAgent } from "./use-usage";
 export { useAgent, useAgentActions } from "./use-agent";
 export { useSettings, useVersion, useClearUsage } from "./use-settings";
+export {
+  useIntegrations,
+  useIntegrationTypes,
+  useIntegration,
+  useCreateIntegration,
+  useUpdateIntegrationCredentials,
+  useDeleteIntegration,
+} from "./use-integrations";

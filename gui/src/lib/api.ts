@@ -30,6 +30,14 @@ interface ProviderTypesResponse {
   types: ProviderTypesMap;
 }
 
+interface IntegrationsResponse {
+  integrations: Integration[];
+}
+
+interface IntegrationTypesResponse {
+  types: IntegrationTypesMap;
+}
+
 interface CatalogResponse {
   models: CatalogModel[];
 }
@@ -85,6 +93,35 @@ export const api = {
     request<{ success: boolean; name: string }>(`/providers/${name}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteProvider: (name: string) =>
     request<{ success: boolean; name: string }>(`/providers/${name}`, { method: "DELETE" }),
+
+  // Integrations
+  getIntegrations: async (): Promise<Integration[]> => {
+    const res = await request<IntegrationsResponse>("/integrations");
+    return res.integrations;
+  },
+  getIntegrationTypes: async (): Promise<IntegrationTypesMap> => {
+    const res = await request<IntegrationTypesResponse>("/integrations/types");
+    return res.types;
+  },
+  getIntegration: (name: string) =>
+    request<IntegrationDetail>(`/integrations/${name}`),
+  createIntegration: (data: IntegrationCreate) =>
+    request<{ success: boolean; name: string }>("/integrations", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateIntegrationCredentials: (
+    name: string,
+    data: IntegrationCredentialsUpdate,
+  ) =>
+    request<{ success: boolean; name: string; updated_keys: string[] }>(
+      `/integrations/${name}/credentials`,
+      { method: "PATCH", body: JSON.stringify(data) },
+    ),
+  deleteIntegration: (name: string) =>
+    request<{ success: boolean; name: string }>(`/integrations/${name}`, {
+      method: "DELETE",
+    }),
 
   // Usage (unwrap from { data: [...] } and normalize field names)
   getUsageSummary: async (days = 30): Promise<UsageSummary> => {
@@ -198,4 +235,9 @@ import type {
   MemoryFileContent,
   ChatInfo,
   LogsResponse,
+  Integration,
+  IntegrationDetail,
+  IntegrationTypesMap,
+  IntegrationCreate,
+  IntegrationCredentialsUpdate,
 } from "./types";

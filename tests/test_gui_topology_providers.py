@@ -170,6 +170,69 @@ def test_load_provider_endpoints_normalizes_whitespace_to_none(monkeypatch):
     assert topology_mod._load_provider_endpoints() == {"weird": None}
 
 
+def test_host_includes_hardware_block_when_present(monkeypatch):
+    agents = [_make_agent("a1")]
+    host = _make_host()
+    host["hardware"] = {
+        "architecture": "aarch64",
+        "processor_cores": 32,
+        "memtotal_mb": 65536,
+        "gpu": {"present": True, "vendor": "nvidia", "error": None},
+        "product_name": "DGX Spark",
+        "system_vendor": "nvidia",
+    }
+
+    monkeypatch.setattr(topology_mod, "get_fleet_data", _stub_get_fleet_data(agents))
+    monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: [host])
+    monkeypatch.setattr(topology_mod, "load_providers", lambda: [])
+
+    import asyncio
+
+    result = asyncio.run(topology_mod.get_topology())
+
+    hw = result["hosts"][0]["hardware"]
+    assert hw is not None
+    assert hw["architecture"] == "aarch64"
+    assert hw["cores"] == 32
+    assert hw["memtotal_mb"] == 65536
+    assert hw["gpu"] == {"present": True, "vendor": "nvidia", "error": None}
+    assert hw["product_name"] == "DGX Spark"
+    assert hw["system_vendor"] == "nvidia"
+
+
+def test_host_hardware_is_null_when_absent(monkeypatch):
+    agents = [_make_agent("a1")]
+    monkeypatch.setattr(topology_mod, "get_fleet_data", _stub_get_fleet_data(agents))
+    monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: [_make_host()])
+    monkeypatch.setattr(topology_mod, "load_providers", lambda: [])
+
+    import asyncio
+
+    result = asyncio.run(topology_mod.get_topology())
+
+    assert result["hosts"][0]["hardware"] is None
+
+
+def test_host_hardware_gpu_defaults_when_only_partial(monkeypatch):
+    agents = [_make_agent("a1")]
+    host = _make_host()
+    host["hardware"] = {"architecture": "x86_64"}
+
+    monkeypatch.setattr(topology_mod, "get_fleet_data", _stub_get_fleet_data(agents))
+    monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: [host])
+    monkeypatch.setattr(topology_mod, "load_providers", lambda: [])
+
+    import asyncio
+
+    result = asyncio.run(topology_mod.get_topology())
+
+    hw = result["hosts"][0]["hardware"]
+    assert hw["architecture"] == "x86_64"
+    assert hw["gpu"] == {"present": False, "vendor": None, "error": None}
+    assert hw["product_name"] is None
+    assert hw["system_vendor"] is None
+
+
 def test_provider_endpoint_is_none_when_provider_not_in_providers_file(monkeypatch):
     agents = [_make_agent("a1", provider="ghost", provider_type="ollama")]
     hosts = [_make_host()]

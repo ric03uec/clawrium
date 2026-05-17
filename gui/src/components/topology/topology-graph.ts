@@ -1,10 +1,15 @@
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 
 import { type TopologyAgent, type TopologyResponse } from "@/lib/types";
+import {
+  AGENT_COL_WIDTH,
+  HOST_MIN_WIDTH,
+  HOST_PADDING,
+} from "./host-node";
 
 const HOST_ROW_Y = 180;
-const PROVIDER_ROW_Y = 440;
-const HOST_SPACING = 300;
+const PROVIDER_ROW_Y = 480;
+export const HOST_GAP = 48;
 const PROVIDER_SPACING = 260;
 const UNCONFIGURED_KEY = "__unconfigured__";
 
@@ -28,7 +33,7 @@ interface ProviderAccumulator {
   type: string | null;
   endpoint: string | null;
   unconfigured: boolean;
-  agents: Array<{ hostname: string; agentKey: string }>;
+  agents: Array<{ hostname: string; agentKey: string; model: string | null }>;
 }
 
 export function providerNodeKey(agent: TopologyAgent): string {
@@ -40,6 +45,11 @@ export function providerNodeKey(agent: TopologyAgent): string {
   // "|" is unambiguous AND produces a key safe to embed in React Flow DOM IDs
   // (no quotes / brackets that could trip CSS attribute selectors).
   return [type, name, endpoint].map(encodeURIComponent).join("|");
+}
+
+function hostNodeWidth(agentCount: number): number {
+  const cols = Math.max(agentCount, 1);
+  return Math.max(cols * AGENT_COL_WIDTH + HOST_PADDING * 2, HOST_MIN_WIDTH);
 }
 
 export function computeTopology(
@@ -56,31 +66,41 @@ export function computeTopology(
     data: { label: data.control.label, description: data.control.description },
   });
 
-  const hostCount = data.hosts.length;
-  const hostStartX = -((hostCount - 1) * HOST_SPACING) / 2;
-
   const providerOrder: string[] = [];
   const providerMap = new Map<string, ProviderAccumulator>();
 
+  // Cumulative-width layout: each host is positioned based on the total width
+  // of all preceding hosts plus the HOST_GAP between them. Width scales with
+  // agents.length with no cap, so wide hosts do not collide with neighbours.
+  const hostWidths = data.hosts.map((h) => hostNodeWidth(h.agents.length));
+  const totalRowWidth =
+    hostWidths.reduce((sum, w) => sum + w, 0) +
+    Math.max(data.hosts.length - 1, 0) * HOST_GAP;
+  let cursorX = -totalRowWidth / 2;
+
   data.hosts.forEach((host, hostIndex) => {
     const hostNodeId = `host-${host.hostname}`;
+    const width = hostWidths[hostIndex];
 
     nodes.push({
       id: hostNodeId,
       type: "host",
-      position: { x: hostStartX + hostIndex * HOST_SPACING, y: HOST_ROW_Y },
+      position: { x: cursorX, y: HOST_ROW_Y },
       data: {
         hostname: host.hostname,
         alias: host.alias,
         user: host.user,
         agentCount: host.agent_count,
         agents: host.agents,
+        hardware: host.hardware ?? null,
         onAgentClick: opts.onAgentClick
           ? (agent: TopologyAgent) => opts.onAgentClick?.(agent, host.alias)
           : undefined,
         onHostClick: opts.onHostClick,
       },
     });
+
+    cursorX += width + HOST_GAP;
 
     edges.push({
       id: `edge-control-${host.hostname}`,
@@ -117,7 +137,11 @@ export function computeTopology(
         providerMap.set(pKey, acc);
         providerOrder.push(pKey);
       }
-      acc.agents.push({ hostname: host.hostname, agentKey: agent.agent_key });
+      acc.agents.push({
+        hostname: host.hostname,
+        agentKey: agent.agent_key,
+        model: agent.model || null,
+      });
     });
   });
 
@@ -141,7 +165,7 @@ export function computeTopology(
       } satisfies ProviderNodeData,
     });
 
-    acc.agents.forEach(({ hostname, agentKey }) => {
+    acc.agents.forEach(({ hostname, agentKey, model }) => {
       const stroke = acc.unconfigured ? "#94A3B8" : "#475569";
       edges.push({
         id: `edge-${hostname}-${agentKey}-${pKey}`,
@@ -161,6 +185,21 @@ export function computeTopology(
           width: 14,
           height: 14,
         },
+        ...(model
+          ? {
+              label: model,
+              // Anchor to the design-token system; --text-secondary keeps
+              // the model label readable while distinct from the SSH edge
+              // label (which uses --text-muted).
+              labelStyle: {
+                fontSize: 9,
+                fill: "var(--text-secondary)",
+                opacity: 0.7,
+              },
+              labelBgStyle: { fill: "#FFFFFF", fillOpacity: 0.7 },
+              labelBgPadding: [3, 1] as [number, number],
+            }
+          : {}),
       });
     });
   });

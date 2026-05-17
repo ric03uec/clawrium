@@ -8,7 +8,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import ansible_runner
 
@@ -34,6 +34,10 @@ class HardwareInfo(TypedDict):
     gpu: GpuInfo
     os: str  # lowercase distribution name (e.g., "ubuntu", "debian")
     os_version: str  # distribution version (e.g., "24.04", "12")
+    # Optional and absent on older hosts.json records that pre-date these
+    # fields; typed as NotRequired so reading legacy dicts still type-checks.
+    product_name: NotRequired[str | None]  # ansible_product_name (e.g., "DGX Spark")
+    system_vendor: NotRequired[str | None]  # ansible_system_vendor, lowercase
 
 
 def extract_hardware_from_facts(facts: dict) -> dict:
@@ -45,6 +49,17 @@ def extract_hardware_from_facts(facts: dict) -> dict:
     Returns:
         Hardware dict with architecture, cores, memory, mounts, os, os_version
     """
+    product_name_raw = facts.get("ansible_product_name")
+    product_name = product_name_raw.strip() if isinstance(product_name_raw, str) else None
+    if product_name == "":
+        product_name = None
+
+    system_vendor_raw = facts.get("ansible_system_vendor")
+    if isinstance(system_vendor_raw, str):
+        system_vendor: str | None = system_vendor_raw.strip().lower() or None
+    else:
+        system_vendor = None
+
     hardware = {
         "architecture": facts.get("ansible_architecture", "unknown"),
         "processor_cores": facts.get("ansible_processor_cores", 0),
@@ -53,6 +68,8 @@ def extract_hardware_from_facts(facts: dict) -> dict:
         "mounts": [],
         "os": (facts.get("ansible_distribution") or "unknown").lower(),
         "os_version": str(facts.get("ansible_distribution_version", "unknown")),
+        "product_name": product_name,
+        "system_vendor": system_vendor,
     }
 
     # Extract mount information (only relevant fields)
