@@ -56,8 +56,19 @@ export function SkillsTab({ agentKey }: SkillsTabProps) {
   );
 
   if (isLoading) {
+    // ATX-1 B1: skeleton must announce itself to assistive tech.
+    // role=status + aria-live=polite makes screen readers report
+    // "Loading skills…" when the tab becomes active; the sr-only span
+    // gives them text to read since the pulsing divs carry no content.
     return (
-      <div className="space-y-3 p-4" data-testid="skills-loading">
+      <div
+        className="space-y-3 p-4"
+        data-testid="skills-loading"
+        role="status"
+        aria-live="polite"
+        aria-label="Loading skills"
+      >
+        <span className="sr-only">Loading skills…</span>
         <div className="bg-surface rounded-xl border border-default h-20 animate-pulse" />
         <div className="bg-surface rounded-xl border border-default h-20 animate-pulse" />
       </div>
@@ -146,7 +157,11 @@ export function SkillsTab({ agentKey }: SkillsTabProps) {
             the catalog.
           </div>
         ) : (
-          <ul className="divide-y divide-default border border-default rounded-lg overflow-hidden">
+          <ul
+            className="divide-y divide-default border border-default rounded-lg overflow-hidden"
+            role="list"
+            aria-label="Installed skills"
+          >
             {data.installed.map((row) => (
               <InstalledRow
                 key={row.ref}
@@ -188,6 +203,12 @@ function InstalledRow({
   onRemove: (registry: string, name: string) => void;
   disabled: boolean;
 }) {
+  // ATX-1 B2: remove is destructive (re-running install brings the host
+  // back in sync, but the desired-state file is mutated immediately).
+  // First click arms the confirm/cancel pair instead of firing the
+  // mutation directly. Confirm button carries the skill ref in its
+  // accessible name so a screen-reader scan can't conflate two rows.
+  const [confirming, setConfirming] = useState(false);
   const canRemove = !!row.registry && !!row.name;
   return (
     <li className="flex items-start gap-3 px-4 py-3">
@@ -207,15 +228,43 @@ function InstalledRow({
           </p>
         ) : null}
       </div>
-      <Button
-        variant="danger"
-        size="sm"
-        onClick={() => canRemove && onRemove(row.registry!, row.name!)}
-        disabled={disabled || !canRemove}
-        aria-label={`Remove ${row.ref}`}
-      >
-        Remove
-      </Button>
+      {confirming ? (
+        <div className="flex items-center gap-2" role="group" aria-label={`Confirm removal of ${row.ref}`}>
+          <span className="text-xs text-secondary">Remove {row.ref}?</span>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => {
+              if (canRemove) {
+                onRemove(row.registry!, row.name!);
+                setConfirming(false);
+              }
+            }}
+            disabled={disabled || !canRemove}
+            aria-label={`Confirm remove ${row.ref}`}
+          >
+            Confirm
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setConfirming(false)}
+            aria-label={`Cancel remove ${row.ref}`}
+          >
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <Button
+          variant="danger"
+          size="sm"
+          onClick={() => setConfirming(true)}
+          disabled={disabled || !canRemove}
+          aria-label={`Remove ${row.ref}`}
+        >
+          Remove
+        </Button>
+      )}
     </li>
   );
 }
@@ -270,6 +319,7 @@ function SkillPicker({
             size="sm"
             onClick={() => row.registry && row.name && onPick(row.registry, row.name)}
             disabled={pending || !row.registry || !row.name}
+            aria-label={`Install ${row.ref}`}
           >
             Install
           </Button>

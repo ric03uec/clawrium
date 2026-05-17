@@ -151,8 +151,9 @@ describe("SkillsTab", () => {
     agentSkillsState.data = makeAgentSkills();
     render(<SkillsTab agentKey="tdd-hermes" />);
     fireEvent.click(screen.getByRole("button", { name: /Install skill/ }));
+    // Per-row picker button is labeled "Install <ref>" (ATX-1 W7).
     fireEvent.click(
-      screen.getAllByRole("button", { name: /^Install$/ })[0],
+      screen.getByRole("button", { name: /Install clawrium\/tdd/ }),
     );
     await waitFor(() =>
       expect(installMutation.mutateAsync).toHaveBeenCalledWith({
@@ -163,7 +164,49 @@ describe("SkillsTab", () => {
     );
   });
 
-  it("calls remove mutation with parsed registry+name", async () => {
+  it("calls remove mutation only after the confirm step", async () => {
+    // ATX-1 B2: destructive Remove is a two-step. First click arms the
+    // confirm/cancel pair; the mutation only fires on the Confirm click.
+    agentSkillsState.data = makeAgentSkills({
+      installed: [
+        {
+          ref: "clawrium/tdd",
+          registry: "clawrium",
+          name: "tdd",
+          description: "TDD discipline.",
+          version: "0.1.0",
+        },
+      ],
+    });
+    render(<SkillsTab agentKey="tdd-hermes" />);
+
+    // Step 1: clicking "Remove" must NOT call the mutation.
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+    );
+    expect(removeMutation.mutateAsync).not.toHaveBeenCalled();
+
+    // The confirm/cancel pair is now rendered, labelled with the ref.
+    expect(
+      screen.getByRole("group", {
+        name: /Confirm removal of clawrium\/tdd/,
+      }),
+    ).toBeInTheDocument();
+
+    // Step 2: confirm.
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm remove clawrium\/tdd/ }),
+    );
+    await waitFor(() =>
+      expect(removeMutation.mutateAsync).toHaveBeenCalledWith({
+        agentKey: "tdd-hermes",
+        registry: "clawrium",
+        name: "tdd",
+      }),
+    );
+  });
+
+  it("cancels the remove confirmation without firing the mutation", () => {
     agentSkillsState.data = makeAgentSkills({
       installed: [
         {
@@ -177,15 +220,16 @@ describe("SkillsTab", () => {
     });
     render(<SkillsTab agentKey="tdd-hermes" />);
     fireEvent.click(
-      screen.getByRole("button", { name: /Remove clawrium\/tdd/ }),
+      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
     );
-    await waitFor(() =>
-      expect(removeMutation.mutateAsync).toHaveBeenCalledWith({
-        agentKey: "tdd-hermes",
-        registry: "clawrium",
-        name: "tdd",
-      }),
+    fireEvent.click(
+      screen.getByRole("button", { name: /Cancel remove clawrium\/tdd/ }),
     );
+    expect(removeMutation.mutateAsync).not.toHaveBeenCalled();
+    // Confirmation UI is gone; the original Remove button is back.
+    expect(
+      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+    ).toBeInTheDocument();
   });
 
   it("surfaces install errors inline", async () => {
@@ -196,10 +240,53 @@ describe("SkillsTab", () => {
     render(<SkillsTab agentKey="tdd-hermes" />);
     fireEvent.click(screen.getByRole("button", { name: /Install skill/ }));
     fireEvent.click(
-      screen.getAllByRole("button", { name: /^Install$/ })[0],
+      screen.getAllByRole("button", { name: /Install clawrium\/tdd/ })[0],
     );
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(/host unreachable/);
+    });
+  });
+
+  it("surfaces remove errors inline", async () => {
+    // ATX-1 W9: handleRemove has the same catch path as handleInstall;
+    // assert the error banner fires for the destructive path too.
+    agentSkillsState.data = makeAgentSkills({
+      installed: [
+        {
+          ref: "clawrium/tdd",
+          registry: "clawrium",
+          name: "tdd",
+          description: "TDD discipline.",
+          version: "0.1.0",
+        },
+      ],
+    });
+    removeMutation.mutateAsync = vi
+      .fn()
+      .mockRejectedValue(new Error("ansible timeout"));
+    render(<SkillsTab agentKey="tdd-hermes" />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm remove clawrium\/tdd/ }),
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/ansible timeout/);
+    });
+  });
+
+  it("closes the install picker after a successful install", async () => {
+    // ATX-1 W9: post-install modal-close path was previously uncovered.
+    agentSkillsState.data = makeAgentSkills();
+    render(<SkillsTab agentKey="tdd-hermes" />);
+    fireEvent.click(screen.getByRole("button", { name: /Install skill/ }));
+    expect(screen.getByTestId("modal")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Install clawrium\/tdd/ })[0],
+    );
+    await waitFor(() => {
+      expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
     });
   });
 });

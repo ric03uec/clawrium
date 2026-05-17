@@ -24,9 +24,14 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
+from clawrium.core.skills import (
+    ExternalSourceBlocked,
+    parse_skill_ref,
+)
 from clawrium.core.skills_apply import (
     ApplyResult,
     SkillApplyError,
+    SkillApplyNotSupported,
 )
 from clawrium.core.skills_state import read_state, write_state
 from clawrium.gui.routes import agents as agents_route
@@ -194,9 +199,20 @@ def test_install_404_when_agent_missing(monkeypatch):
     assert exc.value.status_code == 404
 
 
-def test_install_422_on_external_source_ref(monkeypatch):
-    """A ref like ``http:/bad`` must be rejected before we touch state
-    or apply_state. parse_skill_ref raises ExternalSourceBlocked."""
+def test_install_422_on_unknown_registry(monkeypatch):
+    """An unknown registry token (``http:``, ``bogus``, …) routed through
+    the path-parameter form fails inside ``parse_skill_ref`` with
+    ``InvalidSkillRef`` — *not* ``ExternalSourceBlocked``. The route maps
+    both to 422 the same way; the test is renamed (ATX-1 W8) to match
+    the actual exception class so a future reader doesn't think this
+    line exercises the external-source guard.
+
+    ``ExternalSourceBlocked`` is unreachable from a path-parameter
+    request because the FastAPI router forbids a path segment from
+    containing ``/`` or ``://`` — see
+    ``test_external_source_blocked_at_parser_level`` for the direct
+    parser test of that boundary.
+    """
     _stub_resolved(monkeypatch)
     # apply_state must NOT be called — assert by raising if it is.
     monkeypatch.setattr(
@@ -204,6 +220,50 @@ def test_install_422_on_external_source_ref(monkeypatch):
     )
     with pytest.raises(HTTPException) as exc:
         _run(agents_route.install_agent_skill("tdd-hermes", "http:", "bad"))
+    assert exc.value.status_code == 422
+
+
+def test_external_source_blocked_at_parser_level():
+    """Direct parser test for the security boundary the GUI relies on.
+
+    ATX-1 W8 flagged that the path-param route can't reach
+    ``ExternalSourceBlocked`` (FastAPI strips the protocol delimiter).
+    The actual guard lives in ``parse_skill_ref``; this asserts it
+    fires for url-shaped inputs.
+    """
+    for ref in (
+        "https://evil.example/skill",
+        "http://evil.example/skill",
+        "git+https://evil.example/skill",
+    ):
+        with pytest.raises(ExternalSourceBlocked):
+            parse_skill_ref(ref)
+
+
+def test_install_422_on_unsupported_claw_type(monkeypatch):
+    """ATX-1 B3: cover the ``SkillApplyNotSupported`` → 422 mapping.
+
+    Without this, the route could silently regress to 500 on an unknown
+    claw type and the existing 200/422/502 tests would still pass.
+    """
+    _stub_resolved(monkeypatch)
+    _stub_apply(
+        monkeypatch,
+        raises=SkillApplyNotSupported("Skills apply for 'nemoclaw' has no playbook"),
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.install_agent_skill("tdd-hermes", "clawrium", "tdd"))
+    assert exc.value.status_code == 422
+
+
+def test_remove_422_on_unsupported_claw_type(monkeypatch):
+    _stub_resolved(monkeypatch)
+    _stub_apply(
+        monkeypatch,
+        raises=SkillApplyNotSupported("Skills apply for 'nemoclaw' has no playbook"),
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.remove_agent_skill("tdd-hermes", "clawrium", "tdd"))
     assert exc.value.status_code == 422
 
 
@@ -234,12 +294,20 @@ def test_install_422_on_incompatible_claw(monkeypatch):
 
 def test_install_502_on_apply_error(monkeypatch):
     _stub_resolved(monkeypatch)
-    _stub_apply(
-        monkeypatch, raises=SkillApplyError("host unreachable: timed out")
+    # Reproduces the exact message shape core.skills_apply ships — embeds
+    # a log dir absolute path so the test fails if we ever stop redacting.
+    raw_msg = (
+        "Skills apply failed (status=failed): host unreachable: "
+        "/tmp/nope (log: /home/op/.config/clawrium/logs/skills_apply-x)."
     )
+    _stub_apply(monkeypatch, raises=SkillApplyError(raw_msg))
     with pytest.raises(HTTPException) as exc:
         _run(agents_route.install_agent_skill("tdd-hermes", "clawrium", "tdd"))
     assert exc.value.status_code == 502
+    # ATX-1 B1: 502 detail must NOT echo the original path-bearing message.
+    assert "/home/op/.config/clawrium/logs" not in str(exc.value.detail)
+    assert "/tmp/nope" not in str(exc.value.detail)
+    assert "Check server logs" in str(exc.value.detail)
     # State should still reflect the user's intent — apply failures
     # don't roll back desired state; the user will retry.
     assert read_state("tdd-hermes") == ["clawrium/tdd"]
@@ -293,7 +361,122 @@ def test_remove_422_on_malformed_ref(monkeypatch):
     assert exc.value.status_code == 422
 
 
+# ---------- Documented behavior on apply failure ------------------------------
+
+
+def test_state_is_not_rolled_back_on_apply_failure(monkeypatch):
+    """ATX-1 W3 documents the design choice (carried over from the CLI):
+    on apply failure the desired-state mutation is *kept*, so the user
+    can retry the apply without re-typing the ref. This test pins the
+    behavior so any future change to "validate-before-write" is
+    deliberate, not accidental.
+    """
+    _stub_resolved(monkeypatch)
+    _stub_apply(monkeypatch, raises=SkillApplyError("host unreachable"))
+    with pytest.raises(HTTPException):
+        _run(agents_route.install_agent_skill("tdd-hermes", "clawrium", "tdd"))
+    assert read_state("tdd-hermes") == ["clawrium/tdd"]
+
+
+# ---------- _is_compatible_for_agent_type unit tests --------------------------
+
+
+@pytest.mark.parametrize(
+    "registry,name,agent_type,expected",
+    [
+        # Native registry, claw match: drop through to load+validate.
+        ("hermes", "ANY", "hermes", False),  # no real hermes/ANY skill → loader fails-closed
+        # Native registry, claw mismatch: short-circuit false without loading.
+        ("hermes", "anything", "openclaw", False),
+        ("openclaw", "anything", "zeroclaw", False),
+        # Unknown source registry: short-circuit false.
+        ("not-a-registry", "tdd", "hermes", False),
+        # clawrium/tdd is the seed skill — compatible with every native claw.
+        ("clawrium", "tdd", "hermes", True),
+        ("clawrium", "tdd", "openclaw", True),
+        ("clawrium", "tdd", "zeroclaw", True),
+        # Unknown agent type fails closed via check_agent_compatibility.
+        ("clawrium", "tdd", "nemoclaw", False),
+        # Catalog row that doesn't exist fails closed at load_skill.
+        ("clawrium", "missing-skill", "hermes", False),
+    ],
+)
+def test_is_compatible_for_agent_type_matrix(
+    registry: str, name: str, agent_type: str, expected: bool
+):
+    """ATX-1 B5/W2: every branch of the filter — including the
+    fail-closed paths — is covered with a direct unit test, not just
+    inferred via the route-level happy path."""
+    assert (
+        agents_route._is_compatible_for_agent_type(registry, name, agent_type)
+        is expected
+    )
+
+
+# ---------- _skill_error_status mapping table ---------------------------------
+
+
+def test_skill_error_status_table():
+    """Pin every concrete ``SkillError`` subclass → status code so a
+    future subclass added without wiring stays loud (defaults to 500
+    via the fallback branch)."""
+    from clawrium.core.skills import (
+        InvalidSkillRef,
+        MissingRegistryPrefix,
+        SchemaValidationError,
+    )
+    from clawrium.core.skills_apply import (
+        AgentNotFoundError,
+        SkillApplyError,
+        SkillApplyNotSupported,
+    )
+
+    cases: list[tuple[Exception, int]] = [
+        (AgentNotFoundError("a"), 404),
+        (SkillNotFoundLike(), 404),  # SkillNotFound — see helper below
+        (SkillApplyError("x"), 502),
+        (SkillApplyNotSupported("x"), 422),
+        (MissingRegistryPrefix("x"), 422),
+        (ExternalSourceBlocked("x"), 422),
+        (InvalidSkillRef("x"), 422),
+        (IncompatibleSkillRegistryLike(), 422),
+        (SchemaValidationError("x"), 422),
+    ]
+    for error, expected in cases:
+        assert agents_route._skill_error_status(error) == expected, error
+
+
+def test_skill_error_status_falls_back_to_500_for_unknown_subclass():
+    """A subclass added later without wiring should not silently
+    register as a client error — fallback is 500."""
+    from clawrium.core.skills import SkillError
+
+    class _NovelSkillError(SkillError):
+        pass
+
+    assert agents_route._skill_error_status(_NovelSkillError("x")) == 500
+
+
 # ---------- Helpers -----------------------------------------------------------
+
+
+# Cannot construct SkillNotFound / IncompatibleSkillRegistry with the
+# bare base-class init in some refactors; alias them at the import site
+# so the table above stays declarative.
+from clawrium.core.skills import (  # noqa: E402
+    IncompatibleSkillRegistry,
+    SkillNotFound,
+)
+
+
+class SkillNotFoundLike(SkillNotFound):
+    def __init__(self) -> None:
+        super().__init__("skill x not in catalog")
+
+
+class IncompatibleSkillRegistryLike(IncompatibleSkillRegistry):
+    def __init__(self) -> None:
+        super().__init__("not compatible")
 
 
 def _raises_if_called(label: str):

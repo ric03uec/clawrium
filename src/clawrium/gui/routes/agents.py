@@ -37,6 +37,7 @@ from clawrium.core.secrets import (
 )
 from clawrium.core.skills import (
     NATIVE_REGISTRIES,
+    REGISTRIES,
     ExternalSourceBlocked,
     IncompatibleSkillRegistry,
     InvalidSkillRef,
@@ -44,6 +45,7 @@ from clawrium.core.skills import (
     SchemaValidationError,
     SkillError,
     SkillNotFound,
+    check_agent_compatibility,
     list_skills,
     load_skill,
     parse_skill_ref,
@@ -291,27 +293,60 @@ def _skill_error_status(error: SkillError) -> int:
     return 500
 
 
+# SkillApplyError messages from core.skills_apply embed absolute paths
+# (log_dir, playbook_path) and remote stderr — useful for the CLI's local
+# error surface but not safe to ship in an HTTP body that a browser or
+# upstream proxy may cache/log. ATX-1 B1: replace the detail string with
+# a generic message for SkillApplyError; the full text is logged for
+# operator debugging only.
+_SKILL_APPLY_GENERIC_DETAIL = (
+    "Skills apply failed on host. Check server logs for details."
+)
+
+
+def _skill_error_detail(error: SkillError) -> str:
+    """Detail string to ship in the HTTPException body.
+
+    All ``SkillError`` subclasses except ``SkillApplyError`` are
+    user-actionable input/catalog problems — the message itself is the
+    fix hint, so we surface it verbatim. ``SkillApplyError`` is the only
+    class that can carry filesystem paths or remote stderr; that one is
+    redacted to a fixed string and the original message goes to the
+    server log.
+    """
+    if isinstance(error, SkillApplyError):
+        logger.warning("skills apply failed: %s", error)
+        return _SKILL_APPLY_GENERIC_DETAIL
+    return str(error)
+
+
 def _is_compatible_for_agent_type(reg: str, name: str, agent_type: str) -> bool:
     """Decide if a catalog skill is installable on a given claw type.
 
-    Mirrors ``core.skills.check_agent_compatibility``: native registries
-    must match the claw exactly; ``clawrium/*`` consults the skill's
-    ``compatibility`` map. We swallow ``SkillError`` and return False so
-    a broken catalog row never widens the install picker — fail closed,
-    same rule the CLI uses.
+    ATX-1 W2: delegate to ``check_agent_compatibility`` instead of
+    reimplementing the rule. Any future tweak to the compatibility
+    semantics (e.g. how missing keys are treated) now applies to both
+    the CLI and GUI from one place.
+
+    Fast paths kept for the picker's perf budget:
+      - Unknown source registry → false without loading anything.
+      - Native registry whose name doesn't match the claw → false
+        without loading (a native skill can never run on another claw,
+        no need to read SKILL.md to decide).
+
+    Loader failures swallow to false so a single bad catalog row
+    cannot widen the install picker on the user's screen.
     """
-    if reg in NATIVE_REGISTRIES:
-        return reg == agent_type
-    if reg != "clawrium":
+    if reg not in REGISTRIES:
+        return False
+    if reg in NATIVE_REGISTRIES and reg != agent_type:
         return False
     try:
         skill = load_skill(parse_skill_ref(f"{reg}/{name}"))
+        check_agent_compatibility(skill, agent_type)
     except SkillError:
         return False
-    raw = skill.metadata.get("compatibility") or {}
-    if not isinstance(raw, dict):
-        return False
-    return bool(raw.get(agent_type, False))
+    return True
 
 
 def _list_available_for_agent_type(agent_type: str) -> list[dict[str, object]]:
@@ -464,9 +499,10 @@ def _install_or_remove(
 
     raw_ref = f"{registry}/{skill}"
     try:
-        # parse_skill_ref runs first so a malformed ref surfaces as 422
-        # before we touch the state file.
-        parse_skill_ref(raw_ref)
+        # add_skill / remove_skill both call parse_skill_ref as their
+        # first operation, so a malformed ref short-circuits with 422
+        # before any state mutation. (W4: dropped the redundant pre-call
+        # that ATX flagged as dead code.)
         if action == "install":
             _new_state, changed = add_skill(agent_name, raw_ref)
         else:
@@ -475,7 +511,7 @@ def _install_or_remove(
     except SkillError as error:
         raise HTTPException(
             status_code=_skill_error_status(error),
-            detail=str(error),
+            detail=_skill_error_detail(error),
         ) from error
 
     return {
