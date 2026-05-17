@@ -177,7 +177,9 @@ def test_apply_state_ambiguous_agent_name(monkeypatch):
 
 def test_apply_state_openclaw_not_supported(monkeypatch):
     _patch_runtime(monkeypatch, agent_type="openclaw")
-    with pytest.raises(SkillApplyNotSupported, match="not implemented yet|openclaw"):
+    # Tightened from the iter-1 `'not implemented yet|openclaw'` regex
+    # (the left arm was dead after B6 reworded the message).
+    with pytest.raises(SkillApplyNotSupported, match="not yet supported"):
         apply_state("tdd-openclaw")
 
 
@@ -502,6 +504,67 @@ def test_apply_state_log_dir_sanitizes_host_alias(monkeypatch, tmp_path):
         # is the safety property that matters; `..` as a substring of
         # a filename component is fine.
         assert str(log_dir.resolve()).startswith(str(logs_dir))
+
+
+def test_apply_state_log_dir_strips_bidi_in_host_alias(monkeypatch, tmp_path):
+    """A `hosts.json` `alias` containing U+202E (RTLO) must not let
+    a spoofed log directory name reach the on-disk path. The
+    `_sanitize_for_path` allowlist strips every non-`[a-zA-Z0-9._-]`
+    char, which catches every bidi-format codepoint by construction —
+    this test pins that behavior for the host-alias surface."""
+    rtlo_alias = "wolf‮i"  # 'wolf' + RTLO + 'i'
+    _patch_runtime(
+        monkeypatch,
+        host={
+            "hostname": "wolf-i",
+            "alias": rtlo_alias,
+            "user": "wolf-i",
+            "port": 22,
+            "key_id": "wolf-i",
+        },
+    )
+
+    apply_state("tdd-hermes")
+
+    logs_dir = tmp_path / "clawrium" / "logs"
+    log_dirs = list(logs_dir.iterdir())
+    assert log_dirs, "expected a log dir to be created"
+    for log_dir in log_dirs:
+        assert "‮" not in log_dir.name, (
+            f"RTLO leaked into log dir name: {log_dir.name!r}"
+        )
+
+
+def test_stage_skills_cleans_tempdir_on_partial_failure(monkeypatch, tmp_path):
+    """If `_stage_skills` raises mid-loop (e.g. `write_text` fails on
+    a disk-full simulator), the `mkdtemp` directory it just created
+    must be removed before the exception propagates. Without this,
+    `${clawrium_config}/staging/skills/` accumulates an orphan
+    tempdir on every failure.
+    """
+    write_state("tdd-hermes", ["clawrium/tdd"])
+    _patch_runtime(monkeypatch)
+
+    real_render = skills_apply._render_skill_md
+
+    def boom(_frontmatter, _body):
+        # First skill raises; tempdir has already been created.
+        raise OSError("simulated disk-full during render")
+
+    monkeypatch.setattr(skills_apply, "_render_skill_md", boom)
+
+    with pytest.raises(OSError, match="disk-full"):
+        apply_state("tdd-hermes")
+
+    staging_base = tmp_path / "clawrium" / "staging" / "skills"
+    if staging_base.is_dir():
+        leftovers = [p for p in staging_base.iterdir() if p.is_dir()]
+        assert leftovers == [], (
+            f"_stage_skills leaked tempdir on partial failure: {leftovers}"
+        )
+
+    # Restore so subsequent tests can call _render_skill_md normally.
+    monkeypatch.setattr(skills_apply, "_render_skill_md", real_render)
 
 
 def test_apply_state_staging_cleaned_when_log_dir_creation_fails(monkeypatch, tmp_path):

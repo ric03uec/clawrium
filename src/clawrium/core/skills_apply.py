@@ -174,14 +174,16 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
         check_agent_compatibility(skill, agent_type)
         loaded.append(skill)
 
-    # Stage first so the cleanup `finally` covers the log-dir creation,
-    # the playbook invocation, and any exception in between. Without
-    # this ordering, an exception thrown by `_make_log_dir` (e.g.
-    # tampered XDG_CONFIG_HOME, no disk space) would leak the staging
-    # tempdir into ${clawrium_config}/staging/.
-    staging_dir = _stage_skills(agent_name, agent_type, loaded)
+    # Both staging and log-dir creation live inside the `try` so the
+    # `finally` cleanup runs even when one of them raises mid-flight.
+    # In particular, `_stage_skills` does `mkdtemp` *then* writes
+    # per-skill SKILL.md files; an OSError on `write_text` (disk full,
+    # permissions race) would otherwise leave the tempdir under
+    # ${clawrium_config}/staging/ with no reference to clean it up.
+    staging_dir: Path | None = None
     log_dir: Path | None = None
     try:
+        staging_dir = _stage_skills(agent_name, agent_type, loaded)
         log_dir = _make_log_dir(agent_name, agent_type, host)
         _run_apply_playbook(
             host=host,
@@ -196,8 +198,10 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
     finally:
         # Staging dir is always cleaned up — it contains rendered
         # frontmatter only (no secrets) but lingering temp dirs are
-        # noise.
-        shutil.rmtree(staging_dir, ignore_errors=True)
+        # noise. May be None if `_stage_skills` raised before
+        # `mkdtemp` returned.
+        if staging_dir is not None:
+            shutil.rmtree(staging_dir, ignore_errors=True)
         if log_dir is not None:
             _cleanup_runner_artifacts(log_dir)
 
@@ -239,14 +243,23 @@ def _stage_skills(agent_name: str, agent_type: str, skills: list[Skill]) -> Path
         tempfile.mkdtemp(prefix=f"{agent_name}-{timestamp}-", dir=str(base))
     )
 
-    for skill in skills:
-        frontmatter, body = materialize_for_claw(skill, agent_type)
-        skill_dir = staging / skill.ref.name
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        skill_dir.chmod(0o700)
-        skill_md_path = skill_dir / "SKILL.md"
-        skill_md_path.write_text(_render_skill_md(frontmatter, body))
-        os.chmod(skill_md_path, 0o600)
+    # Wrap the per-skill write loop in try/except so a mid-loop failure
+    # (disk full, permissions race) doesn't leak the partially-populated
+    # tempdir into `${clawrium_config}/staging/skills/`. The caller's
+    # `finally` cleanup uses the return value, so a raise-before-return
+    # would otherwise leave the tempdir un-referenced and un-cleaned.
+    try:
+        for skill in skills:
+            frontmatter, body = materialize_for_claw(skill, agent_type)
+            skill_dir = staging / skill.ref.name
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            skill_dir.chmod(0o700)
+            skill_md_path = skill_dir / "SKILL.md"
+            skill_md_path.write_text(_render_skill_md(frontmatter, body))
+            os.chmod(skill_md_path, 0o600)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
 
     return staging
 

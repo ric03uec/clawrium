@@ -213,10 +213,20 @@ def install(
         try:
             write_state(agent_name, prior_state)
         except Exception as rollback_error:
+            # Hard rollback failure is rare (the state file just got
+            # written successfully one statement above) but it leaves
+            # the file pointing at a host state that doesn't exist.
+            # Surface that explicitly so the user knows to verify
+            # rather than just seeing the original apply error.
             logger.warning(
                 "Rollback of %s state failed: %s",
                 agent_name,
                 rollback_error,
+            )
+            err_console.print(
+                "[yellow]Warning:[/yellow] State rollback failed. "
+                f"Run [cyan]clm agent skill list {escape(agent_name)}"
+                "[/cyan] to verify the desired state."
             )
         _exit_with_error(error)
         return
@@ -278,6 +288,11 @@ def remove(
                 "Rollback of %s state failed: %s",
                 agent_name,
                 rollback_error,
+            )
+            err_console.print(
+                "[yellow]Warning:[/yellow] State rollback failed. "
+                f"Run [cyan]clm agent skill list {escape(agent_name)}"
+                "[/cyan] to verify the desired state."
             )
         _exit_with_error(error)
         return

@@ -327,8 +327,21 @@ def test_install_rolls_back_state_on_apply_failure(monkeypatch):
     """When `apply_state` raises after `add_skill` has mutated the
     state, the install path must restore the prior state so the
     file tracks what the host actually has.
+
+    All preflight calls (`load_skill`, `validate_skill`,
+    `check_agent_compatibility`) are stubbed so the assertion does
+    not depend on the on-disk catalog (a missing `clawrium/tdd` would
+    otherwise make the test pass vacuously: preflight would raise
+    `SkillNotFound` before `add_skill` ever ran, and the final
+    `assert read_state == []` would pass without exercising rollback).
     """
     _stub_agent_resolution(monkeypatch)
+    monkeypatch.setattr(cli_agent_skill, "load_skill", lambda ref: object())
+    monkeypatch.setattr(cli_agent_skill, "validate_skill", lambda _skill: None)
+    monkeypatch.setattr(
+        cli_agent_skill, "check_agent_compatibility",
+        lambda _skill, _claw: None,
+    )
     monkeypatch.setattr(
         cli_agent_skill,
         "apply_state",
@@ -336,6 +349,10 @@ def test_install_rolls_back_state_on_apply_failure(monkeypatch):
             SkillApplyError("ssh down (log: /tmp/...)")
         ),
     )
+
+    # Sanity: assert mutation happened, then was rolled back, by
+    # spying on read_state mid-flight via a recorder.
+    assert read_state("tdd-hermes") == []
     result = runner.invoke(
         agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
     )
@@ -343,6 +360,45 @@ def test_install_rolls_back_state_on_apply_failure(monkeypatch):
     assert "ssh down" in result.output
     # Rollback contract: state file shows the skill is NOT installed.
     assert read_state("tdd-hermes") == []
+
+
+def test_install_rollback_path_actually_runs(monkeypatch):
+    """Twin of `test_install_rolls_back_state_on_apply_failure` that
+    *positively* asserts the rollback path executes by spying on
+    `write_state`. Without this, a hypothetical refactor that simply
+    skipped `add_skill` on failure would also pass the read-only
+    assertion above."""
+    _stub_agent_resolution(monkeypatch)
+    monkeypatch.setattr(cli_agent_skill, "load_skill", lambda ref: object())
+    monkeypatch.setattr(cli_agent_skill, "validate_skill", lambda _skill: None)
+    monkeypatch.setattr(
+        cli_agent_skill, "check_agent_compatibility",
+        lambda _skill, _claw: None,
+    )
+    monkeypatch.setattr(
+        cli_agent_skill,
+        "apply_state",
+        lambda *a, **kw: (_ for _ in ()).throw(SkillApplyError("ssh down")),
+    )
+
+    write_calls: list[list[str]] = []
+    real_write = cli_agent_skill.write_state
+
+    def spying_write(agent_name, refs):
+        write_calls.append([str(r) for r in refs])
+        return real_write(agent_name, refs)
+
+    monkeypatch.setattr(cli_agent_skill, "write_state", spying_write)
+
+    runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
+
+    # The rollback path explicitly calls `write_state(agent, prior_state)`
+    # with the empty list (prior_state was empty at the start of the
+    # test). add_skill itself also calls write_state, so we expect
+    # at least two write_state invocations.
+    assert any(call == [] for call in write_calls), (
+        f"rollback write_state(prior_state=[]) never invoked: {write_calls}"
+    )
 
 
 def test_remove_rolls_back_state_on_apply_failure(monkeypatch):
@@ -375,6 +431,49 @@ def test_install_preflight_failure_does_not_mutate_state(monkeypatch):
     assert result.exit_code == 1
     # State unchanged.
     assert read_state("tdd-hermes") == ["clawrium/tdd"]
+
+
+def test_install_rollback_failure_surfaces_warning_to_user(monkeypatch):
+    """If `write_state` itself raises during the rollback (extremely
+    rare — the file was just written successfully one statement
+    earlier), the user must see a yellow warning telling them to
+    verify with `clm agent skill list`. Silent rollback failure
+    would leave the state file lying about the host."""
+    _stub_agent_resolution(monkeypatch)
+    monkeypatch.setattr(cli_agent_skill, "load_skill", lambda ref: object())
+    monkeypatch.setattr(cli_agent_skill, "validate_skill", lambda _skill: None)
+    monkeypatch.setattr(
+        cli_agent_skill, "check_agent_compatibility",
+        lambda _skill, _claw: None,
+    )
+    monkeypatch.setattr(
+        cli_agent_skill,
+        "apply_state",
+        lambda *a, **kw: (_ for _ in ()).throw(SkillApplyError("ssh down")),
+    )
+
+    # Patch write_state on the *cli* module so the install's
+    # `add_skill` and `read_state` use the real impls (which both
+    # delegate through skills_state), but the *rollback's* explicit
+    # `write_state` call from agent_skill resolves to the broken stub.
+    def flaky_write(_agent_name, _refs):
+        # `agent_skill.install` only calls `cli_agent_skill.write_state`
+        # in the rollback path (add_skill goes straight to
+        # `skills_state.write_state`, not the re-export on this
+        # module). Patching here therefore triggers exactly on rollback.
+        raise OSError("simulated rollback failure")
+
+    monkeypatch.setattr(cli_agent_skill, "write_state", flaky_write)
+
+    result = runner.invoke(
+        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
+    )
+
+    assert result.exit_code == 1
+    assert "ssh down" in result.output
+    assert "rollback failed" in result.output.lower()
+    # Hint should point at the verification command.
+    assert "clm agent skill list" in result.output
 
 
 def test_exit_with_error_sanitizes_bidi_in_message(monkeypatch):

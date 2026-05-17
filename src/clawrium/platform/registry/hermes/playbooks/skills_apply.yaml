@@ -63,13 +63,23 @@
       loop_control:
         label: "{{ item }}"
 
-    - name: Assert staging_dir is a non-empty absolute path
+    - name: Assert staging_dir is a non-empty absolute path under the clawrium staging tree
+      # Defense-in-depth: the Python entry point always passes a
+      # `tempfile.mkdtemp` path under `${clawrium_config}/staging/skills/`,
+      # so a tampered inventory pointing at `/etc` or `/root` would not
+      # match the expected substring and the playbook bails before the
+      # `copy` task runs. The `clawrium/staging/skills/` substring is
+      # the canonical prefix carved out by `_stage_skills` and is
+      # stable across XDG_CONFIG_HOME values.
       ansible.builtin.assert:
         that:
           - staging_dir is string
           - staging_dir | length > 0
           - staging_dir.startswith('/')
-        fail_msg: "staging_dir must be a non-empty absolute path"
+          - "'/clawrium/staging/skills/' in staging_dir"
+        fail_msg: >-
+          staging_dir must be an absolute path under
+          `${clawrium_config}/staging/skills/` (got '{{ staging_dir }}')
         quiet: true
 
     # ----------------------- materialize ------------------------------------
