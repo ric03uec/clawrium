@@ -658,6 +658,48 @@ def test_main_exit_2_on_permission_error_reading_schema(
     rc = validate_skills_mod.main([str(tmp_path)])
     captured = capsys.readouterr()
     assert rc == 2, captured.err
+    # Pin every layer of the diagnostic so a regression that drops any
+    # one of them (the wrapper prefix, the registry-name interpolation,
+    # the underlying OSError detail) still fails this test.
+    assert "internal validation failure" in captured.err
+    assert "schema for registry" in captured.err
+    assert "Permission denied" in captured.err
+    assert "hint:" in captured.err
+    # A success message on stdout would mean main() printed "ok:" before
+    # the exception fired — covers any future ordering regression.
+    assert captured.out == ""
+
+
+def test_main_exit_2_on_permission_error_for_native_registry(
+    tmp_path, monkeypatch, capsys
+):
+    """Native-registry counterpart of the clawrium-path test. Without
+    this the OSError → exit-2 propagation through `_validate_native_skill
+    → _validate_registry → validate_catalog → main` is untested."""
+    _build_fixture(tmp_path)
+    skill = tmp_path / "openclaw" / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        dedent(
+            """\
+            ---
+            name: demo
+            description: An openclaw-native demo.
+            ---
+
+            # Body
+            """
+        )
+    )
+
+    def _raise_permission(_registry: str):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(validate_skills_mod, "_load_schema", _raise_permission)
+
+    rc = validate_skills_mod.main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert rc == 2, captured.err
     assert "internal validation failure" in captured.err
     assert "Permission denied" in captured.err
 

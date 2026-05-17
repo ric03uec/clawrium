@@ -506,6 +506,12 @@ def main(argv: list[str] | None = None) -> int:
         # Exit code 2 — matches the contract documented in the module
         # docstring and signals "not contributor-fixable" to CI.
         print(f"error: internal validation failure: {error}", file=sys.stderr)
+        print(
+            "hint: check that skills/_schema/ is intact and readable; "
+            "reinstall the package (`uv sync` or `uv tool install --force "
+            "clawrium`) if schema files are missing or corrupt.",
+            file=sys.stderr,
+        )
         return 2
     if not failures:
         print(f"ok: skills catalog at {root} validates")
