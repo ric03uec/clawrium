@@ -97,9 +97,21 @@ describe("SkillsPage", () => {
     const tabs = nav.querySelectorAll("button");
     expect(tabs).toHaveLength(4);
     // The clawrium tab starts active and shows count 1.
-    const clawriumTab = screen.getByRole("button", { name: /Clawrium/ });
-    expect(clawriumTab).toHaveAttribute("aria-current", "page");
+    const clawriumTab = screen.getByRole("button", {
+      name: /Clawrium.*1 skill/i,
+    });
+    expect(clawriumTab).toHaveAttribute("aria-current", "true");
     expect(clawriumTab.textContent).toMatch(/1/);
+  });
+
+  it("pluralizes the screen-reader count correctly", () => {
+    skillsState.data = makeCatalog();
+    render(<SkillsPage />);
+    // Hermes is empty (count 0) — must read "0 skills", not "0 skill".
+    const hermesTab = screen.getByRole("button", {
+      name: /Hermes.*0 skills/i,
+    });
+    expect(hermesTab).toBeInTheDocument();
   });
 
   it("renders the SkillCard for the active registry", () => {
@@ -111,7 +123,7 @@ describe("SkillsPage", () => {
   it("renders the empty-state hint when a tab has no skills", () => {
     skillsState.data = makeCatalog();
     render(<SkillsPage />);
-    fireEvent.click(screen.getByRole("button", { name: /Hermes/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Hermes.*0 skills/i }));
     expect(
       screen.getByText((_, node) => node?.textContent === "skills/hermes/<name>/"),
     ).toBeInTheDocument();

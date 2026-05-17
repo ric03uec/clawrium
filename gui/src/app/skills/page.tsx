@@ -63,7 +63,14 @@ export default function SkillsPage() {
                 <button
                   key={registry}
                   type="button"
-                  aria-current={isActive ? "page" : undefined}
+                  // `aria-current="true"` is the right WAI-ARIA token
+                  // for "this filter is selected"; `"page"` is reserved
+                  // for routing (selected nav item that matches the
+                  // current URL).
+                  aria-current={isActive ? "true" : undefined}
+                  aria-label={`${REGISTRY_LABELS[registry] ?? registry} — ${
+                    counts[registry] ?? 0
+                  } skill${(counts[registry] ?? 0) === 1 ? "" : "s"}`}
                   onClick={() => setActiveRegistry(registry)}
                   className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                     isActive
@@ -72,7 +79,7 @@ export default function SkillsPage() {
                   }`}
                 >
                   {REGISTRY_LABELS[registry] ?? registry}
-                  <span className="ml-2 text-xs text-muted">
+                  <span aria-hidden="true" className="ml-2 text-xs text-muted">
                     {counts[registry] ?? 0}
                   </span>
                 </button>

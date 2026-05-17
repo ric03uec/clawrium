@@ -95,6 +95,23 @@ def test_list_returns_empty_catalog_when_missing(monkeypatch, tmp_path):
         assert result["skills"][registry] == []
 
 
+def test_list_degrades_to_empty_on_oserror(monkeypatch):
+    """A filesystem OSError walking the catalog (permission denied
+    on the root, for example) should not 500 the whole endpoint."""
+
+    def _boom(registry=None):
+        raise PermissionError("simulated: permission denied")
+
+    # The route imported list_skills by name at module-load time; patch
+    # the route's binding, not the core module's, or the patch is dead.
+    monkeypatch.setattr(skills_route, "list_skills", _boom)
+
+    result = _run(skills_route.list_skills_route())
+    assert result["registries"] == list(core_skills.REGISTRIES)
+    for registry in core_skills.REGISTRIES:
+        assert result["skills"][registry] == []
+
+
 # ---------- GET /api/skills/{registry}/{name} ---------------------------------
 
 
@@ -156,6 +173,112 @@ def test_detail_missing_skill_returns_404():
     with pytest.raises(HTTPException) as exc:
         _run(skills_route.get_skill_route("clawrium", "does-not-exist"))
     assert exc.value.status_code == 404
+
+
+def test_detail_404_body_has_no_filesystem_paths(monkeypatch, tmp_path):
+    """A SkillNotFound for an incomplete skill dir (present dir,
+    missing SKILL.md / _meta.yaml) must not leak the absolute path
+    in the 404 body. core/skills.py embeds the path; the route
+    scrubs it."""
+    catalog = tmp_path / "catalog"
+    catalog.mkdir()
+    _copy_schemas(catalog)
+    # Create skill dir with no SKILL.md — triggers the path-bearing
+    # SkillNotFound raise in core/skills.py:312.
+    (catalog / "clawrium" / "ghost").mkdir(parents=True)
+    monkeypatch.setattr(core_skills, "_catalog_root", lambda: catalog)
+    core_skills._SCHEMA_CACHE.clear()
+
+    with pytest.raises(HTTPException) as exc:
+        _run(skills_route.get_skill_route("clawrium", "ghost"))
+    assert exc.value.status_code == 404
+    detail = str(exc.value.detail)
+    assert str(tmp_path) not in detail
+    assert "SKILL.md" not in detail
+    assert "/_meta.yaml" not in detail
+    # Still mentions the ref so the message is actionable.
+    assert "clawrium/ghost" in detail
+    # And points the user at the CLI workflow rather than the path.
+    assert "clm skill list" in detail
+
+
+def test_list_degrades_when_one_skill_fails(monkeypatch, tmp_path):
+    """_summarize must keep the surrounding rows intact when one
+    skill's _meta.yaml is unparseable. Documented graceful-degradation
+    contract; previously untested."""
+    catalog = tmp_path / "catalog"
+    catalog.mkdir()
+    _copy_schemas(catalog)
+
+    # Healthy skill.
+    good = catalog / "clawrium" / "good"
+    good.mkdir(parents=True)
+    good.joinpath("_meta.yaml").write_text(
+        "name: good\n"
+        "description: Healthy fixture.\n"
+        "version: 0.1.0\n"
+        "compatibility: {openclaw: true, hermes: true, zeroclaw: true}\n"
+    )
+    good.joinpath("SKILL.md").write_text("---\nname: good\n---\nbody\n")
+
+    # Broken skill — _meta.yaml is invalid YAML.
+    broken = catalog / "clawrium" / "broken"
+    broken.mkdir(parents=True)
+    broken.joinpath("_meta.yaml").write_text("name: broken\n  bad: indent: here\n")
+    broken.joinpath("SKILL.md").write_text("---\nname: broken\n---\nbody\n")
+
+    monkeypatch.setattr(core_skills, "_catalog_root", lambda: catalog)
+    core_skills._SCHEMA_CACHE.clear()
+
+    result = _run(skills_route.list_skills_route())
+    refs = {entry["ref"] for entry in result["skills"]["clawrium"]}
+    assert refs == {"clawrium/good", "clawrium/broken"}
+    # Good row carries description; broken row degrades to None.
+    by_ref = {e["ref"]: e for e in result["skills"]["clawrium"]}
+    assert by_ref["clawrium/good"]["description"] == "Healthy fixture."
+    assert by_ref["clawrium/broken"]["description"] is None
+
+
+def test_detail_truncates_body_over_64kib(monkeypatch, tmp_path):
+    """A skill with a large SKILL.md body should be truncated at the
+    backend boundary so the GUI doesn't ship multi-MB documents."""
+    catalog = tmp_path / "catalog"
+    catalog.mkdir()
+    _copy_schemas(catalog)
+    skill = catalog / "clawrium" / "big"
+    skill.mkdir(parents=True)
+    skill.joinpath("_meta.yaml").write_text(
+        "name: big\n"
+        "description: Oversized body fixture.\n"
+        "version: 0.1.0\n"
+        "compatibility: {openclaw: true, hermes: true, zeroclaw: true}\n"
+    )
+    huge = "x" * (100 * 1024)  # 100 KiB > 64 KiB cap
+    skill.joinpath("SKILL.md").write_text(f"---\nname: big\n---\n{huge}\n")
+
+    monkeypatch.setattr(core_skills, "_catalog_root", lambda: catalog)
+    core_skills._SCHEMA_CACHE.clear()
+
+    result = _run(skills_route.get_skill_route("clawrium", "big"))
+    body_bytes = len(result["body"].encode("utf-8"))
+    # Truncation marker takes a few extra bytes; total is bounded by
+    # the cap + the marker length, not the full 100 KiB input.
+    assert body_bytes < 70 * 1024, body_bytes
+    assert "truncated by GUI" in result["body"]
+
+
+def test_detail_returns_404_for_unknown_clawrium_skill_with_no_paths():
+    """The shipping catalog SkillNotFound path (skill dir doesn't
+    exist) also must not leak the catalog root."""
+    with pytest.raises(HTTPException) as exc:
+        _run(skills_route.get_skill_route("clawrium", "no-such-skill"))
+    assert exc.value.status_code == 404
+    detail = str(exc.value.detail)
+    # Bundled `_skills` lives under site-packages or repo-root/skills;
+    # neither should appear in the response body.
+    assert "/skills/" not in detail
+    assert "/_skills/" not in detail
+    assert ".local/lib/" not in detail
 
 
 def test_detail_native_skill_compatibility_self_only(monkeypatch, tmp_path):

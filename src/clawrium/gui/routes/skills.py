@@ -182,7 +182,20 @@ def _map_error(error: SkillError, ref_str: str) -> HTTPException:
     layout to debug a malformed `_meta.yaml`.
     """
     if isinstance(error, SkillNotFound):
-        return HTTPException(status_code=404, detail=str(error))
+        # `core/skills.py` raises SkillNotFound with the absolute path
+        # of the missing SKILL.md / _meta.yaml when a skill directory
+        # exists but is incomplete. That's useful for the CLI (one
+        # operator, one machine) and a leak for the GUI (the body is
+        # served to anything on localhost). Keep the verbose message
+        # in the server log; ship a path-free body to the wire.
+        logger.warning("skill not found %s: %s", ref_str, error)
+        return HTTPException(
+            status_code=404,
+            detail=(
+                f"Skill {ref_str!r} not found in catalog. "
+                "Run `clm skill list` to see available skills."
+            ),
+        )
     if isinstance(
         error,
         (MissingRegistryPrefix, ExternalSourceBlocked, InvalidSkillRef),
@@ -232,11 +245,12 @@ async def list_skills_route() -> dict[str, Any]:
         }
         try:
             refs = list_skills()
-        except SkillError as error:
-            # No catalog at all is a 500 only if it's unexpected; the
-            # underlying error class is SkillNotFound on missing dir,
-            # which we surface as an empty catalog rather than a hard
-            # error so the GUI still renders the empty-state tab.
+        except (SkillError, OSError) as error:
+            # Catch both SkillError (no catalog dir) and OSError
+            # (permission glitch on the catalog tree). Either way the
+            # GUI should render an empty catalog with all four tabs
+            # rather than a hard 500 — the user can still navigate
+            # away to fix the underlying filesystem issue.
             logger.warning("skills catalog unavailable: %s", error)
             return {"registries": list(REGISTRIES), "skills": grouped}
         for ref in refs:
@@ -265,6 +279,13 @@ async def get_skill_route(
             return _detail(ref)
         except SkillError as error:
             raise _map_error(error, raw_ref) from error
+        except OSError as error:
+            # A filesystem permission or I/O glitch shouldn't reveal
+            # the path layout in the 500 body. Log full server-side.
+            logger.exception("filesystem error loading %s: %s", raw_ref, error)
+            raise HTTPException(
+                status_code=500, detail="Internal error."
+            ) from error
 
     try:
         return await asyncio.to_thread(_resolve)
