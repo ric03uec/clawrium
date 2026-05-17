@@ -217,7 +217,12 @@ export const api = {
   // Skills catalog (read-only browse — Phase 4)
   getSkills: () => request<SkillsCatalog>("/skills"),
   getSkill: (registry: string, name: string) =>
-    request<SkillDetail>(`/skills/${registry}/${name}`),
+    // encodeURIComponent on both segments. The backend rejects anything
+    // outside `^[a-z0-9][a-z0-9_-]*$`, so currently this is a no-op,
+    // but the safety shouldn't depend on a non-local invariant.
+    request<SkillDetail>(
+      `/skills/${encodeURIComponent(registry)}/${encodeURIComponent(name)}`,
+    ),
 };
 
 // Type imports (re-exported from types.ts for convenience)

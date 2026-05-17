@@ -65,6 +65,15 @@ describe("SkillDetail", () => {
     expect(screen.getByText(/Body content/)).toBeInTheDocument();
   });
 
+  it("makes the SKILL.md body keyboard-scrollable", () => {
+    render(<SkillDetail skill={makeDetail()} />);
+    // WCAG 2.1.1 Level A — scrollable region must be reachable from
+    // the keyboard. The <pre> carries tabIndex=0 + an aria-label.
+    const pre = screen.getByLabelText("SKILL.md body, scrollable");
+    expect(pre.tagName).toBe("PRE");
+    expect(pre.getAttribute("tabindex")).toBe("0");
+  });
+
   it("omits optional fields when missing", () => {
     render(
       <SkillDetail

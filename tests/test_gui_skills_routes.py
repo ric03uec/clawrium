@@ -343,48 +343,29 @@ def test_list_degrades_when_one_skill_raises_oserror(monkeypatch):
     assert by_ref["clawrium/tdd"]["description"] is None
 
 
-def test_compatibility_map_non_dict_coerces_to_all_false(monkeypatch, tmp_path):
-    """A clawrium skill whose ``compatibility`` field is a scalar
-    (e.g. a string) must fail-closed — all native claws report
-    incompatible. Matches the fail-closed rule in
-    ``check_agent_compatibility``."""
-    catalog = tmp_path / "catalog"
-    catalog.mkdir()
-    _copy_schemas(catalog)
-    skill = catalog / "clawrium" / "weird"
-    skill.mkdir(parents=True)
-    # `compatibility: yes` parses to a string, not a dict — schema
-    # validation will let this through since `compatibility` is
-    # technically `additionalProperties: true`, but our fail-closed
-    # guard should still kick in.
-    skill.joinpath("_meta.yaml").write_text(
-        "name: weird\n"
-        "description: Non-dict compatibility fixture.\n"
-        "version: 0.1.0\n"
-        "compatibility: yes\n"
+def test_compatibility_map_non_dict_coerces_to_all_false():
+    """Direct unit test for ``_compatibility_map``'s fail-closed guard.
+
+    The full ``_detail`` happy path always pre-validates against
+    ``clawrium.schema.json``, which has
+    ``compatibility: { type: object, additionalProperties: false }`` —
+    so a scalar `compatibility: yes` never reaches `_compatibility_map`
+    end-to-end. The guard exists defensively for any future caller
+    that builds a metadata dict outside the schema path; this test
+    locks the fail-closed behavior in place without depending on
+    schema permissiveness.
+    """
+    ref = core_skills.parse_skill_ref("clawrium/tdd")
+    # `True` is what `compatibility: yes` parses to in YAML.
+    result = skills_route._compatibility_map(ref, {"compatibility": True})
+    assert all(v is False for v in result.values()), result
+
+    # List form (e.g. `compatibility: [openclaw, hermes]`) — also
+    # rejected by schema, but the runtime guard still fail-closes.
+    result_list = skills_route._compatibility_map(
+        ref, {"compatibility": ["openclaw"]}
     )
-    skill.joinpath("SKILL.md").write_text("---\nname: weird\n---\nbody\n")
-
-    monkeypatch.setattr(core_skills, "_catalog_root", lambda: catalog)
-    core_skills._SCHEMA_CACHE.clear()
-
-    # If validation passes (schema is permissive), we get a 200 with
-    # all-False compatibility. If validation fails (schema is strict),
-    # we'd get 422 — either is acceptable, but the non-dict-handling
-    # branch is what we're testing.
-    try:
-        result = _run(skills_route.get_skill_route("clawrium", "weird"))
-    except HTTPException as exc:
-        # Schema rejected the non-dict; that's also fail-closed, but
-        # this test exists to exercise the runtime-coercion branch.
-        # Skip explicitly so it's not confused with a false negative.
-        pytest.skip(
-            f"schema rejected non-dict compatibility (status {exc.status_code})"
-        )
-        return  # pragma: no cover
-    assert all(v is False for v in result["compatibility"].values()), result[
-        "compatibility"
-    ]
+    assert all(v is False for v in result_list.values()), result_list
 
 
 def test_detail_returns_404_for_unknown_clawrium_skill_with_no_paths():

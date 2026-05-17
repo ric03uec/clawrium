@@ -84,7 +84,14 @@ export function SkillDetail({ skill }: SkillDetailProps) {
           <h3 className="font-medium text-primary-text mb-2 text-xs">
             SKILL.md
           </h3>
-          <pre className="text-xs text-secondary whitespace-pre-wrap font-mono max-h-96 overflow-auto">
+          {/* `tabIndex={0}` makes the scrollable body reachable via
+              keyboard (WCAG 2.1.1 Level A). Without it, keyboard-only
+              users can't scroll the body when it overflows max-h-96. */}
+          <pre
+            tabIndex={0}
+            aria-label="SKILL.md body, scrollable"
+            className="text-xs text-secondary whitespace-pre-wrap font-mono max-h-96 overflow-auto focus:outline-none focus:ring-2 focus:ring-primary"
+          >
             {skill.body}
           </pre>
         </div>

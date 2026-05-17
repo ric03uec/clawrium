@@ -58,6 +58,25 @@ _DETAIL_METADATA_KEYS: tuple[str, ...] = (
 # future skill that bundles a long appendix.
 _BODY_MAX_BYTES = 64 * 1024
 
+# Unicode bidi-override characters. A SKILL.md that embeds these can
+# render visually misleading content even after escaping (the "Trojan
+# Source" class of attack). Strip on the server side so the GUI never
+# has to think about it.
+_BIDI_OVERRIDE_CHARS = "".join(
+    [
+        "‪",  # LRE — Left-to-Right Embedding
+        "‫",  # RLE — Right-to-Left Embedding
+        "‬",  # PDF — Pop Directional Formatting
+        "‭",  # LRO — Left-to-Right Override
+        "‮",  # RLO — Right-to-Left Override
+        "⁦",  # LRI — Left-to-Right Isolate
+        "⁧",  # RLI — Right-to-Left Isolate
+        "⁨",  # FSI — First Strong Isolate
+        "⁩",  # PDI — Pop Directional Isolate
+    ]
+)
+_BIDI_TRANSLATION = {ord(c): None for c in _BIDI_OVERRIDE_CHARS}
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
@@ -133,7 +152,9 @@ def _detail(skill_ref: SkillRef) -> dict[str, Any]:
         for key in _DETAIL_METADATA_KEYS
         if key in skill.metadata and skill.metadata[key] not in (None, "", [], {})
     }
-    body = skill.body
+    # Strip bidi-override chars before sizing/truncation so a malicious
+    # SKILL.md can't smuggle visual-deception sequences past the GUI.
+    body = skill.body.translate(_BIDI_TRANSLATION)
     if len(body.encode("utf-8")) > _BODY_MAX_BYTES:
         # Byte-bounded truncation. The marker line is plain text so a
         # naive consumer (e.g. curl piped to less) sees something
@@ -308,7 +329,7 @@ async def get_skill_route(
                 status_code=500, detail="Internal error."
             ) from error
 
-    try:
-        return await asyncio.to_thread(_resolve)
-    except HTTPException:
-        raise
+    # `HTTPException` propagates through FastAPI automatically; no wrap
+    # needed. A bare `await` here keeps the call path clean and lets a
+    # truly unhandled exception 500 visibly rather than silently swallow.
+    return await asyncio.to_thread(_resolve)
