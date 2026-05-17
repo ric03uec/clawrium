@@ -265,7 +265,14 @@ def get_integration_credentials(integration_name: str) -> dict[str, str]:
 
     instance_key = get_integration_instance_key(integration_name)
     secrets = get_instance_secrets(instance_key)
-    return {key: entry["value"] for key, entry in secrets.items()}
+    # Filter out malformed entries that are missing "value" — mirrors the
+    # defensive pattern in lifecycle.py; the broken entry stays in the
+    # secrets file (manual cleanup) but does not crash legitimate callers.
+    return {
+        key: v
+        for key, entry in secrets.items()
+        if isinstance(entry, dict) and (v := entry.get("value")) is not None
+    }
 
 
 def remove_integration_credentials(integration_name: str) -> bool:
@@ -408,6 +415,15 @@ def add_integration(integration: dict) -> None:
             if existing.get("name") == name:
                 raise DuplicateIntegrationError(f"Integration '{name}' already exists")
 
+        # Stamp timestamps if the caller did not supply them. UTC ISO-8601
+        # with second precision matches the provider record format and keeps
+        # GUI summaries from showing None forever.
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        integration.setdefault("created_at", now)
+        integration.setdefault("updated_at", now)
+
         integrations.append(integration)
 
         # Save without re-acquiring lock
@@ -532,12 +548,16 @@ def remove_integration(name: str, force: bool = False) -> bool:
             # No integration was removed
             return False
 
+        # Remove credentials BEFORE the JSON record so a crash between the
+        # two steps cannot orphan secrets that a future same-name integration
+        # would silently inherit. Secrets has its own internal lock; if
+        # credential cleanup fails, the integrations.json record is still
+        # present (recoverable) rather than being silently disconnected.
+        remove_integration_credentials(name)
+
         # Save without re-acquiring lock
         config_dir = init_config_dir()
         _save_integrations_atomic(filtered, config_dir)
-
-    # Remove credentials (outside lock since secrets has its own locking)
-    remove_integration_credentials(name)
 
     return True
 

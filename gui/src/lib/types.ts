@@ -81,6 +81,22 @@ export interface TopologyHost {
   has_key: boolean;
   agent_count: number;
   agents: TopologyAgent[];
+  hardware?: HostHardware | null;
+}
+
+export interface HostHardwareGpu {
+  present: boolean;
+  vendor: string | null;
+  error?: string | null;
+}
+
+export interface HostHardware {
+  architecture: string | null;
+  cores: number | null;
+  memtotal_mb: number | null;
+  gpu: HostHardwareGpu;
+  product_name: string | null;
+  system_vendor: string | null;
 }
 
 export interface TopologyAgent {
@@ -151,6 +167,49 @@ export interface CatalogModel {
   context_window: number;
   tags: string[];
   provider_type: string;
+}
+
+// Integration types
+export interface IntegrationCredentialDef {
+  key: string;
+  description: string;
+  required: boolean;
+}
+
+export interface IntegrationType {
+  description: string;
+  credentials: IntegrationCredentialDef[];
+}
+
+export type IntegrationTypesMap = Record<string, IntegrationType>;
+
+export interface Integration {
+  name: string;
+  type: string;
+  credential_keys: string[];
+  configured_credential_keys: string[];
+  agent_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface IntegrationAgentRef {
+  hostname: string;
+  agent_key: string;
+}
+
+export interface IntegrationDetail extends Integration {
+  agents_using: IntegrationAgentRef[];
+}
+
+export interface IntegrationCreate {
+  name: string;
+  type: string;
+  credentials: Record<string, string>;
+}
+
+export interface IntegrationCredentialsUpdate {
+  credentials: Record<string, string>;
 }
 
 // Usage types

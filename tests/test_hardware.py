@@ -86,6 +86,50 @@ def test_parse_ansible_facts_os_detection():
     assert hardware["os_version"] == "24.04"
 
 
+def test_parse_ansible_facts_product_and_vendor():
+    """Extracts product_name and system_vendor and lowercases system_vendor."""
+    from clawrium.core.hardware import extract_hardware_from_facts
+
+    facts = {
+        "ansible_architecture": "aarch64",
+        "ansible_product_name": "DGX Spark",
+        "ansible_system_vendor": "NVIDIA",
+    }
+
+    hardware = extract_hardware_from_facts(facts)
+
+    assert hardware["product_name"] == "DGX Spark"
+    assert hardware["system_vendor"] == "nvidia"
+
+
+def test_parse_ansible_facts_product_and_vendor_missing():
+    """When product_name/system_vendor are missing, they come back as None."""
+    from clawrium.core.hardware import extract_hardware_from_facts
+
+    facts = {"ansible_architecture": "x86_64"}
+
+    hardware = extract_hardware_from_facts(facts)
+
+    assert hardware["product_name"] is None
+    assert hardware["system_vendor"] is None
+
+
+def test_parse_ansible_facts_blank_product_treated_as_none():
+    """Blank/whitespace product_name should be normalized to None."""
+    from clawrium.core.hardware import extract_hardware_from_facts
+
+    facts = {
+        "ansible_architecture": "x86_64",
+        "ansible_product_name": "   ",
+        "ansible_system_vendor": "",
+    }
+
+    hardware = extract_hardware_from_facts(facts)
+
+    assert hardware["product_name"] is None
+    assert hardware["system_vendor"] is None
+
+
 def test_parse_ansible_facts_os_missing():
     """Test extracting hardware when OS facts are missing."""
     from clawrium.core.hardware import extract_hardware_from_facts

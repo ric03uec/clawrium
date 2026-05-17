@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { label: "Dashboard", href: "/" },
   { label: "Topology", href: "/topology" },
   { label: "Providers", href: "/providers" },
+  { label: "Integrations", href: "/integrations" },
   { label: "Settings", href: "/settings" },
 ];
 
@@ -38,13 +39,17 @@ export function Sidebar() {
           href="/"
           className="flex items-center gap-2 text-primary font-semibold text-lg"
         >
+          {/* Logo is decorative — accessible name is supplied by the
+              wordmark <span> below. Without alt="" + aria-hidden, screen
+              readers would announce "Clawrium" twice on this link. */}
           {/* eslint-disable-next-line @next/next/no-img-element -- static export, no image optimizer */}
           <img
             src="/clawrium-logo.png"
-            alt="Clawrium"
-            className="h-7 w-7 object-contain"
+            alt=""
+            aria-hidden="true"
+            className="h-10 w-10 object-contain"
           />
-          <span>CLM</span>
+          <span>Clawrium</span>
         </Link>
       </div>
 

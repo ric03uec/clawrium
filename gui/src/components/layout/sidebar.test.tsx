@@ -50,7 +50,31 @@ describe("Sidebar", () => {
     expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Topology" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Providers" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Integrations" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  it("renders the Clawrium wordmark with a decorative logo (single a11y name)", async () => {
+    await renderAndFlush();
+    // Link's accessible name comes from the wordmark span only — the logo
+    // is alt="" + aria-hidden so screen readers do not double-announce.
+    const link = screen.getByRole("link", { name: "Clawrium" });
+    expect(link).toBeInTheDocument();
+    const img = link.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("alt")).toBe("");
+    expect(img?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("places Integrations between Providers and Settings", async () => {
+    await renderAndFlush();
+    const labels = screen
+      .getAllByRole("link")
+      .map((el) => el.textContent?.trim())
+      .filter((t) => t && ["Providers", "Integrations", "Settings"].includes(t));
+    expect(labels).toEqual(["Providers", "Integrations", "Settings"]);
   });
 
   it("labels the nav for assistive tech", async () => {

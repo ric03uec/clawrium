@@ -51,6 +51,32 @@ def _normalize_endpoint(ep: object) -> str | None:
     return stripped or None
 
 
+def _summarize_hardware(hw: dict[str, Any]) -> dict[str, Any]:
+    """Reduce stored hardware dict to fields used by the topology UI.
+
+    Stable shape decouples the API from the stored fact schema, so older
+    host records (missing the new fields) still produce a well-formed dict.
+    """
+    gpu_raw = hw.get("gpu")
+    if isinstance(gpu_raw, dict):
+        gpu = {
+            "present": gpu_raw.get("present", False),
+            "vendor": gpu_raw.get("vendor"),
+            "error": gpu_raw.get("error"),
+        }
+    else:
+        gpu = {"present": False, "vendor": None, "error": None}
+
+    return {
+        "architecture": hw.get("architecture"),
+        "cores": hw.get("processor_cores"),
+        "memtotal_mb": hw.get("memtotal_mb"),
+        "gpu": gpu,
+        "product_name": hw.get("product_name"),
+        "system_vendor": hw.get("system_vendor"),
+    }
+
+
 @router.get("/topology")
 async def get_topology():
     """Get full topology data for network diagram rendering.
@@ -99,6 +125,9 @@ async def get_topology():
                     }
                 )
 
+        hw_raw = h.get("hardware")
+        hardware = _summarize_hardware(hw_raw) if hw_raw else None
+
         hosts.append(
             {
                 "hostname": hostname,
@@ -108,6 +137,7 @@ async def get_topology():
                 "has_key": key_id is not None,
                 "agent_count": len(host_agents),
                 "agents": host_agents,
+                "hardware": hardware,
             }
         )
 
