@@ -42,7 +42,7 @@ flowchart TD
     subgraph Remote["Remote hosts"]
         OcHost["~/.openclaw/skills/&lt;name&gt;/"]
         HeHost["~/.hermes/skills/clawrium/&lt;name&gt;/"]
-        ZeHost["~/.zeroclaw/skills/&lt;name&gt;/<br/>(via native CLI)"]
+        ZeHost["~/.zeroclaw/workspace/skills/&lt;name&gt;/<br/>(via native CLI)"]
     end
 
     User --> CLI
@@ -117,9 +117,9 @@ flowchart TD
           ▼                       ▼                      ▼
    ┌─────────────┐         ┌────────────────┐    ┌─────────────────┐
    │  ~/.open    │         │ ~/.hermes/     │    │ ~/.zeroclaw/    │
-   │  claw/      │         │ skills/        │    │ skills/<name>/  │
-   │  skills/    │         │ clawrium/      │    │ (via native     │
-   │  <name>/    │         │ <name>/        │    │  CLI)           │
+   │  claw/      │         │ skills/        │    │ workspace/      │
+   │  skills/    │         │ clawrium/      │    │ skills/<name>/  │
+   │  <name>/    │         │ <name>/        │    │ (via native CLI)│
    └─────────────┘         └────────────────┘    └─────────────────┘
 
    skills/ catalog (this repo) — read by core/skills.py
