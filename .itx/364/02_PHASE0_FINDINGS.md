@@ -20,8 +20,10 @@ Pulled to the top because every Phase-1 reader needs these.
    enablement gate, not part of the discovery path — only the planned
    playbook re-render task is removed.
 2. **Use `~/.zeroclaw/workspace/skills/` everywhere** the plan currently
-   says `~/.zeroclaw/skills/`. This PR also patches the two stale path
-   references in `00_PLAN.md` (mermaid box + ASCII rendering box).
+   says `~/.zeroclaw/skills/`. This PR patches three stale path
+   references in `00_PLAN.md`: the mermaid `ZeHost` box, the ASCII
+   apply-flow rendering box, and the Phase-0 row of the *Phased
+   execution* table.
 3. **Adopt source-dirname == registry slug == `_meta.yaml.name`** as a
    hard invariant enforced at `core/skills.py` validation time.
    `zeroclaw skills list` returns the internal `name:` field, but
@@ -180,15 +182,41 @@ Installed skills (1):
 4. **`audit` is a separate subcommand.** `zeroclaw skills audit <path>`
    runs the security check without installing. The plan's "native audit
    gate" is enforced on every `install` (per the success line above), so
-   no separate audit step is needed in the apply playbook.
+   no separate audit *invocation* is needed in the apply playbook —
+   **but** the zeroclaw audit scope is opaque to clawrium (the v0.7.5
+   CLI exposes no audit-rules documentation; the probe output reports
+   only "Security audit completed successfully"). `core/skills.py
+   validate_skill()` must therefore enforce slug format (e.g.
+   `^[a-zA-Z0-9_-]+$`), path-traversal rejection, and the
+   `prerequisites.commands` allow-list **independently** at catalog
+   load time, mirroring the path-traversal check called out at
+   `00_PLAN.md:203`. The native audit is a defense-in-depth layer at
+   the zeroclaw boundary, not a substitute for clawrium-side
+   validation.
 
-5. **Idempotency check (Q5 in plan)**: `zeroclaw skills list` returns
-   the internal `name:` field, so the playbook should:
+5. **Idempotency check (Q5 in plan) — list-first guard is MANDATORY,
+   not optional.** Empirical probe:
+
+   ```
+   # First install
+   $ zeroclaw skills install /tmp/clawrium-phase0-dupprobe
+     ✓ Skill installed and audited:
+       /home/zc-test/.zeroclaw/workspace/skills/clawrium-phase0-dupprobe
+
+   # Second install (same source path)
+   $ zeroclaw skills install /tmp/clawrium-phase0-dupprobe
+     ✗ rc=1
+     stderr: Destination skill already exists:
+             /home/zc-test/.zeroclaw/workspace/skills/clawrium-phase0-dupprobe
+   ```
+
+   Duplicate install **fails** with rc=1 — the native CLI does not
+   silently overwrite. So the playbook **must**:
    - run `zeroclaw skills list` first
-   - skip `install` if the slug appears in the list
+   - skip `install` if the slug appears in the list (avoid the rc=1)
    - call `remove <slug>` (slug == source-dirname) on uninstall
 
-   The algorithm above is **only safe when** the invariant
+   The algorithm above is **only correct when** the invariant
    `slug == source-dirname == _meta.yaml.name` holds. `list` reports
    the internal name; `remove` accepts the source-dirname; these two
    strings are forced equal by adjustment (3) in the executive summary
@@ -198,45 +226,53 @@ Installed skills (1):
    corrupts the desired-state file. State this invariant explicitly in
    `validate_skill()` error messages.
 
-## Phase 1 code-inspection prerequisites
+## Phase 1 prerequisites (codebase + arch-decision derived)
 
-Three Phase-1 prerequisites that don't fall out of the playbook
-behavior probes above, but are visible in the current codebase. Each
-is verifiable by reading the cited file at the cited line range.
+Three Phase-1 prerequisites. Items 1 and 2 are visible in the current
+codebase at the cited line ranges; item 3 is *implied by* (not visible
+in) the locked architecture decisions in `00_PLAN.md`.
 
 1. **`AgentManifest` TypedDict has no `skills` field.**
-   `src/clawrium/core/registry.py` defines `AgentManifest` with keys
-   `agent`, `platforms`, `secrets`, `onboarding`, `workspace`,
-   `features` — no `skills`. Phase 1 must either (a) extend
-   `AgentManifest` with an optional `skills` field, or (b) keep agent
-   manifests untouched and load skill catalog state via a parallel
-   `_meta.yaml`-driven path under `core/skills.py`. Plan section
-   *Files to add / modify → Core* implies (b); call the choice
+   `src/clawrium/core/registry.py` defines `AgentManifest` (lines
+   143–151) with keys `agent`, `platforms`, `secrets`, `onboarding`,
+   `workspace`, `features` — no `skills`. Phase 1 must either (a)
+   extend `AgentManifest` with an optional `skills` field, or (b) keep
+   agent manifests untouched and load skill catalog state via a
+   parallel `_meta.yaml`-driven path under `core/skills.py`. Plan
+   section *Files to add / modify → Core* implies (b); call the choice
    explicitly when Phase 1 opens.
-2. **`~/.zeroclaw/workspace/skills/` is not scaffolded by zeroclaw's
-   `install.yaml`.** The playbook creates the workspace directory and
-   the seven personality templates (SOUL/IDENTITY/USER/AGENTS/TOOLS/
-   MEMORY/HEARTBEAT) but stops there. The `skills/` subdirectory is
-   created on demand by `zeroclaw skills install` on first use (probe
-   in §2 above corroborates: no `skills/` existed under `zc-test`
-   workspace pre-install, was present post-install). Phase 3's
-   `zeroclaw/playbooks/skills_apply.yaml` must therefore tolerate
-   missing-directory state and not assume the dir exists before the
-   first skill is staged.
+2. **`~/.zeroclaw/workspace/skills/` is not scaffolded by any current
+   playbook.** Zeroclaw's `install.yaml` creates only `workspace/`
+   (lines 125–131) and `state/` (lines 133–139). The seven personality
+   templates (SOUL/IDENTITY/USER/AGENTS/TOOLS/MEMORY/HEARTBEAT) are
+   rendered by `configure.yaml` (lines 56–71) via an Ansible
+   `template` loop. Neither playbook creates `workspace/skills/`; the
+   `skills/` subdirectory is created on demand by `zeroclaw skills
+   install` on first use (probe in §2 above: no `skills/` existed
+   under `zc-test` workspace pre-install, was present post-install).
+   Phase 3's `zeroclaw/playbooks/skills_apply.yaml` must therefore
+   tolerate the missing-directory state and not assume the dir exists
+   before the first skill is staged.
 3. **First reconcile against an agent with no `skills.json`
-   desired-state must be add-only.** Plan section *Architecture
-   decisions (locked) — 3* declares "Local desired-state is truth" and
-   *— 5* declares "Pruning is bounded to a clawrium-owned subtree per
-   claw." A naive Phase-3 implementation would treat a missing
-   desired-state file as "desired = []" and **prune everything** in
-   the clawrium-owned subtree on first run. Agents like `zc-test` (or
-   any agent the user managed pre-registry) may carry skill files
-   inside paths the registry will later claim. The mitigation is to
-   distinguish *first reconcile* (no `skills.json` exists yet) from
-   *subsequent reconciles*; first reconcile writes the desired-state
-   file from a scan of what's already on disk in clawrium-owned
-   paths, then exits without pruning. Phase 3 design must include
-   this branch.
+   desired-state must be add-only.** This item is **derived from**
+   `00_PLAN.md` arch decisions 3 ("Local desired-state is truth") and
+   5 ("Pruning is bounded to a clawrium-owned subtree per claw") — it
+   does not surface as code today because the desired-state machinery
+   doesn't exist yet. A naive Phase-3 implementation would treat a
+   missing desired-state file as "desired = []" and **prune
+   everything** in the clawrium-owned subtree on first run. Agents
+   like `zc-test` (or any agent the user managed pre-registry) may
+   carry skill files inside paths the registry will later claim. The
+   mitigation: distinguish *first reconcile* (no `skills.json` exists
+   yet) from *subsequent reconciles*; first reconcile writes the
+   desired-state file from a scan of what's already on disk in
+   clawrium-owned paths, then exits without pruning. Phase 3 design
+   must include this branch, and "clawrium-owned" must be a positive
+   signal (e.g., a `.clawrium-managed` marker file written at
+   `skills_apply.yaml` install time, or a catalog cross-reference) —
+   not a path-prefix heuristic, which would silently absorb any
+   user-authored directory whose name happens to match a future
+   registry slug.
 
 ## Proposed `_meta.yaml` shape for all `clawrium/` skills
 
