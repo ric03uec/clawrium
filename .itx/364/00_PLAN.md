@@ -34,7 +34,7 @@ flowchart TD
     end
 
     subgraph Playbooks["platform/registry/&lt;claw&gt;/playbooks/skills_apply.yaml"]
-        OcApply["openclaw: copy +<br/>re-render openclaw.json"]
+        OcApply["openclaw: copy to<br/>~/.openclaw/skills/&lt;name&gt;/"]
         HeApply["hermes: copy to<br/>~/.hermes/skills/clawrium/"]
         ZeApply["zeroclaw: stage +<br/>zeroclaw skills install (native audit gate)"]
     end
@@ -107,10 +107,10 @@ flowchart TD
    │ skills_     │         │  skills_    │        │   skills_    │
    │ apply.yaml  │         │  apply.yaml │        │  apply.yaml  │
    │             │         │             │        │              │
-   │ copy +      │         │ copy →      │        │ stage +      │
-   │ re-render   │         │ ~/.hermes/  │        │ `zeroclaw    │
-   │ openclaw.   │         │ skills/     │        │  skills      │
-   │ json        │         │ clawrium/   │        │  install`    │
+   │ copy only   │         │ copy →      │        │ stage +      │
+   │ (auto-scan) │         │ ~/.hermes/  │        │ `zeroclaw    │
+   │             │         │ skills/     │        │  skills      │
+   │             │         │ clawrium/   │        │  install`    │
    │             │         │             │        │ (audit gate) │
    └──────┬──────┘         └──────┬──────┘        └──────┬───────┘
           │                       │                      │
@@ -142,7 +142,7 @@ Re-running any `install` / `remove` always reconciles local → remote. There is
 2. **Skill reference is `<registry>/<name>`.** Bare names rejected with `MissingRegistryPrefix` and a hint.
 3. **Local desired-state is truth.** `install` / `remove` mutate `~/.config/clawrium/agents/<agent>/skills.json` and always invoke the per-claw `skills_apply.yaml`. No short-circuit.
 4. **Per-claw mechanism follows the native idiom**:
-   - openclaw — `copy` + re-render `openclaw.json` if this fork is config-driven (phase-0 verifies)
+   - openclaw — `copy` only (Phase 0 verified auto-scan at `~/.openclaw/skills/<name>/`; no `openclaw.json` re-render)
    - hermes — `copy` to `~/.hermes/skills/clawrium/<name>/` (auto-scan)
    - zeroclaw — stage + `zeroclaw skills install <staging-path>` so the native security audit runs
 5. **Pruning is bounded** to a clawrium-owned subtree per claw. Never touches user-authored or upstream-bundled skills.
@@ -220,7 +220,7 @@ Resolution rules at install:
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
-| 0 | Unblockers (no PR) | Verify whether openclaw in this fork is auto-scan or config-driven; confirm zeroclaw on-host path `~/.zeroclaw/skills/<name>/`; lock TDD normalized frontmatter that passes all three native schemas |
+| 0 | Unblockers (now closed by #386) | Verify openclaw discovery (resolved: auto-scan); confirm zeroclaw on-host path (resolved: `~/.zeroclaw/workspace/skills/<name>/`); lock normalized `_meta.yaml` shape that satisfies all three native schemas. See `.itx/364/02_PHASE0_FINDINGS.md`. |
 | 1 | Schema + core loader + namespaced catalog + TDD seed | `skills/clawrium/tdd/` validates; `skills/{openclaw,hermes,zeroclaw}/` exist with READMEs; `parse_skill_ref` + dual validator tested |
 | 2 | Desired-state store + `apply_state` entrypoint | CLI + GUI both consume one stable API; round-trip on a fake claw works in tests |
 | 3 | Per-claw `skills_apply.yaml` for all three claws | Round-trip install/remove on each claw via mocked ansible-runner; zeroclaw uses native CLI; pruning bounded |
@@ -241,7 +241,7 @@ Resolution rules at install:
 | # | Item | Default |
 |---|------|---------|
 | Q1 | Hermes namespace for clawrium skills: `~/.hermes/skills/clawrium/<name>/` | Yes |
-| Q2 | openclaw discovery: auto-scan vs config-driven | Phase 0 verifies; if config-driven, re-render `openclaw.json` |
+| Q2 | openclaw discovery: auto-scan vs config-driven | RESOLVED: auto-scan — plain file copy to `~/.openclaw/skills/<name>/`, no `openclaw.json` re-render (see `02_PHASE0_FINDINGS.md` §1) |
 | Q3 | Seed per-claw folders with one native skill in v1 | No — empty placeholders; one PR adds later |
 | Q4 | Strict refs (`<registry>/<name>`) vs auto-prefix `clawrium/` | Strict; clearer errors |
 | Q5 | zeroclaw idempotency: `zeroclaw skills install` re-runs on already-installed | Check `zeroclaw skills list` first; install only on diff |

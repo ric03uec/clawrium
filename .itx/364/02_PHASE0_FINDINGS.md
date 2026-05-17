@@ -31,7 +31,10 @@ Pulled to the top because every Phase-1 reader needs these.
 4. **Q5 (zeroclaw idempotency)** — resolve as: query `zeroclaw skills
    list`, parse the slug column, install only on diff; remove only when
    the slug is present. No probe via `--check-installed` style — the
-   v0.7.5 CLI doesn't expose one.
+   v0.7.5 CLI doesn't expose one. Openclaw and Hermes don't need an
+   equivalent guard — both materialize via Ansible's `copy` module
+   (declarative; same source ⇒ no-op), so the list-first diff is a
+   zeroclaw-only concern driven by the native CLI's side-effects.
 5. **`skills_remove.yaml` cross-claw asymmetry**: zeroclaw removes
    take the source-dirname, while openclaw/hermes remove by deleting
    the directory at `<scan-path>/<name>/`. With the invariant in (3),
@@ -195,6 +198,46 @@ Installed skills (1):
    corrupts the desired-state file. State this invariant explicitly in
    `validate_skill()` error messages.
 
+## Phase 1 code-inspection prerequisites
+
+Three Phase-1 prerequisites that don't fall out of the playbook
+behavior probes above, but are visible in the current codebase. Each
+is verifiable by reading the cited file at the cited line range.
+
+1. **`AgentManifest` TypedDict has no `skills` field.**
+   `src/clawrium/core/registry.py` defines `AgentManifest` with keys
+   `agent`, `platforms`, `secrets`, `onboarding`, `workspace`,
+   `features` — no `skills`. Phase 1 must either (a) extend
+   `AgentManifest` with an optional `skills` field, or (b) keep agent
+   manifests untouched and load skill catalog state via a parallel
+   `_meta.yaml`-driven path under `core/skills.py`. Plan section
+   *Files to add / modify → Core* implies (b); call the choice
+   explicitly when Phase 1 opens.
+2. **`~/.zeroclaw/workspace/skills/` is not scaffolded by zeroclaw's
+   `install.yaml`.** The playbook creates the workspace directory and
+   the seven personality templates (SOUL/IDENTITY/USER/AGENTS/TOOLS/
+   MEMORY/HEARTBEAT) but stops there. The `skills/` subdirectory is
+   created on demand by `zeroclaw skills install` on first use (probe
+   in §2 above corroborates: no `skills/` existed under `zc-test`
+   workspace pre-install, was present post-install). Phase 3's
+   `zeroclaw/playbooks/skills_apply.yaml` must therefore tolerate
+   missing-directory state and not assume the dir exists before the
+   first skill is staged.
+3. **First reconcile against an agent with no `skills.json`
+   desired-state must be add-only.** Plan section *Architecture
+   decisions (locked) — 3* declares "Local desired-state is truth" and
+   *— 5* declares "Pruning is bounded to a clawrium-owned subtree per
+   claw." A naive Phase-3 implementation would treat a missing
+   desired-state file as "desired = []" and **prune everything** in
+   the clawrium-owned subtree on first run. Agents like `zc-test` (or
+   any agent the user managed pre-registry) may carry skill files
+   inside paths the registry will later claim. The mitigation is to
+   distinguish *first reconcile* (no `skills.json` exists yet) from
+   *subsequent reconciles*; first reconcile writes the desired-state
+   file from a scan of what's already on disk in clawrium-owned
+   paths, then exits without pruning. Phase 3 design must include
+   this branch.
+
 ## Proposed `_meta.yaml` shape for all `clawrium/` skills
 
 **This section is a design proposal, not an empirical finding.** No
@@ -244,8 +287,9 @@ license: MIT
 author: clawrium
 platforms: [linux, macos]
 
-# Cross-agent compatibility flags consumed by core/skills.py
-# check_agent_compatibility. Per the plan, clawrium/* is installable on
+# Cross-agent compatibility flags. To be consumed by a Phase 1
+# `check_agent_compatibility()` function in core/skills.py — not yet
+# implemented; Phase 1 introduces it. Per the plan, clawrium/* is installable on
 # any agent type; the flags below let a normalized skill opt out of a
 # specific claw if it can't fulfill that claw's runtime contract.
 compatibility:
