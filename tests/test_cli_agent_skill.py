@@ -206,6 +206,81 @@ def test_install_renders_apply_error(monkeypatch):
     assert "Permission denied" in result.output
 
 
+def test_bidi_chars_in_skill_error_are_stripped(monkeypatch):
+    """B5 regression test (ATX #382 iter 2).
+
+    `_exit_with_error` MUST pipe error text through
+    `_sanitize_exception_text` before Rich-escaping, so a remote-supplied
+    error body carrying bidi-override codepoints (e.g. RTLO at U+202E,
+    ZWSP at U+200B, ALM at U+061C) can't reach the user's terminal and
+    forge output. If a future refactor removes the sanitizer, this test
+    fails.
+
+    The non-bidi portion of the message ("Permission denied", "BUSY")
+    must survive — sanitization is non-destructive for ordinary text.
+    """
+    # Mix every bidi class our regex covers: RTLO, ZWSP, ALM, LRI.
+    poisoned = (
+        "Skills apply failed: "
+        "‮Permission​ denied "
+        "(؜BUSY⁦hidden⁩ marker)"
+    )
+
+    def boom(name, **_kwargs):
+        raise SkillApplyError(poisoned)
+
+    _stub_agent_resolution(monkeypatch)
+    monkeypatch.setattr(cli_agent_skill, "apply_state", boom)
+    result = runner.invoke(
+        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
+    )
+    assert result.exit_code == 1
+    # Every bidi codepoint must be absent from the rendered output.
+    for codepoint in ("‮", "​", "؜", "⁦", "⁩"):
+        assert codepoint not in result.output, (
+            f"bidi codepoint U+{ord(codepoint):04X} survived sanitization"
+        )
+    # Non-bidi portion of the message survives — the sanitizer must
+    # not be destructive to ordinary diagnostic text.
+    assert "Permission" in result.output
+    assert "denied" in result.output
+    assert "BUSY" in result.output
+
+
+def test_apply_error_bidi_stripped_does_not_destroy_ordinary_diagnostics(monkeypatch):
+    """Companion to the B5 test — confirms the sanitizer leaves a
+    real-world ansible-runner error message untouched. Hardens against
+    a future "be more aggressive" patch to the sanitizer that would
+    silently mask legitimate failures (and the user would just see
+    "Error: " with no body)."""
+    msg = (
+        "Skills apply failed (status=failed): /home/agent/.openclaw/skills "
+        "not writable by user-12345 (log: /var/log/clm-apply.log)."
+    )
+
+    def boom(name, **_kwargs):
+        raise SkillApplyError(msg)
+
+    _stub_agent_resolution(monkeypatch)
+    monkeypatch.setattr(cli_agent_skill, "apply_state", boom)
+    result = runner.invoke(
+        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
+    )
+    assert result.exit_code == 1
+    # Every load-bearing token survives sanitization. Normalize Rich's
+    # terminal-width line wrapping (newlines collapse to spaces) before
+    # checking — multi-word tokens may split across rendered lines.
+    flat = " ".join(result.output.split())
+    for token in (
+        "Skills apply failed",
+        "/home/agent/.openclaw/skills",
+        "not writable",
+        "user-12345",
+        "/var/log/clm-apply.log",
+    ):
+        assert token in flat, f"sanitizer stripped {token!r}"
+
+
 def test_install_renders_apply_not_supported(monkeypatch):
     _stub_agent_resolution(monkeypatch, agent_type="openclaw")
 

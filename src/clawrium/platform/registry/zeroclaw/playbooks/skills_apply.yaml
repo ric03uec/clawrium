@@ -1,0 +1,246 @@
+---
+# Zeroclaw skills_apply — reconciles clawrium-managed skills installed
+# via the native `zeroclaw skills install` CLI against the desired state
+# for one agent.
+#
+# Inputs (extravars):
+#   - agent_name:           unix user that owns the zeroclaw install
+#   - staging_dir:          control-machine path with one
+#                           `<name>/SKILL.md` per desired skill
+#   - desired_skill_names:  list of slug names currently in desired state
+#                           (empty list = uninstall everything we own)
+#
+# Invariants:
+#   - Materialization goes through `zeroclaw skills install <path>` so
+#     the binary's security audit gate runs on EVERY install (per #364
+#     Phase 0 + #382 ATX review). We never write directly under
+#     `~/.zeroclaw/workspace/skills/`, and we NEVER skip the install
+#     step on already-present slugs — a skill dir present on host but
+#     not currently audited (e.g. mutated by a compromised second
+#     process between applies) must be re-audited.
+#   - Ownership boundary: `~/.zeroclaw/.clawrium-managed-skills` holds
+#     the newline-separated list of slugs we've installed. Pruning only
+#     considers slugs in this list — skills installed by the user out
+#     of band are never touched. The file lives OUTSIDE the
+#     `workspace/skills/` subtree so the audit gate doesn't scan it.
+#   - Source-dirname == slug == SKILL.md frontmatter `name`. Phase 0
+#     locked this contract: `zeroclaw skills remove <slug>` expects the
+#     source-dirname, which our materialization step always names with
+#     the canonical slug.
+#   - Idempotency: `zeroclaw skills install` is itself idempotent over
+#     identical inputs (re-installs in place after audit). We rely on
+#     the native CLI's idempotency, not a pre-check that would skip the
+#     audit. Drift recovery: if a slug is absent from
+#     `~/.zeroclaw/workspace/skills/` between applies, the install
+#     restores it; if the on-disk SKILL.md drifted, the next install
+#     re-stages it and re-audits.
+- hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    workspace_skills: "/home/{{ agent_name }}/.zeroclaw/workspace/skills"
+    tracking_file: "/home/{{ agent_name }}/.zeroclaw/.clawrium-managed-skills"
+    zeroclaw_bin: "/home/{{ agent_name }}/bin/zeroclaw"
+    remote_staging_root: "/home/{{ agent_name }}/.zeroclaw/.clawrium-stage"
+  tasks:
+    - name: Validate agent_name format
+      ansible.builtin.fail:
+        msg: "Invalid agent_name format"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate desired_skill_names is a list
+      ansible.builtin.fail:
+        msg: "desired_skill_names must be a list"
+      when:
+        - desired_skill_names is not iterable
+          or desired_skill_names is string
+          or desired_skill_names is mapping
+
+    # Defense-in-depth: Python core/skills.py validates each slug
+    # before it reaches a state file, but the playbook re-checks too
+    # so a tampered extravar can't be passed as an argument to
+    # `zeroclaw skills remove`/`install` (these accept shell-style
+    # arguments and we want zero room for command injection).
+    - name: Validate every desired skill name
+      ansible.builtin.fail:
+        msg: "Invalid skill name in desired_skill_names: '{{ item }}'"
+      loop: "{{ desired_skill_names }}"
+      when:
+        - item is not match('^[a-z0-9][a-z0-9_-]*$')
+
+    - name: Verify zeroclaw binary exists at agent's install path
+      ansible.builtin.stat:
+        path: "{{ zeroclaw_bin }}"
+      register: zeroclaw_bin_stat
+
+    - name: Fail fast if zeroclaw binary is missing
+      ansible.builtin.fail:
+        msg: >
+          zeroclaw binary not found at {{ zeroclaw_bin }}. Run
+          `clm agent install --type zeroclaw --host <host>` first.
+      when:
+        - not zeroclaw_bin_stat.stat.exists or not (zeroclaw_bin_stat.stat.executable | default(false))
+
+    - name: Ensure workspace skills root exists
+      ansible.builtin.file:
+        path: "{{ workspace_skills }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0755"
+
+    - name: Stat tracking file
+      ansible.builtin.stat:
+        path: "{{ tracking_file }}"
+      register: tracking_stat
+
+    - name: Read tracking file content
+      ansible.builtin.slurp:
+        src: "{{ tracking_file }}"
+      register: tracking_raw
+      when: tracking_stat.stat.exists
+
+    - name: Parse tracked slug list
+      ansible.builtin.set_fact:
+        tracked_skill_names: >-
+          {{
+            (
+              (tracking_raw.content | b64decode).splitlines()
+              if (tracking_stat.stat.exists and tracking_raw.content is defined)
+              else []
+            )
+            | map('trim')
+            | reject('equalto', '')
+            | select('match', '^[a-z0-9][a-z0-9_-]*$')
+            | list
+          }}
+
+    # Use the on-disk workspace/skills/ children as the "is installed on
+    # host" check. Phase 0 confirmed source-dirname == slug, so the
+    # dirname IS the slug we'd pass to `zeroclaw skills remove`. We
+    # don't parse `zeroclaw skills list` stdout — the format is
+    # human-oriented and version-fragile.
+    - name: List installed skill dirs in zeroclaw workspace
+      ansible.builtin.find:
+        paths: "{{ workspace_skills }}"
+        file_type: directory
+        depth: 1
+      register: installed_skill_dirs
+
+    - name: Compute set of slugs currently installed on host
+      ansible.builtin.set_fact:
+        installed_slugs: >-
+          {{ installed_skill_dirs.files
+             | map(attribute='path')
+             | map('basename')
+             | list }}
+
+    - name: Compute prune set (tracked but not desired AND still installed)
+      # Pruning is bounded to:
+      #   (slugs we've installed in a prior apply)
+      #     ∩ (slugs currently on host)
+      #     \ (desired slugs)
+      # The intersection with installed_slugs avoids "remove a slug that
+      # was already removed natively" (which would error in `zeroclaw
+      # skills remove`).
+      ansible.builtin.set_fact:
+        skills_to_prune: >-
+          {{ tracked_skill_names
+             | difference(desired_skill_names)
+             | intersect(installed_slugs) }}
+
+    - name: Uninstall clawrium-managed skills no longer in desired state
+      ansible.builtin.command:
+        argv:
+          - "{{ zeroclaw_bin }}"
+          - skills
+          - remove
+          - "{{ item }}"
+      become_user: "{{ agent_name }}"
+      loop: "{{ skills_to_prune }}"
+      # The slug regex is re-checked here as a third defense-in-depth
+      # layer — if a malformed entry somehow slipped past the earlier
+      # validate task (impossible because that task fails the play),
+      # we still refuse to pass it as a CLI argument.
+      when:
+        - item is match('^[a-z0-9][a-z0-9_-]*$')
+      register: zeroclaw_remove_results
+      changed_when: zeroclaw_remove_results.rc == 0
+
+    # Install set is ALL desired slugs — no `difference(installed_slugs)`
+    # filter. Skipping install for already-present slugs would bypass
+    # the native audit gate, which is the primary reason we wrap the
+    # native CLI (per #382 ATX B2). A re-install of an unchanged skill
+    # is the price of audit-on-every-install.
+    - name: Ensure remote staging root exists (0700, agent-owned)
+      ansible.builtin.file:
+        path: "{{ remote_staging_root }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+      when: desired_skill_names | length > 0
+
+    # Wrap the stage + install steps in block/always so that even if
+    # the audit gate rejects a skill (non-zero rc from `zeroclaw skills
+    # install` aborts the play), the remote staging dir is cleaned up.
+    # Otherwise a rejected install would leave the rendered SKILL.md +
+    # `_meta.yaml` on disk at a predictable path, which is both noise
+    # and a small information-leak surface (any other user on the host
+    # would see the path exists, though not the content — 0700 perms).
+    - name: Stage + install + cleanup (always cleans up on failure)
+      block:
+        - name: Stage per-skill source directories on host
+          # zeroclaw's `skills install <path>` reads a local-on-host
+          # path, so the control-machine staging dir must be shipped
+          # over before the install can run. One subdir per desired
+          # skill, named with the slug (source-dirname == slug per
+          # Phase 0 contract).
+          ansible.builtin.copy:
+            src: "{{ staging_dir }}/{{ item }}/"
+            dest: "{{ remote_staging_root }}/{{ item }}/"
+            owner: "{{ agent_name }}"
+            group: "{{ agent_name }}"
+            mode: "0600"
+            directory_mode: "0700"
+          loop: "{{ desired_skill_names }}"
+
+        - name: Install each desired skill via native `zeroclaw skills install`
+          # The audit gate runs inside `zeroclaw skills install` and is
+          # the primary reason we wrap the native CLI. A failed audit
+          # surfaces as a non-zero rc, which fails this task and aborts
+          # the play before the tracking file is updated (so we don't
+          # claim ownership of a skill the audit refused).
+          ansible.builtin.command:
+            argv:
+              - "{{ zeroclaw_bin }}"
+              - skills
+              - install
+              - "{{ remote_staging_root }}/{{ item }}"
+          become_user: "{{ agent_name }}"
+          loop: "{{ desired_skill_names }}"
+          when:
+            - item is match('^[a-z0-9][a-z0-9_-]*$')
+          register: zeroclaw_install_results
+          changed_when: zeroclaw_install_results.rc == 0
+      always:
+        - name: Clean up remote staging directory
+          # Staging contains rendered frontmatter only (no secrets), but
+          # we drop it after install (success OR failure) to keep
+          # ~/.zeroclaw/ tidy and avoid leaving rejected-by-audit
+          # content at a predictable path.
+          ansible.builtin.file:
+            path: "{{ remote_staging_root }}"
+            state: absent
+
+    # Write the tracking file LAST so a mid-apply failure leaves the
+    # previous tracked list intact. The next apply will re-derive
+    # state from (tracking_file ∪ on-disk skills) and reconverge.
+    - name: Update tracking file with current desired state
+      ansible.builtin.copy:
+        dest: "{{ tracking_file }}"
+        content: "{{ (desired_skill_names | join('\n')) ~ ('\n' if desired_skill_names | length > 0 else '') }}"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"

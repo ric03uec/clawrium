@@ -17,9 +17,11 @@ is intentionally a tight orchestrator:
      clawrium-owned subtree on the host, and idempotency.
   6. Clean up the staging dir in a `finally` block.
 
-Phase 2 only wires up hermes. Other claw types raise
-`SkillApplyNotSupported` — surfaced as a clear CLI message rather than a
-traceback. Phases 3+ extend the dispatch table.
+All three native claw types are wired as of Phase 3 (#382). The
+`_APPLY_PLAYBOOK_BY_CLAW` dispatch maps each `agent_type` to its
+`skills_apply.yaml`; an `agent_type` outside `NATIVE_REGISTRIES` raises
+`SkillApplyNotSupported` so the CLI surfaces a clear "unsupported claw
+type" message rather than a missing-playbook traceback.
 """
 
 from __future__ import annotations
@@ -74,22 +76,24 @@ class SkillApplyError(SkillError):
 
 
 class SkillApplyNotSupported(SkillError):
-    """Raised when the resolved agent type has no skills_apply playbook
-    wired yet. Phase 2 wires hermes only; openclaw + zeroclaw raise this
-    so the CLI surfaces a clear "not yet supported" message instead of
-    silently no-op'ing or breaking on a missing playbook path."""
+    """Raised when the resolved agent type is outside the set of claws
+    with a `skills_apply.yaml` playbook wired into the dispatch table.
+    All three native claws (hermes/openclaw/zeroclaw) are wired as of
+    Phase 3 (#382); this remains as a defensive guard for unknown
+    agent types surfaced by future host records."""
 
 
 class AgentNotFoundError(SkillError):
     """Raised when `agent_name` does not resolve to an installed agent."""
 
 
-# Map of agent_type → per-claw skills_apply playbook name. Phase 2 only
-# wires hermes; later phases add the other two entries. Centralizing the
-# dispatch table here avoids scattering claw-type literals through the
-# CLI layer.
+# Map of agent_type → per-claw skills_apply playbook name. All three
+# native claws are wired as of Phase 3 (#382). Centralizing the dispatch
+# table here avoids scattering claw-type literals through the CLI layer.
 _APPLY_PLAYBOOK_BY_CLAW: dict[str, str] = {
     "hermes": "skills_apply.yaml",
+    "openclaw": "skills_apply.yaml",
+    "zeroclaw": "skills_apply.yaml",
 }
 
 # Same agent_name pattern enforced by every playbook + lifecycle.
@@ -176,10 +180,13 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
 
     # Both staging and log-dir creation live inside the `try` so the
     # `finally` cleanup runs even when one of them raises mid-flight.
-    # In particular, `_stage_skills` does `mkdtemp` *then* writes
-    # per-skill SKILL.md files; an OSError on `write_text` (disk full,
-    # permissions race) would otherwise leave the tempdir under
-    # ${clawrium_config}/staging/ with no reference to clean it up.
+    # `_stage_skills` does `mkdtemp` then writes per-skill SKILL.md
+    # files; `_make_log_dir` creates the log dir then does a
+    # post-creation path-safety check that can raise. If either creator
+    # raises after creating its dir, the only reference we have is the
+    # return value — so we must capture it before any subsequent failure
+    # point. Initialize to None so the `finally:` can None-guard cleanup.
+    # (Original B-new1 hardening; consolidated with iter 3.)
     staging_dir: Path | None = None
     log_dir: Path | None = None
     try:
@@ -198,13 +205,22 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
     finally:
         # Staging dir is always cleaned up — it contains rendered
         # frontmatter only (no secrets) but lingering temp dirs are
-        # noise. May be None if `_stage_skills` raised before
-        # `mkdtemp` returned.
+        # noise. May be None if `_stage_skills` raised before `mkdtemp`
+        # returned. `_cleanup_runner_artifacts` is idempotent-safe so
+        # we call it whenever `log_dir` was created.
         if staging_dir is not None:
             shutil.rmtree(staging_dir, ignore_errors=True)
         if log_dir is not None:
             _cleanup_runner_artifacts(log_dir)
 
+    # Both assignments inside the `try:` succeeded — we wouldn't reach
+    # this line otherwise (an early raise would have propagated past
+    # the `finally:` block). Asserting narrows `log_dir`'s type from
+    # `Path | None` to `Path` for the ApplyResult construction below
+    # AND documents the control-flow invariant for readers. (ATX
+    # #382 iter 4 W-new9.)
+    assert staging_dir is not None
+    assert log_dir is not None
     return ApplyResult(
         agent_name=agent_name,
         agent_type=agent_type,
@@ -248,6 +264,7 @@ def _stage_skills(agent_name: str, agent_type: str, skills: list[Skill]) -> Path
     # tempdir into `${clawrium_config}/staging/skills/`. The caller's
     # `finally` cleanup uses the return value, so a raise-before-return
     # would otherwise leave the tempdir un-referenced and un-cleaned.
+    # (ATX #382 iter 4 W-new6.)
     try:
         for skill in skills:
             frontmatter, body = materialize_for_claw(skill, agent_type)
@@ -289,6 +306,11 @@ def _make_log_dir(agent_name: str, agent_type: str, host: dict) -> Path:
     e.g. `../escape` cannot traverse outside the clawrium logs dir.
     The agent_name + agent_type fields are already regex-validated
     upstream, but we still sanitize for symmetry.
+
+    Belt-and-suspenders: even after the allowlist sanitization, the
+    resolved log_dir is asserted to stay inside logs_dir. Catches
+    future regressions (e.g. if `_sanitize_for_path` is loosened)
+    before they can reach `shutil.rmtree` in the cleanup step.
     """
     logs_dir = get_config_dir() / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -300,6 +322,27 @@ def _make_log_dir(agent_name: str, agent_type: str, host: dict) -> Path:
         logs_dir
         / f"skills_apply-{safe_agent_type}-{host_display}-{timestamp}"
     )
+    # Belt-and-suspenders: even after the allowlist sanitization above,
+    # assert the resolved log_dir stays inside logs_dir. Catches future
+    # regressions (e.g. if `_sanitize_for_path` is loosened) before they
+    # can reach shutil.rmtree. The user-facing error does NOT include
+    # the computed path — leaking it would tell an attacker how their
+    # traversal payload was reshaped (ATX #382 W2 / W13). Path lands at
+    # DEBUG-level only.
+    resolved = log_dir.resolve()
+    if not str(resolved).startswith(str(logs_dir.resolve()) + os.sep):
+        logger.debug(
+            "Rejected log_dir outside logs root: computed=%s resolved=%s root=%s",
+            log_dir,
+            resolved,
+            logs_dir.resolve(),
+        )
+        raise SkillApplyError(
+            "Host alias or hostname contains unsafe characters that would "
+            "escape the clawrium logs directory. Update the host alias: "
+            "`clm host update <alias-or-address> --alias <safe-name>`, "
+            "then retry."
+        )
     log_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(log_dir, 0o700)
     return log_dir

@@ -1,0 +1,154 @@
+---
+# OpenClaw skills_apply — reconciles clawrium-managed skills under
+# ~/.openclaw/skills/ with the clawrium desired state for one agent.
+#
+# Inputs (extravars):
+#   - agent_name:           unix user that owns the openclaw install
+#   - staging_dir:          control-machine path with one
+#                           `<name>/SKILL.md` per desired skill
+#   - desired_skill_names:  list of slug names currently in desired state
+#                           (empty list = uninstall everything we own)
+#
+# Invariants:
+#   - openclaw auto-scans `~/.openclaw/skills/<name>/SKILL.md` for
+#     user-extensible skills (per #364 Phase 0 findings). Plain file-drop
+#     is sufficient; no openclaw.json re-render is required.
+#   - Ownership boundary: every directory we create carries a
+#     `.clawrium-managed` sentinel file. Pruning only considers dirs
+#     that contain this marker, so user-authored openclaw skills under
+#     the same parent (e.g. `~/.openclaw/skills/my-custom-skill/`) are
+#     never touched. The sentinel is a dotfile and is invisible to
+#     openclaw's SKILL.md auto-scan.
+#   - Every install is idempotent: re-running with the same state
+#     re-materializes SKILL.md (drift recovery) and is otherwise a
+#     no-op aside from `changed` flags.
+#   - The openclaw daemon may concurrently read SKILL.md files. Writes
+#     stage to a tempfile in the dest dir and rename atomically
+#     (`ansible.builtin.copy`'s default).
+- hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    skills_root: "/home/{{ agent_name }}/.openclaw/skills"
+    managed_marker: ".clawrium-managed"
+  tasks:
+    - name: Validate agent_name format
+      ansible.builtin.fail:
+        msg: "Invalid agent_name format"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate desired_skill_names is a list
+      ansible.builtin.fail:
+        msg: "desired_skill_names must be a list"
+      when:
+        - desired_skill_names is not iterable
+          or desired_skill_names is string
+          or desired_skill_names is mapping
+
+    # Defense-in-depth: Python core/skills.py validates the slug pattern
+    # before each entry is written to the state file, but the playbook
+    # also enforces it so a tampered extravar can't escape skills_root
+    # via path traversal.
+    - name: Validate every desired skill name
+      ansible.builtin.fail:
+        msg: "Invalid skill name in desired_skill_names: '{{ item }}'"
+      loop: "{{ desired_skill_names }}"
+      when:
+        - item is not match('^[a-z0-9][a-z0-9_-]*$')
+
+    - name: Ensure openclaw skills root exists
+      ansible.builtin.file:
+        path: "{{ skills_root }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0755"
+
+    - name: List existing skill directories on host
+      ansible.builtin.find:
+        paths: "{{ skills_root }}"
+        file_type: directory
+        # depth: 1 — top-level dirs only. The find module's `depth`
+        # parameter limits the walk so we never enumerate (and thus
+        # never prune) anything deeper than this dir.
+        depth: 1
+      register: existing_skill_dirs
+
+    # Ownership detection: enumerate the marker file inside each
+    # top-level skill dir. Only dirs that carry our sentinel are
+    # candidates for pruning. User-authored skills (no marker) are
+    # invisible to this playbook.
+    - name: Detect clawrium-managed marker files
+      ansible.builtin.stat:
+        path: "{{ item.path }}/{{ managed_marker }}"
+      loop: "{{ existing_skill_dirs.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      register: marker_stats
+
+    - name: Compute set of clawrium-managed skill dirnames on host
+      ansible.builtin.set_fact:
+        clawrium_managed_dirs: >-
+          {{ marker_stats.results
+             | selectattr('stat.exists', 'equalto', true)
+             | map(attribute='item.path')
+             | map('basename')
+             | list }}
+
+    - name: Compute set of skill directories to prune
+      # `extras` = (clawrium-managed names on host) - (desired names).
+      # Pruning is bounded to this intersection; we never compute a
+      # delete list from anywhere else.
+      ansible.builtin.set_fact:
+        skills_to_prune: >-
+          {{ clawrium_managed_dirs | difference(desired_skill_names) }}
+
+    - name: Prune clawrium-managed skill directories no longer in desired state
+      ansible.builtin.file:
+        path: "{{ skills_root }}/{{ item }}"
+        state: absent
+      loop: "{{ skills_to_prune }}"
+      # Each `item` is a basename of a path we just enumerated under
+      # skills_root *and* confirmed carries our sentinel. The slug regex
+      # below is a third defense-in-depth check; without it a maliciously
+      # placed sentinel inside e.g. `../foo` (impossible because basename
+      # strips traversal, but verified anyway) would still fail closed.
+      when:
+        - item is match('^[a-z0-9][a-z0-9_-]*$')
+
+    - name: Ensure per-skill directory exists for each desired skill
+      ansible.builtin.file:
+        path: "{{ skills_root }}/{{ item }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0755"
+      loop: "{{ desired_skill_names }}"
+
+    - name: Mark each desired skill as clawrium-managed
+      # The marker is what bounds future prune passes. Created BEFORE
+      # SKILL.md so even a partial-apply (e.g., ansible aborts between
+      # the marker task and the copy task) still produces a dir we
+      # can clean up on the next run.
+      ansible.builtin.copy:
+        dest: "{{ skills_root }}/{{ item }}/{{ managed_marker }}"
+        content: "clawrium-managed\n"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0644"
+      loop: "{{ desired_skill_names }}"
+
+    - name: Materialize SKILL.md for each desired skill
+      # `copy` writes to a tempfile in the dest dir and renames into
+      # place — atomic against a concurrent openclaw daemon read.
+      # `src` lives on the control machine inside our process-owned
+      # staging dir (0700, freshly created); Ansible reads it locally
+      # and ships the bytes.
+      ansible.builtin.copy:
+        src: "{{ staging_dir }}/{{ item }}/SKILL.md"
+        dest: "{{ skills_root }}/{{ item }}/SKILL.md"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0644"
+      loop: "{{ desired_skill_names }}"
