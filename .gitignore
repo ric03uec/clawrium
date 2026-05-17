@@ -233,3 +233,6 @@ gui/.next/
 *.tsbuildinfo
 src/clawrium/gui/frontend/
 .claude/worktrees/
+
+# Scheduled-task internal state (ScheduleWakeup runtime lock)
+.claude/scheduled_tasks.lock

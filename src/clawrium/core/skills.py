@@ -375,10 +375,12 @@ def check_agent_compatibility(skill: Skill, agent_type: str) -> None:
     Compatibility rules (locked in `.itx/364/00_PLAN.md`):
 
     - ``clawrium/<name>``: read the ``compatibility`` map in `_meta.yaml`.
-      Default-true if the key is missing (a normalized skill is meant to
-      run anywhere); explicit ``false`` fails closed. Unknown agent
-      types fail closed too — better a clear error than a "silently
-      installed and never invoked" surprise.
+      **Fail-closed**: missing key OR explicit ``false`` raises
+      ``IncompatibleSkillRegistry``. The catalog author must list each
+      claw they intend to support — silent "absent means anywhere" was
+      rejected during planning because it makes drift hard to debug
+      ("why did install succeed but the skill never run?"). Unknown
+      agent types fail closed too.
     - ``<claw>/<name>`` (native): must match ``agent_type`` exactly.
       Cross-claw native installs are a hard error because the SKILL.md
       is already in a per-claw frontmatter shape.

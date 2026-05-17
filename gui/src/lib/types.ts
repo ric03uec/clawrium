@@ -337,3 +337,29 @@ export interface SkillDetail {
   body: string;
   compatibility: SkillCompatibility;
 }
+
+// Per-agent skills (Phase 5). Both installed and available rows reuse
+// SkillSummary but allow `registry`/`name` to be null on installed rows
+// when the state file carries a ref that no longer parses.
+export interface AgentSkillRow {
+  ref: string;
+  registry: SkillRegistry | null;
+  name: string | null;
+  description: string | null;
+  version: string | null;
+}
+
+export interface AgentSkills {
+  agent_name: string;
+  agent_type: string;
+  installed: AgentSkillRow[];
+  available: AgentSkillRow[];
+}
+
+export interface AgentSkillMutationResponse {
+  success: boolean;
+  agent_name: string;
+  ref: string;
+  changed: boolean;
+  installed: string[];
+}

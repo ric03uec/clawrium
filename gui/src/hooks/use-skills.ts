@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 // Skills catalog is read from the in-repo filesystem and only changes
@@ -20,5 +20,45 @@ export function useSkill(registry: string | null, name: string | null) {
     queryFn: () => api.getSkill(registry!, name!),
     enabled: !!registry && !!name,
     staleTime: SKILLS_STALE_MS,
+  });
+}
+
+export function useAgentSkills(agentKey: string | null) {
+  return useQuery({
+    queryKey: ["agent-skills", agentKey],
+    queryFn: () => api.getAgentSkills(agentKey as string),
+    enabled: !!agentKey,
+  });
+}
+
+interface AgentSkillMutationVars {
+  agentKey: string;
+  registry: string;
+  name: string;
+}
+
+export function useInstallAgentSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentKey, registry, name }: AgentSkillMutationVars) =>
+      api.installAgentSkill(agentKey, registry, name),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-skills", vars.agentKey],
+      });
+    },
+  });
+}
+
+export function useRemoveAgentSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentKey, registry, name }: AgentSkillMutationVars) =>
+      api.removeAgentSkill(agentKey, registry, name),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-skills", vars.agentKey],
+      });
+    },
   });
 }

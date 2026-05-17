@@ -223,6 +223,26 @@ export const api = {
     request<SkillDetail>(
       `/skills/${encodeURIComponent(registry)}/${encodeURIComponent(name)}`,
     ),
+
+  // Per-agent skills (Phase 5). Same encodeURIComponent guard as
+  // getSkill above — defense in depth on top of the backend's
+  // identifier regex.
+  getAgentSkills: (key: string) =>
+    request<AgentSkills>(`/agents/${encodeURIComponent(key)}/skills`),
+  installAgentSkill: (key: string, registry: string, name: string) =>
+    request<AgentSkillMutationResponse>(
+      `/agents/${encodeURIComponent(key)}/skills/${encodeURIComponent(
+        registry,
+      )}/${encodeURIComponent(name)}`,
+      { method: "POST" },
+    ),
+  removeAgentSkill: (key: string, registry: string, name: string) =>
+    request<AgentSkillMutationResponse>(
+      `/agents/${encodeURIComponent(key)}/skills/${encodeURIComponent(
+        registry,
+      )}/${encodeURIComponent(name)}`,
+      { method: "DELETE" },
+    ),
 };
 
 // Type imports (re-exported from types.ts for convenience)
@@ -252,4 +272,6 @@ import type {
   IntegrationCredentialsUpdate,
   SkillsCatalog,
   SkillDetail,
+  AgentSkills,
+  AgentSkillMutationResponse,
 } from "./types";

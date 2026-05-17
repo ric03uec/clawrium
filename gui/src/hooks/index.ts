@@ -12,4 +12,10 @@ export {
   useUpdateIntegrationCredentials,
   useDeleteIntegration,
 } from "./use-integrations";
-export { useSkills, useSkill } from "./use-skills";
+export {
+  useSkills,
+  useSkill,
+  useAgentSkills,
+  useInstallAgentSkill,
+  useRemoveAgentSkill,
+} from "./use-skills";

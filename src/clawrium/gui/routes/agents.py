@@ -35,6 +35,32 @@ from clawrium.core.secrets import (
     get_instance_secrets,
     set_instance_secret,
 )
+from clawrium.core.skills import (
+    NATIVE_REGISTRIES,
+    REGISTRIES,
+    ExternalSourceBlocked,
+    IncompatibleSkillRegistry,
+    InvalidSkillRef,
+    MissingRegistryPrefix,
+    SchemaValidationError,
+    SkillError,
+    SkillNotFound,
+    check_agent_compatibility,
+    list_skills,
+    load_skill,
+    parse_skill_ref,
+)
+from clawrium.core.skills_apply import (
+    AgentNotFoundError,
+    SkillApplyError,
+    SkillApplyNotSupported,
+    apply_state,
+)
+from clawrium.core.skills_state import (
+    add_skill,
+    read_state,
+    remove_skill,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +255,306 @@ async def get_agent_logs(
     # bug (KeyError/TypeError/...) shouldn't masquerade as "service unavailable".
 
     return {"logs": log_lines}
+
+
+# --- Skills endpoints ---
+
+
+def _skill_error_status(error: SkillError) -> int:
+    """Map a ``SkillError`` subclass to an HTTP status code.
+
+    ``SkillApplyError`` is the only "remote failed" class; everything else
+    is a client-side input or catalog problem and maps to 422/404. ATX
+    review wanted explicit failure isolation: a broken playbook run
+    surfaces as 502 (upstream/host failed) so the GUI doesn't mistake
+    "your input is bad" for "the host is down".
+    """
+    if isinstance(error, AgentNotFoundError):
+        return 404
+    if isinstance(error, SkillNotFound):
+        return 404
+    if isinstance(error, SkillApplyError):
+        return 502
+    if isinstance(error, SkillApplyNotSupported):
+        return 422
+    if isinstance(
+        error,
+        (
+            MissingRegistryPrefix,
+            ExternalSourceBlocked,
+            InvalidSkillRef,
+            IncompatibleSkillRegistry,
+            SchemaValidationError,
+        ),
+    ):
+        return 422
+    # Defensive: a future SkillError subclass surfaces as 500 with a
+    # bounded message so it isn't silently treated as a client error.
+    return 500
+
+
+# SkillApplyError messages from core.skills_apply embed absolute paths
+# (log_dir, playbook_path) and remote stderr — useful for the CLI's local
+# error surface but not safe to ship in an HTTP body that a browser or
+# upstream proxy may cache/log. ATX-1 B1: replace the detail string with
+# a generic message for SkillApplyError; the full text is logged for
+# operator debugging only.
+_SKILL_APPLY_GENERIC_DETAIL = (
+    "Skills apply failed on host. Check server logs for details."
+)
+
+
+def _skill_error_detail(error: SkillError) -> str:
+    """Detail string to ship in the HTTPException body.
+
+    All ``SkillError`` subclasses except ``SkillApplyError`` are
+    user-actionable input/catalog problems — the message itself is the
+    fix hint, so we surface it verbatim. ``SkillApplyError`` is the only
+    class that can carry filesystem paths or remote stderr; that one is
+    redacted to a fixed string and the original message goes to the
+    server log.
+    """
+    if isinstance(error, SkillApplyError):
+        logger.warning("skills apply failed: %s", error)
+        return _SKILL_APPLY_GENERIC_DETAIL
+    return str(error)
+
+
+def _is_compatible_for_agent_type(reg: str, name: str, agent_type: str) -> bool:
+    """Decide if a catalog skill is installable on a given claw type.
+
+    ATX-1 W2: delegate to ``check_agent_compatibility`` instead of
+    reimplementing the rule. Any future tweak to the compatibility
+    semantics (e.g. how missing keys are treated) now applies to both
+    the CLI and GUI from one place.
+
+    Short-circuits (no I/O) for two cases that cannot ever be
+    compatible:
+      - Unknown source registry → false.
+      - Native registry whose name doesn't match the claw → false (a
+        native skill can never run on another claw).
+
+    Everything else — `clawrium/*` and `<claw>/*` matching the claw —
+    falls through to ``load_skill`` + ``check_agent_compatibility``.
+    The picker scan is therefore O(n) ``load_skill`` calls bounded by
+    the catalog size for compatible registries; a follow-up could
+    cache loaded skills per request if catalogs grow large (ATX-2 W4
+    flagged the cost but the present picker scans <10 skills, so the
+    cache is deferred).
+
+    Loader failures swallow to false so a single bad catalog row
+    cannot widen the install picker on the user's screen.
+    """
+    if reg not in REGISTRIES:
+        return False
+    if reg in NATIVE_REGISTRIES and reg != agent_type:
+        return False
+    try:
+        skill = load_skill(parse_skill_ref(f"{reg}/{name}"))
+        check_agent_compatibility(skill, agent_type)
+    except SkillError:
+        return False
+    return True
+
+
+def _list_available_for_agent_type(agent_type: str) -> list[dict[str, object]]:
+    """Return catalog skills installable on ``agent_type``, summarized.
+
+    Used to populate the install picker on the agent-detail Skills tab.
+    """
+    try:
+        refs = list_skills()
+    except SkillError as error:
+        logger.warning("skills catalog unavailable: %s", error)
+        return []
+    available: list[dict[str, object]] = []
+    for ref in refs:
+        if not _is_compatible_for_agent_type(ref.registry, ref.name, agent_type):
+            continue
+        description: str | None = None
+        version: str | None = None
+        try:
+            skill = load_skill(ref)
+        except SkillError:
+            # Bad catalog row — surface the ref so the user still sees
+            # something in the picker, but null out the optional fields.
+            pass
+        else:
+            raw_desc = skill.metadata.get("description")
+            if isinstance(raw_desc, str) and raw_desc.strip():
+                description = " ".join(raw_desc.split())
+            raw_ver = skill.metadata.get("version")
+            if raw_ver is not None:
+                version = str(raw_ver)
+        available.append(
+            {
+                "ref": str(ref),
+                "registry": ref.registry,
+                "name": ref.name,
+                "description": description,
+                "version": version,
+            }
+        )
+    return available
+
+
+@router.get("/{agent_key}/skills")
+async def list_agent_skills(agent_key: str):
+    """List installed skills + available-to-install skills for an agent.
+
+    Returns:
+
+    ```
+    {
+      "agent_name": "tdd-hermes",
+      "agent_type": "hermes",
+      "installed": [{"ref": "clawrium/tdd", ...}, ...],
+      "available": [{"ref": "clawrium/tdd", ...}, ...]
+    }
+    ```
+
+    ``installed`` is the local desired-state file's view — the same view
+    ``clm agent skill list`` shows. The agent-detail Skills tab merges
+    these in the UI, so the response keeps them separate to keep the
+    payload close to the underlying data.
+    """
+    resolved = await asyncio.to_thread(_resolve_agent, agent_key)
+    if not resolved:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+
+    _host_record, agent_type, agent_record = resolved
+    agent_name = agent_record.get("agent_name") or agent_key
+
+    def _build() -> dict[str, object]:
+        try:
+            installed_refs = read_state(agent_name)
+        except SkillError as error:
+            logger.warning(
+                "skills state unreadable for %s: %s", agent_name, error
+            )
+            installed_refs = []
+        installed: list[dict[str, object]] = []
+        for raw_ref in installed_refs:
+            try:
+                ref = parse_skill_ref(raw_ref)
+            except SkillError:
+                # State file has an entry that no longer validates — show
+                # the bare ref so the user can remove it.
+                installed.append(
+                    {
+                        "ref": raw_ref,
+                        "registry": None,
+                        "name": None,
+                        "description": None,
+                        "version": None,
+                    }
+                )
+                continue
+            description: str | None = None
+            version: str | None = None
+            try:
+                skill = load_skill(ref)
+            except SkillError:
+                pass
+            else:
+                raw_desc = skill.metadata.get("description")
+                if isinstance(raw_desc, str) and raw_desc.strip():
+                    description = " ".join(raw_desc.split())
+                raw_ver = skill.metadata.get("version")
+                if raw_ver is not None:
+                    version = str(raw_ver)
+            installed.append(
+                {
+                    "ref": str(ref),
+                    "registry": ref.registry,
+                    "name": ref.name,
+                    "description": description,
+                    "version": version,
+                }
+            )
+        available = _list_available_for_agent_type(agent_type)
+        return {
+            "agent_name": agent_name,
+            "agent_type": agent_type,
+            "installed": installed,
+            "available": available,
+        }
+
+    return await asyncio.to_thread(_build)
+
+
+def _install_or_remove(
+    agent_key: str,
+    registry: str,
+    skill: str,
+    *,
+    action: str,
+) -> dict[str, object]:
+    """Shared body for POST/DELETE; runs synchronously inside a thread.
+
+    Resolves the agent, mutates desired state, then unconditionally calls
+    ``apply_state`` — same drift-recovery contract the CLI uses. Returns
+    a payload with the post-apply installed skills so the frontend can
+    update its cache without an extra round-trip.
+    """
+    resolved = _resolve_agent(agent_key)
+    if not resolved:
+        raise HTTPException(
+            status_code=404, detail=f"Agent '{agent_key}' not found"
+        )
+    _host_record, _agent_type, agent_record = resolved
+    agent_name = agent_record.get("agent_name") or agent_key
+
+    raw_ref = f"{registry}/{skill}"
+    try:
+        # add_skill / remove_skill both call parse_skill_ref as their
+        # first operation, so a malformed ref short-circuits with 422
+        # before any state mutation. (W4: dropped the redundant pre-call
+        # that ATX flagged as dead code.)
+        if action == "install":
+            _new_state, changed = add_skill(agent_name, raw_ref)
+        else:
+            _new_state, changed = remove_skill(agent_name, raw_ref)
+        result = apply_state(agent_name)
+    except SkillError as error:
+        raise HTTPException(
+            status_code=_skill_error_status(error),
+            detail=_skill_error_detail(error),
+        ) from error
+
+    return {
+        "success": True,
+        "agent_name": agent_name,
+        "ref": raw_ref,
+        "changed": changed,
+        "installed": list(result.applied_skills),
+    }
+
+
+@router.post("/{agent_key}/skills/{registry}/{skill}")
+async def install_agent_skill(agent_key: str, registry: str, skill: str):
+    """Install ``<registry>/<skill>`` on ``agent_key``.
+
+    Idempotent: re-installing an already-installed skill is a no-op
+    state mutation, but the apply playbook still runs to reconcile any
+    on-host drift (matches the CLI semantics).
+    """
+    return await asyncio.to_thread(
+        _install_or_remove, agent_key, registry, skill, action="install"
+    )
+
+
+@router.delete("/{agent_key}/skills/{registry}/{skill}")
+async def remove_agent_skill(agent_key: str, registry: str, skill: str):
+    """Remove ``<registry>/<skill>`` from ``agent_key``.
+
+    Idempotent: removing a skill that wasn't in desired state still
+    runs the apply playbook so any orphan on-host directory is pruned
+    (matches the CLI semantics).
+    """
+    return await asyncio.to_thread(
+        _install_or_remove, agent_key, registry, skill, action="remove"
+    )
 
 
 # --- Internal helpers ---
