@@ -31,12 +31,19 @@ Integrations typically:
 
 ## Configuration
 
-Integrations will be configured during agent onboarding or separately:
+Integrations are managed independently of agents — define one once, then attach it to one or more agents.
+
+**From the CLI:**
 
 ```bash
-# Future command (not yet available)
-clm agent configure <agent-name> --integrations
+clm integration types                  # list supported types
+clm integration add my-github --type github
+clm integration credentials my-github  # paste tokens interactively
 ```
+
+**From the web dashboard:**
+
+`clm gui` opens an **Integrations** page where you can add, edit credentials, and remove integrations through a form. The page surfaces how many agents use each integration so you don't accidentally remove one that's in use; credential values are never returned to the browser.
 
 ## Security
 

@@ -43,8 +43,9 @@ clm gui --no-open
 The dashboard surfaces the same data as the CLI, with a few interactive niceties:
 
 - **Dashboard** — fleet counts, 24h token usage, recent agent activity
-- **Topology** — visual map of hosts and the agents running on them
+- **Topology** — visual map of hosts and the agents running on them, with per-host hardware badges (architecture, GPU vendor)
 - **Providers** — list of configured LLM providers + a searchable model catalog
+- **Integrations** — manage GitHub / GitLab / Atlassian / Linear / Notion integrations and credentials (counterpart to [`clm integration`](./integration.md))
 - **Agent detail** — chat with a running agent, view logs, edit memory, inspect config
 - **Settings** — version info, usage DB controls (export / clear), Danger Zone
 
