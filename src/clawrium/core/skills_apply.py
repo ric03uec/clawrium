@@ -309,10 +309,24 @@ def _make_log_dir(agent_name: str, agent_type: str, host: dict) -> Path:
         logs_dir
         / f"skills_apply-{safe_agent_type}-{host_display}-{timestamp}"
     )
+    # Belt-and-suspenders: even after the allowlist sanitization above,
+    # assert the resolved log_dir stays inside logs_dir. Catches future
+    # regressions (e.g. if `_sanitize_for_path` is loosened) before they
+    # can reach shutil.rmtree. The user-facing error does NOT include
+    # the computed path — leaking it would tell an attacker how their
+    # traversal payload was reshaped (ATX #382 W2 / W13). Path lands at
+    # DEBUG-level only.
     resolved = log_dir.resolve()
     if not str(resolved).startswith(str(logs_dir.resolve()) + os.sep):
+        logger.debug(
+            "Rejected log_dir outside logs root: computed=%s resolved=%s root=%s",
+            log_dir,
+            resolved,
+            logs_dir.resolve(),
+        )
         raise SkillApplyError(
-            f"Log directory path escaped logs root: {log_dir}"
+            "Log directory construction failed: path safety check rejected "
+            "computed path."
         )
     log_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(log_dir, 0o700)

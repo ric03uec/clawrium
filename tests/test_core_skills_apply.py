@@ -789,6 +789,14 @@ def _write_raw_state(agent_name: str, skills: list[str]) -> None:
         ("clawrium\\tdd", (InvalidSkillRef, MissingRegistryPrefix)),
         # Null byte
         ("clawrium/tdd\x00", InvalidSkillRef),
+        # Bidi-formatting codepoints — the slug regex bans these but
+        # without a unit test, a future regex loosening could let them
+        # through and reach RTLO-style output forgery in error messages
+        # AND on-host CLI args (ATX #382 W14).
+        ("clawrium/tdd‮", InvalidSkillRef),       # RIGHT-TO-LEFT OVERRIDE
+        ("clawrium/​tdd", InvalidSkillRef),       # ZERO WIDTH SPACE
+        ("clawrium/؜tdd", InvalidSkillRef),       # ARABIC LETTER MARK
+        ("clawrium/tdd⁦inject", InvalidSkillRef), # LRI
         # External-source URL forms
         ("https://evil.example/skill", ExternalSourceBlocked),
         ("file:///etc/passwd", ExternalSourceBlocked),

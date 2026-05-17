@@ -387,6 +387,7 @@ def _extract_delta_content(chunk: Any) -> str:
 _CONTROL_CHARS_RE = re.compile(
     "["
     "\x00-\x1f\x7f-\x9f"
+    "\u061c"             # ARABIC LETTER MARK (UAX#9 bidi format char)
     "\u200b-\u200f"      # ZWSP, ZWNJ, ZWJ, LRM, RLM
     "\u2028-\u2029"      # LINE / PARAGRAPH SEPARATOR
     "\u202a-\u202e"      # LRE, RLE, PDF, LRO, RLO
@@ -406,6 +407,7 @@ _WHITESPACE_RUN_RE = re.compile(r" +")
 _ASSISTANT_TEXT_STRIP_RE = re.compile(
     "["
     "\x00-\x08\x0b-\x1f\x7f-\x9f"
+    "\u061c"             # ARABIC LETTER MARK (UAX#9 bidi format char)
     "\u200b-\u200f"      # ZWSP, ZWNJ, ZWJ, LRM, RLM
     "\u2028-\u2029"      # LINE / PARAGRAPH SEPARATOR
     "\u202a-\u202e"      # LRE, RLE, PDF, LRO, RLO

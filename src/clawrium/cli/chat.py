@@ -654,6 +654,7 @@ def _sanitize_exception_text(exc: Exception, max_len: int = 500) -> str:
     cleaned = re.sub(
         "["
         "\x00-\x1f\x7f-\x9f"
+        "\u061c"             # ARABIC LETTER MARK (UAX#9 bidi format char)
         "\u200b-\u200f"      # ZWSP, ZWNJ, ZWJ, LRM, RLM
         "\u2028-\u2029"      # LINE / PARAGRAPH SEPARATOR
         "\u202a-\u202e"      # LRE, RLE, PDF, LRO, RLO
