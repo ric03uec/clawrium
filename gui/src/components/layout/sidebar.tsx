@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { label: "Dashboard", href: "/" },
   { label: "Topology", href: "/topology" },
   { label: "Providers", href: "/providers" },
+  { label: "Skills", href: "/skills" },
   { label: "Integrations", href: "/integrations" },
   { label: "Settings", href: "/settings" },
 ];

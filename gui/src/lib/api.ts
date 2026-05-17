@@ -213,6 +213,16 @@ export const api = {
   // Agent Logs
   getAgentLogs: (key: string, lines = 100) =>
     request<LogsResponse>(`/agents/${key}/logs?lines=${lines}`),
+
+  // Skills catalog (read-only browse — Phase 4)
+  getSkills: () => request<SkillsCatalog>("/skills"),
+  getSkill: (registry: string, name: string) =>
+    // encodeURIComponent on both segments. The backend rejects anything
+    // outside `^[a-z0-9][a-z0-9_-]*$`, so currently this is a no-op,
+    // but the safety shouldn't depend on a non-local invariant.
+    request<SkillDetail>(
+      `/skills/${encodeURIComponent(registry)}/${encodeURIComponent(name)}`,
+    ),
 };
 
 // Type imports (re-exported from types.ts for convenience)
@@ -240,4 +250,6 @@ import type {
   IntegrationTypesMap,
   IntegrationCreate,
   IntegrationCredentialsUpdate,
+  SkillsCatalog,
+  SkillDetail,
 } from "./types";

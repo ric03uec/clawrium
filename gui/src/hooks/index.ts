@@ -12,3 +12,4 @@ export {
   useUpdateIntegrationCredentials,
   useDeleteIntegration,
 } from "./use-integrations";
+export { useSkills, useSkill } from "./use-skills";

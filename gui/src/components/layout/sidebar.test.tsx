@@ -68,13 +68,21 @@ describe("Sidebar", () => {
     expect(img?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("places Integrations between Providers and Settings", async () => {
+  it("places Skills and Integrations between Providers and Settings", async () => {
     await renderAndFlush();
     const labels = screen
       .getAllByRole("link")
       .map((el) => el.textContent?.trim())
-      .filter((t) => t && ["Providers", "Integrations", "Settings"].includes(t));
-    expect(labels).toEqual(["Providers", "Integrations", "Settings"]);
+      .filter(
+        (t) =>
+          t && ["Providers", "Skills", "Integrations", "Settings"].includes(t),
+      );
+    expect(labels).toEqual([
+      "Providers",
+      "Skills",
+      "Integrations",
+      "Settings",
+    ]);
   });
 
   it("labels the nav for assistive tech", async () => {

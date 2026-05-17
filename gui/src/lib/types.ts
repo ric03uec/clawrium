@@ -298,3 +298,42 @@ export interface LogsResponse {
   logs: LogEntry[];
   error?: string;
 }
+
+// Skills catalog types
+export type SkillRegistry = "clawrium" | "openclaw" | "hermes" | "zeroclaw";
+
+export type SkillCompatibility = Record<
+  "openclaw" | "hermes" | "zeroclaw",
+  boolean
+>;
+
+export interface SkillSummary {
+  ref: string;
+  registry: SkillRegistry;
+  name: string;
+  description: string | null;
+  version: string | null;
+  // True when the backend could load the directory but failed to
+  // parse the skill's metadata. Distinguishes a broken catalog
+  // entry from a legitimately undescribed skill.
+  degraded?: boolean;
+}
+
+export interface SkillsCatalog {
+  registries: SkillRegistry[];
+  skills: Record<SkillRegistry, SkillSummary[]>;
+  // Present (with a short reason string) when the backend could not
+  // read the catalog directory — e.g. permission denied. The frontend
+  // surfaces this as a banner so empty tabs aren't mistaken for an
+  // empty repo.
+  error?: string;
+}
+
+export interface SkillDetail {
+  ref: string;
+  registry: SkillRegistry;
+  name: string;
+  metadata: Record<string, unknown>;
+  body: string;
+  compatibility: SkillCompatibility;
+}
