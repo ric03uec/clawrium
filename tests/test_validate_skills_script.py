@@ -539,7 +539,7 @@ def test_native_skill_schema_violation_rejected(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_main_exit_0_on_valid_catalog(tmp_path):
+def test_main_exit_0_on_valid_catalog(tmp_path, capsys):
     _build_fixture(tmp_path)
     skill = tmp_path / "clawrium" / "tdd"
     skill.mkdir()
@@ -547,7 +547,11 @@ def test_main_exit_0_on_valid_catalog(tmp_path):
     (skill / "SKILL.md").write_text(_VALID_SKILL_MD)
 
     rc = validate_skills_mod.main([str(tmp_path)])
+    captured = capsys.readouterr()
     assert rc == 0
+    # The "ok:" stdout message is part of the CI contract — a silent
+    # success or a message routed to stderr should fail this test.
+    assert "ok:" in captured.out
 
 
 def test_main_exit_1_on_invalid_catalog(tmp_path, capsys):
@@ -570,13 +574,132 @@ def test_main_exit_2_on_missing_root(tmp_path, capsys):
     assert "catalog root not found" in captured.err
 
 
-def test_main_uses_default_catalog_root_for_real_repo(monkeypatch, capsys):
+def test_main_uses_default_catalog_root_for_real_repo(capsys):
     """`main` with no argv falls back to `_default_catalog_root()`, which
     encodes the assumption that the script lives at repo-root/scripts/.
     Run it against the actual repo to pin that assumption."""
     rc = validate_skills_mod.main([])
     captured = capsys.readouterr()
     assert rc == 0, captured.err
+
+
+# ---------------------------------------------------------------------------
+# Internal validation errors (schema-file failures) — exit code 2
+# ---------------------------------------------------------------------------
+
+
+def test_main_exit_2_on_missing_schema_file(tmp_path, capsys):
+    """If a registry's schema file is deleted post-install, the loader
+    raises `SchemaValidationError`. The validator wraps that into
+    `_InternalValidationError` so the CI contract (exit 2 for
+    not-contributor-fixable failures) holds — exit 1 would mis-signal
+    a fixable skill error."""
+    _build_fixture(tmp_path)
+    skill = tmp_path / "clawrium" / "tdd"
+    skill.mkdir()
+    (skill / "_meta.yaml").write_text(_VALID_META)
+    (skill / "SKILL.md").write_text(_VALID_SKILL_MD)
+    # Remove the clawrium schema after the fixture is built.
+    (tmp_path / "_schema" / "clawrium.schema.json").unlink()
+
+    # Patch _load_schema to read from the fixture root so the deletion
+    # actually matters (the production loader resolves to the package
+    # _schema dir, which is unaffected by this fixture).
+    from clawrium.core import skills as core_skills
+
+    real_load = validate_skills_mod._load_schema  # captured before patch
+    schema_dir = tmp_path / "_schema"
+
+    def _fixture_load(registry: str):
+        if registry == "clawrium":
+            path = schema_dir / "clawrium.schema.json"
+        else:
+            path = schema_dir / "native" / f"{registry}.schema.json"
+        if not path.is_file():
+            from clawrium.core.skills import SchemaValidationError as SVE
+            raise SVE(f"Schema file for registry {registry!r} not found at {path}.")
+        import json
+        return json.loads(path.read_text())
+
+    validate_skills_mod._load_schema = _fixture_load
+    # _safe_load_schema closes over the module name, so patch through it
+    # by reaching back into the module namespace.
+    try:
+        rc = validate_skills_mod.main([str(tmp_path)])
+    finally:
+        validate_skills_mod._load_schema = real_load
+        core_skills._SCHEMA_CACHE.clear()
+
+    captured = capsys.readouterr()
+    assert rc == 2, captured.err
+    assert "internal validation failure" in captured.err
+    assert "schema for registry" in captured.err
+
+
+def test_native_skill_invalid_yaml_syntax_rejected(tmp_path):
+    """A SKILL.md with frontmatter that fails YAML parse (not just a
+    non-mapping shape) must surface as a normal failure entry — the
+    `yaml.YAMLError` branch in `_split_frontmatter` is otherwise
+    uncovered by `test_native_frontmatter_as_list_rejected` which only
+    exercises the non-mapping branch."""
+    _build_fixture(tmp_path)
+    skill = tmp_path / "openclaw" / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        dedent(
+            """\
+            ---
+            name: demo
+            description: [unclosed
+            ---
+
+            # Body
+            """
+        )
+    )
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(failures, "SKILL.md", "not valid YAML"), failures
+
+
+@pytest.mark.parametrize("clawrium_key", ["compatibility", "native"])
+def test_clawrium_only_keys_in_native_frontmatter_rejected_each(
+    tmp_path, clawrium_key
+):
+    """Cover each entry in `_CLAWRIUM_ONLY_KEYS` independently — without
+    the parametrized variant, dropping `native` (or any other key) from
+    the frozenset would not break a single test."""
+    _build_fixture(tmp_path)
+    skill = tmp_path / "hermes" / "demo"
+    skill.mkdir()
+    block_lines = {
+        "compatibility": (
+            "compatibility:\n"
+            "  openclaw: true\n"
+            "  hermes: true\n"
+            "  zeroclaw: true\n"
+        ),
+        "native": (
+            "native:\n"
+            "  hermes:\n"
+            "    metadata: {}\n"
+        ),
+    }[clawrium_key]
+    (skill / "SKILL.md").write_text(
+        "---\n"
+        "name: demo\n"
+        "description: A native skill with a stray clawrium-only block.\n"
+        + block_lines
+        + "---\n\n# Body\n"
+    )
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(failures, "SKILL.md", "clawrium-only keys"), failures
+    # Defence-in-depth: the specific key name must surface in the
+    # message, not just the generic "clawrium-only" phrase.
+    assert any(
+        clawrium_key in failure.message for failure in failures
+    ), failures
 
 
 # ---------------------------------------------------------------------------

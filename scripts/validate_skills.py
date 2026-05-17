@@ -89,6 +89,19 @@ from clawrium.core.skills import (
 _CLAWRIUM_ONLY_KEYS: frozenset[str] = frozenset({"compatibility", "native"})
 
 
+class _InternalValidationError(Exception):
+    """Raised when validation cannot start because the catalog's own
+    schema files are missing or malformed.
+
+    This is distinct from `SchemaValidationError`, which fires when a
+    *skill* fails validation — those are contributor-fixable and surface
+    as `ValidationFailure` entries with exit code 1. An
+    `_InternalValidationError` means the validator itself can't do its
+    job (corrupt repo state, partial install, schema file deleted) and
+    surfaces as exit code 2 per the module-level contract.
+    """
+
+
 @dataclass
 class ValidationFailure:
     """One catalog-level validation error.
@@ -107,6 +120,21 @@ class ValidationFailure:
         except ValueError:
             rel = self.path
         return f"  - {rel}: {self.message}"
+
+
+def _safe_load_schema(registry: str) -> dict:
+    """Wrap `_load_schema` so a missing or corrupt schema file becomes an
+    `_InternalValidationError` (exit code 2) instead of leaking
+    `SchemaValidationError` (which is the contributor-fixable, exit-1
+    surface). Without this wrap a partial install or a deleted
+    `_schema/*.json` would crash the validator with an uncaught
+    exception."""
+    try:
+        return _load_schema(registry)
+    except SchemaValidationError as error:
+        raise _InternalValidationError(
+            f"schema for registry {registry!r} could not be loaded: {error}"
+        ) from error
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -194,7 +222,7 @@ def _validate_clawrium_skill(
             )
         ]
 
-    schema = _load_schema("clawrium")
+    schema = _safe_load_schema("clawrium")
     try:
         _validate_against_schema(metadata, schema, ref=ref)
     except SchemaValidationError as error:
@@ -264,7 +292,7 @@ def _validate_native_skill(
         )
         return failures
 
-    schema = _load_schema(ref.registry)
+    schema = _safe_load_schema(ref.registry)
     try:
         _validate_against_schema(frontmatter, schema, ref=ref)
     except SchemaValidationError as error:
@@ -447,10 +475,23 @@ def main(argv: list[str] | None = None) -> int:
 
     root = (args.catalog_root or _default_catalog_root()).resolve()
     if not root.is_dir():
-        print(f"error: catalog root not found: {root}", file=sys.stderr)
+        print(
+            f"error: catalog root not found: {root}\n"
+            "hint: run `python scripts/validate_skills.py` with no args "
+            "to auto-detect the repo-root skills/, or verify the path "
+            "you passed.",
+            file=sys.stderr,
+        )
         return 2
 
-    failures = validate_catalog(root)
+    try:
+        failures = validate_catalog(root)
+    except _InternalValidationError as error:
+        # The validator itself can't run (missing/corrupt schema, etc.).
+        # Exit code 2 — matches the contract documented in the module
+        # docstring and signals "not contributor-fixable" to CI.
+        print(f"error: internal validation failure: {error}", file=sys.stderr)
+        return 2
     if not failures:
         print(f"ok: skills catalog at {root} validates")
         return 0

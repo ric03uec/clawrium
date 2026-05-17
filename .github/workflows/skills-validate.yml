@@ -31,6 +31,13 @@ on:
       - "tests/test_validate_skills_script.py"
       - ".github/workflows/skills-validate.yml"
 
+# Least-privilege: this job only needs to read the checkout and run
+# tests — no writes to PR, issues, or releases. Explicit declaration
+# prevents future repo-wide default changes from granting the runner
+# extra scopes silently.
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -56,7 +63,10 @@ jobs:
         run: uv python install 3.10
 
       - name: Install dependencies
-        run: uv sync
+        # --frozen rejects any lock-file drift in the PR — same locked
+        # dependency set the contributor saw locally must be what CI
+        # validates.
+        run: uv sync --frozen
 
       # The validator step MUST run before the fixture tests. If the
       # validator fails, GitHub Actions skips the next step by default

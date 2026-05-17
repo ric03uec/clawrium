@@ -11,8 +11,9 @@ if your skill passes validation locally, it will pass in CI.
 
 ## 1. Pick a name
 
-The `<name>` is a kebab-case slug. Slug rule (enforced by the validator
-and by `parse_skill_ref`):
+The `<name>` is a lowercase slug (hyphens and underscores both
+allowed). Slug rule (enforced by the validator and by
+`parse_skill_ref`):
 
 ```
 ^[a-z0-9][a-z0-9_-]*$
@@ -115,9 +116,9 @@ specific rule violated. Common ones:
 |------------------------------------------|-------------------------------------------|
 | `must equal directory name`              | Make `_meta.yaml.name` match the dirname  |
 | `missing required _meta.yaml`            | Add the file (clawrium skills require it) |
-| `clawrium-only keys`                     | You're under a native registry — move it  |
+| `missing required SKILL.md`              | Add the file alongside `_meta.yaml`       |
 | `failed Clawrium normalized skill (_meta.yaml) validation` | Read the per-field message; usually a typo or wrong type |
-| `violates the slug rule`                 | Rename the directory to kebab-case        |
+| `violates the slug rule`                 | Rename the directory to lowercase letters, digits, `-`, `_` |
 
 Then run the test suite:
 

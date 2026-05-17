@@ -379,8 +379,10 @@ def check_agent_compatibility(skill: Skill, agent_type: str) -> None:
       ``IncompatibleSkillRegistry``. The catalog author must list each
       claw they intend to support — silent "absent means anywhere" was
       rejected during planning because it makes drift hard to debug
-      ("why did install succeed but the skill never run?"). Unknown
-      agent types fail closed too.
+      ("why did install succeed but the skill never run?"). The
+      `clawrium.schema.json` also requires the map (and all three claw
+      entries inside it), so a missing key represents a malformed skill.
+      Unknown agent types fail closed too.
     - ``<claw>/<name>`` (native): must match ``agent_type`` exactly.
       Cross-claw native installs are a hard error because the SKILL.md
       is already in a per-claw frontmatter shape.
@@ -603,4 +605,13 @@ __all__ = [
     "check_agent_compatibility",
     "clear_schema_cache",
     "materialize_for_claw",
+    # The four names below are private (leading underscore) but
+    # intentionally exported as a stable surface for
+    # `scripts/validate_skills.py` to reuse the loader's parsing /
+    # schema-validation primitives. Renaming any of them requires
+    # updating that script in lockstep.
+    "_NAME_RE",
+    "_load_schema",
+    "_split_frontmatter",
+    "_validate_against_schema",
 ]

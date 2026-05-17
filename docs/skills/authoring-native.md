@@ -110,14 +110,17 @@ validator enforces this.
 python scripts/validate_skills.py
 ```
 
-The validator checks:
+Common failures and their fixes:
 
-- Slug rule on the directory name.
-- No symlinks in the skill tree.
-- Frontmatter validates against the per-claw native schema.
-- Frontmatter does NOT contain clawrium-only keys.
-- `name:` field equals the directory name.
-- No `_meta.yaml` in the skill directory.
+| Failure message                                | Fix                                                       |
+|------------------------------------------------|-----------------------------------------------------------|
+| `missing required SKILL.md`                    | Add the file; native skills are SKILL.md only             |
+| `_meta.yaml is only valid under skills/clawrium/` | Delete the `_meta.yaml`, or move the skill to `clawrium/` |
+| `clawrium-only keys ['compatibility'...]`      | Remove `compatibility:` / `native:` from the frontmatter   |
+| `must equal directory name`                    | Make `name:` match the directory name                     |
+| `violates the slug rule`                       | Rename the directory to lowercase letters, digits, `-`, `_` |
+| `symlinks are not allowed`                     | Inline the file; no symlinks anywhere in the catalog       |
+| `YAML frontmatter block`                       | Add a `---\n…\n---` frontmatter at the top of `SKILL.md`   |
 
 Then run the test suite — the validator fixture tests run alongside
 the rest of the suite:

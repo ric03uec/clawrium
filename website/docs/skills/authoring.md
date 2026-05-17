@@ -126,9 +126,11 @@ Common ones:
 |------------------------------------------|--------------------------------------------|
 | `must equal directory name`              | Make `name:` match the dirname             |
 | `missing required _meta.yaml`            | clawrium skill is missing the file         |
+| `missing required SKILL.md`              | Add the file alongside `_meta.yaml`        |
+| `failed Clawrium normalized skill (_meta.yaml) validation` | Read the per-field message; usually a typo or wrong type in `_meta.yaml` |
 | `_meta.yaml is only valid under skills/clawrium/` | Move the skill or delete the file |
 | `clawrium-only keys`                     | Remove `compatibility:`/`native:` keys     |
-| `violates the slug rule`                 | Rename the directory to kebab-case         |
+| `violates the slug rule`                 | Rename the directory to lowercase letters, digits, `-`, `_` |
 | `symlinks are not allowed`               | Inline the file, no symlinks               |
 
 Run the test suite too:
