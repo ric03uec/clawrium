@@ -229,6 +229,7 @@ def test_bidi_chars_in_skill_error_are_stripped(monkeypatch):
     def boom(name, **_kwargs):
         raise SkillApplyError(poisoned)
 
+    _stub_agent_resolution(monkeypatch)
     monkeypatch.setattr(cli_agent_skill, "apply_state", boom)
     result = runner.invoke(
         agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
@@ -260,6 +261,7 @@ def test_apply_error_bidi_stripped_does_not_destroy_ordinary_diagnostics(monkeyp
     def boom(name, **_kwargs):
         raise SkillApplyError(msg)
 
+    _stub_agent_resolution(monkeypatch)
     monkeypatch.setattr(cli_agent_skill, "apply_state", boom)
     result = runner.invoke(
         agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
