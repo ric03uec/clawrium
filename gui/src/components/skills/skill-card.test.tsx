@@ -39,6 +39,22 @@ describe("SkillCard", () => {
     expect(screen.getByText("No description available")).toBeInTheDocument();
   });
 
+  it("marks the card when the skill is degraded", () => {
+    render(
+      <SkillCard
+        skill={makeSkill({ description: null, degraded: true })}
+        onSelect={() => {}}
+      />,
+    );
+    // Visible warning chip + descriptive fallback text.
+    expect(
+      screen.getByLabelText("metadata failed to load"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Failed to load skill metadata"),
+    ).toBeInTheDocument();
+  });
+
   it("omits version label when missing", () => {
     render(
       <SkillCard skill={makeSkill({ version: null })} onSelect={() => {}} />,

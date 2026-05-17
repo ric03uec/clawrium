@@ -83,11 +83,17 @@ def _summarize(ref: SkillRef) -> dict[str, Any]:
         "name": ref.name,
         "description": None,
         "version": None,
+        "degraded": False,
     }
     try:
         skill = load_skill(ref)
     except (SkillError, OSError) as error:
+        # `degraded=True` distinguishes a failed-to-load row from a
+        # legitimately undescribed skill — the GUI renders a warning
+        # icon on the card so operators can tell broken catalog
+        # entries from new stubs.
         logger.warning("skipping summary for %s: %s", ref, error)
+        summary["degraded"] = True
         return summary
 
     description = skill.metadata.get("description")
@@ -251,9 +257,24 @@ async def list_skills_route() -> dict[str, Any]:
             # GUI should render an empty catalog with all four tabs
             # rather than a hard 500 — the user can still navigate
             # away to fix the underlying filesystem issue.
+            #
+            # The `error` field distinguishes this state from a
+            # genuinely empty catalog so the GUI can surface a banner
+            # instead of silently showing four empty tabs.
             logger.warning("skills catalog unavailable: %s", error)
-            return {"registries": list(REGISTRIES), "skills": grouped}
+            return {
+                "registries": list(REGISTRIES),
+                "skills": grouped,
+                "error": "catalog unavailable",
+            }
         for ref in refs:
+            if ref.registry not in grouped:
+                # Defensive: a future registry added to REGISTRIES but
+                # not present in the static grouped-dict would KeyError
+                # here without this guard. Cheap and silent on the
+                # happy path.
+                logger.warning("skipping ref %s: registry not in grouped", ref)
+                continue
             grouped[ref.registry].append(_summarize(ref))
         return {"registries": list(REGISTRIES), "skills": grouped}
 

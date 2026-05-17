@@ -41,24 +41,52 @@ export default function SkillsPage() {
       />
 
       {error ? (
-        <div className="bg-surface rounded-xl border border-default p-6 text-sm text-status-warning">
+        <div
+          role="alert"
+          className="bg-surface rounded-xl border border-default p-6 text-sm text-status-warning"
+        >
           Failed to load skills catalog:{" "}
           {error instanceof Error ? error.message : String(error)}
         </div>
       ) : null}
 
+      {catalog?.error ? (
+        <div
+          role="alert"
+          className="bg-surface rounded-xl border border-default p-4 text-sm text-status-warning"
+        >
+          Skills catalog is currently unavailable on the server (likely a
+          filesystem permission issue). Showing empty tabs as a fallback —
+          check the GUI server log for details.
+        </div>
+      ) : null}
+
       {isLoading ? (
-        <div className="bg-surface rounded-xl border border-default p-8 text-center text-muted text-sm">
+        <div
+          aria-live="polite"
+          className="bg-surface rounded-xl border border-default p-8 text-center text-muted text-sm"
+        >
           Loading skills catalog...
         </div>
       ) : catalog ? (
         <>
-          <nav
+          {/* `role="group"` instead of `<nav>` because these buttons
+              filter the page's already-loaded data, they do not
+              navigate to new URLs. Using <nav> pollutes the landmark
+              menu for AT users with what looks like a navigation
+              region. APG's full Tabs Pattern (tablist + tabpanel +
+              arrow-key roving tabindex) would also work, but is heavy
+              for an in-page filter; `role="group"` carries the same
+              semantic intent without the keyboard contract. */}
+          <div
+            role="group"
             aria-label="Skill registries"
             className="flex gap-1 border-b border-default"
           >
             {catalog.registries.map((registry) => {
               const isActive = registry === activeRegistry;
+              const count = counts[registry] ?? 0;
+              const label = REGISTRY_LABELS[registry] ?? registry;
               return (
                 <button
                   key={registry}
@@ -68,9 +96,12 @@ export default function SkillsPage() {
                   // for routing (selected nav item that matches the
                   // current URL).
                   aria-current={isActive ? "true" : undefined}
-                  aria-label={`${REGISTRY_LABELS[registry] ?? registry} — ${
-                    counts[registry] ?? 0
-                  } skill${(counts[registry] ?? 0) === 1 ? "" : "s"}`}
+                  // Use a comma rather than an em-dash — most screen
+                  // readers verbalize U+2014 as "em dash" instead of
+                  // pausing, which mangles the spoken count phrasing.
+                  aria-label={`${label}, ${count} skill${
+                    count === 1 ? "" : "s"
+                  }`}
                   onClick={() => setActiveRegistry(registry)}
                   className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                     isActive
@@ -78,14 +109,14 @@ export default function SkillsPage() {
                       : "border-transparent text-secondary hover:text-primary"
                   }`}
                 >
-                  {REGISTRY_LABELS[registry] ?? registry}
+                  {label}
                   <span aria-hidden="true" className="ml-2 text-xs text-muted">
-                    {counts[registry] ?? 0}
+                    {count}
                   </span>
                 </button>
               );
             })}
-          </nav>
+          </div>
 
           {visibleSkills.length > 0 ? (
             <div className="space-y-3">
@@ -150,9 +181,14 @@ function SkillDetailModal({
       title={skill ? skill.ref : "Skill detail"}
     >
       {isLoading ? (
-        <div className="text-sm text-muted py-6 text-center">Loading...</div>
+        <div
+          aria-live="polite"
+          className="text-sm text-muted py-6 text-center"
+        >
+          Loading...
+        </div>
       ) : error ? (
-        <div className="text-sm text-status-warning py-6">
+        <div role="alert" className="text-sm text-status-warning py-6">
           Failed to load skill:{" "}
           {error instanceof Error ? error.message : String(error)}
         </div>

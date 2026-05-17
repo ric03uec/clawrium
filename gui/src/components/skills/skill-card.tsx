@@ -44,11 +44,22 @@ export function SkillCard({ skill, onSelect }: SkillCardProps) {
             {skill.version ? (
               <span className="text-xs text-muted">v{skill.version}</span>
             ) : null}
+            {skill.degraded ? (
+              <span
+                aria-label="metadata failed to load"
+                title="Metadata failed to load — check the server log"
+                className="text-xs px-1 py-0.5 rounded bg-amber-100 text-amber-700"
+              >
+                !
+              </span>
+            ) : null}
           </div>
           <p className="mt-1 text-xs text-secondary line-clamp-2">
             {skill.description ?? (
               <span className="text-muted italic">
-                No description available
+                {skill.degraded
+                  ? "Failed to load skill metadata"
+                  : "No description available"}
               </span>
             )}
           </p>

@@ -313,11 +313,20 @@ export interface SkillSummary {
   name: string;
   description: string | null;
   version: string | null;
+  // True when the backend could load the directory but failed to
+  // parse the skill's metadata. Distinguishes a broken catalog
+  // entry from a legitimately undescribed skill.
+  degraded?: boolean;
 }
 
 export interface SkillsCatalog {
   registries: SkillRegistry[];
   skills: Record<SkillRegistry, SkillSummary[]>;
+  // Present (with a short reason string) when the backend could not
+  // read the catalog directory — e.g. permission denied. The frontend
+  // surfaces this as a banner so empty tabs aren't mistaken for an
+  // empty repo.
+  error?: string;
 }
 
 export interface SkillDetail {

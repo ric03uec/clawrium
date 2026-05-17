@@ -79,12 +79,14 @@ def test_list_does_not_leak_skill_md_body():
                 "name",
                 "description",
                 "version",
+                "degraded",
             }, entry
 
 
 def test_list_returns_empty_catalog_when_missing(monkeypatch, tmp_path):
     """A bare tmp dir is not a valid catalog; the route should degrade
-    to empty lists per registry rather than 500."""
+    to empty lists per registry rather than 500. With a valid (but
+    empty) root, no `error` field should appear."""
     empty_root = tmp_path / "no-catalog"
     empty_root.mkdir()
     monkeypatch.setattr(core_skills, "_catalog_root", lambda: empty_root)
@@ -93,11 +95,14 @@ def test_list_returns_empty_catalog_when_missing(monkeypatch, tmp_path):
     assert result["registries"] == list(core_skills.REGISTRIES)
     for registry in core_skills.REGISTRIES:
         assert result["skills"][registry] == []
+    assert "error" not in result
 
 
 def test_list_degrades_to_empty_on_oserror(monkeypatch):
     """A filesystem OSError walking the catalog (permission denied
-    on the root, for example) should not 500 the whole endpoint."""
+    on the root, for example) should not 500 the whole endpoint —
+    and the response must carry an `error` field so the GUI can
+    surface a degraded-state banner."""
 
     def _boom(registry=None):
         raise PermissionError("simulated: permission denied")
@@ -110,6 +115,7 @@ def test_list_degrades_to_empty_on_oserror(monkeypatch):
     assert result["registries"] == list(core_skills.REGISTRIES)
     for registry in core_skills.REGISTRIES:
         assert result["skills"][registry] == []
+    assert result["error"] == "catalog unavailable"
 
 
 # ---------- GET /api/skills/{registry}/{name} ---------------------------------
@@ -233,10 +239,16 @@ def test_list_degrades_when_one_skill_fails(monkeypatch, tmp_path):
     result = _run(skills_route.list_skills_route())
     refs = {entry["ref"] for entry in result["skills"]["clawrium"]}
     assert refs == {"clawrium/good", "clawrium/broken"}
-    # Good row carries description; broken row degrades to None.
+    # Good row carries description; broken row degrades to None with
+    # an explicit degraded=True marker so the GUI can tell broken
+    # entries from new stubs.
     by_ref = {e["ref"]: e for e in result["skills"]["clawrium"]}
     assert by_ref["clawrium/good"]["description"] == "Healthy fixture."
+    assert by_ref["clawrium/good"]["degraded"] is False
     assert by_ref["clawrium/broken"]["description"] is None
+    assert by_ref["clawrium/broken"]["degraded"] is True
+    # Healthy catalog — no top-level error field on the response.
+    assert "error" not in result
 
 
 def test_detail_truncates_body_over_64kib(monkeypatch, tmp_path):
@@ -264,7 +276,115 @@ def test_detail_truncates_body_over_64kib(monkeypatch, tmp_path):
     # Truncation marker takes a few extra bytes; total is bounded by
     # the cap + the marker length, not the full 100 KiB input.
     assert body_bytes < 70 * 1024, body_bytes
+    # Lower bound pins the truncation point within ±1 KiB of the
+    # declared cap — without this, shrinking _BODY_MAX_BYTES to 1 KiB
+    # would still pass the upper-bound assertion.
+    assert body_bytes > 63 * 1024, body_bytes
     assert "truncated by GUI" in result["body"]
+
+
+def test_detail_oserror_returns_500_without_path(monkeypatch):
+    """An OSError raised inside ``_resolve`` (e.g. permission denied
+    reading SKILL.md) must surface as a generic 500 — the path in the
+    OSError message must not appear in the HTTP body."""
+
+    def _boom(ref):
+        raise PermissionError("/home/secret/clawrium/_skills/clawrium/x/SKILL.md")
+
+    monkeypatch.setattr(skills_route, "load_skill", _boom)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(skills_route.get_skill_route("clawrium", "tdd"))
+    assert exc.value.status_code == 500
+    detail = str(exc.value.detail)
+    assert "/home/secret" not in detail
+    assert "SKILL.md" not in detail
+    assert detail == "Internal error."
+
+
+def test_map_error_unknown_skill_error_returns_500():
+    """A future ``SkillError`` subclass falls through to the
+    defensive 500 branch — body must be the static `Internal error.`
+    string with no embedded message, since `str(error)` may carry
+    paths or internal details we don't want to leak."""
+
+    class _FutureSkillError(core_skills.SkillError):
+        pass
+
+    exc = skills_route._map_error(
+        _FutureSkillError("/secret/path/something failed"), "clawrium/x"
+    )
+    assert exc.status_code == 500
+    assert exc.detail == "Internal error."
+
+
+def test_list_degrades_when_one_skill_raises_oserror(monkeypatch):
+    """The OSError arm of ``_summarize``'s except — a PermissionError
+    on a single _meta.yaml — must degrade just that row, not the
+    surrounding ones."""
+    real_load = core_skills.load_skill
+
+    def _flaky(ref):
+        if isinstance(ref, str):
+            parsed = core_skills.parse_skill_ref(ref)
+        else:
+            parsed = ref
+        if parsed.name == "tdd":
+            raise PermissionError("/secret/clawrium/_skills/clawrium/tdd")
+        return real_load(parsed)
+
+    # Patch the binding the route actually uses.
+    monkeypatch.setattr(skills_route, "load_skill", _flaky)
+
+    result = _run(skills_route.list_skills_route())
+    clawrium_entries = result["skills"]["clawrium"]
+    by_ref = {e["ref"]: e for e in clawrium_entries}
+    assert by_ref["clawrium/tdd"]["degraded"] is True
+    assert by_ref["clawrium/tdd"]["description"] is None
+
+
+def test_compatibility_map_non_dict_coerces_to_all_false(monkeypatch, tmp_path):
+    """A clawrium skill whose ``compatibility`` field is a scalar
+    (e.g. a string) must fail-closed — all native claws report
+    incompatible. Matches the fail-closed rule in
+    ``check_agent_compatibility``."""
+    catalog = tmp_path / "catalog"
+    catalog.mkdir()
+    _copy_schemas(catalog)
+    skill = catalog / "clawrium" / "weird"
+    skill.mkdir(parents=True)
+    # `compatibility: yes` parses to a string, not a dict — schema
+    # validation will let this through since `compatibility` is
+    # technically `additionalProperties: true`, but our fail-closed
+    # guard should still kick in.
+    skill.joinpath("_meta.yaml").write_text(
+        "name: weird\n"
+        "description: Non-dict compatibility fixture.\n"
+        "version: 0.1.0\n"
+        "compatibility: yes\n"
+    )
+    skill.joinpath("SKILL.md").write_text("---\nname: weird\n---\nbody\n")
+
+    monkeypatch.setattr(core_skills, "_catalog_root", lambda: catalog)
+    core_skills._SCHEMA_CACHE.clear()
+
+    # If validation passes (schema is permissive), we get a 200 with
+    # all-False compatibility. If validation fails (schema is strict),
+    # we'd get 422 — either is acceptable, but the non-dict-handling
+    # branch is what we're testing.
+    try:
+        result = _run(skills_route.get_skill_route("clawrium", "weird"))
+    except HTTPException as exc:
+        # Schema rejected the non-dict; that's also fail-closed, but
+        # this test exists to exercise the runtime-coercion branch.
+        # Skip explicitly so it's not confused with a false negative.
+        pytest.skip(
+            f"schema rejected non-dict compatibility (status {exc.status_code})"
+        )
+        return  # pragma: no cover
+    assert all(v is False for v in result["compatibility"].values()), result[
+        "compatibility"
+    ]
 
 
 def test_detail_returns_404_for_unknown_clawrium_skill_with_no_paths():
@@ -327,9 +447,6 @@ def test_detail_schema_error_returns_422(monkeypatch, tmp_path):
 def _copy_schemas(target_root: Path) -> None:
     """Copy the real schema files into a tmp catalog so validation has
     something to load. The schemas don't change between tests."""
-    src_schema = core_skills._catalog_root.__wrapped__() if hasattr(
-        core_skills._catalog_root, "__wrapped__"
-    ) else None
     # Source schemas live next to the repo's real catalog. Use the
     # repo-root fallback path directly to keep this helper independent
     # of any monkeypatching that may already be in effect.
@@ -345,7 +462,6 @@ def _copy_schemas(target_root: Path) -> None:
     native_dst.mkdir(parents=True, exist_ok=True)
     for child in native_src.iterdir():
         (native_dst / child.name).write_text(child.read_text())
-    del src_schema  # quiet ruff
 
 
 def _build_native_catalog(tmp_path: Path) -> Path:

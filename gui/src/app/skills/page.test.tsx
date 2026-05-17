@@ -93,12 +93,12 @@ describe("SkillsPage", () => {
   it("renders a tab per registry with counts", () => {
     skillsState.data = makeCatalog();
     render(<SkillsPage />);
-    const nav = screen.getByRole("navigation", { name: "Skill registries" });
-    const tabs = nav.querySelectorAll("button");
+    const group = screen.getByRole("group", { name: "Skill registries" });
+    const tabs = group.querySelectorAll("button");
     expect(tabs).toHaveLength(4);
     // The clawrium tab starts active and shows count 1.
     const clawriumTab = screen.getByRole("button", {
-      name: /Clawrium.*1 skill/i,
+      name: /Clawrium,?\s*1 skill/i,
     });
     expect(clawriumTab).toHaveAttribute("aria-current", "true");
     expect(clawriumTab.textContent).toMatch(/1/);
@@ -109,9 +109,40 @@ describe("SkillsPage", () => {
     render(<SkillsPage />);
     // Hermes is empty (count 0) — must read "0 skills", not "0 skill".
     const hermesTab = screen.getByRole("button", {
-      name: /Hermes.*0 skills/i,
+      name: /Hermes,?\s*0 skills/i,
     });
     expect(hermesTab).toBeInTheDocument();
+  });
+
+  it("uses a comma rather than an em-dash in the aria-label", () => {
+    skillsState.data = makeCatalog();
+    render(<SkillsPage />);
+    const clawriumTab = screen.getByRole("button", { name: /Clawrium/ });
+    const label = clawriumTab.getAttribute("aria-label") ?? "";
+    expect(label).not.toMatch(/—/);
+    expect(label).toMatch(/^Clawrium,/);
+  });
+
+  it("renders a role=alert when the catalog is degraded", () => {
+    skillsState.data = {
+      ...makeCatalog(),
+      error: "catalog unavailable",
+    };
+    render(<SkillsPage />);
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts.length).toBeGreaterThan(0);
+    expect(
+      alerts.some((el) =>
+        (el.textContent ?? "").includes("catalog is currently unavailable"),
+      ),
+    ).toBe(true);
+  });
+
+  it("marks the loading state as a polite live region", () => {
+    skillsState.isLoading = true;
+    render(<SkillsPage />);
+    const loading = screen.getByText(/Loading skills catalog/i);
+    expect(loading.getAttribute("aria-live")).toBe("polite");
   });
 
   it("renders the SkillCard for the active registry", () => {
@@ -123,7 +154,9 @@ describe("SkillsPage", () => {
   it("renders the empty-state hint when a tab has no skills", () => {
     skillsState.data = makeCatalog();
     render(<SkillsPage />);
-    fireEvent.click(screen.getByRole("button", { name: /Hermes.*0 skills/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Hermes,?\s*0 skills/i }),
+    );
     expect(
       screen.getByText((_, node) => node?.textContent === "skills/hermes/<name>/"),
     ).toBeInTheDocument();
@@ -148,5 +181,32 @@ describe("SkillsPage", () => {
     // Detail panel is rendered inside the modal. Scope the description
     // lookup to the modal so it doesn't collide with the card outside.
     expect(modal.textContent).toContain("TDD discipline.");
+  });
+
+  it("renders a polite live region while the detail is loading", () => {
+    skillsState.data = makeCatalog();
+    skillState.isLoading = true;
+    render(<SkillsPage />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "View skill clawrium/tdd" }),
+    );
+    const modal = screen.getByTestId("modal");
+    const loading = modal.querySelector('[aria-live="polite"]');
+    expect(loading).not.toBeNull();
+    expect(loading?.textContent ?? "").toMatch(/Loading/i);
+  });
+
+  it("renders role=alert when the detail fetch fails", () => {
+    skillsState.data = makeCatalog();
+    skillState.error = new Error("boom");
+    render(<SkillsPage />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "View skill clawrium/tdd" }),
+    );
+    const modal = screen.getByTestId("modal");
+    const alert = modal.querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent ?? "").toMatch(/Failed to load skill/);
+    expect(alert?.textContent ?? "").toContain("boom");
   });
 });

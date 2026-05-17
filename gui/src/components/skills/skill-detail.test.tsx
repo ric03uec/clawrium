@@ -88,4 +88,26 @@ describe("SkillDetail", () => {
     const hermes = screen.getByText("hermes");
     expect(hermes.className).toMatch(/line-through/);
   });
+
+  it("uses comma-separated aria-labels for compatibility badges", () => {
+    render(
+      <SkillDetail
+        skill={makeDetail({
+          compatibility: { openclaw: true, hermes: false, zeroclaw: true },
+        })}
+      />,
+    );
+    expect(
+      screen.getByLabelText("openclaw, compatible"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("hermes, incompatible"),
+    ).toBeInTheDocument();
+    // No em-dash anywhere — NVDA/JAWS read U+2014 as "em dash".
+    const badges = screen.getAllByText(/openclaw|hermes|zeroclaw/);
+    for (const badge of badges) {
+      const label = badge.getAttribute("aria-label") ?? "";
+      expect(label).not.toMatch(/—/);
+    }
+  });
 });
