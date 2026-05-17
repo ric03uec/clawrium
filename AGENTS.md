@@ -44,6 +44,7 @@ clm agent start <agent-name>
 
 # Install a skill onto the agent (catalog: skills/)
 clm skill list
+clm skill show clawrium/tdd       # Inspect a skill before installing
 clm agent skill install <agent-name> clawrium/tdd
 
 # Check fleet status

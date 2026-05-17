@@ -119,6 +119,13 @@ The validator checks:
 - `name:` field equals the directory name.
 - No `_meta.yaml` in the skill directory.
 
+Then run the test suite — the validator fixture tests run alongside
+the rest of the suite:
+
+```bash
+make test
+```
+
 ## Smoke-test against the real claw
 
 A native skill must be installed and exercised on a real agent of the

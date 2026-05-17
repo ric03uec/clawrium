@@ -8,6 +8,10 @@ name: Skills Validate
 # The job is intentionally narrow: it only runs the dual-schema catalog
 # validator (scripts/validate_skills.py) plus the fixture-based unit
 # tests for it. The full test suite still runs in test.yml.
+#
+# The path filter intentionally lists skills/** (which implicitly
+# covers skills/_schema/**), the validator, the core loader the
+# validator imports, the validator's own tests, and this workflow.
 
 on:
   push:
@@ -37,14 +41,28 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
         with:
-          version: "latest"
+          # Pin to a specific minor for reproducibility — a new uv
+          # major release should not break a re-run of the same commit.
+          version: "0.5.x"
+          # Cache the uv download dir keyed on uv.lock so re-runs skip
+          # the cold-download of dependencies.
+          enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.11
+        # Pin to the package's declared support floor (>=3.10 in
+        # pyproject.toml). Testing the floor catches 3.10-specific
+        # regressions before they ship; the test.yml workflow can
+        # cover the newer interpreter separately.
+        run: uv python install 3.10
 
       - name: Install dependencies
         run: uv sync
 
+      # The validator step MUST run before the fixture tests. If the
+      # validator fails, GitHub Actions skips the next step by default
+      # (the desired behaviour — a broken catalog should fail loudly
+      # rather than have its diagnostic masked by an unrelated test
+      # report). Do not add `if: always()` to the test step.
       - name: Validate skills catalog
         run: uv run python scripts/validate_skills.py
 

@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 from textwrap import dedent
 
+import pytest
+
 
 # scripts/validate_skills.py is not a package — import it via importlib
 # so we can call validate_catalog() directly. The CI workflow exercises
@@ -121,16 +123,20 @@ def test_valid_catalog_passes(tmp_path):
     assert validate_catalog(tmp_path) == []
 
 
-def test_native_skill_passes(tmp_path):
+@pytest.mark.parametrize("registry", ["openclaw", "hermes", "zeroclaw"])
+def test_native_skill_passes(tmp_path, registry):
+    """The happy path for every native registry. Catches per-claw schema
+    regressions (e.g. an accidental edit to zeroclaw.schema.json that
+    leaves the other two unaffected)."""
     _build_fixture(tmp_path)
-    skill = tmp_path / "openclaw" / "demo"
+    skill = tmp_path / registry / "demo"
     skill.mkdir()
     (skill / "SKILL.md").write_text(
         dedent(
-            """\
+            f"""\
             ---
             name: demo
-            description: An openclaw-native demo skill.
+            description: A {registry}-native demo skill.
             ---
 
             # Body
@@ -138,6 +144,14 @@ def test_native_skill_passes(tmp_path):
         )
     )
 
+    assert validate_catalog(tmp_path) == []
+
+
+def test_empty_catalog_passes(tmp_path):
+    """skills/_schema/ but no registry directories should validate.
+    Exercises the early-return in `_validate_registry` when a
+    registry root doesn't exist on disk."""
+    _write_schemas(tmp_path)
     assert validate_catalog(tmp_path) == []
 
 
@@ -335,11 +349,10 @@ def test_missing_required_field_rejected(tmp_path):
     (skill / "SKILL.md").write_text(_VALID_SKILL_MD)
 
     failures = validate_catalog(tmp_path)
-    # jsonschema renders the missing-required diagnostic via the schema
-    # title; the contributor-facing message is the full schema error.
-    assert any(
-        "compatibility" in failure.message for failure in failures
-    ), failures
+    # Pin both path and message so a future refactor that mis-attributes
+    # the failure to SKILL.md (or to some unrelated file that happens to
+    # mention `compatibility`) still trips this test.
+    assert _has_failure(failures, "_meta.yaml", "compatibility"), failures
 
 
 def test_missing_skill_md_rejected(tmp_path):
@@ -353,6 +366,34 @@ def test_missing_skill_md_rejected(tmp_path):
     assert _has_failure(failures, "tdd", "missing required SKILL.md"), failures
 
 
+def test_missing_meta_yaml_rejected(tmp_path):
+    """Symmetric counterpart to test_missing_skill_md_rejected. Without
+    this test, a refactor that drops the _meta.yaml guard in
+    _validate_clawrium_skill would pass the full suite even though the
+    catalog would silently accept SKILL.md-only clawrium skills."""
+    _build_fixture(tmp_path)
+    skill = tmp_path / "clawrium" / "tdd"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(_VALID_SKILL_MD)
+    # Intentionally no _meta.yaml.
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(failures, "tdd", "missing required _meta.yaml"), failures
+
+
+def test_native_skill_missing_skill_md_rejected(tmp_path):
+    """Native-registry counterpart to test_missing_skill_md_rejected.
+    Covers the missing-SKILL.md branch in _validate_native_skill which
+    the clawrium-path test does not exercise."""
+    _build_fixture(tmp_path)
+    skill = tmp_path / "openclaw" / "demo"
+    skill.mkdir()
+    # Intentionally no SKILL.md.
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(failures, "demo", "missing required SKILL.md"), failures
+
+
 def test_missing_frontmatter_in_native_rejected(tmp_path):
     _build_fixture(tmp_path)
     skill = tmp_path / "hermes" / "demo"
@@ -363,6 +404,179 @@ def test_missing_frontmatter_in_native_rejected(tmp_path):
     assert _has_failure(
         failures, "SKILL.md", "YAML frontmatter block"
     ), failures
+
+
+def test_native_frontmatter_as_list_rejected(tmp_path):
+    """SKILL.md frontmatter that parses to a YAML list (or any non-
+    mapping) used to crash the validator with an uncaught
+    SchemaValidationError. The validator must surface this as a
+    normal failure entry instead."""
+    _build_fixture(tmp_path)
+    skill = tmp_path / "hermes" / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        dedent(
+            """\
+            ---
+            - item1
+            - item2
+            ---
+
+            # Body
+            """
+        )
+    )
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(failures, "SKILL.md", "YAML mapping"), failures
+
+
+def test_meta_yaml_invalid_yaml_rejected(tmp_path):
+    _build_fixture(tmp_path)
+    skill = tmp_path / "clawrium" / "tdd"
+    skill.mkdir()
+    (skill / "_meta.yaml").write_text("key: [unclosed")
+    (skill / "SKILL.md").write_text(_VALID_SKILL_MD)
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(failures, "_meta.yaml", "not valid YAML"), failures
+
+
+def test_meta_yaml_non_dict_rejected(tmp_path):
+    _build_fixture(tmp_path)
+    skill = tmp_path / "clawrium" / "tdd"
+    skill.mkdir()
+    (skill / "_meta.yaml").write_text("- item1\n- item2\n")
+    (skill / "SKILL.md").write_text(_VALID_SKILL_MD)
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(
+        failures, "_meta.yaml", "must be a YAML mapping"
+    ), failures
+
+
+def test_registry_level_symlink_rejected(tmp_path):
+    """A skill directory that is itself a symlink (not just a symlink
+    *inside* a skill dir) is a separate path-traversal vector. The
+    symlink check in _validate_registry must fire before the
+    is_file()/is_dir() branches that would otherwise follow the link."""
+    _build_fixture(tmp_path)
+    target = tmp_path / "_real_skill"
+    target.mkdir()
+    evil = tmp_path / "clawrium" / "evil"
+    evil.symlink_to(target)
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(
+        failures, "evil", "registry-level symlinks are not allowed"
+    ), failures
+
+
+def test_registry_root_symlink_to_file_rejected(tmp_path):
+    """`Path.is_file()` follows symlinks. Before B2 was fixed, a
+    `README.md -> /etc/passwd` symlink would slip past the
+    `is_file()` branch and `continue` before the symlink check ever
+    ran. Pin the ordering with an explicit test."""
+    _build_fixture(tmp_path)
+    target = tmp_path / "outside"
+    target.write_text("decoy")
+    evil = tmp_path / "clawrium" / "README.md"
+    evil.symlink_to(target)
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(
+        failures, "README.md", "registry-level symlinks are not allowed"
+    ), failures
+
+
+def test_catalog_root_symlink_rejected(tmp_path):
+    _build_fixture(tmp_path)
+    evil = tmp_path / "evil-link"
+    evil.symlink_to("/etc")
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(
+        failures, "evil-link", "catalog-root symlinks are not allowed"
+    ), failures
+
+
+def test_unexpected_file_at_registry_root_rejected(tmp_path):
+    _build_fixture(tmp_path)
+    (tmp_path / "clawrium" / "stray.txt").write_text("oops")
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(
+        failures, "stray.txt", "unexpected file at registry root"
+    ), failures
+
+
+def test_native_skill_schema_violation_rejected(tmp_path):
+    """A native SKILL.md with a wrong-shape required field (description
+    failing minLength) must surface a schema validation failure rather
+    than slip past on the lenient `additionalProperties: true` schema."""
+    _build_fixture(tmp_path)
+    skill = tmp_path / "hermes" / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        dedent(
+            """\
+            ---
+            name: demo
+            description: ''
+            ---
+
+            # Body
+            """
+        )
+    )
+
+    failures = validate_catalog(tmp_path)
+    assert _has_failure(failures, "SKILL.md", "description"), failures
+
+
+# ---------------------------------------------------------------------------
+# main() — exit-code contract (the CI entry point)
+# ---------------------------------------------------------------------------
+
+
+def test_main_exit_0_on_valid_catalog(tmp_path):
+    _build_fixture(tmp_path)
+    skill = tmp_path / "clawrium" / "tdd"
+    skill.mkdir()
+    (skill / "_meta.yaml").write_text(_VALID_META)
+    (skill / "SKILL.md").write_text(_VALID_SKILL_MD)
+
+    rc = validate_skills_mod.main([str(tmp_path)])
+    assert rc == 0
+
+
+def test_main_exit_1_on_invalid_catalog(tmp_path, capsys):
+    _build_fixture(tmp_path)
+    (tmp_path / "clawrium" / ".hidden").mkdir()
+
+    rc = validate_skills_mod.main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert rc == 1
+    # Both the header and the trailing FAILED summary should reach
+    # stderr so the last visible line in CI logs is actionable.
+    assert "violation" in captured.err.lower() or "slug rule" in captured.err
+    assert "FAILED" in captured.err
+
+
+def test_main_exit_2_on_missing_root(tmp_path, capsys):
+    rc = validate_skills_mod.main([str(tmp_path / "does-not-exist")])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "catalog root not found" in captured.err
+
+
+def test_main_uses_default_catalog_root_for_real_repo(monkeypatch, capsys):
+    """`main` with no argv falls back to `_default_catalog_root()`, which
+    encodes the assumption that the script lives at repo-root/scripts/.
+    Run it against the actual repo to pin that assumption."""
+    rc = validate_skills_mod.main([])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
 
 
 # ---------------------------------------------------------------------------

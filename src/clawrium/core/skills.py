@@ -534,6 +534,18 @@ def _load_schema(registry: str) -> dict[str, Any]:
 _SCHEMA_CACHE: dict[str, dict[str, Any]] = {}
 
 
+def clear_schema_cache() -> None:
+    """Reset the module-level schema cache.
+
+    Exported so callers (notably ``scripts/validate_skills.py`` and the
+    test suite) don't have to poke at the private ``_SCHEMA_CACHE``
+    name. Used when the same process validates more than one catalog
+    root in sequence — without a reset, a fixture catalog with a
+    stale schema would receive a hit from the previous run.
+    """
+    _SCHEMA_CACHE.clear()
+
+
 def _validate_against_schema(
     data: dict[str, Any], schema: dict[str, Any], ref: SkillRef
 ) -> None:
@@ -589,5 +601,6 @@ __all__ = [
     "load_skill",
     "validate_skill",
     "check_agent_compatibility",
+    "clear_schema_cache",
     "materialize_for_claw",
 ]

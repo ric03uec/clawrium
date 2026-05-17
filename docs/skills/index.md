@@ -1,5 +1,14 @@
 # Skills Catalog
 
+<!--
+  Repo-rooted docs live in docs/skills/. The user-facing site mirror
+  lives at website/docs/skills/ and is a condensed variant: the two
+  trees are kept semantically in sync but are not structurally
+  identical (this file → intro.md; authoring-clawrium.md +
+  authoring-native.md → authoring.md). Update both when changing
+  catalog rules.
+-->
+
 Clawrium ships a curated catalog of **skills** that any agent in your
 fleet can install with one command. A skill is a directory of
 behaviour-shaping prompts and metadata that the underlying claw

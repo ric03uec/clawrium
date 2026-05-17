@@ -79,9 +79,10 @@ top-level keys are rejected (`additionalProperties: false`).
 
 The SKILL.md is the canonical content the agent sees. The frontmatter
 at the top of this file is **not** the source of truth — the apply
-playbook re-renders frontmatter from `_meta.yaml` for each claw. The
-SKILL.md you check in only needs minimal frontmatter (`name` +
-`description`) and the body:
+playbook re-renders frontmatter from `_meta.yaml` for each claw, and
+the validator does not enforce SKILL.md frontmatter under `clawrium/`.
+By convention, include `name:` and `description:` so the file is
+readable standalone, but the body is what matters:
 
 ```markdown
 ---
@@ -115,7 +116,7 @@ specific rule violated. Common ones:
 | `must equal directory name`              | Make `_meta.yaml.name` match the dirname  |
 | `missing required _meta.yaml`            | Add the file (clawrium skills require it) |
 | `clawrium-only keys`                     | You're under a native registry — move it  |
-| `failed clawrium-skill schema`           | Read the message; usually a typo / type   |
+| `failed Clawrium normalized skill (_meta.yaml) validation` | Read the per-field message; usually a typo or wrong type |
 | `violates the slug rule`                 | Rename the directory to kebab-case        |
 
 Then run the test suite:

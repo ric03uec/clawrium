@@ -70,17 +70,15 @@ from pathlib import Path
 
 import yaml
 
-from clawrium.core import skills as core_skills
 from clawrium.core.skills import (
-    NATIVE_REGISTRIES,
     REGISTRIES,
     SchemaValidationError,
-    Skill,
     SkillRef,
     _NAME_RE,
     _load_schema,
     _split_frontmatter,
     _validate_against_schema,
+    clear_schema_cache,
 )
 
 
@@ -249,7 +247,15 @@ def _validate_native_skill(
         )
         return failures
 
-    body, frontmatter = _split_frontmatter(skill_md.read_text())
+    try:
+        body, frontmatter = _split_frontmatter(skill_md.read_text())
+    except SchemaValidationError as error:
+        # _split_frontmatter raises when YAML is invalid OR when the
+        # frontmatter parses to a non-mapping (e.g. a list or scalar).
+        # Catch here so a single broken contributor SKILL.md surfaces
+        # as a normal failure entry, not an unhandled traceback in CI.
+        failures.append(ValidationFailure(skill_md, str(error)))
+        return failures
     if not frontmatter:
         failures.append(
             ValidationFailure(
@@ -300,6 +306,17 @@ def _validate_registry(
         return failures
 
     for entry in sorted(registry_root.iterdir()):
+        # Symlink check MUST come first: `Path.is_file()` follows
+        # symlinks, so a `README.md -> /etc/passwd` link would slip past
+        # the `is_file()` branch and `continue` before this guard ever
+        # ran. Mirrors the ordering in `_validate_unexpected_registries`.
+        if entry.is_symlink():
+            failures.append(
+                ValidationFailure(
+                    entry, "registry-level symlinks are not allowed"
+                )
+            )
+            continue
         if entry.is_file():
             # README.md or similar registry-level docs are allowed; any
             # other top-level file is suspicious enough to flag.
@@ -313,13 +330,6 @@ def _validate_registry(
                         ),
                     )
                 )
-            continue
-        if entry.is_symlink():
-            failures.append(
-                ValidationFailure(
-                    entry, "registry-level symlinks are not allowed"
-                )
-            )
             continue
         if not _NAME_RE.match(entry.name):
             failures.append(
@@ -386,11 +396,24 @@ def _validate_unexpected_registries(
 
 def validate_catalog(catalog_root: Path) -> list[ValidationFailure]:
     """Run every validation rule on `catalog_root` and return the
-    aggregated failure list. An empty list means the catalog is clean."""
+    aggregated failure list. An empty list means the catalog is clean.
+
+    Note on schema resolution: the JSON schemas live with the
+    ``clawrium.core.skills`` module (installed via the package, or at
+    the repo root for development). The validator does NOT honour a
+    custom ``_schema/`` directory under ``catalog_root`` — it always
+    resolves against the schemas the core loader resolves against. In
+    practice this is what you want: every catalog the validator sees
+    should agree with the loader's schemas, and CI runs against the
+    same checkout so the two roots are the same tree. The fixture
+    helper ``_write_schemas`` in the test suite re-creates the
+    schemas under ``tmp_path`` only so the fixture *looks* like a
+    well-formed catalog; the schema content is never read.
+    """
     # Schemas are cached at module level by the core loader. Tests that
     # validate multiple fixture catalogs in the same process need a
     # clean slate; production CI only runs once so the cost is moot.
-    core_skills._SCHEMA_CACHE.clear()
+    clear_schema_cache()
 
     failures: list[ValidationFailure] = []
     failures.extend(_validate_unexpected_registries(catalog_root))
@@ -439,6 +462,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     for failure in failures:
         print(failure.render(root), file=sys.stderr)
+    # Trailing summary mirrors the ok path so the last visible line in
+    # a long CI log is actionable, not a bullet point that scrolls the
+    # header off-screen. Pytest and ruff both do this.
+    print(
+        f"FAILED — {len(failures)} error(s). Fix the above, then "
+        "re-run: python scripts/validate_skills.py",
+        file=sys.stderr,
+    )
     return 1
 
 
