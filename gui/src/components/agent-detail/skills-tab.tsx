@@ -55,13 +55,58 @@ export function SkillsTab({ agentKey }: SkillsTabProps) {
     [data?.available, installedRefs],
   );
 
+  // ATX-3 W1: the live region is rendered unconditionally at the
+  // SkillsTab root so that the transition from loading → loaded shows
+  // up as a DOM *mutation* (which is what NVDA / JAWS / VoiceOver
+  // actually announce). When the load completes the text flips from
+  // "Loading skills…" to "Skills loaded." once, then clears.
+  const [justLoaded, setJustLoaded] = useState(false);
+  const wasLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    if (wasLoadingRef.current && !isLoading && !error) {
+      setJustLoaded(true);
+      const t = setTimeout(() => setJustLoaded(false), 1500);
+      wasLoadingRef.current = false;
+      return () => clearTimeout(t);
+    }
+    if (isLoading) wasLoadingRef.current = true;
+  }, [isLoading, error]);
+
+  const liveRegion = (
+    <div
+      // role=status implies aria-live=polite per WAI-ARIA §5.3.1, so
+      // we don't set aria-live explicitly (ATX-3 W2). aria-busy
+      // tracks the load state so ATs that honor it can suppress
+      // partial reads of the subtree below.
+      role="status"
+      aria-busy={isLoading}
+      aria-label="Skills tab status"
+      className="sr-only"
+    >
+      {isLoading ? "Loading skills…" : justLoaded ? "Skills loaded." : ""}
+    </div>
+  );
+
   if (isLoading) {
-    return <SkillsLoading />;
+    return (
+      <div className="space-y-3 p-4" data-testid="skills-tab">
+        {liveRegion}
+        <div
+          data-testid="skills-loading"
+          aria-hidden="true"
+          className="space-y-3"
+        >
+          <div className="bg-surface rounded-xl border border-default h-20 animate-pulse" />
+          <div className="bg-surface rounded-xl border border-default h-20 animate-pulse" />
+        </div>
+      </div>
+    );
   }
 
   if (error || !data) {
     return (
-      <div className="p-4">
+      <div className="p-4" data-testid="skills-tab">
+        {liveRegion}
         <Card padding="md">
           <p className="text-sm text-red-600">
             Failed to load skills for this agent.
@@ -103,6 +148,7 @@ export function SkillsTab({ agentKey }: SkillsTabProps) {
 
   return (
     <div className="space-y-6 p-4" data-testid="skills-tab">
+      {liveRegion}
       {actionError ? (
         <div
           role="alert"
@@ -178,33 +224,6 @@ export function SkillsTab({ agentKey }: SkillsTabProps) {
   );
 }
 
-function SkillsLoading() {
-  // ATX-2 B1: live-region timing — NVDA / JAWS / VoiceOver only
-  // announce live-region content on DOM *mutations*, not initial
-  // paint. Mount the announcement text in a useEffect so it lands as
-  // a mutation after first render. aria-busy="true" lets ATs that
-  // honor it suppress reads of the still-loading subtree.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-  return (
-    <div
-      className="space-y-3 p-4"
-      data-testid="skills-loading"
-      role="status"
-      aria-busy="true"
-      aria-live="polite"
-      aria-label="Loading skills"
-    >
-      {mounted ? <span className="sr-only">Loading skills…</span> : null}
-      <div className="bg-surface rounded-xl border border-default h-20 animate-pulse" />
-      <div className="bg-surface rounded-xl border border-default h-20 animate-pulse" />
-    </div>
-  );
-}
-
-
 function InstalledRow({
   row,
   onRemove,
@@ -258,12 +277,15 @@ function InstalledRow({
           className="flex items-center gap-2"
           role="group"
           aria-label={`Confirm removal of ${row.ref}`}
-          // ATX-2 B2b: ARIA APG requires confirm patterns to support
-          // Escape. The native <dialog> handles this for the picker
-          // modal; this inline group needs an explicit handler.
+          // ATX-2 B2b + ATX-3 W5: ARIA APG requires confirm patterns
+          // to support Escape. The native <dialog> handles this for
+          // the picker modal; this inline group needs an explicit
+          // handler. preventDefault (not stopPropagation) — we're
+          // saying "I handled this Escape" without silencing
+          // ancestor JS listeners (toasts, command palettes, etc.).
           onKeyDown={(e) => {
             if (e.key === "Escape") {
-              e.stopPropagation();
+              e.preventDefault();
               setConfirming(false);
             }
           }}
@@ -273,10 +295,14 @@ function InstalledRow({
             ref={confirmRef}
             variant="danger"
             size="sm"
+            // S4: confirming is cleared SYNCHRONOUSLY here (before
+            // the async mutation fires), so an Escape key arriving
+            // mid-mutation cannot race the removal — the group is
+            // already gone. Don't move this to onSettled / onSuccess.
             onClick={() => {
               if (canRemove) {
-                onRemove(row.registry!, row.name!);
                 setConfirming(false);
+                onRemove(row.registry!, row.name!);
               }
             }}
             disabled={disabled || !canRemove}

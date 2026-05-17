@@ -286,7 +286,10 @@ def test_remove_502_on_apply_error(monkeypatch):
     assert exc.value.status_code == 502
     assert "/home/op/.config/clawrium/logs" not in str(exc.value.detail)
     assert "Check server logs" in str(exc.value.detail)
-    # Desired state mutation is preserved on failure (W3 contract).
+    # Remove already mutated desired-state before apply_state ran;
+    # an apply failure does not restore the removed ref — the user
+    # retries with a fresh `clm agent skill install` if they want it
+    # back. (ATX-3 S3 clarifies the W3 contract on the delete side.)
     assert read_state("tdd-hermes") == []
 
 

@@ -79,17 +79,17 @@ describe("SkillsTab", () => {
     removeMutation.isPending = false;
   });
 
-  it("renders the loading skeleton with assistive-tech attributes", () => {
-    // ATX-2 W1: assert the a11y attributes themselves, not just the
-    // presence of the testid — a regression that dropped role=status
-    // or aria-busy would still pass a presence-only check.
+  it("renders the live region with role=status and aria-busy=true while loading", () => {
+    // ATX-3 W1/W2: the live region lives at the SkillsTab root (not
+    // inside the skeleton) so it can announce *both* the load start
+    // and the transition to loaded. Assert role=status + aria-busy
+    // are wired and the announcement text matches the load state.
     agentSkillsState.isLoading = true;
     render(<SkillsTab agentKey="tdd-hermes" />);
-    const node = screen.getByTestId("skills-loading");
-    expect(node).toHaveAttribute("role", "status");
-    expect(node).toHaveAttribute("aria-busy", "true");
-    expect(node).toHaveAttribute("aria-live", "polite");
-    expect(node).toHaveAttribute("aria-label", "Loading skills");
+    const live = screen.getByRole("status", { name: /Skills tab status/ });
+    expect(live).toHaveAttribute("aria-busy", "true");
+    expect(live).toHaveTextContent("Loading skills…");
+    expect(screen.getByTestId("skills-loading")).toBeInTheDocument();
   });
 
   it("renders an error state with a retry control", () => {
@@ -291,37 +291,11 @@ describe("SkillsTab", () => {
     ).toBeInTheDocument();
   });
 
-  it("dismisses the confirm group on Escape", () => {
+  it("dismisses the confirm group on Escape from the Confirm button", () => {
     // ATX-2 B2b: Escape on the inline confirm group must cancel.
-    agentSkillsState.data = makeAgentSkills({
-      installed: [
-        {
-          ref: "clawrium/tdd",
-          registry: "clawrium",
-          name: "tdd",
-          description: "TDD discipline.",
-          version: "0.1.0",
-        },
-      ],
-    });
-    render(<SkillsTab agentKey="tdd-hermes" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
-    );
-    const group = screen.getByRole("group", {
-      name: /Confirm removal of clawrium\/tdd/,
-    });
-    fireEvent.keyDown(group, { key: "Escape" });
-    expect(
-      screen.queryByRole("group", {
-        name: /Confirm removal of clawrium\/tdd/,
-      }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("focuses the Confirm button on Remove→confirming transition", () => {
-    // ATX-2 B2a: focus must move so keyboard / SR users notice the
-    // state change.
+    // ATX-3 W4: fire Escape on the *focused* Confirm button so the
+    // event-bubble path is exercised, not a synthetic group keydown
+    // that would bypass any accidentally-added child stopPropagation.
     agentSkillsState.data = makeAgentSkills({
       installed: [
         {
@@ -340,7 +314,75 @@ describe("SkillsTab", () => {
     const confirmBtn = screen.getByRole("button", {
       name: /Confirm remove clawrium\/tdd/,
     });
-    expect(confirmBtn).toHaveFocus();
+    fireEvent.keyDown(confirmBtn, { key: "Escape" });
+    expect(
+      screen.queryByRole("group", {
+        name: /Confirm removal of clawrium\/tdd/,
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("focuses the Confirm button on Remove→confirming transition", async () => {
+    // ATX-2 B2a: focus must move so keyboard / SR users notice the
+    // state change. S1: waitFor so a future requestAnimationFrame
+    // delay doesn't silently make this assertion vacuous.
+    agentSkillsState.data = makeAgentSkills({
+      installed: [
+        {
+          ref: "clawrium/tdd",
+          registry: "clawrium",
+          name: "tdd",
+          description: "TDD discipline.",
+          version: "0.1.0",
+        },
+      ],
+    });
+    render(<SkillsTab agentKey="tdd-hermes" />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+    );
+    const confirmBtn = screen.getByRole("button", {
+      name: /Confirm remove clawrium\/tdd/,
+    });
+    await waitFor(() => expect(confirmBtn).toHaveFocus());
+  });
+
+  it("dismisses the confirm group when a concurrent mutation disables the row", () => {
+    // ATX-3 W3: assert the disabled→confirming-cleanup effect, which
+    // is the only thing standing between "two mutations in flight"
+    // and "user sees a stuck disabled Confirm button they cannot
+    // escape from".
+    agentSkillsState.data = makeAgentSkills({
+      installed: [
+        {
+          ref: "clawrium/tdd",
+          registry: "clawrium",
+          name: "tdd",
+          description: "TDD discipline.",
+          version: "0.1.0",
+        },
+      ],
+    });
+    const { rerender } = render(<SkillsTab agentKey="tdd-hermes" />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+    );
+    expect(
+      screen.getByRole("group", { name: /Confirm removal of clawrium\/tdd/ }),
+    ).toBeInTheDocument();
+
+    // Concurrent install fires — the row disables. The effect must
+    // collapse the confirm group back to the resting Remove button.
+    installMutation.isPending = true;
+    rerender(<SkillsTab agentKey="tdd-hermes" />);
+    expect(
+      screen.queryByRole("group", {
+        name: /Confirm removal of clawrium\/tdd/,
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+    ).toBeDisabled();
   });
 
   it("closes the install picker after a successful install", async () => {
