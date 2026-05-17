@@ -47,10 +47,15 @@ def test_parse_skill_ref_happy_path():
 def _reset_schema_cache():
     """Schema cache is module-level. Tests that build a fake catalog
     in tmp_path poison the cache for whichever test runs next; clear
-    it on every setup and teardown to keep tests independent."""
-    skills._SCHEMA_CACHE.clear()
+    it on every setup and teardown to keep tests independent.
+
+    Uses the public `clear_schema_cache()` helper rather than poking at
+    the private `_SCHEMA_CACHE` name — keeps the fixture working if the
+    cache implementation ever changes (e.g. swaps to functools.lru_cache).
+    """
+    skills.clear_schema_cache()
     yield
-    skills._SCHEMA_CACHE.clear()
+    skills.clear_schema_cache()
 
 
 @pytest.mark.parametrize("raw", ["", "   ", "\t\n"])
@@ -368,6 +373,79 @@ def _copy_schemas(root: Path) -> None:
         (native_dest / f"{native}.schema.json").write_text(
             (src_schema_root / "native" / f"{native}.schema.json").read_text()
         )
+
+
+def test_load_skill_rejects_malformed_meta_yaml(monkeypatch, tmp_path):
+    """`load_skill` catches `yaml.YAMLError` and re-raises as
+    `SchemaValidationError`. Without this test the YAMLError branch is
+    0-coverage and a future refactor that drops the wrap would surface
+    a raw stack trace to CLI / GUI callers instead of a fixable error."""
+    skill_dir = tmp_path / "clawrium" / "tdd"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "_meta.yaml").write_text("key: [unclosed\n")
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: tdd\ndescription: fake\n---\nbody"
+    )
+    _copy_schemas(tmp_path)
+    monkeypatch.setattr(skills, "_catalog_root", lambda: tmp_path)
+
+    with pytest.raises(SchemaValidationError, match="Failed to parse"):
+        load_skill("clawrium/tdd")
+
+
+def test_load_skill_rejects_non_mapping_meta_yaml(monkeypatch, tmp_path):
+    """`_meta.yaml` that parses to a YAML list (or scalar) — the
+    isinstance check sits next to the YAMLError handler and shares the
+    same risk if dropped."""
+    skill_dir = tmp_path / "clawrium" / "tdd"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "_meta.yaml").write_text("- item1\n- item2\n")
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: tdd\ndescription: fake\n---\nbody"
+    )
+    _copy_schemas(tmp_path)
+    monkeypatch.setattr(skills, "_catalog_root", lambda: tmp_path)
+
+    with pytest.raises(SchemaValidationError, match="YAML mapping"):
+        load_skill("clawrium/tdd")
+
+
+def test_load_schema_missing_file_raises(monkeypatch, tmp_path):
+    """`_load_schema` raises `SchemaValidationError` when the on-disk
+    schema is absent. Catalog readers (e.g. the validate_skills.py CI
+    script) rely on the *class* of the exception to map to exit code 2,
+    so the contract needs a direct test."""
+    monkeypatch.setattr(skills, "_catalog_root", lambda: tmp_path)
+    # No _schema/ at all → both clawrium and native lookups fail.
+    with pytest.raises(SchemaValidationError, match="Schema file"):
+        skills._load_schema("clawrium")
+    with pytest.raises(SchemaValidationError, match="Schema file"):
+        skills._load_schema("hermes")
+
+
+def test_load_schema_corrupt_json_raises(monkeypatch, tmp_path):
+    schema_dir = tmp_path / "_schema"
+    schema_dir.mkdir()
+    (schema_dir / "clawrium.schema.json").write_text("{not json")
+    monkeypatch.setattr(skills, "_catalog_root", lambda: tmp_path)
+
+    with pytest.raises(SchemaValidationError, match="not valid JSON"):
+        skills._load_schema("clawrium")
+
+
+def test_clear_schema_cache_empties_cache(monkeypatch, tmp_path):
+    """Round-trip: populate the cache via a real `_load_schema` call,
+    then prove `clear_schema_cache()` actually empties it. Without this
+    the autouse fixture pretends to do work without anyone verifying
+    it does."""
+    _copy_schemas(tmp_path)
+    monkeypatch.setattr(skills, "_catalog_root", lambda: tmp_path)
+    skills.clear_schema_cache()
+    assert skills._SCHEMA_CACHE == {}
+    skills._load_schema("clawrium")
+    assert "clawrium" in skills._SCHEMA_CACHE
+    skills.clear_schema_cache()
+    assert skills._SCHEMA_CACHE == {}
 
 
 def test_real_schemas_are_valid_json():

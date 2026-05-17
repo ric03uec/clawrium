@@ -42,6 +42,11 @@ clm agent install --type openclaw --host mybox
 clm agent configure <agent-name>
 clm agent start <agent-name>
 
+# Install a skill onto the agent (catalog: skills/)
+clm skill list
+clm skill show clawrium/tdd       # Inspect a skill before installing
+clm agent skill install <agent-name> clawrium/tdd
+
 # Check fleet status
 clm ps
 ```
@@ -52,7 +57,8 @@ clm ps
 - **Agent**: An AI assistant instance (zeroclaw, nemoclaw, or openclaw)
 - **Agent Type**: The specific AI assistant implementation (e.g., zeroclaw, nemoclaw, openclaw)
 - **Agent Name**: The unique identifier for an installed agent instance
-- **Registry**: Platform-defined agent types with versions, dependencies, and templates
+- **Agent Registry**: Platform-defined agent types with versions, dependencies, and templates
+- **Skill Registry**: A namespace under `skills/` from which skills can be installed onto an agent (`clawrium`, `openclaw`, `hermes`, `zeroclaw`). Skills are referenced as `<skill-registry>/<name>` (e.g. `clawrium/tdd`). Distinct from the Agent Registry.
 
 ## Resources
 
@@ -104,10 +110,10 @@ Trigger with: `/itx:execute 35 in a subtree` or `/itx:execute 35 --worktree`
 New Issue → /itx:triage → /itx:plan-create → /itx:plan-scaffold → /itx:execute → /itx:verify → /itx:review-pr → Merge
 ```
 
-### Skills
+### Workflow Commands
 
-| Skill | Purpose |
-|-------|---------|
+| Command | Purpose |
+|---------|---------|
 | `/itx:bug-new` | Create bug issue (asks for customer outcome) |
 | `/itx:issue-new` | Create feature issue (asks for customer outcome) |
 | `/itx:triage` | Review unlabeled issues |

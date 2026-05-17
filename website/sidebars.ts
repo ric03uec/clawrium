@@ -38,6 +38,15 @@ const sidebars: SidebarsConfig = {
     'web-dashboard',
     {
       type: 'category',
+      label: 'Skills',
+      collapsed: true,
+      items: [
+        'skills/intro',
+        'skills/authoring',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Scenarios',
       collapsed: true,
       items: [

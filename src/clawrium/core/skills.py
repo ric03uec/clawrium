@@ -379,8 +379,10 @@ def check_agent_compatibility(skill: Skill, agent_type: str) -> None:
       ``IncompatibleSkillRegistry``. The catalog author must list each
       claw they intend to support — silent "absent means anywhere" was
       rejected during planning because it makes drift hard to debug
-      ("why did install succeed but the skill never run?"). Unknown
-      agent types fail closed too.
+      ("why did install succeed but the skill never run?"). The
+      `clawrium.schema.json` also requires the map (and all three claw
+      entries inside it), so a missing key represents a malformed skill.
+      Unknown agent types fail closed too.
     - ``<claw>/<name>`` (native): must match ``agent_type`` exactly.
       Cross-claw native installs are a hard error because the SKILL.md
       is already in a per-claw frontmatter shape.
@@ -534,6 +536,18 @@ def _load_schema(registry: str) -> dict[str, Any]:
 _SCHEMA_CACHE: dict[str, dict[str, Any]] = {}
 
 
+def clear_schema_cache() -> None:
+    """Reset the module-level schema cache.
+
+    Exported so callers (notably ``scripts/validate_skills.py`` and the
+    test suite) don't have to poke at the private ``_SCHEMA_CACHE``
+    name. Used when the same process validates more than one catalog
+    root in sequence — without a reset, a fixture catalog with a
+    stale schema would receive a hit from the previous run.
+    """
+    _SCHEMA_CACHE.clear()
+
+
 def _validate_against_schema(
     data: dict[str, Any], schema: dict[str, Any], ref: SkillRef
 ) -> None:
@@ -589,5 +603,11 @@ __all__ = [
     "load_skill",
     "validate_skill",
     "check_agent_compatibility",
+    "clear_schema_cache",
     "materialize_for_claw",
 ]
+# Note: `scripts/validate_skills.py` imports a handful of underscored
+# helpers from this module by explicit name (`_NAME_RE`, `_load_schema`,
+# `_split_frontmatter`, `_validate_against_schema`). They stay private
+# (no `__all__` entry — adding underscored names there would falsely
+# signal a public API), but renames must touch that script in lockstep.
