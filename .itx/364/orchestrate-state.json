@@ -1,0 +1,14 @@
+{
+  "parent": 364,
+  "tmux_session": "itx/364",
+  "started_at": "2026-05-17T09:35:00Z",
+  "phases": [
+    {"phase": 0, "issue": 386, "branch": "issue-386-phase0-research", "pr_base": "main", "worktree": "/home/devashish/workspace/ric03uec/clawrium-issue-386", "tmux_window": "phase-0", "state": "spawned", "pr": null, "stuck_marker": false},
+    {"phase": 1, "issue": 380, "branch": "issue-380-cli-skill-catalog-browse", "pr_base": "issue-386-phase0-research", "worktree": null, "tmux_window": null, "state": "pending", "pr": null, "stuck_marker": false},
+    {"phase": 2, "issue": 381, "branch": "issue-381-cli-skill-install-hermes", "pr_base": "issue-380-cli-skill-catalog-browse", "worktree": null, "tmux_window": null, "state": "pending", "pr": null, "stuck_marker": false},
+    {"phase": 3, "issue": 382, "branch": "issue-382-cli-skill-install-openclaw-zeroclaw", "pr_base": "issue-381-cli-skill-install-hermes", "worktree": null, "tmux_window": null, "state": "pending", "pr": null, "stuck_marker": false},
+    {"phase": 4, "issue": 383, "branch": "issue-383-gui-skill-catalog-browse", "pr_base": "issue-382-cli-skill-install-openclaw-zeroclaw", "worktree": null, "tmux_window": null, "state": "pending", "pr": null, "stuck_marker": false},
+    {"phase": 5, "issue": 384, "branch": "issue-384-gui-skill-install-all-claws", "pr_base": "issue-383-gui-skill-catalog-browse", "worktree": null, "tmux_window": null, "state": "pending", "pr": null, "stuck_marker": false},
+    {"phase": 6, "issue": 385, "branch": "issue-385-skills-docs-ci", "pr_base": "issue-384-gui-skill-install-all-claws", "worktree": null, "tmux_window": null, "state": "pending", "pr": null, "stuck_marker": false}
+  ]
+}
