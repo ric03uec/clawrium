@@ -11,16 +11,16 @@ export function ControlNode({ data }: NodeProps) {
   const { label, description } = data as unknown as ControlNodeData;
 
   return (
-    <div className="bg-white border-2 border-primary rounded-xl px-6 py-4 shadow-md min-w-[180px] text-center">
-      <div className="text-xs font-medium text-primary uppercase tracking-wide mb-1">
-        {description}
-      </div>
-      <div className="text-sm font-semibold text-primary-text">{label}</div>
+    <div className="flex flex-col items-center gap-0.5 px-4 py-2 opacity-60">
       <Handle
         type="source"
-        position={Position.Bottom}
-        className="!bg-primary !w-2 !h-2 !border-0"
+        position={Position.Top}
+        className="!bg-muted !w-1.5 !h-1.5 !border-0"
       />
+      <div className="text-[10px] text-muted uppercase tracking-widest">
+        {description}
+      </div>
+      <div className="text-xs font-medium text-secondary">{label}</div>
     </div>
   );
 }

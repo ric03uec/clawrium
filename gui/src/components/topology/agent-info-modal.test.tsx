@@ -63,7 +63,7 @@ function makeAgent(overrides: Partial<TopologyAgent> = {}): TopologyAgent {
 }
 
 describe("AgentInfoModal", () => {
-  it("renders the Provider Endpoint row when endpoint is set", () => {
+  it("renders the Endpoint card when endpoint is set", () => {
     render(
       <AgentInfoModal
         agent={makeAgent()}
@@ -71,11 +71,11 @@ describe("AgentInfoModal", () => {
         onClose={() => {}}
       />
     );
-    expect(screen.getByText("Provider Endpoint")).toBeInTheDocument();
+    expect(screen.getByText("Endpoint")).toBeInTheDocument();
     expect(screen.getByText("http://192.168.1.17:11434")).toBeInTheDocument();
   });
 
-  it("omits the Provider Endpoint row when endpoint is null", () => {
+  it("omits the Endpoint card when endpoint is null", () => {
     render(
       <AgentInfoModal
         agent={makeAgent({ provider_endpoint: null, provider_type: "bedrock" })}
@@ -83,7 +83,7 @@ describe("AgentInfoModal", () => {
         onClose={() => {}}
       />
     );
-    expect(screen.queryByText("Provider Endpoint")).not.toBeInTheDocument();
+    expect(screen.queryByText("Endpoint")).not.toBeInTheDocument();
   });
 
   it("encodes agent_key when pushing to /agents", () => {

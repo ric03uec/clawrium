@@ -12,7 +12,7 @@ import "@xyflow/react/dist/style.css";
 
 import { type TopologyResponse, type TopologyAgent, type TopologyHost } from "@/lib/types";
 import { ControlNode } from "./control-node";
-import { HostNode } from "./host-node";
+import { AgentNode } from "./agent-node";
 import { ProviderNode } from "./provider-node";
 import { TopologyLegend } from "./topology-legend";
 import { AgentInfoModal } from "./agent-info-modal";
@@ -21,7 +21,7 @@ import { computeTopology } from "./topology-graph";
 
 const nodeTypes = {
   control: ControlNode,
-  host: HostNode,
+  agent: AgentNode,
   provider: ProviderNode,
 };
 

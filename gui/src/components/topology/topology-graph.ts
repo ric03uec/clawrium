@@ -1,17 +1,25 @@
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 
 import { type TopologyAgent, type TopologyResponse } from "@/lib/types";
-import {
-  AGENT_COL_WIDTH,
-  HOST_MIN_WIDTH,
-  HOST_PADDING,
-} from "./host-node";
+import { buildHostColorMap, getHostColor } from "./host-colors";
+import { AGENT_NODE_WIDTH } from "./agent-node";
 
-const HOST_ROW_Y = 180;
-const PROVIDER_ROW_Y = 480;
-export const HOST_GAP = 48;
-const PROVIDER_SPACING = 260;
+/* ─── Layout Constants ────────────────────────────────────────────── */
+
+/** Vertical row positions (top → bottom) */
+const AGENT_ROW_Y = 0;
+const PROVIDER_ROW_Y = 320;
+const CONTROL_ROW_Y = 560;
+
+/** Horizontal spacing between agent cards */
+const AGENT_GAP = 36;
+
+/** Horizontal spacing between provider nodes */
+const PROVIDER_SPACING = 200;
+
 const UNCONFIGURED_KEY = "__unconfigured__";
+
+/* ─── Types ───────────────────────────────────────────────────────── */
 
 export interface ProviderNodeData {
   providerKey: string;
@@ -20,6 +28,7 @@ export interface ProviderNodeData {
   endpoint: string | null;
   agentCount: number;
   unconfigured: boolean;
+  hostGpuVendor?: string | null;
 }
 
 export interface ComputeTopologyOptions {
@@ -33,24 +42,22 @@ interface ProviderAccumulator {
   type: string | null;
   endpoint: string | null;
   unconfigured: boolean;
+  /** GPU vendor of the first host (for NVIDIA local inference detection) */
+  hostGpuVendor: string | null;
   agents: Array<{ hostname: string; agentKey: string; model: string | null }>;
 }
+
+/* ─── Helpers ─────────────────────────────────────────────────────── */
 
 export function providerNodeKey(agent: TopologyAgent): string {
   if (!agent.provider && !agent.provider_type) return UNCONFIGURED_KEY;
   const type = agent.provider_type || "unknown";
   const name = agent.provider || type;
   const endpoint = agent.provider_endpoint ?? "";
-  // encodeURIComponent escapes "|", so joining the URI-encoded segments with
-  // "|" is unambiguous AND produces a key safe to embed in React Flow DOM IDs
-  // (no quotes / brackets that could trip CSS attribute selectors).
   return [type, name, endpoint].map(encodeURIComponent).join("|");
 }
 
-function hostNodeWidth(agentCount: number): number {
-  const cols = Math.max(agentCount, 1);
-  return Math.max(cols * AGENT_COL_WIDTH + HOST_PADDING * 2, HOST_MIN_WIDTH);
-}
+/* ─── Main Layout Function ────────────────────────────────────────── */
 
 export function computeTopology(
   data: TopologyResponse,
@@ -59,68 +66,59 @@ export function computeTopology(
   const nodes: Node[] = [];
   const edges: Edge[] = [];
 
-  nodes.push({
-    id: "control",
-    type: "control",
-    position: { x: 0, y: 0 },
-    data: { label: data.control.label, description: data.control.description },
-  });
+  // ─── Build host color map ─────────────────────────────────────────
+  const hostnames = data.hosts.map((h) => h.hostname);
+  const hostColorMap = buildHostColorMap(hostnames);
 
-  const providerOrder: string[] = [];
-  const providerMap = new Map<string, ProviderAccumulator>();
+  // ─── 1. Agent nodes (top row) ─────────────────────────────────────
+  // Flatten all agents across hosts into individual top-level nodes.
+  const allAgents: Array<{
+    agent: TopologyAgent;
+    hostname: string;
+    alias: string;
+    hardware: TopologyResponse["hosts"][0]["hardware"];
+  }> = [];
 
-  // Cumulative-width layout: each host is positioned based on the total width
-  // of all preceding hosts plus the HOST_GAP between them. Width scales with
-  // agents.length with no cap, so wide hosts do not collide with neighbours.
-  const hostWidths = data.hosts.map((h) => hostNodeWidth(h.agents.length));
-  const totalRowWidth =
-    hostWidths.reduce((sum, w) => sum + w, 0) +
-    Math.max(data.hosts.length - 1, 0) * HOST_GAP;
-  let cursorX = -totalRowWidth / 2;
-
-  data.hosts.forEach((host, hostIndex) => {
-    const hostNodeId = `host-${host.hostname}`;
-    const width = hostWidths[hostIndex];
-
-    nodes.push({
-      id: hostNodeId,
-      type: "host",
-      position: { x: cursorX, y: HOST_ROW_Y },
-      data: {
+  data.hosts.forEach((host) => {
+    host.agents.forEach((agent) => {
+      allAgents.push({
+        agent,
         hostname: host.hostname,
         alias: host.alias,
-        user: host.user,
-        agentCount: host.agent_count,
-        agents: host.agents,
-        hardware: host.hardware ?? null,
-        onAgentClick: opts.onAgentClick
-          ? (agent: TopologyAgent) => opts.onAgentClick?.(agent, host.alias)
-          : undefined,
+        hardware: host.hardware,
+      });
+    });
+  });
+
+  const totalAgentWidth =
+    allAgents.length * AGENT_NODE_WIDTH +
+    Math.max(allAgents.length - 1, 0) * AGENT_GAP;
+  let agentCursorX = -totalAgentWidth / 2;
+
+  allAgents.forEach(({ agent, hostname, alias, hardware }) => {
+    const nodeId = `agent-${agent.agent_key}`;
+    nodes.push({
+      id: nodeId,
+      type: "agent",
+      position: { x: agentCursorX, y: AGENT_ROW_Y },
+      data: {
+        agent,
+        hostname,
+        hostAlias: alias,
+        hardware: hardware ?? null,
+        hostColor: getHostColor(hostColorMap, hostname),
+        onAgentClick: opts.onAgentClick,
         onHostClick: opts.onHostClick,
       },
     });
+    agentCursorX += AGENT_NODE_WIDTH + AGENT_GAP;
+  });
 
-    cursorX += width + HOST_GAP;
+  // ─── 2. Provider nodes (middle row) ──────────────────────────────
+  const providerOrder: string[] = [];
+  const providerMap = new Map<string, ProviderAccumulator>();
 
-    edges.push({
-      id: `edge-control-${host.hostname}`,
-      source: "control",
-      target: hostNodeId,
-      type: "default",
-      animated: true,
-      style: { stroke: "#0D9488", strokeWidth: 1.5, strokeDasharray: "5 3" },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: "#0D9488",
-        width: 16,
-        height: 16,
-      },
-      label: "SSH",
-      labelStyle: { fontSize: 10, fill: "#94A3B8" },
-      labelBgStyle: { fill: "#FFFFFF", fillOpacity: 0.8 },
-      labelBgPadding: [4, 2] as [number, number],
-    });
-
+  data.hosts.forEach((host) => {
     host.agents.forEach((agent) => {
       const pKey = providerNodeKey(agent);
       let acc = providerMap.get(pKey);
@@ -128,10 +126,13 @@ export function computeTopology(
         const unconfigured = pKey === UNCONFIGURED_KEY;
         acc = {
           key: pKey,
-          name: unconfigured ? "Unconfigured" : agent.provider || agent.provider_type || "Unknown",
+          name: unconfigured
+            ? "Unconfigured"
+            : agent.provider || agent.provider_type || "Unknown",
           type: unconfigured ? null : agent.provider_type ?? null,
           endpoint: unconfigured ? null : agent.provider_endpoint ?? null,
           unconfigured,
+          hostGpuVendor: host.hardware?.gpu?.vendor ?? null,
           agents: [],
         };
         providerMap.set(pKey, acc);
@@ -162,15 +163,17 @@ export function computeTopology(
         endpoint: acc.endpoint,
         agentCount: acc.agents.length,
         unconfigured: acc.unconfigured,
+        hostGpuVendor: acc.hostGpuVendor,
       } satisfies ProviderNodeData,
     });
 
-    acc.agents.forEach(({ hostname, agentKey, model }) => {
+    // Edges: agent → provider
+    acc.agents.forEach(({ agentKey, model }) => {
       const stroke = acc.unconfigured ? "#94A3B8" : "#475569";
       edges.push({
-        id: `edge-${hostname}-${agentKey}-${pKey}`,
-        source: `host-${hostname}`,
-        sourceHandle: agentKey,
+        id: `edge-${agentKey}-${pKey}`,
+        source: `agent-${agentKey}`,
+        sourceHandle: "provider",
         target: providerNodeId,
         type: "default",
         animated: false,
@@ -188,9 +191,6 @@ export function computeTopology(
         ...(model
           ? {
               label: model,
-              // Anchor to the design-token system; --text-secondary keeps
-              // the model label readable while distinct from the SSH edge
-              // label (which uses --text-muted).
               labelStyle: {
                 fontSize: 9,
                 fill: "var(--text-secondary)",
@@ -201,6 +201,37 @@ export function computeTopology(
             }
           : {}),
       });
+    });
+  });
+
+  // ─── 3. Control node (bottom row, minimal) ────────────────────────
+  nodes.push({
+    id: "control",
+    type: "control",
+    position: { x: 0, y: CONTROL_ROW_Y },
+    data: { label: data.control.label, description: data.control.description },
+  });
+
+  // Edges: control → agent (SSH, dashed + animated)
+  allAgents.forEach(({ agent }) => {
+    edges.push({
+      id: `edge-control-${agent.agent_key}`,
+      source: "control",
+      target: `agent-${agent.agent_key}`,
+      targetHandle: "ssh",
+      type: "default",
+      animated: true,
+      style: { stroke: "#0D9488", strokeWidth: 1, strokeDasharray: "5 3" },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: "#0D9488",
+        width: 12,
+        height: 12,
+      },
+      label: "SSH",
+      labelStyle: { fontSize: 9, fill: "#94A3B8" },
+      labelBgStyle: { fill: "#FFFFFF", fillOpacity: 0.8 },
+      labelBgPadding: [3, 1] as [number, number],
     });
   });
 

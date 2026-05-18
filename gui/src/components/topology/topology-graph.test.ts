@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { type TopologyAgent, type TopologyResponse } from "@/lib/types";
 
 import { computeTopology, providerNodeKey } from "./topology-graph";
-import { AGENT_COL_WIDTH, HOST_PADDING } from "./host-node";
+import { AGENT_NODE_WIDTH } from "./agent-node";
 
 function makeAgent(overrides: Partial<TopologyAgent> = {}): TopologyAgent {
   return {
@@ -45,6 +45,28 @@ function makeData(
 }
 
 describe("computeTopology", () => {
+  it("creates one agent node per agent (top-level, not nested in hosts)", () => {
+    const data = makeData([
+      {
+        hostname: "host-a",
+        agents: [makeAgent({ agent_key: "a1" }), makeAgent({ agent_key: "a2" })],
+      },
+      {
+        hostname: "host-b",
+        agents: [makeAgent({ agent_key: "b1" })],
+      },
+    ]);
+
+    const { nodes } = computeTopology(data);
+    const agentNodes = nodes.filter((n) => n.type === "agent");
+    expect(agentNodes).toHaveLength(3);
+    expect(agentNodes.map((n) => n.id).sort()).toEqual([
+      "agent-a1",
+      "agent-a2",
+      "agent-b1",
+    ]);
+  });
+
   it("deduplicates a shared provider across two agents on different hosts", () => {
     const shared = {
       provider: "local-inx",
@@ -69,7 +91,10 @@ describe("computeTopology", () => {
 
     const agentEdges = edges.filter((e) => e.target === providerNodes[0].id);
     expect(agentEdges).toHaveLength(2);
-    expect(agentEdges.map((e) => e.sourceHandle).sort()).toEqual(["a1", "b1"]);
+    expect(agentEdges.map((e) => e.source).sort()).toEqual([
+      "agent-a1",
+      "agent-b1",
+    ]);
     expect(agentEdges.every((e) => e.animated === false)).toBe(true);
   });
 
@@ -202,18 +227,12 @@ describe("computeTopology", () => {
       },
     ]);
 
-    const { nodes, edges } = computeTopology(data);
+    const { nodes } = computeTopology(data);
     expect(nodes.filter((n) => n.type === "provider")).toHaveLength(3);
-
-    const handles = edges
-      .filter((e) => e.source === "host-host-a")
-      .map((e) => e.sourceHandle)
-      .filter(Boolean)
-      .sort();
-    expect(handles).toEqual(["n1", "o1", "z1"]);
+    expect(nodes.filter((n) => n.type === "agent")).toHaveLength(3);
   });
 
-  it("threads onAgentClick and onHostClick into host node data", () => {
+  it("threads onAgentClick and onHostClick into agent node data", () => {
     const onAgentClick = vi.fn();
     const onHostClick = vi.fn();
     const agent = makeAgent({ agent_key: "espresso" });
@@ -222,66 +241,63 @@ describe("computeTopology", () => {
     ]);
 
     const { nodes } = computeTopology(data, { onAgentClick, onHostClick });
-    const hostNode = nodes.find((n) => n.type === "host");
-    expect(hostNode).toBeDefined();
-    const hostData = hostNode!.data as {
-      onAgentClick: (a: TopologyAgent) => void;
+    const agentNode = nodes.find((n) => n.type === "agent");
+    expect(agentNode).toBeDefined();
+    const nodeData = agentNode!.data as {
+      hostAlias: string;
+      hostname: string;
+      onAgentClick: (a: TopologyAgent, alias: string) => void;
       onHostClick: (h: string) => void;
     };
 
-    hostData.onAgentClick(agent);
+    // Guard the alias-vs-hostname threading invariant directly.
+    expect(nodeData.hostAlias).toBe("wolf-i-alias");
+    expect(nodeData.hostname).toBe("wolf-i");
+
+    nodeData.onAgentClick(agent, nodeData.hostAlias);
     expect(onAgentClick).toHaveBeenCalledWith(agent, "wolf-i-alias");
 
-    hostData.onHostClick("wolf-i");
+    nodeData.onHostClick(nodeData.hostname);
     expect(onHostClick).toHaveBeenCalledWith("wolf-i");
   });
 
-  it("leaves host node callbacks undefined when no opts are passed", () => {
-    const data = makeData([{ hostname: "h1", agents: [] }]);
+  it("leaves agent node callbacks undefined when no opts are passed", () => {
+    const data = makeData([
+      { hostname: "h1", agents: [makeAgent({ agent_key: "a1" })] },
+    ]);
     const { nodes } = computeTopology(data);
-    const hostNode = nodes.find((n) => n.type === "host");
-    const hostData = hostNode!.data as {
+    const agentNode = nodes.find((n) => n.type === "agent");
+    const nodeData = agentNode!.data as {
       onAgentClick?: unknown;
       onHostClick?: unknown;
     };
-    expect(hostData.onAgentClick).toBeUndefined();
-    expect(hostData.onHostClick).toBeUndefined();
+    expect(nodeData.onAgentClick).toBeUndefined();
+    expect(nodeData.onHostClick).toBeUndefined();
   });
 
-  it("positions wider hosts (more agents) without colliding with neighbours", () => {
+  it("positions agent cards without overlap (AGENT_NODE_WIDTH + gap)", () => {
     const data = makeData([
       {
-        hostname: "wide",
+        hostname: "host-a",
         agents: [
           makeAgent({ agent_key: "a1" }),
           makeAgent({ agent_key: "a2" }),
           makeAgent({ agent_key: "a3" }),
-          makeAgent({ agent_key: "a4" }),
         ],
-      },
-      {
-        hostname: "narrow",
-        agents: [makeAgent({ agent_key: "b1" })],
       },
     ]);
 
     const { nodes } = computeTopology(data);
-    const wideNode = nodes.find(
-      (n) => n.id === "host-wide",
-    ) as { position: { x: number } };
-    const narrowNode = nodes.find(
-      (n) => n.id === "host-narrow",
-    ) as { position: { x: number } };
-    expect(wideNode).toBeDefined();
-    expect(narrowNode).toBeDefined();
+    const agentNodes = nodes
+      .filter((n) => n.type === "agent")
+      .sort((a, b) => a.position.x - b.position.x);
 
-    // Real non-overlap invariant: the wide host's right edge must sit at
-    // or before the narrow host's left edge. Anchored to AGENT_COL_WIDTH
-    // so the assertion stays correct if the column width changes.
-    const wideWidth = 4 * AGENT_COL_WIDTH + HOST_PADDING * 2;
-    expect(wideNode.position.x + wideWidth).toBeLessThanOrEqual(
-      narrowNode.position.x,
-    );
+    // Each pair: left node's x + width <= right node's x
+    for (let i = 0; i < agentNodes.length - 1; i++) {
+      expect(agentNodes[i].position.x + AGENT_NODE_WIDTH).toBeLessThanOrEqual(
+        agentNodes[i + 1].position.x
+      );
+    }
   });
 
   it("attaches the agent model name as the edge label", () => {
@@ -292,7 +308,9 @@ describe("computeTopology", () => {
       },
     ]);
     const { edges } = computeTopology(data);
-    const agentEdge = edges.find((e) => e.sourceHandle === "a1");
+    const agentEdge = edges.find(
+      (e) => e.source === "agent-a1" && e.target.startsWith("provider-")
+    );
     expect(agentEdge?.label).toBe("claude-sonnet-4-6");
   });
 
@@ -304,21 +322,89 @@ describe("computeTopology", () => {
       },
     ]);
     const { edges } = computeTopology(data);
-    const agentEdge = edges.find((e) => e.sourceHandle === "a1");
+    const agentEdge = edges.find(
+      (e) => e.source === "agent-a1" && e.target.startsWith("provider-")
+    );
     expect(agentEdge?.label).toBeUndefined();
   });
 
-  it("emits an SSH edge per host as before", () => {
+  it("emits an SSH edge per agent from the control node", () => {
     const data = makeData([
-      { hostname: "h1", agents: [] },
-      { hostname: "h2", agents: [] },
+      { hostname: "h1", agents: [makeAgent({ agent_key: "x1" })] },
+      { hostname: "h2", agents: [makeAgent({ agent_key: "x2" })] },
     ]);
     const { edges } = computeTopology(data);
     const sshEdges = edges.filter((e) => e.source === "control");
     expect(sshEdges).toHaveLength(2);
     expect(sshEdges.every((e) => e.animated === true)).toBe(true);
-    expect(sshEdges.map((e) => e.target).sort()).toEqual(["host-h1", "host-h2"]);
+    expect(sshEdges.map((e) => e.target).sort()).toEqual(["agent-x1", "agent-x2"]);
     expect(sshEdges.every((e) => e.label === "SSH")).toBe(true);
+  });
+
+  it("places control node at the bottom of the graph", () => {
+    const data = makeData([
+      { hostname: "h1", agents: [makeAgent({ agent_key: "a1" })] },
+    ]);
+    const { nodes } = computeTopology(data);
+    const controlNode = nodes.find((n) => n.type === "control");
+    const agentNode = nodes.find((n) => n.type === "agent");
+    expect(controlNode!.position.y).toBeGreaterThan(agentNode!.position.y);
+  });
+
+  it("assigns same host color to agents on the same host", () => {
+    const data = makeData([
+      {
+        hostname: "shared-host",
+        agents: [makeAgent({ agent_key: "a1" }), makeAgent({ agent_key: "a2" })],
+      },
+    ]);
+    const { nodes } = computeTopology(data);
+    const agentNodes = nodes.filter((n) => n.type === "agent");
+    const colors = agentNodes.map((n) => (n.data as { hostColor: string }).hostColor);
+    expect(colors[0]).toBe(colors[1]);
+  });
+
+  it("assigns different host colors to agents on different hosts", () => {
+    const data = makeData([
+      { hostname: "host-a", agents: [makeAgent({ agent_key: "a1" })] },
+      { hostname: "host-b", agents: [makeAgent({ agent_key: "b1" })] },
+    ]);
+    const { nodes } = computeTopology(data);
+    const agentNodes = nodes.filter((n) => n.type === "agent");
+    const colors = agentNodes.map((n) => (n.data as { hostColor: string }).hostColor);
+    expect(colors[0]).not.toBe(colors[1]);
+  });
+
+  it("passes hostGpuVendor to provider node data for NVIDIA detection", () => {
+    const data: TopologyResponse = {
+      control: { label: "Control", description: "clm CLI" },
+      summary: { total_agents: 1, running: 1, total_hosts: 1 },
+      connections: [],
+      hosts: [
+        {
+          hostname: "gpu-box",
+          alias: "gpu-box",
+          user: "user",
+          addresses: [],
+          has_key: true,
+          agent_count: 1,
+          agents: [makeAgent({ agent_key: "g1" })],
+          hardware: {
+            architecture: "x86_64",
+            cores: 8,
+            memtotal_mb: 32768,
+            gpu: { present: true, vendor: "nvidia" },
+            product_name: "DGX",
+            system_vendor: "NVIDIA",
+          },
+        },
+      ],
+    };
+    const { nodes } = computeTopology(data);
+    const providerNode = nodes.find((n) => n.type === "provider");
+    expect((providerNode!.data as { hostGpuVendor: string }).hostGpuVendor).toBe(
+      "nvidia"
+    );
   });
 });
 

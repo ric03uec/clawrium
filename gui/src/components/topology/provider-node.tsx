@@ -3,92 +3,80 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import { type ProviderNodeData } from "./topology-graph";
-
-const PROVIDER_LABELS: Record<string, string> = {
-  ollama: "Ollama",
-  openrouter: "OpenRouter",
-  bedrock: "AWS Bedrock",
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  opencode: "OpenCode",
-};
-
-const PROVIDER_GLYPHS: Record<string, string> = {
-  ollama: "L",
-  openrouter: "R",
-  bedrock: "B",
-  anthropic: "A",
-  openai: "O",
-  opencode: "C",
-};
-
-function providerLabel(type: string | null): string {
-  if (!type) return "Provider";
-  return PROVIDER_LABELS[type] ?? type;
-}
-
-function providerGlyph(type: string | null): string {
-  if (!type) return "?";
-  return PROVIDER_GLYPHS[type] ?? type.charAt(0).toUpperCase();
-}
+import {
+  getProviderBrand,
+  isNvidiaLocalInference,
+  NVIDIA_BRAND,
+} from "./provider-brands";
 
 export function ProviderNode({ data }: NodeProps) {
-  const { name, type, endpoint, agentCount, unconfigured } =
-    data as unknown as ProviderNodeData;
+  const { name, type, endpoint, agentCount, unconfigured, hostGpuVendor } =
+    data as unknown as ProviderNodeData & { hostGpuVendor?: string | null };
 
-  const borderClass = unconfigured
-    ? "border-dashed border-default"
-    : "border-primary/50";
+  const isNvidia = isNvidiaLocalInference(type, hostGpuVendor);
+  const brand = isNvidia ? NVIDIA_BRAND : getProviderBrand(type);
+  const { label, Icon, accentColor } = brand;
 
-  const labelClass = unconfigured ? "text-muted" : "text-primary";
+  const borderStyle = unconfigured
+    ? { borderLeft: "2px dashed var(--border-default)" }
+    : { borderLeft: `3px solid ${accentColor}` };
 
   return (
     <div
-      className={`bg-white rounded-xl shadow-sm min-w-[200px] px-4 py-3 border-2 ${borderClass}`}
+      className={`bg-white rounded-lg shadow-sm min-w-[140px] max-w-[180px] px-3 py-2.5 border border-default`}
+      style={{
+        ...borderStyle,
+        borderTop: "1px solid var(--border-default)",
+        borderRight: "1px solid var(--border-default)",
+        borderBottom: "1px solid var(--border-default)",
+      }}
     >
       <Handle
         type="target"
         position={Position.Top}
         className={
           unconfigured
-            ? "!bg-muted !w-2 !h-2 !border-0"
-            : "!bg-primary !w-2 !h-2 !border-0"
+            ? "!bg-muted !w-1.5 !h-1.5 !border-0"
+            : "!bg-slate-400 !w-1.5 !h-1.5 !border-0"
         }
       />
 
+      {/* Logo + label row */}
       <div className="flex items-center gap-2 mb-1">
+        <Icon
+          className={isNvidia ? "h-5 w-5" : "h-4 w-4"}
+          title={label}
+        />
         <span
-          className={`flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold ${
-            unconfigured
-              ? "bg-surface text-muted"
-              : "bg-primary/10 text-primary"
+          className={`text-[11px] font-semibold truncate ${
+            unconfigured ? "text-muted" : "text-primary-text"
           }`}
-          aria-hidden="true"
         >
-          {providerGlyph(type)}
-        </span>
-        <span
-          className={`text-[10px] font-medium uppercase tracking-wide ${labelClass}`}
-        >
-          {providerLabel(type)}
+          {isNvidia ? "NVIDIA · Local" : label}
         </span>
       </div>
 
-      <div className="text-sm font-semibold text-primary-text truncate" title={name}>
+      {/* Provider name */}
+      <div
+        className="text-[10px] text-secondary font-medium truncate"
+        title={name}
+      >
         {name}
       </div>
 
+      {/* Endpoint (if present) */}
       {endpoint && (
         <div
-          className="text-[10px] text-muted truncate mt-0.5"
+          className="text-[9px] text-muted truncate mt-0.5"
           title={endpoint}
         >
           {endpoint}
         </div>
       )}
 
+      {/* Agent count */}
       {!unconfigured && (
-        <div className="text-[10px] text-muted mt-1">
+        <div className="text-[9px] text-muted mt-1">
           {agentCount} {agentCount === 1 ? "agent" : "agents"}
         </div>
       )}
