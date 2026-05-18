@@ -27,13 +27,18 @@
 #     locked this contract: `zeroclaw skills remove <slug>` expects the
 #     source-dirname, which our materialization step always names with
 #     the canonical slug.
-#   - Idempotency: `zeroclaw skills install` is itself idempotent over
-#     identical inputs (re-installs in place after audit). We rely on
-#     the native CLI's idempotency, not a pre-check that would skip the
-#     audit. Drift recovery: if a slug is absent from
-#     `~/.zeroclaw/workspace/skills/` between applies, the install
-#     restores it; if the on-disk SKILL.md drifted, the next install
-#     re-stages it and re-audits.
+#   - Idempotency: zeroclaw v0.7.5's `skills install` is NOT
+#     overwrite-idempotent — it errors with "Destination skill already
+#     exists" when the slug is already present under
+#     `~/.zeroclaw/workspace/skills/`. We work around this by
+#     pre-removing any slug that is both desired and currently
+#     installed BEFORE running the install loop. The install loop then
+#     always runs against a clean destination so the audit gate runs
+#     on every apply. Drift recovery: if a slug is absent from
+#     `~/.zeroclaw/workspace/skills/` between applies, the pre-remove
+#     is a no-op (intersect is empty) and the install restores it; if
+#     the on-disk SKILL.md drifted, the pre-remove discards the drifted
+#     copy and the install re-stages + re-audits.
 - hosts: all
   become: yes
   gather_facts: false
@@ -181,6 +186,30 @@
         group: "{{ agent_name }}"
         mode: "0700"
       when: desired_skill_names | length > 0
+
+    # Pre-remove already-installed desired skills. zeroclaw v0.7.5's
+    # `skills install` is NOT overwrite-idempotent — it errors with
+    # "Destination skill already exists" when the slug is already in
+    # `~/.zeroclaw/workspace/skills/`. Without this step the second
+    # apply for an unchanged desired-state fails. Discovered by E2E
+    # validation of #364 against tdd-zeroclaw on wolf-i.
+    #
+    # We only remove slugs present in BOTH desired and installed —
+    # the unconditional install loop below then runs the audit gate
+    # on a clean destination, preserving "audit on every apply".
+    - name: Pre-remove desired-and-installed slugs for clean re-install
+      ansible.builtin.command:
+        argv:
+          - "{{ zeroclaw_bin }}"
+          - skills
+          - remove
+          - "{{ item }}"
+      become_user: "{{ agent_name }}"
+      loop: "{{ desired_skill_names | intersect(installed_slugs) }}"
+      when:
+        - item is match('^[a-z0-9][a-z0-9_-]*$')
+      register: zeroclaw_preremove_results
+      changed_when: zeroclaw_preremove_results.rc == 0
 
     # Wrap the stage + install steps in block/always so that even if
     # the audit gate rejects a skill (non-zero rc from `zeroclaw skills
