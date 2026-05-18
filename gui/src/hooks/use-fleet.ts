@@ -5,6 +5,9 @@ export function useFleet() {
   return useQuery({
     queryKey: ["fleet"],
     queryFn: api.getFleet,
-    refetchInterval: 15_000,
+    // No polling here — `/api/fleet` is the cheap optimistic baseline.
+    // useFleetHealth() is the live-status poller and merges into this
+    // cache; refetching `/api/fleet` would overwrite that merge.
+    refetchInterval: false,
   });
 }

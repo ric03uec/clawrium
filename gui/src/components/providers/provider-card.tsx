@@ -3,16 +3,7 @@
 import { Provider } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-
-const TYPE_BADGES: Record<string, { label: string; color: string }> = {
-  openai: { label: "OA", color: "bg-emerald-100 text-emerald-700" },
-  anthropic: { label: "AN", color: "bg-orange-100 text-orange-700" },
-  openrouter: { label: "OR", color: "bg-purple-100 text-purple-700" },
-  bedrock: { label: "BR", color: "bg-amber-100 text-amber-700" },
-  vertex: { label: "VX", color: "bg-blue-100 text-blue-700" },
-  zai: { label: "ZA", color: "bg-rose-100 text-rose-700" },
-  ollama: { label: "OL", color: "bg-slate-100 text-slate-700" },
-};
+import { getProviderBrand } from "@/components/topology/provider-brands";
 
 interface ProviderCardProps {
   provider: Provider;
@@ -22,14 +13,18 @@ interface ProviderCardProps {
 }
 
 export function ProviderCard({ provider, usedBy, onEdit, onRemove }: ProviderCardProps) {
-  const badge = TYPE_BADGES[provider.type] || { label: "??", color: "bg-gray-100 text-gray-700" };
+  const brand = getProviderBrand(provider.type);
+  const Icon = brand.Icon;
 
   return (
     <Card padding="md">
       <div className="flex items-start gap-4">
-        {/* Type badge */}
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold ${badge.color}`}>
-          {badge.label}
+        {/* Provider icon */}
+        <div
+          className="w-10 h-10 rounded-lg flex items-center justify-center"
+          style={{ backgroundColor: `${brand.accentColor}15` }}
+        >
+          <Icon className="w-6 h-6" title={brand.label} />
         </div>
 
         {/* Info */}
