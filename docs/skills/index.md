@@ -111,7 +111,102 @@ python scripts/validate_skills.py
 | hermes   | `~/.hermes/skills/clawrium/<name>/SKILL.md`   | file copy (auto-scan)                      |
 | zeroclaw | `~/.zeroclaw/workspace/skills/<name>/`        | staged + `zeroclaw skills install` (audit) |
 
+**The `~` above refers to the agent unix user's home**, not the
+operator's home on the control machine. Each agent installed via
+`clm agent install` runs as its own dedicated user named after the
+agent (e.g. `tdd-hermes` runs as user `tdd-hermes`, with files under
+`/home/tdd-hermes/`). To SSH-verify after a CLI install, switch users
+on the remote host:
+
+```bash
+# As the management user (typically xclm), drop into the agent user
+sudo -u tdd-hermes ls /home/tdd-hermes/.hermes/skills/clawrium/tdd/
+```
+
 Re-running `clm agent skill install` is the recovery for drift. There
 is no separate `reconcile` command — the local desired-state file at
 `~/.config/clawrium/agents/<agent>/skills.json` is truth, and every
 install/remove re-applies it end-to-end.
+
+## Ownership boundaries
+
+Pruning never touches user-authored or upstream-bundled skills. Each
+claw uses a different marker so a future apply can distinguish
+clawrium-managed dirs from anything else:
+
+| Claw     | Marker                                                                                  |
+|----------|-----------------------------------------------------------------------------------------|
+| openclaw | `.clawrium-managed` sentinel file inside each clawrium-installed skill dir              |
+| hermes   | Implicit — clawrium skills live under the dedicated `~/.hermes/skills/clawrium/` subdir |
+| zeroclaw | `~/.zeroclaw/.clawrium-managed-skills` (newline-separated slugs, outside `skills/`)     |
+
+If you see a clawrium-installed skill that the prune logic is failing
+to recognize, check that its marker is intact.
+
+## Troubleshooting
+
+### `clm agent skill install` reports success but the file isn't where I expect
+
+The `~` in the on-host paths is the **agent user's** home, not yours.
+A common source of confusion when verifying via SSH as the management
+user (`xclm` by default):
+
+```bash
+# Wrong — checking your own home (or the management user's home)
+ssh wolf-i 'ls ~/.hermes/skills/clawrium/tdd/'
+
+# Right — switch to the agent user
+ssh wolf-i 'sudo -u tdd-hermes ls /home/tdd-hermes/.hermes/skills/clawrium/tdd/'
+```
+
+### `clm agent remove` doesn't clean up the local skill state
+
+Known limitation: `~/.config/clawrium/agents/<name>/skills.json` is
+left behind when you `clm agent remove <name>`. If you re-install
+under the same name later, the leftover state is benign (an empty
+`{"skills": []}` array), but clean it explicitly if you want a clean
+slate:
+
+```bash
+rm -rf ~/.config/clawrium/agents/<name>
+```
+
+### Local end-to-end smoke test
+
+After making a change to a `skills/clawrium/<name>/` or per-claw
+playbook, exercise the full round-trip against a real agent before
+opening a PR:
+
+```bash
+# 1. Install — should report success
+clm agent skill install <agent> clawrium/<name>
+
+# 2. List — should show it
+clm agent skill list <agent>
+
+# 3. Verify on host (substitute the agent's unix user)
+ssh <host> "sudo -u <agent-user> ls -la /home/<agent-user>/<claw-skill-path>"
+
+# 4. Idempotent re-install — should report "already in desired state"
+clm agent skill install <agent> clawrium/<name>
+
+# 5. Drift recovery — delete on host, re-install reconverges
+ssh <host> "sudo -u <agent-user> rm -rf /home/<agent-user>/<claw-skill-path>"
+clm agent skill install <agent> clawrium/<name>
+
+# 6. Remove — should clean up and report success
+clm agent skill remove <agent> clawrium/<name>
+```
+
+### Local validator exit code
+
+`scripts/validate_skills.py` exits **0 on success, 1 on validation
+failure**. When checking the exit code in a script, do not pipe stdout
+through `tail` / `head` — those overwrite `$?` with the pipe element's
+exit. Use:
+
+```bash
+python scripts/validate_skills.py; echo "exit=$?"
+# or
+python scripts/validate_skills.py > /tmp/out.log; echo "exit=$?"
+```

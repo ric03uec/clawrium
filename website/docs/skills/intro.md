@@ -80,11 +80,46 @@ to mix them.
 | hermes   | `~/.hermes/skills/clawrium/<name>/SKILL.md`   | file copy (auto-scan)                      |
 | zeroclaw | `~/.zeroclaw/workspace/skills/<name>/`        | staged + `zeroclaw skills install` (audit) |
 
+:::note
+The `~` above is the **agent unix user's** home, not the operator's.
+Each agent installed via `clm agent install` runs as its own dedicated
+user named after the agent (so an agent named `tdd-hermes` runs as
+user `tdd-hermes` with files under `/home/tdd-hermes/`). To SSH-verify
+after install, switch users on the remote host with
+`sudo -u <agent-name> ls /home/<agent-name>/...`.
+:::
+
 Re-running `clm agent skill install` is the drift recovery — the local
 desired-state file at
 `~/.config/clawrium/agents/<agent>/skills.json` is the source of truth,
 and every install/remove re-applies it end-to-end. There is no separate
 `reconcile` command.
+
+## Troubleshooting
+
+### Install reports success but the file isn't where I expect
+
+Common pitfall — the `~` in the on-host paths is the **agent user's**
+home, not yours. When verifying via SSH:
+
+```bash
+# Wrong — checks the management user's home
+ssh wolf-i 'ls ~/.hermes/skills/clawrium/tdd/'
+
+# Right — switch to the agent user
+ssh wolf-i 'sudo -u tdd-hermes ls /home/tdd-hermes/.hermes/skills/clawrium/tdd/'
+```
+
+### `clm agent remove` leaves the skill state file behind
+
+Known limitation: `~/.config/clawrium/agents/<name>/skills.json` is
+left behind when you `clm agent remove <name>`. Harmless on re-install
+(the file contains an empty array) but clean it explicitly if you want
+a clean slate:
+
+```bash
+rm -rf ~/.config/clawrium/agents/<name>
+```
 
 ## Authoring
 
