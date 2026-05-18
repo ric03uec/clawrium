@@ -151,11 +151,12 @@ def test_list_skills_unknown_registry_rejected():
 
 
 def test_list_skills_empty_native_registries():
-    # Phase 1 ships no native skills — placeholders only. Each native
-    # registry should list cleanly as an empty result, not crash.
-    for native in ("openclaw", "hermes", "zeroclaw"):
+    # `openclaw` and `zeroclaw` still ship as placeholder registries —
+    # list_skills should list them as empty, not crash. `hermes` has
+    # real skills (added in #403, #404) and is no longer Phase-1 empty.
+    for native in ("openclaw", "zeroclaw"):
         refs = list_skills(registry=native)
-        assert refs == [], f"{native} should be empty in Phase 1, got {refs}"
+        assert refs == [], f"{native} should be empty, got {refs}"
 
 
 # ------------------------------ load_skill ----------------------------------
