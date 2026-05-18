@@ -28,7 +28,7 @@ Therefore #376 is **not** a platform-feature issue. It is:
 | Discord home channel | `1494198125223612427` (reused) |
 | Discord allowed user | `740723459344302120` (reused) |
 | Slack | **Not used** — release-watcher approve/skip flow moves to Discord DM in the same guild |
-| GitHub auth | Fine-grained PAT via `clawrium-github` integration (already configured) |
+| GitHub auth | **Reuse** existing fine-grained PAT via `clawrium-github` integration (created 2026-04-16; same token the current openclaw maurice uses). No new PAT is minted for the hermes maurice — Phase 1 only confirms the existing scope. |
 | Cadences | Issue defaults: 10 min issue-triage, 30 min blog-author release-tag poll, daily for docs-sync / release-watcher / daily-digest |
 
 ## Files to Modify / Create

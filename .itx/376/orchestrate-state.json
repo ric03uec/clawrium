@@ -1,0 +1,11 @@
+{
+  "parent": 376,
+  "tmux_session": "itx/376",
+  "started_at": "2026-05-17T00:00:00Z",
+  "topology": "sequential",
+  "phases": [
+    {"phase": 1, "issue": 402, "branch": "issue-402-bootstrap-hermes-maurice",          "pr_base": "main",                                        "worktree": "/home/devashish/workspace/ric03uec/clawrium-issue-402", "tmux_window": "phase-402", "state": "spawned", "pr": null, "stuck_marker": false},
+    {"phase": 2, "issue": 403, "branch": "issue-403-skills-triage-digest-docs",          "pr_base": "issue-402-bootstrap-hermes-maurice",          "worktree": null, "tmux_window": null, "state": "pending", "pr": null, "stuck_marker": false},
+    {"phase": 3, "issue": 404, "branch": "issue-404-skills-blog-release-watcher",        "pr_base": "issue-403-skills-triage-digest-docs",        "worktree": null, "tmux_window": null, "state": "pending", "pr": null, "stuck_marker": false}
+  ]
+}

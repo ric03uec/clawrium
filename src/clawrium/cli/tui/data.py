@@ -8,7 +8,12 @@ from datetime import datetime, timezone
 from typing import TypedDict
 from urllib.parse import urlparse
 
-from clawrium.core.health import ClawStatus, HealthResult, check_claw_health
+from clawrium.core.health import (
+    ClawStatus,
+    HealthResult,
+    check_claw_health,
+    get_onboarding_status,
+)
 from clawrium.core.hosts import HostsFileCorruptedError, load_hosts
 
 logger = logging.getLogger(__name__)
@@ -86,6 +91,138 @@ def _gateway_scheme(stored_url: object) -> str:
         if parsed_scheme in {"ws", "wss"}:
             return parsed_scheme
     return "ws"
+
+
+def get_fleet_data_local(
+    host_filter: str | None = None,
+) -> tuple[list[AgentViewModel], FleetSummary]:
+    """Return fleet data using only local config (no SSH health checks).
+
+    This is the fast path for GUI rendering. Returns agents with
+    status=CHECKING for agents that haven't completed onboarding-based
+    status determination, and without CPU/memory/process info that
+    requires SSH. The GUI can render immediately and poll a separate
+    health endpoint for live status updates.
+    """
+    hosts = load_hosts_safe()
+    if host_filter:
+        hosts = [
+            h
+            for h in hosts
+            if h.get("hostname") == host_filter or h.get("alias") == host_filter
+        ]
+
+    agents: list[AgentViewModel] = []
+    provisioning_count = 0
+    seen_hosts: set[str] = set()
+
+    for h in hosts:
+        hostname = h.get("hostname", "unknown")
+        host_alias = h.get("alias") or hostname
+        seen_hosts.add(hostname)
+
+        for agent_key, claw_record in h.get("agents", {}).items():
+            if not isinstance(claw_record, dict):
+                continue
+            if not AGENT_KEY_PATTERN.match(agent_key):
+                logger.warning("Invalid agent_key format: %.64r", agent_key)
+                continue
+
+            agent_name = (
+                claw_record.get("agent_name") or claw_record.get("name") or agent_key
+            )
+            agent_type = claw_record.get("type", "unknown")
+            version = claw_record.get("version", "?")
+            config = claw_record.get("config", {})
+            model = "-"
+            provider_name = None
+            provider_type = None
+            gateway_port = None
+            gateway_url = None
+            gateway_auth = None
+            device_id = None
+            device_private_key = None
+            if isinstance(config, dict):
+                provider_cfg = config.get("provider")
+                if isinstance(provider_cfg, dict):
+                    model = provider_cfg.get("default_model", "-")
+                    provider_name = provider_cfg.get("name") or provider_cfg.get("type")
+                    provider_type = provider_cfg.get("type")
+                gateway_cfg = config.get("gateway")
+                if isinstance(gateway_cfg, dict):
+                    port_val = gateway_cfg.get("port")
+                    if isinstance(port_val, int):
+                        gateway_port = port_val
+                    auth_val = gateway_cfg.get("auth")
+                    if isinstance(auth_val, str) and auth_val.strip():
+                        gateway_auth = auth_val
+                    if gateway_port is not None:
+                        scheme = _gateway_scheme(gateway_cfg.get("url"))
+                        gateway_url = f"{scheme}://{hostname}:{gateway_port}"
+                    device_cfg = gateway_cfg.get("device")
+                    if isinstance(device_cfg, dict):
+                        dev_id = device_cfg.get("id")
+                        dev_key = device_cfg.get("privateKey")
+                        if isinstance(dev_id, str) and dev_id.strip():
+                            device_id = dev_id
+                        if isinstance(dev_key, str) and dev_key.strip():
+                            device_private_key = dev_key
+
+            started_at = None
+            runtime = claw_record.get("runtime", {})
+            if isinstance(runtime, dict):
+                started_at = runtime.get("started_at")
+
+            # Determine status from local onboarding data only.
+            # Agents still in onboarding get their real status (no SSH needed).
+            # Agents that have completed onboarding (READY) or have no
+            # onboarding record get CHECKING since we can't confirm
+            # running/stopped without SSH.
+            onboard_status, onboard_step = get_onboarding_status(claw_record)
+            if onboard_status in (
+                ClawStatus.ONBOARDING,
+                ClawStatus.PENDING_ONBOARD,
+            ):
+                status = onboard_status
+                provisioning_count += 1
+            else:
+                status = ClawStatus.CHECKING
+
+            agents.append(
+                AgentViewModel(
+                    agent_key=agent_key,
+                    agent_name=agent_name,
+                    agent_type=agent_type,
+                    host=hostname,
+                    host_alias=host_alias,
+                    version=version,
+                    status=status,
+                    model=model,
+                    uptime=calculate_uptime(started_at),
+                    missing_secrets=None,
+                    onboarding_step=onboard_step,
+                    process_running=None,
+                    health_error=None,
+                    addresses=h.get("addresses", []),
+                    provider=provider_name,
+                    provider_type=provider_type,
+                    cpu_count=None,
+                    memory_total_mb=None,
+                    gateway_port=gateway_port,
+                    gateway_url=gateway_url,
+                    gateway_auth=gateway_auth,
+                    device_id=device_id,
+                    device_private_key=device_private_key,
+                )
+            )
+
+    summary = FleetSummary(
+        total=len(agents),
+        running=0,  # Unknown until health checks complete
+        provisioning=provisioning_count,
+        hosts=len(seen_hosts),
+    )
+    return agents, summary
 
 
 def get_fleet_data(
@@ -215,17 +352,29 @@ def load_hosts_safe() -> list[dict]:
         return []
 
 
+_HEALTH_ERROR_LABELS = {
+    FileNotFoundError: "ssh key or config not found",
+    PermissionError: "permission denied accessing ssh key or config",
+    TimeoutError: "ssh probe timed out",
+    ConnectionError: "could not connect to host",
+}
+
+
 def check_claw_health_safe(claw_name: str, host: dict) -> HealthResult:
     try:
         return check_claw_health(claw_name, host)
     except Exception as e:
         logger.warning("Health check failed for %s: %s", claw_name, e)
+        # Surface a generic label to the wire so we don't leak filesystem
+        # paths or other host internals through the API. Full exception
+        # detail is captured server-side via the WARNING log above.
+        label = _HEALTH_ERROR_LABELS.get(type(e), "health probe failed")
         return HealthResult(
             agent=claw_name,
             host=host.get("hostname", "unknown"),
             status=ClawStatus.UNKNOWN,
             user=None,
-            error=str(e),
+            error=label,
             missing_secrets=None,
             onboarding_step=None,
             process_running=None,
