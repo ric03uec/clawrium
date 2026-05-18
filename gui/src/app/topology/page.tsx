@@ -2,10 +2,14 @@
 
 import { PageHeader } from "@/components/layout";
 import { TopologyCanvas } from "@/components/topology";
+import { useFleetHealth } from "@/hooks/use-fleet-health";
 import { useTopology } from "@/hooks/use-topology";
 
 export default function TopologyPage() {
   const { data, isLoading, error } = useTopology();
+  // Poll for live SSH-based health; the hook merges results into the
+  // topology cache so agent statuses leave the 'checking' state.
+  useFleetHealth();
 
   return (
     <div>

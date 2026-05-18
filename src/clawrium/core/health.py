@@ -97,6 +97,7 @@ class ClawStatus(str, Enum):
     PENDING_ONBOARD = "pending_onboard"  # Installed but onboarding not started
     ONBOARDING = "onboarding"  # Onboarding in progress
     READY = "ready"  # Onboarding complete, can be started
+    CHECKING = "checking"  # Health check in progress, status not yet known
 
 
 class HealthResult(TypedDict):

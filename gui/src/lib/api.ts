@@ -62,6 +62,8 @@ interface UsageSummaryRaw {
 export const api = {
   // Fleet
   getFleet: () => request<FleetResponse>("/fleet"),
+  getFleetHealth: (signal?: AbortSignal) =>
+    request<FleetHealthResponse>("/fleet/health", { signal }),
   getAgent: (key: string) => request<AgentDetail>(`/fleet/agents/${key}`),
   startAgent: (key: string) => request<ActionResponse>(`/agents/${key}/start`, { method: "POST" }),
   stopAgent: (key: string) => request<ActionResponse>(`/agents/${key}/stop`, { method: "POST" }),
@@ -248,6 +250,7 @@ export const api = {
 // Type imports (re-exported from types.ts for convenience)
 import type {
   FleetResponse,
+  FleetHealthResponse,
   AgentDetail,
   ActionResponse,
   TopologyResponse,

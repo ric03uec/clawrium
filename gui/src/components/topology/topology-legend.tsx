@@ -5,6 +5,7 @@ const LEGEND_ITEMS = [
   { label: "Degraded", color: "bg-status-warning" },
   { label: "Stopped", color: "bg-status-error" },
   { label: "Provisioning", color: "bg-status-info" },
+  { label: "Checking", color: "bg-gray-400 animate-pulse" },
 ];
 
 export function TopologyLegend() {

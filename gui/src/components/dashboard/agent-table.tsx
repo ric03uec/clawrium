@@ -3,10 +3,12 @@
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { StatusDot } from "@/components/ui/status-dot";
-import { useFleet } from "@/hooks";
+import { useFleet, useFleetHealth } from "@/hooks";
 
 export function AgentTable() {
   const { data: fleet, isLoading } = useFleet();
+  // Start health polling — merges live status into fleet cache
+  useFleetHealth();
   const router = useRouter();
   const agents = fleet?.agents ?? [];
 
