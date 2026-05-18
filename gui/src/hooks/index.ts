@@ -1,4 +1,5 @@
 export { useFleet } from "./use-fleet";
+export { useFleetHealth } from "./use-fleet-health";
 export { useTopology } from "./use-topology";
 export { useProviders, useProviderTypes, useModelCatalog, useCreateProvider, useUpdateProvider, useDeleteProvider } from "./use-providers";
 export { useUsageSummary, useUsageHistory, useUsageByAgent } from "./use-usage";

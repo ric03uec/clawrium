@@ -7,6 +7,8 @@ async-safe thread offloading for SSH-based health checks.
 
 import asyncio
 import logging
+import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -15,6 +17,7 @@ from clawrium.cli.tui.data import (
     AgentViewModel,
     get_agent_detail,
     get_fleet_data,
+    get_fleet_data_local,
     load_hosts_safe,
 )
 from clawrium.core.health import ClawStatus
@@ -29,6 +32,30 @@ from clawrium.gui.routes._common import resolve_agent
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["fleet"])
+
+# Cap concurrent SSH probe sweeps. Each /fleet/health call dispatches one
+# ansible-runner subprocess per agent, so a tight polling loop can
+# exhaust fd / thread-pool limits on small homelab hardware.
+_FLEET_HEALTH_SEMAPHORE = asyncio.Semaphore(2)
+_FLEET_HEALTH_TIMEOUT_S = 60.0
+# Dedicated thread pool so a leaked / still-running SSH thread (asyncio
+# can't actually cancel a sync function past `wait_for`) cannot starve
+# the default executor that backs every other `asyncio.to_thread` site.
+_FLEET_HEALTH_EXECUTOR = ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="fleet-health"
+)
+
+# Strip absolute filesystem paths from error strings before sending them
+# to the browser. Some `HealthResult.error` strings constructed inside
+# `core/health.py` interpolate `str(e)` from filesystem exceptions and
+# include the user's config path (e.g. ~/.config/clawrium/secrets.json).
+_ABS_PATH_RE = re.compile(r"(?:/[\w.\-]+)+")
+
+
+def _sanitize_health_error(error: str | None) -> str | None:
+    if not error:
+        return error
+    return _ABS_PATH_RE.sub("<path>", error)
 
 
 def _agent_to_dict(agent: AgentViewModel) -> dict[str, Any]:
@@ -50,7 +77,7 @@ def _agent_to_dict(agent: AgentViewModel) -> dict[str, Any]:
         "missing_secrets": agent["missing_secrets"],
         "onboarding_step": agent["onboarding_step"],
         "process_running": agent["process_running"],
-        "health_error": agent["health_error"],
+        "health_error": _sanitize_health_error(agent["health_error"]),
         "addresses": agent["addresses"],
         "provider": agent["provider"],
         "provider_type": agent["provider_type"],
@@ -64,11 +91,14 @@ def _agent_to_dict(agent: AgentViewModel) -> dict[str, Any]:
 
 @router.get("/fleet")
 async def fleet_overview(host: str | None = None):
-    """Get fleet summary and all agents.
+    """Get fleet summary and all agents using local config only.
 
-    Runs health checks in a thread pool since they involve SSH connections.
+    Returns immediately with agent data from hosts.json. Agents that
+    haven't completed onboarding get their real status; others show
+    status="checking" until the /fleet/health endpoint confirms their
+    live state via SSH.
     """
-    agents, summary = await asyncio.to_thread(get_fleet_data, host)
+    agents, summary = await asyncio.to_thread(get_fleet_data_local, host)
     return {
         "summary": {
             "total": summary["total"],
@@ -77,6 +107,51 @@ async def fleet_overview(host: str | None = None):
             "hosts": summary["hosts"],
         },
         "agents": [_agent_to_dict(a) for a in agents],
+    }
+
+
+@router.get("/fleet/health")
+async def fleet_health(host: str | None = None):
+    """Get live health status for all agents via SSH checks.
+
+    This is the slow endpoint that performs actual SSH connectivity
+    checks. The frontend polls this separately after the initial
+    fleet overview has rendered.
+    """
+    loop = asyncio.get_running_loop()
+    async with _FLEET_HEALTH_SEMAPHORE:
+        try:
+            agents, summary = await asyncio.wait_for(
+                loop.run_in_executor(_FLEET_HEALTH_EXECUTOR, get_fleet_data, host),
+                timeout=_FLEET_HEALTH_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError as e:
+            raise HTTPException(
+                status_code=504, detail="fleet health probe timed out"
+            ) from e
+    # Return only health-relevant fields to minimize payload
+    health_data = []
+    for a in agents:
+        status = a["status"]
+        health_data.append(
+            {
+                "agent_key": a["agent_key"],
+                "status": status.value if isinstance(status, ClawStatus) else status,
+                "process_running": a["process_running"],
+                "health_error": _sanitize_health_error(a["health_error"]),
+                "cpu_count": a["cpu_count"],
+                "memory_total_mb": a["memory_total_mb"],
+                "missing_secrets": a["missing_secrets"],
+            }
+        )
+    return {
+        "summary": {
+            "total": summary["total"],
+            "running": summary["running"],
+            "provisioning": summary["provisioning"],
+            "hosts": summary["hosts"],
+        },
+        "agents": health_data,
     }
 
 

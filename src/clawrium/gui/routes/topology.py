@@ -11,7 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from clawrium.cli.tui.data import get_fleet_data, load_hosts_safe
+from clawrium.cli.tui.data import get_fleet_data_local, load_hosts_safe
 from clawrium.core.health import ClawStatus
 from clawrium.core.providers.storage import (
     ProvidersFileCorruptedError,
@@ -81,12 +81,15 @@ def _summarize_hardware(hw: dict[str, Any]) -> dict[str, Any]:
 async def get_topology():
     """Get full topology data for network diagram rendering.
 
+    Uses local-only data for instant rendering. Agent status fields
+    will show "checking" until the frontend polls /api/fleet/health.
+
     Returns:
         - control: The control machine node
         - hosts: List of host nodes with their agents
         - connections: SSH connection lines from control to each host
     """
-    agents, summary = await asyncio.to_thread(get_fleet_data, None)
+    agents, summary = await asyncio.to_thread(get_fleet_data_local, None)
     hosts_raw = await asyncio.to_thread(load_hosts_safe)
     provider_endpoints = await asyncio.to_thread(_load_provider_endpoints)
 

@@ -11,6 +11,21 @@ export interface FleetSummary {
   hosts: number;
 }
 
+export interface AgentHealth {
+  agent_key: string;
+  status: AgentStatus;
+  process_running: boolean | null;
+  health_error: string | null;
+  cpu_count: number | null;
+  memory_total_mb: number | null;
+  missing_secrets: string[] | null;
+}
+
+export interface FleetHealthResponse {
+  summary: FleetSummary;
+  agents: AgentHealth[];
+}
+
 export interface AgentSummary {
   agent_key: string;
   agent_name: string;
@@ -20,7 +35,13 @@ export interface AgentSummary {
   status: AgentStatus;
   model: string;
   uptime: string;
-  gateway_url: string;
+  gateway_url: string | null;
+  // Health fields merged in by useFleetHealth; null until the probe lands.
+  process_running?: boolean | null;
+  health_error?: string | null;
+  cpu_count?: number | null;
+  memory_total_mb?: number | null;
+  missing_secrets?: string[] | null;
 }
 
 export type AgentStatus =
@@ -31,6 +52,7 @@ export type AgentStatus =
   | "pending_onboard"
   | "onboarding"
   | "ready"
+  | "checking"
   | "unknown";
 
 export interface AgentDetail extends AgentSummary {

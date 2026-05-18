@@ -104,7 +104,20 @@ class TestCheckClawHealthSafe:
         ):
             result = check_claw_health_safe("openclaw", host)
         assert result["status"] == ClawStatus.UNKNOWN
-        assert "boom" in result["error"]
+        # Generic label is surfaced; raw exception text is not leaked.
+        assert result["error"] == "health probe failed"
+        assert "boom" not in result["error"]
+
+    def test_filenotfound_returns_generic_label(self):
+        host = {"hostname": "10.0.0.1"}
+        with patch(
+            "clawrium.cli.tui.data.check_claw_health",
+            side_effect=FileNotFoundError("/home/user/.config/clawrium/keys/secret"),
+        ):
+            result = check_claw_health_safe("openclaw", host)
+        assert result["status"] == ClawStatus.UNKNOWN
+        assert result["error"] == "ssh key or config not found"
+        assert "/home/user" not in result["error"]
 
 
 class TestGetFleetData:

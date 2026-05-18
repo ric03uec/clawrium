@@ -8,6 +8,7 @@ const STATUS_COLORS: Record<AgentStatus, string> = {
   pending_onboard: "bg-status-warning",
   onboarding: "bg-status-info",
   ready: "bg-status-info",
+  checking: "bg-gray-400",
   unknown: "bg-gray-400",
 };
 
@@ -18,7 +19,7 @@ interface StatusDotProps {
 
 export function StatusDot({ status, size = "sm" }: StatusDotProps) {
   const sizeClass = size === "lg" ? "w-4 h-4" : size === "md" ? "w-3 h-3" : "w-2 h-2";
-  const pulseClass = status === "running" ? "animate-pulse" : "";
+  const pulseClass = status === "running" || status === "checking" ? "animate-pulse" : "";
 
   return (
     <span
