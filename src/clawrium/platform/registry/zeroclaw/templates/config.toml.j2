@@ -91,3 +91,91 @@ api_key = "{{ toml_escape(provider_api_key) }}"
 name = "{{ toml_escape(personality_name) }}"
 timezone = "{{ toml_escape(personality_timezone) }}"
 communication_style = "{{ toml_escape(personality_style) }}"
+
+{# --- Discord channel (#422) -----------------------------------------------
+   ZeroClaw v0.7.5 schema per docs/book/src/channels/chat-others.md:
+     [channels.discord]
+     enabled, bot_token, allowed_guilds, allowed_users,
+     reply_to_mentions_only, draft_update_interval_ms
+   bot_token is inline TOML (NOT an env var) — distinct from hermes which
+   reads DISCORD_BOT_TOKEN from .env. The token is hydrated into
+   config.channels.discord.bot_token by lifecycle.configure_agent before this
+   template runs (mirrors the hermes hydration path; same secrets.json key
+   DISCORD_BOT_TOKEN).
+
+   Hermes-wizard fields with no upstream zeroclaw equivalent are dropped
+   silently here: home_channel, home_channel_name, home_channel_thread_id,
+   allow_all_users, allowed_channels. They land in hosts.json under
+   channels.discord.* but never reach config.toml.
+#}
+{% set _channels = config.channels | default({}) %}
+{% set _discord = _channels.get('discord', {}) if _channels else {} %}
+{% if _discord.get('enabled') and _discord.get('bot_token') %}
+
+[channels.discord]
+enabled = true
+bot_token = "{{ toml_escape(_discord.get('bot_token')) }}"
+{% if _discord.get('allowed_guilds') %}
+allowed_guilds = [{% for guild in _discord.get('allowed_guilds') %}"{{ toml_escape(guild) }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+{% else %}
+allowed_guilds = []
+{% endif %}
+{% if _discord.get('allowed_users') %}
+allowed_users = [{% for user in _discord.get('allowed_users') %}"{{ toml_escape(user) }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+{% else %}
+allowed_users = []
+{% endif %}
+{# require_mention is the hermes-side knob; upstream calls it
+   reply_to_mentions_only. Same semantics — translate verbatim.
+   ATX Round 3 W3 + Round 4 B1-R4: default `true` to match the CLI
+   prompt's default, applied via dict.get(key, default) at the Python
+   level rather than `| default(true)` — Jinja2's default() filter only
+   fires on Undefined, NOT on None, and dict.get() returns None for
+   missing keys. A `_discord.get('require_mention') | default(true)`
+   form silently rendered `false` for any legacy hosts.json record
+   predating the field, turning mention-gated bots into ambient
+   responders — exactly the safety regression Round 3 W3 was meant to
+   prevent. #}
+reply_to_mentions_only = {{ _discord.get('require_mention', true) | bool | lower }}
+{% if _discord.get('draft_update_interval_ms') %}
+draft_update_interval_ms = {{ _discord.get('draft_update_interval_ms') | int }}
+{% endif %}
+{% endif %}
+
+{# --- Autonomy block (#422) ------------------------------------------------
+   Rendered every configure so the daemon's autonomy posture is a known
+   quantity rather than relying on whatever defaults the binary picked up.
+   Values mirror docs/book/src/security/autonomy.md verbatim for v0.7.5.
+
+   shell_env_passthrough is the ONLY documented mechanism for exposing env
+   vars to the shell tool (security/sandboxing.md). The defaults below
+   replicate the upstream-doc example exactly; per-integration token names
+   are appended so credentials wired via the systemd Environment= drop-in
+   (configure.yaml) actually reach the agent's shell tool.
+
+   Without this block, secret-pattern env vars (matching _TOKEN, _SECRET,
+   _PASSWORD, API_KEY) are auto-stripped by the sandbox even if the daemon
+   has them in its environment. Explicit allowlisting is mandatory — globs
+   are NOT supported, so every GITHUB_TOKEN_<NAME> needs its own entry. #}
+{% set _integrations = integrations | default({}, true) %}
+{% set _passthrough = ['PATH', 'HOME', 'USER', 'LANG'] %}
+{% set _github_seen = namespace(any=false) %}
+{% for _name, _integration in _integrations | dictsort %}
+{% if _integration.type == 'github' and _integration.GITHUB_TOKEN is defined %}
+{% set _slug = _name | upper | replace('-', '_') | regex_replace('[^A-Z0-9_]', '') %}
+{% set _ = _passthrough.append('GITHUB_TOKEN_' ~ _slug) %}
+{% set _github_seen.any = true %}
+{% endif %}
+{% endfor %}
+{% if _github_seen.any %}
+{% set _ = _passthrough.append('GITHUB_TOKEN') %}
+{% endif %}
+
+[autonomy]
+level = "supervised"
+approval_timeout_secs = 300
+workspace_only = true
+allowed_commands = ["git", "cargo", "grep", "find", "ls", "cat"]
+forbidden_commands = ["shutdown", "reboot", "mkfs"]
+forbidden_paths = ["/etc", "/sys", "/boot", "~/.ssh", "~/.aws"]
+shell_env_passthrough = [{% for _entry in _passthrough %}"{{ _entry }}"{% if not loop.last %}, {% endif %}{% endfor %}]

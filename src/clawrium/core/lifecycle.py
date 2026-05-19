@@ -815,55 +815,21 @@ def configure_agent(
                 "key": api_server_key,
             }
 
-        # Hermes Discord: merge persisted channels.discord shape from hosts.json
-        # with anything passed in config_data, then hydrate the bot token from
-        # secrets.json. Mirrors the api_server.key pattern. If discord is not
-        # enabled this block is a no-op — .env.j2 emits no DISCORD_* lines.
+        # Hermes Slack: merge persisted channels.slack shape from hosts.json
+        # with anything passed in config_data, then hydrate the bot/app tokens
+        # from secrets.json. Mirrors the Discord hydration pattern.
+        #
+        # Discord hydration moved out of this hermes-only branch to a sibling
+        # block below (#422) so zeroclaw can share it; Slack stays hermes-only
+        # because zeroclaw v0.7.5 has no native Slack channel. The
+        # persisted_channels/incoming_channels locals below feed only Slack.
         persisted_channels = agent_record.get("config", {}).get("channels") or {}
         if not isinstance(persisted_channels, dict):
             persisted_channels = {}
-        persisted_discord = persisted_channels.get("discord") or {}
-        if not isinstance(persisted_discord, dict):
-            persisted_discord = {}
-
         incoming_channels = config_data.get("channels") or {}
         if not isinstance(incoming_channels, dict):
             incoming_channels = {}
-        incoming_discord = incoming_channels.get("discord") or {}
-        if not isinstance(incoming_discord, dict):
-            incoming_discord = {}
 
-        # Merge persisted onto incoming so an explicit caller-provided field
-        # wins, but fields the caller didn't set (e.g. _sync_provider_config
-        # only carrying provider) inherit from hosts.json.
-        merged_discord = {**persisted_discord, **incoming_discord}
-
-        if merged_discord.get("enabled"):
-            discord_secret = get_instance_secrets(instance_key).get(
-                "DISCORD_BOT_TOKEN"
-            )
-            discord_token = (
-                discord_secret.get("value")
-                if isinstance(discord_secret, dict)
-                else None
-            )
-            if not isinstance(discord_token, str) or len(discord_token) < 50:
-                return (
-                    False,
-                    "Discord enabled for this agent but DISCORD_BOT_TOKEN is "
-                    "missing or invalid in secrets.json. Re-run "
-                    "'clm agent configure <name> --stage channels' to set it.",
-                )
-            merged_discord["bot_token"] = discord_token
-
-        if persisted_discord or incoming_discord:
-            merged_channels = {**persisted_channels, **incoming_channels}
-            merged_channels["discord"] = merged_discord
-            config_data["channels"] = merged_channels
-
-        # Hermes Slack: merge persisted channels.slack shape from hosts.json
-        # with anything passed in config_data, then hydrate the bot/app tokens
-        # from secrets.json. Mirrors the Discord hydration pattern above.
         persisted_slack = persisted_channels.get("slack") or {}
         if not isinstance(persisted_slack, dict):
             persisted_slack = {}
@@ -916,6 +882,71 @@ def configure_agent(
             if not isinstance(current_channels, dict):
                 current_channels = {}
             current_channels["slack"] = merged_slack
+            config_data["channels"] = current_channels
+
+    # Discord channel hydration (#422). Shared between hermes and zeroclaw —
+    # both consume the same DISCORD_BOT_TOKEN secrets.json entry, the only
+    # difference is downstream: hermes renders DISCORD_BOT_TOKEN into .env
+    # via .env.j2 while zeroclaw renders bot_token = "<token>" into config.toml
+    # via config.toml.j2's [channels.discord] block. The hydration is identical.
+    #
+    # Gated on Discord being present in either persisted or incoming config
+    # before any get_instance_key call so a configure for a non-Discord agent
+    # with an unusable agent_name (e.g. the invalid-claw-user test path) still
+    # falls through to the validation block below.
+    if resolved_type in ("hermes", "zeroclaw"):
+        discord_persisted_channels = (
+            agent_record.get("config", {}).get("channels") or {}
+        )
+        if not isinstance(discord_persisted_channels, dict):
+            discord_persisted_channels = {}
+        discord_persisted = discord_persisted_channels.get("discord") or {}
+        if not isinstance(discord_persisted, dict):
+            discord_persisted = {}
+
+        discord_incoming_channels = config_data.get("channels") or {}
+        if not isinstance(discord_incoming_channels, dict):
+            discord_incoming_channels = {}
+        discord_incoming = discord_incoming_channels.get("discord") or {}
+        if not isinstance(discord_incoming, dict):
+            discord_incoming = {}
+
+        if discord_persisted or discord_incoming:
+            # Persisted onto incoming so an explicit caller-provided field
+            # wins, but fields the caller didn't set (e.g.
+            # _sync_provider_config only carrying provider) inherit from
+            # hosts.json.
+            discord_merged = {**discord_persisted, **discord_incoming}
+
+            if discord_merged.get("enabled"):
+                discord_instance_key = get_instance_key(
+                    host["hostname"], resolved_type, unix_agent_name
+                )
+                discord_secret = get_instance_secrets(discord_instance_key).get(
+                    "DISCORD_BOT_TOKEN"
+                )
+                discord_token = (
+                    discord_secret.get("value")
+                    if isinstance(discord_secret, dict)
+                    else None
+                )
+                if (
+                    not isinstance(discord_token, str)
+                    or len(discord_token) < 50
+                ):
+                    return (
+                        False,
+                        "Discord enabled for this agent but DISCORD_BOT_TOKEN "
+                        "is missing or invalid in secrets.json. Re-run "
+                        "'clm agent configure <name> --stage channels' to set "
+                        "it.",
+                    )
+                discord_merged["bot_token"] = discord_token
+
+            current_channels = config_data.get("channels") or {}
+            if not isinstance(current_channels, dict):
+                current_channels = {}
+            current_channels["discord"] = discord_merged
             config_data["channels"] = current_channels
 
     # Validate config data before running Ansible
@@ -1383,13 +1414,19 @@ def configure_agent(
                     api_server_persisted = dict(persisted_config["api_server"])
                     api_server_persisted.pop("key", None)
                     persisted_config["api_server"] = api_server_persisted
-                # B3 invariant for Discord: bot_token lives in secrets.json
-                # only. Mirror the api_server.key strip so re-persisting
-                # config_data doesn't leak the token back into hosts.json.
-                # Defense in depth: if channels is an unexpected type, drop
-                # it entirely rather than risk leaking a misplaced token.
-                channels_persisted = persisted_config.get("channels")
+
+            # B3 invariant for Discord: bot_token lives in secrets.json only,
+            # never in hosts.json. Applies to both hermes (DISCORD_BOT_TOKEN
+            # hydrated into .env via .env.j2) and zeroclaw (#422 — token
+            # hydrated into config.toml's [channels.discord]). Without this
+            # strip, the bot_token roundtrips: hydrated → persisted → read
+            # back into existing_config on next configure → re-hydrated, etc.
+            # ATX B1 finding. Slack inclusion is hermes-only in practice but
+            # the pop is idempotent on absent keys so leaving it covers both
+            # agent types in one branch.
+            if resolved_type in ("hermes", "zeroclaw"):
                 if "channels" in persisted_config:
+                    channels_persisted = persisted_config.get("channels")
                     if isinstance(channels_persisted, dict):
                         channels_persisted = dict(channels_persisted)
                         discord_persisted = channels_persisted.get("discord")

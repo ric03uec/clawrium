@@ -90,6 +90,69 @@
         enabled: yes
         daemon_reload: yes
 
+    # systemd drop-in directory (#422). Hosts the clm-managed Environment=
+    # overlay without touching the install.yaml-dropped unit file. Drop-ins
+    # are the systemd-standard mechanism per `man systemd.unit` "Drop-In".
+    - name: Ensure systemd drop-in directory exists for zeroclaw service
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service.d"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # Render the GitHub-integration drop-in. The template emits an empty
+    # [Service] block when no github integrations are assigned — systemd
+    # treats that as a no-op overlay. Mode 0600 because the file contains
+    # the GITHUB_TOKEN verbatim (read-only to root; systemd is started as
+    # root so this is fine). notify the restart handler so the drop-in is
+    # picked up before /health/providers is probed.
+    - name: Render zeroclaw GitHub-integration systemd drop-in
+      ansible.builtin.template:
+        src: "{{ template_path }}/clm-env.conf.j2"
+        dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service.d/10-clm-env.conf"
+        owner: root
+        group: root
+        mode: "0600"
+        force: yes
+      no_log: true
+      notify: Restart zeroclaw service
+
+    # GitHub CLI authentication block (#422, mirrors hermes configure.yaml).
+    # `gh` is a soft dependency: when absent, the Environment= drop-in above
+    # still wires GITHUB_TOKEN so skills calling the GitHub REST API
+    # directly continue to work. `changed_when: false` keeps the task
+    # idempotent — re-running configure against an authenticated host
+    # reports `ok` rather than `changed`.
+    - name: GitHub CLI authentication block
+      when: integrations is defined
+      block:
+        - name: Check if gh CLI is installed
+          ansible.builtin.command: which gh
+          register: gh_check
+          changed_when: false
+          failed_when: false
+
+        - name: Authenticate gh CLI for each github integration
+          ansible.builtin.command:
+            argv:
+              - gh
+              - auth
+              - login
+              - --with-token
+            stdin: "{{ item.value.GITHUB_TOKEN }}"
+          become: yes
+          become_user: "{{ agent_name }}"
+          no_log: true
+          changed_when: false
+          when:
+            - gh_check.rc == 0
+            - item.value.type == 'github'
+            - item.value.GITHUB_TOKEN is defined
+          loop: "{{ integrations | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
     # Apply pending restart (from the template task) before the readiness
     # probe so /health is observing the just-rendered config, not the
     # previous incarnation.
@@ -282,6 +345,33 @@
         zeroclaw_gateway_url: "ws://{{ ansible_host }}:{{ gateway_port }}/ws/chat"
         cacheable: true
       no_log: true
+
+    # Discord-config verification (#422). Confirms the bot token + an
+    # allowlist landed in config.toml when Discord is enabled. grep -q so
+    # we get a clean exit status without leaking the rendered key into logs.
+    # Uses dict.get() pattern (not attribute access) so undefined keys
+    # don't error under Ansible 2.20+'s strict Jinja mode.
+    - name: Verify config.toml contains bot_token when Discord enabled
+      ansible.builtin.command:
+        cmd: grep -qE '^bot_token\s*=' "/home/{{ agent_name }}/.zeroclaw/config.toml"
+      register: discord_token_check
+      changed_when: false
+      failed_when: discord_token_check.rc != 0
+      no_log: true
+      when:
+        - config.channels is defined
+        - config.channels.discord is defined
+        - config.channels.discord.enabled | default(false)
+
+    # Autonomy block always renders, so the grep is unconditional. This
+    # catches a Jinja regression that drops the block (which would silently
+    # disable shell_env_passthrough → tools lose GITHUB_TOKEN, _SECRET, etc.).
+    - name: Verify config.toml renders [autonomy] block with shell_env_passthrough
+      ansible.builtin.command:
+        cmd: grep -qE '^shell_env_passthrough\s*=' "/home/{{ agent_name }}/.zeroclaw/config.toml"
+      register: autonomy_check
+      changed_when: false
+      failed_when: autonomy_check.rc != 0
 
     - name: Display configure success
       ansible.builtin.debug:

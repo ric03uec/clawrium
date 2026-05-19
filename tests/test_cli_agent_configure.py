@@ -3258,3 +3258,394 @@ class TestRunChannelsStageHermesSlack:
         # And the hermes-only flat fields are NOT injected.
         assert "allowed_users" not in s
         assert "home_channel" not in s
+
+class TestRunChannelsStageZeroclaw:
+    """#422 — zeroclaw-specific channel-stage behavior.
+
+    Two ATX Round 2 blockers covered:
+      - B_new1: Slack is filtered from the channel menu (zeroclaw has no
+        native Slack support; offering it contradicts docs).
+      - B_new2: Discord selection produces the FLAT shape expected by
+        config.toml.j2's [channels.discord] block, NOT the OpenClaw nested
+        (guilds/allowFrom/groupPolicy) shape.
+    """
+
+    _VALID_TOKEN = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMw"
+
+    def test_zeroclaw_channel_menu_excludes_slack(self, isolated_config: Path):
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        result = runner.invoke(
+            app,
+            ["agent", "configure", "assistant", "--stage", "channels"],
+            input="1\n",
+            env=os.environ,
+        )
+
+        # ATX Round 3 W8: assert exit code so the test doesn't pass on a
+        # crash that prints the menu and then dies after.
+        assert result.exit_code == 0, (
+            f"configure exited non-zero ({result.exit_code}); output:\n"
+            f"{result.output}"
+        )
+
+        out = result.output.lower()
+        assert "cli" in out
+        assert "discord" in out
+        # B_new1: slack must NOT appear in the zeroclaw menu.
+        assert "slack" not in out, (
+            "Slack offered to zeroclaw user but zeroclaw v0.7.5 has no "
+            "native Slack channel. See docs/agent-support/zeroclaw.md."
+        )
+
+    def test_zeroclaw_discord_produces_flat_config_shape(
+        self, isolated_config: Path
+    ):
+        """B_new2: the Discord branch for zeroclaw must produce the flat
+        config shape (allowed_users, allowed_guilds, require_mention)
+        consumed by config.toml.j2 — NOT the OpenClaw nested shape (guilds,
+        allowFrom, groupPolicy)."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(_host, _claw, channels_config, _name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,                             # Pick discord (option 2 in cli/discord menu)
+                self._VALID_TOKEN,             # Bot token
+                "740723459344302120",          # Allowed user IDs
+                "987654321098765432",          # Allowed guild IDs
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is True, "zeroclaw discord configure must succeed"
+        assert len(synced) == 1, "channel config must be synced once"
+
+        cfg = synced[0]["discord"]
+        # Flat shape — config.toml.j2 reads these exact keys.
+        assert cfg["enabled"] is True
+        assert cfg["allowed_users"] == ["740723459344302120"]
+        assert cfg["allowed_guilds"] == ["987654321098765432"]
+        assert cfg["require_mention"] is True
+
+        # OpenClaw nested keys MUST NOT appear (would silently disable the
+        # template's [channels.discord] block because bot_token gate fails
+        # when the shape is wrong).
+        assert "guilds" not in cfg
+        assert "allowFrom" not in cfg
+        assert "groupPolicy" not in cfg
+        assert "token" not in cfg
+
+        # Hermes-only fields with no zeroclaw equivalent — must NOT leak.
+        assert "home_channel" not in cfg
+        assert "home_channel_name" not in cfg
+        assert "allow_all_users" not in cfg
+        assert "allowed_channels" not in cfg
+
+    def test_zeroclaw_discord_empty_allowed_users_renders_open_bot(
+        self, isolated_config: Path
+    ):
+        """ZeroClaw's upstream convention: empty allowed_users = allow all.
+        The CLI must accept an empty allowlist for zeroclaw (no required-
+        field error — that's the hermes convention) and emit a warning so
+        the operator knows."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(_host, _claw, channels_config, _name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=False),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,                             # discord
+                self._VALID_TOKEN,             # bot token
+                "",                            # empty allowed users
+                "",                            # empty allowed guilds
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is True
+        assert synced[0]["discord"]["allowed_users"] == []
+        assert "allowed_guilds" not in synced[0]["discord"]
+        # ATX Round 3 W6: assert require_mention propagates the
+        # typer.confirm return value. Without this, a silent regression
+        # could flip the mention-gating behavior without test failure.
+        assert synced[0]["discord"]["require_mention"] is False
+
+    def test_zeroclaw_discord_rejects_malformed_user_id(
+        self, isolated_config: Path
+    ):
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config"),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,                             # discord
+                self._VALID_TOKEN,             # bot token
+                "not-a-valid-id",              # malformed
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is False
+
+    def test_zeroclaw_discord_rejects_mid_list_invalid_user_id(
+        self, isolated_config: Path
+    ):
+        """ATX Round 3 W5: validation must walk the entire list and fail on
+        any malformed ID, not just the first one. Catches a regression where
+        only `ids[0]` is validated."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config"),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,                                            # discord
+                self._VALID_TOKEN,                            # bot token
+                "740723459344302120,not-a-valid-id",          # valid + invalid
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is False
+
+    def test_zeroclaw_discord_rejects_comma_only_user_input(
+        self, isolated_config: Path
+    ):
+        """ATX Round 3 B1: comma-only input (`,` or `, ,`) is truthy after
+        strip but parses to an empty ID list. Without the explicit guard
+        this collapses silently into open-bot mode with no operator
+        feedback."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config"),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,                                            # discord
+                self._VALID_TOKEN,                            # bot token
+                ", , ,",                                      # comma-only
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is False, (
+            "Comma-only allowed_users input silently passed — would have "
+            "produced an open bot with no operator feedback."
+        )
+
+    def test_zeroclaw_discord_rejects_comma_only_guild_input(
+        self, isolated_config: Path
+    ):
+        """ATX Round 4 B4: symmetric to the user-side comma-only guard.
+        Without the explicit ids-empty check on the guild list, `, , ,`
+        would silently emit `allowed_guilds = []` (any-guild) with no
+        operator feedback — a security-relevant regression."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config"),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,                                            # discord
+                self._VALID_TOKEN,                            # bot token
+                "740723459344302120",                         # valid user
+                ", , ,",                                      # comma-only guild
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is False, (
+            "Comma-only allowed_guilds input silently passed — would have "
+            "produced an any-guild bot with no operator feedback."
+        )
+
+    def test_zeroclaw_discord_rejects_malformed_guild_id(
+        self, isolated_config: Path
+    ):
+        """ATX Round 3 W7: guild-ID validation has its own loop — needs its
+        own negative-path coverage."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config"),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,                                            # discord
+                self._VALID_TOKEN,                            # bot token
+                "740723459344302120",                         # valid user
+                "abc-not-numeric",                            # malformed guild
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is False
+
+    def test_zeroclaw_discord_pre_sync_token_storage_avoids_deadlock(
+        self, isolated_config: Path
+    ):
+        """ATX Round 3 B2: DISCORD_BOT_TOKEN must be stored BEFORE
+        `_sync_channel_config` is called for zeroclaw — `lifecycle.
+        configure_agent` reads the secret from secrets.json before the
+        playbook runs and returns False if missing. Without pre-sync
+        storage, every first configure deadlocks.
+
+        Spy on the call ordering: `set_instance_secret` must fire before
+        `_sync_channel_config` for claw_type='zeroclaw'."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        call_order: list[str] = []
+
+        def capture_secret(_ik, _k, _v, _d):
+            call_order.append("set_instance_secret")
+
+        def capture_sync(*_args, **_kwargs):
+            call_order.append("sync_channel_config")
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch(
+                "clawrium.cli.agent._sync_channel_config", side_effect=capture_sync
+            ),
+            patch(
+                "clawrium.core.secrets.set_instance_secret",
+                side_effect=capture_secret,
+            ),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,
+                self._VALID_TOKEN,
+                "740723459344302120",
+                "",
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is True
+        # Token store MUST come first for zeroclaw.
+        assert call_order == ["set_instance_secret", "sync_channel_config"], (
+            f"Wrong call order for zeroclaw — got {call_order}. "
+            "Token must be stored BEFORE sync so lifecycle.configure_agent's "
+            "hydration block can find it (ATX Round 3 B2 deadlock)."
+        )
+

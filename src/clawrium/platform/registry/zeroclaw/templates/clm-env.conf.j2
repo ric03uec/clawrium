@@ -1,0 +1,53 @@
+# Managed by clawrium (clm). Do not edit by hand — re-render with
+# `clm agent configure {{ agent_name | default('<name>') }}`.
+#
+# systemd drop-in (#422). Loaded into the zeroclaw-<name>.service unit
+# at /etc/systemd/system/zeroclaw-<name>.service.d/10-clm-env.conf so the
+# install-time unit (install.yaml) stays untouched. Drop-ins are the
+# systemd-standard override mechanism per `man systemd.unit`.
+#
+# Why this layer is required: zeroclaw v0.7.5 docs/book/src/security/
+# sandboxing.md states that the agent shell tool inherits ONLY env vars
+# explicitly listed in `[autonomy] shell_env_passthrough`. But that
+# allowlist is per-tool — the daemon process itself reads from the
+# systemd-supplied environment. So GitHub tokens need to land in BOTH
+# places: here (so the daemon has them at all) and in shell_env_passthrough
+# inside config.toml (so the shell tool can see them).
+#
+# Per-name vars (GITHUB_TOKEN_<NAME>) support multi-account setups; the
+# bare GITHUB_TOKEN is set to the alphabetically-last github integration
+# for back-compat with skills/CLIs that hard-code that name. `dictsort`
+# makes the choice deterministic regardless of dict insertion order.
+# Mirrors hermes/.env.j2:115-122.
+{# Shell-safe quoting for systemd. systemd Environment= parses the RHS as
+   POSIX-shell-like with double-quotes — embedded double quotes and backslashes
+   must be escaped. POSIX-style single-quote escape (used by hermes) does NOT
+   apply here because systemd does its own un-quoting before exposing the value.
+   See systemd.exec(5) "Environment=".
+
+   ATX Round 1 W3 — newline injection defense: per systemd.exec(5), an
+   embedded newline in a quoted Environment= value terminates the directive
+   and the rest of the token is parsed as a new systemd statement. A
+   malformed GITHUB_TOKEN containing a literal `\n` could inject e.g.
+   `Environment=PATH=/evil`. Strip CR/LF before quoting — github PATs never
+   contain newlines so this drops only malicious-or-corrupted input. #}
+{%- macro systemd_quote(value) -%}
+"{{ value | string
+   | replace('\r', '')
+   | replace('\n', '')
+   | replace('\\', '\\\\')
+   | replace('"', '\\"') }}"
+{%- endmacro -%}
+[Service]
+{# `default({}, true)` (boolean=true) coerces both undefined AND falsy values
+   (None, []) to the empty dict — plain `default({})` would let None through
+   and crash on the length call. Mirrors hermes .env.j2:111-114. #}
+{% set _integrations = integrations | default({}, true) %}
+{% if _integrations | length > 0 %}
+{% for _name, _integration in _integrations | dictsort %}
+{% if _integration.type == 'github' and _integration.GITHUB_TOKEN is defined %}
+Environment=GITHUB_TOKEN_{{ _name | upper | replace('-', '_') | regex_replace('[^A-Z0-9_]', '') }}={{ systemd_quote(_integration.GITHUB_TOKEN) }}
+Environment=GITHUB_TOKEN={{ systemd_quote(_integration.GITHUB_TOKEN) }}
+{% endif %}
+{% endfor %}
+{% endif %}

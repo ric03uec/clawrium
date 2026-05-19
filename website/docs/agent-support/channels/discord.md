@@ -1,6 +1,6 @@
 # Discord
 
-**Status:** ✅ Supported (OpenClaw only)
+**Status:** ✅ Supported on OpenClaw, Hermes, and ZeroClaw (each uses a different on-disk shape — see the agent-specific sections below).
 
 Discord channel allows your agent to operate as a bot in Discord servers.
 
@@ -238,6 +238,105 @@ Re-run `clm agent configure <name> --stage channels`, pick `discord` again, and 
 ### Non-interactive flags (Hermes)
 
 Planned for a follow-up — interactive is the supported path in this release. For automation today, drive `clm agent configure --stage channels` via expect/pexpect, or set the values directly in `hosts.json` + `secrets.json` and re-run the stage to trigger a re-render.
+
+---
+
+## ZeroClaw Configuration
+
+ZeroClaw consumes Discord credentials via **inline TOML**, not env vars. The bot token lives directly in `~/.zeroclaw/config.toml` under `[channels.discord]`, mode 0600. This differs from Hermes (env-based) and OpenClaw (env-based). Source of truth: zeroclaw upstream `docs/book/src/channels/chat-others.md` (v0.7.5).
+
+### Schema rendered by clm
+
+The clm-managed `[channels.discord]` block uses **only** the keys documented in zeroclaw v0.7.5:
+
+| TOML key | Source field in `hosts.json` `channels.discord.*` | Notes |
+|---|---|---|
+| `enabled = true` | always emitted when `enabled` is true and the bot token is hydrated | gating |
+| `bot_token = "..."` | hydrated from `secrets.json` `DISCORD_BOT_TOKEN` by `lifecycle.configure_agent` | inline TOML, never persisted in `hosts.json` |
+| `allowed_users = [...]` | `allowed_users` | empty array if unset |
+| `allowed_guilds = [...]` | `allowed_guilds` | empty array if unset; zeroclaw-specific (no hermes equivalent) |
+| `reply_to_mentions_only` | `require_mention` | renamed to match the upstream key |
+| `draft_update_interval_ms` | `draft_update_interval_ms` | optional — defaults handled by the daemon when omitted |
+
+### Hermes-side fields with no ZeroClaw equivalent
+
+These wizard inputs land in `hosts.json` but are **not** rendered into `~/.zeroclaw/config.toml`:
+
+- `home_channel`, `home_channel_name`, `home_channel_thread_id` — no upstream zeroclaw concept of a "home" channel.
+- `allow_all_users` — zeroclaw uses an empty `allowed_users = []` array to mean "allow everyone"; the boolean has no direct upstream representation.
+- `allowed_channels` — zeroclaw's upstream `allowed_destinations` is the nearest concept but is documented only generically (`channels/overview.md`), not under the Discord-specific schema; clm does not emit it pending a confirmed mapping.
+
+If you set any of these via the wizard for a zeroclaw agent, they persist to `hosts.json` for forward compatibility but have no runtime effect.
+
+### Interactive setup (ZeroClaw)
+
+```bash
+clm agent configure <zeroclaw-name> --stage channels
+```
+
+Prompts:
+
+| Prompt | Field |
+|---|---|
+| `Confirm CLI channel` | always-on; sets `confirm_cli = true` |
+| `Enable Discord channel (optional)` | persists `channels.discord.enabled` in `hosts.json` |
+| `Discord bot token` (masked) | persists to `secrets.json` as `DISCORD_BOT_TOKEN` |
+| `Allowed Discord user IDs` | `allowed_users` list |
+| `Allowed guild IDs` (optional) | `allowed_guilds` list |
+| `Reply to mentions only?` | `require_mention` → rendered as `reply_to_mentions_only` |
+
+`clm` then runs the configure playbook, which re-renders `~/.zeroclaw/config.toml` with the `[channels.discord]` block, restarts `zeroclaw-<name>.service`, and verifies the block landed by grepping for `^bot_token =` in the file.
+
+### Resulting on-disk shape (ZeroClaw)
+
+```toml
+[channels.discord]
+enabled = true
+bot_token = "MTIzNDU2Nzg5MDEyMzQ1Njc4Cg.G..."
+allowed_guilds = ["987654321098765432"]
+allowed_users = ["740723459344302120"]
+reply_to_mentions_only = true
+draft_update_interval_ms = 750
+```
+
+In `hosts.json` (agents.`<name>`.config.channels.discord):
+
+```json
+{
+  "enabled": true,
+  "allowed_users": ["740723459344302120"],
+  "allowed_guilds": ["987654321098765432"],
+  "require_mention": true
+}
+```
+
+`bot_token` is **never** stored in `hosts.json` — only `secrets.json` (mode 0600).
+
+### Removal (ZeroClaw)
+
+Re-run `clm agent configure <name> --stage channels` and answer **No** to "Enable Discord channel?". On the next render, the `[channels.discord]` block disappears from `config.toml` and the daemon stops listening on Discord on restart. To also wipe the persisted token, manually remove the `DISCORD_BOT_TOKEN` entry from `secrets.json`.
+
+### ZeroClaw-specific troubleshooting
+
+<details>
+<summary><strong>Bot connects but doesn't reply to my messages</strong></summary>
+
+1. Confirm your Discord user ID is in `~/.zeroclaw/config.toml` under `[channels.discord]` `allowed_users` — empty array means **allow all users** (zeroclaw upstream convention), but if you populated it with other IDs, yours must be in the list.
+2. If `reply_to_mentions_only = true`, the bot only responds when @-mentioned.
+3. Check the Discord Developer Portal: the bot must have `Message Content Intent` and `Server Members Intent` enabled (zeroclaw upstream requirement).
+
+</details>
+
+<details>
+<summary><strong>Bot didn't connect after configure</strong></summary>
+
+```bash
+ssh <agent-host> "sudo journalctl -u zeroclaw-<name>.service -n 200 --no-pager | grep -iE 'discord|channel'"
+```
+
+If the daemon logged a token error, rotate the bot token in the Discord Developer Portal and re-run `clm agent configure <name> --stage channels` to push the new value.
+
+</details>
 
 ---
 

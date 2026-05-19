@@ -740,8 +740,14 @@ def _run_channels_stage(
     """
     from clawrium.core.secrets import get_instance_key, set_instance_secret
 
-    # All agent types support cli, discord, and slack channels.
-    channels = ["cli", "discord", "slack"]
+    # Channel menu per agent type. ZeroClaw v0.7.5 has no native Slack
+    # channel (#422), so we filter Slack out for zeroclaw. Hermes + OpenClaw
+    # remain on the full 3-channel menu. This guard MUST stay in sync with
+    # the docs: docs/agent-support/zeroclaw.md says Slack is unsupported.
+    if claw_type == "zeroclaw":
+        channels = ["cli", "discord"]
+    else:
+        channels = ["cli", "discord", "slack"]
 
     console.print("[bold]Select default channel:[/bold]")
     for i, ch in enumerate(channels, 1):
@@ -886,6 +892,114 @@ def _run_channels_stage(
                 discord_cfg["allowed_channels"] = allowed_channels
 
             channels_config = {"discord": discord_cfg}
+        elif claw_type == "zeroclaw":
+            # ZeroClaw shape (#422): flat TOML keys per zeroclaw v0.7.5 docs
+            # (docs/book/src/channels/chat-others.md):
+            #   [channels.discord]
+            #   enabled, bot_token, allowed_guilds, allowed_users,
+            #   reply_to_mentions_only, draft_update_interval_ms
+            # The CLI collects the persistable fields here; `bot_token` is
+            # stored in secrets.json below and hydrated into config.toml by
+            # lifecycle.configure_agent before the playbook runs. No
+            # home_channel / allow_all_users / allowed_channels concepts
+            # upstream — we deliberately don't prompt for them so users
+            # following the docs don't get surprised when those fields don't
+            # take effect.
+            allowed_users_raw = typer.prompt(
+                "Allowed Discord user IDs (comma-separated; empty = allow all)",
+                default="",
+                show_default=False,
+            )
+            allowed_users_raw = (allowed_users_raw or "").strip()
+            allowed_users = []
+            if allowed_users_raw:
+                ids = [
+                    s.strip() for s in allowed_users_raw.split(",") if s.strip()
+                ]
+                # ATX Round 3 B1: comma-only input (`,` or `, ,`) is truthy
+                # after strip but `ids` resolves to []. Without this guard
+                # the agent silently becomes an open bot with no operator
+                # feedback. Mirrors the hermes guard at line ~815.
+                if not ids:
+                    console.print(
+                        "[red]Error:[/red] No valid user IDs parsed from "
+                        "input. Enter 17-19 digit IDs separated by commas, "
+                        "or leave the field empty for an open bot."
+                    )
+                    return False
+                for uid in ids:
+                    if not re.match(r"^\d{17,19}$", uid):
+                        console.print(
+                            f"[red]Error:[/red] Invalid user ID "
+                            f"'{rich_escape(uid)}' (17-19 digits required)"
+                        )
+                        return False
+                allowed_users = ids
+            else:
+                console.print(
+                    "[yellow]Note:[/yellow] empty allowed_users means the "
+                    "bot will respond to every user it can see — zeroclaw's "
+                    "upstream convention for an open bot."
+                )
+
+            allowed_guilds_raw = typer.prompt(
+                "Allowed guild IDs (comma-separated, Enter for any guild)",
+                default="",
+                show_default=False,
+            )
+            allowed_guilds_raw = (allowed_guilds_raw or "").strip()
+            allowed_guilds = []
+            if allowed_guilds_raw:
+                gids = [
+                    s.strip()
+                    for s in allowed_guilds_raw.split(",")
+                    if s.strip()
+                ]
+                # Symmetric B1 guard for guilds — comma-only input must fail
+                # loudly rather than silently allow any guild.
+                if not gids:
+                    console.print(
+                        "[red]Error:[/red] No valid guild IDs parsed from "
+                        "input. Enter 17-19 digit IDs separated by commas, "
+                        "or leave the field empty for any guild."
+                    )
+                    return False
+                for gid in gids:
+                    if not re.match(r"^\d{17,19}$", gid):
+                        console.print(
+                            f"[red]Error:[/red] Invalid guild ID "
+                            f"'{rich_escape(gid)}' (17-19 digits required)"
+                        )
+                        return False
+                allowed_guilds = gids
+            else:
+                # ATX Round 3 W4: empty allowed_guilds means any Discord
+                # server can host the bot — symmetric warning to the
+                # allowed_users empty-case note above.
+                console.print(
+                    "[yellow]Note:[/yellow] empty allowed_guilds means the "
+                    "bot is reachable from any Discord server it joins."
+                )
+
+            # `require_mention` is the clm-side knob; lifecycle/config.toml.j2
+            # translates it to upstream `reply_to_mentions_only`. Default
+            # true is intentional security hardening — more restrictive than
+            # the zeroclaw v0.7.5 default for new bots. ATX Round 3 S1.
+            # Wording aligned to hermes prompt for mixed-fleet operators
+            # (Round 3 W2).
+            require_mention = typer.confirm(
+                "Require @mention to respond?", default=True
+            )
+
+            zc_discord_cfg: dict = {
+                "enabled": True,
+                "allowed_users": allowed_users,
+                "require_mention": require_mention,
+            }
+            if allowed_guilds:
+                zc_discord_cfg["allowed_guilds"] = allowed_guilds
+
+            channels_config = {"discord": zc_discord_cfg}
         else:
             # Prompt for guild ID with validation
             guild_id = typer.prompt("Discord server (guild) ID")
@@ -941,12 +1055,19 @@ def _run_channels_stage(
             canonical_hostname, claw_type, installed_name or claw_type
         )
 
-        # For hermes, configure_agent's hydration block reads
+        # For hermes AND zeroclaw, configure_agent's hydration block reads
         # DISCORD_BOT_TOKEN from secrets.json BEFORE running the ansible
-        # playbook (the playbook needs the token to render .env). So the
-        # secret must be persisted first. For openclaw the sync uses the
-        # ansible-vars passthrough and W4 keeps the "sync first" order.
-        if claw_type == "hermes":
+        # playbook (hermes renders it into .env; zeroclaw renders it inline
+        # into config.toml's [channels.discord]). So the secret must be
+        # persisted first. ATX Round 3 B2: pre-Round-3 the guard was
+        # hermes-only and zeroclaw fell into the post-sync store branch,
+        # which deadlocked every first configure because lifecycle.
+        # configure_agent returned `(False, "DISCORD_BOT_TOKEN missing")`
+        # before the token was ever stored.
+        #
+        # For openclaw the sync uses the ansible-vars passthrough and the
+        # original W4 ordering (sync first, then store) is preserved.
+        if claw_type in ("hermes", "zeroclaw"):
             set_instance_secret(
                 instance_key, "DISCORD_BOT_TOKEN", bot_token, "Discord bot token"
             )
@@ -966,8 +1087,9 @@ def _run_channels_stage(
             return False
 
         # Store bot token as secret only after successful sync (W4) — for
-        # openclaw/zeroclaw. Hermes already stored it above.
-        if claw_type != "hermes":
+        # openclaw. Hermes and zeroclaw stored it above (their playbooks
+        # need the token DURING the sync, not after).
+        if claw_type not in ("hermes", "zeroclaw"):
             set_instance_secret(
                 instance_key, "DISCORD_BOT_TOKEN", bot_token, "Discord bot token"
             )
