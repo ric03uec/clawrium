@@ -131,18 +131,25 @@ If you deviate from defaults, add a comment in the tape header explaining why (e
 | `Hide`/`Show` | Block invisible commands | Use for venv activation, env setup |
 | `Ctrl+C` | `Ctrl+C` | Send interrupt |
 | `Env` | `Env KEY VALUE` | Set environment variable |
+| `PlaybackSpeed` | `Set PlaybackSpeed 2` | Speeds up final playback (multiplier) |
+
+> ⚠️ **Never use `Env` with real credentials.** VHS bakes the literal value into the tape file, which is committed to version control. To inject secrets at recording time, put them in a gitignored `.env` file and source it inside a `Hide`/`Show` block instead.
 
 ### 4. Generate the GIF
 
 ```bash
+# Validate the scenario name to prevent shell metacharacters and path traversal
+SCENARIO="<scenario-name>"
+[[ "$SCENARIO" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid scenario name: $SCENARIO"; exit 1; }
+
 # Ensure Go-installed binaries are on PATH (skip if vhs is already on PATH)
 export PATH="${GOPATH:-$HOME/go}/bin:$PATH"
-"$VHS_PATH" docs/demos/<scenario-name>.tape
+"$VHS_PATH" "docs/demos/${SCENARIO}.tape"
 ```
 
 ### 5. Validate Output
 
-- Check file size: target **< 500KB for README GIFs**, **< 3MB for docs**
+- Check file size: target **< 500 KiB (512,000 bytes) for README GIFs**, **< 3 MiB (3,145,728 bytes) for docs**
 - Verify the GIF renders correctly (open in browser/viewer)
 - Confirm all command output is visible and readable
 
@@ -204,7 +211,7 @@ docs/demos/
 ## Notes
 
 - Tape files are committed to version control (they ARE the source)
-- GIF files are also committed; target < 500KB for README, < 3MB for docs. Validate with `ls -lh` before committing.
+- GIF files are also committed; target < 500 KiB for README, < 3 MiB for docs. Validate with `ls -lh` before committing.
 - Use `$(git rev-parse --show-toplevel)/.venv/bin/activate` inside the `Hide` block so tapes are portable across machines
 - Re-record by re-running `vhs <tape-file>`
 - Preview before committing: `xdg-open docs/demos/<name>.gif`

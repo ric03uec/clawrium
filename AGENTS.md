@@ -382,3 +382,28 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 3. **Testing documented**: PR must include Testing section
 4. **Security reviewed**: Security checklist must be completed
 </enforcement-manual>
+
+## Prompt Logging Standard
+
+Skills that produce artifacts as part of an issue (plans, scaffolds, demos, etc.) append a prompt log to `.itx/<issue-number>/<NN>_<STAGE>.md`. The log captures the prompt, model, and skill name so the path from human input → artifact is reproducible.
+
+**Format** (markdown, append-only):
+
+```markdown
+## <Stage Name>
+
+**Stage**: <stage-slug>           # e.g. demo, plan, scaffold
+**Skill**: /<skill-name>          # e.g. /create-vhs
+**Timestamp**: <ISO-8601 UTC>     # e.g. 2026-05-19T15:30:00Z
+**Model**: <model-id>             # e.g. claude-opus-4-7
+
+```prompt
+<verbatim user prompt that triggered the skill>
+```
+
+**Output**: <one-line description of what was produced>
+```
+
+**File numbering**: `00_PLAN.md`, `01_SCAFFOLD.md`, `02_EXECUTE.md`, `03_DEMO.md`, …  Match the order in which stages run for the issue.
+
+**One log per stage**: if a stage runs multiple times, append additional H2 sections to the same file rather than creating new files.
