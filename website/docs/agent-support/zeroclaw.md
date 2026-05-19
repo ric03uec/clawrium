@@ -64,8 +64,8 @@ ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/
 |---------|:------:|-------|
 | **clm `chat <zeroclaw-name>`** | ✅ | Connects to `ws://<host>:42617/ws/chat` with `Authorization: Bearer <paired-token>`. See [Use the WebSocket chat surface](#3-use-the-websocket-chat-surface). |
 | **OpenAI-compatible HTTP API** | ❌ | Not exposed by upstream ZeroClaw. Use [Hermes](hermes.md) when an OpenAI-style HTTP endpoint is required. |
-| **Discord** | ❌ | Not supported (use [OpenClaw](openclaw.md) or [Hermes](hermes.md)). |
-| **Slack** | ❌ | Not supported (use [OpenClaw](openclaw.md) or [Hermes](hermes.md)). |
+| **[Discord](channels/discord.md)** | ✅ | Native — rendered as `[channels.discord]` in `config.toml`. Bot token is **inline TOML**, not env-based (differs from hermes). Schema follows zeroclaw v0.7.5 upstream: `bot_token`, `allowed_guilds`, `allowed_users`, `reply_to_mentions_only`, `draft_update_interval_ms`. Configure via `clm agent configure <name> --stage channels`. |
+| **Slack** | ❌ | Not supported (use [OpenClaw](openclaw.md) or [Hermes](hermes.md)). Tracked as a follow-up. |
 | **Web / WhatsApp / Telegram / Email / Matrix** | ❌ | Not supported. |
 
 ---
@@ -85,7 +85,8 @@ ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/
 | **Onboarding wizard** | ✅ | 4 stages: `providers` (required) → `identity` (auto-skipped) → `channels` (required, CLI confirm) → `validate` (3 local checks: agent install record, provider config + API key, provider connectivity). |
 | **Personality block in `config.toml`** | ✅ | `[personality]` with `name`, `timezone`, `communication_style` defaults; rendered with `force: no` semantics through Ansible's template default — re-running configure preserves the file because `notify` only fires when content actually changes. |
 | **Bootstrap file (`BOOTSTRAP.md`)** | ✅ | **Not rendered by clm.** The ZeroClaw daemon generates `BOOTSTRAP.md` on first boot and self-deletes it after use. Never appears in `clm agent memory show`. |
-| **Integrations (GitHub / Jira / GitLab / Linear / Notion)** | 📋 | Deferred. Upstream ZeroClaw supports an `[integrations]` block; clm does not emit it in this iteration. Tracked as a follow-up to #112. |
+| **[GitHub integration](integrations/github.md)** | ✅ | Two-layer wiring (#422): tokens land in a systemd drop-in (`/etc/systemd/system/zeroclaw-<name>.service.d/10-clm-env.conf`) so the daemon's environment has `GITHUB_TOKEN`, AND in `[autonomy] shell_env_passthrough` in `config.toml` so the agent's shell tool can actually see them (required: zeroclaw auto-strips `_TOKEN`-pattern vars unless explicitly allow-listed). `gh auth login --with-token` runs as a soft-dep convenience when `gh` is on the host. |
+| **Jira / GitLab / Linear / Notion integrations** | 📋 | Deferred. No native consumer in zeroclaw v0.7.5; would require either a `[mcp.servers]` block (potential future path) or per-integration env passthrough. Tracked as a follow-up. |
 | **Hardware support (GPIO / serial / debug probes)** | 📋 | Deferred. |
 | **Tunnel providers (Cloudflare / Tailscale / Ngrok / custom)** | 📋 | Deferred. Reach the gateway over your own SSH tunnel or LAN. |
 | **Encrypted secrets (ChaCha20-Poly1305)** | 📋 | Deferred. |
@@ -143,7 +144,7 @@ The wizard walks through:
 |-------|----------|
 | **providers** | Required. Pick from your registered clm providers; clm validates connectivity via `provider_test`. |
 | **identity** | Auto-skipped. ZeroClaw manages its own identity through the workspace MD files (`SOUL.md`, `IDENTITY.md`, …) which clm renders below — there is no separate identity wizard. |
-| **channels** | Required. The wizard presents `cli`, `discord`, and `slack` for all agent types — pick `cli` for ZeroClaw. `discord` / `slack` are selectable but **non-functional** on ZeroClaw; only the CLI path (`clm chat`) routes to the WebSocket gateway. |
+| **channels** | Required. ZeroClaw confirms the always-on CLI channel and offers a `discord` opt-in. Selecting `discord` prompts for the bot token (persists to `secrets.json` as `DISCORD_BOT_TOKEN`) plus optional allowlists; clm renders the result as `[channels.discord]` in `~/.zeroclaw/config.toml`. Slack remains unsupported on ZeroClaw — use [Hermes](hermes.md) or [OpenClaw](openclaw.md) for Slack. |
 | **validate** | Local validation only, three steps for zeroclaw: (1) agent install record, (2) provider config + API key, (3) provider connectivity. The control-machine SOUL.md check is skipped — zeroclaw owns its identity through `~/.zeroclaw/workspace/` on the agent host, not under `~/.config/clawrium/agents/zeroclaw/`. The playbook's own post-render readiness probe (`GET /health/providers`) is separate from this stage. The manifest's `binary_check` task (`zeroclaw --version`) is not dispatched yet — remote version verification is planned. |
 
 Configure renders TWO things on the agent host, then runs the pairing handshake against the freshly started daemon.
@@ -410,7 +411,7 @@ The render is idempotent (force: no), so this is safe to run against a partially
 
 The following are explicitly out of scope for issue #112 and tracked as separate follow-ups:
 
-- **Integrations** — GitHub, GitLab, Atlassian (Jira + Confluence), Linear, Notion. Upstream ZeroClaw supports an `[integrations]` block; clm does not emit it in this iteration.
+- **Non-GitHub integrations** — GitLab, Atlassian (Jira + Confluence), Linear, Notion. Tracked as follow-ups; the upstream `[mcp.servers]` block is the most likely landing pad. GitHub is supported as of #422 — see the Feature Support table above.
 - **Hardware** — GPIO, serial, debug-probe support.
 - **Tunnel providers** — Cloudflare Tunnel, Tailscale, Ngrok, custom tunnels. Use SSH tunneling in the meantime.
 - **Encrypted secrets** — ChaCha20-Poly1305 secret encryption is upstream-only for now.

@@ -34,6 +34,8 @@ secrets:
   optional:
     - key: LLM_API_KEY
       description: "API key for LLM provider (optional for local)"
+    - key: DISCORD_BOT_TOKEN
+      description: "Discord bot token (only when [channels.discord] is enabled)"
 
 # Onboarding workflow configuration
 onboarding:
@@ -56,13 +58,26 @@ onboarding:
 
     channels:
       required: true
-      description: "Configure communication channel"
+      description: "Configure communication channels (cli always on; discord optional)"
       tasks:
         - id: confirm_cli
           name: "Confirm CLI channel"
           type: confirm
           message: "ZeroClaw will use CLI for communication"
           default: true
+        - id: select_discord
+          name: "Enable Discord channel (optional)"
+          type: confirm
+          message: "Enable Discord messaging for this agent?"
+          default: false
+        # When select_discord=yes, the CLI prompts interactively for the bot
+        # token, allowed-user IDs, optional allowed-guild allowlist, and
+        # reply-to-mentions-only toggle. Token persists to secrets.json under
+        # DISCORD_BOT_TOKEN; the rest land in hosts.json under
+        # config.channels.discord and are rendered into ~/.zeroclaw/config.toml
+        # as a [channels.discord] table (zeroclaw v0.7.5 docs/book/src/channels/
+        # chat-others.md). Note: bot_token lives in TOML inline — zeroclaw does
+        # not consume DISCORD_BOT_TOKEN as an env var.
 
     validate:
       description: "Verify installation"

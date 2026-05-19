@@ -944,13 +944,20 @@ def test_load_manifest_zeroclaw_with_onboarding():
     # Should not have tasks when auto_skip is true
     assert "tasks" not in identity or len(identity.get("tasks", [])) == 0
 
-    # Validate channels stage uses confirm type
+    # Validate channels stage: cli always-on (default true) + discord optional
+    # (default false). Discord was added in #422 so zeroclaw could mirror the
+    # hermes wizard's Discord opt-in step.
     channels = stages["channels"]
     assert channels["required"] is True
     assert "tasks" in channels
-    assert len(channels["tasks"]) == 1
-    assert channels["tasks"][0]["type"] == "confirm"
-    assert channels["tasks"][0]["default"] is True
+    assert len(channels["tasks"]) == 2
+    task_by_id = {t["id"]: t for t in channels["tasks"]}
+    assert "confirm_cli" in task_by_id
+    assert task_by_id["confirm_cli"]["type"] == "confirm"
+    assert task_by_id["confirm_cli"]["default"] is True
+    assert "select_discord" in task_by_id
+    assert task_by_id["select_discord"]["type"] == "confirm"
+    assert task_by_id["select_discord"]["default"] is False
 
     # Validate validate stage structure
     validate = stages["validate"]

@@ -2847,3 +2847,275 @@ class TestConfigureTimeoutBudget:
         assert timeout == 60, (
             f"Openclaw must keep the legacy 60s configure budget, got {timeout}"
         )
+
+
+# ---------------------------------------------------------------------------
+# #422 — zeroclaw Discord hydration via lifecycle.configure_agent
+# ---------------------------------------------------------------------------
+
+
+class TestZeroclawDiscordHydration:
+    """`configure_agent` must hydrate `DISCORD_BOT_TOKEN` from secrets.json
+    onto `config_data['channels']['discord']['bot_token']` for zeroclaw
+    just like it does for hermes (#422). The hydration block lives outside
+    the hermes-only api_server branch so both agent types share it.
+    """
+
+    def _make_host(self, discord_persisted: dict | None) -> dict:
+        agent_config: dict = {
+            "provider": {
+                "name": "p",
+                "type": "anthropic",
+                "default_model": "claude-sonnet-4-5",
+            },
+            "gateway": {"host": "0.0.0.0", "port": 40000},
+        }
+        if discord_persisted is not None:
+            agent_config["channels"] = {"discord": discord_persisted}
+        return {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "zc-test": {
+                    "type": "zeroclaw",
+                    "agent_name": "zc-test",
+                    "config": agent_config,
+                }
+            },
+        }
+
+    def _setup_fact_cache(self, tmp_path: Path) -> Path:
+        """ZeroClaw configure reads pairing facts after Ansible runs. Provide
+        a token so the playbook's fact-extraction path succeeds and we can
+        focus on the hydration block under test."""
+        artifacts_dir = tmp_path / "artifacts"
+        fact_cache_dir = artifacts_dir / "fact_cache"
+        fact_cache_dir.mkdir(parents=True)
+        (fact_cache_dir / "test-host").write_text(json.dumps({
+            "__payload__": json.dumps({
+                "zeroclaw_gateway_token": "paired-bearer-token",
+                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+            }),
+        }))
+        return artifacts_dir
+
+    def _run_zeroclaw_configure(
+        self,
+        host: dict,
+        tmp_path: Path,
+        secrets: dict,
+    ) -> tuple[bool, str | None, dict]:
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+        artifacts_dir = self._setup_fact_cache(tmp_path)
+
+        captured: dict = {}
+
+        def fake_run(**kwargs):
+            captured["inventory"] = kwargs["inventory"]
+            m = MagicMock()
+            m.status = "successful"
+            m.events = []
+            m.config.artifact_dir = str(artifacts_dir)
+            return m
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
+            ),
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "zeroclaw",
+                {
+                    "provider": {
+                        "name": "p",
+                        "type": "anthropic",
+                        "default_model": "claude-sonnet-4-5",
+                    },
+                    "gateway": {"host": "0.0.0.0", "port": 40000},
+                },
+                agent_name="zc-test",
+            )
+
+        return success, error, captured
+
+    def _discord_secrets_entry(self, token: str) -> dict:
+        return {
+            "DISCORD_BOT_TOKEN": {
+                "key": "DISCORD_BOT_TOKEN",
+                "value": token,
+                "created_at": "2026-05-18T00:00:00+00:00",
+                "updated_at": "2026-05-18T00:00:00+00:00",
+                "description": "Discord bot token",
+            }
+        }
+
+    def test_discord_token_hydrated_for_zeroclaw(self, tmp_path: Path):
+        """The bot_token from secrets.json lands on
+        config_data['channels']['discord']['bot_token'] before the playbook
+        runs — same path as hermes, just a different downstream consumer
+        (config.toml.j2 instead of .env.j2)."""
+        token = "B" * 64
+        host = self._make_host(
+            discord_persisted={
+                "enabled": True,
+                "allowed_users": ["740723459344302120"],
+                "allowed_guilds": ["123"],
+                "require_mention": True,
+            }
+        )
+        secrets = self._discord_secrets_entry(token)
+
+        success, error, captured = self._run_zeroclaw_configure(
+            host, tmp_path, secrets
+        )
+        assert success is True, error
+        sent = captured["inventory"]["all"]["vars"]["config"]
+        assert sent["channels"]["discord"]["bot_token"] == token
+        # Persisted shape merged onto config_data even though the caller
+        # only passed provider/gateway.
+        assert sent["channels"]["discord"]["allowed_users"] == [
+            "740723459344302120"
+        ]
+        assert sent["channels"]["discord"]["allowed_guilds"] == ["123"]
+
+    def test_discord_disabled_does_not_hydrate_zeroclaw(self, tmp_path: Path):
+        """No channels.discord block in hosts.json → no hydration, no error
+        even if DISCORD_BOT_TOKEN happens to exist in secrets.json."""
+        host = self._make_host(discord_persisted=None)
+        secrets = self._discord_secrets_entry("B" * 64)
+
+        success, error, captured = self._run_zeroclaw_configure(
+            host, tmp_path, secrets
+        )
+        assert success is True, error
+        sent = captured["inventory"]["all"]["vars"]["config"]
+        assert "channels" not in sent or "discord" not in sent.get(
+            "channels", {}
+        ) or "bot_token" not in sent["channels"].get("discord", {})
+
+    def test_discord_enabled_without_token_rejected_zeroclaw(self, tmp_path: Path):
+        """`enabled = true` with no DISCORD_BOT_TOKEN in secrets.json must
+        return (False, error) — same failure mode as hermes."""
+        host = self._make_host(discord_persisted={"enabled": True})
+        secrets = {}  # No DISCORD_BOT_TOKEN at all.
+
+        success, error, _ = self._run_zeroclaw_configure(host, tmp_path, secrets)
+        assert success is False
+        assert "DISCORD_BOT_TOKEN" in (error or "")
+
+    def test_discord_short_token_rejected_zeroclaw(self, tmp_path: Path):
+        """Bot tokens shorter than 50 chars are rejected; mirrors hermes
+        validation."""
+        host = self._make_host(discord_persisted={"enabled": True})
+        secrets = self._discord_secrets_entry("short-token")
+
+        success, error, _ = self._run_zeroclaw_configure(host, tmp_path, secrets)
+        assert success is False
+        assert "DISCORD_BOT_TOKEN" in (error or "")
+
+    def test_discord_bot_token_stripped_from_hosts_json_zeroclaw(
+        self, tmp_path: Path
+    ):
+        """ATX Round 1 B1: zeroclaw must mirror hermes's strip-before-persist
+        behavior so bot_token never lands in hosts.json. Without this, the
+        token roundtrips: hydrated → persisted → read into existing_config →
+        re-hydrated, defeating the B3 invariant that bot_token lives in
+        secrets.json only."""
+        token = "B" * 64
+        host = self._make_host(
+            discord_persisted={
+                "enabled": True,
+                "allowed_users": ["740723459344302120"],
+                "require_mention": True,
+            }
+        )
+        secrets = self._discord_secrets_entry(token)
+
+        captured_update: dict = {}
+
+        def fake_update_host(_hostname, updater_fn):
+            # Run the updater on a deepcopy of the host so the captured
+            # post-strip shape reflects what would be written to disk.
+            from copy import deepcopy
+
+            mutated = updater_fn(deepcopy(host))
+            captured_update["host"] = mutated
+            return True
+
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+        artifacts_dir = self._setup_fact_cache(tmp_path)
+
+        def fake_run(**_kwargs):
+            m = MagicMock()
+            m.status = "successful"
+            m.events = []
+            m.config.artifact_dir = str(artifacts_dir)
+            return m
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
+            ),
+            patch(
+                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host",
+                "zeroclaw",
+                {
+                    "provider": {
+                        "name": "p",
+                        "type": "anthropic",
+                        "default_model": "claude-sonnet-4-5",
+                    },
+                    "gateway": {"host": "0.0.0.0", "port": 40000},
+                },
+                agent_name="zc-test",
+            )
+
+        assert success is True, error
+        persisted = captured_update["host"]["agents"]["zc-test"]["config"]
+        # The Discord block must be persisted (so re-configure can find it)
+        # but bot_token MUST be stripped — only secrets.json holds it.
+        assert "channels" in persisted
+        assert "discord" in persisted["channels"]
+        assert persisted["channels"]["discord"]["enabled"] is True
+        assert "bot_token" not in persisted["channels"]["discord"], (
+            f"bot_token leaked into hosts.json for zeroclaw — "
+            f"persisted shape: {persisted['channels']['discord']}"
+        )
+        # Other persisted fields survive the strip (idempotency check).
+        assert persisted["channels"]["discord"]["allowed_users"] == [
+            "740723459344302120"
+        ]
