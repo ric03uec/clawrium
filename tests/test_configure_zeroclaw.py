@@ -44,6 +44,16 @@ def _ansible_bool(v):
     return bool(v)
 
 
+def _ansible_regex_replace_top(value, pattern, replacement=""):
+    """Module-level mirror of ansible.builtin.filter.regex_replace, used by
+    `_render()`. The #422 section below defines an identical helper for the
+    bigger renderers — both registered with the same filter name in their
+    respective env instances so the test renderer matches production."""
+    import re as _re_mod
+
+    return _re_mod.sub(pattern, replacement, str(value))
+
+
 def _render(
     provider: dict | None,
     provider_api_key: str = "",
@@ -53,6 +63,13 @@ def _render(
     """Render `config.toml.j2` with the given provider block."""
     env = Environment(loader=FileSystemLoader(str(ZEROCLAW_TEMPLATES)))
     env.filters["bool"] = _ansible_bool
+    # ATX Round 5 W2: register regex_replace here too. The template's
+    # [autonomy] block calls regex_replace inside the integrations loop.
+    # _render() never passes integrations today so it's not exercised, but
+    # keeping the test-renderer's filter set in sync with the production
+    # ansible env avoids a future opaque TemplateAssertionError. Mirrors
+    # _render_with_channels_and_integrations() at line ~376.
+    env.filters["regex_replace"] = _ansible_regex_replace_top
     template = env.get_template("config.toml.j2")
     config = {"gateway": dict(_GATEWAY_DEFAULTS)}
     if provider is not None:
@@ -507,6 +524,100 @@ class TestChannelsDiscordBlock:
             "Legacy hosts.json record rendered reply_to_mentions_only=false "
             "— this is the ATX Round 4 B1-R4 safety regression. The CLI "
             "default is True; the template must match."
+        )
+
+    def test_discord_bot_token_newline_toml_injection_blocked(self):
+        """ATX Round 5 W1: parallel to the api_key control-char test. A
+        bot_token containing `\\n` + a fake TOML statement must NOT break
+        out of the basic string into the next [section]. The toml_escape
+        macro encodes \\r/\\n/\\t today, but without an explicit test a
+        future macro refactor could drop a branch and leave bot_token
+        injectable while the api_key test still passes."""
+        rendered = _render_with_channels_and_integrations(
+            channels={
+                "discord": {
+                    "enabled": True,
+                    "bot_token": 'tok\ninjected_key = "evil"\nok',
+                }
+            },
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        # The encoded payload must appear inside the bot_token line, not
+        # as a top-level injected TOML statement.
+        assert (
+            'bot_token = "tok\\ninjected_key = \\"evil\\"\\nok"' in rendered
+        )
+        # No injected top-level key.
+        for line in rendered.splitlines():
+            assert not line.strip().startswith("injected_key"), (
+                f"TOML injection succeeded via bot_token newline payload: "
+                f"{line!r}"
+            )
+
+    def test_discord_allowed_users_array_elements_toml_escaped(self):
+        """ATX Round 5 W6: array elements must also pass through
+        toml_escape. A regression dropping the macro on the loop body
+        would let a quote-bearing ID break out of the array."""
+        rendered = _render_with_channels_and_integrations(
+            channels={
+                "discord": {
+                    "enabled": True,
+                    "bot_token": "DUMMY",
+                    "allowed_users": ['98765"evil', "740723459344302120"],
+                }
+            },
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        # Escaped quote inside the array element.
+        assert '"98765\\"evil"' in rendered
+        # No raw injection landing outside the string.
+        for line in rendered.splitlines():
+            assert not line.strip().startswith("evil"), (
+                f"allowed_users element broke out of TOML basic string: "
+                f"{line!r}"
+            )
+
+    def test_discord_allowed_guilds_array_elements_toml_escaped(self):
+        """ATX Round 5 W6 (symmetric to allowed_users)."""
+        rendered = _render_with_channels_and_integrations(
+            channels={
+                "discord": {
+                    "enabled": True,
+                    "bot_token": "DUMMY",
+                    "allowed_guilds": ['11111"evil', "987654321098765432"],
+                }
+            },
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        assert '"11111\\"evil"' in rendered
+        for line in rendered.splitlines():
+            assert not line.strip().startswith("evil"), (
+                f"allowed_guilds element broke out of TOML basic string: "
+                f"{line!r}"
+            )
+
+    def test_discord_draft_update_interval_zero_omitted(self):
+        """ATX Round 5 W5: integer `0` is falsy in Jinja2/Python so the
+        current `{% if _discord.get('draft_update_interval_ms') %}` guard
+        silently drops a zero value. This test pins that behavior so any
+        future change to treat `0` as a real value (e.g., real-time
+        updates) is a conscious decision, not a silent semantic flip.
+        Operators relying on this should be aware: zeroclaw's daemon
+        applies its compiled-in default when the key is absent."""
+        rendered = _render_with_channels_and_integrations(
+            channels={
+                "discord": {
+                    "enabled": True,
+                    "bot_token": "DUMMY",
+                    "draft_update_interval_ms": 0,
+                }
+            },
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        assert "draft_update_interval_ms" not in rendered, (
+            "Zero value for draft_update_interval_ms is currently dropped "
+            "by the falsy-check; if intentional, document. If not, treat "
+            "0 as a valid configured value."
         )
 
     def test_discord_explicit_false_require_mention_renders_false(self):
