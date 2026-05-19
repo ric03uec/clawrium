@@ -101,6 +101,49 @@
       no_log: true
       notify: Restart hermes service
 
+    # GitHub CLI authentication — runs `gh auth login --with-token` as the
+    # agent user for each assigned github integration. `gh` is a soft
+    # dependency: if it isn't installed, the env var path (GITHUB_TOKEN in
+    # .env above) still wires the token so skills calling the GitHub REST
+    # API directly continue to work.
+    #
+    # The `which gh` probe uses failed_when:false + a `when` guard on
+    # `gh_check.rc == 0` so absence of gh short-circuits the loop without
+    # failing the play. We pass the bare command `gh` (not `gh_check.stdout`)
+    # to the auth task: Ansible's own PATH resolution at exec time is the
+    # established pattern for system binaries and avoids inheriting any
+    # quoting / multi-line edge cases from the probe's stdout.
+    # `changed_when: false` keeps the task idempotent — re-running configure
+    # against a host that's already authenticated reports `ok`, not `changed`.
+    - name: GitHub CLI authentication block
+      when: integrations is defined
+      block:
+        - name: Check if gh CLI is installed
+          ansible.builtin.command: which gh
+          register: gh_check
+          changed_when: false
+          failed_when: false
+
+        - name: Authenticate gh CLI for each github integration
+          ansible.builtin.command:
+            argv:
+              - gh
+              - auth
+              - login
+              - --with-token
+            stdin: "{{ item.value.GITHUB_TOKEN }}"
+          become: yes
+          become_user: "{{ agent_name }}"
+          no_log: true
+          changed_when: false
+          when:
+            - gh_check.rc == 0
+            - item.value.type == 'github'
+            - item.value.GITHUB_TOKEN is defined
+          loop: "{{ integrations | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
     # Per-provider credential verification — uses `grep -q` so we get a clean
     # zero/non-zero exit status without leaking the rendered key into logs.
     - name: Verify .env credentials for OpenRouter provider

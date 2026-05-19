@@ -10,6 +10,7 @@ These cover:
   (idempotency contract)
 """
 
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +18,15 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 from clawrium.core.lifecycle import configure_agent
+
+
+def _ansible_regex_replace(value, pattern, replacement=""):
+    """Ansible's `regex_replace` filter, reimplemented for the bare-Jinja
+    test renderer. Production rendering goes through Ansible's Jinja env
+    which registers this filter natively; matching the test renderer keeps
+    template assertions honest. Mirrors ansible.builtin.filter.regex_replace.
+    """
+    return re.sub(pattern, replacement, str(value))
 
 HERMES_TEMPLATES = (
     Path(__file__).resolve().parent.parent
@@ -38,14 +48,27 @@ HERMES_PLAYBOOKS = (
 )
 
 
-def _render_env(config: dict, provider_api_key: str = "", agent_name: str = "h") -> str:
+def _render_env(
+    config: dict,
+    provider_api_key: str = "",
+    agent_name: str = "h",
+    integrations: dict | None = None,
+    pass_integrations_raw: bool = False,
+) -> str:
     env = Environment(
         loader=FileSystemLoader(str(HERMES_TEMPLATES)),
         keep_trailing_newline=True,
     )
+    env.filters["regex_replace"] = _ansible_regex_replace
     template = env.get_template(".env.j2")
+    # `pass_integrations_raw=True` lets a test pass `None` or other unusual
+    # values through the helper without the `or {}` coercion — used to assert
+    # the template's `default({})` guard actually fires.
     return template.render(
-        config=config, provider_api_key=provider_api_key, agent_name=agent_name
+        config=config,
+        provider_api_key=provider_api_key,
+        agent_name=agent_name,
+        integrations=integrations if pass_integrations_raw else (integrations or {}),
     )
 
 
@@ -154,6 +177,196 @@ class TestEnvTemplateProviderBranches:
             provider_api_key="",
         )
         assert "OPENROUTER_API_KEY=" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# .env.j2 rendering — github integration handling (#419)
+# ---------------------------------------------------------------------------
+
+
+class TestEnvTemplateGithubIntegration:
+    """Github integrations must populate GITHUB_TOKEN (canonical) and a
+    GITHUB_TOKEN_<NAME> (multi-account) line per assigned integration. Mirrors
+    the openclaw handling; without this, `clm agent configure` is a no-op for
+    github on hermes agents (#419).
+    """
+
+    def _api_server(self) -> dict:
+        return {"key": "a" * 64, "host": "127.0.0.1", "port": 8642, "enabled": True}
+
+    def _provider_config(self) -> dict:
+        return {
+            "provider": {"type": "openrouter", "default_model": "x"},
+            "api_server": self._api_server(),
+        }
+
+    def test_single_github_integration_emits_both_canonical_and_named_token(self):
+        rendered = _render_env(
+            self._provider_config(),
+            provider_api_key="sk-or-x",
+            integrations={
+                "clawrium-github": {
+                    "type": "github",
+                    "GITHUB_TOKEN": "ghp_abc123",
+                }
+            },
+        )
+        assert "GITHUB_TOKEN_CLAWRIUM_GITHUB='ghp_abc123'" in rendered
+        assert "GITHUB_TOKEN='ghp_abc123'" in rendered
+
+    def test_multiple_github_integrations_each_get_named_token(self):
+        rendered = _render_env(
+            self._provider_config(),
+            provider_api_key="sk-or-x",
+            integrations={
+                "work-gh": {"type": "github", "GITHUB_TOKEN": "ghp_work"},
+                "personal-gh": {"type": "github", "GITHUB_TOKEN": "ghp_personal"},
+            },
+        )
+        assert "GITHUB_TOKEN_WORK_GH='ghp_work'" in rendered
+        assert "GITHUB_TOKEN_PERSONAL_GH='ghp_personal'" in rendered
+        # At least one canonical bare GITHUB_TOKEN line must be present so
+        # skills that hard-code the canonical name keep working.
+        assert "GITHUB_TOKEN=" in rendered
+
+    def test_canonical_github_token_resolution_is_deterministic(self):
+        """With multiple github integrations, the bare GITHUB_TOKEN must
+        resolve to the alphabetically-last name's value (dictsort order),
+        not whatever dict insertion order happens to produce. Locks in the
+        last-wins contract so re-renders don't shuffle which token is bare.
+        """
+        rendered = _render_env(
+            self._provider_config(),
+            provider_api_key="sk-or-x",
+            integrations={
+                # Insertion order intentionally NOT alphabetical:
+                "zeta-gh": {"type": "github", "GITHUB_TOKEN": "ghp_zeta"},
+                "alpha-gh": {"type": "github", "GITHUB_TOKEN": "ghp_alpha"},
+            },
+        )
+        # Both per-name vars present
+        assert "GITHUB_TOKEN_ALPHA_GH='ghp_alpha'" in rendered
+        assert "GITHUB_TOKEN_ZETA_GH='ghp_zeta'" in rendered
+        # The bare `GITHUB_TOKEN=` line for the alphabetically-last entry
+        # (zeta-gh) must appear AFTER the bare line for alpha-gh, so systemd
+        # / `export $(cat .env)` semantics resolve the canonical token to
+        # ghp_zeta.
+        idx_alpha_bare = rendered.find("\nGITHUB_TOKEN='ghp_alpha'\n")
+        idx_zeta_bare = rendered.find("\nGITHUB_TOKEN='ghp_zeta'\n")
+        assert idx_alpha_bare != -1 and idx_zeta_bare != -1
+        assert idx_zeta_bare > idx_alpha_bare
+
+    def test_no_integrations_emits_no_github_token(self):
+        """Negative case: agents without any github integration must not see
+        a stray GITHUB_TOKEN= line (would leak prior config across re-renders)."""
+        rendered = _render_env(
+            self._provider_config(),
+            provider_api_key="sk-or-x",
+            integrations={},
+        )
+        assert "GITHUB_TOKEN" not in rendered
+
+    def test_only_atlassian_integrations_emits_no_github_token(self):
+        """An agent with only atlassian (or any non-github) integrations must
+        not get a GITHUB_TOKEN line — confirms the type filter works."""
+        rendered = _render_env(
+            self._provider_config(),
+            provider_api_key="sk-or-x",
+            integrations={
+                "my-atl": {
+                    "type": "atlassian",
+                    "ATLASSIAN_URL": "https://x.atlassian.net",
+                    "ATLASSIAN_EMAIL": "a@b.c",
+                    "ATLASSIAN_API_TOKEN": "atl_xyz",
+                }
+            },
+        )
+        assert "GITHUB_TOKEN" not in rendered
+
+    def test_github_integration_missing_token_emits_nothing(self):
+        """Defensive: an integration record without GITHUB_TOKEN should not
+        produce a `GITHUB_TOKEN=`/`GITHUB_TOKEN_X=` line with an empty or
+        'None' value — the `is defined` guard must short-circuit cleanly."""
+        rendered = _render_env(
+            self._provider_config(),
+            provider_api_key="sk-or-x",
+            integrations={"broken-gh": {"type": "github"}},
+        )
+        assert "GITHUB_TOKEN" not in rendered
+
+    def test_token_with_shell_metacharacters_is_quoted(self):
+        """Tokens containing single quotes must be escaped via shell_quote so
+        a malicious or weird token can't break out of the env-file scalar.
+        POSIX form: 'val'"'"'ue' — see shell_quote macro at top of .env.j2."""
+        rendered = _render_env(
+            self._provider_config(),
+            provider_api_key="sk-or-x",
+            integrations={
+                "weird-gh": {"type": "github", "GITHUB_TOKEN": "ghp_a'b\"c d$e"}
+            },
+        )
+        # The full quoted form: 'ghp_a'"'"'b"c d$e'
+        assert "GITHUB_TOKEN_WEIRD_GH='ghp_a'\"'\"'b\"c d$e'" in rendered
+
+    def test_integration_name_with_hyphens_normalized_to_underscores(self):
+        """Hyphens in integration names must be normalized to underscores in
+        the env-var name (env vars can't contain hyphens)."""
+        rendered = _render_env(
+            self._provider_config(),
+            provider_api_key="sk-or-x",
+            integrations={
+                "my-work-account": {"type": "github", "GITHUB_TOKEN": "ghp_x"}
+            },
+        )
+        assert "GITHUB_TOKEN_MY_WORK_ACCOUNT='ghp_x'" in rendered
+        # The original hyphenated name must NOT leak into the env-var name.
+        assert "GITHUB_TOKEN_MY-WORK-ACCOUNT" not in rendered
+
+    def test_env_var_key_strips_non_alphanumeric_characters(self):
+        """Defense-in-depth: even if a future caller bypasses
+        `INTEGRATION_NAME_PATTERN`, the rendered env-var key must contain
+        only `[A-Z0-9_]`. Validates the `regex_replace('[^A-Z0-9_]','')`
+        filter in `.env.j2`. Without it, a malformed name could produce a
+        line systemd silently drops (or worse — splits unexpectedly).
+        """
+        rendered = _render_env(
+            self._provider_config(),
+            provider_api_key="sk-or-x",
+            integrations={
+                "weird name.with$junk": {
+                    "type": "github",
+                    "GITHUB_TOKEN": "ghp_x",
+                }
+            },
+        )
+        # Spaces, dots, and `$` must be stripped — leaving only safe chars.
+        # After upper+replace('-','_')+regex_replace('[^A-Z0-9_]',''):
+        # "weird name.with$junk" → "WEIRD NAME.WITH$JUNK" → "WEIRDNAMEWITHJUNK"
+        assert "GITHUB_TOKEN_WEIRDNAMEWITHJUNK='ghp_x'" in rendered
+        # No raw special chars should appear in any key on the rendered line.
+        for line in rendered.splitlines():
+            if line.startswith("GITHUB_TOKEN_"):
+                key, _, _ = line.partition("=")
+                assert all(c.isalnum() or c == "_" for c in key.removeprefix("")), (
+                    f"env-var key contains illegal char: {key!r}"
+                )
+
+    def test_integrations_none_does_not_crash(self):
+        """Regression: a bare `{% if integrations is defined %}` guard would
+        crash on `integrations=None` because `None is defined` is True in
+        Jinja and `None | length` raises TypeError. The template uses
+        `| default({})` so None coerces to an empty dict and the loop
+        short-circuits cleanly. Asserts that with `pass_integrations_raw`
+        the helper does NOT mask the None at the boundary.
+        """
+        rendered = _render_env(
+            self._provider_config(),
+            provider_api_key="sk-or-x",
+            integrations=None,
+            pass_integrations_raw=True,
+        )
+        # No crash, no GITHUB_TOKEN line emitted.
+        assert "GITHUB_TOKEN" not in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +493,59 @@ class TestConfigurePlaybookShape:
         names = [t.get("name", "") for t in play["tasks"]]
         assert any("custom provider for Ollama" in n for n in names)
         assert any("base_url for Ollama" in n for n in names)
+
+    def test_playbook_has_github_cli_auth_block(self):
+        """Configure playbook must run `gh auth login --with-token` for each
+        assigned github integration. Without this, hermes agents have an
+        unauthenticated gh CLI even when `clm integration add --type github`
+        succeeds (#419).
+        """
+        play = self._load_playbook()
+        names = [t.get("name", "") for t in play["tasks"]]
+        assert any("GitHub CLI authentication block" in n for n in names), (
+            "configure.yaml must declare a 'GitHub CLI authentication block' task"
+        )
+
+        gh_block = next(
+            t for t in play["tasks"] if "GitHub CLI authentication block" in t.get("name", "")
+        )
+        # The block must be gated on `integrations is defined` so it's a no-op
+        # for agents without any integration assignments.
+        assert "integrations is defined" in gh_block.get("when", "")
+
+        # The inner tasks must include both the `which gh` probe and the
+        # `gh auth login` command — guarding that future refactors don't
+        # accidentally remove one or the other.
+        block_tasks = gh_block.get("block", [])
+        inner_names = [t.get("name", "") for t in block_tasks]
+        assert any("Check if gh CLI is installed" in n for n in inner_names)
+        assert any("Authenticate gh CLI" in n for n in inner_names)
+
+        auth_task = next(
+            t for t in block_tasks if "Authenticate gh CLI" in t.get("name", "")
+        )
+        # Must run as the agent user so credentials land in the agent's
+        # ~/.config/gh/, not in xclm's home.
+        assert auth_task.get("become_user") == "{{ agent_name }}"
+        # Must suppress logs so tokens never reach ansible-runner output.
+        assert auth_task.get("no_log") is True
+        # Must be idempotent: re-running configure should report `ok`, not
+        # `changed`, against an already-authenticated host.
+        assert auth_task.get("changed_when") is False
+        # Must filter loop items to github type and presence of GITHUB_TOKEN
+        # so a malformed integration record doesn't crash the play.
+        when_conditions = auth_task.get("when", [])
+        joined = " ".join(when_conditions) if isinstance(when_conditions, list) else when_conditions
+        assert "type == 'github'" in joined
+        assert "GITHUB_TOKEN is defined" in joined
+        assert "gh_check.rc == 0" in joined
+        # argv must hardcode the bare `gh` binary (not interpolate the probe's
+        # stdout) — Ansible's own PATH resolution handles it at exec time.
+        argv = auth_task["ansible.builtin.command"].get("argv", [])
+        assert argv[:4] == ["gh", "auth", "login", "--with-token"], (
+            f"auth task argv must be ['gh', 'auth', 'login', '--with-token', ...], "
+            f"got {argv!r}"
+        )
 
     def test_systemd_unit_uses_gateway_run_not_start(self):
         """The Phase 2 unit MUST use `hermes gateway run` — `gateway start`
