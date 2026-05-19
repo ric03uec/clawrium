@@ -14,18 +14,42 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        # v4.2.0 — pinned to SHA. Matches the `version: "0.5.x"` convention
+        # used in skills-validate.yml so all CI jobs run against the same
+        # uv minor and a `setup-uv` release can't silently change behavior.
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a
         with:
-          version: "latest"
+          version: "0.5.x"
 
       - name: Set up Python
         run: uv python install 3.11
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: gui/package-lock.json
+
+      # Stage the frontend BEFORE `uv sync`. The wheel target force-includes
+      # `src/clawrium/gui/frontend/`, so `uv sync` (which builds the project
+      # in editable mode via hatchling) would otherwise fail with
+      # `FileNotFoundError: Forced include not found`. Also unblocks
+      # `tests/test_wheel_contents.py` (#401 regression net).
+      - name: Build GUI frontend
+        run: make build-ui
+
       - name: Install dependencies
         run: uv sync
 
-      - name: Run tests with coverage
+      - name: Lint
+        run: make lint
+
+      - name: Run Python tests with coverage
         run: make test-cov
+
+      - name: Run JS tests
+        run: make test-ui
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4

@@ -38,12 +38,26 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/clawrium"]
+# The staged frontend is added via force-include below. Excluding it from
+# the default package traversal prevents duplicate entries in the wheel
+# during sdist→wheel roundtrip builds, where the unpacked sdist exposes
+# the directory to traversal as well.
+exclude = ["src/clawrium/gui/frontend"]
 
-# Bundle the in-repo skills catalog into the wheel under
-# clawrium/_skills/ so installed `clm` invocations can resolve refs
-# like `clawrium/tdd` without the source tree present.
+# Bundle the in-repo skills catalog and the staged GUI frontend into
+# the wheel. `src/clawrium/gui/frontend/` is a build artifact produced
+# by `make build-ui` and is gitignored, so hatch's default vcs-aware
+# file selection excludes it. The sdist force-include keeps the
+# staged frontend in the source archive so that uv's sdist→wheel
+# roundtrip can find it; the wheel force-include then rewrites it
+# into the install layout. Without these, `clm gui` 404s on every
+# non-API route after install (see #401).
+[tool.hatch.build.targets.sdist.force-include]
+"src/clawrium/gui/frontend" = "src/clawrium/gui/frontend"
+
 [tool.hatch.build.targets.wheel.force-include]
 "skills" = "clawrium/_skills"
+"src/clawrium/gui/frontend" = "clawrium/gui/frontend"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

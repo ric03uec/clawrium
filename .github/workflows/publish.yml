@@ -15,15 +15,45 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        # v4.2.0 — SHA-pinned. The wider OIDC permissions on this job make a
+        # mutable major-tag (`@v4`) plus floating uv version (`latest`) doubly
+        # unacceptable: a compromised action release or rogue uv could tamper
+        # with the build artifact or exfiltrate the OIDC token.
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a
         with:
-          version: "latest"
+          version: "0.5.x"
 
       - name: Set up Python
         run: uv python install 3.11
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: gui/package-lock.json
+
+      # `make build` runs `build-ui` first so the Next.js export is staged at
+      # src/clawrium/gui/frontend/ before `uv build` packages the wheel.
+      # Bare `uv build` ships a wheel without the UI and `clm gui` 404s.
+      # Running build before `uv sync` is required: the wheel target
+      # force-includes the staged frontend, so an editable install via
+      # `uv sync` would fail if the frontend isn't staged yet.
       - name: Build package
-        run: uv build
+        run: make build
+
+      - name: Install test dependencies
+        run: uv sync
+
+      - name: Lint
+        run: make lint
+
+      # Full test suite (Python + JS) — broken UI or backend can't ship.
+      - name: Run tests
+        run: make test
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        # v1.12.4 — SHA-pinned. `@release/v1` is a mutable branch ref; with
+        # `id-token: write` in scope, a force-push or compromise of that
+        # branch could publish a malicious wheel to PyPI under our identity.
+        uses: pypa/gh-action-pypi-publish@7f25271a4aa483500f742f9492b2ab5648d61011
