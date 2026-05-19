@@ -36,6 +36,19 @@
 {% set personality_name = personality.name | default(agent_name | default('zeroclaw')) %}
 {% set personality_timezone = personality.timezone | default('UTC') %}
 {% set personality_style = personality.communication_style | default('direct, concise') %}
+{# Per zeroclaw v0.7.5 docs (docs/book/src/providers/configuration.md),
+   `default_provider` and `default_model` are TOP-LEVEL keys — they must
+   appear before any [section] header so TOML does not scope them under
+   the preceding table. Placing them under [gateway] caused the daemon
+   to fall back to the empty default-provider stub and crash gateway
+   startup with "Unknown provider: default". #}
+{% if provider_type in ['anthropic', 'openai', 'ollama', 'openrouter'] %}
+default_provider = "{{ toml_escape(provider_type) }}"
+{% if model_id %}
+default_model = "{{ toml_escape(model_id) }}"
+{% endif %}
+{% endif %}
+
 [gateway]
 {# Every variable interpolated into a "…" basic string passes through
    toml_escape so a hand-edited host (or future provider_type/model_id
@@ -47,11 +60,6 @@ allow_public_bind = {{ config.gateway.allow_public_bind | bool | lower }}
 require_pairing = {{ (config.gateway.require_pairing | default(true)) | bool | lower }}
 
 {% if provider_type in ['anthropic', 'openai', 'ollama', 'openrouter'] %}
-default_provider = "{{ toml_escape(provider_type) }}"
-{% if model_id %}
-default_model = "{{ toml_escape(model_id) }}"
-{% endif %}
-
 {# Section header is a bare TOML key; restrict to the allow-list above so
    no caller-supplied content reaches the header (which has its own
    escaping rules different from basic strings). The `in [...]` guard
