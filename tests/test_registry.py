@@ -648,32 +648,13 @@ def test_get_required_secrets_returns_list():
     """Test get_required_secrets returns list of SecretDefinition dicts."""
     from clawrium.core.registry import get_required_secrets
 
-    # openclaw has no required secrets (provider credentials managed separately)
-    secrets = get_required_secrets("openclaw")
-    assert isinstance(secrets, list)
-    assert len(secrets) == 0
-
-    # zeroclaw has required secrets
-    secrets = get_required_secrets("zeroclaw")
-    assert isinstance(secrets, list)
-    assert len(secrets) > 0
-    # Each secret should have key and description
-    for secret in secrets:
-        assert "key" in secret
-        assert "description" in secret
-
-
-def test_get_required_secrets_zeroclaw():
-    """Test get_required_secrets for zeroclaw returns expected secrets."""
-    from clawrium.core.registry import get_required_secrets
-
-    secrets = get_required_secrets("zeroclaw")
-
-    assert isinstance(secrets, list)
-    assert len(secrets) >= 2
-    keys = [s["key"] for s in secrets]
-    assert "LLM_PROVIDER_URL" in keys
-    assert "LLM_MODEL" in keys
+    # Neither openclaw nor zeroclaw declares required secrets: provider
+    # credentials are managed through the providers system, not per-agent
+    # secrets. The return type is still a list so callers can iterate.
+    for agent_type in ("openclaw", "zeroclaw"):
+        secrets = get_required_secrets(agent_type)
+        assert isinstance(secrets, list)
+        assert len(secrets) == 0
 
 
 def test_get_optional_secrets_returns_list():
