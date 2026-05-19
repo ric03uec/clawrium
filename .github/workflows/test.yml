@@ -21,8 +21,20 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: gui/package-lock.json
+
       - name: Install dependencies
         run: uv sync
+
+      # Stage the frontend so `tests/test_wheel_contents.py` runs instead of
+      # being skipped. Without this, the regression test for #401 is inert.
+      - name: Build GUI frontend
+        run: make build-ui
 
       - name: Run tests with coverage
         run: make test-cov

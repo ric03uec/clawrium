@@ -29,11 +29,19 @@ jobs:
           cache: "npm"
           cache-dependency-path: gui/package-lock.json
 
+      - name: Install dependencies
+        run: uv sync
+
       # `make build` runs `build-ui` first so the Next.js export is staged at
       # src/clawrium/gui/frontend/ before `uv build` packages the wheel.
       # Bare `uv build` ships a wheel without the UI and `clm gui` 404s.
       - name: Build package
         run: make build
+
+      # Gate the publish on the test suite (including the wheel-contents
+      # regression test for #401, which only runs after the frontend is staged).
+      - name: Run tests
+        run: make test-py
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

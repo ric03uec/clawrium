@@ -39,41 +39,132 @@ pytestmark = [
 @pytest.fixture(scope="module")
 def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     out_dir = tmp_path_factory.mktemp("wheel-out")
-    subprocess.run(
+    result = subprocess.run(
         ["uv", "build", "--wheel", "--out-dir", str(out_dir)],
         cwd=REPO_ROOT,
-        check=True,
         capture_output=True,
     )
+    if result.returncode != 0:
+        pytest.fail(
+            "uv build --wheel failed\n"
+            f"stdout:\n{result.stdout.decode(errors='replace')}\n"
+            f"stderr:\n{result.stderr.decode(errors='replace')}"
+        )
     wheels = list(out_dir.glob("clawrium-*.whl"))
     assert len(wheels) == 1, f"expected exactly one wheel, found: {wheels}"
     return wheels[0]
 
 
-def test_wheel_includes_frontend_index(built_wheel: Path) -> None:
+@pytest.fixture(scope="module")
+def wheel_names(built_wheel: Path) -> set[str]:
     with zipfile.ZipFile(built_wheel) as zf:
-        names = set(zf.namelist())
-    assert "clawrium/gui/frontend/index.html" in names, (
+        return set(zf.namelist())
+
+
+def test_wheel_includes_frontend_index(wheel_names: set[str]) -> None:
+    assert "clawrium/gui/frontend/index.html" in wheel_names, (
         "Wheel is missing the staged Next.js frontend. "
         "Check `[tool.hatch.build.targets.wheel.force-include]` in pyproject.toml — "
         "without this, `clm gui` 404s on every non-API route after install (#401)."
     )
 
 
-def test_wheel_includes_skills_catalog(built_wheel: Path) -> None:
-    with zipfile.ZipFile(built_wheel) as zf:
-        names = zf.namelist()
-    assert any(name.startswith("clawrium/_skills/") for name in names), (
-        "Wheel is missing the skills catalog. "
-        "Check `[tool.hatch.build.targets.wheel.force-include]` in pyproject.toml."
+def test_wheel_includes_next_static_assets(wheel_names: set[str]) -> None:
+    """Without `_next/`, every route would render HTML that 404s all its JS/CSS."""
+    has_next_dir = any(n.startswith("clawrium/gui/frontend/_next/") for n in wheel_names)
+    has_js_chunk = any(
+        n.startswith("clawrium/gui/frontend/_next/static/chunks/") and n.endswith(".js")
+        for n in wheel_names
+    )
+    has_css = any(
+        n.startswith("clawrium/gui/frontend/_next/static/css/") and n.endswith(".css")
+        for n in wheel_names
+    )
+    assert has_next_dir and has_js_chunk and has_css, (
+        "Wheel is missing Next.js static assets under `_next/`. "
+        "HTML pages would load but all JS/CSS would 404 post-install."
     )
 
 
-def test_wheel_frontend_has_route_pages(built_wheel: Path) -> None:
-    """Spot-check a couple of route exports so a partial UI build is also caught."""
-    with zipfile.ZipFile(built_wheel) as zf:
-        names = set(zf.namelist())
-    for route in ("agents.html", "topology.html"):
-        assert f"clawrium/gui/frontend/{route}" in names, (
-            f"Wheel is missing route export `{route}` — UI build may be incomplete."
+def test_wheel_frontend_has_all_route_pages(wheel_names: set[str]) -> None:
+    """Every top-level `.html` produced by the Next.js export must ship in the wheel.
+
+    Enumerating the source tree (instead of a hardcoded list) makes this test
+    track new routes automatically — adding a new page in the GUI shouldn't
+    require updating this test, but a partial wheel that drops an existing
+    page will still fail.
+    """
+    staged_frontend = STAGED_FRONTEND_INDEX.parent
+    expected_pages = sorted(p.name for p in staged_frontend.glob("*.html"))
+    assert expected_pages, "no staged HTML pages found — UI build is empty"
+    missing = [
+        page for page in expected_pages
+        if f"clawrium/gui/frontend/{page}" not in wheel_names
+    ]
+    assert not missing, (
+        f"Wheel is missing route exports: {missing}. "
+        "UI build may be incomplete or wheel packaging is dropping files."
+    )
+
+
+def test_wheel_includes_all_skill_namespaces(wheel_names: set[str]) -> None:
+    """Every namespace under `skills/` must land in `clawrium/_skills/` in the wheel.
+
+    A previous assertion only checked that `clawrium/_skills/` had any entry,
+    which `skills/README.md` alone would satisfy — letting three of four skill
+    namespaces silently drop out of the wheel and break `clm skill list`
+    post-install. This test enumerates the source tree so it stays accurate
+    as namespaces are added or removed.
+    """
+    skills_root = REPO_ROOT / "skills"
+    namespaces = sorted(
+        p.name for p in skills_root.iterdir()
+        if p.is_dir() and not p.name.startswith(("_", "."))
+    )
+    assert namespaces, "no skill namespaces found in source tree"
+    missing = [
+        ns for ns in namespaces
+        if not any(n.startswith(f"clawrium/_skills/{ns}/") for n in wheel_names)
+    ]
+    assert not missing, (
+        f"Wheel is missing skill namespaces: {missing}. "
+        "Check `skills` force-include in `[tool.hatch.build.targets.wheel.force-include]`."
+    )
+
+
+def test_wheel_includes_canonical_skill_file(wheel_names: set[str]) -> None:
+    """Pin the canonical clawrium/tdd SKILL.md path called out in AGENTS.md."""
+    assert "clawrium/_skills/clawrium/tdd/SKILL.md" in wheel_names, (
+        "Wheel is missing the canonical `clawrium/tdd` skill referenced in AGENTS.md."
+    )
+
+
+def test_sdist_includes_staged_frontend(tmp_path: Path) -> None:
+    """Regression for the sdist→wheel roundtrip: the sdist must carry the staged
+    frontend at its source path so the wheel build (which unpacks the sdist) can
+    re-include it via the wheel-target force-include."""
+    import tarfile
+
+    out_dir = tmp_path
+    result = subprocess.run(
+        ["uv", "build", "--sdist", "--out-dir", str(out_dir)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        pytest.fail(
+            "uv build --sdist failed\n"
+            f"stderr:\n{result.stderr.decode(errors='replace')}"
         )
+    sdists = list(out_dir.glob("clawrium-*.tar.gz"))
+    assert len(sdists) == 1, f"expected exactly one sdist, found: {sdists}"
+    with tarfile.open(sdists[0]) as tf:
+        names = tf.getnames()
+    assert any(
+        n.endswith("/src/clawrium/gui/frontend/index.html") for n in names
+    ), (
+        "Sdist is missing the staged frontend. Without this in the sdist, uv's "
+        "sdist→wheel roundtrip build fails because the wheel-target force-include "
+        "can't find `src/clawrium/gui/frontend/`. Check the "
+        "`[tool.hatch.build.targets.sdist.force-include]` block in pyproject.toml."
+    )
