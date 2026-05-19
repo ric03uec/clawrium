@@ -17,6 +17,10 @@
 
 ---
 
+<p align="center">
+  <img src="docs/demos/readme.gif" alt="Clawrium fleet management demo" width="100%">
+</p>
+
 ## How it works
 
 <p align="center">
