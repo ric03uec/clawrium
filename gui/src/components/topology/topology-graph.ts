@@ -1,6 +1,10 @@
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 
-import { type TopologyAgent, type TopologyResponse } from "@/lib/types";
+import {
+  type AcceleratorVendor,
+  type TopologyAgent,
+  type TopologyResponse,
+} from "@/lib/types";
 import { buildHostColorMap, getHostColor } from "./host-colors";
 import { AGENT_NODE_WIDTH } from "./agent-node";
 
@@ -29,6 +33,8 @@ export interface ProviderNodeData {
   agentCount: number;
   unconfigured: boolean;
   hostGpuVendor?: string | null;
+  /** User-selected accelerator brand for local-inference providers. */
+  acceleratorVendor?: AcceleratorVendor | null;
 }
 
 export interface ComputeTopologyOptions {
@@ -44,6 +50,8 @@ interface ProviderAccumulator {
   unconfigured: boolean;
   /** GPU vendor of the first host (for NVIDIA local inference detection) */
   hostGpuVendor: string | null;
+  /** User-selected accelerator brand from provider record. */
+  acceleratorVendor: AcceleratorVendor | null;
   agents: Array<{ hostname: string; agentKey: string; model: string | null }>;
 }
 
@@ -133,6 +141,7 @@ export function computeTopology(
           endpoint: unconfigured ? null : agent.provider_endpoint ?? null,
           unconfigured,
           hostGpuVendor: host.hardware?.gpu?.vendor ?? null,
+          acceleratorVendor: agent.provider_accelerator_vendor ?? null,
           agents: [],
         };
         providerMap.set(pKey, acc);
@@ -164,6 +173,7 @@ export function computeTopology(
         agentCount: acc.agents.length,
         unconfigured: acc.unconfigured,
         hostGpuVendor: acc.hostGpuVendor,
+        acceleratorVendor: acc.acceleratorVendor,
       } satisfies ProviderNodeData,
     });
 

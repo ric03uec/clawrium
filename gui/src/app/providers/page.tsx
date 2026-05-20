@@ -68,11 +68,6 @@ export default function ProvidersPage() {
       <PageHeader
         title="Providers"
         description="Manage LLM provider configurations"
-        actions={
-          <Button variant="primary" onClick={() => setShowAdd(true)}>
-            + Add Provider
-          </Button>
-        }
       />
 
       {/* Provider list */}
@@ -81,19 +76,26 @@ export default function ProvidersPage() {
           Loading providers...
         </div>
       ) : providers && providers.length > 0 ? (
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-primary-text">
-            Configured Providers ({providers.length})
-          </h2>
-          {providers.map((p) => (
-            <ProviderCard
-              key={p.name}
-              provider={p}
-              usedBy={providerUsage[p.name] || []}
-              onEdit={() => setEditProvider(p)}
-              onRemove={() => setRemoveProvider(p)}
-            />
-          ))}
+        <div className="bg-surface rounded-xl border border-default p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-primary-text">
+              Configured Providers ({providers.length})
+            </h2>
+            <Button variant="primary" onClick={() => setShowAdd(true)}>
+              + Add Provider
+            </Button>
+          </div>
+          <div className="space-y-3">
+            {providers.map((p) => (
+              <ProviderCard
+                key={p.name}
+                provider={p}
+                usedBy={providerUsage[p.name] || []}
+                onEdit={() => setEditProvider(p)}
+                onRemove={() => setRemoveProvider(p)}
+              />
+            ))}
+          </div>
         </div>
       ) : (
         <div className="bg-surface rounded-xl border border-default p-12 text-center">

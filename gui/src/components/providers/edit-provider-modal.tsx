@@ -3,7 +3,12 @@
 import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import type { Provider, ProviderTypesMap, ProviderUpdate } from "@/lib/types";
+import type {
+  AcceleratorVendor,
+  Provider,
+  ProviderTypesMap,
+  ProviderUpdate,
+} from "@/lib/types";
 
 interface EditProviderModalProps {
   open: boolean;
@@ -22,13 +27,19 @@ export function EditProviderModal({
   providerTypes,
   saving,
 }: EditProviderModalProps) {
+  const initialAccelerator: AcceleratorVendor =
+    provider.accelerator_vendor ?? "nvidia";
+
   const [model, setModel] = useState(provider.default_model || "");
   const [endpoint, setEndpoint] = useState(provider.endpoint || "");
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
+  const [acceleratorVendor, setAcceleratorVendor] =
+    useState<AcceleratorVendor>(initialAccelerator);
 
   const typeInfo = providerTypes[provider.type];
   const availableModels = typeInfo?.models || provider.available_models || [];
+  const isLocalInference = provider.type === "ollama";
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,6 +47,9 @@ export function EditProviderModal({
     if (model !== (provider.default_model || "")) update.default_model = model;
     if (endpoint !== (provider.endpoint || "")) update.endpoint = endpoint;
     if (apiKey) update.api_key = apiKey;
+    if (isLocalInference && acceleratorVendor !== initialAccelerator) {
+      update.accelerator_vendor = acceleratorVendor;
+    }
     onSave(update);
   }
 
@@ -44,6 +58,7 @@ export function EditProviderModal({
     setEndpoint(provider.endpoint || "");
     setApiKey("");
     setShowKey(false);
+    setAcceleratorVendor(initialAccelerator);
     onClose();
   }
 
@@ -91,6 +106,35 @@ export function EditProviderModal({
               placeholder="model-name"
               className="w-full px-3 py-2 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
+          </div>
+        )}
+
+        {/* Accelerator (local-inference only) */}
+        {isLocalInference && (
+          <div>
+            <label className="block text-xs font-medium text-secondary mb-1">
+              Accelerator
+            </label>
+            <div className="flex items-center gap-4">
+              {(["nvidia", "amd"] as const).map((vendor) => (
+                <label
+                  key={vendor}
+                  className="flex items-center gap-2 text-sm text-primary-text cursor-pointer"
+                >
+                  <input
+                    type="radio"
+                    name="accelerator-vendor"
+                    value={vendor}
+                    checked={acceleratorVendor === vendor}
+                    onChange={() => setAcceleratorVendor(vendor)}
+                    className="text-primary focus:ring-primary/30"
+                  />
+                  <span className="uppercase tracking-wide text-xs font-semibold">
+                    {vendor}
+                  </span>
+                </label>
+              ))}
+            </div>
           </div>
         )}
 

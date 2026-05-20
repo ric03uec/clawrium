@@ -251,3 +251,81 @@ def test_provider_endpoint_is_none_when_provider_not_in_providers_file(monkeypat
     payload = result["hosts"][0]["agents"][0]
     assert payload["provider"] == "ghost"
     assert payload["provider_endpoint"] is None
+
+
+def test_provider_accelerator_vendor_defaults_to_nvidia_for_ollama(monkeypatch):
+    """Stored ollama records without accelerator_vendor default to 'nvidia'."""
+    agents = [_make_agent("a1", provider="local-inx", provider_type="ollama")]
+    hosts = [_make_host()]
+    providers = [
+        {"name": "local-inx", "type": "ollama", "endpoint": "http://10.0.0.5:11434"}
+    ]
+
+    monkeypatch.setattr(
+        topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)
+    )
+    monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: hosts)
+    monkeypatch.setattr(topology_mod, "load_providers", lambda: providers)
+
+    import asyncio
+
+    result = asyncio.run(topology_mod.get_topology())
+
+    assert (
+        result["hosts"][0]["agents"][0]["provider_accelerator_vendor"] == "nvidia"
+    )
+
+
+def test_provider_accelerator_vendor_respects_explicit_amd(monkeypatch):
+    """Explicit accelerator_vendor='amd' surfaces unchanged."""
+    agents = [_make_agent("a1", provider="local-inx", provider_type="ollama")]
+    hosts = [_make_host()]
+    providers = [
+        {
+            "name": "local-inx",
+            "type": "ollama",
+            "endpoint": "http://10.0.0.5:11434",
+            "accelerator_vendor": "amd",
+        }
+    ]
+
+    monkeypatch.setattr(
+        topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)
+    )
+    monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: hosts)
+    monkeypatch.setattr(topology_mod, "load_providers", lambda: providers)
+
+    import asyncio
+
+    result = asyncio.run(topology_mod.get_topology())
+
+    assert result["hosts"][0]["agents"][0]["provider_accelerator_vendor"] == "amd"
+
+
+def test_provider_accelerator_vendor_none_for_cloud_providers(monkeypatch):
+    """Non-local providers (e.g. bedrock) have no accelerator vendor."""
+    agents = [_make_agent("a1", provider="clm-bedrock", provider_type="bedrock")]
+    hosts = [_make_host()]
+    providers = [{"name": "clm-bedrock", "type": "bedrock"}]
+
+    monkeypatch.setattr(
+        topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)
+    )
+    monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: hosts)
+    monkeypatch.setattr(topology_mod, "load_providers", lambda: providers)
+
+    import asyncio
+
+    result = asyncio.run(topology_mod.get_topology())
+
+    assert result["hosts"][0]["agents"][0]["provider_accelerator_vendor"] is None
+
+
+def test_load_provider_accelerator_vendors_handles_corrupted_file(monkeypatch):
+    from clawrium.core.providers.storage import ProvidersFileCorruptedError
+
+    def boom():
+        raise ProvidersFileCorruptedError("bad json")
+
+    monkeypatch.setattr(topology_mod, "load_providers", boom)
+    assert topology_mod._load_provider_accelerator_vendors() == {}

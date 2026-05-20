@@ -180,6 +180,22 @@ describe("Sidebar", () => {
     expect(abortSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("renders GitHub, Docs, and Discord links in the footer with target=_blank", async () => {
+    await renderAndFlush();
+    const github = screen.getByRole("link", { name: "GitHub" });
+    const docs = screen.getByRole("link", { name: "Docs" });
+    const discord = screen.getByRole("link", { name: "Discord" });
+
+    expect(github).toHaveAttribute("href", "https://github.com/ric03uec/clawrium");
+    expect(docs).toHaveAttribute("href", "https://ric03uec.github.io/clawrium/");
+    expect(discord).toHaveAttribute("href", "https://discord.gg/KzPuSxgQ98");
+
+    for (const link of [github, docs, discord]) {
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link.getAttribute("rel") ?? "").toContain("noreferrer");
+    }
+  });
+
   it("suppresses AbortError without clobbering version state", async () => {
     const abortErr = new Error("aborted");
     abortErr.name = "AbortError";

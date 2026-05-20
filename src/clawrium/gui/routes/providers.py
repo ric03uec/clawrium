@@ -6,7 +6,7 @@ clawrium.core.providers.storage module.
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -33,9 +33,30 @@ from clawrium.core.providers.storage import (
     remove_provider_api_key,
 )
 
+# Accelerator vendor is a UI-level hint for local-inference providers
+# (ollama) so the topology view can render the right brand badge. Only
+# "nvidia" / "amd" are accepted; ollama defaults to "nvidia" when omitted.
+AcceleratorVendor = Literal["nvidia", "amd"]
+LOCAL_INFERENCE_TYPES = frozenset({"ollama"})
+DEFAULT_ACCELERATOR_VENDOR: AcceleratorVendor = "nvidia"
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/providers", tags=["providers"])
+
+
+def _resolve_accelerator_vendor(provider: dict) -> str | None:
+    """Return the effective accelerator_vendor for a provider record.
+
+    Local-inference providers (ollama) without an explicit value default
+    to "nvidia" so the topology view always has a brand to render.
+    """
+    stored = provider.get("accelerator_vendor")
+    if stored in ("nvidia", "amd"):
+        return stored
+    if provider.get("type") in LOCAL_INFERENCE_TYPES:
+        return DEFAULT_ACCELERATOR_VENDOR
+    return None
 
 
 class ProviderCreate(BaseModel):
@@ -46,6 +67,7 @@ class ProviderCreate(BaseModel):
     endpoint: str | None = None
     default_model: str | None = None
     api_key: str | None = None
+    accelerator_vendor: AcceleratorVendor | None = None
 
 
 class ProviderUpdate(BaseModel):
@@ -54,6 +76,7 @@ class ProviderUpdate(BaseModel):
     default_model: str | None = None
     endpoint: str | None = None
     api_key: str | None = None
+    accelerator_vendor: AcceleratorVendor | None = None
 
 
 @router.get("")
@@ -78,6 +101,7 @@ async def list_providers():
                 "default_model": p.get("default_model"),
                 "available_models": p.get("available_models"),
                 "has_api_key": has_key,
+                "accelerator_vendor": _resolve_accelerator_vendor(p),
                 "created_at": p.get("created_at"),
                 "updated_at": p.get("updated_at"),
             }
@@ -165,6 +189,7 @@ async def get_provider_detail(name: str):
         "default_model": provider.get("default_model"),
         "available_models": provider.get("available_models"),
         "has_api_key": has_key,
+        "accelerator_vendor": _resolve_accelerator_vendor(provider),
         "created_at": provider.get("created_at"),
         "updated_at": provider.get("updated_at"),
     }
@@ -184,14 +209,21 @@ async def create_provider(body: ProviderCreate):
     if not endpoint and body.type in PROVIDER_MODELS:
         endpoint = PROVIDER_MODELS[body.type].get("endpoint")
 
-    try:
-        await asyncio.to_thread(
-            add_provider,
-            body.name,
-            body.type,
-            endpoint=endpoint,
-            default_model=body.default_model,
+    provider_record: dict[str, Any] = {
+        "name": body.name,
+        "type": body.type,
+        "endpoint": endpoint,
+        "default_model": body.default_model,
+    }
+    # Persist accelerator_vendor only for local-inference providers; storing
+    # it on cloud providers would be misleading metadata.
+    if body.type in LOCAL_INFERENCE_TYPES:
+        provider_record["accelerator_vendor"] = (
+            body.accelerator_vendor or DEFAULT_ACCELERATOR_VENDOR
         )
+
+    try:
+        await asyncio.to_thread(add_provider, provider_record)
     except DuplicateProviderError:
         raise HTTPException(
             status_code=409, detail=f"Provider '{body.name}' already exists"
@@ -219,9 +251,17 @@ async def update_provider_endpoint(name: str, body: ProviderUpdate):
         updates["default_model"] = body.default_model
     if body.endpoint is not None:
         updates["endpoint"] = body.endpoint
+    if (
+        body.accelerator_vendor is not None
+        and provider.get("type") in LOCAL_INFERENCE_TYPES
+    ):
+        updates["accelerator_vendor"] = body.accelerator_vendor
 
     if updates:
-        await asyncio.to_thread(update_provider, name, **updates)
+        def _apply(existing: dict) -> dict:
+            return {**existing, **updates}
+
+        await asyncio.to_thread(update_provider, name, _apply)
 
     # Update API key if provided
     if body.api_key is not None:

@@ -22,8 +22,8 @@
   --text-muted: #94a3b8;
 
   /* Border */
-  --border-default: #e2e8f0;
-  --border-subtle: #f1f5f9;
+  --border-default: #94a3b8;
+  --border-subtle: #cbd5e1;
 
   /* Status */
   --status-running: #10b981;

@@ -45,6 +45,7 @@ const config: Config = {
         panel: "var(--bg-panel)",
         surface: "var(--bg-surface)",
         elevated: "var(--bg-elevated)",
+        default: "var(--border-default)",
       },
       width: {
         sidebar: "13rem",

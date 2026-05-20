@@ -17,6 +17,7 @@ function makeAgent(overrides: Partial<TopologyAgent> = {}): TopologyAgent {
     provider: "p1",
     provider_type: "ollama",
     provider_endpoint: "http://10.0.0.5:11434",
+    provider_accelerator_vendor: null,
     ...overrides,
   };
 }
@@ -373,6 +374,36 @@ describe("computeTopology", () => {
     const agentNodes = nodes.filter((n) => n.type === "agent");
     const colors = agentNodes.map((n) => (n.data as { hostColor: string }).hostColor);
     expect(colors[0]).not.toBe(colors[1]);
+  });
+
+  it("passes acceleratorVendor through to provider node data when set on the agent", () => {
+    const data: TopologyResponse = {
+      control: { label: "Control", description: "clm CLI" },
+      summary: { total_agents: 1, running: 1, total_hosts: 1 },
+      connections: [],
+      hosts: [
+        {
+          hostname: "amd-box",
+          alias: "amd-box",
+          user: "user",
+          addresses: [],
+          has_key: true,
+          agent_count: 1,
+          agents: [
+            makeAgent({
+              agent_key: "a1",
+              provider_accelerator_vendor: "amd",
+            }),
+          ],
+        },
+      ],
+    };
+    const { nodes } = computeTopology(data);
+    const providerNode = nodes.find((n) => n.type === "provider");
+    expect(
+      (providerNode!.data as { acceleratorVendor: string | null })
+        .acceleratorVendor,
+    ).toBe("amd");
   });
 
   it("passes hostGpuVendor to provider node data for NVIDIA detection", () => {

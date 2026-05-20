@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import type { ProviderTypesMap, ProviderCreate } from "@/lib/types";
+import type {
+  AcceleratorVendor,
+  ProviderTypesMap,
+  ProviderCreate,
+} from "@/lib/types";
 
 interface AddProviderModalProps {
   open: boolean;
@@ -26,6 +30,8 @@ export function AddProviderModal({
   const [apiKey, setApiKey] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [showKey, setShowKey] = useState(false);
+  const [acceleratorVendor, setAcceleratorVendor] =
+    useState<AcceleratorVendor>("nvidia");
 
   const typeInfo = type ? providerTypes[type] : null;
   const availableModels = typeInfo?.models || [];
@@ -51,6 +57,7 @@ export function AddProviderModal({
       default_model: model || undefined,
       api_key: apiKey || undefined,
       endpoint: endpoint || autoEndpoint || undefined,
+      accelerator_vendor: type === "ollama" ? acceleratorVendor : undefined,
     });
   }
 
@@ -61,6 +68,7 @@ export function AddProviderModal({
     setApiKey("");
     setEndpoint("");
     setShowKey(false);
+    setAcceleratorVendor("nvidia");
     onClose();
   }
 
@@ -101,6 +109,38 @@ export function AddProviderModal({
             ))}
           </select>
         </div>
+
+        {/* Accelerator (local-inference only) */}
+        {type === "ollama" && (
+          <div>
+            <label className="block text-xs font-medium text-secondary mb-1">
+              Accelerator
+            </label>
+            <div className="flex items-center gap-4">
+              {(["nvidia", "amd"] as const).map((vendor) => (
+                <label
+                  key={vendor}
+                  className="flex items-center gap-2 text-sm text-primary-text cursor-pointer"
+                >
+                  <input
+                    type="radio"
+                    name="accelerator-vendor"
+                    value={vendor}
+                    checked={acceleratorVendor === vendor}
+                    onChange={() => setAcceleratorVendor(vendor)}
+                    className="text-primary focus:ring-primary/30"
+                  />
+                  <span className="uppercase tracking-wide text-xs font-semibold">
+                    {vendor}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-muted">
+              Used by the topology view to display the correct local-GPU brand.
+            </p>
+          </div>
+        )}
 
         {/* Default Model */}
         {availableModels && availableModels.length > 0 && (
