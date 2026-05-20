@@ -416,28 +416,19 @@ class TestAgentSync:
         ]
         hosts_file.write_text(json.dumps(hosts_data, indent=2))
 
+        # Issue #437 / ATX W9: sync no longer calls restart_agent, so the
+        # dead restart_agent mock is removed and the success string drops
+        # the misleading "agent restarted" suffix.
         with patch(
             "clawrium.core.lifecycle.configure_agent",
             return_value=(True, None),
         ):
-            with patch(
-                "clawrium.core.lifecycle.restart_agent",
-                return_value={
-                    "success": True,
-                    "agent": "assistant",
-                    "host": "192.168.1.100",
-                    "operation": "restart",
-                    "pid": None,
-                    "started_at": "2026-04-14T12:00:00Z",
-                    "error": None,
-                },
-            ):
-                result = runner.invoke(app, ["agent", "sync", "assistant"])
+            result = runner.invoke(app, ["agent", "sync", "assistant"])
 
         assert result.exit_code == 0
         assert "Syncing agent" in result.output
-        # Updated success message
-        assert "Configuration synced and agent restarted" in result.output
+        assert "Configuration synced" in result.output
+        assert "agent restarted" not in result.output
 
     def test_sync_configure_failure(self, isolated_config: Path, tmp_path: Path):
         """Sync fails when configure step fails."""
@@ -480,8 +471,11 @@ class TestAgentSync:
         assert "Failed to sync" in result.output
         assert "Configure failed" in result.output
 
-    def test_sync_restart_failure(self, isolated_config: Path, tmp_path: Path):
-        """Sync fails when restart step fails."""
+    def test_sync_configure_failure_after_always_repair(
+        self, isolated_config: Path, tmp_path: Path
+    ):
+        """Issue #437: sync no longer calls restart; failure paths now
+        come from configure (which performs the always-pair step)."""
         hosts_file = isolated_config / "hosts.json"
         isolated_config.mkdir(parents=True, exist_ok=True)
 
@@ -513,25 +507,13 @@ class TestAgentSync:
 
         with patch(
             "clawrium.core.lifecycle.configure_agent",
-            return_value=(True, None),
+            return_value=(False, "Configure error"),
         ):
-            with patch(
-                "clawrium.core.lifecycle.restart_agent",
-                return_value={
-                    "success": False,
-                    "agent": "assistant",
-                    "host": "192.168.1.100",
-                    "operation": "restart",
-                    "pid": None,
-                    "started_at": None,
-                    "error": "Restart error",
-                },
-            ):
-                result = runner.invoke(app, ["agent", "sync", "assistant"])
+            result = runner.invoke(app, ["agent", "sync", "assistant"])
 
         assert result.exit_code == 1
         assert "Failed to sync" in result.output
-        assert "Restart failed" in result.output
+        assert "Configure failed" in result.output
 
     def test_sync_with_workspace_flag_skips_restart(
         self, isolated_config: Path, tmp_path: Path
@@ -578,17 +560,19 @@ class TestAgentSync:
                 )
 
         assert result.exit_code == 0
-        assert "Syncing workspace for" in result.output
-        assert "Workspace synced (no restart)" in result.output
-        # Configure should be called
+        # Issue #437: sync always reports "Configuration synced" now; the
+        # --workspace flag is preserved on the CLI surface but the
+        # output is the same since sync no longer orchestrates a restart.
+        assert "Configuration synced" in result.output
         mock_configure.assert_called_once()
-        # Restart should NOT be called
         mock_restart.assert_not_called()
 
-    def test_sync_without_workspace_flag_calls_restart(
+    def test_sync_does_not_call_restart_agent(
         self, isolated_config: Path, tmp_path: Path
     ):
-        """B4/B6 fix: Sync without --workspace flag calls restart_agent with correct args."""
+        """Issue #437: `clm agent sync` no longer orchestrates a
+        separate restart. configure handles re-pair + handler-driven
+        restart in one shot."""
         hosts_file = isolated_config / "hosts.json"
         isolated_config.mkdir(parents=True, exist_ok=True)
 
@@ -623,25 +607,10 @@ class TestAgentSync:
             return_value=(True, None),
         ) as mock_configure:
             with patch(
-                "clawrium.core.lifecycle.restart_agent",
-                return_value={
-                    "success": True,
-                    "agent": "assistant",
-                    "host": "192.168.1.100",
-                    "operation": "restart",
-                    "pid": None,
-                    "started_at": "2026-04-14T12:00:00Z",
-                    "error": None,
-                },
+                "clawrium.core.lifecycle.restart_agent"
             ) as mock_restart:
                 result = runner.invoke(app, ["agent", "sync", "assistant"])
 
         assert result.exit_code == 0
-        # Configure should be called
         mock_configure.assert_called_once()
-        # B6 fix: Verify restart_agent called with correct arguments
-        mock_restart.assert_called_once()
-        call_args = mock_restart.call_args
-        assert call_args.args[0] == "192.168.1.100"  # hostname
-        assert call_args.args[1] == "openclaw"  # agent_type
-        assert call_args.kwargs.get("agent_name") == "assistant"
+        mock_restart.assert_not_called()

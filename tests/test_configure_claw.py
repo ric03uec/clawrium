@@ -112,6 +112,95 @@ class TestConfigureClaw:
         assert success is False
         assert "failed to update local state" in error
 
+    def test_no_rotation_event_emitted_when_update_host_fails_with_prior_token(self, tmp_path: Path):
+        """ATX W-COV-3: when configure's hosts.json write fails AFTER
+        the pair handshake minted a new token, the rotation event must
+        NOT be emitted — that's the W2 ordering invariant. Without this
+        test, moving the emit back before the write would silently
+        regress."""
+        host = {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "zer-test": {
+                    "type": "zeroclaw",
+                    "config": {
+                        "gateway": {
+                            "auth": "stable-prior-token-zzzzzzz",
+                            "url": "ws://test-host:40000/ws/chat",
+                        }
+                    },
+                }
+            },
+        }
+        config_data = {
+            "gateway": {"host": "0.0.0.0", "port": 40000, "allow_public_bind": True},
+            "provider": {
+                "name": "test-provider",
+                "type": "anthropic",
+                "default_model": "claude-sonnet-4-5",
+            },
+        }
+
+        key_path = tmp_path / "key"
+        key_path.write_text("key")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+
+        artifacts_dir = tmp_path / "artifacts"
+        fact_cache_dir = artifacts_dir / "fact_cache"
+        fact_cache_dir.mkdir(parents=True)
+        (fact_cache_dir / "test-host").write_text(json.dumps({
+            "__payload__": json.dumps({
+                "zeroclaw_gateway_token": "freshly-minted-token-but-not-persisted",
+                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+            }),
+        }))
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = []
+        mock_runner.config.artifact_dir = str(artifacts_dir)
+
+        events: list[tuple[str, str]] = []
+
+        def on_event(stage: str, message: str) -> None:
+            events.append((stage, message))
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ):
+                with patch(
+                    "clawrium.core.lifecycle.get_host_private_key",
+                    return_value=key_path,
+                ):
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        return_value=mock_runner,
+                    ):
+                        with patch(
+                            "clawrium.core.lifecycle.update_host",
+                            return_value=False,
+                        ):
+                            with patch(
+                                "clawrium.core.providers.get_provider_api_key",
+                                return_value="",
+                            ):
+                                success, _ = configure_agent(
+                                    "test-host", "zeroclaw", config_data,
+                                    on_event=on_event,
+                                )
+
+        assert success is False
+        rotation = [m for s, m in events if s == "gateway_token_rotated"]
+        assert not rotation, (
+            f"rotation event leaked despite update_host failure: {rotation!r}"
+        )
+
     def test_returns_false_when_playbook_missing(self, tmp_path: Path):
         """Test that missing configure playbook is detected."""
         host = {
@@ -794,16 +883,13 @@ class TestConfigureZeroclawFactExtraction:
         assert gateway["auth"] == "wrapped-bearer-token-xyz"
 
 
-class TestConfigureZeroclawIdempotentRepair:
-    """ATX Round 1 B3: re-running configure on an already-paired zeroclaw
-    must NOT re-pair (which would invalidate the live token). The
-    configure playbook receives `existing_gateway_token` from configure_agent
-    and skips the /pair/code → /pair handshake when it's non-empty."""
+class TestConfigureZeroclawAlwaysRepair:
+    """Issue #437: configure_agent for zeroclaw always mints a fresh
+    bearer. The previous idempotent-skip path is gone — `existing_gateway_token`
+    / `force_repair` are no longer plumbed through the inventory."""
 
-    def test_existing_token_passed_to_playbook_as_ansible_var(self, tmp_path: Path):
-        """Verify configure_agent forwards the persisted token into the
-        Ansible vars so the playbook can take its idempotent skip path."""
-        host = {
+    def _build_host_with_existing_token(self, token: str = "x" * 32) -> dict:
+        return {
             "hostname": "test-host",
             "key_id": "test",
             "agent_name": "xclm",
@@ -813,14 +899,16 @@ class TestConfigureZeroclawIdempotentRepair:
                     "type": "zeroclaw",
                     "config": {
                         "gateway": {
-                            "auth": "existing-paired-token-from-prior-configure",
+                            "auth": token,
                             "url": "ws://test-host:40000/ws/chat",
                         }
                     },
                 }
             },
         }
-        config_data = {
+
+    def _build_config(self) -> dict:
+        return {
             "gateway": {"host": "0.0.0.0", "port": 40000, "allow_public_bind": True},
             "provider": {
                 "name": "test-provider",
@@ -829,18 +917,20 @@ class TestConfigureZeroclawIdempotentRepair:
             },
         }
 
+    def _run_configure(self, host: dict, config_data: dict, tmp_path: Path,
+                       *, fact_token: str = "freshly-minted-token-1234567890",
+                       on_event=None, extra_vars=None):
         key_path = tmp_path / "key"
         key_path.write_text("key")
         playbook = tmp_path / "configure.yaml"
         playbook.write_text("---\n")
 
-        # Set up fact cache so fact extraction also succeeds.
         artifacts_dir = tmp_path / "artifacts"
         fact_cache_dir = artifacts_dir / "fact_cache"
         fact_cache_dir.mkdir(parents=True)
         (fact_cache_dir / "test-host").write_text(json.dumps({
             "__payload__": json.dumps({
-                "zeroclaw_gateway_token": "existing-paired-token-from-prior-configure",
+                "zeroclaw_gateway_token": fact_token,
                 "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
             }),
         }))
@@ -850,7 +940,7 @@ class TestConfigureZeroclawIdempotentRepair:
         mock_runner.events = []
         mock_runner.config.artifact_dir = str(artifacts_dir)
 
-        captured: dict[str, object] = {}
+        captured: dict = {}
 
         def capture_run(*, inventory, **_kwargs):
             captured["inventory"] = inventory
@@ -878,462 +968,82 @@ class TestConfigureZeroclawIdempotentRepair:
                                 return_value="",
                             ):
                                 success, error = configure_agent(
-                                    "test-host", "zeroclaw", config_data
-                                )
-
-        assert success is True, error
-        # The existing token is passed to the playbook so it can skip pairing.
-        ansible_vars = captured["inventory"]["all"]["vars"]
-        assert ansible_vars["existing_gateway_token"] == (
-            "existing-paired-token-from-prior-configure"
-        )
-        assert ansible_vars["force_repair"] is False
-
-    def test_force_repair_true_forwarded_to_playbook(self, tmp_path: Path):
-        """ATX Round 2 W7: explicit `force_repair=True` via `extra_vars`
-        must reach the playbook so the operator can rotate the bearer
-        token. Without this test, dropping the `update(extra_vars)` call
-        in configure_agent would silently neuter the rotation path."""
-        host = {
-            "hostname": "test-host",
-            "key_id": "test",
-            "agent_name": "xclm",
-            "port": 22,
-            "agents": {
-                "zer-test": {
-                    "type": "zeroclaw",
-                    "config": {
-                        "gateway": {
-                            "auth": "existing-paired-token-from-prior-configure",
-                            "url": "ws://test-host:40000/ws/chat",
-                        }
-                    },
-                }
-            },
-        }
-        config_data = {
-            "gateway": {"host": "0.0.0.0", "port": 40000, "allow_public_bind": True},
-            "provider": {
-                "name": "test-provider",
-                "type": "anthropic",
-                "default_model": "claude-sonnet-4-5",
-            },
-        }
-
-        key_path = tmp_path / "key"
-        key_path.write_text("key")
-        playbook = tmp_path / "configure.yaml"
-        playbook.write_text("---\n")
-
-        artifacts_dir = tmp_path / "artifacts"
-        fact_cache_dir = artifacts_dir / "fact_cache"
-        fact_cache_dir.mkdir(parents=True)
-        (fact_cache_dir / "test-host").write_text(json.dumps({
-            "__payload__": json.dumps({
-                "zeroclaw_gateway_token": "fresh-bearer-token-after-repair",
-                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            }),
-        }))
-
-        mock_runner = MagicMock()
-        mock_runner.status = "successful"
-        mock_runner.events = []
-        mock_runner.config.artifact_dir = str(artifacts_dir)
-
-        captured: dict[str, object] = {}
-
-        def capture_run(*, inventory, **_kwargs):
-            captured["inventory"] = inventory
-            return mock_runner
-
-        with patch("clawrium.core.lifecycle.get_host", return_value=host):
-            with patch(
-                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
-                return_value=playbook,
-            ):
-                with patch(
-                    "clawrium.core.lifecycle.get_host_private_key",
-                    return_value=key_path,
-                ):
-                    with patch(
-                        "clawrium.core.lifecycle.ansible_runner.run",
-                        side_effect=capture_run,
-                    ):
-                        with patch(
-                            "clawrium.core.lifecycle.update_host",
-                            return_value=True,
-                        ):
-                            with patch(
-                                "clawrium.core.providers.get_provider_api_key",
-                                return_value="",
-                            ):
-                                success, error = configure_agent(
-                                    "test-host",
-                                    "zeroclaw",
+                                    "test-host", "zeroclaw",
                                     config_data,
-                                    extra_vars={"force_repair": True},
+                                    on_event=on_event,
+                                    extra_vars=extra_vars,
                                 )
+        return success, error, captured
 
+    def test_no_existing_gateway_token_in_inventory(self, tmp_path: Path):
+        """`existing_gateway_token` and `force_repair` MUST NOT appear in
+        the Ansible inventory. The playbook no longer reads them — leaving
+        them in would be confusing and would let a stale skip-path sneak
+        back in via extra_vars."""
+        host = self._build_host_with_existing_token()
+        success, error, captured = self._run_configure(
+            host, self._build_config(), tmp_path
+        )
         assert success is True, error
         ansible_vars = captured["inventory"]["all"]["vars"]
-        assert ansible_vars["force_repair"] is True
+        assert "existing_gateway_token" not in ansible_vars
+        assert "force_repair" not in ansible_vars
 
-    def test_empty_token_on_first_configure_passes_empty_string(self, tmp_path: Path):
-        """ATX Round 2 W7: a first-time configure (no persisted gateway
-        block) MUST pass `existing_gateway_token=""` so the playbook
-        takes the mint path. This pins the contract that the empty
-        string — not absence or None — is the signal."""
-        host = {
-            "hostname": "test-host",
-            "key_id": "test",
-            "agent_name": "xclm",
-            "port": 22,
-            "agents": {"zer-test": {"type": "zeroclaw"}},  # no config.gateway
-        }
-        config_data = {
-            "gateway": {"host": "0.0.0.0", "port": 40000, "allow_public_bind": True},
-            "provider": {
-                "name": "test-provider",
-                "type": "anthropic",
-                "default_model": "claude-sonnet-4-5",
-            },
-        }
-
-        key_path = tmp_path / "key"
-        key_path.write_text("key")
-        playbook = tmp_path / "configure.yaml"
-        playbook.write_text("---\n")
-
-        artifacts_dir = tmp_path / "artifacts"
-        fact_cache_dir = artifacts_dir / "fact_cache"
-        fact_cache_dir.mkdir(parents=True)
-        (fact_cache_dir / "test-host").write_text(json.dumps({
-            "__payload__": json.dumps({
-                "zeroclaw_gateway_token": "freshly-minted-token-on-first-configure",
-                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            }),
-        }))
-
-        mock_runner = MagicMock()
-        mock_runner.status = "successful"
-        mock_runner.events = []
-        mock_runner.config.artifact_dir = str(artifacts_dir)
-
-        captured: dict[str, object] = {}
-
-        def capture_run(*, inventory, **_kwargs):
-            captured["inventory"] = inventory
-            return mock_runner
-
-        with patch("clawrium.core.lifecycle.get_host", return_value=host):
-            with patch(
-                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
-                return_value=playbook,
-            ):
-                with patch(
-                    "clawrium.core.lifecycle.get_host_private_key",
-                    return_value=key_path,
-                ):
-                    with patch(
-                        "clawrium.core.lifecycle.ansible_runner.run",
-                        side_effect=capture_run,
-                    ):
-                        with patch(
-                            "clawrium.core.lifecycle.update_host",
-                            return_value=True,
-                        ):
-                            with patch(
-                                "clawrium.core.providers.get_provider_api_key",
-                                return_value="",
-                            ):
-                                success, error = configure_agent(
-                                    "test-host", "zeroclaw", config_data
-                                )
-
+    def test_fresh_token_overwrites_existing_in_config_data(self, tmp_path: Path):
+        """After configure runs, config_data['gateway']['auth'] must hold
+        the fact-cache token, not the prior persisted one."""
+        host = self._build_host_with_existing_token(token="old-token-" + "a" * 22)
+        config_data = self._build_config()
+        success, error, _ = self._run_configure(
+            host, config_data, tmp_path,
+            fact_token="brand-new-token-after-pair-zxy",
+        )
         assert success is True, error
-        ansible_vars = captured["inventory"]["all"]["vars"]
-        assert ansible_vars["existing_gateway_token"] == ""
+        assert config_data["gateway"]["auth"] == "brand-new-token-after-pair-zxy"
 
-    def test_short_existing_token_treated_as_absent(self, tmp_path: Path):
-        """ATX Round 2 W5: a 1-15-char persisted token must be treated
-        as absent (the playbook's `length >= 16` gate would reject it
-        anyway). Without this guard, the Python side passes a too-short
-        token through and the playbook silently re-pairs, surprising the
-        operator."""
-        host = {
-            "hostname": "test-host",
-            "key_id": "test",
-            "agent_name": "xclm",
-            "port": 22,
-            "agents": {
-                "zer-test": {
-                    "type": "zeroclaw",
-                    "config": {
-                        "gateway": {
-                            # 15 characters — one short of the 16-char floor.
-                            "auth": "shortenedtokenz",
-                            "url": "ws://test-host:40000/ws/chat",
-                        }
-                    },
-                }
-            },
-        }
-        config_data = {
-            "gateway": {"host": "0.0.0.0", "port": 40000, "allow_public_bind": True},
-            "provider": {
-                "name": "test-provider",
-                "type": "anthropic",
-                "default_model": "claude-sonnet-4-5",
-            },
-        }
-
-        key_path = tmp_path / "key"
-        key_path.write_text("key")
-        playbook = tmp_path / "configure.yaml"
-        playbook.write_text("---\n")
-
-        artifacts_dir = tmp_path / "artifacts"
-        fact_cache_dir = artifacts_dir / "fact_cache"
-        fact_cache_dir.mkdir(parents=True)
-        (fact_cache_dir / "test-host").write_text(json.dumps({
-            "__payload__": json.dumps({
-                "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
-                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            }),
-        }))
-
-        mock_runner = MagicMock()
-        mock_runner.status = "successful"
-        mock_runner.events = []
-        mock_runner.config.artifact_dir = str(artifacts_dir)
-
-        captured: dict[str, object] = {}
-
-        def capture_run(*, inventory, **_kwargs):
-            captured["inventory"] = inventory
-            return mock_runner
-
-        with patch("clawrium.core.lifecycle.get_host", return_value=host):
-            with patch(
-                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
-                return_value=playbook,
-            ):
-                with patch(
-                    "clawrium.core.lifecycle.get_host_private_key",
-                    return_value=key_path,
-                ):
-                    with patch(
-                        "clawrium.core.lifecycle.ansible_runner.run",
-                        side_effect=capture_run,
-                    ):
-                        with patch(
-                            "clawrium.core.lifecycle.update_host",
-                            return_value=True,
-                        ):
-                            with patch(
-                                "clawrium.core.providers.get_provider_api_key",
-                                return_value="",
-                            ):
-                                success, error = configure_agent(
-                                    "test-host", "zeroclaw", config_data
-                                )
-
-        assert success is True, error
-        ansible_vars = captured["inventory"]["all"]["vars"]
-        # 15-char token is filtered to "" by configure_agent so the
-        # playbook takes the mint path.
-        assert ansible_vars["existing_gateway_token"] == ""
-
-    def test_short_existing_token_emits_warning_via_on_event(self, tmp_path: Path):
-        """ATX Round 5 W-1: when a sub-16-char token forces a re-pair,
-        the warning MUST flow through on_event with stage='configure'
-        and a `WARNING:` prefix — that's the only shape `cli/agent.py`'s
-        `_print_configure_warnings` callback surfaces to the terminal.
-        Pre-fix, the path emitted via stage='warn' which the callback
-        silently dropped (the user re-paired and broke their live
-        `clm chat` with zero indication)."""
-        host = {
-            "hostname": "test-host",
-            "key_id": "test",
-            "agent_name": "xclm",
-            "port": 22,
-            "agents": {
-                "zer-test": {
-                    "type": "zeroclaw",
-                    "config": {
-                        "gateway": {
-                            # 15 chars — under the 16-char floor.
-                            "auth": "shortenedtokenz",
-                            "url": "ws://test-host:40000/ws/chat",
-                        }
-                    },
-                }
-            },
-        }
-        config_data = {
-            "gateway": {"host": "0.0.0.0", "port": 40000, "allow_public_bind": True},
-            "provider": {
-                "name": "test-provider",
-                "type": "anthropic",
-                "default_model": "claude-sonnet-4-5",
-            },
-        }
-
-        key_path = tmp_path / "key"
-        key_path.write_text("key")
-        playbook = tmp_path / "configure.yaml"
-        playbook.write_text("---\n")
-
-        artifacts_dir = tmp_path / "artifacts"
-        fact_cache_dir = artifacts_dir / "fact_cache"
-        fact_cache_dir.mkdir(parents=True)
-        (fact_cache_dir / "test-host").write_text(json.dumps({
-            "__payload__": json.dumps({
-                "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
-                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            }),
-        }))
-
-        mock_runner = MagicMock()
-        mock_runner.status = "successful"
-        mock_runner.events = []
-        mock_runner.config.artifact_dir = str(artifacts_dir)
-
+    def test_rotation_event_emitted_when_token_changes(self, tmp_path: Path):
+        """When the just-minted bearer differs from the persisted one,
+        configure_agent must emit a single stage='gateway_token_rotated'
+        event carrying a JSON payload with the agent_key + reason."""
+        host = self._build_host_with_existing_token(token="stable-old-token-zzz")
         events: list[tuple[str, str]] = []
 
         def on_event(stage: str, message: str) -> None:
             events.append((stage, message))
 
-        with patch("clawrium.core.lifecycle.get_host", return_value=host):
-            with patch(
-                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
-                return_value=playbook,
-            ):
-                with patch(
-                    "clawrium.core.lifecycle.get_host_private_key",
-                    return_value=key_path,
-                ):
-                    with patch(
-                        "clawrium.core.lifecycle.ansible_runner.run",
-                        return_value=mock_runner,
-                    ):
-                        with patch(
-                            "clawrium.core.lifecycle.update_host",
-                            return_value=True,
-                        ):
-                            with patch(
-                                "clawrium.core.providers.get_provider_api_key",
-                                return_value="",
-                            ):
-                                success, error = configure_agent(
-                                    "test-host",
-                                    "zeroclaw",
-                                    config_data,
-                                    on_event=on_event,
-                                )
-
-        assert success is True, error
-        short_token_warnings = [
-            (s, m) for s, m in events
-            if s == "configure"
-            and m.startswith("WARNING:")
-            and "shorter than 16" in m
-        ]
-        assert short_token_warnings, (
-            f"Expected a stage='configure' / 'WARNING:'-prefixed event "
-            f"about the short token; saw {events!r}"
+        success, error, _ = self._run_configure(
+            host, self._build_config(), tmp_path,
+            fact_token="brand-new-token-rotation-zxy",
+            on_event=on_event,
         )
-        # The user-facing message must reference the agent so they know
-        # which session needs to reconnect.
-        assert "zer-test" in short_token_warnings[0][1]
+        assert success is True, error
+        rotation_events = [m for s, m in events if s == "gateway_token_rotated"]
+        assert len(rotation_events) == 1
+        payload = json.loads(rotation_events[0])
+        assert payload["agent_key"] == "zer-test"
+        assert payload["reason"] == "configure"
 
-    def test_token_of_exactly_16_chars_passes_through(self, tmp_path: Path):
-        """ATX Round 3 W9: a token at the 16-char boundary must pass
-        through unchanged (this is the positive boundary of the W5
-        guard). Pre-fix, an off-by-one (`> 16` instead of `>= 16`)
-        would silently re-pair every 16-char token; this test fails
-        if the comparison drifts."""
-        sixteen_char_token = "a" * 16
+    def test_rotation_event_not_emitted_on_first_mint(self, tmp_path: Path):
+        """When there is no prior token (first configure), the rotation
+        event must be suppressed — that's an install, not a rotation."""
         host = {
             "hostname": "test-host",
             "key_id": "test",
             "agent_name": "xclm",
             "port": 22,
-            "agents": {
-                "zer-test": {
-                    "type": "zeroclaw",
-                    "config": {
-                        "gateway": {
-                            "auth": sixteen_char_token,
-                            "url": "ws://test-host:40000/ws/chat",
-                        }
-                    },
-                }
-            },
+            "agents": {"zer-test": {"type": "zeroclaw"}},
         }
-        config_data = {
-            "gateway": {"host": "0.0.0.0", "port": 40000, "allow_public_bind": True},
-            "provider": {
-                "name": "test-provider",
-                "type": "anthropic",
-                "default_model": "claude-sonnet-4-5",
-            },
-        }
+        events: list[tuple[str, str]] = []
 
-        key_path = tmp_path / "key"
-        key_path.write_text("key")
-        playbook = tmp_path / "configure.yaml"
-        playbook.write_text("---\n")
+        def on_event(stage: str, message: str) -> None:
+            events.append((stage, message))
 
-        artifacts_dir = tmp_path / "artifacts"
-        fact_cache_dir = artifacts_dir / "fact_cache"
-        fact_cache_dir.mkdir(parents=True)
-        (fact_cache_dir / "test-host").write_text(json.dumps({
-            "__payload__": json.dumps({
-                "zeroclaw_gateway_token": sixteen_char_token,
-                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            }),
-        }))
-
-        mock_runner = MagicMock()
-        mock_runner.status = "successful"
-        mock_runner.events = []
-        mock_runner.config.artifact_dir = str(artifacts_dir)
-
-        captured: dict[str, object] = {}
-
-        def capture_run(*, inventory, **_kwargs):
-            captured["inventory"] = inventory
-            return mock_runner
-
-        with patch("clawrium.core.lifecycle.get_host", return_value=host):
-            with patch(
-                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
-                return_value=playbook,
-            ):
-                with patch(
-                    "clawrium.core.lifecycle.get_host_private_key",
-                    return_value=key_path,
-                ):
-                    with patch(
-                        "clawrium.core.lifecycle.ansible_runner.run",
-                        side_effect=capture_run,
-                    ):
-                        with patch(
-                            "clawrium.core.lifecycle.update_host",
-                            return_value=True,
-                        ):
-                            with patch(
-                                "clawrium.core.providers.get_provider_api_key",
-                                return_value="",
-                            ):
-                                success, error = configure_agent(
-                                    "test-host", "zeroclaw", config_data
-                                )
-
+        success, error, _ = self._run_configure(
+            host, self._build_config(), tmp_path, on_event=on_event,
+        )
         assert success is True, error
-        ansible_vars = captured["inventory"]["all"]["vars"]
-        assert ansible_vars["existing_gateway_token"] == sixteen_char_token
+        assert not [e for e in events if e[0] == "gateway_token_rotated"]
+
 
 
 class TestOpenClawTemplate:

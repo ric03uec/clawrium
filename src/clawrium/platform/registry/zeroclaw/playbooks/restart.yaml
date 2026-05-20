@@ -1,0 +1,39 @@
+---
+# Re-pair playbook for zeroclaw restart (issue #437).
+#
+# The systemd restart itself happens in start.yaml / stop.yaml (driven by
+# lifecycle.restart_agent's stop -> start path). This playbook runs *after*
+# the daemon is back up: it waits for /health/providers to respond, then
+# performs the pair handshake. The new bearer token is emitted as a
+# cacheable host fact so lifecycle.restart_agent can persist it to
+# hosts.json under agents.<n>.config.gateway.auth.
+#
+# Without this step, a `clm agent restart zeroclaw-…` would silently
+# invalidate hosts.json's bearer (the daemon mints a fresh token on
+# startup, so the old token in hosts.json no longer matches whatever the
+# daemon will enforce).
+
+# ATX W-SEC-4: no `become: yes` — every task in this play (the
+# /health/providers probe + the included pair.yaml handshake) hits
+# loopback HTTP only. Privilege escalation here would broaden blast
+# radius for zero benefit; if a future task needs root, add `become`
+# at the task level (not the play level).
+- hosts: all
+  vars:
+    gateway_port: "{{ config.gateway.port }}"
+    gateway_local_base: "http://127.0.0.1:{{ gateway_port }}"
+  tasks:
+    - name: Probe /health/providers
+      ansible.builtin.uri:
+        url: "{{ gateway_local_base }}/health/providers"
+        method: GET
+        status_code: [200, 401]
+        timeout: 5
+      register: health_probe
+      retries: 30
+      delay: 2
+      until: health_probe.status in [200, 401]
+      no_log: true
+
+    - name: Run zeroclaw pair handshake
+      ansible.builtin.include_tasks: tasks/pair.yaml

@@ -66,6 +66,31 @@ clm ps
 - Project Board: https://github.com/users/ric03uec/projects/1
 - Version: 26.4.7
 
+## Gateway Token Lifecycle (zeroclaw)
+
+The zeroclaw gateway authenticates `clm chat` sessions with a bearer token
+the daemon mints via a `/pair/code` → `/pair` loopback handshake. The
+daemon does not persist that bearer across systemd restarts, so the only
+way for `clm` to guarantee `hosts.json.gateway.auth` equals the bearer the
+daemon will enforce on the next request is to **always re-pair** on every
+lifecycle op that touches the daemon.
+
+Rules (issue #437):
+
+- `clm agent configure`, `clm agent sync`, and `clm agent restart` all
+  mint a fresh bearer and overwrite `hosts.json.gateway.auth` atomically.
+- There is no idempotent-skip path. Do not add a `--no-rotate` flag —
+  branching here is the bug the original ATX Round 1 B3 code introduced.
+- Remote `clm chat` sessions (running on a different machine than the one
+  that ran the lifecycle op) will get a clean 401 on their next request.
+  They must reconnect — that's the documented trade-off.
+- Local `clm chat` reconnects transparently: on 401 it reloads
+  `hosts.json` once, compares the bearer in memory vs disk, and rebuilds
+  the backend with the fresh token if they differ.
+- A single `gateway_token_rotated` event is emitted from `lifecycle.py`
+  whenever the bearer is overwritten. The CLI renders it as a yellow
+  notice during `configure`/`sync`/`restart`.
+
 ## Tech Stack
 
 - **CLI**: Python + Typer

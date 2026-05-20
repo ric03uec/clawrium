@@ -195,102 +195,134 @@ def chat(
     else:
         console.print("Type /exit or press Ctrl+D to end the chat session.")
 
-    try:
-        asyncio.run(
-            _chat_loop(
-                backend=backend,
-                session_key=session,
-                response_timeout_seconds=timeout,
-                idle_timeout_seconds=idle_timeout,
-                chat_type=chat_type,
+    attempted_reconnect = False
+    while True:
+        try:
+            asyncio.run(
+                _chat_loop(
+                    backend=backend,
+                    session_key=session,
+                    response_timeout_seconds=timeout,
+                    idle_timeout_seconds=idle_timeout,
+                    chat_type=chat_type,
+                )
             )
-        )
-    except ChatAuthenticationError as exc:
-        console.print(
-            f"[red]Authentication failed:[/red] {rich_escape(_sanitize_exception_text(exc))}"
-        )
-        if chat_type in ("openai", "zeroclaw"):
-            console.print(
-                f"Token mismatch. Re-run 'clm agent configure {rich_escape(str(canonical_name))}'."
-            )
-        raise typer.Exit(code=1)
-    except ChatConnectionError as exc:
-        console.print(
-            f"[red]Connection failed:[/red] {rich_escape(_sanitize_exception_text(exc))}"
-        )
-        if chat_type == "openai":
-            # The backend uses two distinct ChatConnectionError messages:
-            # - "Failed to reach hermes at <url>" for connect-refused / DNS
-            # - "Timed out waiting for hermes response after Ns" for timeouts
-            # A genuine timeout means the service is up but slow; the right
-            # remediation is `--timeout`, not `systemctl`.
-            if str(exc).startswith("Timed out"):
+            if attempted_reconnect:
+                # ATX W7: only confirm success after the retry actually
+                # succeeded (no further auth error during the inner loop).
                 console.print(
-                    f"Try a higher --timeout value (current: {timeout}s)."
+                    "[dim]Gateway token rotated; reconnected.[/dim]"
                 )
-            else:
-                console.print(
-                    f"Check 'systemctl --user status hermes-{rich_escape(str(canonical_name))}' on the agent host."
+            break
+        except ChatAuthenticationError as exc:
+            # Issue #437: zeroclaw lifecycle ops always rotate the bearer.
+            # If a sync/restart/configure rotated the token in another
+            # shell while this session was open, the in-memory bearer is
+            # stale. Reload hosts.json once; if the on-disk bearer
+            # differs, rebuild the backend with the fresh token and
+            # resume. Identical bearer ⇒ genuine pairing failure, fall
+            # through to the existing error path.
+            if chat_type == "zeroclaw" and not attempted_reconnect:
+                reloaded_backend = _try_reload_zeroclaw_bearer(
+                    agent_name=agent_name,
+                    current_bearer=_current_bearer_for_backend(backend),
+                    response_timeout_seconds=timeout,
                 )
-                # Legacy install hint: persisted bind still on loopback means the
-                # opportunistic 127.0.0.1 → 0.0.0.0 migration in lifecycle hasn't
-                # run for this agent yet. Re-running configure flips it.
-                api_server = (
-                    agent_record.get("config", {}).get("api_server")
-                    if isinstance(agent_record.get("config"), dict)
-                    else None
-                )
-                if (
-                    isinstance(api_server, dict)
-                    and api_server.get("host") == "127.0.0.1"
-                ):
+                if reloaded_backend is not None:
+                    backend = reloaded_backend
+                    attempted_reconnect = True
+                    # ATX W7: tentative — the second asyncio.run might
+                    # also raise. Promote to the documented confirmation
+                    # only after the retry actually breaks the loop.
                     console.print(
-                        f"Legacy bind detected (127.0.0.1). "
-                        f"Re-run 'clm agent configure {rich_escape(str(canonical_name))}' "
-                        f"to bind a reachable interface."
+                        "[dim]Gateway token rotated — retrying...[/dim]"
                     )
-        elif chat_type == "zeroclaw":
-            # ATX Round 1 W6 / Round 2 W8: distinguish three connection
-            # failure modes. `chat_zeroclaw.py` emits three word-stable
-            # ChatConnectionError messages:
-            #
-            #   "Timed out connecting to ZeroClaw gateway at <url>"
-            #       -> TCP handshake never completed; firewall / wrong
-            #          port / host down. A higher --timeout won't help
-            #          because the connect path doesn't honor request
-            #          timeout. Route to a reachability hint.
-            #
-            #   "Timed out waiting for ZeroClaw response after Ns"
-            #       -> Connection succeeded but the agent is slow.
-            #          Route to the --timeout hint.
-            #
-            #   "Failed to reach ZeroClaw gateway at <url>: <reason>"
-            #       -> Connect failed immediately (OSError). Same as
-            #          connect-timeout: reachability hint.
-            # ATX Round 3 W2: use the shared constant exported by the
-            # zeroclaw backend so reworded exception messages can't
-            # silently misroute the hint.
-            msg = str(exc)
-            if msg.startswith(ZEROCLAW_RECV_TIMEOUT_MSG_PREFIX):
+                    continue
+            console.print(
+                f"[red]Authentication failed:[/red] {rich_escape(_sanitize_exception_text(exc))}"
+            )
+            if chat_type in ("openai", "zeroclaw"):
                 console.print(
-                    f"Try a higher --timeout value (current: {timeout}s)."
+                    f"Token mismatch. Re-run 'clm agent configure {rich_escape(str(canonical_name))}'."
                 )
+            raise typer.Exit(code=1)
+        except ChatConnectionError as exc:
+            console.print(
+                f"[red]Connection failed:[/red] {rich_escape(_sanitize_exception_text(exc))}"
+            )
+            if chat_type == "openai":
+                # The backend uses two distinct ChatConnectionError messages:
+                # - "Failed to reach hermes at <url>" for connect-refused / DNS
+                # - "Timed out waiting for hermes response after Ns" for timeouts
+                # A genuine timeout means the service is up but slow; the right
+                # remediation is `--timeout`, not `systemctl`.
+                if str(exc).startswith("Timed out"):
+                    console.print(
+                        f"Try a higher --timeout value (current: {timeout}s)."
+                    )
+                else:
+                    console.print(
+                        f"Check 'systemctl --user status hermes-{rich_escape(str(canonical_name))}' on the agent host."
+                    )
+                    # Legacy install hint: persisted bind still on loopback means the
+                    # opportunistic 127.0.0.1 → 0.0.0.0 migration in lifecycle hasn't
+                    # run for this agent yet. Re-running configure flips it.
+                    api_server = (
+                        agent_record.get("config", {}).get("api_server")
+                        if isinstance(agent_record.get("config"), dict)
+                        else None
+                    )
+                    if (
+                        isinstance(api_server, dict)
+                        and api_server.get("host") == "127.0.0.1"
+                    ):
+                        console.print(
+                            f"Legacy bind detected (127.0.0.1). "
+                            f"Re-run 'clm agent configure {rich_escape(str(canonical_name))}' "
+                            f"to bind a reachable interface."
+                        )
+            elif chat_type == "zeroclaw":
+                # ATX Round 1 W6 / Round 2 W8: distinguish three connection
+                # failure modes. `chat_zeroclaw.py` emits three word-stable
+                # ChatConnectionError messages:
+                #
+                #   "Timed out connecting to ZeroClaw gateway at <url>"
+                #       -> TCP handshake never completed; firewall / wrong
+                #          port / host down. A higher --timeout won't help
+                #          because the connect path doesn't honor request
+                #          timeout. Route to a reachability hint.
+                #
+                #   "Timed out waiting for ZeroClaw response after Ns"
+                #       -> Connection succeeded but the agent is slow.
+                #          Route to the --timeout hint.
+                #
+                #   "Failed to reach ZeroClaw gateway at <url>: <reason>"
+                #       -> Connect failed immediately (OSError). Same as
+                #          connect-timeout: reachability hint.
+                # ATX Round 3 W2: use the shared constant exported by the
+                # zeroclaw backend so reworded exception messages can't
+                # silently misroute the hint.
+                msg = str(exc)
+                if msg.startswith(ZEROCLAW_RECV_TIMEOUT_MSG_PREFIX):
+                    console.print(
+                        f"Try a higher --timeout value (current: {timeout}s)."
+                    )
+                else:
+                    console.print(
+                        f"Verify the agent host is reachable and re-run "
+                        f"'clm agent configure {rich_escape(str(canonical_name))}' "
+                        f"if the pairing token is stale."
+                    )
             else:
                 console.print(
-                    f"Verify the agent host is reachable and re-run "
-                    f"'clm agent configure {rich_escape(str(canonical_name))}' "
-                    f"if the pairing token is stale."
+                    "Verify the host is online and the recorded gateway URL/token are current (re-run configure/install if needed)."
                 )
-        else:
+            raise typer.Exit(code=1)
+        except ChatProtocolError as exc:
             console.print(
-                "Verify the host is online and the recorded gateway URL/token are current (re-run configure/install if needed)."
+                f"[red]Protocol error:[/red] {rich_escape(_sanitize_exception_text(exc))}"
             )
-        raise typer.Exit(code=1)
-    except ChatProtocolError as exc:
-        console.print(
-            f"[red]Protocol error:[/red] {rich_escape(_sanitize_exception_text(exc))}"
-        )
-        raise typer.Exit(code=1)
+            raise typer.Exit(code=1)
 
 
 async def _chat_loop(
@@ -471,6 +503,66 @@ def _build_openclaw_backend(
         device_private_key=gateway.get("device_private_key"),
         timeout_seconds=response_timeout_seconds,
     )
+
+
+def _current_bearer_for_backend(backend: ChatBackend) -> str | None:
+    """Return the bearer the backend will send on its next request.
+
+    Reads `_auth_token` (the SecretStr field both OpenClaw and ZeroClaw
+    backends use). Returns None if the backend type doesn't expose one;
+    callers treat None as "cannot compare" and skip the reconnect path.
+    """
+    auth = getattr(backend, "_auth_token", None)
+    if auth is None:
+        return None
+    # SecretStr exposes get_secret_value()
+    getter = getattr(auth, "get_secret_value", None)
+    if callable(getter):
+        try:
+            return getter()
+        except Exception:
+            return None
+    return None
+
+
+def _try_reload_zeroclaw_bearer(
+    agent_name: str,
+    current_bearer: str | None,
+    response_timeout_seconds: float,
+) -> ChatBackend | None:
+    """Reload hosts.json for a zeroclaw agent and rebuild the backend if
+    the on-disk bearer differs from `current_bearer`.
+
+    Returns a fresh ChatBackend when reconnect should proceed, or None
+    when the on-disk bearer matches (genuine pairing failure) or the
+    reload itself failed (treat as "cannot transparently recover").
+    """
+    if current_bearer is None:
+        return None
+    try:
+        resolved = get_agent_by_name(agent_name)
+    except (HostsFileCorruptedError, ValueError):
+        return None
+    if not resolved:
+        return None
+    host_record, _agent_type, agent_record = resolved
+    disk_bearer = (
+        agent_record.get("config", {}).get("gateway", {}).get("auth")
+        if isinstance(agent_record.get("config"), dict)
+        else None
+    )
+    if not isinstance(disk_bearer, str) or not disk_bearer.strip():
+        return None
+    if disk_bearer == current_bearer:
+        return None
+    try:
+        return _build_zeroclaw_backend(
+            agent_record=agent_record,
+            host_record=host_record,
+            response_timeout_seconds=response_timeout_seconds,
+        )
+    except ValueError:
+        return None
 
 
 def _build_zeroclaw_backend(

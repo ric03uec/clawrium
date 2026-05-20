@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from clawrium.cli import chat as chat_module
 from clawrium.cli.main import app
-from clawrium.core.chat import ChatProtocolError
+from clawrium.core.chat import ChatAuthenticationError, ChatProtocolError
 from clawrium.core.hosts import HostsFileCorruptedError
 
 
@@ -320,6 +320,220 @@ def test_chat_invokes_async_loop(monkeypatch):
     assert called.get("called") is True
     assert called.get("response_timeout_seconds") == 30.0
     assert called.get("idle_timeout_seconds") == 0.0
+
+
+def test_chat_zeroclaw_reconnects_on_401_when_disk_bearer_rotated(monkeypatch):
+    """Issue #437: when ChatAuthenticationError fires and hosts.json has a
+    new bearer (e.g. another shell ran `clm agent sync`), the chat REPL
+    rebuilds the backend with the fresh token and resumes once."""
+    host = {"hostname": "192.168.1.100", "alias": "server1"}
+    agent_initial = {
+        "agent_name": "zer-test",
+        "config": {
+            "gateway": {
+                "url": "ws://192.168.1.100:40123/ws/chat",
+                "auth": "stale-bearer-token-zzzzz",
+                "port": 40123,
+            }
+        },
+    }
+    agent_rotated = {
+        "agent_name": "zer-test",
+        "config": {
+            "gateway": {
+                "url": "ws://192.168.1.100:40123/ws/chat",
+                "auth": "fresh-bearer-token-zzzzz",
+                "port": 40123,
+            }
+        },
+    }
+
+    # Sequence: first lookup returns the stale token (used to build the
+    # initial backend); the reload during 401 handling returns the
+    # rotated record. Use an iterator so each call advances.
+    call_log = {"count": 0}
+
+    def get_agent_by_name(_name: str):
+        call_log["count"] += 1
+        if call_log["count"] == 1:
+            return host, "zeroclaw", agent_initial
+        return host, "zeroclaw", agent_rotated
+
+    monkeypatch.setattr("clawrium.cli.chat.get_agent_by_name", get_agent_by_name)
+
+    # `_resolve_chat_type` reads from the manifest registry — short
+    # circuit by stubbing the manifest loader.
+    monkeypatch.setattr(
+        "clawrium.cli.chat._resolve_chat_type", lambda _agent_type: "zeroclaw"
+    )
+
+    run_call_count = {"n": 0}
+
+    def fake_asyncio_run(coro):
+        coro.close()
+        run_call_count["n"] += 1
+        if run_call_count["n"] == 1:
+            raise ChatAuthenticationError("401 gateway rejected the bearer")
+        # Second call: success path.
+        return None
+
+    monkeypatch.setattr("clawrium.cli.chat.asyncio.run", fake_asyncio_run)
+
+    result = runner.invoke(
+        app,
+        ["chat", "zer-test", "--idle-timeout", "0"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert run_call_count["n"] == 2
+    assert "Gateway token rotated; reconnected." in result.output
+
+
+def test_chat_zeroclaw_loop_guard_stops_on_second_401(monkeypatch):
+    """ATX B1: the `attempted_reconnect` flag must cap retries at one.
+    If the second `asyncio.run` also raises ChatAuthenticationError
+    (e.g. the freshly-rotated bearer was ALSO immediately rotated by a
+    third actor), exit with code 1 — do not try a third connect."""
+    host = {"hostname": "192.168.1.100", "alias": "server1"}
+    agent_v1 = {
+        "agent_name": "zer-test",
+        "config": {
+            "gateway": {
+                "url": "ws://192.168.1.100:40123/ws/chat",
+                "auth": "stale-bearer-v1-zzzzz",
+                "port": 40123,
+            }
+        },
+    }
+    agent_v2 = {
+        "agent_name": "zer-test",
+        "config": {
+            "gateway": {
+                "url": "ws://192.168.1.100:40123/ws/chat",
+                "auth": "still-rotates-v2-zzzzz",
+                "port": 40123,
+            }
+        },
+    }
+
+    call_log = {"count": 0}
+
+    def get_agent_by_name(_name: str):
+        call_log["count"] += 1
+        return host, "zeroclaw", agent_v1 if call_log["count"] == 1 else agent_v2
+
+    monkeypatch.setattr("clawrium.cli.chat.get_agent_by_name", get_agent_by_name)
+    monkeypatch.setattr(
+        "clawrium.cli.chat._resolve_chat_type", lambda _agent_type: "zeroclaw"
+    )
+
+    run_call_count = {"n": 0}
+
+    def fake_asyncio_run(coro):
+        coro.close()
+        run_call_count["n"] += 1
+        # Both attempts raise auth — emulates a token that keeps rotating
+        # under us. Loop-guard must prevent a third attempt.
+        raise ChatAuthenticationError("401")
+
+    monkeypatch.setattr("clawrium.cli.chat.asyncio.run", fake_asyncio_run)
+
+    result = runner.invoke(app, ["chat", "zer-test", "--idle-timeout", "0"])
+
+    # The CLI must exit 1, must have tried exactly 2 connects (initial
+    # + 1 reconnect, no third), and must surface the final auth error.
+    assert result.exit_code == 1
+    assert run_call_count["n"] == 2
+    assert "Authentication failed" in result.output
+
+
+def test_chat_zeroclaw_treats_corrupted_hosts_as_genuine_401(monkeypatch):
+    """ATX W-COV-5: when reloading hosts.json during the 401 recovery
+    path raises HostsFileCorruptedError, treat the 401 as genuine —
+    surface 'Authentication failed' and exit 1, do not retry."""
+    host = {"hostname": "192.168.1.100", "alias": "server1"}
+    agent_initial = {
+        "agent_name": "zer-test",
+        "config": {
+            "gateway": {
+                "url": "ws://192.168.1.100:40123/ws/chat",
+                "auth": "stable-bearer-zzzzz",
+                "port": 40123,
+            }
+        },
+    }
+
+    call_log = {"count": 0}
+
+    def get_agent_by_name(_name: str):
+        call_log["count"] += 1
+        if call_log["count"] == 1:
+            return host, "zeroclaw", agent_initial
+        raise HostsFileCorruptedError("hosts.json malformed")
+
+    monkeypatch.setattr("clawrium.cli.chat.get_agent_by_name", get_agent_by_name)
+    monkeypatch.setattr(
+        "clawrium.cli.chat._resolve_chat_type", lambda _agent_type: "zeroclaw"
+    )
+
+    run_call_count = {"n": 0}
+
+    def fake_asyncio_run(coro):
+        coro.close()
+        run_call_count["n"] += 1
+        raise ChatAuthenticationError("401")
+
+    monkeypatch.setattr("clawrium.cli.chat.asyncio.run", fake_asyncio_run)
+
+    result = runner.invoke(app, ["chat", "zer-test", "--idle-timeout", "0"])
+
+    assert result.exit_code == 1
+    # No retry — only the initial attempt.
+    assert run_call_count["n"] == 1
+    assert "Authentication failed" in result.output
+
+
+def test_chat_zeroclaw_does_not_reconnect_when_disk_bearer_unchanged(monkeypatch):
+    """Issue #437: an authentic 401 (disk bearer matches in-memory) must
+    surface the existing 'Authentication failed' error rather than
+    silently looping."""
+    host = {"hostname": "192.168.1.100", "alias": "server1"}
+    agent_record = {
+        "agent_name": "zer-test",
+        "config": {
+            "gateway": {
+                "url": "ws://192.168.1.100:40123/ws/chat",
+                "auth": "same-stale-bearer-zzzzz",
+                "port": 40123,
+            }
+        },
+    }
+    monkeypatch.setattr(
+        "clawrium.cli.chat.get_agent_by_name",
+        lambda _name: (host, "zeroclaw", agent_record),
+    )
+    monkeypatch.setattr(
+        "clawrium.cli.chat._resolve_chat_type", lambda _agent_type: "zeroclaw"
+    )
+
+    run_call_count = {"n": 0}
+
+    def fake_asyncio_run(coro):
+        coro.close()
+        run_call_count["n"] += 1
+        raise ChatAuthenticationError("401 gateway rejected the bearer")
+
+    monkeypatch.setattr("clawrium.cli.chat.asyncio.run", fake_asyncio_run)
+
+    result = runner.invoke(
+        app,
+        ["chat", "zer-test", "--idle-timeout", "0"],
+    )
+
+    assert result.exit_code == 1
+    assert run_call_count["n"] == 1
+    assert "Authentication failed" in result.output
+    assert "Gateway token rotated; reconnected." not in result.output
 
 
 def test_chat_invokes_async_loop_with_default_timeouts(monkeypatch):

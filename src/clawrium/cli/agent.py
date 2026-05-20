@@ -117,10 +117,39 @@ def ps(
     status_command(host=host)
 
 
-def _print_configure_warnings(_stage: str, message: str) -> None:
+def _print_configure_warnings(stage: str, message: str) -> None:
     """on_event callback for configure_agent that surfaces WARNING-prefixed
-    messages to the terminal so silent lifecycle gaps (e.g. an integration
-    with an unknown type) become visible during `clm agent configure`."""
+    messages and structured lifecycle events to the terminal so silent
+    lifecycle gaps (e.g. an integration with an unknown type, or an
+    operator-visible token rotation) become visible during `clm agent
+    configure`/`sync`/`restart`."""
+    if stage == "gateway_token_rotated":
+        # Issue #437: structured rotation event. Payload is JSON with
+        # agent_key + old/new token prefixes + reason. Decode best-effort
+        # — a malformed payload still surfaces, just without the agent
+        # name.
+        agent_label: str | None = None
+        try:
+            payload = json.loads(message)
+            if isinstance(payload, dict):
+                raw_key = payload.get("agent_key")
+                if isinstance(raw_key, str) and raw_key:
+                    agent_label = raw_key
+        except (json.JSONDecodeError, TypeError):
+            pass
+        if agent_label:
+            console.print(
+                f"  [yellow]Gateway token rotated for "
+                f"{rich_escape(agent_label)}. Active chat sessions on "
+                f"other machines will need to reconnect.[/yellow]"
+            )
+        else:
+            console.print(
+                "  [yellow]Gateway token rotated. Active chat sessions on "
+                "other machines will need to reconnect.[/yellow]"
+            )
+        return
+
     if message.startswith("WARNING:"):
         # Escape `message` before embedding in a Rich markup span — the
         # lifecycle warning interpolates `integration_type` from
@@ -2249,7 +2278,10 @@ def remove(
         if result["success"]:
             console.print("[green]✓[/green] Agent removed successfully")
         else:
-            console.print(f"[red]✗[/red] Failed to remove agent: {result['error']}")
+            console.print(
+                f"[red]✗[/red] Failed to remove agent: "
+                f"{rich_escape(result['error'] or '')}"
+            )
             raise typer.Exit(code=1)
 
     except HostsFileCorruptedError as e:
@@ -2314,6 +2346,8 @@ def start(
                 console.print(f"  [dim]{message}[/dim]")
             elif stage == "start":
                 console.print(f"  {message}")
+            elif stage == "gateway_token_rotated":
+                _print_configure_warnings(stage, message)
 
         try:
             if installed_name in host_data.get("agents", {}):
@@ -2339,7 +2373,10 @@ def start(
             console.print("[green]✓[/green] Agent started successfully")
             console.print("  Run 'clm agent ps' to check status")
         else:
-            console.print(f"[red]✗[/red] Failed to start agent: {result['error']}")
+            console.print(
+                f"[red]✗[/red] Failed to start agent: "
+                f"{rich_escape(result['error'] or '')}"
+            )
             raise typer.Exit(code=1)
 
     except HostsFileCorruptedError as e:
@@ -2408,7 +2445,10 @@ def stop(
         if result["success"]:
             console.print("[green]✓[/green] Agent stopped successfully")
         else:
-            console.print(f"[red]✗[/red] Failed to stop agent: {result['error']}")
+            console.print(
+                f"[red]✗[/red] Failed to stop agent: "
+                f"{rich_escape(result['error'] or '')}"
+            )
             raise typer.Exit(code=1)
 
     except HostsFileCorruptedError as e:
@@ -2447,6 +2487,11 @@ def restart(
         def on_event(stage: str, message: str) -> None:
             if stage in ("validate", "restart"):
                 console.print(f"  [dim]{message}[/dim]")
+            elif stage == "gateway_token_rotated":
+                # ATX W3: route structured rotation events through the
+                # shared renderer so the operator sees the yellow notice
+                # documented in AGENTS.md instead of raw JSON.
+                _print_configure_warnings(stage, message)
             else:
                 console.print(f"  {message}")
 
@@ -2468,7 +2513,10 @@ def restart(
             console.print("[green]✓[/green] Agent restarted successfully")
             console.print("  Run 'clm agent ps' to check status")
         else:
-            console.print(f"[red]✗[/red] Failed to restart agent: {result['error']}")
+            console.print(
+                f"[red]✗[/red] Failed to restart agent: "
+                f"{rich_escape(result['error'] or '')}"
+            )
             raise typer.Exit(code=1)
 
     except HostsFileCorruptedError as e:
@@ -2523,6 +2571,10 @@ def sync(
             # configure stage gets dim, sync stage gets normal
             if stage == "configure":
                 console.print(f"  [dim]{message}[/dim]")
+            elif stage == "gateway_token_rotated":
+                # ATX W3: structured rotation events get the yellow
+                # notice from the shared renderer, not raw JSON.
+                _print_configure_warnings(stage, message)
             else:
                 console.print(f"  {message}")
 
@@ -2539,15 +2591,18 @@ def sync(
             raise typer.Exit(code=1)
 
         if result["success"]:
-            if workspace:
-                console.print("[green]✓[/green] Workspace synced (no restart)")
-            else:
-                console.print(
-                    "[green]✓[/green] Configuration synced and agent restarted"
-                )
-                console.print("  Run 'clm agent ps' to check status")
+            # Issue #437 / ATX W9: sync no longer orchestrates a restart;
+            # the daemon-side restart fires via the configure playbook's
+            # notify handler only when config.toml or the systemd
+            # drop-in actually changed. Drop the misleading "agent
+            # restarted" string.
+            console.print("[green]✓[/green] Configuration synced")
+            console.print("  Run 'clm agent ps' to check status")
         else:
-            console.print(f"[red]✗[/red] Failed to sync agent: {result['error']}")
+            console.print(
+                f"[red]✗[/red] Failed to sync agent: "
+                f"{rich_escape(result['error'] or '')}"
+            )
             raise typer.Exit(code=1)
 
     except HostsFileCorruptedError as e:

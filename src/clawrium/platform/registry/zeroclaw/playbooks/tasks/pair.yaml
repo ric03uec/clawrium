@@ -1,0 +1,82 @@
+---
+# Reusable pair-handshake task file (issue #437).
+#
+# Every lifecycle op that brings the zeroclaw daemon up MUST include this
+# file. There is no skip path. The daemon does not persist bearer state across
+# restarts, so the operator-visible invariant is "hosts.json.gateway.auth
+# equals the bearer the daemon will enforce on the next request" — and that
+# can only be guaranteed by always re-minting.
+#
+# Inputs:
+#   - gateway_local_base: http://127.0.0.1:<port> (set by including playbook)
+#   - ansible_host, gateway_port (used to emit zeroclaw_gateway_url fact)
+#   - agent_name, agent_type (used in failure messages)
+#
+# Outputs (cacheable host facts; configure_agent / restart_agent read these
+# out of artifacts/<run>/fact_cache):
+#   - zeroclaw_gateway_token: bearer token minted by /pair
+#   - zeroclaw_gateway_url:   ws://<host>:<port>/ws/chat
+
+- name: Request pairing code
+  ansible.builtin.uri:
+    url: "{{ gateway_local_base }}/pair/code"
+    method: GET
+    status_code: 200
+    timeout: 10
+    return_content: yes
+  register: pair_code_response
+  no_log: true
+
+# Do NOT set `no_log: true` on this fail task. The msg body is pure
+# template-literal text (`agent_name`, `agent_type` — both safe to log) and
+# contains the operator-facing rotation instructions. The original ATX B4
+# concern (registered var from a `no_log: true` task leaking into logs)
+# does not apply here because we never reference pair_code_response.json
+# fields inside the msg.
+- name: Validate pairing code shape
+  ansible.builtin.fail:
+    msg: >-
+      /pair/code did not return a usable pairing_code field. Daemon logs:
+      `journalctl --unit {{ agent_type }}-{{ agent_name }}`. Re-run
+      `clm agent configure {{ agent_name }}` after fixing the daemon.
+  when:
+    - pair_code_response.json is not defined
+      or pair_code_response.json.pairing_code is not defined
+      or pair_code_response.json.pairing_code | length < 1
+
+# ZeroClaw v0.7.5 expects the one-time code via the `X-Pairing-Code` HTTP
+# header (per the daemon's startup banner), not a JSON body.
+- name: Exchange pairing code for bearer token
+  ansible.builtin.uri:
+    url: "{{ gateway_local_base }}/pair"
+    method: POST
+    status_code: 200
+    timeout: 10
+    headers:
+      X-Pairing-Code: "{{ pair_code_response.json.pairing_code }}"
+    return_content: yes
+  register: pair_response
+  no_log: true
+
+- name: Validate bearer token shape
+  ansible.builtin.fail:
+    msg: >-
+      /pair did not return a usable token. Daemon logs:
+      `journalctl --unit {{ agent_type }}-{{ agent_name }}`. Re-run
+      `clm agent configure {{ agent_name }}` after fixing the daemon.
+  when:
+    - pair_response.json is not defined
+      or pair_response.json.token is not defined
+      or pair_response.json.token | length < 16
+
+# Emit gateway token + URL as cacheable host facts. The Python caller reads
+# them out of artifacts/<run>/fact_cache and persists them to hosts.json
+# under agents.<n>.config.gateway.{auth,url}. Mirrors the OpenClaw
+# fact-emission pattern in install.py:307-316. `no_log: true` so the value
+# isn't echoed at -vvv.
+- name: Save gateway credentials as cacheable facts
+  ansible.builtin.set_fact:
+    zeroclaw_gateway_token: "{{ pair_response.json.token }}"
+    zeroclaw_gateway_url: "ws://{{ ansible_host }}:{{ gateway_port }}/ws/chat"
+    cacheable: true
+  no_log: true
