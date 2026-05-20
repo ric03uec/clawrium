@@ -14,6 +14,7 @@ export function ProviderNode({ data }: NodeProps) {
     name,
     type,
     endpoint,
+    model,
     agentCount,
     unconfigured,
     hostGpuVendor,
@@ -80,6 +81,16 @@ export function ProviderNode({ data }: NodeProps) {
       >
         {name}
       </div>
+
+      {/* Model (if present) */}
+      {model && (
+        <div
+          className="text-[10px] text-secondary truncate mt-0.5"
+          title={model}
+        >
+          {model}
+        </div>
+      )}
 
       {/* Endpoint (if present) */}
       {endpoint && (
