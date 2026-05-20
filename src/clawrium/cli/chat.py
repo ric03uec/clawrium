@@ -207,6 +207,12 @@ def chat(
                     chat_type=chat_type,
                 )
             )
+            if attempted_reconnect:
+                # ATX W7: only confirm success after the retry actually
+                # succeeded (no further auth error during the inner loop).
+                console.print(
+                    "[dim]Gateway token rotated; reconnected.[/dim]"
+                )
             break
         except ChatAuthenticationError as exc:
             # Issue #437: zeroclaw lifecycle ops always rotate the bearer.
@@ -225,8 +231,11 @@ def chat(
                 if reloaded_backend is not None:
                     backend = reloaded_backend
                     attempted_reconnect = True
+                    # ATX W7: tentative — the second asyncio.run might
+                    # also raise. Promote to the documented confirmation
+                    # only after the retry actually breaks the loop.
                     console.print(
-                        "[dim]Gateway token rotated; reconnected.[/dim]"
+                        "[dim]Gateway token rotated — retrying...[/dim]"
                     )
                     continue
             console.print(

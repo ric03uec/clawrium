@@ -2343,6 +2343,8 @@ def start(
                 console.print(f"  [dim]{message}[/dim]")
             elif stage == "start":
                 console.print(f"  {message}")
+            elif stage == "gateway_token_rotated":
+                _print_configure_warnings(stage, message)
 
         try:
             if installed_name in host_data.get("agents", {}):
@@ -2476,6 +2478,11 @@ def restart(
         def on_event(stage: str, message: str) -> None:
             if stage in ("validate", "restart"):
                 console.print(f"  [dim]{message}[/dim]")
+            elif stage == "gateway_token_rotated":
+                # ATX W3: route structured rotation events through the
+                # shared renderer so the operator sees the yellow notice
+                # documented in AGENTS.md instead of raw JSON.
+                _print_configure_warnings(stage, message)
             else:
                 console.print(f"  {message}")
 
@@ -2552,6 +2559,10 @@ def sync(
             # configure stage gets dim, sync stage gets normal
             if stage == "configure":
                 console.print(f"  [dim]{message}[/dim]")
+            elif stage == "gateway_token_rotated":
+                # ATX W3: structured rotation events get the yellow
+                # notice from the shared renderer, not raw JSON.
+                _print_configure_warnings(stage, message)
             else:
                 console.print(f"  {message}")
 
@@ -2568,13 +2579,13 @@ def sync(
             raise typer.Exit(code=1)
 
         if result["success"]:
-            if workspace:
-                console.print("[green]✓[/green] Workspace synced (no restart)")
-            else:
-                console.print(
-                    "[green]✓[/green] Configuration synced and agent restarted"
-                )
-                console.print("  Run 'clm agent ps' to check status")
+            # Issue #437 / ATX W9: sync no longer orchestrates a restart;
+            # the daemon-side restart fires via the configure playbook's
+            # notify handler only when config.toml or the systemd
+            # drop-in actually changed. Drop the misleading "agent
+            # restarted" string.
+            console.print("[green]✓[/green] Configuration synced")
+            console.print("  Run 'clm agent ps' to check status")
         else:
             console.print(f"[red]✗[/red] Failed to sync agent: {result['error']}")
             raise typer.Exit(code=1)

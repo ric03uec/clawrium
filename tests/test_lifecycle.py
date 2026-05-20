@@ -341,13 +341,14 @@ class TestRestartClaw:
         assert result["operation"] == "restart"
 
 
-class TestRestartAgentZeroclawRepair:
-    """Issue #437: `restart_agent` for zeroclaw must re-pair after the
-    systemd restart and atomically update `hosts.json.gateway.auth`.
-    Without this, hosts.json keeps the old token while the daemon enforces
-    a freshly-minted one, breaking `clm chat` on the next call."""
+class TestZeroclawRepairAfterStart:
+    """Issue #437: `_zeroclaw_repair_after_start` re-pairs after any
+    systemd-level start of the zeroclaw daemon and atomically updates
+    `hosts.json.gateway.auth`. Tested directly so the failure modes
+    (playbook failure, update_host failure) are exercised without
+    going through the full start_agent stack."""
 
-    def _host(self) -> dict:
+    def _host(self, auth: str = "old-token-zzzzz") -> dict:
         return {
             "hostname": "192.168.1.100",
             "key_id": "test",
@@ -358,116 +359,174 @@ class TestRestartAgentZeroclawRepair:
                     "type": "zeroclaw",
                     "agent_name": "zerot",
                     "onboarding": {"state": "ready"},
-                    "config": {"gateway": {"port": 40000, "auth": "old-token-zzzzz"}},
+                    "config": {"gateway": {"port": 40000, "auth": auth}},
                 }
             },
         }
 
-    def test_zeroclaw_restart_invokes_repair_and_updates_hosts_json(self, tmp_path: Path):
-        host = self._host()
-        key_path = tmp_path / "test_key"
-        key_path.write_text("key")
-        playbook_path = tmp_path / "restart.yaml"
-        playbook_path.write_text("---\n- hosts: all\n")
-
+    def _setup_repair_runner(self, tmp_path: Path, token: str) -> tuple[MagicMock, Path]:
         artifacts_dir = tmp_path / "artifacts"
         fact_cache_dir = artifacts_dir / "fact_cache"
         fact_cache_dir.mkdir(parents=True)
         (fact_cache_dir / "192.168.1.100").write_text(
             json.dumps({
                 "__payload__": json.dumps({
-                    "zeroclaw_gateway_token": "fresh-after-restart-zzzzz",
+                    "zeroclaw_gateway_token": token,
                     "zeroclaw_gateway_url": "ws://192.168.1.100:40000/ws/chat",
                 })
             })
         )
-        repair_runner = MagicMock()
-        repair_runner.status = "successful"
-        repair_runner.events = []
-        repair_runner.config.artifact_dir = str(artifacts_dir)
+        runner = MagicMock()
+        runner.status = "successful"
+        runner.events = []
+        runner.config.artifact_dir = str(artifacts_dir)
+        return runner, artifacts_dir
 
+    def _run_repair(self, host: dict, tmp_path: Path, *,
+                    runner: MagicMock, update_host_result=True,
+                    update_host_capture: dict | None = None,
+                    reason: str = "restart",
+                    on_event=None):
+        key_path = tmp_path / "test_key"
+        key_path.write_text("key")
+        playbook_path = tmp_path / "restart.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        def update_host_side_effect(_hostname: str, updater) -> bool:
+            if update_host_capture is not None:
+                h = {"hostname": "192.168.1.100", "agents": dict(host["agents"])}
+                update_host_capture["updated"] = updater(h)
+            return update_host_result
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+            ):
+                with patch(
+                    "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                    return_value=playbook_path,
+                ):
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        return_value=runner,
+                    ):
+                        with patch(
+                            "clawrium.core.lifecycle.update_host",
+                            side_effect=update_host_side_effect,
+                        ):
+                            with patch(
+                                "clawrium.core.lifecycle.get_config_dir",
+                                return_value=tmp_path,
+                            ):
+                                from clawrium.core.lifecycle import (
+                                    _zeroclaw_repair_after_start,
+                                )
+                                return _zeroclaw_repair_after_start(
+                                    "192.168.1.100",
+                                    agent_name="zer-test",
+                                    on_event=on_event,
+                                    reason=reason,
+                                )
+
+    def test_happy_path_updates_hosts_json_and_emits_rotation(self, tmp_path: Path):
+        host = self._host()
+        runner, _ = self._setup_repair_runner(tmp_path, "fresh-after-restart-zzzzz")
+        capture: dict = {}
         events: list[tuple[str, str]] = []
 
         def on_event(stage: str, message: str) -> None:
             events.append((stage, message))
 
-        captured_update: dict = {}
-
-        def update_host_capture(_hostname: str, updater) -> bool:
-            h = {"hostname": "192.168.1.100", "agents": host["agents"].copy()}
-            captured_update["updated"] = updater(h)
-            return True
-
-        with patch("clawrium.core.lifecycle.get_host", return_value=host):
-            with patch(
-                "clawrium.core.lifecycle.stop_agent",
-                return_value={
-                    "success": True, "agent": "zer-test", "host": "192.168.1.100",
-                    "operation": "stop", "pid": None, "started_at": None, "error": None,
-                },
-            ):
-                with patch(
-                    "clawrium.core.lifecycle.start_agent",
-                    return_value={
-                        "success": True, "agent": "zer-test", "host": "192.168.1.100",
-                        "operation": "start", "pid": None,
-                        "started_at": "2026-05-19T00:00:00Z", "error": None,
-                    },
-                ):
-                    with patch(
-                        "clawrium.core.lifecycle.get_host_private_key",
-                        return_value=key_path,
-                    ):
-                        with patch(
-                            "clawrium.core.lifecycle._get_lifecycle_playbook_path",
-                            return_value=playbook_path,
-                        ):
-                            with patch(
-                                "clawrium.core.lifecycle.ansible_runner.run",
-                                return_value=repair_runner,
-                            ):
-                                with patch(
-                                    "clawrium.core.lifecycle.update_host",
-                                    side_effect=update_host_capture,
-                                ):
-                                    with patch(
-                                        "clawrium.core.lifecycle.get_config_dir",
-                                        return_value=tmp_path,
-                                    ):
-                                        result = restart_agent(
-                                            "192.168.1.100", "zeroclaw",
-                                            on_event=on_event,
-                                        )
-
-        assert result["success"] is True
-        # The repair updater overwrote the bearer in hosts.json.
-        updated = captured_update["updated"]
-        new_auth = (
-            updated["agents"]["zer-test"]["config"]["gateway"]["auth"]
+        success, error = self._run_repair(
+            host, tmp_path,
+            runner=runner,
+            update_host_capture=capture,
+            reason="restart",
+            on_event=on_event,
         )
+        assert success is True, error
+        new_auth = capture["updated"]["agents"]["zer-test"]["config"]["gateway"]["auth"]
         assert new_auth == "fresh-after-restart-zzzzz"
-
-        # And it emitted exactly one rotation event with reason="restart".
         rotation = [m for s, m in events if s == "gateway_token_rotated"]
         assert len(rotation) == 1
         payload = json.loads(rotation[0])
         assert payload["agent_key"] == "zer-test"
         assert payload["reason"] == "restart"
 
-    def test_zeroclaw_restart_fails_when_repair_playbook_fails(self, tmp_path: Path):
+    def test_reason_start_propagates_into_event_payload(self, tmp_path: Path):
         host = self._host()
-        key_path = tmp_path / "test_key"
-        key_path.write_text("key")
-        playbook_path = tmp_path / "restart.yaml"
-        playbook_path.write_text("---\n- hosts: all\n")
+        runner, _ = self._setup_repair_runner(tmp_path, "fresh-after-start-zzzzz")
+        events: list[tuple[str, str]] = []
 
-        repair_runner = MagicMock()
-        repair_runner.status = "failed"
-        repair_runner.events = [
+        def on_event(stage: str, message: str) -> None:
+            events.append((stage, message))
+
+        success, _ = self._run_repair(
+            host, tmp_path, runner=runner, reason="start", on_event=on_event,
+        )
+        assert success is True
+        rotation = [m for s, m in events if s == "gateway_token_rotated"]
+        assert json.loads(rotation[0])["reason"] == "start"
+
+    def test_returns_failure_when_playbook_fails(self, tmp_path: Path):
+        host = self._host()
+        runner = MagicMock()
+        runner.status = "failed"
+        runner.events = [
             {"event": "runner_on_failed",
              "event_data": {"res": {"msg": "pair handshake exploded"}}}
         ]
+        success, error = self._run_repair(host, tmp_path, runner=runner)
+        assert success is False
+        assert "pair handshake exploded" in error
 
+    def test_returns_failure_when_update_host_returns_false(self, tmp_path: Path):
+        """ATX W8: the exact divergence #437 fixes — playbook succeeds but
+        hosts.json never gets written. Must surface as a failure."""
+        host = self._host()
+        runner, _ = self._setup_repair_runner(tmp_path, "fresh-but-not-persisted")
+        success, error = self._run_repair(
+            host, tmp_path, runner=runner, update_host_result=False,
+        )
+        assert success is False
+        assert "failed to update hosts.json" in error
+
+    def test_returns_failure_when_playbook_times_out(self, tmp_path: Path):
+        host = self._host()
+        runner = MagicMock()
+        runner.status = "timeout"
+        runner.events = []
+        success, error = self._run_repair(host, tmp_path, runner=runner)
+        assert success is False
+        assert "timed out" in error.lower()
+
+    def test_rejects_invalid_agent_name(self, tmp_path: Path):
+        """ATX W4: parity with configure_agent's validation guard."""
+        host = self._host()
+        host["agents"]["zer-test"]["agent_name"] = "INVALID/name"
+        runner, _ = self._setup_repair_runner(tmp_path, "any-token")
+        success, error = self._run_repair(host, tmp_path, runner=runner)
+        assert success is False
+        assert "Invalid agent_name" in error
+
+
+class TestRestartAgentZeroclawWiring:
+    """Issue #437: `restart_agent` for zeroclaw drives the re-pair through
+    `start_agent(repair_reason='restart')`. Verify the wiring without
+    exercising the underlying playbook (covered by
+    TestZeroclawRepairAfterStart)."""
+
+    def test_restart_calls_start_agent_with_repair_reason_restart(self, tmp_path: Path):
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "zer-test": {"type": "zeroclaw", "onboarding": {"state": "ready"}},
+            },
+        }
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
             with patch(
                 "clawrium.core.lifecycle.stop_agent",
@@ -483,29 +542,13 @@ class TestRestartAgentZeroclawRepair:
                         "operation": "start", "pid": None,
                         "started_at": "2026-05-19T00:00:00Z", "error": None,
                     },
-                ):
-                    with patch(
-                        "clawrium.core.lifecycle.get_host_private_key",
-                        return_value=key_path,
-                    ):
-                        with patch(
-                            "clawrium.core.lifecycle._get_lifecycle_playbook_path",
-                            return_value=playbook_path,
-                        ):
-                            with patch(
-                                "clawrium.core.lifecycle.ansible_runner.run",
-                                return_value=repair_runner,
-                            ):
-                                with patch(
-                                    "clawrium.core.lifecycle.get_config_dir",
-                                    return_value=tmp_path,
-                                ):
-                                    result = restart_agent(
-                                        "192.168.1.100", "zeroclaw"
-                                    )
+                ) as mock_start:
+                    result = restart_agent("192.168.1.100", "zeroclaw")
 
-        assert result["success"] is False
-        assert "Re-pair" in result["error"]
+        assert result["success"] is True
+        assert result["operation"] == "restart"
+        kwargs = mock_start.call_args.kwargs
+        assert kwargs.get("repair_reason") == "restart"
 
 
 class TestRemoveClaw:

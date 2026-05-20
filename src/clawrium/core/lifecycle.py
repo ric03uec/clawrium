@@ -100,7 +100,13 @@ def _emit_gateway_token_rotated(
     )
     if on_event is not None:
         on_event("gateway_token_rotated", payload)
-    logger.info("gateway_token_rotated %s", payload)
+    # ATX W6: do NOT log the 8-char token prefixes — that's 50% of the
+    # 16-char minimum bearer secret and application logs may be shipped
+    # to centralized aggregators or readable by accounts without
+    # hosts.json access. Log only the audit-relevant fields.
+    logger.info(
+        "gateway_token_rotated agent=%s reason=%s", agent_key, reason
+    )
 
 
 def get_host_private_key(key_id: str) -> Path | None:
@@ -361,6 +367,7 @@ def start_agent(
     agent_name: str | None = None,
     force: bool = False,
     on_event: Callable[[str, str], None] | None = None,
+    repair_reason: str = "start",
 ) -> LifecycleResult:
     """Start an agent instance on a remote host.
 
@@ -435,6 +442,29 @@ def start_agent(
     )
 
     emit("start", f"Started {agent_key} successfully")
+
+    # Issue #437 / ATX W1: zeroclaw daemon does not persist bearer state
+    # across systemd starts. Always re-pair after a cold start so
+    # hosts.json.gateway.auth agrees with the token the daemon will
+    # enforce on the next request. restart_agent reuses this path via
+    # its stop -> start sequence (repair_reason="restart").
+    if _resolve_agent_type(claw_name) == "zeroclaw":
+        repair_success, repair_error = _zeroclaw_repair_after_start(
+            hostname,
+            agent_name=agent_name,
+            on_event=on_event,
+            reason=repair_reason,
+        )
+        if not repair_success:
+            return {
+                "success": False,
+                "agent": agent_key,
+                "host": hostname,
+                "operation": "start",
+                "pid": None,
+                "started_at": now,
+                "error": f"Re-pair after start failed: {repair_error}",
+            }
 
     return {
         "success": True,
@@ -564,33 +594,21 @@ def restart_agent(
             "error": f"Stop failed: {stop_result['error']}",
         }
 
+    # Issue #437: pass repair_reason="restart" so the structured rotation
+    # event identifies the originating op. start_agent re-pairs for
+    # zeroclaw on every cold start; restart inherits that for free.
     start_result = start_agent(
-        hostname, claw_name, agent_name=agent_name, on_event=on_event
+        hostname,
+        claw_name,
+        agent_name=agent_name,
+        on_event=on_event,
+        repair_reason="restart",
     )
     start_result["operation"] = "restart"
-
-    # Issue #437: zeroclaw daemon does not persist its bearer across
-    # systemd restarts. The just-restarted daemon will mint a fresh token
-    # on the next pair handshake. Re-pair now and overwrite hosts.json so
-    # the operator-visible invariant ("hosts.json.gateway.auth equals the
-    # bearer the daemon will enforce") holds across restarts.
-    if start_result["success"] and _resolve_agent_type(claw_name) == "zeroclaw":
-        repair_success, repair_error = _zeroclaw_repair_after_restart(
-            hostname,
-            agent_name=agent_name,
-            on_event=on_event,
+    if not start_result["success"] and start_result.get("error"):
+        start_result["error"] = start_result["error"].replace(
+            "Re-pair after start failed", "Re-pair after restart failed"
         )
-        if not repair_success:
-            return {
-                "success": False,
-                "agent": target,
-                "host": hostname,
-                "operation": "restart",
-                "pid": start_result.get("pid"),
-                "started_at": start_result.get("started_at"),
-                "error": f"Re-pair after restart failed: {repair_error}",
-            }
-
     return start_result
 
 
@@ -639,16 +657,19 @@ def _extract_zeroclaw_gateway_facts(
     return None, None
 
 
-def _zeroclaw_repair_after_restart(
+def _zeroclaw_repair_after_start(
     hostname: str,
     agent_name: str | None,
     on_event: Callable[[str, str], None] | None,
+    reason: str = "start",
 ) -> tuple[bool, str | None]:
     """Run the zeroclaw restart playbook to re-pair and persist the new
-    bearer to hosts.json.
+    bearer to hosts.json. Called from `start_agent` (and thus `restart_agent`,
+    which goes through start).
 
     Returns (success, error_message). Emits a `gateway_token_rotated`
-    event with reason="restart" when the token actually changed.
+    event with the given `reason` (default "start", "restart" when
+    invoked via restart_agent) only after the disk write succeeds.
     """
 
     def emit(stage: str, message: str) -> None:
@@ -666,6 +687,18 @@ def _zeroclaw_repair_after_restart(
         return False, f"Agent '{target}' not installed on '{hostname}'"
     agent_key, _agent_type, agent_record = resolved
     unix_agent_name = agent_record.get("agent_name") or agent_key
+
+    # ATX W4: parity with configure_agent's validation guard. Defends
+    # against future Ansible tasks that exec shell/command from
+    # agent_name; current pair.yaml uses only uri/fail/set_fact so this
+    # is preventative, not currently exploitable.
+    if not re.match(r"^[a-z][a-z0-9_-]{0,31}$", unix_agent_name):
+        return (
+            False,
+            f"Invalid agent_name format: '{unix_agent_name}'. Must start "
+            "with lowercase letter and contain only lowercase letters, "
+            "digits, hyphens, underscores (max 32 chars)",
+        )
 
     gateway_cfg = agent_record.get("config", {}).get("gateway") or {}
     gateway_port = gateway_cfg.get("port")
@@ -767,9 +800,9 @@ def _zeroclaw_repair_after_restart(
             )
 
         _emit_gateway_token_rotated(
-            on_event, agent_key, old_token, new_token, "restart"
+            on_event, agent_key, old_token, new_token, reason
         )
-        emit("restart", "Pairing token refreshed")
+        emit(reason, "Pairing token refreshed")
         return True, None
 
     except Exception as exc:
@@ -1427,6 +1460,7 @@ def configure_agent(
         # corrupting hosts.json silently.
         zc_gateway_token: str | None = None
         zc_gateway_url: str | None = None
+        prior_zc_token: str | None = None
         if resolved_type == "zeroclaw":
             try:
                 artifacts_dir = Path(result.config.artifact_dir)
@@ -1536,18 +1570,13 @@ def configure_agent(
             existing_gateway["url"] = zc_gateway_url
             config_data["gateway"] = existing_gateway
 
-            # Issue #437: emit structured rotation event when the bearer
-            # in hosts.json is about to be overwritten with a different
-            # token. Suppressed on first-time mint (no prior token).
-            prior_token = (
+            # Capture the prior token now; the rotation event is emitted
+            # AFTER `update_host` succeeds below (ATX W2 — emitting before
+            # the write means a failed write would still surface the
+            # yellow "rotated" notice while hosts.json still holds the
+            # old bearer, contradicting the invariant).
+            prior_zc_token = (
                 agent_record.get("config", {}).get("gateway", {}).get("auth")
-            )
-            _emit_gateway_token_rotated(
-                on_event,
-                agent_key,
-                prior_token,
-                zc_gateway_token,
-                reason,
             )
 
         # B2: Only update hosts.json after Ansible succeeds
@@ -1633,6 +1662,17 @@ def configure_agent(
             return (
                 False,
                 f"Configuration applied but failed to update local state for {agent_key} on {hostname}",
+            )
+
+        # ATX W2: rotation event fires only after the disk write
+        # succeeded. Suppressed on first mint (prior token absent).
+        if resolved_type == "zeroclaw" and zc_gateway_token:
+            _emit_gateway_token_rotated(
+                on_event,
+                agent_key,
+                prior_zc_token,
+                zc_gateway_token,
+                reason,
             )
 
         emit("configure", f"Successfully configured {agent_key}")

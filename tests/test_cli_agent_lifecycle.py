@@ -416,28 +416,19 @@ class TestAgentSync:
         ]
         hosts_file.write_text(json.dumps(hosts_data, indent=2))
 
+        # Issue #437 / ATX W9: sync no longer calls restart_agent, so the
+        # dead restart_agent mock is removed and the success string drops
+        # the misleading "agent restarted" suffix.
         with patch(
             "clawrium.core.lifecycle.configure_agent",
             return_value=(True, None),
         ):
-            with patch(
-                "clawrium.core.lifecycle.restart_agent",
-                return_value={
-                    "success": True,
-                    "agent": "assistant",
-                    "host": "192.168.1.100",
-                    "operation": "restart",
-                    "pid": None,
-                    "started_at": "2026-04-14T12:00:00Z",
-                    "error": None,
-                },
-            ):
-                result = runner.invoke(app, ["agent", "sync", "assistant"])
+            result = runner.invoke(app, ["agent", "sync", "assistant"])
 
         assert result.exit_code == 0
         assert "Syncing agent" in result.output
-        # Updated success message
-        assert "Configuration synced and agent restarted" in result.output
+        assert "Configuration synced" in result.output
+        assert "agent restarted" not in result.output
 
     def test_sync_configure_failure(self, isolated_config: Path, tmp_path: Path):
         """Sync fails when configure step fails."""
@@ -569,11 +560,11 @@ class TestAgentSync:
                 )
 
         assert result.exit_code == 0
-        assert "Syncing workspace for" in result.output
-        assert "Workspace synced (no restart)" in result.output
-        # Configure should be called
+        # Issue #437: sync always reports "Configuration synced" now; the
+        # --workspace flag is preserved on the CLI surface but the
+        # output is the same since sync no longer orchestrates a restart.
+        assert "Configuration synced" in result.output
         mock_configure.assert_called_once()
-        # Restart should NOT be called
         mock_restart.assert_not_called()
 
     def test_sync_does_not_call_restart_agent(
