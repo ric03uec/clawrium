@@ -371,11 +371,14 @@ def _run_lifecycle_playbook(
                     # `{"msg": None}` entry and set error_msg = None, leaking
                     # an empty error string up the stack. Use `is not None`
                     # so the loop falls through to stderr / generic prefix.
-                    if res.get("msg") is not None:
-                        error_msg = res["msg"]
+                    # ATX iter-4 S-F: symmetric `.get` access on both lines.
+                    msg = res.get("msg")
+                    if msg is not None:
+                        error_msg = msg
                         break
-                    if res.get("stderr") is not None:
-                        error_msg = res["stderr"]
+                    stderr = res.get("stderr")
+                    if stderr is not None:
+                        error_msg = stderr
                         break
             return False, error_msg
 
@@ -823,11 +826,14 @@ def _zeroclaw_repair_after_start(
                     # `{"msg": None}` entry and set error_msg = None, leaking
                     # an empty error string up the stack. Use `is not None`
                     # so the loop falls through to stderr / generic prefix.
-                    if res.get("msg") is not None:
-                        error_msg = res["msg"]
+                    # ATX iter-4 S-F: symmetric `.get` access on both lines.
+                    msg = res.get("msg")
+                    if msg is not None:
+                        error_msg = msg
                         break
-                    if res.get("stderr") is not None:
-                        error_msg = res["stderr"]
+                    stderr = res.get("stderr")
+                    if stderr is not None:
+                        error_msg = stderr
                         break
             return False, error_msg
 
@@ -1537,11 +1543,14 @@ def configure_agent(
                     # `{"msg": None}` entry and set error_msg = None, leaking
                     # an empty error string up the stack. Use `is not None`
                     # so the loop falls through to stderr / generic prefix.
-                    if res.get("msg") is not None:
-                        error_msg = res["msg"]
+                    # ATX iter-4 S-F: symmetric `.get` access on both lines.
+                    msg = res.get("msg")
+                    if msg is not None:
+                        error_msg = msg
                         break
-                    if res.get("stderr") is not None:
-                        error_msg = res["stderr"]
+                    stderr = res.get("stderr")
+                    if stderr is not None:
+                        error_msg = stderr
                         break
             return False, error_msg
 

@@ -80,16 +80,23 @@ class TestRunLifecyclePlaybook:
         assert success is False
         assert "SSH key not found" in error
 
-    def _run_with_events(self, host, tmp_path: Path, events: list):
+    def _run_with_events(
+        self, host, tmp_path: Path, events: list, *,
+        runner_status: str = "failed",
+    ):
         """Helper that runs _run_lifecycle_playbook with a stubbed runner
-        emitting the supplied events. Returns (success, error)."""
+        emitting the supplied events. Returns (success, error).
+
+        ATX iter-4 NW-A: mocks `get_instance_secrets` and `get_instance_key`
+        so a dev machine with a matching real entry in `~/.config/clawrium/
+        secrets.json` doesn't silently populate the Ansible inventory."""
         playbook_path = tmp_path / "start.yaml"
         playbook_path.write_text("---\n- hosts: all\n")
         key_path = tmp_path / "key"
         key_path.write_text("k")
 
         runner = MagicMock()
-        runner.status = "failed"
+        runner.status = runner_status
         runner.events = events
 
         with patch(
@@ -104,6 +111,12 @@ class TestRunLifecyclePlaybook:
         ), patch(
             "clawrium.core.lifecycle.get_config_dir",
             return_value=tmp_path,
+        ), patch(
+            "clawrium.core.secrets.get_instance_secrets",
+            return_value={},
+        ), patch(
+            "clawrium.core.secrets.get_instance_key",
+            return_value="test-key",
         ):
             return _run_lifecycle_playbook(
                 "zeroclaw", "zer-test", "192.168.1.100", "start", host
@@ -199,6 +212,23 @@ class TestRunLifecyclePlaybook:
         assert success is False
         assert error is not None
         assert error == "Start playbook failed: failed"
+
+    def test_timeout_returns_friendly_error(self, tmp_path: Path):
+        """ATX iter-4 NW-B: pin the timeout branch of _run_lifecycle_playbook
+        — `result.status == 'timeout'` returns a fixed string before any
+        event extraction runs."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {"zer-test": {"type": "zeroclaw"}},
+        }
+        success, error = self._run_with_events(
+            host, tmp_path, [], runner_status="timeout",
+        )
+        assert success is False
+        assert error == "Start operation timed out"
 
 
 class TestStartClaw:
@@ -1143,6 +1173,30 @@ class TestConfigureAgentZeroclawBearerForwarding:
         assert "zc_" not in (error or "")
         assert error == "Configure playbook failed: failed"
 
+    def test_configure_timeout_returns_friendly_error(
+        self, tmp_path: Path
+    ):
+        """ATX iter-4 NW-B: pin the configure timeout branch. The
+        configure path has its own timeout return distinct from the
+        repair path and was untested through iter-3."""
+        host = self._zc_host(
+            auth_in_record="zc_record_for_timeout_eeeeeeeeeeeeeee",
+        )
+        config_data = {
+            "gateway": {"port": 40000},
+            "provider": {
+                "name": "p", "type": "ollama", "endpoint": "http://x",
+                "default_model": "m",
+            },
+        }
+        _inv, success, error = self._capture_configure(
+            host, config_data, tmp_path,
+            runner_status="timeout",
+            runner_events=[],
+        )
+        assert success is False
+        assert error == "Configure operation timed out"
+
     def test_configure_msg_none_event_does_not_return_none_error(
         self, tmp_path: Path
     ):
@@ -1246,8 +1300,12 @@ class TestConfigureAgentZeroclawBearerForwarding:
              patch(
                 "clawrium.core.integrations.get_agent_integrations",
                 return_value=[],
-             ), \
-             patch.object(Path, "exists", return_value=True):
+             ):
+            # ATX iter-4 S-D: no `Path.exists` mock — configure_agent
+            # returns at the port validation block (~L1300) before any
+            # Path check is reached (template ~L1426, playbook ~L1431).
+            # Adding the mock would mask a future refactor that placed a
+            # Path check before port validation.
             from clawrium.core.lifecycle import configure_agent
             success, error = configure_agent(
                 "192.168.1.100",
