@@ -653,6 +653,21 @@ class TestChannelsDiscordBlock:
         assert 'bot_token = "tok\\"with\\"quote\\\\and\\\\bs"' in rendered
 
 
+class TestAgentBlock:
+    """[agent] pins the daemon's tool-loop + context budgets above their
+    too-tight defaults (10 iterations / 32k tokens), which were causing
+    multi-step PR workflows to hit `Max iterations reached` and poison
+    the conversation history with phantom-block hallucinations."""
+
+    def test_agent_block_pins_iteration_and_context_budgets(self):
+        rendered = _render_with_channels_and_integrations(
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        assert "[agent]" in rendered
+        assert "max_tool_iterations = 30" in rendered
+        assert "max_context_tokens = 100000" in rendered
+
+
 class TestAutonomyBlock:
     """[autonomy] is always rendered (no gate). The default block mirrors
     docs/book/src/security/autonomy.md verbatim. shell_env_passthrough is
@@ -666,15 +681,32 @@ class TestAutonomyBlock:
         assert 'level = "supervised"' in rendered
         assert "approval_timeout_secs = 300" in rendered
         assert "workspace_only = true" in rendered
-        assert (
-            'allowed_commands = ["git", "cargo", "grep", "find", "ls", "cat"]'
-            in rendered
-        )
-        assert 'forbidden_commands = ["shutdown", "reboot", "mkfs"]' in rendered
-        assert (
-            'forbidden_paths = ["/etc", "/sys", "/boot", "~/.ssh", "~/.aws"]'
-            in rendered
-        )
+        # Explicit broad developer allowlist. v0.7.5 treats `[]` as
+        # deny-all (vs. the doc's implied permissive), so we enumerate.
+        # Spot-check representative entries from each category — the
+        # exhaustive list lives in the template and changes more often
+        # than the categories.
+        assert '"git"' in rendered
+        assert '"gh"' in rendered
+        assert '"make"' in rendered
+        assert '"curl"' in rendered
+        assert '"bash"' in rendered
+        assert '"rm"' in rendered
+        assert '"jq"' in rendered
+        # block_high_risk_commands is intentionally OFF — the pattern
+        # matcher was blocking `git push` / `git branch <new>` as
+        # high-risk; the supervised approval flow now arbitrates.
+        assert "block_high_risk_commands = false" in rendered
+        # System-wrecker denylist + escalation guards.
+        assert '"shutdown"' in rendered
+        assert '"mkfs"' in rendered
+        assert '"dd"' in rendered
+        assert '"sudo"' in rendered
+        # forbidden_paths covers system + secret-bearing dotdirs.
+        assert '"/etc"' in rendered
+        assert '"/proc"' in rendered
+        assert '"~/.ssh"' in rendered
+        assert '"~/.config/clawrium"' in rendered
 
     def test_shell_env_passthrough_defaults_to_upstream_four(self):
         rendered = _render_with_channels_and_integrations(
