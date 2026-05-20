@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -43,6 +44,7 @@ __all__ = [
     "write_state",
     "add_skill",
     "remove_skill",
+    "cleanup_agent_state",
 ]
 
 
@@ -196,3 +198,52 @@ def remove_skill(agent_name: str, ref: str | SkillRef) -> tuple[list[str], bool]
         return current, False
     new_state = [s for s in current if s != str(parsed)]
     return write_state(agent_name, new_state), True
+
+
+def cleanup_agent_state(agent_name: str) -> bool:
+    """Remove the entire state directory for ``agent_name``.
+
+    Called during agent removal to ensure no orphan state survives.
+    Returns True if the directory existed and was removed, False otherwise.
+
+    Raises ``ValueError`` if the resolved path escapes the config directory
+    (defense-in-depth against ``XDG_CONFIG_HOME`` manipulation).
+    """
+    _validate_agent_name(agent_name)
+    path = state_file_path(agent_name).parent  # agents/<name>/
+
+    # Confinement check: ensure the resolved path stays inside the config
+    # directory. Every other file-destructive path in the codebase already
+    # runs this guard (keys.py, reset.py, cli/agent.py).
+    config_dir = get_config_dir()
+    try:
+        resolved_path = path.resolve()
+        resolved_config = config_dir.resolve()
+    except OSError as e:
+        raise ValueError(
+            f"Invalid agent state path for {agent_name!r}: {e}"
+        ) from e
+
+    if not resolved_path.is_relative_to(resolved_config):
+        raise ValueError(
+            f"Agent state path {path} escapes config directory {config_dir}"
+        )
+
+    # Check symlink BEFORE exists() — a broken symlink has exists() == False
+    # but is_symlink() == True. If we check exists() first, we'd return False
+    # and leave the broken symlink as orphan state (the exact bug #400 pattern).
+    if path.is_symlink():
+        # Defense-in-depth: refuse to follow symlinks with rmtree.
+        raise ValueError(
+            f"Agent state path {path} is a symlink, refusing to remove"
+        )
+
+    if not path.exists():
+        return False
+
+    # Do NOT use ignore_errors=True — the lifecycle.py except block is
+    # the soft-failure boundary; ignoring errors here would silently
+    # leave orphan directories (the exact bug #400 was filed for) and
+    # disable Python 3.8+'s built-in symlink guard.
+    shutil.rmtree(path)
+    return True

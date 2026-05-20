@@ -24,6 +24,7 @@ from clawrium.core.secrets import (
     get_instance_secrets,
     remove_instance_secrets,
 )
+from clawrium.core.skills_state import cleanup_agent_state
 
 logger = logging.getLogger(__name__)
 
@@ -1792,14 +1793,28 @@ def remove_agent(
 
     emit("remove", "Removing from local configuration...")
 
+    # Resolve the Unix agent name once — used by both secrets cleanup
+    # and state cleanup below. Previously computed independently in each
+    # try-block, risking drift.
+    unix_agent_name = claw_record.get("agent_name") or agent_key
+
     # Clean up per-instance secrets (Discord bot token, etc.)
     try:
-        unix_agent_name = claw_record.get("agent_name") or agent_key
         instance_key = get_instance_key(host["hostname"], agent_type, unix_agent_name)
         remove_instance_secrets(instance_key)
         emit("remove", "Cleaned up instance secrets")
     except Exception as e:
         logger.warning("Failed to clean up instance secrets for %s: %s", agent_key, e)
+
+    # Clean up agent state directory (skills.json, etc.)
+    try:
+        cleaned = cleanup_agent_state(unix_agent_name)
+        if cleaned:
+            emit("remove", "Cleaned up agent state directory")
+        else:
+            emit("remove", "Agent state directory already absent")
+    except Exception as e:
+        logger.warning("Failed to clean up agent state for %s: %s", agent_key, e)
 
     # Remove agent from hosts.json
     # NOTE: remove_agent_from_host returns True if host was found (not if agent was found)

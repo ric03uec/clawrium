@@ -1090,6 +1090,71 @@ class TestRemoveClaw:
         # Should have validate and remove events
         assert any(stage == "validate" for stage, _ in events)
         assert any(stage == "remove" for stage, _ in events)
+        # Verify the specific state cleanup message is emitted (or "already absent")
+        remove_messages = [msg for st, msg in events if st == "remove"]
+        assert any(
+            "agent state" in msg.lower() for msg in remove_messages
+        ), f"Expected state cleanup message, got: {remove_messages}"
+
+    def test_removes_agent_state_directory(self, tmp_path: Path):
+        """Pre-seed a per-agent state directory and verify remove_agent
+        cleans it up (the core fix for #400)."""
+        from clawrium.core.skills_state import write_state
+
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "agent_name": "opc-work",
+                    "runtime": {"status": "stopped"},
+                }
+            },
+        }
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("private key")
+
+        playbook_path = tmp_path / "test.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        # Pre-seed the agent state directory with a skills.json
+        write_state("opc-work", ["clawrium/tdd"])
+        agent_state_dir = tmp_path / "clawrium" / "agents" / "opc-work"
+        assert agent_state_dir.is_dir()
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = []
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+            ):
+                with patch(
+                    "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                    return_value=playbook_path,
+                ):
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        return_value=mock_runner,
+                    ):
+                        with patch(
+                            "clawrium.core.lifecycle.get_config_dir",
+                            return_value=tmp_path,
+                        ):
+                            with patch(
+                                "clawrium.core.lifecycle.remove_agent_from_host",
+                                return_value=True,
+                            ):
+                                result = remove_agent("192.168.1.100", "openclaw")
+
+        assert result["success"] is True
+        assert not agent_state_dir.exists()
 
 
 class TestResolveAgentRecord:

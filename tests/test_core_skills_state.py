@@ -192,3 +192,105 @@ def test_remove_skill_no_op_when_absent():
     state, removed = remove_skill("hermes-tdd", "clawrium/tdd")
     assert removed is False
     assert state == []
+
+
+# ------------------------------- cleanup_agent_state ------------------------
+
+
+class TestCleanupAgentState:
+    """Tests for cleanup_agent_state — the per-agent state directory removal."""
+
+    def test_removes_existing_state_directory(self, tmp_path: Path):
+        from clawrium.core.skills_state import cleanup_agent_state
+
+        # Pre-seed a state directory
+        write_state("hermes-tdd", ["clawrium/tdd"])
+        agent_dir = tmp_path / "clawrium" / "agents" / "hermes-tdd"
+        assert agent_dir.is_dir()
+
+        result = cleanup_agent_state("hermes-tdd")
+        assert result is True
+        assert not agent_dir.exists()
+
+    def test_returns_false_when_directory_absent(self):
+        from clawrium.core.skills_state import cleanup_agent_state
+
+        result = cleanup_agent_state("hermes-tdd")
+        assert result is False
+
+    def test_rejects_invalid_agent_name(self):
+        from clawrium.core.skills_state import cleanup_agent_state
+
+        with pytest.raises(InvalidSkillRef):
+            cleanup_agent_state("../escape")
+
+    def test_rejects_path_escaping_config_dir(self, tmp_path: Path, monkeypatch):
+        """If the resolved agent state path escapes the config directory,
+        cleanup_agent_state must refuse. Simulated by having state_file_path
+        return a path outside the config dir."""
+        from clawrium.core.skills_state import cleanup_agent_state
+
+        agent_dir = tmp_path / "clawrium" / "agents" / "hermes-tdd"
+        agent_dir.mkdir(parents=True)
+
+        # Make state_file_path return a path that resolves outside
+        # get_config_dir by patching it to return /tmp/evil/...
+        outside_path = Path("/tmp/evil/clawrium/agents/hermes-tdd/skills.json")
+        monkeypatch.setattr(
+            "clawrium.core.skills_state.state_file_path",
+            lambda name: outside_path,
+        )
+        with pytest.raises(ValueError, match="escapes config directory"):
+            cleanup_agent_state("hermes-tdd")
+
+    def test_rmtree_error_propagates(self, tmp_path: Path, monkeypatch):
+        """If shutil.rmtree raises, the exception must propagate so the
+        lifecycle.py except block can catch it."""
+        from clawrium.core import skills_state
+        from clawrium.core.skills_state import cleanup_agent_state
+
+        write_state("hermes-tdd", ["clawrium/tdd"])
+
+        def boom(_path):
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(skills_state.shutil, "rmtree", boom)
+        with pytest.raises(OSError, match="permission denied"):
+            cleanup_agent_state("hermes-tdd")
+
+    def test_idempotent_on_already_removed_directory(self, tmp_path: Path):
+        from clawrium.core.skills_state import cleanup_agent_state
+
+        write_state("hermes-tdd", ["clawrium/tdd"])
+        agent_dir = tmp_path / "clawrium" / "agents" / "hermes-tdd"
+
+        assert cleanup_agent_state("hermes-tdd") is True
+        assert not agent_dir.exists()
+        # Second call — directory already gone
+        assert cleanup_agent_state("hermes-tdd") is False
+
+    def test_rejects_broken_symlink_as_state_dir(self, tmp_path: Path):
+        """A broken symlink at the agent state dir path must be rejected,
+        not silently skipped. exists() returns False for broken symlinks,
+        so checking exists() before is_symlink() would leave the orphan."""
+        from clawrium.core.skills_state import cleanup_agent_state
+
+        agent_dir = tmp_path / "clawrium" / "agents" / "hermes-tdd"
+        agent_dir.mkdir(parents=True)
+
+        # Replace the directory with a broken symlink pointing to a
+        # non-existent target WITHIN the config tree (so the confinement
+        # check passes but the symlink guard still fires)
+        agent_dir.rmdir()
+        broken_target = tmp_path / "clawrium" / "agents" / ".nonexistent"
+        agent_dir.symlink_to(broken_target)
+
+        # Verify our test setup: exists() is False but is_symlink() is True
+        assert not agent_dir.exists()
+        assert agent_dir.is_symlink()
+
+        with pytest.raises(ValueError, match="is a symlink"):
+            cleanup_agent_state("hermes-tdd")
+
+        # Symlink should still exist (not removed)
+        assert agent_dir.is_symlink()
