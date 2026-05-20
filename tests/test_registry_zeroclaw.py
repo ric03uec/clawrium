@@ -437,6 +437,93 @@ def test_zeroclaw_configure_renders_workspace_with_force_no():
 # ----- ATX iter 5 W3: no_log on memory_delete across all 3 claws -----------
 
 
+def test_pair_playbook_handles_locked_daemon():
+    """Issue #445: zeroclaw v0.7.5's /pair/code returns pairing_code=null
+    after the daemon's devices.db has any prior row. The pair handshake
+    playbook must (a) not crash on the null (defensive), (b) mint a fresh
+    code via POST /api/pairing/initiate using the existing bearer
+    (correctness). This is a structural test so the bug cannot regress
+    silently.
+    """
+    from importlib.resources import files
+    import yaml
+
+    pkg = files("clawrium.platform.registry.zeroclaw")
+    pair_path = pkg / "playbooks" / "tasks" / "pair.yaml"
+    raw = pair_path.read_text()
+    tasks = yaml.safe_load(raw)
+    assert isinstance(tasks, list) and tasks, "pair.yaml must be a task list"
+
+    by_name = {t.get("name", ""): t for t in tasks if isinstance(t, dict)}
+
+    initiate_name = "Mint pairing code via /api/pairing/initiate (locked-pair branch)"
+    assert initiate_name in by_name, (
+        "pair.yaml must include a task that POSTs to /api/pairing/initiate "
+        "for the locked-pair branch"
+    )
+    initiate = by_name[initiate_name]
+    uri = initiate.get("ansible.builtin.uri") or {}
+    assert "/api/pairing/initiate" in (uri.get("url") or ""), (
+        "initiate task must hit /api/pairing/initiate"
+    )
+    assert (uri.get("method") or "").upper() == "POST"
+    auth_header = (uri.get("headers") or {}).get("Authorization", "")
+    assert auth_header.startswith("Bearer "), (
+        "initiate must authenticate with a Bearer token from hosts.json"
+    )
+    assert "config.gateway.auth" in auth_header, (
+        "Bearer value must come from config.gateway.auth so both "
+        "configure.yaml and restart.yaml can pass it through unchanged"
+    )
+    assert initiate.get("no_log") is True, (
+        "initiate task carries a bearer — must be no_log: true"
+    )
+
+    when_clause = initiate.get("when")
+    if isinstance(when_clause, list):
+        when_text = " AND ".join(str(c) for c in when_clause)
+    else:
+        when_text = str(when_clause)
+    assert "pairing_code is none" in when_text, (
+        "initiate must fire only when /pair/code returned a null code "
+        "(locked daemon); current when: {!r}".format(when_clause)
+    )
+
+    # Defensive: every `| length` check on a pair field must coexist with
+    # an `is none` guard in the same `when:` clause, so the filter never
+    # sees a null and crashes with `NoneType has no len()` (the literal
+    # error #445 fixes).
+    fields_under_check = (
+        "pair_response.json.token",
+        "resolved_pairing_code",
+    )
+    when_clauses = []
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        clause = task.get("when")
+        if clause is None:
+            continue
+        # `when:` may be a string or a list. Normalize to a single string
+        # so multi-line `or`-chains (which YAML joins with a space) are
+        # searchable as one blob.
+        if isinstance(clause, list):
+            when_clauses.append(" ".join(str(c) for c in clause))
+        else:
+            when_clauses.append(str(clause))
+
+    for field in fields_under_check:
+        guarded = any(
+            f"{field} | length" in w and f"{field} is none" in w
+            for w in when_clauses
+        )
+        assert guarded, (
+            f"`{field} | length` must coexist with `{field} is none` in "
+            f"the same when: clause; otherwise a defined-but-null daemon "
+            f"response will crash the filter (issue #445)."
+        )
+
+
 def test_memory_delete_no_log_on_delete_task_across_all_claws():
     """ATX iter 5 W3: every claw's memory_delete playbook must mark the
     file-removal task no_log: true so an Ansible run at -vvv does not

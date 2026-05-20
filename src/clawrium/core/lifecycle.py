@@ -732,6 +732,11 @@ def _zeroclaw_repair_after_start(
             f"Gateway port missing from hosts.json for {agent_key}. "
             f"Re-run `clm agent configure {agent_key}`.",
         )
+    # Issue #445: the playbook's locked-pair branch (tasks/pair.yaml) calls
+    # POST /api/pairing/initiate with this bearer when /pair/code returns
+    # null. Empty string is acceptable on the fresh-boot branch since
+    # /pair/code will return a usable code and the locked branch never fires.
+    existing_gateway_auth = gateway_cfg.get("auth") or ""
 
     key_id = host.get("key_id") or hostname
     ssh_key = get_host_private_key(key_id)
@@ -754,7 +759,12 @@ def _zeroclaw_repair_after_start(
             "vars": {
                 "agent_name": unix_agent_name,
                 "agent_type": "zeroclaw",
-                "config": {"gateway": {"port": gateway_port}},
+                "config": {
+                    "gateway": {
+                        "port": gateway_port,
+                        "auth": existing_gateway_auth,
+                    }
+                },
             },
         }
     }

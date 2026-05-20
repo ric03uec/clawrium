@@ -559,6 +559,117 @@ class TestZeroclawRepairAfterStart:
         rotation = [m for s, m in events if s == "gateway_token_rotated"]
         assert not rotation, f"rotation event leaked despite write failure: {rotation!r}"
 
+    def test_repair_passes_existing_bearer_in_inventory(self, tmp_path: Path):
+        """Issue #445: tasks/pair.yaml's locked-pair branch authenticates
+        against /api/pairing/initiate using the current bearer from
+        hosts.json. The Python helper must forward that bearer as
+        config.gateway.auth in the Ansible inventory so the playbook can
+        reach it. Without this, the locked branch fires with an empty
+        Authorization header and the daemon rejects it."""
+        host = self._host(auth="zc_existing_bearer_aaaaaaaaaaaaaaa")
+        runner, _ = self._setup_repair_runner(tmp_path, "new-rotated-token")
+        captured_inventory: dict = {}
+
+        def capture_run(**kwargs):
+            captured_inventory.update(kwargs.get("inventory") or {})
+            return runner
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("key")
+        playbook_path = tmp_path / "restart.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host), \
+             patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+             ), \
+             patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook_path,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                side_effect=capture_run,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.update_host",
+                return_value=True,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.get_config_dir",
+                return_value=tmp_path,
+             ):
+            from clawrium.core.lifecycle import _zeroclaw_repair_after_start
+            success, error = _zeroclaw_repair_after_start(
+                "192.168.1.100",
+                agent_name="zer-test",
+                on_event=None,
+                reason="restart",
+            )
+        assert success is True, error
+        gateway_vars = captured_inventory["all"]["vars"]["config"]["gateway"]
+        assert gateway_vars["auth"] == "zc_existing_bearer_aaaaaaaaaaaaaaa", (
+            "existing bearer must flow into the playbook so the locked-pair "
+            "branch can authenticate against /api/pairing/initiate"
+        )
+        assert gateway_vars["port"] == 40000
+
+    def test_repair_passes_empty_bearer_when_hosts_json_lacks_auth(
+        self, tmp_path: Path
+    ):
+        """First-install path: hosts.json has no `auth` field yet. The
+        helper must pass an empty string (not raise, not omit the key) so
+        the playbook's `default('')` filter keeps the locked branch dormant
+        on a fresh daemon."""
+        host = self._host()
+        host["agents"]["zer-test"]["config"]["gateway"] = {"port": 40000}
+        runner, _ = self._setup_repair_runner(tmp_path, "fresh-token")
+        captured_inventory: dict = {}
+
+        def capture_run(**kwargs):
+            captured_inventory.update(kwargs.get("inventory") or {})
+            return runner
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("key")
+        playbook_path = tmp_path / "restart.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host), \
+             patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+             ), \
+             patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook_path,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                side_effect=capture_run,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.update_host",
+                return_value=True,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.get_config_dir",
+                return_value=tmp_path,
+             ):
+            from clawrium.core.lifecycle import _zeroclaw_repair_after_start
+            success, _ = _zeroclaw_repair_after_start(
+                "192.168.1.100",
+                agent_name="zer-test",
+                on_event=None,
+                reason="restart",
+            )
+        assert success is True
+        assert (
+            captured_inventory["all"]["vars"]["config"]["gateway"]["auth"]
+            == ""
+        )
+
 
 class TestSafeHostDisplay:
     """ATX W-R3-1: `_safe_host_display` is a path-traversal guard used at
