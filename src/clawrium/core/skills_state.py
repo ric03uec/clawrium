@@ -205,10 +205,40 @@ def cleanup_agent_state(agent_name: str) -> bool:
 
     Called during agent removal to ensure no orphan state survives.
     Returns True if the directory existed and was removed, False otherwise.
+
+    Raises ``ValueError`` if the resolved path escapes the config directory
+    (defense-in-depth against ``XDG_CONFIG_HOME`` manipulation).
     """
     _validate_agent_name(agent_name)
     path = state_file_path(agent_name).parent  # agents/<name>/
-    if path.exists():
-        shutil.rmtree(path, ignore_errors=True)
-        return True
-    return False
+
+    # Confinement check: ensure the resolved path stays inside the config
+    # directory. Every other file-destructive path in the codebase already
+    # runs this guard (keys.py, reset.py, cli/agent.py).
+    config_dir = get_config_dir()
+    try:
+        if not path.resolve().is_relative_to(config_dir.resolve()):
+            raise ValueError(
+                f"Agent state path {path} escapes config directory {config_dir}"
+            )
+    except (OSError, ValueError) as e:
+        raise ValueError(
+            f"Invalid agent state path for {agent_name!r}: {e}"
+        ) from e
+
+    if not path.exists():
+        return False
+
+    # Do NOT use ignore_errors=True — the lifecycle.py except block is
+    # the soft-failure boundary; ignoring errors here would silently
+    # leave orphan directories (the exact bug #400 was filed for) and
+    # disable Python 3.8+'s built-in symlink guard.
+    if path.is_symlink():
+        # Defense-in-depth: refuse to follow symlinks with rmtree.
+        raise ValueError(
+            f"Agent state path {path} is a symlink, refusing to remove"
+        )
+
+    shutil.rmtree(path)
+    # Verify removal — rmtree may partially fail on permission errors.
+    return not path.exists()

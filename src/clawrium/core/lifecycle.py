@@ -1564,9 +1564,13 @@ def remove_agent(
 
     emit("remove", "Removing from local configuration...")
 
+    # Resolve the Unix agent name once — used by both secrets cleanup
+    # and state cleanup below. Previously computed independently in each
+    # try-block, risking drift.
+    unix_agent_name = claw_record.get("agent_name") or agent_key
+
     # Clean up per-instance secrets (Discord bot token, etc.)
     try:
-        unix_agent_name = claw_record.get("agent_name") or agent_key
         instance_key = get_instance_key(host["hostname"], agent_type, unix_agent_name)
         remove_instance_secrets(instance_key)
         emit("remove", "Cleaned up instance secrets")
@@ -1575,9 +1579,11 @@ def remove_agent(
 
     # Clean up agent state directory (skills.json, etc.)
     try:
-        unix_agent_name = claw_record.get("agent_name") or agent_key
-        cleanup_agent_state(unix_agent_name)
-        emit("remove", "Cleaned up agent state directory")
+        cleaned = cleanup_agent_state(unix_agent_name)
+        if cleaned:
+            emit("remove", "Cleaned up agent state directory")
+        else:
+            emit("remove", "Agent state directory already absent")
     except Exception as e:
         logger.warning("Failed to clean up agent state for %s: %s", agent_key, e)
 
