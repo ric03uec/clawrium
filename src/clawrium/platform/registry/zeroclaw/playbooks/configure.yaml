@@ -153,6 +153,30 @@
           loop_control:
             label: "{{ item.key }}"
 
+        # Configure git's credential helper to use gh's stored token for
+        # HTTPS pushes. `gh auth login --with-token` authenticates the
+        # `gh` CLI but does NOT touch git's credential.helper — without
+        # this, `git push https://github.com/...` fails to find the
+        # token even though the agent shell has GITHUB_TOKEN in env.
+        # Runs once per configure (not per-integration) because the
+        # credential helper is a host-level git config, not a per-token
+        # setting. Idempotent — `gh auth setup-git` overwrites the
+        # same config keys on each run.
+        - name: Configure git credential helper via gh auth setup-git
+          ansible.builtin.command:
+            argv:
+              - gh
+              - auth
+              - setup-git
+          become: yes
+          become_user: "{{ agent_name }}"
+          changed_when: false
+          when:
+            - gh_check.rc == 0
+            - integrations | dict2items
+              | selectattr('value.type', 'equalto', 'github')
+              | list | length > 0
+
     # Apply pending restart (from the template task) before the readiness
     # probe so /health is observing the just-rendered config, not the
     # previous incarnation.
