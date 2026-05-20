@@ -80,6 +80,61 @@ class TestRunLifecyclePlaybook:
         assert success is False
         assert "SSH key not found" in error
 
+    def test_censored_event_does_not_leak_bearer(self, tmp_path: Path):
+        """ATX iter-2 NB1: censored-guard at lifecycle.py:~360 covers the
+        generic start/stop/restart lifecycle path. Same security invariant
+        as the repair path, separate code site — pin it independently."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {"zer-test": {"type": "zeroclaw"}},
+        }
+
+        playbook_path = tmp_path / "start.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+
+        runner = MagicMock()
+        runner.status = "failed"
+        runner.events = [
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {
+                        "censored": "no_log: true was specified",
+                        "msg": "Bearer zc_LEAKED_FROM_START_xxxxxxxxxxx",
+                    }
+                },
+            },
+        ]
+
+        with patch(
+            "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+            return_value=playbook_path,
+        ), patch(
+            "clawrium.core.lifecycle.get_host_private_key",
+            return_value=key_path,
+        ), patch(
+            "clawrium.core.lifecycle.ansible_runner.run",
+            return_value=runner,
+        ), patch(
+            "clawrium.core.lifecycle.get_config_dir",
+            return_value=tmp_path,
+        ):
+            success, error = _run_lifecycle_playbook(
+                "zeroclaw", "zer-test", "192.168.1.100", "start", host
+            )
+
+        assert success is False
+        assert "zc_LEAKED_FROM_START" not in error, (
+            f"_run_lifecycle_playbook censored-guard regressed: {error!r}"
+        )
+        # All events censored → falls through to generic prefix.
+        assert "Start playbook failed" in error
+
 
 class TestStartClaw:
     """Tests for start_claw function."""
@@ -482,6 +537,92 @@ class TestZeroclawRepairAfterStart:
         assert success is False
         assert "pair handshake exploded" in error
 
+    def test_censored_event_does_not_leak_bearer_into_error(
+        self, tmp_path: Path
+    ):
+        """ATX iter-2 NB1: the W1 censored-guard at lifecycle.py:~808 is the
+        security invariant that keeps a `no_log: true` failure from leaking
+        a bearer into user-visible error strings. Without test coverage, a
+        one-line refactor (moving the `continue` below the `if 'msg' in res`
+        block) silently regresses it. Pin the invariant.
+
+        ansible-runner replaces the entire `res` dict with
+        `{'censored': '<reason>'}` for no_log-failed tasks — see
+        ansible_runner/display_callback/callback/awx_display.py. But a
+        misbehaving debug-mode daemon could echo the Bearer back in a 401
+        body; if that ever lands in `res.msg` alongside `censored`, we must
+        not surface it.
+        """
+        host = self._host()
+        runner = MagicMock()
+        runner.status = "failed"
+        runner.events = [
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {
+                        "censored": "the output has been hidden due to "
+                                    "the fact that 'no_log: true' was "
+                                    "specified for this result",
+                        "msg": "Bearer zc_LEAKED_SECRET_xxxxxxxxxxxxxxxxxx",
+                    }
+                },
+            },
+            # Trailing non-censored event whose msg is safe to surface.
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {"msg": "Re-pair playbook reported failure"}
+                },
+            },
+        ]
+        success, error = self._run_repair(host, tmp_path, runner=runner)
+        assert success is False
+        assert "zc_LEAKED_SECRET" not in error, (
+            f"censored guard regressed — bearer leaked into error: {error!r}"
+        )
+        assert "Re-pair playbook reported failure" in error
+
+    def test_all_censored_events_falls_back_to_generic_error(
+        self, tmp_path: Path
+    ):
+        """ATX iter-2 NB1 companion: when every runner_on_failed event is
+        censored, the loop must fall through to the generic 'Re-pair
+        playbook failed: <status>' message rather than the last seen msg.
+        """
+        host = self._host()
+        runner = MagicMock()
+        runner.status = "failed"
+        runner.events = [
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {
+                        "censored": "hidden",
+                        "msg": "Bearer zc_ANOTHER_SECRET_yyyyyyyyyyyyyyy",
+                    }
+                },
+            },
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {
+                        "censored": "hidden",
+                        "stderr": "Bearer zc_AND_ANOTHER_zzzzzzzzzzzzzzzz",
+                    }
+                },
+            },
+        ]
+        success, error = self._run_repair(host, tmp_path, runner=runner)
+        assert success is False
+        # No secret in error.
+        assert "zc_" not in error, (
+            f"all-censored fallback leaked a bearer fragment: {error!r}"
+        )
+        # The generic prefix is what the helper produces when no usable
+        # `msg`/`stderr` is found across all events.
+        assert "Re-pair playbook failed" in error
+
     def test_returns_failure_when_update_host_returns_false(self, tmp_path: Path):
         """ATX W8: the exact divergence #437 fixes — playbook succeeds but
         hosts.json never gets written. Must surface as a failure."""
@@ -711,11 +852,17 @@ class TestConfigureAgentZeroclawBearerForwarding:
         }
 
     def _capture_configure(
-        self, host: dict, config_data: dict, tmp_path: Path,
+        self,
+        host: dict,
+        config_data: dict,
+        tmp_path: Path,
+        *,
+        runner_status: str = "successful",
+        runner_events: list | None = None,
     ) -> tuple[dict, bool, str | None]:
         runner = MagicMock()
-        runner.status = "successful"
-        runner.events = []
+        runner.status = runner_status
+        runner.events = runner_events or []
         artifacts_dir = tmp_path / "artifacts"
         (artifacts_dir / "fact_cache").mkdir(parents=True)
         runner.config.artifact_dir = str(artifacts_dir)
@@ -811,6 +958,46 @@ class TestConfigureAgentZeroclawBearerForwarding:
             "agent record so the locked-pair branch authenticates correctly "
             "(ATX #445 B1)"
         )
+
+    def test_configure_censored_event_does_not_leak_bearer(
+        self, tmp_path: Path
+    ):
+        """ATX iter-2 NB1: censored-guard at lifecycle.py:~1517 covers the
+        configure path. The runner_on_failed extraction loop must skip
+        events where `res.censored` is set, even if they happen to carry a
+        `msg`/`stderr` (e.g., debug-mode daemon echoing the bearer back)."""
+        host = self._zc_host(
+            auth_in_record="zc_record_for_configure_aaaaaaaaaaaaa",
+        )
+        config_data = {
+            "gateway": {"port": 40000},
+            "provider": {
+                "name": "p", "type": "ollama", "endpoint": "http://x",
+                "default_model": "m",
+            },
+        }
+        _inv, success, error = self._capture_configure(
+            host,
+            config_data,
+            tmp_path,
+            runner_status="failed",
+            runner_events=[
+                {
+                    "event": "runner_on_failed",
+                    "event_data": {
+                        "res": {
+                            "censored": "no_log: true was specified",
+                            "msg": "Bearer zc_LEAK_FROM_CONFIGURE_xxxxxxxx",
+                        }
+                    },
+                },
+            ],
+        )
+        assert success is False
+        assert "zc_LEAK_FROM_CONFIGURE" not in (error or ""), (
+            f"configure_agent censored-guard regressed: {error!r}"
+        )
+        assert "Configure playbook failed" in (error or "")
 
     def test_configure_does_not_override_explicit_bearer(self, tmp_path: Path):
         """If the caller already populated `gateway.auth` (e.g. via

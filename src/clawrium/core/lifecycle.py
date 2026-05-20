@@ -1253,6 +1253,28 @@ def configure_agent(
             if not config_data["provider"].get("endpoint"):
                 return False, "Ollama provider requires 'endpoint' field"
 
+    # Issue #445 B1: defensive bearer injection for zeroclaw configure. The
+    # CLI paths in cli/agent.py already copy `existing_gateway["auth"]` into
+    # config_data when present, but callers that build config_data from
+    # scratch (e.g. _run_identity_stage at agent.py:639) won't. Mirror the
+    # pattern from _zeroclaw_repair_after_start (line 739) so the playbook's
+    # locked-pair branch in tasks/pair.yaml has a Bearer to authenticate
+    # /api/pairing/initiate with, instead of sending `Bearer ` (empty) and
+    # getting a 401 the operator can't decode.
+    #
+    # ATX iter-2 NS1: runs BEFORE the gateway port validation below so the
+    # injection cannot create a `{"gateway": {"auth": ""}}` block that
+    # silently bypasses the port check (the existing `if config_data.get
+    # ("gateway")` guard is falsy for both an absent key and an empty dict).
+    if resolved_type == "zeroclaw":
+        gw_block = config_data.setdefault("gateway", {})
+        if not gw_block.get("auth"):
+            record_auth = (
+                agent_record.get("config", {}).get("gateway", {}).get("auth")
+                or ""
+            )
+            gw_block["auth"] = record_auth
+
     # Validate required gateway fields
     required_gateway_fields = ["port"]
     if config_data.get("gateway"):
@@ -1412,23 +1434,6 @@ def configure_agent(
             False,
             f"Invalid agent_name format: '{unix_agent_name}'. Must start with lowercase letter and contain only lowercase letters, digits, hyphens, underscores (max 32 chars)",
         )
-
-    # Issue #445 B1: defensive bearer injection for zeroclaw configure. The
-    # CLI paths in cli/agent.py already copy `existing_gateway["auth"]` into
-    # config_data when present, but callers that build config_data from
-    # scratch (e.g. _run_identity_stage at agent.py:639) won't. Mirror the
-    # pattern from _zeroclaw_repair_after_start (line 739) so the playbook's
-    # locked-pair branch in tasks/pair.yaml has a Bearer to authenticate
-    # /api/pairing/initiate with, instead of sending `Bearer ` (empty) and
-    # getting a 401 the operator can't decode.
-    if resolved_type == "zeroclaw":
-        gw_block = config_data.setdefault("gateway", {})
-        if not gw_block.get("auth"):
-            record_auth = (
-                agent_record.get("config", {}).get("gateway", {}).get("auth")
-                or ""
-            )
-            gw_block["auth"] = record_auth
 
     # Build Ansible inventory with API key passed directly
     ansible_vars = {

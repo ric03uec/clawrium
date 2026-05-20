@@ -517,12 +517,57 @@ def test_pair_playbook_handles_locked_daemon():
         "pair.yaml must include a task that surfaces 401/503 from "
         "/api/pairing/initiate as actionable messages (ATX B2)"
     )
-    validate_msg = (by_name[validate_name].get("ansible.builtin.fail") or {}).get("msg", "")
+    validate_task = by_name[validate_name]
+    validate_msg = (validate_task.get("ansible.builtin.fail") or {}).get("msg", "")
     assert "clm agent configure" in validate_msg, (
         "401 path must direct the operator to `clm agent configure` (ATX B2)"
     )
     assert "journalctl" in validate_msg, (
         "503 path must direct the operator to daemon logs (ATX B2)"
+    )
+    # ATX iter-2 NW2: validate task may template `initiate_response.json` or
+    # `.content` in a future edit. Lock no_log: true so a debug-mode daemon
+    # echoing the Authorization header back in the 401 body can't leak.
+    assert validate_task.get("no_log") is True, (
+        "validate task must be no_log: true to defend against future edits "
+        "that template the daemon response body (ATX iter-2 NW2)"
+    )
+
+    # ATX iter-2 NW3: substring-on-raw-template is fragile — render the
+    # Jinja2 msg against fixture statuses and assert each branch produces
+    # the expected operator-actionable text. A regression that swaps the
+    # 401/503 branches or drops one would slip past the substring check
+    # above but fails here.
+    from jinja2 import Environment
+
+    env = Environment()
+    msg_template = env.from_string(validate_msg)
+    rendered_401 = " ".join(
+        msg_template.render(
+            initiate_response={"status": 401},
+            agent_name="zer-test",
+            agent_type="zeroclaw",
+        ).split()
+    )
+    assert "401" in rendered_401
+    assert "stale" in rendered_401 or "devices.db" in rendered_401
+    assert "clm agent configure zer-test" in rendered_401
+    assert "journalctl" not in rendered_401, (
+        "401 branch must not also include 503's journalctl guidance"
+    )
+
+    rendered_503 = " ".join(
+        msg_template.render(
+            initiate_response={"status": 503},
+            agent_name="zer-test",
+            agent_type="zeroclaw",
+        ).split()
+    )
+    assert "503" in rendered_503
+    assert "journalctl" in rendered_503
+    assert "clm agent configure zer-test" in rendered_503
+    assert "stale" not in rendered_503, (
+        "503 branch must not also include 401's stale-bearer guidance"
     )
 
     # Defensive: every `| length` check on a pair field must coexist with

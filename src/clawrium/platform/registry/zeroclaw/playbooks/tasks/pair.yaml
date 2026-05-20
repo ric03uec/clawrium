@@ -66,6 +66,14 @@
 # ATX B2: surface 401/503 as actionable operator messages BEFORE the
 # resolved_pairing_code set_fact runs, so the operator sees the right
 # remediation instead of a generic "pairing code" failure downstream.
+#
+# ATX iter-2 NW2: `no_log: true` even though the current msg references
+# only `initiate_response.status` (safe). Defends against a future template
+# edit that adds `initiate_response.json` or `.content` to the msg — those
+# would otherwise leak the daemon's 401 body, which may echo back the
+# Authorization header in a debug-mode daemon. Keep the fail-msg visible to
+# the operator via the LifecycleResult error string; no_log only suppresses
+# Ansible's own callback echo, not the fail itself.
 - name: Validate locked-branch initiate response
   ansible.builtin.fail:
     msg: >-
@@ -80,6 +88,7 @@
       {% else %}POST /api/pairing/initiate returned an unexpected status
       {{ initiate_response.status }} — see daemon logs.
       {% endif %}
+  no_log: true
   when:
     - initiate_response is defined
     - initiate_response.status is defined
