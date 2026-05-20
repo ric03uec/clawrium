@@ -68,6 +68,7 @@ function makeTopology(): TopologyResponse {
             provider: null,
             provider_type: null,
             provider_endpoint: null,
+            provider_accelerator_vendor: null,
           },
           {
             agent_key: "a2",
@@ -80,6 +81,7 @@ function makeTopology(): TopologyResponse {
             provider: null,
             provider_type: null,
             provider_endpoint: null,
+            provider_accelerator_vendor: null,
           },
         ],
       },

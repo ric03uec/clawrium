@@ -47,6 +47,7 @@ function makeAgent(overrides: Partial<TopologyAgent> = {}): TopologyAgent {
     provider: "p",
     provider_type: "ollama",
     provider_endpoint: null,
+    provider_accelerator_vendor: null,
     ...overrides,
   };
   return {

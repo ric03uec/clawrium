@@ -13,6 +13,9 @@ import { OpenRouterIcon } from "@/components/icons/openrouter";
 import { OllamaIcon } from "@/components/icons/ollama";
 import { ZhipuIcon } from "@/components/icons/zhipu";
 import { NvidiaIcon } from "@/components/icons/nvidia";
+import { AmdIcon } from "@/components/icons/amd";
+
+import { type AcceleratorVendor } from "@/lib/types";
 
 interface IconProps {
   className?: string;
@@ -88,6 +91,60 @@ export const NVIDIA_BRAND: ProviderBrand = {
   accentColor: "#76B900",
   isLocal: true,
 };
+
+/** AMD-specific brand for local GPU inference (ollama on AMD hardware) */
+export const AMD_BRAND: ProviderBrand = {
+  label: "AMD · Local",
+  Icon: AmdIcon,
+  accentColor: "#ED1C24",
+  isLocal: true,
+};
+
+export interface AcceleratorBadge {
+  label: string;
+  Icon: ComponentType<IconProps>;
+  /** CSS color string for the badge icon tint */
+  color: string;
+}
+
+/**
+ * Resolve the accelerator badge to render alongside a local-inference
+ * provider logo. Precedence:
+ *   1. Explicit provider.accelerator_vendor (user choice)
+ *   2. Detected host GPU vendor (when "nvidia" or "amd")
+ *   3. None
+ */
+export function getAcceleratorBadge(
+  providerType: string | null,
+  acceleratorVendor: AcceleratorVendor | null | undefined,
+  hostGpuVendor: string | null | undefined
+): AcceleratorBadge | null {
+  if (providerType !== "ollama") return null;
+
+  const resolved =
+    acceleratorVendor ??
+    (hostGpuVendor?.toLowerCase() === "nvidia"
+      ? "nvidia"
+      : hostGpuVendor?.toLowerCase() === "amd"
+        ? "amd"
+        : null);
+
+  if (resolved === "nvidia") {
+    return {
+      label: "NVIDIA",
+      Icon: NvidiaIcon,
+      color: NVIDIA_BRAND.accentColor,
+    };
+  }
+  if (resolved === "amd") {
+    return {
+      label: "AMD",
+      Icon: AmdIcon,
+      color: AMD_BRAND.accentColor,
+    };
+  }
+  return null;
+}
 
 /**
  * Look up provider brand metadata by provider_type string.

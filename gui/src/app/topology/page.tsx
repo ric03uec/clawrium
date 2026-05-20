@@ -14,7 +14,7 @@ export default function TopologyPage() {
   return (
     <div>
       <PageHeader
-        title="Topology"
+        title="Agent Topology"
         description="Network diagram of hosts and agents"
       />
 

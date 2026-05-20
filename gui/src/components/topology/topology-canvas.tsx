@@ -25,6 +25,49 @@ const nodeTypes = {
   provider: ProviderNode,
 };
 
+function FleetSummaryCard({ data }: { data: TopologyResponse }) {
+  const providerCount = new Set(
+    data.hosts.flatMap((h) =>
+      h.agents
+        .map((a) => a.provider)
+        .filter((p): p is string => Boolean(p))
+    )
+  ).size;
+
+  const rows: { label: string; value: number; valueClass?: string }[] = [
+    { label: "Hosts", value: data.summary.total_hosts },
+    { label: "Agents", value: data.summary.total_agents },
+    { label: "Providers", value: providerCount },
+    {
+      label: "Running",
+      value: data.summary.running,
+      valueClass: "text-status-running",
+    },
+  ];
+
+  return (
+    <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm border border-default rounded-lg px-5 py-4 shadow-sm z-10 min-w-[200px]">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-3">
+        Fleet Summary
+      </div>
+      <dl className="space-y-1.5">
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-baseline justify-between gap-6">
+            <dt className="text-sm text-secondary">{row.label}</dt>
+            <dd
+              className={`text-base font-semibold tabular-nums ${
+                row.valueClass ?? "text-primary-text"
+              }`}
+            >
+              {row.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 interface TopologyCanvasProps {
   data: TopologyResponse;
 }
@@ -92,20 +135,8 @@ export function TopologyCanvas({ data }: TopologyCanvasProps) {
 
       <TopologyLegend />
 
-      {/* Summary badge */}
-      <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm border border-default rounded-lg px-4 py-2 shadow-sm z-10">
-        <div className="flex items-center gap-4 text-xs">
-          <span className="text-muted">
-            Hosts: <span className="font-medium text-primary-text">{data.summary.total_hosts}</span>
-          </span>
-          <span className="text-muted">
-            Agents: <span className="font-medium text-primary-text">{data.summary.total_agents}</span>
-          </span>
-          <span className="text-muted">
-            Running: <span className="font-medium text-status-running">{data.summary.running}</span>
-          </span>
-        </div>
-      </div>
+      {/* Fleet summary card */}
+      <FleetSummaryCard data={data} />
 
       {/* Modals */}
       <AgentInfoModal

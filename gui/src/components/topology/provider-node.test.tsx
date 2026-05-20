@@ -32,6 +32,9 @@ vi.mock("@/components/icons/zhipu", () => ({
 vi.mock("@/components/icons/nvidia", () => ({
   NvidiaIcon: ({ title }: { title?: string }) => <svg data-testid="icon-nvidia" aria-label={title} />,
 }));
+vi.mock("@/components/icons/amd", () => ({
+  AmdIcon: ({ title }: { title?: string }) => <svg data-testid="icon-amd" aria-label={title} />,
+}));
 
 import { ProviderNode } from "./provider-node";
 import { type ProviderNodeData } from "./topology-graph";
@@ -94,14 +97,58 @@ describe("ProviderNode", () => {
     expect(screen.getByText("Zhipu AI")).toBeInTheDocument();
   });
 
-  it("uses NVIDIA branding when ollama + nvidia GPU vendor", () => {
+  it("shows NVIDIA badge for ollama when host GPU vendor is nvidia (no explicit choice)", () => {
     renderNode({
       name: "local-ollama",
       type: "ollama",
       hostGpuVendor: "nvidia",
     });
+    expect(screen.getByTestId("icon-ollama")).toBeInTheDocument();
+    expect(screen.getByText("Ollama")).toBeInTheDocument();
     expect(screen.getByTestId("icon-nvidia")).toBeInTheDocument();
-    expect(screen.getByText(/NVIDIA/)).toBeInTheDocument();
+    expect(screen.getByText("NVIDIA")).toBeInTheDocument();
+  });
+
+  it("shows NVIDIA badge for ollama when acceleratorVendor=nvidia is explicit", () => {
+    renderNode({
+      name: "local-ollama",
+      type: "ollama",
+      acceleratorVendor: "nvidia",
+    });
+    expect(screen.getByTestId("icon-nvidia")).toBeInTheDocument();
+    expect(screen.getByText("NVIDIA")).toBeInTheDocument();
+  });
+
+  it("shows AMD badge for ollama when acceleratorVendor=amd is explicit", () => {
+    renderNode({
+      name: "local-ollama",
+      type: "ollama",
+      acceleratorVendor: "amd",
+    });
+    expect(screen.getByTestId("icon-amd")).toBeInTheDocument();
+    expect(screen.getByText("AMD")).toBeInTheDocument();
+  });
+
+  it("explicit acceleratorVendor overrides host GPU vendor", () => {
+    renderNode({
+      name: "local-ollama",
+      type: "ollama",
+      acceleratorVendor: "amd",
+      hostGpuVendor: "nvidia",
+    });
+    expect(screen.getByTestId("icon-amd")).toBeInTheDocument();
+    expect(screen.queryByTestId("icon-nvidia")).not.toBeInTheDocument();
+  });
+
+  it("does not render an accelerator badge for non-ollama providers", () => {
+    renderNode({
+      name: "claude-api",
+      type: "anthropic",
+      acceleratorVendor: "nvidia",
+      hostGpuVendor: "nvidia",
+    });
+    expect(screen.queryByTestId("icon-nvidia")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("icon-amd")).not.toBeInTheDocument();
   });
 
   it("falls back to 'Provider' label when type is null", () => {

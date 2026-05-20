@@ -2,20 +2,30 @@
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
+import { type AcceleratorVendor } from "@/lib/types";
 import { type ProviderNodeData } from "./topology-graph";
 import {
+  getAcceleratorBadge,
   getProviderBrand,
-  isNvidiaLocalInference,
-  NVIDIA_BRAND,
 } from "./provider-brands";
 
 export function ProviderNode({ data }: NodeProps) {
-  const { name, type, endpoint, agentCount, unconfigured, hostGpuVendor } =
-    data as unknown as ProviderNodeData & { hostGpuVendor?: string | null };
+  const {
+    name,
+    type,
+    endpoint,
+    agentCount,
+    unconfigured,
+    hostGpuVendor,
+    acceleratorVendor,
+  } = data as unknown as ProviderNodeData & {
+    hostGpuVendor?: string | null;
+    acceleratorVendor?: AcceleratorVendor | null;
+  };
 
-  const isNvidia = isNvidiaLocalInference(type, hostGpuVendor);
-  const brand = isNvidia ? NVIDIA_BRAND : getProviderBrand(type);
+  const brand = getProviderBrand(type);
   const { label, Icon, accentColor } = brand;
+  const accelerator = getAcceleratorBadge(type, acceleratorVendor, hostGpuVendor);
 
   const borderStyle = unconfigured
     ? { borderLeft: "2px dashed var(--border-default)" }
@@ -43,17 +53,24 @@ export function ProviderNode({ data }: NodeProps) {
 
       {/* Logo + label row */}
       <div className="flex items-center gap-2 mb-1">
-        <Icon
-          className={isNvidia ? "h-5 w-5" : "h-4 w-4"}
-          title={label}
-        />
+        <Icon className="h-4 w-4" title={label} />
         <span
           className={`text-[11px] font-semibold truncate ${
             unconfigured ? "text-muted" : "text-primary-text"
           }`}
         >
-          {isNvidia ? "NVIDIA · Local" : label}
+          {label}
         </span>
+        {accelerator && (
+          <span
+            className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-default text-[9px] font-semibold uppercase tracking-wide"
+            style={{ color: accelerator.color }}
+            title={`${accelerator.label} accelerator`}
+          >
+            <accelerator.Icon className="h-3 w-3" title={accelerator.label} />
+            <span>{accelerator.label}</span>
+          </span>
+        )}
       </div>
 
       {/* Provider name */}

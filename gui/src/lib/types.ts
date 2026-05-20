@@ -121,6 +121,8 @@ export interface HostHardware {
   system_vendor: string | null;
 }
 
+export type AcceleratorVendor = "nvidia" | "amd";
+
 export interface TopologyAgent {
   agent_key: string;
   agent_name: string;
@@ -132,6 +134,7 @@ export interface TopologyAgent {
   provider: string | null;
   provider_type: string | null;
   provider_endpoint: string | null;
+  provider_accelerator_vendor: AcceleratorVendor | null;
 }
 
 export interface TopologyConnection {
@@ -144,12 +147,13 @@ export interface TopologyConnection {
 export interface Provider {
   name: string;
   type: string;
-  endpoint: string;
-  default_model: string;
-  available_models: string[];
+  endpoint: string | null;
+  default_model: string | null;
+  available_models: string[] | null;
   has_api_key: boolean;
-  created_at: string;
-  updated_at: string;
+  accelerator_vendor: AcceleratorVendor | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface ProviderTypeInfo {
@@ -174,12 +178,14 @@ export interface ProviderCreate {
   endpoint?: string;
   default_model?: string;
   api_key?: string;
+  accelerator_vendor?: AcceleratorVendor;
 }
 
 export interface ProviderUpdate {
   endpoint?: string;
   default_model?: string;
   api_key?: string;
+  accelerator_vendor?: AcceleratorVendor;
 }
 
 export interface CatalogModel {

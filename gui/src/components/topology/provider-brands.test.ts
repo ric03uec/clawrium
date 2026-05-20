@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { OpenAiIcon } from "@/components/icons/openai";
 
 import {
+  AMD_BRAND,
   NVIDIA_BRAND,
+  getAcceleratorBadge,
   getProviderBrand,
   isNvidiaLocalInference,
 } from "./provider-brands";
@@ -63,6 +65,51 @@ describe("NVIDIA_BRAND", () => {
     expect(NVIDIA_BRAND.label).toContain("NVIDIA");
     expect(NVIDIA_BRAND.isLocal).toBe(true);
     expect(NVIDIA_BRAND.accentColor).toBe("#76B900");
+  });
+});
+
+describe("AMD_BRAND", () => {
+  it("is the AMD local-inference brand", () => {
+    expect(AMD_BRAND.label).toContain("AMD");
+    expect(AMD_BRAND.isLocal).toBe(true);
+    expect(AMD_BRAND.accentColor).toBe("#ED1C24");
+  });
+});
+
+describe("getAcceleratorBadge", () => {
+  it("returns null for non-ollama providers", () => {
+    expect(getAcceleratorBadge("openai", "nvidia", "nvidia")).toBeNull();
+    expect(getAcceleratorBadge("bedrock", "amd", null)).toBeNull();
+  });
+
+  it("returns null when providerType is null", () => {
+    expect(getAcceleratorBadge(null, "nvidia", null)).toBeNull();
+  });
+
+  it("prefers explicit accelerator vendor over host GPU vendor", () => {
+    const badge = getAcceleratorBadge("ollama", "amd", "nvidia");
+    expect(badge?.label).toBe("AMD");
+    expect(badge?.color).toBe(AMD_BRAND.accentColor);
+  });
+
+  it("falls back to host GPU vendor when accelerator is null (NVIDIA)", () => {
+    const badge = getAcceleratorBadge("ollama", null, "nvidia");
+    expect(badge?.label).toBe("NVIDIA");
+    expect(badge?.color).toBe(NVIDIA_BRAND.accentColor);
+  });
+
+  it("falls back to host GPU vendor when accelerator is null (AMD)", () => {
+    const badge = getAcceleratorBadge("ollama", null, "amd");
+    expect(badge?.label).toBe("AMD");
+  });
+
+  it("returns null for ollama when neither explicit nor host vendor available", () => {
+    expect(getAcceleratorBadge("ollama", null, null)).toBeNull();
+    expect(getAcceleratorBadge("ollama", undefined, undefined)).toBeNull();
+  });
+
+  it("ignores unknown host GPU vendors", () => {
+    expect(getAcceleratorBadge("ollama", null, "intel")).toBeNull();
   });
 });
 

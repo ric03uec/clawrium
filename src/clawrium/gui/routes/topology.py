@@ -43,6 +43,32 @@ def _load_provider_endpoints() -> dict[str, str | None]:
     }
 
 
+def _load_provider_accelerator_vendors() -> dict[str, str | None]:
+    """Return {provider_name: accelerator_vendor} for local-inference providers.
+
+    Defaults ollama to "nvidia" when the stored record omits the field, so
+    the topology badge stays stable for legacy providers.json entries.
+    Returns an empty dict when providers can't be loaded.
+    """
+    try:
+        providers = load_providers()
+    except (ProvidersFileCorruptedError, OSError):
+        return {}
+    out: dict[str, str | None] = {}
+    for p in providers:
+        name = p.get("name")
+        if not name:
+            continue
+        stored = p.get("accelerator_vendor")
+        if stored in ("nvidia", "amd"):
+            out[name] = stored
+        elif p.get("type") == "ollama":
+            out[name] = "nvidia"
+        else:
+            out[name] = None
+    return out
+
+
 def _normalize_endpoint(ep: object) -> str | None:
     """Coerce missing / blank / whitespace endpoint values to None."""
     if not isinstance(ep, str):
@@ -92,6 +118,9 @@ async def get_topology():
     agents, summary = await asyncio.to_thread(get_fleet_data_local, None)
     hosts_raw = await asyncio.to_thread(load_hosts_safe)
     provider_endpoints = await asyncio.to_thread(_load_provider_endpoints)
+    provider_accelerators = await asyncio.to_thread(
+        _load_provider_accelerator_vendors
+    )
 
     # Build host map with nested agents
     hosts: list[dict[str, Any]] = []
@@ -125,6 +154,11 @@ async def get_topology():
                         )
                         if agent["provider"]
                         else None,
+                        "provider_accelerator_vendor": (
+                            provider_accelerators.get(agent["provider"])
+                            if agent["provider"]
+                            else None
+                        ),
                     }
                 )
 
