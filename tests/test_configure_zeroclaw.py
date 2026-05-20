@@ -655,17 +655,20 @@ class TestChannelsDiscordBlock:
 
 class TestAgentBlock:
     """[agent] pins the daemon's tool-loop + context budgets above their
-    too-tight defaults (10 iterations / 32k tokens), which were causing
-    multi-step PR workflows to hit `Max iterations reached` and poison
-    the conversation history with phantom-block hallucinations."""
+    coding-hostile defaults (10 iters / 32k ctx / 50k tool-result / 50
+    history / 2 turns retained). Verified against
+    crates/zeroclaw-config/src/schema.rs L3342-3422 @ v0.7.5."""
 
     def test_agent_block_pins_iteration_and_context_budgets(self):
         rendered = _render_with_channels_and_integrations(
             provider={"type": "anthropic", "default_model": "m"},
         )
         assert "[agent]" in rendered
-        assert "max_tool_iterations = 30" in rendered
-        assert "max_context_tokens = 100000" in rendered
+        assert "max_tool_iterations = 200" in rendered
+        assert "max_context_tokens = 180000" in rendered
+        assert "max_tool_result_chars = 200000" in rendered
+        assert "max_history_messages = 200" in rendered
+        assert "keep_tool_context_turns = 8" in rendered
 
 
 class TestAutonomyBlock:
@@ -679,8 +682,15 @@ class TestAutonomyBlock:
         )
         assert "[autonomy]" in rendered
         assert 'level = "supervised"' in rendered
-        assert "approval_timeout_secs = 300" in rendered
         assert "workspace_only = true" in rendered
+        # Coding-agent ceilings (v0.7.5 defaults are 20/hr, $5/day, 60s).
+        assert "max_actions_per_hour = 1000" in rendered
+        assert "max_cost_per_day_cents = 50000" in rendered
+        assert "shell_timeout_secs = 600" in rendered
+        # approval_timeout_secs is NOT a recognized AutonomyConfig field in
+        # v0.7.5 (schema.rs L5820-5942) — silently ignored by the daemon.
+        # Asserted absent so future templates don't reintroduce it.
+        assert "approval_timeout_secs" not in rendered
         # Explicit broad developer allowlist. v0.7.5 treats `[]` as
         # deny-all (vs. the doc's implied permissive), so we enumerate.
         # Spot-check representative entries from each category — the
@@ -765,6 +775,45 @@ class TestAutonomyBlock:
             },
         )
         assert "GITHUB_TOKEN_TEAM_A_GH" in rendered
+
+
+class TestPacingBlock:
+    """[pacing] loosens the loop detector from its coding-hostile default
+    (max_repeats=3 in a 20-call window) and exempts the high-repeat,
+    low-risk tool surface (shell, file_read, search tools). Verified
+    against crates/zeroclaw-config/src/schema.rs L3481-3547 @ v0.7.5."""
+
+    def test_pacing_block_renders_with_loosened_thresholds(self):
+        rendered = _render_with_channels_and_integrations(
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        assert "[pacing]" in rendered
+        assert "loop_detection_enabled = true" in rendered
+        assert "loop_detection_window_size = 40" in rendered
+        assert "loop_detection_max_repeats = 12" in rendered
+
+    def test_pacing_block_exempts_high_repeat_low_risk_tools(self):
+        rendered = _render_with_channels_and_integrations(
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        # Surgical exemption — repeats on these tools are normal coding
+        # cadence (re-running tests, re-reading edited files, grep loops).
+        import re
+        m = re.search(
+            r"loop_ignore_tools\s*=\s*\[(.*?)\]", rendered, re.DOTALL
+        )
+        assert m is not None, "loop_ignore_tools list not rendered"
+        block = m.group(1)
+        for tool in ["shell", "file_read", "file_list",
+                     "content_search", "glob_search"]:
+            assert f'"{tool}"' in block, f"{tool} missing from loop_ignore_tools"
+        # Network + git ops stay detected — repeated identical results
+        # there almost always indicate genuine pathology.
+        for tool in ["web_fetch", "http_request", "git_operations"]:
+            assert f'"{tool}"' not in block, (
+                f"{tool} must NOT be in loop_ignore_tools — repeated "
+                f"identical results are a pathology signal for it"
+            )
 
 
 class TestSystemdDropIn:
