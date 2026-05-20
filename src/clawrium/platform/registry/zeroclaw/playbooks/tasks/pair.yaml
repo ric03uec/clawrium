@@ -67,13 +67,18 @@
 # resolved_pairing_code set_fact runs, so the operator sees the right
 # remediation instead of a generic "pairing code" failure downstream.
 #
-# ATX iter-2 NW2: `no_log: true` even though the current msg references
-# only `initiate_response.status` (safe). Defends against a future template
-# edit that adds `initiate_response.json` or `.content` to the msg — those
-# would otherwise leak the daemon's 401 body, which may echo back the
-# Authorization header in a debug-mode daemon. Keep the fail-msg visible to
-# the operator via the LifecycleResult error string; no_log only suppresses
-# Ansible's own callback echo, not the fail itself.
+# ATX iter-3 NB2: this task MUST NOT carry `no_log: true`. The
+# lifecycle.py censored-event handler (W1) skips events where
+# `res.censored` is set, which silently swallows the operator-actionable
+# branching this msg encodes. The current msg references only
+# `initiate_response.status` (an int — safe to log) plus the constants
+# `agent_name` and `agent_type`. Future editors:
+#
+#   WARNING: do NOT reference `initiate_response.json` or
+#   `initiate_response.content` in this msg. A debug-mode daemon may echo
+#   the Authorization header back in its 401 body; templating that into
+#   the msg would leak the bearer through the fail-msg path that bypasses
+#   no_log.
 - name: Validate locked-branch initiate response
   ansible.builtin.fail:
     msg: >-
@@ -88,7 +93,6 @@
       {% else %}POST /api/pairing/initiate returned an unexpected status
       {{ initiate_response.status }} — see daemon logs.
       {% endif %}
-  no_log: true
   when:
     - initiate_response is defined
     - initiate_response.status is defined

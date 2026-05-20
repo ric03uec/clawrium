@@ -367,10 +367,14 @@ def _run_lifecycle_playbook(
                     # in its 401 body.
                     if res.get("censored"):
                         continue
-                    if "msg" in res:
+                    # ATX #445 iter-3 NW4: `if "msg" in res` would fire on a
+                    # `{"msg": None}` entry and set error_msg = None, leaking
+                    # an empty error string up the stack. Use `is not None`
+                    # so the loop falls through to stderr / generic prefix.
+                    if res.get("msg") is not None:
                         error_msg = res["msg"]
                         break
-                    if "stderr" in res:
+                    if res.get("stderr") is not None:
                         error_msg = res["stderr"]
                         break
             return False, error_msg
@@ -815,10 +819,14 @@ def _zeroclaw_repair_after_start(
                     # in its 401 body.
                     if res.get("censored"):
                         continue
-                    if "msg" in res:
+                    # ATX #445 iter-3 NW4: `if "msg" in res` would fire on a
+                    # `{"msg": None}` entry and set error_msg = None, leaking
+                    # an empty error string up the stack. Use `is not None`
+                    # so the loop falls through to stderr / generic prefix.
+                    if res.get("msg") is not None:
                         error_msg = res["msg"]
                         break
-                    if "stderr" in res:
+                    if res.get("stderr") is not None:
                         error_msg = res["stderr"]
                         break
             return False, error_msg
@@ -1262,10 +1270,14 @@ def configure_agent(
     # /api/pairing/initiate with, instead of sending `Bearer ` (empty) and
     # getting a 401 the operator can't decode.
     #
-    # ATX iter-2 NS1: runs BEFORE the gateway port validation below so the
-    # injection cannot create a `{"gateway": {"auth": ""}}` block that
-    # silently bypasses the port check (the existing `if config_data.get
-    # ("gateway")` guard is falsy for both an absent key and an empty dict).
+    # ATX iter-2 NS1 (clarified in iter-3 S1): runs BEFORE the gateway port
+    # validation below. The injection populates config_data["gateway"] so
+    # the `if config_data.get("gateway")` guard at the validation block
+    # becomes truthy and the port check FIRES with a clean
+    # "Incomplete gateway config — missing: port" error. In the old
+    # position (after validation), a caller that omitted the gateway key
+    # left that guard falsy — the port check was silently skipped and the
+    # failure surfaced later as a confusing Ansible error.
     if resolved_type == "zeroclaw":
         gw_block = config_data.setdefault("gateway", {})
         if not gw_block.get("auth"):
@@ -1521,10 +1533,14 @@ def configure_agent(
                     # in its 401 body.
                     if res.get("censored"):
                         continue
-                    if "msg" in res:
+                    # ATX #445 iter-3 NW4: `if "msg" in res` would fire on a
+                    # `{"msg": None}` entry and set error_msg = None, leaking
+                    # an empty error string up the stack. Use `is not None`
+                    # so the loop falls through to stderr / generic prefix.
+                    if res.get("msg") is not None:
                         error_msg = res["msg"]
                         break
-                    if "stderr" in res:
+                    if res.get("stderr") is not None:
                         error_msg = res["stderr"]
                         break
             return False, error_msg

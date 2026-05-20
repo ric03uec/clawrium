@@ -525,12 +525,17 @@ def test_pair_playbook_handles_locked_daemon():
     assert "journalctl" in validate_msg, (
         "503 path must direct the operator to daemon logs (ATX B2)"
     )
-    # ATX iter-2 NW2: validate task may template `initiate_response.json` or
-    # `.content` in a future edit. Lock no_log: true so a debug-mode daemon
-    # echoing the Authorization header back in the 401 body can't leak.
-    assert validate_task.get("no_log") is True, (
-        "validate task must be no_log: true to defend against future edits "
-        "that template the daemon response body (ATX iter-2 NW2)"
+    # ATX iter-3 NB2: validate task MUST NOT be no_log: true. The
+    # lifecycle.py censored-event handler (W1) skips events where
+    # res.censored is set, which would silently swallow the operator
+    # guidance this msg encodes. The msg references only safe scalars
+    # (initiate_response.status as int, agent_name/agent_type strings).
+    # The msg's WARNING comment in pair.yaml pins this contract for
+    # future editors.
+    assert validate_task.get("no_log") is not True, (
+        "validate task must NOT be no_log: true — would defeat the W1 "
+        "censored-event handler and silently suppress the 401/503 "
+        "operator guidance this task encodes (ATX iter-3 NB2)"
     )
 
     # ATX iter-2 NW3: substring-on-raw-template is fragile — render the
@@ -550,11 +555,19 @@ def test_pair_playbook_handles_locked_daemon():
         ).split()
     )
     assert "401" in rendered_401
-    assert "stale" in rendered_401 or "devices.db" in rendered_401
-    assert "clm agent configure zer-test" in rendered_401
-    assert "journalctl" not in rendered_401, (
-        "401 branch must not also include 503's journalctl guidance"
+    # ATX iter-3 NW7: require BOTH discriminating phrases in the 401
+    # branch so a rephrasing that drops one doesn't silently lose
+    # specificity. Same constraint applies to cross-leak: BOTH must be
+    # absent from the 503 render.
+    assert "stale" in rendered_401, (
+        "401 branch must explicitly say 'stale' so the operator knows the "
+        "bearer is the problem (iter-3 NW7)"
     )
+    assert "devices.db" in rendered_401, (
+        "401 branch must name devices.db so the operator knows where to "
+        "look on the host (iter-3 NW7)"
+    )
+    assert "clm agent configure zer-test" in rendered_401
 
     rendered_503 = " ".join(
         msg_template.render(
@@ -564,10 +577,27 @@ def test_pair_playbook_handles_locked_daemon():
         ).split()
     )
     assert "503" in rendered_503
-    assert "journalctl" in rendered_503
+    # 503 branch's discriminating phrases. Both required.
+    assert "journalctl" in rendered_503, (
+        "503 branch must direct operator to daemon logs (iter-3 NW7)"
+    )
+    assert "pairing disabled" in rendered_503 or "unavailable" in rendered_503, (
+        "503 branch must explain why the daemon refused (iter-3 NW7)"
+    )
     assert "clm agent configure zer-test" in rendered_503
-    assert "stale" not in rendered_503, (
-        "503 branch must not also include 401's stale-bearer guidance"
+
+    # NW7 cross-leak: BOTH 401 phrases absent from 503, BOTH 503 phrases
+    # absent from 401. A swapped branch would fail one of these four.
+    assert "stale" not in rendered_503 and "devices.db" not in rendered_503, (
+        "401 branch's bearer-staleness guidance leaked into 503 render "
+        "(iter-3 NW7)"
+    )
+    assert "pairing disabled" not in rendered_401 and "unavailable" not in rendered_401, (
+        "503 branch's daemon-availability guidance leaked into 401 render "
+        "(iter-3 NW7)"
+    )
+    assert "journalctl" not in rendered_401, (
+        "401 branch must not also include 503's journalctl guidance"
     )
 
     # Defensive: every `| length` check on a pair field must coexist with

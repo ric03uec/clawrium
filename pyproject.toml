@@ -14,11 +14,13 @@ classifiers = [
 dependencies = [
     "typer>=0.12.0",
     "rich>=14.0.0",
-    # ATX #445 NW1: pin below 3.x. `res.censored` is an internal
-    # callback contract (ansible_runner/display_callback/...), not a
-    # documented public API. A 3.0 rename would silently no-op the
-    # bearer-leak guard at lifecycle.py:~360/808/1517 with no test
-    # failure. Bump deliberately when 3.x is vetted.
+    # ATX #445 NW1 / iter-3 S2: pin below 3.x. `res.censored` is an
+    # internal callback contract (ansible_runner/display_callback/...),
+    # not a documented public API; a 3.0 rename would silently no-op the
+    # bearer-leak guard with no test failure. Call sites:
+    # lifecycle.py:_run_lifecycle_playbook (~L360),
+    # _zeroclaw_repair_after_start (~L808),
+    # configure_agent (~L1525). Bump deliberately when 3.x is vetted.
     "ansible-runner>=2.4.0,<3",
     "paramiko>=3.0.0",
     "pyyaml>=6.0.0",
