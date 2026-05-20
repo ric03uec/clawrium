@@ -891,18 +891,43 @@ def _run_channels_stage(
                 "Allowed Discord channel IDs (comma-separated, Enter for any channel)",
                 default="",
                 show_default=False,
-            ).strip()
+            )
+            allowed_channels_raw = (allowed_channels_raw or "").strip()
             allowed_channels: list[str] = []
             if allowed_channels_raw:
-                for cid in (
-                    s.strip() for s in allowed_channels_raw.split(",") if s.strip()
-                ):
+                cids = [
+                    s.strip()
+                    for s in allowed_channels_raw.split(",")
+                    if s.strip()
+                ]
+                # Comma-only input (`,` or `, ,`) is truthy after strip but
+                # parses to an empty list — without this guard the bot would
+                # silently respond in every channel of every allowlisted guild
+                # with no operator feedback. Mirrors the zeroclaw
+                # allowed_users / allowed_guilds guards.
+                if not cids:
+                    console.print(
+                        "[red]Error:[/red] No valid channel IDs parsed from "
+                        "input. Enter 17-19 digit IDs separated by commas, "
+                        "or leave the field empty for any channel."
+                    )
+                    return False
+                for cid in cids:
                     if not re.match(r"^\d{17,19}$", cid):
                         console.print(
                             f"[red]Error:[/red] Invalid channel ID '{rich_escape(cid)}' (17-19 digits required)"
                         )
                         return False
-                    allowed_channels.append(cid)
+                allowed_channels = cids
+            else:
+                # Symmetric note to zeroclaw allowed_users/allowed_guilds
+                # empty-case warning — empty allowed_channels means the bot
+                # responds in every channel of every allowlisted guild.
+                console.print(
+                    "[yellow]Note:[/yellow] empty allowed_channels means the "
+                    "bot will respond in every channel of every allowlisted "
+                    "guild."
+                )
 
             require_mention = typer.confirm(
                 "Require @mention to respond?", default=True

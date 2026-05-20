@@ -2945,6 +2945,311 @@ class TestRunChannelsStageHermesDiscord:
             )
         assert result is False
 
+    def test_hermes_discord_rejects_comma_only_allowed_channels(
+        self, isolated_config: Path
+    ):
+        """Issue #424: comma-only input (`,` or `, ,`) is truthy after strip
+        but parses to an empty list. Without this guard the hermes bot
+        silently responds in every channel of every allowlisted guild with
+        no operator feedback. Mirrors the zeroclaw allowed_users /
+        allowed_guilds comma-only guards added in #422.
+
+        Test contract:
+          - result is False (guard fired)
+          - [red]Error:[/red] message about parsed IDs is printed
+          - _sync_channel_config is NEVER called (no config mutation —
+            this is the security-relevant guarantee the guard enforces)
+          - complete_stage is NEVER called (onboarding remains incomplete)
+        """
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            onboarding_state="channels",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch(
+                "clawrium.cli.agent.typer.confirm", return_value=True
+            ) as mock_confirm,
+            patch("clawrium.cli.agent._sync_channel_config") as mock_sync,
+            patch("clawrium.core.secrets.set_instance_secret") as mock_secret,
+            patch("clawrium.cli.agent.complete_stage") as mock_stage,
+            patch("clawrium.cli.agent.console") as mock_console,
+        ):
+            mock_p.side_effect = [
+                2,                             # discord
+                self._valid_token(),           # bot token
+                "740723459344302120",          # valid user
+                "1503238729962356777",         # home channel
+                "Home",                        # home channel name
+                ", , ,",                       # comma-only allowed channels
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+
+        assert result is False, (
+            "Comma-only allowed_channels input silently passed — would have "
+            "produced an any-channel bot with no operator feedback."
+        )
+        # No config mutation must have occurred — the open-channel posture
+        # must NOT be persisted to disk on a rejected input. Asserting all
+        # mutation/effect sites (sync, secret store, complete_stage,
+        # require_mention confirm) makes the no-side-effects contract
+        # robust to future reorderings that might move any of these above
+        # the allowed_channels validation.
+        mock_sync.assert_not_called()
+        mock_secret.assert_not_called()
+        mock_stage.assert_not_called()
+        mock_confirm.assert_not_called()
+        # The [red]Error:[/red] message must be emitted so the operator
+        # knows why the input was rejected. Asserting the severity marker
+        # catches a regression that demotes the error to a warning.
+        error_calls = [
+            call
+            for call in mock_console.print.call_args_list
+            if call.args
+            and isinstance(call.args[0], str)
+            and "No valid channel IDs parsed" in call.args[0]
+        ]
+        assert error_calls, (
+            "Expected [red]Error:[/red] about parsed channel IDs to be "
+            "printed, but no such console.print call was made."
+        )
+        assert "[red]Error:[/red]" in error_calls[0].args[0], (
+            "Error message must carry the [red]Error:[/red] severity prefix "
+            "so the operator sees it as a hard rejection."
+        )
+
+    @pytest.mark.parametrize("require_mention_value", [True, False])
+    def test_hermes_discord_empty_allowed_channels_warns(
+        self, isolated_config: Path, require_mention_value: bool
+    ):
+        """Issue #424: when the operator presses Enter at the
+        allowed_channels prompt the configure succeeds but a yellow Note
+        must be emitted so the open-channel posture is not silent.
+        Symmetric to the zeroclaw allowed_users / allowed_guilds empty-case
+        warnings.
+
+        Parametrized across both `require_mention` values so the
+        propagation of typer.confirm into synced[\"discord\"] is actually
+        tested (asserting `is True` while confirm is patched to True is
+        tautological — the False branch closes that gap)."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            onboarding_state="channels",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(_host, _claw, channels_config, _name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch(
+                "clawrium.cli.agent.typer.confirm",
+                return_value=require_mention_value,
+            ),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage") as mock_stage,
+            patch("clawrium.cli.agent.console") as mock_console,
+        ):
+            mock_p.side_effect = [
+                2,                             # discord
+                self._valid_token(),           # bot token
+                "740723459344302120",          # valid user
+                "1503238729962356777",         # home channel
+                "Home",                        # home channel name
+                "",                            # empty allowed channels
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+
+        assert result is True
+        assert len(synced) == 1, (
+            "_sync_channel_config must have been called exactly once; "
+            "missing call masks unrelated infrastructure failures as "
+            "the assertion below."
+        )
+        # No allowed_channels key in the synced config — open-channel posture.
+        assert "allowed_channels" not in synced[0]["discord"]
+        # require_mention propagation guard — parametrize ensures both
+        # branches of typer.confirm reach synced[\"discord\"], catching a
+        # regression that hardcodes the value. Symmetric to ATX Round 3
+        # W6 on the zeroclaw allowed_users empty-case test.
+        assert synced[0]["discord"]["require_mention"] is require_mention_value
+        # The channels state-machine transition must have happened — a
+        # refactor that drops complete_stage would leave onboarding stuck
+        # at channels/pending with result still True.
+        mock_stage.assert_called_once()
+        # The yellow Note must have been emitted at least once, with the
+        # [yellow]Note:[/yellow] severity prefix intact. Symmetric to the
+        # error-path severity assertion on the comma-only test.
+        warning_calls = [
+            call
+            for call in mock_console.print.call_args_list
+            if call.args
+            and isinstance(call.args[0], str)
+            and "empty allowed_channels" in call.args[0]
+        ]
+        assert warning_calls, (
+            "Expected a [yellow]Note:[/yellow] about empty allowed_channels "
+            "to be printed, but no such console.print call was made."
+        )
+        assert "[yellow]Note:[/yellow]" in warning_calls[0].args[0], (
+            "Note must carry the [yellow]Note:[/yellow] severity prefix so "
+            "the operator sees it as an advisory rather than a hard error."
+        )
+
+    def test_hermes_discord_valid_allowed_channels_stored(
+        self, isolated_config: Path
+    ):
+        """Issue #424 happy-path coverage: valid IDs entered at the
+        allowed_channels prompt must round-trip through to the synced
+        config. Guards against a regression where IDs parse correctly but
+        get dropped from the discord_cfg dict.
+
+        Also asserts companion-field presence (home_channel,
+        require_mention) so the test catches a regression that drops
+        unrelated keys from the same dict in a refactor."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            onboarding_state="channels",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(_host, _claw, channels_config, _name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage") as mock_stage,
+        ):
+            mock_p.side_effect = [
+                2,                                            # discord
+                self._valid_token(),                          # bot token
+                "740723459344302120",                         # valid user
+                "1503238729962356777",                        # home channel
+                "Home",                                       # home channel name
+                "1503238729962356777,1503238729962356778",    # valid channels
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+
+        assert result is True
+        assert len(synced) == 1
+        assert synced[0]["discord"]["allowed_channels"] == [
+            "1503238729962356777",
+            "1503238729962356778",
+        ]
+        # Companion-field structural guards — a refactor that drops these
+        # alongside an allowed_channels change should be caught here.
+        assert synced[0]["discord"]["require_mention"] is True
+        assert synced[0]["discord"]["home_channel"] == "1503238729962356777"
+        # State-machine transition must have happened.
+        mock_stage.assert_called_once()
+
+    def test_hermes_discord_allowed_channels_preserves_duplicates(
+        self, isolated_config: Path
+    ):
+        """Issue #424: pin the current dedup contract — duplicate IDs are
+        preserved in `allowed_channels`. The source assigns
+        `allowed_channels = cids` from a plain list comprehension so
+        duplicates pass through. Pinning this behavior makes a future
+        dedup change (e.g. `dict.fromkeys(cids)` or `set(cids)`) visible
+        in test diffs rather than silent."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="hermes",
+            onboarding_state="channels",
+            config={
+                "provider": {
+                    "name": "p",
+                    "type": "ollama",
+                    "default_model": "x",
+                    "endpoint": "http://h/v1",
+                }
+            },
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(_host, _claw, channels_config, _name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage") as mock_stage,
+        ):
+            mock_p.side_effect = [
+                2,                                            # discord
+                self._valid_token(),                          # bot token
+                "740723459344302120",                         # valid user
+                "1503238729962356777",                        # home channel
+                "Home",                                       # home channel name
+                "1503238729962356777,1503238729962356777",    # dup channels
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "hermes", False, "assistant"
+            )
+
+        assert result is True
+        assert synced[0]["discord"]["allowed_channels"] == [
+            "1503238729962356777",
+            "1503238729962356777",
+        ]
+        mock_stage.assert_called_once()
+
     def test_openclaw_discord_still_uses_guilds_shape(
         self, isolated_config: Path
     ):
