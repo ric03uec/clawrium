@@ -1,23 +1,34 @@
 ---
-# Reusable pair-handshake task file (issue #437).
+# Reusable pair-handshake task file (issue #437, locked-pair fix #445).
 #
 # Every lifecycle op that brings the zeroclaw daemon up MUST include this
-# file. There is no skip path. The daemon does not persist bearer state across
-# restarts, so the operator-visible invariant is "hosts.json.gateway.auth
-# equals the bearer the daemon will enforce on the next request" — and that
-# can only be guaranteed by always re-minting.
+# file. There is no skip path.
+#
+# Two-branch state machine, picked off the /pair/code response shape:
+#
+#   1. Fresh daemon (no row in devices.db) -> GET /pair/code returns a
+#      non-null pairing_code. Use it directly.
+#   2. Locked daemon (devices.db has prior rows, survives systemctl
+#      restart) -> GET /pair/code returns {"pairing_code": null}. POST
+#      to /api/pairing/initiate with the existing bearer to mint a fresh
+#      code, then continue down the same POST /pair path.
+#
+# Both branches converge on the existing X-Pairing-Code exchange.
 #
 # Inputs:
 #   - gateway_local_base: http://127.0.0.1:<port> (set by including playbook)
 #   - ansible_host, gateway_port (used to emit zeroclaw_gateway_url fact)
 #   - agent_name, agent_type (used in failure messages)
+#   - config.gateway.auth: current Bearer from hosts.json. Required only
+#     when /pair/code returns null. May be empty/undefined on first install
+#     (when the locked branch cannot fire anyway).
 #
 # Outputs (cacheable host facts; configure_agent / restart_agent read these
 # out of artifacts/<run>/fact_cache):
 #   - zeroclaw_gateway_token: bearer token minted by /pair
 #   - zeroclaw_gateway_url:   ws://<host>:<port>/ws/chat
 
-- name: Request pairing code
+- name: Request pairing code (fresh-boot branch)
   ansible.builtin.uri:
     url: "{{ gateway_local_base }}/pair/code"
     method: GET
@@ -27,22 +38,108 @@
   register: pair_code_response
   no_log: true
 
+# Locked branch: zeroclaw v0.7.5's /pair/code returns
+# {"pairing_code": null, "pairing_required": true} once devices.db has any
+# prior row. The authenticated initiate endpoint mints a fresh code that
+# the existing POST /pair task below can consume unchanged.
+#
+# ATX B2: explicitly accept 401 and 503 so the recovery path produces an
+# actionable operator message instead of a raw `Status code was 401`
+# Ansible error. The `Validate locked-branch initiate response` task below
+# then fails with explicit guidance to re-run `clm agent configure` (401)
+# or check daemon health (503).
+- name: Mint pairing code via /api/pairing/initiate (locked-pair branch)
+  ansible.builtin.uri:
+    url: "{{ gateway_local_base }}/api/pairing/initiate"
+    method: POST
+    status_code: [200, 401, 503]
+    timeout: 10
+    headers:
+      Authorization: "Bearer {{ config.gateway.auth | default('') }}"
+    return_content: yes
+  register: initiate_response
+  no_log: true
+  when:
+    - pair_code_response.json is defined
+    - pair_code_response.json.pairing_code is none
+
+# ATX B2: surface 401/503 as actionable operator messages BEFORE the
+# resolved_pairing_code set_fact runs, so the operator sees the right
+# remediation instead of a generic "pairing code" failure downstream.
+#
+# ATX iter-3 NB2: this task MUST NOT carry `no_log: true`. The
+# lifecycle.py censored-event handler (W1) skips events where
+# `res.censored` is set, which silently swallows the operator-actionable
+# branching this msg encodes. The current msg references only
+# `initiate_response.status` (an int — safe to log) plus the constants
+# `agent_name` and `agent_type`. Future editors:
+#
+#   WARNING: do NOT reference `initiate_response.json` or
+#   `initiate_response.content` in this msg. A debug-mode daemon may echo
+#   the Authorization header back in its 401 body; templating that into
+#   the msg would leak the bearer through the fail-msg path that bypasses
+#   no_log.
+- name: Validate locked-branch initiate response
+  ansible.builtin.fail:
+    msg: >-
+      {% if initiate_response.status == 401 %}POST /api/pairing/initiate
+      returned 401: the bearer in hosts.json is stale (likely because
+      devices.db was wiped or rebuilt on the host). Run
+      `clm agent configure {{ agent_name }}` to re-pair from scratch.
+      {% elif initiate_response.status == 503 %}POST /api/pairing/initiate
+      returned 503: zeroclaw daemon reports pairing disabled or unavailable.
+      Check `journalctl --unit {{ agent_type }}-{{ agent_name }}` and restart
+      the daemon, then re-run `clm agent configure {{ agent_name }}`.
+      {% else %}POST /api/pairing/initiate returned an unexpected status
+      {{ initiate_response.status }} — see daemon logs.
+      {% endif %}
+  when:
+    - initiate_response is defined
+    - initiate_response.status is defined
+    - initiate_response.status != 200
+
+- name: Resolve pairing code from whichever branch produced one
+  ansible.builtin.set_fact:
+    resolved_pairing_code: >-
+      {{
+        (initiate_response.json.pairing_code
+          if (pair_code_response.json is defined
+              and pair_code_response.json.pairing_code is none
+              and initiate_response is defined
+              and initiate_response.json is defined)
+          else pair_code_response.json.pairing_code)
+        if pair_code_response.json is defined else none
+      }}
+  no_log: true
+
 # Do NOT set `no_log: true` on this fail task. The msg body is pure
-# template-literal text (`agent_name`, `agent_type` — both safe to log) and
-# contains the operator-facing rotation instructions. The original ATX B4
-# concern (registered var from a `no_log: true` task leaking into logs)
-# does not apply here because we never reference pair_code_response.json
-# fields inside the msg.
+# template-literal text (`agent_name`, `agent_type` — both safe to log).
 - name: Validate pairing code shape
   ansible.builtin.fail:
     msg: >-
-      /pair/code did not return a usable pairing_code field. Daemon logs:
-      `journalctl --unit {{ agent_type }}-{{ agent_name }}`. Re-run
-      `clm agent configure {{ agent_name }}` after fixing the daemon.
+      Neither GET /pair/code nor POST /api/pairing/initiate returned a usable
+      pairing code. Check daemon logs:
+      `journalctl --unit {{ agent_type }}-{{ agent_name }}`. If devices.db was
+      wiped externally, run `clm agent configure {{ agent_name }}` after
+      restoring it.
   when:
-    - pair_code_response.json is not defined
-      or pair_code_response.json.pairing_code is not defined
-      or pair_code_response.json.pairing_code | length < 1
+    - resolved_pairing_code is not defined
+      or resolved_pairing_code is none
+      or resolved_pairing_code | length < 1
+
+# ATX W2: declared format guard for the pairing code before it enters the
+# X-Pairing-Code HTTP header. Python's http.client already rejects CRLF in
+# header values since 3.4, so this is preventative rather than load-bearing;
+# the regex also documents the contract (alphanumeric/_/- max 128 chars) so
+# a future caller can't silently reuse the value in a shell command or URL
+# path without re-validating.
+- name: Validate pairing code format
+  ansible.builtin.fail:
+    msg: >-
+      Pairing code returned by the daemon has an unexpected format. Daemon
+      logs: `journalctl --unit {{ agent_type }}-{{ agent_name }}`.
+  when:
+    - resolved_pairing_code is not match('^[A-Za-z0-9_-]{1,128}$')
 
 # ZeroClaw v0.7.5 expects the one-time code via the `X-Pairing-Code` HTTP
 # header (per the daemon's startup banner), not a JSON body.
@@ -53,7 +150,7 @@
     status_code: 200
     timeout: 10
     headers:
-      X-Pairing-Code: "{{ pair_code_response.json.pairing_code }}"
+      X-Pairing-Code: "{{ resolved_pairing_code }}"
     return_content: yes
   register: pair_response
   no_log: true
@@ -67,6 +164,7 @@
   when:
     - pair_response.json is not defined
       or pair_response.json.token is not defined
+      or pair_response.json.token is none
       or pair_response.json.token | length < 16
 
 # Emit gateway token + URL as cacheable host facts. The Python caller reads

@@ -1,4 +1,16 @@
-"""Tests for claw lifecycle management module."""
+"""Tests for claw lifecycle management module.
+
+Secrets isolation in this file relies on a load-bearing autouse fixture in
+`tests/conftest.py::_isolate_config_dir` — it redirects `XDG_CONFIG_HOME`
+to a tmp directory, so `clawrium.core.secrets.load_secrets()` returns `{}`
+for any test that doesn't explicitly mock `get_instance_secrets`. Removing
+or narrowing that fixture silently regresses ~all tests in this file that
+exercise the configure/start/restart paths — they would call the real
+secrets loader against the developer's `~/.config/clawrium/secrets.json`.
+The patches inside `_run_with_events`/`_capture_configure` are defence in
+depth (with a meta-test pinning correct interception); the fixture is the
+primary guarantee. ATX iter-6 W1.
+"""
 
 import json
 from pathlib import Path
@@ -79,6 +91,224 @@ class TestRunLifecyclePlaybook:
 
         assert success is False
         assert "SSH key not found" in error
+
+    def _run_with_events(
+        self, host, tmp_path: Path, events: list, *,
+        runner_status: str = "failed",
+    ):
+        """Helper that runs _run_lifecycle_playbook with a stubbed runner
+        emitting the supplied events. Returns (success, error).
+
+        ATX iter-4 NW-A: mocks `get_instance_secrets` and `get_instance_key`
+        so a dev machine with a matching real entry in `~/.config/clawrium/
+        secrets.json` doesn't silently populate the Ansible inventory."""
+        playbook_path = tmp_path / "start.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+
+        runner = MagicMock()
+        runner.status = runner_status
+        runner.events = events
+
+        with patch(
+            "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+            return_value=playbook_path,
+        ), patch(
+            "clawrium.core.lifecycle.get_host_private_key",
+            return_value=key_path,
+        ), patch(
+            "clawrium.core.lifecycle.ansible_runner.run",
+            return_value=runner,
+        ), patch(
+            "clawrium.core.lifecycle.get_config_dir",
+            return_value=tmp_path,
+        ), patch(
+            # ATX iter-5: patch at the consumer namespace, not the source
+            # module. `lifecycle.py` does `from clawrium.core.secrets import
+            # get_instance_secrets` at module-load — patching the source
+            # module is a no-op against the already-bound name in lifecycle.
+            "clawrium.core.lifecycle.get_instance_secrets",
+            return_value={},
+        ), patch(
+            "clawrium.core.lifecycle.get_instance_key",
+            return_value="test-key",
+        ):
+            return _run_lifecycle_playbook(
+                "zeroclaw", "zer-test", "192.168.1.100", "start", host
+            )
+
+    def test_censored_event_does_not_leak_bearer(self, tmp_path: Path):
+        """ATX iter-2 NB1: censored-guard at lifecycle.py:~360 covers the
+        generic start/stop/restart lifecycle path. Same security invariant
+        as the repair path, separate code site — pin it independently."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {"zer-test": {"type": "zeroclaw"}},
+        }
+
+        success, error = self._run_with_events(host, tmp_path, [
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {
+                        "censored": "no_log: true was specified",
+                        "msg": "Bearer zc_LEAKED_FROM_START_xxxxxxxxxxx",
+                    }
+                },
+            },
+        ])
+
+        assert success is False
+        assert "zc_LEAKED_FROM_START" not in error, (
+            f"_run_lifecycle_playbook censored-guard regressed: {error!r}"
+        )
+        # All events censored → falls through to generic prefix.
+        assert error == "Start playbook failed: failed"
+
+    def test_all_censored_events_falls_back_to_generic_error(
+        self, tmp_path: Path
+    ):
+        """ATX iter-3 NW6: parity with TestZeroclawRepairAfterStart's
+        all-censored fallback. Two censored events with bearers in both
+        msg AND stderr — guard skips them both, generic prefix surfaces.
+        Pins exact format (S3)."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {"zer-test": {"type": "zeroclaw"}},
+        }
+        success, error = self._run_with_events(host, tmp_path, [
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {
+                        "censored": "hidden",
+                        "msg": "Bearer zc_RL_LEAK_AAAAAAAAAAAAAAAAAAAAA",
+                    }
+                },
+            },
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {
+                        "censored": "hidden",
+                        "stderr": "Bearer zc_RL_LEAK_BBBBBBBBBBBBBBBBBB",
+                    }
+                },
+            },
+        ])
+        assert success is False
+        assert "zc_" not in error
+        assert error == "Start playbook failed: failed"
+
+    def test_msg_none_event_does_not_return_none_error(
+        self, tmp_path: Path
+    ):
+        """ATX iter-3 NW4: in the generic lifecycle path too, a
+        non-censored event with msg=None must not short-circuit to None."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {"zer-test": {"type": "zeroclaw"}},
+        }
+        success, error = self._run_with_events(host, tmp_path, [
+            {
+                "event": "runner_on_failed",
+                "event_data": {"res": {"msg": None, "stderr": None}},
+            },
+        ])
+        assert success is False
+        assert error is not None
+        assert error == "Start playbook failed: failed"
+
+    def test_timeout_returns_friendly_error(self, tmp_path: Path):
+        """ATX iter-4 NW-B: pin the timeout branch of _run_lifecycle_playbook
+        — `result.status == 'timeout'` returns a fixed string before any
+        event extraction runs."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {"zer-test": {"type": "zeroclaw"}},
+        }
+        success, error = self._run_with_events(
+            host, tmp_path, [], runner_status="timeout",
+        )
+        assert success is False
+        assert error == "Start operation timed out"
+
+    def test_secrets_patches_are_actually_called(self, tmp_path: Path):
+        """ATX iter-5 NW-A meta-test: the patch targets in `_run_with_events`
+        must hit the names actually consumed by `_run_lifecycle_playbook`.
+        A wrong patch target (e.g. `clawrium.core.secrets.*` against a
+        `from x import y` consumer) silently no-ops and the secrets-
+        isolation defence becomes illusory. Assert the mocks are called."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {"zer-test": {"type": "zeroclaw"}},
+        }
+
+        playbook_path = tmp_path / "start.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+
+        runner = MagicMock()
+        runner.status = "successful"
+        runner.events = []
+
+        with patch(
+            "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+            return_value=playbook_path,
+        ), patch(
+            "clawrium.core.lifecycle.get_host_private_key",
+            return_value=key_path,
+        ), patch(
+            "clawrium.core.lifecycle.ansible_runner.run",
+            return_value=runner,
+        ), patch(
+            "clawrium.core.lifecycle.get_config_dir",
+            return_value=tmp_path,
+        ), patch(
+            "clawrium.core.lifecycle.get_instance_secrets",
+            return_value={},
+        ) as mock_get_secrets, patch(
+            "clawrium.core.lifecycle.get_instance_key",
+            return_value="test-key",
+        ) as mock_get_key:
+            _run_lifecycle_playbook(
+                "zeroclaw", "zer-test", "192.168.1.100", "start", host
+            )
+
+        # ATX iter-6/iter-7: both calls MUST be intercepted. `get_instance_
+        # secrets` is the security-critical gate (real disk reads); assert
+        # it first so a regression fails fast on the more important call.
+        # `get_instance_key` is a pure formatter and would still be invoked
+        # by any refactor that bypassed `get_instance_secrets` (e.g.
+        # inlining a json.load or introducing a new helper) — the second
+        # assert is the refactor-drift canary.
+        assert mock_get_secrets.called, (
+            "get_instance_secrets not called — this is the call that gates "
+            "real secret values; if a refactor bypasses it, real "
+            "~/.config/clawrium/secrets.json reads happen unintercepted "
+            "(ATX iter-5 NW-A / iter-6)"
+        )
+        assert mock_get_key.called, (
+            "get_instance_key not called — patch target or call path drifted "
+            "(ATX iter-5 NW-A / iter-6)"
+        )
 
 
 class TestStartClaw:
@@ -482,6 +712,124 @@ class TestZeroclawRepairAfterStart:
         assert success is False
         assert "pair handshake exploded" in error
 
+    def test_censored_event_does_not_leak_bearer_into_error(
+        self, tmp_path: Path
+    ):
+        """ATX iter-2 NB1: the W1 censored-guard at lifecycle.py:~808 is the
+        security invariant that keeps a `no_log: true` failure from leaking
+        a bearer into user-visible error strings. Without test coverage, a
+        one-line refactor (moving the `continue` below the `if 'msg' in res`
+        block) silently regresses it. Pin the invariant.
+
+        ansible-runner replaces the entire `res` dict with
+        `{'censored': '<reason>'}` for no_log-failed tasks — see
+        ansible_runner/display_callback/callback/awx_display.py. But a
+        misbehaving debug-mode daemon could echo the Bearer back in a 401
+        body; if that ever lands in `res.msg` alongside `censored`, we must
+        not surface it.
+        """
+        host = self._host()
+        runner = MagicMock()
+        runner.status = "failed"
+        runner.events = [
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {
+                        "censored": "the output has been hidden due to "
+                                    "the fact that 'no_log: true' was "
+                                    "specified for this result",
+                        "msg": "Bearer zc_LEAKED_SECRET_xxxxxxxxxxxxxxxxxx",
+                    }
+                },
+            },
+            # Trailing non-censored event whose msg is safe to surface.
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {"msg": "Re-pair playbook reported failure"}
+                },
+            },
+        ]
+        success, error = self._run_repair(host, tmp_path, runner=runner)
+        assert success is False
+        assert "zc_LEAKED_SECRET" not in error, (
+            f"censored guard regressed — bearer leaked into error: {error!r}"
+        )
+        assert "Re-pair playbook reported failure" in error
+
+    def test_all_censored_events_falls_back_to_generic_error(
+        self, tmp_path: Path
+    ):
+        """ATX iter-2 NB1 companion: when every runner_on_failed event is
+        censored, the loop must fall through to the generic 'Re-pair
+        playbook failed: <status>' message rather than the last seen msg.
+
+        ATX iter-3 S3: assert the EXACT generic message format so a
+        regression that drops the status suffix is caught (substring match
+        would tolerate it).
+        """
+        host = self._host()
+        runner = MagicMock()
+        runner.status = "failed"
+        runner.events = [
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {
+                        "censored": "hidden",
+                        "msg": "Bearer zc_ANOTHER_SECRET_yyyyyyyyyyyyyyy",
+                    }
+                },
+            },
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    "res": {
+                        "censored": "hidden",
+                        "stderr": "Bearer zc_AND_ANOTHER_zzzzzzzzzzzzzzzz",
+                    }
+                },
+            },
+        ]
+        success, error = self._run_repair(host, tmp_path, runner=runner)
+        assert success is False
+        # No secret in error.
+        assert "zc_" not in error, (
+            f"all-censored fallback leaked a bearer fragment: {error!r}"
+        )
+        # Exact format pinned (S3): drop the status suffix and this fails.
+        assert error == "Re-pair playbook failed: failed"
+
+    def test_msg_none_event_does_not_return_none_error(
+        self, tmp_path: Path
+    ):
+        """ATX iter-3 NW4: a non-censored event with `res = {'msg': None}`
+        must NOT short-circuit and return (False, None). The guard
+        `if res.get('msg') is not None` keeps the loop searching for a
+        usable msg/stderr instead of leaking a None up the stack."""
+        host = self._host()
+        runner = MagicMock()
+        runner.status = "failed"
+        runner.events = [
+            {
+                "event": "runner_on_failed",
+                "event_data": {
+                    # No censored key — this is the case the `if "msg" in res`
+                    # guard would have mishandled before the iter-3 fix.
+                    "res": {"msg": None, "stderr": None}
+                },
+            },
+        ]
+        success, error = self._run_repair(host, tmp_path, runner=runner)
+        assert success is False
+        assert error is not None, (
+            "msg=None on a non-censored event must not surface as a None "
+            "error string (iter-3 NW4)"
+        )
+        # Falls through to the generic prefix because msg and stderr are None.
+        assert error == "Re-pair playbook failed: failed"
+
     def test_returns_failure_when_update_host_returns_false(self, tmp_path: Path):
         """ATX W8: the exact divergence #437 fixes — playbook succeeds but
         hosts.json never gets written. Must surface as a failure."""
@@ -558,6 +906,540 @@ class TestZeroclawRepairAfterStart:
         assert success is False
         rotation = [m for s, m in events if s == "gateway_token_rotated"]
         assert not rotation, f"rotation event leaked despite write failure: {rotation!r}"
+
+    def _capture_repair(
+        self, host: dict, tmp_path: Path, *, new_token: str,
+    ) -> tuple[dict, dict, list[tuple[str, str]], bool, str | None]:
+        """Run _zeroclaw_repair_after_start with full instrumentation:
+        capture the inventory passed to ansible-runner, the dict produced
+        by update_host's updater closure, and the on_event sequence.
+
+        Returns (inventory, hosts_json_after, events, success, error).
+        """
+        runner, _ = self._setup_repair_runner(tmp_path, new_token)
+        captured_inventory: dict = {}
+        captured_hosts: dict = {}
+
+        def capture_run(**kwargs):
+            captured_inventory.update(kwargs.get("inventory") or {})
+            return runner
+
+        def capture_update_host(_hostname: str, updater) -> bool:
+            h = {"hostname": "192.168.1.100", "agents": dict(host["agents"])}
+            captured_hosts.update(updater(h))
+            return True
+
+        events: list[tuple[str, str]] = []
+
+        def on_event(stage: str, message: str) -> None:
+            events.append((stage, message))
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("key")
+        playbook_path = tmp_path / "restart.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host), \
+             patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+             ), \
+             patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook_path,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                side_effect=capture_run,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.update_host",
+                side_effect=capture_update_host,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.get_config_dir",
+                return_value=tmp_path,
+             ):
+            from clawrium.core.lifecycle import _zeroclaw_repair_after_start
+            success, error = _zeroclaw_repair_after_start(
+                "192.168.1.100",
+                agent_name="zer-test",
+                on_event=on_event,
+                reason="restart",
+            )
+        return captured_inventory, captured_hosts, events, success, error
+
+    def test_repair_passes_existing_bearer_and_rotates_atomically(
+        self, tmp_path: Path
+    ):
+        """Issue #445: tasks/pair.yaml's locked-pair branch authenticates
+        against /api/pairing/initiate using the current bearer from
+        hosts.json. The Python helper must (a) forward that bearer as
+        config.gateway.auth in the Ansible inventory, AND (b) atomically
+        replace it in hosts.json with the new rotated bearer from the
+        fact_cache. ATX B4: pin the full read-existing → inject → run →
+        write-new pipeline so a refactor can't silently break either half.
+        """
+        host = self._host(auth="zc_existing_bearer_aaaaaaaaaaaaaaa")
+        inv, hosts_after, events, success, error = self._capture_repair(
+            host, tmp_path, new_token="zc_new_rotated_bearer_xxxxxxxxxxx",
+        )
+        assert success is True, error
+
+        gateway_in = inv["all"]["vars"]["config"]["gateway"]
+        assert gateway_in["auth"] == "zc_existing_bearer_aaaaaaaaaaaaaaa", (
+            "existing bearer must flow into the playbook so the locked-pair "
+            "branch can authenticate against /api/pairing/initiate"
+        )
+        assert gateway_in["port"] == 40000
+
+        # B4: hosts.json must reflect the rotated bearer, not the input one.
+        gateway_out = hosts_after["agents"]["zer-test"]["config"]["gateway"]
+        assert gateway_out["auth"] == "zc_new_rotated_bearer_xxxxxxxxxxx", (
+            "hosts.json must be rewritten with the new bearer minted by "
+            "the playbook, not silently keep the stale input bearer (B4)"
+        )
+
+        # B4: exactly one rotation event fires (not zero, not multiple).
+        rotations = [m for s, m in events if s == "gateway_token_rotated"]
+        assert len(rotations) == 1, (
+            f"exactly one gateway_token_rotated event must fire per repair; "
+            f"got {len(rotations)}: {rotations!r}"
+        )
+        payload = json.loads(rotations[0])
+        assert payload["agent_key"] == "zer-test"
+        assert payload["reason"] == "restart"
+
+    def test_repair_passes_empty_bearer_when_hosts_json_lacks_auth(
+        self, tmp_path: Path
+    ):
+        """First-install path: hosts.json has no `auth` field yet. The
+        helper must pass an empty string (not raise, not omit the key) so
+        the playbook's `default('')` filter keeps the locked branch dormant
+        on a fresh daemon. The write-back path still rotates atomically
+        once /pair returns a fresh bearer."""
+        host = self._host()
+        host["agents"]["zer-test"]["config"]["gateway"] = {"port": 40000}
+        inv, hosts_after, _events, success, _err = self._capture_repair(
+            host, tmp_path, new_token="zc_first_install_bearer_yyyyyyy",
+        )
+        assert success is True
+        assert inv["all"]["vars"]["config"]["gateway"]["auth"] == ""
+        # Even from an empty starting auth, the rotation closure must write
+        # the freshly minted bearer back.
+        assert (
+            hosts_after["agents"]["zer-test"]["config"]["gateway"]["auth"]
+            == "zc_first_install_bearer_yyyyyyy"
+        )
+
+
+class TestConfigureAgentZeroclawBearerForwarding:
+    """ATX #445 B1/W3: configure_agent must inject the prior bearer from
+    `agent_record.config.gateway.auth` into the Ansible inventory when the
+    caller's `config_data` lacks one, so the locked-pair branch in
+    `tasks/pair.yaml` has something to POST to `/api/pairing/initiate`."""
+
+    def _zc_host(self, *, auth_in_record: str | None) -> dict:
+        gateway: dict = {"port": 40000}
+        if auth_in_record is not None:
+            gateway["auth"] = auth_in_record
+        return {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "zer-test": {
+                    "type": "zeroclaw",
+                    "agent_name": "zerot",
+                    "onboarding": {"state": "ready"},
+                    "config": {"gateway": gateway},
+                }
+            },
+        }
+
+    def _capture_configure(
+        self,
+        host: dict,
+        config_data: dict,
+        tmp_path: Path,
+        *,
+        runner_status: str = "successful",
+        runner_events: list | None = None,
+    ) -> tuple[dict, bool, str | None]:
+        runner = MagicMock()
+        runner.status = runner_status
+        runner.events = runner_events or []
+        artifacts_dir = tmp_path / "artifacts"
+        (artifacts_dir / "fact_cache").mkdir(parents=True)
+        runner.config.artifact_dir = str(artifacts_dir)
+
+        captured: dict = {}
+
+        def capture_run(**kwargs):
+            captured.update(kwargs.get("inventory") or {})
+            return runner
+
+        key_path = tmp_path / "k"
+        key_path.write_text("k")
+        playbook_path = tmp_path / "configure.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+        template_dir = tmp_path / "templates"
+        template_dir.mkdir()
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host), \
+             patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+             ), \
+             patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook_path,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                side_effect=capture_run,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.update_host",
+                return_value=True,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.get_config_dir",
+                return_value=tmp_path,
+             ), \
+             patch(
+                "clawrium.core.providers.get_provider_api_key",
+                return_value="",
+             ), \
+             patch(
+                "clawrium.core.providers.get_provider_aws_credentials",
+                return_value=("", ""),
+             ), \
+             patch(
+                # ATX iter-5: lifecycle namespace, not source module —
+                # see _run_with_events for the same fix.
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value={},
+             ), \
+             patch(
+                "clawrium.core.lifecycle.get_instance_key",
+                return_value="test-key",
+             ), \
+             patch(
+                "clawrium.core.integrations.get_agent_integrations",
+                return_value=[],
+             ), \
+             patch.object(
+                Path, "exists", return_value=True,
+             ):
+            from clawrium.core.lifecycle import configure_agent
+            success, error = configure_agent(
+                "192.168.1.100",
+                "zeroclaw",
+                config_data,
+                agent_name="zer-test",
+            )
+        return captured, success, error
+
+    def test_configure_injects_record_bearer_when_config_data_lacks_one(
+        self, tmp_path: Path
+    ):
+        """B1 head-on: a caller that builds config_data from scratch (e.g.
+        `_run_identity_stage` at cli/agent.py:639) does not carry forward
+        `gateway.auth`. configure_agent must defensively pull it from the
+        agent record so the playbook's locked-pair branch can authenticate
+        /api/pairing/initiate."""
+        host = self._zc_host(
+            auth_in_record="zc_record_bearer_aaaaaaaaaaaaaaaaaaaa",
+        )
+        bare_config = {
+            "gateway": {"port": 40000},
+            "provider": {
+                "name": "p", "type": "ollama", "endpoint": "http://x",
+                "default_model": "m",
+            },
+        }
+        inv, success, error = self._capture_configure(
+            host, bare_config, tmp_path,
+        )
+        # Configure may bail later (no provider creds, etc.) but the
+        # inventory builder runs first; assert what was passed regardless.
+        gw = inv["all"]["vars"]["config"]["gateway"]
+        assert gw["auth"] == "zc_record_bearer_aaaaaaaaaaaaaaaaaaaa", (
+            "configure_agent must defensively pull the bearer from the "
+            "agent record so the locked-pair branch authenticates correctly "
+            "(ATX #445 B1)"
+        )
+
+    def test_configure_censored_event_does_not_leak_bearer(
+        self, tmp_path: Path
+    ):
+        """ATX iter-2 NB1: censored-guard at lifecycle.py:~1517 covers the
+        configure path. The runner_on_failed extraction loop must skip
+        events where `res.censored` is set, even if they happen to carry a
+        `msg`/`stderr` (e.g., debug-mode daemon echoing the bearer back)."""
+        host = self._zc_host(
+            auth_in_record="zc_record_for_configure_aaaaaaaaaaaaa",
+        )
+        config_data = {
+            "gateway": {"port": 40000},
+            "provider": {
+                "name": "p", "type": "ollama", "endpoint": "http://x",
+                "default_model": "m",
+            },
+        }
+        _inv, success, error = self._capture_configure(
+            host,
+            config_data,
+            tmp_path,
+            runner_status="failed",
+            runner_events=[
+                {
+                    "event": "runner_on_failed",
+                    "event_data": {
+                        "res": {
+                            "censored": "no_log: true was specified",
+                            "msg": "Bearer zc_LEAK_FROM_CONFIGURE_xxxxxxxx",
+                        }
+                    },
+                },
+            ],
+        )
+        assert success is False
+        assert "zc_LEAK_FROM_CONFIGURE" not in (error or ""), (
+            f"configure_agent censored-guard regressed: {error!r}"
+        )
+        # ATX iter-3 S3 / NW4: exact equality so the format itself is
+        # locked (not just a substring), and a silent None return would
+        # fail loudly.
+        assert error == "Configure playbook failed: failed"
+
+    def test_configure_all_censored_events_falls_back_to_generic_error(
+        self, tmp_path: Path
+    ):
+        """ATX iter-3 NW6: parity with the repair and lifecycle paths.
+        Multiple censored events; nothing usable surfaces; generic prefix
+        appears with the runner status."""
+        host = self._zc_host(
+            auth_in_record="zc_record_for_configure_bbbbbbbbbbbbb",
+        )
+        config_data = {
+            "gateway": {"port": 40000},
+            "provider": {
+                "name": "p", "type": "ollama", "endpoint": "http://x",
+                "default_model": "m",
+            },
+        }
+        _inv, success, error = self._capture_configure(
+            host, config_data, tmp_path,
+            runner_status="failed",
+            runner_events=[
+                {
+                    "event": "runner_on_failed",
+                    "event_data": {
+                        "res": {
+                            "censored": "hidden",
+                            "msg": "Bearer zc_CFG_LEAK_AAAAAAAAAAAAAAAAA",
+                        }
+                    },
+                },
+                {
+                    "event": "runner_on_failed",
+                    "event_data": {
+                        "res": {
+                            "censored": "hidden",
+                            "stderr": "Bearer zc_CFG_LEAK_BBBBBBBBBBBBBBB",
+                        }
+                    },
+                },
+            ],
+        )
+        assert success is False
+        assert "zc_" not in (error or "")
+        assert error == "Configure playbook failed: failed"
+
+    def test_configure_timeout_returns_friendly_error(
+        self, tmp_path: Path
+    ):
+        """ATX iter-4 NW-B: pin the configure timeout branch. The
+        configure path has its own timeout return distinct from the
+        repair path and was untested through iter-3."""
+        host = self._zc_host(
+            auth_in_record="zc_record_for_timeout_eeeeeeeeeeeeeee",
+        )
+        config_data = {
+            "gateway": {"port": 40000},
+            "provider": {
+                "name": "p", "type": "ollama", "endpoint": "http://x",
+                "default_model": "m",
+            },
+        }
+        _inv, success, error = self._capture_configure(
+            host, config_data, tmp_path,
+            runner_status="timeout",
+            runner_events=[],
+        )
+        assert success is False
+        assert error == "Configure operation timed out"
+
+    def test_configure_msg_none_event_does_not_return_none_error(
+        self, tmp_path: Path
+    ):
+        """ATX iter-3 NW4: configure path must also not return (False, None)
+        when a runner_on_failed event has msg=None."""
+        host = self._zc_host(
+            auth_in_record="zc_record_for_configure_ccccccccccccc",
+        )
+        config_data = {
+            "gateway": {"port": 40000},
+            "provider": {
+                "name": "p", "type": "ollama", "endpoint": "http://x",
+                "default_model": "m",
+            },
+        }
+        _inv, success, error = self._capture_configure(
+            host, config_data, tmp_path,
+            runner_status="failed",
+            runner_events=[
+                {
+                    "event": "runner_on_failed",
+                    "event_data": {"res": {"msg": None, "stderr": None}},
+                },
+            ],
+        )
+        assert success is False
+        assert error is not None
+        assert error == "Configure playbook failed: failed"
+
+    def test_configure_zeroclaw_missing_gateway_fails_port_validation(
+        self, tmp_path: Path
+    ):
+        """ATX iter-3 NW5: pin the NS1 invariant. A caller that passes
+        config_data with no `gateway` key (e.g. _run_identity_stage at
+        cli/agent.py:639 before any prior gateway state existed) must hit
+        the port validation early, BEFORE ansible_runner.run is ever
+        called. If NS1 is silently reverted (B1 injection moves back below
+        the validation block), this test fails because the validation
+        would skip when gateway is absent."""
+        host = self._zc_host(
+            auth_in_record="zc_record_for_no_gateway_dddddddddddd",
+        )
+        config_data: dict = {
+            # No "gateway" key at all — mimics a fresh-install caller path.
+            "provider": {
+                "name": "p", "type": "ollama", "endpoint": "http://x",
+                "default_model": "m",
+            },
+        }
+        runner_called = {"count": 0}
+
+        runner = MagicMock()
+        runner.status = "successful"
+        runner.events = []
+        artifacts_dir = tmp_path / "artifacts"
+        (artifacts_dir / "fact_cache").mkdir(parents=True)
+        runner.config.artifact_dir = str(artifacts_dir)
+
+        def count_runs(**_kwargs):
+            runner_called["count"] += 1
+            return runner
+
+        key_path = tmp_path / "k"
+        key_path.write_text("k")
+        playbook_path = tmp_path / "configure.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host), \
+             patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+             ), \
+             patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook_path,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                side_effect=count_runs,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.update_host",
+                return_value=True,
+             ), \
+             patch(
+                "clawrium.core.lifecycle.get_config_dir",
+                return_value=tmp_path,
+             ), \
+             patch(
+                "clawrium.core.providers.get_provider_api_key",
+                return_value="",
+             ), \
+             patch(
+                "clawrium.core.providers.get_provider_aws_credentials",
+                return_value=("", ""),
+             ), \
+             patch(
+                # ATX iter-5: lifecycle namespace, not source module.
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value={},
+             ), \
+             patch(
+                "clawrium.core.lifecycle.get_instance_key",
+                return_value="test-key",
+             ), \
+             patch(
+                "clawrium.core.integrations.get_agent_integrations",
+                return_value=[],
+             ):
+            # ATX iter-4 S-D: no `Path.exists` mock — configure_agent
+            # returns at the port validation block (~L1300) before any
+            # Path check is reached (template ~L1426, playbook ~L1431).
+            # Adding the mock would mask a future refactor that placed a
+            # Path check before port validation.
+            from clawrium.core.lifecycle import configure_agent
+            success, error = configure_agent(
+                "192.168.1.100",
+                "zeroclaw",
+                config_data,
+                agent_name="zer-test",
+            )
+        assert success is False
+        assert error == "Incomplete gateway config - missing: port", (
+            f"NS1 regressed — port validation didn't fire: {error!r}"
+        )
+        # Critical: validation MUST run before ansible — no SSH/playbook
+        # side effects on a config that's missing required fields.
+        assert runner_called["count"] == 0, (
+            "ansible_runner.run was called despite missing gateway port; "
+            "NS1 ordering is broken"
+        )
+
+    def test_configure_does_not_override_explicit_bearer(self, tmp_path: Path):
+        """If the caller already populated `gateway.auth` (e.g. via
+        cli/agent.py:357), configure_agent must NOT clobber it with the
+        record's older value. The caller's intent wins."""
+        host = self._zc_host(
+            auth_in_record="zc_record_OLD_aaaaaaaaaaaaaaaaaaaaaaa",
+        )
+        config_with_fresh = {
+            "gateway": {
+                "port": 40000,
+                "auth": "zc_caller_FRESH_xxxxxxxxxxxxxxxxxxx",
+            },
+            "provider": {
+                "name": "p", "type": "ollama", "endpoint": "http://x",
+                "default_model": "m",
+            },
+        }
+        inv, _success, _error = self._capture_configure(
+            host, config_with_fresh, tmp_path,
+        )
+        gw = inv["all"]["vars"]["config"]["gateway"]
+        assert gw["auth"] == "zc_caller_FRESH_xxxxxxxxxxxxxxxxxxx", (
+            "configure_agent must not overwrite a caller-supplied bearer "
+            "with a stale value from hosts.json"
+        )
 
 
 class TestSafeHostDisplay:

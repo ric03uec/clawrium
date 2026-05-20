@@ -360,11 +360,25 @@ def _run_lifecycle_playbook(
                 if event.get("event") == "runner_on_failed":
                     event_data = event.get("event_data", {})
                     res = event_data.get("res", {})
-                    if "msg" in res:
-                        error_msg = res["msg"]
+                    # ATX #445 W1: a `no_log: true` task that fails surfaces
+                    # `{"censored": "..."}` in res; skip it so we don't read
+                    # `msg`/`stderr` keys that may carry the bearer if a
+                    # debug-mode daemon echoes the Authorization header back
+                    # in its 401 body.
+                    if res.get("censored"):
+                        continue
+                    # ATX #445 iter-3 NW4: `if "msg" in res` would fire on a
+                    # `{"msg": None}` entry and set error_msg = None, leaking
+                    # an empty error string up the stack. Use `is not None`
+                    # so the loop falls through to stderr / generic prefix.
+                    # ATX iter-4 S-F: symmetric `.get` access on both lines.
+                    msg = res.get("msg")
+                    if msg is not None:
+                        error_msg = msg
                         break
-                    if "stderr" in res:
-                        error_msg = res["stderr"]
+                    stderr = res.get("stderr")
+                    if stderr is not None:
+                        error_msg = stderr
                         break
             return False, error_msg
 
@@ -732,6 +746,11 @@ def _zeroclaw_repair_after_start(
             f"Gateway port missing from hosts.json for {agent_key}. "
             f"Re-run `clm agent configure {agent_key}`.",
         )
+    # Issue #445: the playbook's locked-pair branch (tasks/pair.yaml) calls
+    # POST /api/pairing/initiate with this bearer when /pair/code returns
+    # null. Empty string is acceptable on the fresh-boot branch since
+    # /pair/code will return a usable code and the locked branch never fires.
+    existing_gateway_auth = gateway_cfg.get("auth") or ""
 
     key_id = host.get("key_id") or hostname
     ssh_key = get_host_private_key(key_id)
@@ -754,7 +773,12 @@ def _zeroclaw_repair_after_start(
             "vars": {
                 "agent_name": unix_agent_name,
                 "agent_type": "zeroclaw",
-                "config": {"gateway": {"port": gateway_port}},
+                "config": {
+                    "gateway": {
+                        "port": gateway_port,
+                        "auth": existing_gateway_auth,
+                    }
+                },
             },
         }
     }
@@ -791,11 +815,25 @@ def _zeroclaw_repair_after_start(
                 if event.get("event") == "runner_on_failed":
                     event_data = event.get("event_data", {})
                     res = event_data.get("res", {})
-                    if "msg" in res:
-                        error_msg = res["msg"]
+                    # ATX #445 W1: a `no_log: true` task that fails surfaces
+                    # `{"censored": "..."}` in res; skip it so we don't read
+                    # `msg`/`stderr` keys that may carry the bearer if a
+                    # debug-mode daemon echoes the Authorization header back
+                    # in its 401 body.
+                    if res.get("censored"):
+                        continue
+                    # ATX #445 iter-3 NW4: `if "msg" in res` would fire on a
+                    # `{"msg": None}` entry and set error_msg = None, leaking
+                    # an empty error string up the stack. Use `is not None`
+                    # so the loop falls through to stderr / generic prefix.
+                    # ATX iter-4 S-F: symmetric `.get` access on both lines.
+                    msg = res.get("msg")
+                    if msg is not None:
+                        error_msg = msg
                         break
-                    if "stderr" in res:
-                        error_msg = res["stderr"]
+                    stderr = res.get("stderr")
+                    if stderr is not None:
+                        error_msg = stderr
                         break
             return False, error_msg
 
@@ -1229,6 +1267,32 @@ def configure_agent(
             if not config_data["provider"].get("endpoint"):
                 return False, "Ollama provider requires 'endpoint' field"
 
+    # Issue #445 B1: defensive bearer injection for zeroclaw configure. The
+    # CLI paths in cli/agent.py already copy `existing_gateway["auth"]` into
+    # config_data when present, but callers that build config_data from
+    # scratch (e.g. _run_identity_stage at agent.py:639) won't. Mirror the
+    # pattern from _zeroclaw_repair_after_start (line 739) so the playbook's
+    # locked-pair branch in tasks/pair.yaml has a Bearer to authenticate
+    # /api/pairing/initiate with, instead of sending `Bearer ` (empty) and
+    # getting a 401 the operator can't decode.
+    #
+    # ATX iter-2 NS1 (clarified in iter-3 S1): runs BEFORE the gateway port
+    # validation below. The injection populates config_data["gateway"] so
+    # the `if config_data.get("gateway")` guard at the validation block
+    # becomes truthy and the port check FIRES with a clean
+    # "Incomplete gateway config — missing: port" error. In the old
+    # position (after validation), a caller that omitted the gateway key
+    # left that guard falsy — the port check was silently skipped and the
+    # failure surfaced later as a confusing Ansible error.
+    if resolved_type == "zeroclaw":
+        gw_block = config_data.setdefault("gateway", {})
+        if not gw_block.get("auth"):
+            record_auth = (
+                agent_record.get("config", {}).get("gateway", {}).get("auth")
+                or ""
+            )
+            gw_block["auth"] = record_auth
+
     # Validate required gateway fields
     required_gateway_fields = ["port"]
     if config_data.get("gateway"):
@@ -1468,11 +1532,25 @@ def configure_agent(
                 if event.get("event") == "runner_on_failed":
                     event_data = event.get("event_data", {})
                     res = event_data.get("res", {})
-                    if "msg" in res:
-                        error_msg = res["msg"]
+                    # ATX #445 W1: a `no_log: true` task that fails surfaces
+                    # `{"censored": "..."}` in res; skip it so we don't read
+                    # `msg`/`stderr` keys that may carry the bearer if a
+                    # debug-mode daemon echoes the Authorization header back
+                    # in its 401 body.
+                    if res.get("censored"):
+                        continue
+                    # ATX #445 iter-3 NW4: `if "msg" in res` would fire on a
+                    # `{"msg": None}` entry and set error_msg = None, leaking
+                    # an empty error string up the stack. Use `is not None`
+                    # so the loop falls through to stderr / generic prefix.
+                    # ATX iter-4 S-F: symmetric `.get` access on both lines.
+                    msg = res.get("msg")
+                    if msg is not None:
+                        error_msg = msg
                         break
-                    if "stderr" in res:
-                        error_msg = res["stderr"]
+                    stderr = res.get("stderr")
+                    if stderr is not None:
+                        error_msg = stderr
                         break
             return False, error_msg
 

@@ -437,6 +437,258 @@ def test_zeroclaw_configure_renders_workspace_with_force_no():
 # ----- ATX iter 5 W3: no_log on memory_delete across all 3 claws -----------
 
 
+def test_pair_playbook_handles_locked_daemon():
+    """Issue #445: zeroclaw v0.7.5's /pair/code returns pairing_code=null
+    after the daemon's devices.db has any prior row. The pair handshake
+    playbook must (a) not crash on the null (defensive), (b) mint a fresh
+    code via POST /api/pairing/initiate using the existing bearer
+    (correctness). This is a structural test so the bug cannot regress
+    silently.
+    """
+    from importlib.resources import files
+    import yaml
+
+    pkg = files("clawrium.platform.registry.zeroclaw")
+    pair_path = pkg / "playbooks" / "tasks" / "pair.yaml"
+    raw = pair_path.read_text()
+    tasks = yaml.safe_load(raw)
+    assert isinstance(tasks, list) and tasks, "pair.yaml must be a task list"
+
+    by_name = {t.get("name", ""): t for t in tasks if isinstance(t, dict)}
+
+    initiate_name = "Mint pairing code via /api/pairing/initiate (locked-pair branch)"
+    assert initiate_name in by_name, (
+        "pair.yaml must include a task that POSTs to /api/pairing/initiate "
+        "for the locked-pair branch"
+    )
+    initiate = by_name[initiate_name]
+    uri = initiate.get("ansible.builtin.uri") or {}
+    assert "/api/pairing/initiate" in (uri.get("url") or ""), (
+        "initiate task must hit /api/pairing/initiate"
+    )
+    assert (uri.get("method") or "").upper() == "POST"
+    auth_header = (uri.get("headers") or {}).get("Authorization", "")
+    assert auth_header.startswith("Bearer "), (
+        "initiate must authenticate with a Bearer token from hosts.json"
+    )
+    assert "config.gateway.auth" in auth_header, (
+        "Bearer value must come from config.gateway.auth so both "
+        "configure.yaml and restart.yaml can pass it through unchanged"
+    )
+    assert initiate.get("no_log") is True, (
+        "initiate task carries a bearer — must be no_log: true"
+    )
+    # ATX B2: 401/503 from /api/pairing/initiate must be accepted so the
+    # follow-up validate task can produce an actionable operator message
+    # rather than a generic Ansible HTTP error.
+    accepted = uri.get("status_code")
+    if isinstance(accepted, int):
+        accepted = [accepted]
+    assert set(accepted or []) >= {200, 401, 503}, (
+        "initiate task must accept 200, 401, and 503 so the validate task "
+        "below can route to actionable messages (ATX B2). Got: {!r}".format(
+            uri.get("status_code")
+        )
+    )
+
+    when_clause = initiate.get("when")
+    if isinstance(when_clause, list):
+        when_text = " AND ".join(str(c) for c in when_clause)
+    else:
+        when_text = str(when_clause)
+    assert "pairing_code is none" in when_text, (
+        "initiate must fire only when /pair/code returned a null code "
+        "(locked daemon); current when: {!r}".format(when_clause)
+    )
+    # ATX W4: the initiate task also needs the `is defined` guard so a
+    # network error on GET /pair/code (which leaves pair_code_response.json
+    # undefined) doesn't crash the `is none` check below.
+    assert "pair_code_response.json is defined" in when_text, (
+        "initiate task's when: clause must include "
+        "`pair_code_response.json is defined` so a /pair/code network error "
+        "fails the prior task cleanly rather than crashing this one's "
+        "is-none check (ATX W4)."
+    )
+
+    # ATX B2: validate task that routes 401/503 to operator-actionable
+    # messages must exist downstream of the initiate task.
+    validate_name = "Validate locked-branch initiate response"
+    assert validate_name in by_name, (
+        "pair.yaml must include a task that surfaces 401/503 from "
+        "/api/pairing/initiate as actionable messages (ATX B2)"
+    )
+    validate_task = by_name[validate_name]
+    validate_msg = (validate_task.get("ansible.builtin.fail") or {}).get("msg", "")
+    assert "clm agent configure" in validate_msg, (
+        "401 path must direct the operator to `clm agent configure` (ATX B2)"
+    )
+    assert "journalctl" in validate_msg, (
+        "503 path must direct the operator to daemon logs (ATX B2)"
+    )
+    # ATX iter-3 NB2: validate task MUST NOT be no_log: true. The
+    # lifecycle.py censored-event handler (W1) skips events where
+    # res.censored is set, which would silently swallow the operator
+    # guidance this msg encodes. The msg references only safe scalars
+    # (initiate_response.status as int, agent_name/agent_type strings).
+    # The msg's WARNING comment in pair.yaml pins this contract for
+    # future editors.
+    assert validate_task.get("no_log") is not True, (
+        "validate task must NOT be no_log: true — would defeat the W1 "
+        "censored-event handler and silently suppress the 401/503 "
+        "operator guidance this task encodes (ATX iter-3 NB2)"
+    )
+
+    # ATX iter-2 NW3: substring-on-raw-template is fragile — render the
+    # Jinja2 msg against fixture statuses and assert each branch produces
+    # the expected operator-actionable text. A regression that swaps the
+    # 401/503 branches or drops one would slip past the substring check
+    # above but fails here.
+    from jinja2 import Environment
+
+    env = Environment()
+    msg_template = env.from_string(validate_msg)
+    rendered_401 = " ".join(
+        msg_template.render(
+            initiate_response={"status": 401},
+            agent_name="zer-test",
+            agent_type="zeroclaw",
+        ).split()
+    )
+    assert "401" in rendered_401
+    # ATX iter-3 NW7: require BOTH discriminating phrases in the 401
+    # branch so a rephrasing that drops one doesn't silently lose
+    # specificity. Same constraint applies to cross-leak: BOTH must be
+    # absent from the 503 render.
+    assert "stale" in rendered_401, (
+        "401 branch must explicitly say 'stale' so the operator knows the "
+        "bearer is the problem (iter-3 NW7)"
+    )
+    assert "devices.db" in rendered_401, (
+        "401 branch must name devices.db so the operator knows where to "
+        "look on the host (iter-3 NW7)"
+    )
+    assert "clm agent configure zer-test" in rendered_401
+
+    rendered_503 = " ".join(
+        msg_template.render(
+            initiate_response={"status": 503},
+            agent_name="zer-test",
+            agent_type="zeroclaw",
+        ).split()
+    )
+    assert "503" in rendered_503
+    # 503 branch's discriminating phrases. Both required.
+    assert "journalctl" in rendered_503, (
+        "503 branch must direct operator to daemon logs (iter-3 NW7)"
+    )
+    assert "pairing disabled" in rendered_503 or "unavailable" in rendered_503, (
+        "503 branch must explain why the daemon refused (iter-3 NW7)"
+    )
+    assert "clm agent configure zer-test" in rendered_503
+
+    # NW7 cross-leak: BOTH 401 phrases absent from 503, BOTH 503 phrases
+    # absent from 401. A swapped branch would fail one of these four.
+    assert "stale" not in rendered_503 and "devices.db" not in rendered_503, (
+        "401 branch's bearer-staleness guidance leaked into 503 render "
+        "(iter-3 NW7)"
+    )
+    assert "pairing disabled" not in rendered_401 and "unavailable" not in rendered_401, (
+        "503 branch's daemon-availability guidance leaked into 401 render "
+        "(iter-3 NW7)"
+    )
+    assert "journalctl" not in rendered_401, (
+        "401 branch must not also include 503's journalctl guidance"
+    )
+
+    # Defensive: every `| length` check on a pair field must coexist with
+    # an `is none` guard in the same `when:` clause, so the filter never
+    # sees a null and crashes with `NoneType has no len()` (the literal
+    # error #445 fixes).
+    fields_under_check = (
+        "pair_response.json.token",
+        "resolved_pairing_code",
+    )
+    when_clauses = []
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        clause = task.get("when")
+        if clause is None:
+            continue
+        # `when:` may be a string or a list. Normalize to a single string
+        # so multi-line `or`-chains (which YAML joins with a space) are
+        # searchable as one blob.
+        if isinstance(clause, list):
+            when_clauses.append(" ".join(str(c) for c in clause))
+        else:
+            when_clauses.append(str(clause))
+
+    for field in fields_under_check:
+        guarded = any(
+            f"{field} | length" in w and f"{field} is none" in w
+            for w in when_clauses
+        )
+        assert guarded, (
+            f"`{field} | length` must coexist with `{field} is none` in "
+            f"the same when: clause; otherwise a defined-but-null daemon "
+            f"response will crash the filter (issue #445)."
+        )
+
+
+def test_pair_playbook_resolved_code_ternary_picks_correct_source():
+    """ATX B3: structural shape isn't enough — the `resolved_pairing_code`
+    set_fact ternary in pair.yaml is the correctness core of #445. Evaluate
+    its Jinja2 expression directly against the two production-relevant
+    states and assert the right source is picked. A reversed ternary (the
+    obvious typo) passes the existing structural test but fails this one.
+    """
+    from importlib.resources import files
+    import yaml
+    from jinja2 import Environment
+
+    pkg = files("clawrium.platform.registry.zeroclaw")
+    tasks = yaml.safe_load((pkg / "playbooks" / "tasks" / "pair.yaml").read_text())
+    by_name = {t.get("name", ""): t for t in tasks if isinstance(t, dict)}
+    set_fact_task = by_name.get(
+        "Resolve pairing code from whichever branch produced one"
+    )
+    assert set_fact_task is not None, (
+        "pair.yaml must contain the resolve-source set_fact task"
+    )
+    expr = (set_fact_task.get("ansible.builtin.set_fact") or {}).get(
+        "resolved_pairing_code"
+    )
+    assert isinstance(expr, str) and expr.strip(), (
+        "set_fact must declare a non-empty resolved_pairing_code expression"
+    )
+
+    env = Environment()
+    template = env.from_string(expr)
+
+    # Fresh-boot branch: /pair/code returned a real code, initiate never
+    # ran (undefined). Resolved must be the /pair/code value.
+    fresh = template.render(
+        pair_code_response={"json": {"pairing_code": "FRESH1"}},
+    ).strip()
+    assert fresh == "FRESH1", (
+        f"fresh-boot branch must yield /pair/code's value; got {fresh!r}. "
+        f"This catches a reversed ternary that would silently send the "
+        f"empty/undefined initiate value to /pair on first install."
+    )
+
+    # Locked branch: /pair/code returned null, initiate minted a fresh code.
+    # Resolved must be the initiate value, not the null from /pair/code.
+    locked = template.render(
+        pair_code_response={"json": {"pairing_code": None}},
+        initiate_response={"json": {"pairing_code": "LOCKD2"}},
+    ).strip()
+    assert locked == "LOCKD2", (
+        f"locked-pair branch must yield /api/pairing/initiate's value; "
+        f"got {locked!r}. A reversed ternary would pick the null from "
+        f"/pair/code and the downstream /pair POST would crash."
+    )
+
+
 def test_memory_delete_no_log_on_delete_task_across_all_claws():
     """ATX iter 5 W3: every claw's memory_delete playbook must mark the
     file-removal task no_log: true so an Ansible run at -vvv does not
