@@ -559,20 +559,32 @@ class TestZeroclawRepairAfterStart:
         rotation = [m for s, m in events if s == "gateway_token_rotated"]
         assert not rotation, f"rotation event leaked despite write failure: {rotation!r}"
 
-    def test_repair_passes_existing_bearer_in_inventory(self, tmp_path: Path):
-        """Issue #445: tasks/pair.yaml's locked-pair branch authenticates
-        against /api/pairing/initiate using the current bearer from
-        hosts.json. The Python helper must forward that bearer as
-        config.gateway.auth in the Ansible inventory so the playbook can
-        reach it. Without this, the locked branch fires with an empty
-        Authorization header and the daemon rejects it."""
-        host = self._host(auth="zc_existing_bearer_aaaaaaaaaaaaaaa")
-        runner, _ = self._setup_repair_runner(tmp_path, "new-rotated-token")
+    def _capture_repair(
+        self, host: dict, tmp_path: Path, *, new_token: str,
+    ) -> tuple[dict, dict, list[tuple[str, str]], bool, str | None]:
+        """Run _zeroclaw_repair_after_start with full instrumentation:
+        capture the inventory passed to ansible-runner, the dict produced
+        by update_host's updater closure, and the on_event sequence.
+
+        Returns (inventory, hosts_json_after, events, success, error).
+        """
+        runner, _ = self._setup_repair_runner(tmp_path, new_token)
         captured_inventory: dict = {}
+        captured_hosts: dict = {}
 
         def capture_run(**kwargs):
             captured_inventory.update(kwargs.get("inventory") or {})
             return runner
+
+        def capture_update_host(_hostname: str, updater) -> bool:
+            h = {"hostname": "192.168.1.100", "agents": dict(host["agents"])}
+            captured_hosts.update(updater(h))
+            return True
+
+        events: list[tuple[str, str]] = []
+
+        def on_event(stage: str, message: str) -> None:
+            events.append((stage, message))
 
         key_path = tmp_path / "test_key"
         key_path.write_text("key")
@@ -594,7 +606,7 @@ class TestZeroclawRepairAfterStart:
              ), \
              patch(
                 "clawrium.core.lifecycle.update_host",
-                return_value=True,
+                side_effect=capture_update_host,
              ), \
              patch(
                 "clawrium.core.lifecycle.get_config_dir",
@@ -604,16 +616,51 @@ class TestZeroclawRepairAfterStart:
             success, error = _zeroclaw_repair_after_start(
                 "192.168.1.100",
                 agent_name="zer-test",
-                on_event=None,
+                on_event=on_event,
                 reason="restart",
             )
+        return captured_inventory, captured_hosts, events, success, error
+
+    def test_repair_passes_existing_bearer_and_rotates_atomically(
+        self, tmp_path: Path
+    ):
+        """Issue #445: tasks/pair.yaml's locked-pair branch authenticates
+        against /api/pairing/initiate using the current bearer from
+        hosts.json. The Python helper must (a) forward that bearer as
+        config.gateway.auth in the Ansible inventory, AND (b) atomically
+        replace it in hosts.json with the new rotated bearer from the
+        fact_cache. ATX B4: pin the full read-existing → inject → run →
+        write-new pipeline so a refactor can't silently break either half.
+        """
+        host = self._host(auth="zc_existing_bearer_aaaaaaaaaaaaaaa")
+        inv, hosts_after, events, success, error = self._capture_repair(
+            host, tmp_path, new_token="zc_new_rotated_bearer_xxxxxxxxxxx",
+        )
         assert success is True, error
-        gateway_vars = captured_inventory["all"]["vars"]["config"]["gateway"]
-        assert gateway_vars["auth"] == "zc_existing_bearer_aaaaaaaaaaaaaaa", (
+
+        gateway_in = inv["all"]["vars"]["config"]["gateway"]
+        assert gateway_in["auth"] == "zc_existing_bearer_aaaaaaaaaaaaaaa", (
             "existing bearer must flow into the playbook so the locked-pair "
             "branch can authenticate against /api/pairing/initiate"
         )
-        assert gateway_vars["port"] == 40000
+        assert gateway_in["port"] == 40000
+
+        # B4: hosts.json must reflect the rotated bearer, not the input one.
+        gateway_out = hosts_after["agents"]["zer-test"]["config"]["gateway"]
+        assert gateway_out["auth"] == "zc_new_rotated_bearer_xxxxxxxxxxx", (
+            "hosts.json must be rewritten with the new bearer minted by "
+            "the playbook, not silently keep the stale input bearer (B4)"
+        )
+
+        # B4: exactly one rotation event fires (not zero, not multiple).
+        rotations = [m for s, m in events if s == "gateway_token_rotated"]
+        assert len(rotations) == 1, (
+            f"exactly one gateway_token_rotated event must fire per repair; "
+            f"got {len(rotations)}: {rotations!r}"
+        )
+        payload = json.loads(rotations[0])
+        assert payload["agent_key"] == "zer-test"
+        assert payload["reason"] == "restart"
 
     def test_repair_passes_empty_bearer_when_hosts_json_lacks_auth(
         self, tmp_path: Path
@@ -621,20 +668,70 @@ class TestZeroclawRepairAfterStart:
         """First-install path: hosts.json has no `auth` field yet. The
         helper must pass an empty string (not raise, not omit the key) so
         the playbook's `default('')` filter keeps the locked branch dormant
-        on a fresh daemon."""
+        on a fresh daemon. The write-back path still rotates atomically
+        once /pair returns a fresh bearer."""
         host = self._host()
         host["agents"]["zer-test"]["config"]["gateway"] = {"port": 40000}
-        runner, _ = self._setup_repair_runner(tmp_path, "fresh-token")
-        captured_inventory: dict = {}
+        inv, hosts_after, _events, success, _err = self._capture_repair(
+            host, tmp_path, new_token="zc_first_install_bearer_yyyyyyy",
+        )
+        assert success is True
+        assert inv["all"]["vars"]["config"]["gateway"]["auth"] == ""
+        # Even from an empty starting auth, the rotation closure must write
+        # the freshly minted bearer back.
+        assert (
+            hosts_after["agents"]["zer-test"]["config"]["gateway"]["auth"]
+            == "zc_first_install_bearer_yyyyyyy"
+        )
+
+
+class TestConfigureAgentZeroclawBearerForwarding:
+    """ATX #445 B1/W3: configure_agent must inject the prior bearer from
+    `agent_record.config.gateway.auth` into the Ansible inventory when the
+    caller's `config_data` lacks one, so the locked-pair branch in
+    `tasks/pair.yaml` has something to POST to `/api/pairing/initiate`."""
+
+    def _zc_host(self, *, auth_in_record: str | None) -> dict:
+        gateway: dict = {"port": 40000}
+        if auth_in_record is not None:
+            gateway["auth"] = auth_in_record
+        return {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "zer-test": {
+                    "type": "zeroclaw",
+                    "agent_name": "zerot",
+                    "onboarding": {"state": "ready"},
+                    "config": {"gateway": gateway},
+                }
+            },
+        }
+
+    def _capture_configure(
+        self, host: dict, config_data: dict, tmp_path: Path,
+    ) -> tuple[dict, bool, str | None]:
+        runner = MagicMock()
+        runner.status = "successful"
+        runner.events = []
+        artifacts_dir = tmp_path / "artifacts"
+        (artifacts_dir / "fact_cache").mkdir(parents=True)
+        runner.config.artifact_dir = str(artifacts_dir)
+
+        captured: dict = {}
 
         def capture_run(**kwargs):
-            captured_inventory.update(kwargs.get("inventory") or {})
+            captured.update(kwargs.get("inventory") or {})
             return runner
 
-        key_path = tmp_path / "test_key"
-        key_path.write_text("key")
-        playbook_path = tmp_path / "restart.yaml"
+        key_path = tmp_path / "k"
+        key_path.write_text("k")
+        playbook_path = tmp_path / "configure.yaml"
         playbook_path.write_text("---\n- hosts: all\n")
+        template_dir = tmp_path / "templates"
+        template_dir.mkdir()
 
         with patch("clawrium.core.lifecycle.get_host", return_value=host), \
              patch(
@@ -656,18 +753,89 @@ class TestZeroclawRepairAfterStart:
              patch(
                 "clawrium.core.lifecycle.get_config_dir",
                 return_value=tmp_path,
+             ), \
+             patch(
+                "clawrium.core.providers.get_provider_api_key",
+                return_value="",
+             ), \
+             patch(
+                "clawrium.core.providers.get_provider_aws_credentials",
+                return_value=("", ""),
+             ), \
+             patch(
+                "clawrium.core.secrets.get_instance_secrets",
+                return_value={},
+             ), \
+             patch(
+                "clawrium.core.integrations.get_agent_integrations",
+                return_value=[],
+             ), \
+             patch.object(
+                Path, "exists", return_value=True,
              ):
-            from clawrium.core.lifecycle import _zeroclaw_repair_after_start
-            success, _ = _zeroclaw_repair_after_start(
+            from clawrium.core.lifecycle import configure_agent
+            success, error = configure_agent(
                 "192.168.1.100",
+                "zeroclaw",
+                config_data,
                 agent_name="zer-test",
-                on_event=None,
-                reason="restart",
             )
-        assert success is True
-        assert (
-            captured_inventory["all"]["vars"]["config"]["gateway"]["auth"]
-            == ""
+        return captured, success, error
+
+    def test_configure_injects_record_bearer_when_config_data_lacks_one(
+        self, tmp_path: Path
+    ):
+        """B1 head-on: a caller that builds config_data from scratch (e.g.
+        `_run_identity_stage` at cli/agent.py:639) does not carry forward
+        `gateway.auth`. configure_agent must defensively pull it from the
+        agent record so the playbook's locked-pair branch can authenticate
+        /api/pairing/initiate."""
+        host = self._zc_host(
+            auth_in_record="zc_record_bearer_aaaaaaaaaaaaaaaaaaaa",
+        )
+        bare_config = {
+            "gateway": {"port": 40000},
+            "provider": {
+                "name": "p", "type": "ollama", "endpoint": "http://x",
+                "default_model": "m",
+            },
+        }
+        inv, success, error = self._capture_configure(
+            host, bare_config, tmp_path,
+        )
+        # Configure may bail later (no provider creds, etc.) but the
+        # inventory builder runs first; assert what was passed regardless.
+        gw = inv["all"]["vars"]["config"]["gateway"]
+        assert gw["auth"] == "zc_record_bearer_aaaaaaaaaaaaaaaaaaaa", (
+            "configure_agent must defensively pull the bearer from the "
+            "agent record so the locked-pair branch authenticates correctly "
+            "(ATX #445 B1)"
+        )
+
+    def test_configure_does_not_override_explicit_bearer(self, tmp_path: Path):
+        """If the caller already populated `gateway.auth` (e.g. via
+        cli/agent.py:357), configure_agent must NOT clobber it with the
+        record's older value. The caller's intent wins."""
+        host = self._zc_host(
+            auth_in_record="zc_record_OLD_aaaaaaaaaaaaaaaaaaaaaaa",
+        )
+        config_with_fresh = {
+            "gateway": {
+                "port": 40000,
+                "auth": "zc_caller_FRESH_xxxxxxxxxxxxxxxxxxx",
+            },
+            "provider": {
+                "name": "p", "type": "ollama", "endpoint": "http://x",
+                "default_model": "m",
+            },
+        }
+        inv, _success, _error = self._capture_configure(
+            host, config_with_fresh, tmp_path,
+        )
+        gw = inv["all"]["vars"]["config"]["gateway"]
+        assert gw["auth"] == "zc_caller_FRESH_xxxxxxxxxxxxxxxxxxx", (
+            "configure_agent must not overwrite a caller-supplied bearer "
+            "with a stale value from hosts.json"
         )
 
 

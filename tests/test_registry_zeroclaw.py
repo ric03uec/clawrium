@@ -478,6 +478,18 @@ def test_pair_playbook_handles_locked_daemon():
     assert initiate.get("no_log") is True, (
         "initiate task carries a bearer — must be no_log: true"
     )
+    # ATX B2: 401/503 from /api/pairing/initiate must be accepted so the
+    # follow-up validate task can produce an actionable operator message
+    # rather than a generic Ansible HTTP error.
+    accepted = uri.get("status_code")
+    if isinstance(accepted, int):
+        accepted = [accepted]
+    assert set(accepted or []) >= {200, 401, 503}, (
+        "initiate task must accept 200, 401, and 503 so the validate task "
+        "below can route to actionable messages (ATX B2). Got: {!r}".format(
+            uri.get("status_code")
+        )
+    )
 
     when_clause = initiate.get("when")
     if isinstance(when_clause, list):
@@ -487,6 +499,30 @@ def test_pair_playbook_handles_locked_daemon():
     assert "pairing_code is none" in when_text, (
         "initiate must fire only when /pair/code returned a null code "
         "(locked daemon); current when: {!r}".format(when_clause)
+    )
+    # ATX W4: the initiate task also needs the `is defined` guard so a
+    # network error on GET /pair/code (which leaves pair_code_response.json
+    # undefined) doesn't crash the `is none` check below.
+    assert "pair_code_response.json is defined" in when_text, (
+        "initiate task's when: clause must include "
+        "`pair_code_response.json is defined` so a /pair/code network error "
+        "fails the prior task cleanly rather than crashing this one's "
+        "is-none check (ATX W4)."
+    )
+
+    # ATX B2: validate task that routes 401/503 to operator-actionable
+    # messages must exist downstream of the initiate task.
+    validate_name = "Validate locked-branch initiate response"
+    assert validate_name in by_name, (
+        "pair.yaml must include a task that surfaces 401/503 from "
+        "/api/pairing/initiate as actionable messages (ATX B2)"
+    )
+    validate_msg = (by_name[validate_name].get("ansible.builtin.fail") or {}).get("msg", "")
+    assert "clm agent configure" in validate_msg, (
+        "401 path must direct the operator to `clm agent configure` (ATX B2)"
+    )
+    assert "journalctl" in validate_msg, (
+        "503 path must direct the operator to daemon logs (ATX B2)"
     )
 
     # Defensive: every `| length` check on a pair field must coexist with
@@ -522,6 +558,60 @@ def test_pair_playbook_handles_locked_daemon():
             f"the same when: clause; otherwise a defined-but-null daemon "
             f"response will crash the filter (issue #445)."
         )
+
+
+def test_pair_playbook_resolved_code_ternary_picks_correct_source():
+    """ATX B3: structural shape isn't enough — the `resolved_pairing_code`
+    set_fact ternary in pair.yaml is the correctness core of #445. Evaluate
+    its Jinja2 expression directly against the two production-relevant
+    states and assert the right source is picked. A reversed ternary (the
+    obvious typo) passes the existing structural test but fails this one.
+    """
+    from importlib.resources import files
+    import yaml
+    from jinja2 import Environment
+
+    pkg = files("clawrium.platform.registry.zeroclaw")
+    tasks = yaml.safe_load((pkg / "playbooks" / "tasks" / "pair.yaml").read_text())
+    by_name = {t.get("name", ""): t for t in tasks if isinstance(t, dict)}
+    set_fact_task = by_name.get(
+        "Resolve pairing code from whichever branch produced one"
+    )
+    assert set_fact_task is not None, (
+        "pair.yaml must contain the resolve-source set_fact task"
+    )
+    expr = (set_fact_task.get("ansible.builtin.set_fact") or {}).get(
+        "resolved_pairing_code"
+    )
+    assert isinstance(expr, str) and expr.strip(), (
+        "set_fact must declare a non-empty resolved_pairing_code expression"
+    )
+
+    env = Environment()
+    template = env.from_string(expr)
+
+    # Fresh-boot branch: /pair/code returned a real code, initiate never
+    # ran (undefined). Resolved must be the /pair/code value.
+    fresh = template.render(
+        pair_code_response={"json": {"pairing_code": "FRESH1"}},
+    ).strip()
+    assert fresh == "FRESH1", (
+        f"fresh-boot branch must yield /pair/code's value; got {fresh!r}. "
+        f"This catches a reversed ternary that would silently send the "
+        f"empty/undefined initiate value to /pair on first install."
+    )
+
+    # Locked branch: /pair/code returned null, initiate minted a fresh code.
+    # Resolved must be the initiate value, not the null from /pair/code.
+    locked = template.render(
+        pair_code_response={"json": {"pairing_code": None}},
+        initiate_response={"json": {"pairing_code": "LOCKD2"}},
+    ).strip()
+    assert locked == "LOCKD2", (
+        f"locked-pair branch must yield /api/pairing/initiate's value; "
+        f"got {locked!r}. A reversed ternary would pick the null from "
+        f"/pair/code and the downstream /pair POST would crash."
+    )
 
 
 def test_memory_delete_no_log_on_delete_task_across_all_claws():
