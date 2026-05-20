@@ -45,6 +45,7 @@ function renderNode(data: Partial<ProviderNodeData>) {
     name: "p",
     type: "ollama",
     endpoint: null,
+    model: null,
     agentCount: 1,
     unconfigured: false,
     ...data,
@@ -154,6 +155,16 @@ describe("ProviderNode", () => {
   it("falls back to 'Provider' label when type is null", () => {
     renderNode({ name: "Unconfigured", type: null, unconfigured: true });
     expect(screen.getByText("Provider")).toBeInTheDocument();
+  });
+
+  it("shows the model sub-line when model is truthy", () => {
+    renderNode({ model: "z-ai/glm-5" });
+    expect(screen.getByText("z-ai/glm-5")).toBeInTheDocument();
+  });
+
+  it("hides the model sub-line when model is null", () => {
+    const { container } = renderNode({ model: null });
+    expect(container.textContent).not.toMatch(/z-ai\/glm-5/);
   });
 
   it("shows the endpoint sub-line when endpoint is truthy", () => {

@@ -301,25 +301,37 @@ describe("computeTopology", () => {
     }
   });
 
-  it("attaches the agent model name as the edge label", () => {
+  it("exposes the provider model on the provider node data", () => {
     const data = makeData([
       {
         hostname: "h",
         agents: [makeAgent({ agent_key: "a1", model: "claude-sonnet-4-6" })],
       },
     ]);
-    const { edges } = computeTopology(data);
-    const agentEdge = edges.find(
-      (e) => e.source === "agent-a1" && e.target.startsWith("provider-")
+    const { nodes } = computeTopology(data);
+    const providerNode = nodes.find((n) => n.type === "provider");
+    expect((providerNode!.data as { model: string | null }).model).toBe(
+      "claude-sonnet-4-6"
     );
-    expect(agentEdge?.label).toBe("claude-sonnet-4-6");
   });
 
-  it("omits the edge label when the agent has no model set", () => {
+  it("leaves provider model null when the agent has no model set", () => {
     const data = makeData([
       {
         hostname: "h",
         agents: [makeAgent({ agent_key: "a1", model: "" })],
+      },
+    ]);
+    const { nodes } = computeTopology(data);
+    const providerNode = nodes.find((n) => n.type === "provider");
+    expect((providerNode!.data as { model: string | null }).model).toBeNull();
+  });
+
+  it("never attaches a label to the agent→provider edge", () => {
+    const data = makeData([
+      {
+        hostname: "h",
+        agents: [makeAgent({ agent_key: "a1", model: "claude-sonnet-4-6" })],
       },
     ]);
     const { edges } = computeTopology(data);

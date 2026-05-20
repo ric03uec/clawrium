@@ -30,6 +30,7 @@ export interface ProviderNodeData {
   name: string;
   type: string | null;
   endpoint: string | null;
+  model: string | null;
   agentCount: number;
   unconfigured: boolean;
   hostGpuVendor?: string | null;
@@ -161,6 +162,7 @@ export function computeTopology(
   providerOrder.forEach((pKey, idx) => {
     const acc = providerMap.get(pKey)!;
     const providerNodeId = `provider-${pKey}`;
+    const providerModel = acc.agents.find((a) => a.model)?.model ?? null;
     nodes.push({
       id: providerNodeId,
       type: "provider",
@@ -170,6 +172,7 @@ export function computeTopology(
         name: acc.name,
         type: acc.type,
         endpoint: acc.endpoint,
+        model: providerModel,
         agentCount: acc.agents.length,
         unconfigured: acc.unconfigured,
         hostGpuVendor: acc.hostGpuVendor,
@@ -178,7 +181,7 @@ export function computeTopology(
     });
 
     // Edges: agent → provider
-    acc.agents.forEach(({ agentKey, model }) => {
+    acc.agents.forEach(({ agentKey }) => {
       const stroke = acc.unconfigured ? "#94A3B8" : "#475569";
       edges.push({
         id: `edge-${agentKey}-${pKey}`,
@@ -198,18 +201,6 @@ export function computeTopology(
           width: 14,
           height: 14,
         },
-        ...(model
-          ? {
-              label: model,
-              labelStyle: {
-                fontSize: 9,
-                fill: "var(--text-secondary)",
-                opacity: 0.7,
-              },
-              labelBgStyle: { fill: "#FFFFFF", fillOpacity: 0.7 },
-              labelBgPadding: [3, 1] as [number, number],
-            }
-          : {}),
       });
     });
   });
