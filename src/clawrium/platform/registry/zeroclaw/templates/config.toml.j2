@@ -92,6 +92,22 @@ name = "{{ toml_escape(personality_name) }}"
 timezone = "{{ toml_escape(personality_timezone) }}"
 communication_style = "{{ toml_escape(personality_style) }}"
 
+{# --- Agent runtime knobs --------------------------------------------------
+   Pin the daemon's tool-loop + context budgets explicitly rather than
+   relying on upstream defaults. Defaults (per binary strings):
+     max_tool_iterations = 10
+     max_context_tokens  = 32000
+   These are too tight for typical clm workflows where one user message
+   triggers several git_operations + shell calls (e.g. branch + commit
+   + push + gh pr create is 8–12 turns minimum). When the cap hits, the
+   daemon emits a `Max iterations reached` warning and the model often
+   misattributes the truncation as a policy block on the next turn,
+   poisoning conversation history. Larger budget here eliminates the
+   misattribution failure mode entirely. #}
+[agent]
+max_tool_iterations = 30
+max_context_tokens = 100000
+
 {# --- Discord channel (#422) -----------------------------------------------
    ZeroClaw v0.7.5 schema per docs/book/src/channels/chat-others.md:
      [channels.discord]
@@ -175,7 +191,112 @@ draft_update_interval_ms = {{ _discord.get('draft_update_interval_ms') | int }}
 level = "supervised"
 approval_timeout_secs = 300
 workspace_only = true
-allowed_commands = ["git", "cargo", "grep", "find", "ls", "cat"]
-forbidden_commands = ["shutdown", "reboot", "mkfs"]
-forbidden_paths = ["/etc", "/sys", "/boot", "~/.ssh", "~/.aws"]
+{# Explicit broad developer allowlist. v0.7.5 treats
+   `allowed_commands = []` as deny-all rather than permissive (the
+   upstream doc only specifies the non-empty case). Positive list
+   below covers the normal developer surface: shell/coreutils, text
+   processing, file ops, archives, network, vcs, build toolchains,
+   JSON/YAML inspection. Anything not listed is blocked at the
+   policy layer regardless of approval. #}
+allowed_commands = [
+  # Shell / coreutils
+  "bash", "sh", "env", "which", "whoami", "pwd",
+  "ls", "cat", "head", "tail", "wc", "stat", "file",
+  "echo", "date", "uname", "hostname",
+  # Text search / processing
+  "grep", "egrep", "fgrep", "rg", "find", "tree",
+  "sed", "awk", "cut", "sort", "uniq", "tr", "diff", "tee", "xargs",
+  # File ops — gated by forbidden_paths to keep them out of /etc, ~/.ssh, etc.
+  "mkdir", "rm", "rmdir", "mv", "cp", "touch", "ln", "chmod",
+  # Archives
+  "tar", "gzip", "gunzip", "zip", "unzip",
+  # Network
+  "curl", "wget",
+  # VCS
+  "git", "gh",
+  # Build / language toolchains
+  "make", "cmake",
+  "python3", "python", "pip", "pip3", "pipx",
+  "uv", "uvx", "pytest", "tox", "ruff",
+  "node", "npm", "npx", "yarn", "pnpm",
+  "cargo", "rustc", "rustup",
+  "go",
+  # JSON / YAML
+  "jq", "yq",
+]
+{# Dropped from `true` because the upstream pattern matcher flagged
+   any remote-touching git op (`git push`, `git branch <new>`) as
+   high-risk and blocked them — making the PR-creation workflow
+   impossible. With this off, destructive ops still need the
+   supervised-mode approval prompt (operator clicks yes/no per
+   tool/session), and `forbidden_commands` / `forbidden_paths`
+   continue to enforce hard stops on system-level damage. Tradeoff
+   accepted in conversation: policy is operator-judgment instead of
+   pattern-match. #}
+block_high_risk_commands = false
+{# System-wrecker tier. Binary names, not patterns — `git reset
+   --hard` still passes through because the binary is `git`, not
+   `reset`. Approval gate at supervised level catches that. #}
+forbidden_commands = [
+  "shutdown", "reboot", "poweroff", "halt",
+  "mkfs", "dd", "fdisk", "parted",
+  "iptables", "ufw", "systemctl",
+  "sudo", "su",
+]
+forbidden_paths = [
+  "/etc", "/sys", "/boot", "/proc",
+  "~/.ssh", "~/.aws", "~/.gnupg", "~/.config/clawrium",
+]
 shell_env_passthrough = [{% for _entry in _passthrough %}"{{ _entry }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+{# `auto_approve` is a flat list on the autonomy struct. The
+   `[autonomy.auto_approve] tools = [...]` sub-table form documented
+   in docs/book/src/security/autonomy.md crashes v0.7.5 with
+   `TOML parse error … invalid type: map, expected a sequence` — the
+   shipped binary's `strings` output shows `autonomy.auto-approve` /
+   `auto_approve` as a Vec<String> field directly on the autonomy
+   struct (doc is ahead of the schema). All low- and medium-risk
+   built-in tools are auto-approved so supervised mode stops gating
+   routine work; `shell` and `browser` (high-risk) stay gated.
+   `http_request` is the daemon identifier surfaced in approval
+   prompts (the doc shorthand `http` is not the runtime name). #}
+auto_approve = [
+  # File ops (read-only)
+  "file_read",
+  "file_list",
+  "content_search",
+  "glob_search",
+  "pdf_read",
+  "image_info",
+  # File mutation
+  "file_write",
+  "file_edit",
+  # Web / HTTP
+  "http_request",
+  "web_fetch",
+  "web_search",
+  "web_search_tool",
+  # Time / info
+  "time",
+  "weather",
+  # Memory
+  "memory_search",
+  "memory_pin",
+  "memory_recall",
+  "memory_store",
+  "memory_forget",
+  # Git
+  "git_operations",
+  # Scheduling
+  "schedule",
+  "cron_add",
+  "cron_list",
+  "cron_remove",
+  "cron_run",
+  "cron_runs",
+  "cron_update",
+  # Channel interaction
+  "ask_user",
+  "escalate_to_human",
+  # Tool catalog (read-only)
+  "tool_search",
+]
