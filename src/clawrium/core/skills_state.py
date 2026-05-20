@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -43,6 +44,7 @@ __all__ = [
     "write_state",
     "add_skill",
     "remove_skill",
+    "cleanup_agent_state",
 ]
 
 
@@ -196,3 +198,17 @@ def remove_skill(agent_name: str, ref: str | SkillRef) -> tuple[list[str], bool]
         return current, False
     new_state = [s for s in current if s != str(parsed)]
     return write_state(agent_name, new_state), True
+
+
+def cleanup_agent_state(agent_name: str) -> bool:
+    """Remove the entire state directory for ``agent_name``.
+
+    Called during agent removal to ensure no orphan state survives.
+    Returns True if the directory existed and was removed, False otherwise.
+    """
+    _validate_agent_name(agent_name)
+    path = state_file_path(agent_name).parent  # agents/<name>/
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)
+        return True
+    return False

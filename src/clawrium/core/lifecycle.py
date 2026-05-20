@@ -24,6 +24,7 @@ from clawrium.core.secrets import (
     get_instance_secrets,
     remove_instance_secrets,
 )
+from clawrium.core.skills_state import cleanup_agent_state
 
 logger = logging.getLogger(__name__)
 
@@ -1571,6 +1572,14 @@ def remove_agent(
         emit("remove", "Cleaned up instance secrets")
     except Exception as e:
         logger.warning("Failed to clean up instance secrets for %s: %s", agent_key, e)
+
+    # Clean up agent state directory (skills.json, etc.)
+    try:
+        unix_agent_name = claw_record.get("agent_name") or agent_key
+        cleanup_agent_state(unix_agent_name)
+        emit("remove", "Cleaned up agent state directory")
+    except Exception as e:
+        logger.warning("Failed to clean up agent state for %s: %s", agent_key, e)
 
     # Remove agent from hosts.json
     # NOTE: remove_agent_from_host returns True if host was found (not if agent was found)
