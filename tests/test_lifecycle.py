@@ -17,6 +17,7 @@ from clawrium.core.lifecycle import (
     _run_lifecycle_playbook,
     _resolve_agent_record,
     _cleanup_ansible_artifacts,
+    _safe_host_display,
 )
 
 
@@ -559,6 +560,33 @@ class TestZeroclawRepairAfterStart:
         assert not rotation, f"rotation event leaked despite write failure: {rotation!r}"
 
 
+class TestSafeHostDisplay:
+    """ATX W-R3-1: `_safe_host_display` is a path-traversal guard used at
+    three log-dir construction sites. Pin the documented edge cases so
+    a regex widening that re-opens traversal fails a test."""
+
+    def test_traversal_alias_is_sanitized(self):
+        assert _safe_host_display({"alias": "../etc"}, "h") == ".._etc"
+
+    def test_slash_in_alias_is_sanitized(self):
+        assert _safe_host_display({"alias": "my/box"}, "h") == "my_box"
+
+    def test_empty_inputs_fall_back_to_host(self):
+        assert _safe_host_display({}, "") == "host"
+
+    def test_all_bad_chars_fall_back_to_host(self):
+        assert _safe_host_display({"alias": "///"}, "h") == "host"
+
+    def test_falls_back_to_key_id_when_no_alias(self):
+        assert _safe_host_display({"key_id": "kev"}, "192.168.1.1") == "kev"
+
+    def test_falls_back_to_hostname_when_neither_alias_nor_key_id(self):
+        assert _safe_host_display({}, "192.168.1.1") == "192.168.1.1"
+
+    def test_preserves_safe_chars(self):
+        assert _safe_host_display({"alias": "Foo-bar_1.2"}, "h") == "Foo-bar_1.2"
+
+
 class TestStartAgentZeroclawRepairWiring:
     """ATX W-COV-1: exercise the start_agent → _zeroclaw_repair_after_start
     branch through a real `start_agent` call (the helper is unit-tested
@@ -614,7 +642,15 @@ class TestStartAgentZeroclawRepairWiring:
                                     "clawrium.core.lifecycle._zeroclaw_repair_after_start",
                                     return_value=(True, None),
                                 ) as mock_repair:
-                                    result = start_agent("192.168.1.100", "zeroclaw")
+                                    sentinel_events: list[tuple[str, str]] = []
+
+                                    def sentinel_on_event(stage: str, msg: str) -> None:
+                                        sentinel_events.append((stage, msg))
+
+                                    result = start_agent(
+                                        "192.168.1.100", "zeroclaw",
+                                        on_event=sentinel_on_event,
+                                    )
 
         assert result["success"] is True
         mock_repair.assert_called_once()
@@ -622,6 +658,9 @@ class TestStartAgentZeroclawRepairWiring:
         assert kwargs.get("reason") == "start"
         # ATX W-NEW-2: helper receives resolved agent_key (not raw param)
         assert kwargs.get("agent_name") == "zer-test"
+        # ATX W-R3-2: on_event forwarded so the rotation notice reaches
+        # the CLI handler. Identity check — must be the same callable.
+        assert kwargs.get("on_event") is sentinel_on_event
 
     def test_start_zeroclaw_returns_failure_when_repair_fails(self, tmp_path: Path):
         host = self._zeroclaw_host()

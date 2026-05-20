@@ -146,12 +146,14 @@ def _safe_host_display(host: dict, hostname: str) -> str:
 
     ATX W-SEC-3: an alias like `../etc` or `my/box` would otherwise turn
     the operation log directory into a traversal target. Substitute any
-    char outside `[A-Za-z0-9_.-]` with `_`. Empty / all-bad-char input
-    falls back to "host".
+    char outside `[A-Za-z0-9_.-]` with `_`. Empty / all-bad-char (i.e.
+    sanitized to only `_`) input falls back to "host".
     """
     raw = host.get("alias") or host.get("key_id") or hostname or ""
     sanitized = re.sub(r"[^A-Za-z0-9_.-]", "_", raw)
-    return sanitized or "host"
+    if not sanitized or set(sanitized) == {"_"}:
+        return "host"
+    return sanitized
 
 
 def _cleanup_ansible_artifacts(operation_log_dir: Path) -> None:
