@@ -93,20 +93,26 @@ timezone = "{{ toml_escape(personality_timezone) }}"
 communication_style = "{{ toml_escape(personality_style) }}"
 
 {# --- Agent runtime knobs --------------------------------------------------
-   Pin the daemon's tool-loop + context budgets explicitly rather than
-   relying on upstream defaults. Defaults (per binary strings):
-     max_tool_iterations = 10
-     max_context_tokens  = 32000
-   These are too tight for typical clm workflows where one user message
-   triggers several git_operations + shell calls (e.g. branch + commit
-   + push + gh pr create is 8–12 turns minimum). When the cap hits, the
-   daemon emits a `Max iterations reached` warning and the model often
-   misattributes the truncation as a policy block on the next turn,
-   poisoning conversation history. Larger budget here eliminates the
-   misattribution failure mode entirely. #}
+   Pin the daemon's tool-loop + context budgets above their default
+   coding-hostile values. Verified defaults from
+   crates/zeroclaw-config/src/schema.rs L3342-3422 @ v0.7.5:
+     max_tool_iterations    = 10
+     max_context_tokens     = 32000
+     max_tool_result_chars  = 50000
+     max_history_messages   = 50
+     keep_tool_context_turns = 2
+   A real coding cycle (plan → edit → test → fix → re-test → commit →
+   push → gh pr create) routinely needs 60–100 tool calls, holds AGENTS.md
+   + several source files + diff output in context at once, and re-reads
+   files many turns later. The upstream defaults truncate mid-task and
+   the model misattributes the truncation as a policy block, poisoning
+   history. Values below give a TDD/PR workflow room to breathe. #}
 [agent]
-max_tool_iterations = 30
-max_context_tokens = 100000
+max_tool_iterations = 200
+max_context_tokens = 180000
+max_tool_result_chars = 200000
+max_history_messages = 200
+keep_tool_context_turns = 8
 
 {# --- Discord channel (#422) -----------------------------------------------
    ZeroClaw v0.7.5 schema per docs/book/src/channels/chat-others.md:
@@ -189,8 +195,17 @@ draft_update_interval_ms = {{ _discord.get('draft_update_interval_ms') | int }}
 
 [autonomy]
 level = "supervised"
-approval_timeout_secs = 300
 workspace_only = true
+{# v0.7.5 AutonomyConfig defaults (schema.rs L5820-5942) are sized for a
+   light-touch personal assistant, not a coding agent:
+     max_actions_per_hour   = 20    → ~one tool call every 3 minutes
+     max_cost_per_day_cents = 500   → $5/day, exhausted by one Opus session
+     shell_timeout_secs     = 60    → kills `cargo build`, long test suites
+   Bump all three to coding-appropriate ceilings. These are *ceilings*,
+   not floors — actual usage is driven by the conversation. #}
+max_actions_per_hour = 1000
+max_cost_per_day_cents = 50000
+shell_timeout_secs = 600
 {# Explicit broad developer allowlist. v0.7.5 treats
    `allowed_commands = []` as deny-all rather than permissive (the
    upstream doc only specifies the non-empty case). Positive list
@@ -299,4 +314,36 @@ auto_approve = [
   "escalate_to_human",
   # Tool catalog (read-only)
   "tool_search",
+]
+
+{# --- Pacing / loop detection ---------------------------------------------
+   v0.7.5 PacingConfig defaults (crates/zeroclaw-config/src/schema.rs
+   L3481-3547):
+     loop_detection_enabled     = true
+     loop_detection_window_size = 20
+     loop_detection_max_repeats = 3
+   With max_repeats=3 in a 20-call window, the daemon blocks any tool
+   that returns identical results 4 times — even with different args.
+   That tripped the runtime in production on routine coding cadence
+   (re-running `pytest -x` between fixes, re-reading the same file
+   across edits, `git status` between commits):
+     `zeroclaw_runtime::agent::loop_: loop detector blocked tool call
+      tool=shell msg=Blocked: tool 'shell' called 6 times with different
+      arguments but identical results`
+   loop_ignore_tools is the surgical knob — listed tools never trip
+   the detector regardless of window/max_repeats. Restricted to the
+   high-repeat, low-risk surface (shell, file_read, search tools);
+   web_fetch / http_request / git_operations remain detected because
+   repeated identical results from those almost always indicate genuine
+   pathology. #}
+[pacing]
+loop_detection_enabled = true
+loop_detection_window_size = 40
+loop_detection_max_repeats = 12
+loop_ignore_tools = [
+  "shell",
+  "file_read",
+  "file_list",
+  "content_search",
+  "glob_search",
 ]
