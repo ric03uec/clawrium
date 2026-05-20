@@ -312,6 +312,25 @@ auto_approve = [
   # Channel interaction
   "ask_user",
   "escalate_to_human",
+  # Inter-session enumeration (zeroclaw v0.7.5 crates/zeroclaw-tools/
+  # src/sessions.rs). Six sessions_* tools exist upstream. Only the two
+  # below are auto-approved because they take no `session_id` target
+  # parameter and surface only metadata:
+  #   sessions_current() — returns the active session's key/name
+  #   sessions_list(limit?) — returns {key, channel, msgs, last_activity}
+  # Gated (NOT in auto_approve) — operator must approve each call:
+  #   sessions_history(session_id, limit?) — reads ANY session's full
+  #       transcript; cross-session read is a new exposure tier
+  #       (credentials/secrets pasted into other chats).
+  #   sessions_send(session_id, message) — writes to ANY session;
+  #       enumerate→exfiltrate vector when chained with sessions_list.
+  #   sessions_reset(session_id), sessions_delete(session_id) —
+  #       destructive Act ops.
+  # Pre-approving sessions_list alone unblocks `clm chat` from dying
+  # immediately on enumeration; sessions_send-class flows still fail
+  # until clm chat learns to render approval_request frames inline.
+  "sessions_current",
+  "sessions_list",
   # Tool catalog (read-only)
   "tool_search",
 ]
