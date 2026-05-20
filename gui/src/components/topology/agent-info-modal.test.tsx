@@ -58,6 +58,7 @@ function makeAgent(overrides: Partial<TopologyAgent> = {}): TopologyAgent {
     provider: "local-inx",
     provider_type: "ollama",
     provider_endpoint: "http://192.168.1.17:11434",
+    provider_accelerator_vendor: null,
     ...overrides,
   };
 }

@@ -51,6 +51,7 @@ function makeAgent(overrides: Partial<TopologyAgent> = {}): TopologyAgent {
     provider: "anthropic-prod",
     provider_type: "anthropic",
     provider_endpoint: null,
+    provider_accelerator_vendor: null,
     ...overrides,
   };
   return {

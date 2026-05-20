@@ -147,13 +147,13 @@ export interface TopologyConnection {
 export interface Provider {
   name: string;
   type: string;
-  endpoint: string;
-  default_model: string;
-  available_models: string[];
+  endpoint: string | null;
+  default_model: string | null;
+  available_models: string[] | null;
   has_api_key: boolean;
   accelerator_vendor: AcceleratorVendor | null;
-  created_at: string;
-  updated_at: string;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface ProviderTypeInfo {

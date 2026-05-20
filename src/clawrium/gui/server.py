@@ -4,7 +4,7 @@ Serves the static Next.js frontend and provides REST API
 endpoints for fleet management, token tracking, and chat.
 """
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -76,26 +76,47 @@ def mount_frontend(app: FastAPI) -> None:
             name="next-assets",
         )
 
+    frontend_root = frontend_dir.resolve()
+
+    def _safe_serve(candidate: Path) -> FileResponse | None:
+        """Return FileResponse only if candidate stays inside frontend_root.
+
+        Starlette normalises plain `../` in URL paths, but percent-encoded
+        traversal (`%2e%2e`) and unicode normalisation edge cases are not
+        guaranteed across all versions. The resolve()+is_relative_to()
+        check is the defense-in-depth guard recommended by ATX B5.
+        """
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            return None
+        if not resolved.is_relative_to(frontend_root):
+            return None
+        if not resolved.is_file():
+            return None
+        return FileResponse(resolved)
+
     @app.get("/{path:path}")
     async def serve_frontend(request: Request, path: str) -> Response:
         """Serve static HTML pages for frontend routes."""
         # Try exact file first (e.g. favicon.ico)
-        exact = frontend_dir / path
-        if exact.is_file():
-            return FileResponse(exact)
+        if (resp := _safe_serve(frontend_dir / path)) is not None:
+            return resp
 
         # Try path + .html (e.g. /topology -> topology.html)
-        html_file = frontend_dir / f"{path}.html"
-        if html_file.is_file():
-            return FileResponse(html_file)
+        if (resp := _safe_serve(frontend_dir / f"{path}.html")) is not None:
+            return resp
 
         # Try path/index.html (for trailing slash dirs)
-        index_file = frontend_dir / path / "index.html"
-        if index_file.is_file():
-            return FileResponse(index_file)
+        if (resp := _safe_serve(frontend_dir / path / "index.html")) is not None:
+            return resp
 
-        # Fallback to index.html for client-side routing
-        return FileResponse(frontend_dir / "index.html")
+        # Fallback to index.html for client-side routing. Containment is
+        # guaranteed here because the path is a literal constant.
+        index = frontend_dir / "index.html"
+        if index.is_file():
+            return FileResponse(index)
+        raise HTTPException(status_code=404)
 
 
 # Mount frontend static files (noop if not built yet)

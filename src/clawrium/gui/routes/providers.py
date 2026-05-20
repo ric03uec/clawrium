@@ -19,6 +19,7 @@ from clawrium.core.providers.models import (
 from clawrium.core.providers.storage import (
     PROVIDER_MODELS,
     DuplicateProviderError,
+    InvalidOllamaUrlError,
     InvalidProviderNameError,
     InvalidProviderTypeError,
     add_provider,
@@ -26,6 +27,7 @@ from clawrium.core.providers.storage import (
     load_providers,
     remove_provider,
     update_provider,
+    validate_ollama_url,
     validate_provider_name,
     validate_provider_type,
     get_provider_api_key,
@@ -209,6 +211,17 @@ async def create_provider(body: ProviderCreate):
     if not endpoint and body.type in PROVIDER_MODELS:
         endpoint = PROVIDER_MODELS[body.type].get("endpoint")
 
+    # Apply the same SSRF guard the CLI uses for user-supplied Ollama
+    # endpoints — without this, a client can store
+    # http://169.254.169.254/... and exfiltrate cloud metadata via clm
+    # provider sync. validate_ollama_url() blocks cloud metadata IPs and
+    # rejects non-http(s) schemes.
+    if body.type in LOCAL_INFERENCE_TYPES and endpoint:
+        try:
+            endpoint = validate_ollama_url(endpoint)
+        except InvalidOllamaUrlError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     provider_record: dict[str, Any] = {
         "name": body.name,
         "type": body.type,
@@ -250,7 +263,18 @@ async def update_provider_endpoint(name: str, body: ProviderUpdate):
     if body.default_model is not None:
         updates["default_model"] = body.default_model
     if body.endpoint is not None:
-        updates["endpoint"] = body.endpoint
+        endpoint_value = body.endpoint
+        # Same SSRF guard as the create path. Endpoint overrides on
+        # cloud providers (bedrock/openai/etc.) are accepted here without
+        # additional validation because the broader cloud-endpoint
+        # validation is out of scope for this PR; we only enforce the
+        # documented invariant for local-inference endpoints.
+        if provider.get("type") in LOCAL_INFERENCE_TYPES and endpoint_value:
+            try:
+                endpoint_value = validate_ollama_url(endpoint_value)
+            except InvalidOllamaUrlError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+        updates["endpoint"] = endpoint_value
     if (
         body.accelerator_vendor is not None
         and provider.get("type") in LOCAL_INFERENCE_TYPES

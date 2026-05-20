@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import type {
@@ -32,6 +32,13 @@ export function AddProviderModal({
   const [showKey, setShowKey] = useState(false);
   const [acceleratorVendor, setAcceleratorVendor] =
     useState<AcceleratorVendor>("nvidia");
+
+  const idPrefix = useId();
+  const nameId = `${idPrefix}-name`;
+  const typeId = `${idPrefix}-type`;
+  const modelId = `${idPrefix}-model`;
+  const apiKeyId = `${idPrefix}-apikey`;
+  const endpointId = `${idPrefix}-endpoint`;
 
   const typeInfo = type ? providerTypes[type] : null;
   const availableModels = typeInfo?.models || [];
@@ -77,10 +84,14 @@ export function AddProviderModal({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Name */}
         <div>
-          <label className="block text-xs font-medium text-secondary mb-1">
+          <label
+            htmlFor={nameId}
+            className="block text-xs font-medium text-secondary mb-1"
+          >
             Provider Name
           </label>
           <input
+            id={nameId}
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -92,10 +103,14 @@ export function AddProviderModal({
 
         {/* Type */}
         <div>
-          <label className="block text-xs font-medium text-secondary mb-1">
+          <label
+            htmlFor={typeId}
+            className="block text-xs font-medium text-secondary mb-1"
+          >
             Type
           </label>
           <select
+            id={typeId}
             value={type}
             onChange={(e) => handleTypeChange(e.target.value)}
             className="w-full px-3 py-2 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
@@ -145,10 +160,14 @@ export function AddProviderModal({
         {/* Default Model */}
         {availableModels && availableModels.length > 0 && (
           <div>
-            <label className="block text-xs font-medium text-secondary mb-1">
+            <label
+              htmlFor={modelId}
+              className="block text-xs font-medium text-secondary mb-1"
+            >
               Default Model
             </label>
             <select
+              id={modelId}
               value={model}
               onChange={(e) => setModel(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
@@ -166,11 +185,15 @@ export function AddProviderModal({
         {/* API Key */}
         {typeInfo?.requires_api_key && (
           <div>
-            <label className="block text-xs font-medium text-secondary mb-1">
+            <label
+              htmlFor={apiKeyId}
+              className="block text-xs font-medium text-secondary mb-1"
+            >
               API Key
             </label>
             <div className="relative">
               <input
+                id={apiKeyId}
                 type={showKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
@@ -191,10 +214,14 @@ export function AddProviderModal({
         {/* Endpoint */}
         {(typeInfo?.requires_endpoint || type === "ollama") && (
           <div>
-            <label className="block text-xs font-medium text-secondary mb-1">
+            <label
+              htmlFor={endpointId}
+              className="block text-xs font-medium text-secondary mb-1"
+            >
               Endpoint
             </label>
             <input
+              id={endpointId}
               type="text"
               value={endpoint}
               onChange={(e) => setEndpoint(e.target.value)}

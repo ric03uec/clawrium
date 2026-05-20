@@ -170,3 +170,89 @@ def test_update_non_ollama_provider_ignores_accelerator_vendor(monkeypatch):
     # it is meaningless for cloud providers.
     assert captured["result"].get("default_model") == "gpt-4o"
     assert "accelerator_vendor" not in captured["result"]
+
+
+# ─── B4: SSRF guard on Ollama endpoints (POST + PUT) ──────────────────
+
+import pytest  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
+
+
+def test_create_ollama_rejects_cloud_metadata_endpoint(monkeypatch):
+    """POST must call validate_ollama_url() and reject 169.254.x.x."""
+    _capture_add_provider(monkeypatch)
+    _patch_secret_writes(monkeypatch)
+
+    body = ProviderCreate(
+        name="evil",
+        type="ollama",
+        endpoint="http://169.254.169.254/latest/meta-data/",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(create_provider(body))
+    assert exc_info.value.status_code == 400
+    assert "metadata" in str(exc_info.value.detail).lower()
+
+
+def test_create_ollama_rejects_non_http_scheme(monkeypatch):
+    """POST must reject file:// and other non-http(s) schemes."""
+    _capture_add_provider(monkeypatch)
+    _patch_secret_writes(monkeypatch)
+
+    body = ProviderCreate(
+        name="evil",
+        type="ollama",
+        endpoint="file:///etc/passwd",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(create_provider(body))
+    assert exc_info.value.status_code == 400
+
+
+def test_create_ollama_accepts_private_lan_endpoint(monkeypatch):
+    """Private/loopback IPs are allowed for self-hosted Ollama servers."""
+    captured = _capture_add_provider(monkeypatch)
+    _patch_secret_writes(monkeypatch)
+
+    body = ProviderCreate(
+        name="local",
+        type="ollama",
+        endpoint="http://192.168.1.10:11434",
+    )
+    asyncio.run(create_provider(body))
+    assert captured["provider"]["endpoint"].startswith("http://192.168.")
+
+
+def test_update_ollama_rejects_cloud_metadata_endpoint(monkeypatch):
+    """PUT on an ollama provider must reject 169.254.x.x."""
+    existing = {"name": "local", "type": "ollama"}
+    monkeypatch.setattr(providers_mod, "get_provider", lambda name: existing)
+    monkeypatch.setattr(
+        providers_mod, "update_provider", lambda *a, **kw: True
+    )
+
+    body = ProviderUpdate(endpoint="http://169.254.169.254/")
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(update_provider_endpoint("local", body))
+    assert exc_info.value.status_code == 400
+
+
+def test_update_cloud_provider_skips_ollama_validation(monkeypatch):
+    """Cloud-provider endpoint overrides bypass validate_ollama_url()."""
+    existing = {"name": "cloud", "type": "openai"}
+    captured: dict = {}
+    monkeypatch.setattr(providers_mod, "get_provider", lambda name: existing)
+
+    def fake_update(name: str, updater):
+        captured["result"] = updater(existing)
+
+    monkeypatch.setattr(providers_mod, "update_provider", fake_update)
+    monkeypatch.setattr(providers_mod, "set_provider_api_key", lambda *a, **kw: True)
+
+    # 169.254.x.x would be rejected for ollama, but is accepted (today)
+    # for cloud providers — broader cloud-endpoint validation is tracked
+    # as a follow-up. Test pins current behavior so a future tightening
+    # is explicit.
+    body = ProviderUpdate(endpoint="http://169.254.169.254/")
+    asyncio.run(update_provider_endpoint("cloud", body))
+    assert captured["result"]["endpoint"] == "http://169.254.169.254/"
