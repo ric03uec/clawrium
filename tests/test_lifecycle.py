@@ -292,21 +292,21 @@ class TestRunLifecyclePlaybook:
                 "zeroclaw", "zer-test", "192.168.1.100", "start", host
             )
 
-        # ATX iter-6: both calls MUST be intercepted. `get_instance_key`
-        # is a pure formatter and would still be invoked by any refactor
-        # that bypassed `get_instance_secrets` (e.g. inlining a json.load
-        # or introducing a new helper). With `or`, that bypass would pass
-        # silently and the real `get_instance_secrets` would read disk.
-        # `and` matches the actual call sequence at lifecycle.py:312-313
-        # — both helpers always fire on the success path.
-        assert mock_get_key.called, (
-            "get_instance_key not called — patch target or call path drifted "
-            "(ATX iter-5 NW-A / iter-6)"
-        )
+        # ATX iter-6/iter-7: both calls MUST be intercepted. `get_instance_
+        # secrets` is the security-critical gate (real disk reads); assert
+        # it first so a regression fails fast on the more important call.
+        # `get_instance_key` is a pure formatter and would still be invoked
+        # by any refactor that bypassed `get_instance_secrets` (e.g.
+        # inlining a json.load or introducing a new helper) — the second
+        # assert is the refactor-drift canary.
         assert mock_get_secrets.called, (
             "get_instance_secrets not called — this is the call that gates "
             "real secret values; if a refactor bypasses it, real "
             "~/.config/clawrium/secrets.json reads happen unintercepted "
+            "(ATX iter-5 NW-A / iter-6)"
+        )
+        assert mock_get_key.called, (
+            "get_instance_key not called — patch target or call path drifted "
             "(ATX iter-5 NW-A / iter-6)"
         )
 
