@@ -524,8 +524,7 @@ Demo GIFs and their VHS tape sources live in `docs/demos/`. Both are committed (
 
 | Location | Max size |
 |---|---|
-| README hero GIF (`readme.gif`) | 500 KiB (512,000 bytes) |
-| Other docs GIFs | 3 MiB (3,145,728 bytes) |
+| Docs GIFs | 3 MiB (3,145,728 bytes) |
 
 If a GIF exceeds the cap, re-record with the `create-vhs` skill — raise `PlaybackSpeed`, lower `Framerate`, or trim trailing `Sleep` times. Do not commit oversized binaries to work around the test; they remain in git history forever.
 

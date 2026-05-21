@@ -76,19 +76,32 @@ Do NOT touch:
    ```
    Any line with a version other than `<NEW>` → flag to the user before committing.
 
-8. **Verify**:
+8. **Diff-scope guard** (this is the safety net for the "no ATX on release PRs" carve-out — release PRs skip automated review, so the skill must hard-fail if non-mechanical files crept in):
+   ```bash
+   KNOWN_SET='^(pyproject\.toml|AGENTS\.md|website/docs/installation\.md|website/docs/guides/quickstart\.md|website/docs/scenarios/101\.md|CONTRIBUTING\.md|\.claude/skills/itx-release/SKILL\.md|tests/test_demo_assets\.py)$'
+   UNEXPECTED=$(git diff --name-only main...HEAD | grep -vE "$KNOWN_SET" || true)
+   if [ -n "$UNEXPECTED" ]; then
+     echo "BLOCKED: release branch touches files outside the known set:"
+     echo "$UNEXPECTED"
+     echo "These changes need an ATX-reviewed PR before they ship in a release. Abort."
+     exit 1
+   fi
+   ```
+   Stop and surface the list to the user; do not auto-stage or proceed past this check. If the extra files are genuinely needed for the release, open a separate ATX-reviewed PR first, merge it, then rebase the release branch.
+
+9. **Verify**:
    ```bash
    make lint && make test
    ```
 
-9. **Commit + push**:
-   ```bash
-   git add pyproject.toml AGENTS.md website/docs/
-   git commit -m "chore(release): bump to v<NEW> + sync doc versions"
-   git push -u origin release/v<NEW>
-   ```
+10. **Commit + push**:
+    ```bash
+    git add pyproject.toml AGENTS.md website/docs/
+    git commit -m "chore(release): bump to v<NEW> + sync doc versions"
+    git push -u origin release/v<NEW>
+    ```
 
-10. **Open PR** (manual review only — do NOT request ATX review for release bumps):
+11. **Open PR** (manual review only — do NOT request ATX review for release bumps):
     ```bash
     gh pr create --title "chore(release): v<NEW>" --body "$(cat <<EOF
     ## Summary
@@ -107,14 +120,14 @@ Do NOT touch:
 
 ### Phase 2 — Tag + push (after merge)
 
-11. **Wait for the user to confirm the PR is merged**, then:
+12. **Wait for the user to confirm the PR is merged**, then:
     ```bash
     git checkout main
     git pull --ff-only origin main
     grep -m1 '^version' pyproject.toml          # confirm <NEW> landed
     ```
 
-12. **Tag and push**:
+13. **Tag and push**:
     ```bash
     git tag -a v<NEW> -m "v<NEW>"
     git push origin v<NEW>
@@ -122,13 +135,13 @@ Do NOT touch:
 
 ### Phase 3 — Trigger publish + verify
 
-13. **Create the GitHub release** (this is what `publish.yml` listens for):
+14. **Create the GitHub release** (this is what `publish.yml` listens for):
     ```bash
     gh release create v<NEW> --title "v<NEW>" --generate-notes
     ```
     `--generate-notes` builds the changelog from merged PRs since the previous tag.
 
-14. **Watch the workflow**:
+15. **Watch the workflow**:
     ```bash
     RUN_ID=$(gh run list --workflow=publish.yml --limit=1 --json databaseId -q '.[0].databaseId')
     gh run watch "$RUN_ID" --exit-status
@@ -137,7 +150,7 @@ Do NOT touch:
     - Lint/test regressions (rare — Phase 0 caught them, but the published build runs them again)
     - PyPI trusted-publisher misconfig — needs human
 
-15. **Verify on PyPI**:
+16. **Verify on PyPI**:
     ```bash
     sleep 30                                    # PyPI propagation
     pip index versions clawrium 2>&1 | grep -F "<NEW>"
@@ -148,7 +161,7 @@ Do NOT touch:
     GitHub: https://github.com/ric03uec/clawrium/releases/tag/v<NEW>
     ```
 
-16. **Report** to the user:
+17. **Report** to the user:
     ```
     ## Release v<NEW> — Shipped
 
@@ -161,7 +174,7 @@ Do NOT touch:
 
 ## Failure recovery
 
-- **PR has lint/test failure** → fix on the release branch, push again, re-run Phase 1 step 8.
+- **PR has lint/test failure** → fix on the release branch, push again, re-run Phase 1 step 9.
 - **Tag pushed but release not created** → `gh release create v<NEW> --title "v<NEW>" --generate-notes` (idempotent fix).
 - **Publish workflow failed** → do NOT delete the tag. Identify the failed step from `gh run view <RUN_ID>`; fix on `main` via a follow-up PR + new patch tag (`v<NEW+1>`). Yanking a published version is worse than shipping a patch.
 - **PyPI says version exists already** → `<NEW>` was published earlier and re-uploading is blocked. Pick the next patch.
