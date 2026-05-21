@@ -717,6 +717,23 @@ class TestAutonomyBlock:
         assert '"/proc"' in rendered
         assert '"~/.ssh"' in rendered
         assert '"~/.config/clawrium"' in rendered
+        # Inter-session tool gating boundary. Authoritative source is
+        # zeroclaw v0.7.5 crates/zeroclaw-tools/src/sessions.rs — six
+        # sessions_* tools exist upstream. Two take no `session_id` and
+        # are safe to auto-approve (enumeration only). The other four
+        # take a target `session_id` (cross-session read/write/destroy)
+        # and MUST stay gated; together with sessions_list they form an
+        # enumerate→exfiltrate chain. Update assertions if upstream adds
+        # or renames a sessions_* tool.
+        expected_sessions_auto_approve = {"sessions_current", "sessions_list"}
+        sessions_in_auto_approve = set(
+            _re422.findall(r'"(sessions_[^"]+)"', rendered)
+        )
+        assert sessions_in_auto_approve == expected_sessions_auto_approve, (
+            f"sessions_* mismatch — "
+            f"surplus: {sessions_in_auto_approve - expected_sessions_auto_approve} | "
+            f"missing: {expected_sessions_auto_approve - sessions_in_auto_approve}"
+        )
 
     def test_shell_env_passthrough_defaults_to_upstream_four(self):
         rendered = _render_with_channels_and_integrations(
