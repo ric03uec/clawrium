@@ -64,7 +64,7 @@ clm ps
 
 - Repository: https://github.com/ric03uec/clawrium
 - Project Board: https://github.com/users/ric03uec/projects/1
-- Version: 26.5.2
+- Version: 26.5.3
 
 ## Gateway Token Lifecycle (zeroclaw)
 
