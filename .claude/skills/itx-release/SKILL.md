@@ -20,6 +20,7 @@ Hard-coded list. The skill will edit exactly these and warn if it finds version-
 | File | What to update |
 |------|----------------|
 | `pyproject.toml` | `version = "<NEW>"` (line near top) |
+| `uv.lock` | Re-run `uv sync` after editing `pyproject.toml`; the clawrium entry's `version` updates as a derived artifact. Stage and commit alongside `pyproject.toml`. |
 | `AGENTS.md` | `- Version: <NEW>` line |
 | `website/docs/installation.md` | `clawrium==<NEW>` and `clm, version <NEW>` |
 | `website/docs/guides/quickstart.md` | `clawrium==<NEW>` |
@@ -78,7 +79,7 @@ Do NOT touch:
 
 8. **Diff-scope guard** (this is the safety net for the "no ATX on release PRs" carve-out — release PRs skip automated review, so the skill must hard-fail if non-mechanical files crept in):
    ```bash
-   KNOWN_SET='^(pyproject\.toml|AGENTS\.md|website/docs/installation\.md|website/docs/guides/quickstart\.md|website/docs/scenarios/101\.md|CONTRIBUTING\.md|\.claude/skills/itx-release/SKILL\.md|tests/test_demo_assets\.py)$'
+   KNOWN_SET='^(pyproject\.toml|uv\.lock|AGENTS\.md|website/docs/installation\.md|website/docs/guides/quickstart\.md|website/docs/scenarios/101\.md|CONTRIBUTING\.md|\.claude/skills/itx-release/SKILL\.md|tests/test_demo_assets\.py)$'
    UNEXPECTED=$(git diff --name-only main...HEAD | grep -vE "$KNOWN_SET" || true)
    if [ -n "$UNEXPECTED" ]; then
      echo "BLOCKED: release branch touches files outside the known set:"
@@ -96,7 +97,7 @@ Do NOT touch:
 
 10. **Commit + push**:
     ```bash
-    git add pyproject.toml AGENTS.md website/docs/
+    git add pyproject.toml uv.lock AGENTS.md website/docs/
     git commit -m "chore(release): bump to v<NEW> + sync doc versions"
     git push -u origin release/v<NEW>
     ```
