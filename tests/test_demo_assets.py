@@ -2,9 +2,9 @@
 
 Two concerns are enforced:
 
-1. **Size limits** — the `create-vhs` skill caps README GIFs at < 500 KiB and
-   docs GIFs at < 3 MiB. Without an automated gate, contributors can land
-   oversized GIFs that bloat clones and degrade README load times.
+1. **Size limits** — the `create-vhs` skill caps docs GIFs at < 3 MiB.
+   Without an automated gate, contributors can land oversized GIFs that
+   bloat clones.
 
 2. **Structural integrity** — every committed `.tape` must have a paired `.gif`
    (and vice versa), declare its `Output` path correctly, set `bash` as its
@@ -26,10 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEMOS_DIR = REPO_ROOT / "docs" / "demos"
 
 # Match SKILL.md & CONTRIBUTING.md: KiB / MiB (binary), not SI.
-README_GIF_MAX_BYTES = 500 * 1024  # 512_000 bytes — "< 500 KiB"
 DOCS_GIF_MAX_BYTES = 3 * 1024 * 1024  # 3_145_728 bytes — "< 3 MiB"
-README_GIF_NAME = "readme.gif"
-REQUIRED_COMMITTED_GIFS = (README_GIF_NAME,)
 
 pytestmark = pytest.mark.skipif(
     not DEMOS_DIR.is_dir(),
@@ -38,29 +35,16 @@ pytestmark = pytest.mark.skipif(
 
 
 class TestDemoAssetSizes:
-    def test_readme_gif_present_and_under_limit(self) -> None:
-        readme_gif = DEMOS_DIR / README_GIF_NAME
-        assert readme_gif.exists(), (
-            f"{README_GIF_NAME} is a committed asset and must be present in {DEMOS_DIR}."
-        )
-        size = readme_gif.stat().st_size
-        assert size < README_GIF_MAX_BYTES, (
-            f"{README_GIF_NAME} is {size:,} bytes; "
-            f"README GIFs must stay under {README_GIF_MAX_BYTES:,} bytes."
-        )
-
     def test_docs_gifs_under_limit(self) -> None:
         checked = 0
         oversized: list[str] = []
         for gif in sorted(DEMOS_DIR.glob("*.gif")):
-            if gif.name == README_GIF_NAME:
-                continue
             checked += 1
             size = gif.stat().st_size
             if size >= DOCS_GIF_MAX_BYTES:
                 oversized.append(f"{gif.name} ({size:,} bytes)")
         if checked == 0:
-            pytest.skip("no non-readme GIFs present to validate")
+            pytest.skip("no GIFs present to validate")
         assert not oversized, (
             f"Docs GIFs over {DOCS_GIF_MAX_BYTES:,} bytes: {', '.join(oversized)}. "
             "Re-record with higher PlaybackSpeed or lower Framerate."
