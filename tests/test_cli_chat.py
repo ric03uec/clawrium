@@ -1619,3 +1619,530 @@ class TestZeroclawChat:
 
         assert result.exit_code == 0, result.output
         assert captured["backend"].gateway_url.endswith("/ws/chat")
+
+
+# --- Styled chat prompts (issue #455) ---------------------------------
+
+
+class _PrintRecorder:
+    """Capture every `console.print(...)` call's positional args and
+    kwargs so tests can assert on style/markup independent of Rich's
+    output stream (which may have been bound at module import time and
+    thus escape `capsys`)."""
+
+    def __init__(self, real_print):
+        self.calls: list[dict[str, object]] = []
+        self._real_print = real_print
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append({"args": args, "kwargs": kwargs})
+        return self._real_print(*args, **kwargs)
+
+
+def _install_print_recorder(monkeypatch) -> _PrintRecorder:
+    recorder = _PrintRecorder(chat_module.console.print)
+    monkeypatch.setattr(chat_module.console, "print", recorder)
+    return recorder
+
+
+def test_chat_loop_uses_agent_name_in_prefix(monkeypatch):
+    """The agent prefix must surface the resolved agent name, not the
+    literal `agent>`, so multi-agent sessions are distinguishable.
+
+    Uses the `console.print` recorder rather than `capsys` because Rich's
+    `Console()` captures `sys.stdout` at import time; depending on import
+    order, `capsys` may not see Rich output (ATX issue #455 W6).
+    """
+    fake_client = FakeChatClient()
+    inputs = iter(["hello", "/exit"])
+
+    async def fake_read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
+        return next(inputs)
+
+    monkeypatch.setattr(chat_module, "_read_user_input", fake_read_user_input)
+    recorder = _install_print_recorder(monkeypatch)
+
+    asyncio.run(
+        chat_module._chat_loop(
+            backend=fake_client,
+            session_key="main",
+            response_timeout_seconds=30.0,
+            idle_timeout_seconds=10.0,
+            chat_type="websocket",
+            agent_label="cuddly-otter",
+        )
+    )
+
+    rendered_first_args = [
+        call["args"][0] for call in recorder.calls if call["args"]
+    ]
+    assert "cuddly-otter> " in rendered_first_args
+    assert "agent> " not in rendered_first_args
+
+
+def test_chat_loop_agent_prefix_uses_green_style(monkeypatch):
+    """The streaming agent-prefix print must use `style='bold green'`
+    AND `markup=False` together. `style=` alone does not disable Rich's
+    markup parser — `markup=False` is what actually keeps `[red]…[/red]`
+    in `agent_label` from being consumed by the parser (ATX issue #455
+    B1 / W4)."""
+    fake_client = FakeChatClient()
+    inputs = iter(["hi", "/exit"])
+
+    async def fake_read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
+        return next(inputs)
+
+    monkeypatch.setattr(chat_module, "_read_user_input", fake_read_user_input)
+    recorder = _install_print_recorder(monkeypatch)
+
+    asyncio.run(
+        chat_module._chat_loop(
+            backend=fake_client,
+            session_key="main",
+            response_timeout_seconds=30.0,
+            idle_timeout_seconds=10.0,
+            chat_type="websocket",
+            agent_label="my-agent",
+        )
+    )
+
+    prefix_calls = [
+        call
+        for call in recorder.calls
+        if call["args"] and call["args"][0] == "my-agent> "
+    ]
+    assert prefix_calls, "No print call emitted the agent prefix"
+    for call in prefix_calls:
+        kwargs = call["kwargs"]
+        assert kwargs.get("style") == "bold green", (
+            f"prefix call lacks style='bold green': {kwargs!r}"
+        )
+        # Must be explicit `False` — absent means Rich's default
+        # (markup=True) is active, which is exactly the regression W4
+        # describes.
+        assert kwargs.get("markup") is False, (
+            f"prefix call must set markup=False explicitly: {kwargs!r}"
+        )
+
+
+class _NonStreamingFakeClient(FakeChatClient):
+    """Drives the `elif final_text` branch in `_chat_loop` — the one
+    that emits the styled prefix from the non-streaming path. Unlike
+    `FakeChatClient.send_message`, this variant does NOT call
+    `on_delta`, so `shown_prefix` stays False and the final-text print
+    site is the one that runs."""
+
+    async def send_message(self, message: str, **kwargs):
+        self.messages.append(message)
+        self.last_kwargs = kwargs
+        return "final-response-text"
+
+
+def test_chat_loop_non_streaming_final_text_uses_green_style(monkeypatch):
+    """The non-streaming final-text print site (`elif final_text`) must
+    also use `style='bold green'` + `markup=False`. The streaming-only
+    test does not cover this branch because `FakeChatClient` always
+    streams a delta (ATX issue #455 W5)."""
+    backend = _NonStreamingFakeClient()
+    inputs = iter(["hello", "/exit"])
+
+    async def fake_read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
+        return next(inputs)
+
+    monkeypatch.setattr(chat_module, "_read_user_input", fake_read_user_input)
+    recorder = _install_print_recorder(monkeypatch)
+
+    asyncio.run(
+        chat_module._chat_loop(
+            backend=backend,
+            session_key="main",
+            response_timeout_seconds=30.0,
+            idle_timeout_seconds=10.0,
+            chat_type="websocket",
+            agent_label="nemo",
+        )
+    )
+
+    prefix_calls = [
+        call
+        for call in recorder.calls
+        if call["args"] and call["args"][0] == "nemo> "
+    ]
+    assert prefix_calls, "non-streaming path did not emit the agent prefix"
+    for call in prefix_calls:
+        assert call["kwargs"].get("style") == "bold green"
+        assert call["kwargs"].get("markup") is False
+    # final text body should also be rendered with markup off.
+    final_calls = [
+        call
+        for call in recorder.calls
+        if call["args"] and call["args"][0] == "final-response-text"
+    ]
+    assert final_calls, "final-text body print not observed"
+    for call in final_calls:
+        assert call["kwargs"].get("markup") is False
+
+
+def test_chat_loop_agent_label_with_markup_chars_renders_literally(monkeypatch):
+    """A hostile (or just unusual) `agent_label` containing Rich-markup
+    syntax must reach the recorded print call as a literal string —
+    `markup=False` is what guarantees this, and ATX B1 demonstrated
+    that `style=` alone was insufficient."""
+    backend = FakeChatClient()
+    inputs = iter(["hi", "/exit"])
+
+    async def fake_read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
+        return next(inputs)
+
+    monkeypatch.setattr(chat_module, "_read_user_input", fake_read_user_input)
+    recorder = _install_print_recorder(monkeypatch)
+
+    asyncio.run(
+        chat_module._chat_loop(
+            backend=backend,
+            session_key="main",
+            response_timeout_seconds=30.0,
+            idle_timeout_seconds=10.0,
+            chat_type="websocket",
+            agent_label="[red]hack[/red]",
+        )
+    )
+
+    prefix_calls = [
+        call
+        for call in recorder.calls
+        if call["args"] and call["args"][0] == "[red]hack[/red]> "
+    ]
+    assert prefix_calls, (
+        "markup chars must reach the print call as a literal, not get "
+        "consumed by Rich's parser"
+    )
+    for call in prefix_calls:
+        assert call["kwargs"].get("markup") is False
+
+
+def test_chat_loop_strips_bidi_chars_from_agent_label(monkeypatch):
+    """Hand-edited `hosts.json` could smuggle bidi/zero-width chars into
+    `agent_record.agent_name`. The label seen at the prefix print site
+    must be the sanitized form, matching the parity guarantee enforced
+    on exception bodies (ATX issue #455 W2)."""
+    backend = FakeChatClient()
+    inputs = iter(["hi", "/exit"])
+
+    async def fake_read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
+        return next(inputs)
+
+    monkeypatch.setattr(chat_module, "_read_user_input", fake_read_user_input)
+    recorder = _install_print_recorder(monkeypatch)
+
+    # U+202E RIGHT-TO-LEFT OVERRIDE between "neat" and "agent"
+    spoofed = "neat‮agent"
+    asyncio.run(
+        chat_module._chat_loop(
+            backend=backend,
+            session_key="main",
+            response_timeout_seconds=30.0,
+            idle_timeout_seconds=10.0,
+            chat_type="websocket",
+            agent_label=spoofed,
+        )
+    )
+
+    first_args = [c["args"][0] for c in recorder.calls if c["args"]]
+    # No print call's first arg should still contain the bidi char.
+    assert not any("‮" in arg for arg in first_args if isinstance(arg, str)), (
+        "RLO U+202E leaked into a print call's first positional arg"
+    )
+    # Positive assertion (ATX round-2 gap #3): the sanitized prefix
+    # must actually be present — a sanitizer that drops the entire
+    # label would silently satisfy the negative assertion above.
+    assert "neat agent> " in first_args, (
+        "expected sanitized prefix 'neat agent> ' was not emitted; "
+        f"observed first args: {first_args!r}"
+    )
+
+
+def test_read_user_input_signature_preserved():
+    """The `_read_user_input` signature is part of the test surface —
+    `tests/test_cli_chat.py` monkeypatches it with the exact
+    `(prompt, idle_timeout_seconds) -> str` shape. Guard against
+    accidental signature drift."""
+    import inspect
+
+    sig = inspect.signature(chat_module._read_user_input)
+    params = list(sig.parameters)
+    assert params == ["prompt", "idle_timeout_seconds"]
+    # `from __future__ import annotations` turns annotations into strings,
+    # so compare by name to stay robust to that.
+    prompt_ann = sig.parameters["prompt"].annotation
+    idle_ann = sig.parameters["idle_timeout_seconds"].annotation
+    assert prompt_ann in (str, "str")
+    assert idle_ann in (float, "float")
+    assert asyncio.iscoroutinefunction(chat_module._read_user_input)
+
+
+def test_read_user_input_non_tty_uses_input_fallback(monkeypatch):
+    """When stdin is not a TTY, `_read_user_input` must fall back to
+    the bare `input()` path so piped invocations
+    (`echo hi | clm chat ...`) keep working. prompt_toolkit's
+    `PromptSession` must NOT be touched in this branch (ATX issue #455
+    B2 non-TTY half).
+    """
+    import sys as _sys
+
+    # Force the non-TTY branch.
+    class _FakeStdin:
+        def isatty(self):
+            return False
+
+    monkeypatch.setattr(_sys, "stdin", _FakeStdin())
+    monkeypatch.setattr("builtins.input", lambda _prompt: "piped-line")
+
+    # Sentinel: if the TTY branch is taken, this raises.
+    def _fail_get_session():
+        raise AssertionError(
+            "_get_prompt_session must not be called when stdin is non-TTY"
+        )
+
+    monkeypatch.setattr(chat_module, "_get_prompt_session", _fail_get_session)
+
+    result = asyncio.run(chat_module._read_user_input("you> ", 0.0))
+    assert result == "piped-line"
+
+
+def test_read_user_input_non_tty_handles_stdin_none(monkeypatch):
+    """`sys.stdin` can be `None` (Windows GUI hosts, Popen with
+    stdin=DEVNULL). `_read_user_input` must not crash with
+    AttributeError before the fallback runs (ATX issue #455 W1)."""
+    import sys as _sys
+
+    monkeypatch.setattr(_sys, "stdin", None)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "fallback")
+    monkeypatch.setattr(
+        chat_module,
+        "_get_prompt_session",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("PromptSession touched while stdin is None")
+        ),
+    )
+
+    result = asyncio.run(chat_module._read_user_input("you> ", 0.0))
+    assert result == "fallback"
+
+
+def test_read_user_input_tty_uses_prompt_session_with_formatted_text(monkeypatch):
+    """When stdin is a TTY, `_read_user_input` must drive
+    `PromptSession.prompt_async` with a `FormattedText([(...)])` styled
+    in `ansiblue bold`. Covers the TTY half of ATX B2 — the feature this
+    PR exists to deliver."""
+    import sys as _sys
+
+    class _FakeStdin:
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(_sys, "stdin", _FakeStdin())
+    # Reset the cached PromptSession so the test sees a clean state.
+    monkeypatch.setattr(chat_module, "_PROMPT_SESSION", None)
+
+    captured: dict[str, object] = {}
+
+    class _FakeSession:
+        async def prompt_async(self, styled):
+            captured["styled"] = styled
+            return "typed-line"
+
+    monkeypatch.setattr(chat_module, "_get_prompt_session", lambda: _FakeSession())
+
+    result = asyncio.run(chat_module._read_user_input("you> ", 0.0))
+    assert result == "typed-line"
+    styled = captured["styled"]
+    from prompt_toolkit.formatted_text import FormattedText
+
+    assert isinstance(styled, FormattedText)
+    assert list(styled) == [("ansiblue bold", "you> ")]
+
+
+def test_read_user_input_tty_honors_idle_timeout(monkeypatch):
+    """Idle-timeout wrap (`asyncio.wait_for`) must apply to the TTY
+    branch too — otherwise the `--idle-timeout` behavior silently
+    disappears on real terminals (the same path users actually exercise).
+    """
+    import sys as _sys
+
+    class _FakeStdin:
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(_sys, "stdin", _FakeStdin())
+    monkeypatch.setattr(chat_module, "_PROMPT_SESSION", None)
+
+    class _SlowSession:
+        async def prompt_async(self, styled):
+            # Sleep longer than the timeout; wait_for must cancel us.
+            await asyncio.sleep(5)
+            return "never"
+
+    monkeypatch.setattr(chat_module, "_get_prompt_session", lambda: _SlowSession())
+
+    with pytest.raises(TimeoutError):
+        asyncio.run(chat_module._read_user_input("you> ", 0.05))
+
+
+def test_sanitize_agent_label_strips_bidi_and_control(monkeypatch):
+    """Direct coverage of the sanitizer used in `_chat_loop` so a
+    refactor that swaps the regex out is caught without going through
+    the whole loop."""
+    assert chat_module._sanitize_agent_label("cuddly-otter") == "cuddly-otter"
+    assert chat_module._sanitize_agent_label("a‮b") == "a b"
+    assert chat_module._sanitize_agent_label("a​b") == "a b"
+    assert chat_module._sanitize_agent_label("a\x07b") == "a b"
+    # Collapses to empty → returns literal fallback so the prefix is
+    # never just `> `.
+    assert chat_module._sanitize_agent_label("‮​") == "agent"
+
+
+def test_reset_prompt_session_clears_global():
+    """`_reset_prompt_session` is called on every reconnect iteration of
+    `chat()`; the contract is that the next `_get_prompt_session()`
+    constructs a fresh object."""
+    chat_module._PROMPT_SESSION = object()
+    chat_module._reset_prompt_session()
+    assert chat_module._PROMPT_SESSION is None
+
+
+class _NullResponseFakeClient(FakeChatClient):
+    """Drives the `else` / `[no response]` branch in `_chat_loop` — no
+    streaming delta and an empty/falsy final response. `FakeChatClient`
+    streams a delta, so this branch is dead code without a dedicated
+    variant (ATX round-2 gap #1)."""
+
+    async def send_message(self, message: str, **kwargs):
+        self.messages.append(message)
+        self.last_kwargs = kwargs
+        return ""
+
+
+def test_chat_loop_no_response_branch_uses_green_style(monkeypatch):
+    """The `else` branch that emits `[no response]` is itself a
+    Rich-markup-like string. If a future regression removed
+    `markup=False` there, Rich would attempt to parse `[no response]`
+    as a tag (`[no` → opening) and either crash or render the line
+    wrong. Pin both the prefix and body kwargs (ATX round-2 gap #1)."""
+    backend = _NullResponseFakeClient()
+    inputs = iter(["hello", "/exit"])
+
+    async def fake_read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
+        return next(inputs)
+
+    monkeypatch.setattr(chat_module, "_read_user_input", fake_read_user_input)
+    recorder = _install_print_recorder(monkeypatch)
+
+    asyncio.run(
+        chat_module._chat_loop(
+            backend=backend,
+            session_key="main",
+            response_timeout_seconds=30.0,
+            idle_timeout_seconds=10.0,
+            chat_type="websocket",
+            agent_label="silent",
+        )
+    )
+
+    prefix_calls = [
+        call
+        for call in recorder.calls
+        if call["args"] and call["args"][0] == "silent> "
+    ]
+    assert prefix_calls, "no-response path did not emit the agent prefix"
+    for call in prefix_calls:
+        assert call["kwargs"].get("style") == "bold green"
+        assert call["kwargs"].get("markup") is False
+
+    no_response_calls = [
+        call
+        for call in recorder.calls
+        if call["args"] and call["args"][0] == "[no response]"
+    ]
+    assert no_response_calls, "expected literal '[no response]' body to be printed"
+    for call in no_response_calls:
+        # markup=False is what guarantees Rich does NOT parse `[no` as
+        # an opening tag — the regression this test guards against.
+        assert call["kwargs"].get("markup") is False
+
+
+def test_read_user_input_non_tty_honors_idle_timeout(monkeypatch):
+    """`asyncio.wait_for` must wrap the non-TTY arm too, not only the
+    TTY one. Otherwise piped invocations with `--idle-timeout` would
+    silently hang waiting on `input()` forever (ATX round-2 gap #4)."""
+    import sys as _sys
+
+    class _FakeStdin:
+        def isatty(self):
+            return False
+
+    monkeypatch.setattr(_sys, "stdin", _FakeStdin())
+
+    def _slow_input(_prompt):
+        import time
+
+        time.sleep(5)
+        return "never"
+
+    monkeypatch.setattr("builtins.input", _slow_input)
+
+    with pytest.raises(TimeoutError):
+        asyncio.run(chat_module._read_user_input("you> ", 0.05))
+
+
+def test_chat_invokes_reset_prompt_session_before_chat_loop(monkeypatch):
+    """`chat()` MUST call `_reset_prompt_session` at the top of every
+    reconnect iteration so a stale `PromptSession` from a previous
+    `asyncio.run()` cannot anchor the new event loop. Pin the call-
+    site contract against future regressions, e.g. someone moving the
+    reset into the `except` block (ATX round-2 gap #5)."""
+    # Patch the get_agent_by_name resolution and backend builder so
+    # `chat()` reaches the reconnect loop without doing network I/O.
+    host = {"hostname": "host1", "alias": "h1"}
+    agent = {
+        "agent_name": "spy-agent",
+        "config": {"gateway": {"url": "ws://host1:9", "auth": "tok"}},
+    }
+    monkeypatch.setattr(
+        "clawrium.cli.chat.get_agent_by_name",
+        lambda _name: (host, "openclaw", agent),
+    )
+
+    class _StubBackend:
+        async def connect(self):
+            pass
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(
+        chat_module,
+        "_build_openclaw_backend",
+        lambda **_: _StubBackend(),
+    )
+
+    # No-op _chat_loop so we observe the reset call without driving
+    # the whole REPL.
+    async def _noop_chat_loop(**_kwargs):
+        return None
+
+    monkeypatch.setattr(chat_module, "_chat_loop", _noop_chat_loop)
+
+    counter = {"calls": 0}
+
+    def _spy_reset():
+        counter["calls"] += 1
+
+    monkeypatch.setattr(chat_module, "_reset_prompt_session", _spy_reset)
+
+    result = runner.invoke(app, ["chat", "spy-agent"])
+    assert result.exit_code == 0, result.output
+    # At least one reset before the first (and only successful) loop run.
+    assert counter["calls"] >= 1, (
+        "chat() must call _reset_prompt_session before asyncio.run(_chat_loop)"
+    )

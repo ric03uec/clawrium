@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import re
+import sys
 from typing import Any, TypedDict
 
 import typer
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import FormattedText
 from rich.console import Console
 from rich.markup import escape as rich_escape
 
@@ -55,6 +58,42 @@ class GatewayConfig(TypedDict, total=False):
 
 
 _SESSION_PATTERN = re.compile(r"^[a-zA-Z0-9_:.-]{1,255}$")
+
+# C0/C1 control + Unicode bidi-formatting + zero-width + line/paragraph
+# separators. Kept in sync with `_sanitize_exception_text` below and
+# `chat_hermes._CONTROL_CHARS_RE`. Shared so the agent-label sanitizer
+# (issue #455 ATX W2) and the exception sanitizer use identical
+# coverage; drifting one would reintroduce the bypass.
+_CONTROL_AND_BIDI_RE = re.compile(
+    # Use explicit \uXXXX escapes (matching chat_hermes._CONTROL_CHARS_RE).
+    # Literal bidi/zero-width codepoints in source are invisible to most
+    # editors and easily corrupted by auto-formatters, BOM insertion, or
+    # careless copy-paste — \uXXXX escapes are grep-able and survive
+    # every editor.
+    "["
+    "\x00-\x1f\x7f-\x9f"
+    "\u061c"             # ARABIC LETTER MARK (UAX#9 bidi format char)
+    "\u200b-\u200f"      # ZWSP, ZWNJ, ZWJ, LRM, RLM
+    "\u2028-\u2029"      # LINE / PARAGRAPH SEPARATOR
+    "\u202a-\u202e"      # LRE, RLE, PDF, LRO, RLO
+    "\u2060"             # WORD JOINER
+    "\u2066-\u2069"      # LRI, RLI, FSI, PDI
+    "\ufeff"             # ZWNBSP / BOM
+    "]"
+)
+
+
+def _sanitize_agent_label(label: str) -> str:
+    """Strip control / bidi / zero-width chars from `label` so it is
+    safe to render at terminal output sites.
+
+    Replaces dangerous codepoints with a single space, then collapses
+    runs of whitespace. Returns a literal `agent` fallback when the
+    input collapses to empty so the prefix is never just `> `.
+    """
+    cleaned = _CONTROL_AND_BIDI_RE.sub(" ", label)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned or "agent"
 
 
 def chat(
@@ -197,6 +236,15 @@ def chat(
 
     attempted_reconnect = False
     while True:
+        # Drop the module-level PromptSession between reconnect iterations.
+        # Each `asyncio.run(_chat_loop(...))` is a fresh event loop; reusing
+        # a PromptSession that was created during the previous loop's
+        # `prompt_async` (and whose `Application`/`AsyncOutput` may still
+        # hold fd refs / terminal state from that loop) risks anchoring the
+        # second iteration to an already-closed loop. Forcing a fresh
+        # session on each retry costs one extra object construction and
+        # eliminates that whole class of cross-loop weirdness.
+        _reset_prompt_session()
         try:
             asyncio.run(
                 _chat_loop(
@@ -205,6 +253,7 @@ def chat(
                     response_timeout_seconds=timeout,
                     idle_timeout_seconds=idle_timeout,
                     chat_type=chat_type,
+                    agent_label=str(display_agent),
                 )
             )
             if attempted_reconnect:
@@ -331,11 +380,20 @@ async def _chat_loop(
     response_timeout_seconds: float,
     idle_timeout_seconds: float,
     chat_type: str = "websocket",
+    agent_label: str = "agent",
 ) -> None:
     with console.status("Connecting to agent...", spinner="dots"):
         await backend.connect()
 
     history_capable = chat_type == "openai"
+    # Parity with `_sanitize_exception_text` (issue #455 ATX W2): strip
+    # C0/C1 control bytes + bidi-formatting + zero-width + line/paragraph
+    # separators from the agent label before it reaches the terminal.
+    # Normal lifecycle validation (^[a-z][a-z0-9_-]{0,31}$) already
+    # precludes these, but a hand-edited `hosts.json` could smuggle in a
+    # bidi-spoofed label; this guarantees the styled prefix can never be
+    # the injection site.
+    agent_prefix_plain = f"{_sanitize_agent_label(agent_label)}> "
 
     try:
         while True:
@@ -385,7 +443,21 @@ async def _chat_loop(
                 nonlocal shown_prefix
                 _stop_status()
                 if not shown_prefix:
-                    console.print("agent> ", end="", markup=False, highlight=False)
+                    # `style=` (not f-string markup) AND `markup=False`:
+                    # `style=` alone does NOT disable Rich's markup parser
+                    # (it's on by default), so an `agent_label` containing
+                    # `[red]…[/red]` or `[link=…]…[/link]` would still be
+                    # consumed by the parser even though the string is
+                    # passed positionally. `markup=False` is what actually
+                    # turns parsing off; `style=` then applies the color
+                    # to the literal text.
+                    console.print(
+                        agent_prefix_plain,
+                        end="",
+                        style="bold green",
+                        highlight=False,
+                        markup=False,
+                    )
                     shown_prefix = True
                 console.print(delta, end="", markup=False, highlight=False)
 
@@ -433,9 +505,23 @@ async def _chat_loop(
             if shown_prefix:
                 console.print("")
             elif final_text:
-                console.print(f"agent> {final_text}", markup=False, highlight=False)
+                console.print(
+                    agent_prefix_plain,
+                    end="",
+                    style="bold green",
+                    highlight=False,
+                    markup=False,
+                )
+                console.print(final_text, markup=False, highlight=False)
             else:
-                console.print("agent> [no response]", markup=False, highlight=False)
+                console.print(
+                    agent_prefix_plain,
+                    end="",
+                    style="bold green",
+                    highlight=False,
+                    markup=False,
+                )
+                console.print("[no response]", markup=False, highlight=False)
 
             # Surface a user-visible notice when the backend silently trimmed
             # the conversation history to stay under MAX_HISTORY_TURNS. Only
@@ -452,15 +538,49 @@ async def _chat_loop(
         await backend.close()
 
 
+_PROMPT_SESSION: PromptSession[str] | None = None
+
+
+def _get_prompt_session() -> PromptSession[str]:
+    global _PROMPT_SESSION
+    if _PROMPT_SESSION is None:
+        _PROMPT_SESSION = PromptSession()
+    return _PROMPT_SESSION
+
+
+def _reset_prompt_session() -> None:
+    """Drop the cached PromptSession so the next `_read_user_input` call
+    constructs a fresh one. Called at the start of each `chat()`
+    reconnect iteration; safe to call when no session has been created
+    yet."""
+    global _PROMPT_SESSION
+    _PROMPT_SESSION = None
+
+
 async def _read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
-    task = asyncio.create_task(asyncio.to_thread(input, prompt))
-    try:
-        if idle_timeout_seconds > 0:
-            return await asyncio.wait_for(task, timeout=idle_timeout_seconds)
-        return await task
-    except TimeoutError:
-        task.cancel()
-        raise
+    # Non-TTY fallback: prompt_toolkit requires a real terminal and raises
+    # if stdin is piped or otherwise not a TTY. Preserve the bare `input()`
+    # behavior so scripted callers (`echo hi | clm chat ...`) still work.
+    # `sys.stdin is None` covers detached embedders (Windows GUI hosts,
+    # `subprocess.Popen(stdin=DEVNULL)`, sites that set `sys.stdin = None`):
+    # without the explicit None check, `.isatty()` would raise
+    # `AttributeError` before the fallback can take over.
+    if sys.stdin is None or not sys.stdin.isatty():
+        task = asyncio.create_task(asyncio.to_thread(input, prompt))
+        try:
+            if idle_timeout_seconds > 0:
+                return await asyncio.wait_for(task, timeout=idle_timeout_seconds)
+            return await task
+        except TimeoutError:
+            task.cancel()
+            raise
+
+    styled = FormattedText([("ansiblue bold", prompt)])
+    session = _get_prompt_session()
+    coro = session.prompt_async(styled)
+    if idle_timeout_seconds > 0:
+        return await asyncio.wait_for(coro, timeout=idle_timeout_seconds)
+    return await coro
 
 
 def _resolve_chat_type(agent_type: str) -> str:
@@ -740,23 +860,12 @@ def _validate_session_key(session_key: str) -> None:
 
 def _sanitize_exception_text(exc: Exception, max_len: int = 500) -> str:
     # Strip C0/C1 control bytes AND Unicode bidi-formatting + zero-width
-    # + line/paragraph-separator codepoints. Same coverage as
-    # chat_hermes._CONTROL_CHARS_RE (keep in sync). Closes the W-A bypass
-    # where a remote-supplied error body can embed RTLO/LRM/LINE-SEP/etc.
-    cleaned = re.sub(
-        "["
-        "\x00-\x1f\x7f-\x9f"
-        "\u061c"             # ARABIC LETTER MARK (UAX#9 bidi format char)
-        "\u200b-\u200f"      # ZWSP, ZWNJ, ZWJ, LRM, RLM
-        "\u2028-\u2029"      # LINE / PARAGRAPH SEPARATOR
-        "\u202a-\u202e"      # LRE, RLE, PDF, LRO, RLO
-        "\u2060"             # WORD JOINER
-        "\u2066-\u2069"      # LRI, RLI, FSI, PDI
-        "\ufeff"             # ZWNBSP / BOM
-        "]",
-        " ",
-        str(exc),
-    )
+    # + line/paragraph-separator codepoints. Uses the shared
+    # `_CONTROL_AND_BIDI_RE` so the coverage stays identical to
+    # `_sanitize_agent_label` and `chat_hermes._CONTROL_CHARS_RE`.
+    # Closes the W-A bypass where a remote-supplied error body can
+    # embed RTLO/LRM/LINE-SEP/etc.
+    cleaned = _CONTROL_AND_BIDI_RE.sub(" ", str(exc))
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     # First pass: redact `<scheme> <value>` header forms like
     # `Authorization: Bearer abc-123` and the shorthand `bearer abc-123`.
