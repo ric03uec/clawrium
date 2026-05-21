@@ -53,7 +53,9 @@ jobs:
         run: make test
 
       - name: Publish to PyPI
-        # v1.12.4 — SHA-pinned. `@release/v1` is a mutable branch ref; with
+        # v1.14.0 — SHA-pinned. `@release/v1` is a mutable branch ref; with
         # `id-token: write` in scope, a force-push or compromise of that
         # branch could publish a malicious wheel to PyPI under our identity.
-        uses: pypa/gh-action-pypi-publish@7f25271a4aa483500f742f9492b2ab5648d61011
+        # Bumped from v1.12.4 (SHA 7f25271a) because upstream GC'd that
+        # container tag from ghcr.io, breaking the v26.5.2 publish run.
+        uses: pypa/gh-action-pypi-publish@6733eb7d741f0b11ec6a39b58540dab7590f9b7d
