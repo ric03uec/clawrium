@@ -1,11 +1,3 @@
----
-sidebar_position: 2
-description: Install Clawrium CLI on your management machine. Requirements, installation methods, and initial setup.
-keywords: [install, setup, requirements, uv, uvx, python]
----
-
-<!-- Mirror of docs/installation.md. Do not edit here directly — edit docs/installation.md and copy the body verbatim. The Docusaurus frontmatter above and this comment are the only website-specific additions. -->
-
 # Installation
 
 This guide covers installing Clawrium on your management machine (the computer you'll use to control your agent fleet).

@@ -53,13 +53,7 @@ A walkthrough with screenshots lives in the [Web Dashboard guide](../../web-dash
 
 ## Installation requirement
 
-The GUI ships in the default install of Clawrium — no extra steps. If you installed with `--no-extras`, install with the GUI extra:
-
-```bash
-uv tool install --force 'clawrium[gui]'
-```
-
-Without the GUI dependencies, `clm gui` exits with a clear remediation message.
+The GUI ships in the default install of Clawrium — no extra steps. See [Installation](../../installation.md) if you haven't installed Clawrium yet.
 
 ## Security notes
 
@@ -71,7 +65,6 @@ Without the GUI dependencies, `clm gui` exits with a clear remediation message.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `Error: GUI requires extra dependencies` | Installed without `[gui]` extra | `uv tool install --force 'clawrium[gui]'` |
 | `address already in use` | Port 36000 taken by another process | `clm gui --port 38000` or `lsof -ti :36000` to find the conflict |
 | Browser opens then 404 | Frontend bundle not staged | Re-install Clawrium; the bundle ships inside the wheel. If you're running from source, `make build-ui` builds and stages it. |
 | Page renders, every API call 404s | You're hitting `next dev` on :3000 instead of the FastAPI server on :36000 | Open `http://127.0.0.1:36000`, not `:3000` |

@@ -5,7 +5,7 @@ Before adding a host to Clawrium, you must prepare it for management. This guide
 ## Prerequisites
 
 - SSH access to the target host (as any user with sudo privileges)
-- Clawrium installed (`clm` command available)
+- Clawrium installed — see [Installation](installation.md)
 - **On the target host:**
   - Python 3 (required for hardware detection)
   - pciutils (optional, for GPU detection via `lspci`)

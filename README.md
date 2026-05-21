@@ -79,6 +79,8 @@ uv tool install clawrium
 uvx --from clawrium clm --help
 ```
 
+For full installation instructions including how to install `uv`, see [docs/installation.md](docs/installation.md).
+
 ### 5-Minute Setup
 
 ```bash
