@@ -53,9 +53,14 @@ jobs:
         run: make test
 
       - name: Publish to PyPI
-        # v1.14.0 — SHA-pinned. `@release/v1` is a mutable branch ref; with
-        # `id-token: write` in scope, a force-push or compromise of that
-        # branch could publish a malicious wheel to PyPI under our identity.
-        # Bumped from v1.12.4 (SHA 7f25271a) because upstream GC'd that
-        # container tag from ghcr.io, breaking the v26.5.2 publish run.
-        uses: pypa/gh-action-pypi-publish@6733eb7d741f0b11ec6a39b58540dab7590f9b7d
+        # v1.14.0 — SHA-pinned to the COMMIT SHA the tag points to, NOT
+        # the annotated-tag object SHA. GitHub Actions resolves `uses:
+        # ...@<sha>` literally to a ghcr.io image tag, and the action's
+        # release process publishes images under the commit SHA, not the
+        # tag-object SHA. Pinning to a tag-object SHA fails at runtime
+        # with `docker: manifest unknown` (see v26.5.2/v26.5.3 publish
+        # runs that used `6733eb7d…` and `7f25271a…`, both tag-object SHAs).
+        # `@release/v1` is a mutable branch ref; with `id-token: write`
+        # in scope, a force-push or compromise of that branch could
+        # publish a malicious wheel to PyPI under our identity.
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
