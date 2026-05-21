@@ -48,6 +48,12 @@ Or using Homebrew on macOS:
 brew install uv
 ```
 
+## Preview: Provisioning an Agent
+
+Once Clawrium is installed, provisioning a new agent looks like this:
+
+![Provisioning a new agent with clm](/img/agent-reprovision.gif)
+
 ## Install Clawrium
 
 ### Install Permanently (Recommended)

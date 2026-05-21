@@ -65,6 +65,10 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
 | SSH access to a remote host | Clawrium manages agents over SSH |
 | API key (Anthropic, OpenAI, etc.) | Agents need inference providers |
 
+<p align="center">
+  <img src="docs/demos/agent-reprovision.gif" alt="Provisioning a new agent with clm" width="100%">
+</p>
+
 ### Install & Run
 
 ```bash
