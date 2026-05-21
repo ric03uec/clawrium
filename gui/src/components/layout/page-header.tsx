@@ -1,4 +1,4 @@
-import { ExternalLinkIcons } from "./external-links";
+import { ExternalLinkIcons, RequestFeatureButton } from "./external-links";
 
 interface PageHeaderProps {
   title: string;
@@ -20,6 +20,8 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
         {actions && (
           <span aria-hidden="true" className="h-6 w-px bg-default" />
         )}
+        <RequestFeatureButton />
+        <span aria-hidden="true" className="h-6 w-px bg-default" />
         <ExternalLinkIcons />
       </div>
     </div>
