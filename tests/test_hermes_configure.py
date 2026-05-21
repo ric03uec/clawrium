@@ -435,6 +435,77 @@ class TestConfigYamlTemplate:
         assert parsed["model"]["provider"] == "openai"
         assert "base_url" not in parsed["model"]
 
+    def test_bedrock_renders_provider_region_and_aux_model(self):
+        rendered = _render_config_yaml(
+            {
+                "provider": {
+                    "type": "bedrock",
+                    "default_model": "anthropic.claude-sonnet-4-5-20251001-v1:0",
+                    "region": "eu-west-1",
+                }
+            }
+        )
+        parsed = yaml.safe_load(rendered)
+        assert parsed["model"]["provider"] == "bedrock"
+        assert parsed["bedrock"]["region"] == "eu-west-1"
+        # No `us.` cross-region prefix on the aux model — Bedrock routes
+        # within bedrock.region, so eu/ap regions work.
+        aux = parsed["auxiliary"]["title_generation"]["model"]
+        assert aux == "anthropic.claude-haiku-4-5-20251001-v1:0"
+        assert not aux.startswith("us.")
+
+    def test_unknown_provider_falls_back_to_auto(self):
+        """Unknown/misspelled provider must still emit a structurally valid
+        config.yaml with `model.provider: auto` — never a config missing the
+        model: key entirely."""
+        rendered = _render_config_yaml(
+            {"provider": {"type": "nonexistent-typo", "default_model": "m1"}}
+        )
+        parsed = yaml.safe_load(rendered)
+        assert "model" in parsed
+        assert parsed["model"]["provider"] == "auto"
+
+    def test_empty_provider_falls_back_to_auto(self):
+        rendered = _render_config_yaml({"provider": {"type": "", "default_model": "m"}})
+        parsed = yaml.safe_load(rendered)
+        assert "model" in parsed
+        assert parsed["model"]["provider"] == "auto"
+
+    def test_all_aux_title_generation_models_pinned(self):
+        """Every provider for which clawrium pins an aux model must render the
+        `auxiliary.title_generation.model:` block. Guards against future template
+        regressions where the aux pin gets accidentally moved or dropped."""
+        expected = {
+            "anthropic": "claude-haiku-4-5-20251001",
+            "openai": "gpt-5-nano",
+            "openrouter": "anthropic/claude-haiku-4.5",
+            "bedrock": "anthropic.claude-haiku-4-5-20251001-v1:0",
+        }
+        for provider_type, expected_model in expected.items():
+            rendered = _render_config_yaml(
+                {"provider": {"type": provider_type, "default_model": "m", "region": "us-east-1"}}
+            )
+            parsed = yaml.safe_load(rendered)
+            aux = parsed.get("auxiliary", {}).get("title_generation", {}).get("model")
+            assert aux == expected_model, (
+                f"{provider_type}: aux model should be {expected_model!r}, got {aux!r}"
+            )
+
+    def test_ollama_has_no_aux_title_generation_pin(self):
+        """For ollama/custom the local model is already cheap — no aux pin so
+        hermes' built-in auto-resolution kicks in."""
+        rendered = _render_config_yaml(
+            {
+                "provider": {
+                    "type": "ollama",
+                    "endpoint": "http://10.0.0.1:11434",
+                    "default_model": "q",
+                }
+            }
+        )
+        parsed = yaml.safe_load(rendered)
+        assert "auxiliary" not in parsed
+
 
 # ---------------------------------------------------------------------------
 # configure.yaml playbook shape
@@ -547,6 +618,18 @@ class TestConfigurePlaybookShape:
             f"got {argv!r}"
         )
 
+    def test_systemd_unit_depends_on_network_online_and_journals(self):
+        """The Phase 2 unit MUST wait for network-online and stream stdout/err
+        to journald — regressions here cause flaky startup on DHCP hosts and
+        silent operation with no `journalctl -u` output."""
+        content = (HERMES_PLAYBOOKS / "configure.yaml").read_text()
+        assert "After=network-online.target" in content
+        assert "Wants=network-online.target" in content
+        assert "StandardOutput=journal" in content
+        assert "StandardError=journal" in content
+        # Guard against accidental regression to plain network.target.
+        assert "After=network.target\n" not in content
+
     def test_systemd_unit_uses_gateway_run_not_start(self):
         """The Phase 2 unit MUST use `hermes gateway run` — `gateway start`
         delegates to a per-user systemd unit that does not exist in our setup."""
@@ -557,6 +640,135 @@ class TestConfigurePlaybookShape:
         # configure.yaml owns the runtime ExecStart.)
         configure_content = content.split("hermes systemd unit")[1] if "hermes systemd unit" in content else ""
         assert "gateway start" not in configure_content
+
+    def test_uv_arch_and_sha256_map_match_and_are_well_formed(self):
+        """uv_arch_map / uv_sha256_map keys must be identical (every arch
+        has a pinned hash), values must be lowercase 64-char hex. Bumping
+        uv_version without updating hashes silently corrupts the install."""
+        import re
+
+        play = self._load_playbook()
+        vars_ = play["vars"]
+        arch_map = vars_["uv_arch_map"]
+        sha_map = vars_["uv_sha256_map"]
+        assert set(arch_map.keys()) == set(sha_map.keys()), (
+            f"uv_arch_map and uv_sha256_map keys differ: "
+            f"arch={sorted(arch_map.keys())} sha={sorted(sha_map.keys())}"
+        )
+        # ARM hosts are explicitly supported per memory (kevin = armv7l Pi).
+        assert {"x86_64", "aarch64", "armv7l"} <= set(arch_map.keys())
+        hex64 = re.compile(r"^[0-9a-f]{64}$")
+        for arch, digest in sha_map.items():
+            assert hex64.match(digest), f"{arch}: not a 64-char lowercase hex sha256: {digest!r}"
+
+    def test_uv_get_url_has_checksum_and_validate_certs(self):
+        """Supply-chain guard: the get_url for the uv tarball must reference
+        the sha256 map and explicitly validate TLS."""
+        play = self._load_playbook()
+        download = next(
+            (t for t in play["tasks"] if "Download pinned uv binary" in t.get("name", "")),
+            None,
+        )
+        assert download is not None, "Missing 'Download pinned uv binary' task"
+        get_url = download["ansible.builtin.get_url"]
+        assert "uv_sha256_map[ansible_architecture]" in get_url["checksum"]
+        assert get_url["validate_certs"] is True
+        # Staging path must be agent-owned, NOT /tmp (symlink-race surface).
+        assert get_url["dest"].startswith("/home/{{ agent_name }}/.hermes/tmp/")
+
+    def test_uv_arch_guard_fires_before_download(self):
+        """An unsupported ansible_architecture must fail with a clear message
+        BEFORE the get_url runs — otherwise the failure surfaces as a 404."""
+        play = self._load_playbook()
+        task_names = [t.get("name", "") for t in play["tasks"]]
+        guard_idx = next(
+            (i for i, n in enumerate(task_names) if "host architecture is unsupported" in n),
+            None,
+        )
+        download_idx = next(
+            (i for i, n in enumerate(task_names) if "Download pinned uv binary" in n),
+            None,
+        )
+        assert guard_idx is not None, "Missing arch fail-guard task"
+        assert download_idx is not None
+        assert guard_idx < download_idx, "Arch guard must precede the get_url task"
+
+    def test_uv_unarchive_uses_version_probe_not_creates(self):
+        """`creates:` on a non-version-stamped path silently skips on version
+        bumps. We use a `uv --version` probe + set_fact gate instead — same
+        rationale as the `--force` on the mcp-atlassian install below."""
+        play = self._load_playbook()
+        unarchive = next(
+            (t for t in play["tasks"] if "Extract uv and uvx" in t.get("name", "")),
+            None,
+        )
+        assert unarchive is not None, "Missing uv+uvx unarchive task"
+        ua = unarchive["ansible.builtin.unarchive"]
+        assert "creates" not in ua, (
+            "unarchive must NOT use `creates:` — that would skip the task on "
+            "uv version bumps, leaving a stale binary in place"
+        )
+        when = unarchive.get("when", [])
+        joined = " ".join(when) if isinstance(when, list) else when
+        assert "uv_needs_install" in joined, (
+            "unarchive must be gated on the uv_needs_install fact"
+        )
+        # The probe task must exist and run before unarchive.
+        probe_idx = next(
+            (
+                i
+                for i, t in enumerate(play["tasks"])
+                if "Probe installed uv version" in t.get("name", "")
+            ),
+            None,
+        )
+        unarchive_idx = play["tasks"].index(unarchive)
+        assert probe_idx is not None and probe_idx < unarchive_idx
+
+    def test_uv_extracts_both_uv_and_uvx_binaries(self):
+        """config.yaml.j2's mcp_servers entry invokes uvx, so both binaries
+        must land. The unarchive must not filter via `--wildcards '*/uv'`."""
+        play = self._load_playbook()
+        unarchive = next(
+            (t for t in play["tasks"] if "Extract uv and uvx" in t.get("name", "")),
+            None,
+        )
+        extra_opts = unarchive["ansible.builtin.unarchive"].get("extra_opts", [])
+        # Bug from a previous iteration: '--wildcards' + '*/uv' excluded uvx.
+        assert "--wildcards" not in extra_opts
+        # The uv tarball ships as `uv-<triple>/{uv,uvx}`. Without
+        # `--strip-components=1` the binaries land at
+        # ~/.local/bin/uv-<triple>/uv — wrong path, silent failure.
+        assert "--strip-components=1" in extra_opts
+        # Assertion + chmod must cover both binaries.
+        assert_task = next(
+            (t for t in play["tasks"] if "Assert uv and uvx" in t.get("name", "")), None
+        )
+        assert assert_task is not None
+        loop = assert_task.get("loop", [])
+        assert set(loop) >= {"uv", "uvx"}
+
+    def test_uv_staging_dir_is_agent_owned_and_mode_0700(self):
+        """The tarball must NOT stage under /tmp (predictable, world-readable
+        path → symlink-race surface). It must live under a mode-0700 dir owned
+        by the agent user."""
+        play = self._load_playbook()
+        mkdir = next(
+            (
+                t
+                for t in play["tasks"]
+                if "Ensure ~/.local/bin and ~/.hermes/tmp exist" in t.get("name", "")
+            ),
+            None,
+        )
+        assert mkdir is not None
+        loop_items = mkdir.get("loop", [])
+        tmp_entry = next(
+            (i for i in loop_items if i.get("path", "").endswith("/.hermes/tmp")),
+            None,
+        )
+        assert tmp_entry is not None, "staging dir entry missing from loop"
+        assert tmp_entry["mode"] == "0700"
 
 
 # ---------------------------------------------------------------------------

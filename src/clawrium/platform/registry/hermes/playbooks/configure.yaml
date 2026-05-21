@@ -7,6 +7,19 @@
     # interface; both are exercised on every `clm agent configure`.
     mcp_atlassian_version: "0.21.1"
     uv_version: "0.5.20"
+    # Per-arch uv release assets + sha256 sums. Pinned together with
+    # uv_version — when bumping, fetch new hashes from:
+    #   https://github.com/astral-sh/uv/releases/download/<uv_version>/uv-<triple>.tar.gz.sha256
+    # and replace the corresponding map entry. Unmapped ansible_architecture
+    # values fail fast below.
+    uv_arch_map:
+      x86_64: "x86_64-unknown-linux-gnu"
+      aarch64: "aarch64-unknown-linux-gnu"
+      armv7l: "armv7-unknown-linux-gnueabihf"
+    uv_sha256_map:
+      x86_64: "8fdbfca767917f957e4541747cbf7b23b45c211109dbba97b49962fa3547aab4"
+      aarch64: "3d2281312d047288ecb021f4c761cd351f993514e3ea7f369354701b3a44c756"
+      armv7l: "769c07de286d607d0e13e9e83051a5ac0cfe1c34695ece976934345e09e97f4b"
     # Precomputed convenience flag — true iff this run has at least one
     # atlassian integration assigned. Avoids repeating the dict2items filter
     # chain on every `when:` clause below.
@@ -56,7 +69,8 @@
         content: |
           [Unit]
           Description=Hermes AI Agent ({{ agent_name }})
-          After=network.target
+          After=network-online.target
+          Wants=network-online.target
 
           [Service]
           Type=simple
@@ -64,6 +78,8 @@
           WorkingDirectory=/home/{{ agent_name }}/.hermes
           EnvironmentFile=/home/{{ agent_name }}/.hermes/.env
           ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway run
+          StandardOutput=journal
+          StandardError=journal
           Restart=on-failure
           RestartSec=5
 
@@ -247,37 +263,128 @@
     # MCP toolchain bootstrap — only runs when an atlassian integration is
     # assigned, so non-MCP agents pay zero overhead.
     #
-    # Why pip instead of astral.sh's install.sh:
-    # `pip install` verifies the downloaded wheel against PyPI's published
-    # hashes — no separate `get_url` + `checksum:` ceremony required, no
-    # post-install cleanup of an installer script, and no curl|sh execution
-    # of remote code. Pinned version keeps the toolchain reproducible.
-    - name: Install pinned uv for agent user (via pip)
-      ansible.builtin.pip:
-        name: "uv=={{ uv_version }}"
-        extra_args: "--user"
+    # Install uv via standalone binary. Why not pip: Ubuntu 24.04+ enforces
+    # PEP 668 ("externally-managed-environment") which blocks `pip install
+    # --user`. Standalone binary from astral-sh/uv releases avoids pip
+    # entirely, respects PEP 668, and keeps the toolchain pinned and
+    # checksum-verified. Both `uv` and `uvx` are extracted; the MCP server
+    # invocation in config.yaml.j2 uses `uvx`.
+    - name: Fail early if host architecture is unsupported by the uv arch map
+      ansible.builtin.fail:
+        msg: >-
+          uv install: ansible_architecture='{{ ansible_architecture }}' is not
+          mapped to a uv release asset. Supported: {{ uv_arch_map.keys() | list | join(', ') }}.
+          Add the triple + sha256 to uv_arch_map / uv_sha256_map in this playbook
+          (see https://github.com/astral-sh/uv/releases/tag/{{ uv_version }}).
+      when:
+        - atlassian_integration_assigned | bool
+        - ansible_architecture not in uv_arch_map
+
+    - name: Ensure ~/.local/bin and ~/.hermes/tmp exist for agent user
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "/home/{{ agent_name }}/.local/bin", mode: '0755' }
+        - { path: "/home/{{ agent_name }}/.hermes/tmp", mode: '0700' }
+      become: true
+      when:
+        - atlassian_integration_assigned | bool
+
+    # Stage the tarball under an agent-owned mode-0700 dir to avoid the
+    # symlink-race surface of a predictable /tmp path. Checksum + explicit
+    # validate_certs gate against MITM / tampered release-asset risk.
+    - name: Download pinned uv binary for agent user
+      ansible.builtin.get_url:
+        url: "https://github.com/astral-sh/uv/releases/download/{{ uv_version }}/uv-{{ uv_arch_map[ansible_architecture] }}.tar.gz"
+        dest: "/home/{{ agent_name }}/.hermes/tmp/uv-{{ uv_version }}.tar.gz"
+        checksum: "sha256:{{ uv_sha256_map[ansible_architecture] }}"
+        validate_certs: yes
+        mode: '0600'
       become: true
       become_user: "{{ agent_name }}"
       when:
         - atlassian_integration_assigned | bool
 
-    - name: Assert uv binary is present
+    # Version-aware install gate — skip unarchive when the installed uv
+    # already matches uv_version. Avoids the `creates:` antipattern (would
+    # silently skip on a version bump because the binary path is not
+    # version-stamped, leaving a stale binary in place). Same rationale as
+    # the `--force` flag on the mcp-atlassian install below.
+    - name: Probe installed uv version (if any)
+      ansible.builtin.command: "/home/{{ agent_name }}/.local/bin/uv --version"
+      register: uv_installed_check
+      changed_when: false
+      failed_when: false
+      become: true
+      become_user: "{{ agent_name }}"
+      when:
+        - atlassian_integration_assigned | bool
+
+    # `uv --version` prints e.g. `uv 0.5.20 (xyz 2024-12-19)`; substring
+    # match against uv_version is sufficient and avoids brittle parsing.
+    - name: Determine whether uv needs install/upgrade
+      ansible.builtin.set_fact:
+        uv_needs_install: >-
+          {{
+            (uv_installed_check.rc | default(1)) != 0
+            or uv_version not in (uv_installed_check.stdout | default(''))
+          }}
+      when:
+        - atlassian_integration_assigned | bool
+
+    # No `--wildcards` filter — both `uv` and `uvx` need to land, since
+    # config.yaml.j2's mcp_servers entry invokes uvx.
+    - name: Extract uv and uvx binaries to ~/.local/bin/
+      ansible.builtin.unarchive:
+        src: "/home/{{ agent_name }}/.hermes/tmp/uv-{{ uv_version }}.tar.gz"
+        dest: "/home/{{ agent_name }}/.local/bin/"
+        remote_src: yes
+        extra_opts:
+          - --strip-components=1
+      become: true
+      become_user: "{{ agent_name }}"
+      when:
+        - atlassian_integration_assigned | bool
+        - uv_needs_install | default(true) | bool
+
+    - name: Ensure uv and uvx binaries are executable
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.local/bin/{{ item }}"
+        mode: '0755'
+      become: true
+      become_user: "{{ agent_name }}"
+      loop:
+        - uv
+        - uvx
+      when:
+        - atlassian_integration_assigned | bool
+
+    - name: Assert uv and uvx binaries are present
       ansible.builtin.stat:
-        path: "/home/{{ agent_name }}/.local/bin/uv"
+        path: "/home/{{ agent_name }}/.local/bin/{{ item }}"
+      loop:
+        - uv
+        - uvx
       register: uv_binary_stat
       when:
         - atlassian_integration_assigned | bool
 
-    - name: Fail with clear message if uv install did not land the binary
+    - name: Fail with clear message if uv install did not land the binaries
       ansible.builtin.fail:
         msg: >-
           uv installation failed for agent '{{ agent_name }}': expected
-          /home/{{ agent_name }}/.local/bin/uv to exist after `pip install
-          --user uv=={{ uv_version }}`. Verify outbound access to PyPI from
-          the agent host and re-run `clm agent configure {{ agent_name }}`.
+          /home/{{ agent_name }}/.local/bin/uv and /uvx to exist after
+          extracting the uv {{ uv_version }} standalone binary from GitHub
+          releases. Verify outbound access to github.com from the agent host
+          and re-run `clm agent configure {{ agent_name }}`.
       when:
         - atlassian_integration_assigned | bool
-        - not (uv_binary_stat.stat.exists | default(false))
+        - uv_binary_stat.results is defined
+        - uv_binary_stat.results | selectattr('stat.exists', 'equalto', false) | list | length > 0
 
     # Install MCP server packages for assigned integrations. `uv tool install
     # --force` is idempotent when the version matches and surfaces actual

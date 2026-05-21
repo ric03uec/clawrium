@@ -30,6 +30,37 @@ SLACK_APP_TOKEN=xapp-...
 
 ---
 
+## ⚠️ Critical Prerequisites for DMs
+
+**Before creating your Slack app**, understand that these permissions are **non-negotiable** for direct messages to work:
+
+### Required OAuth Scopes
+Without these, you **cannot DM the bot**:
+- ✅ `im:history` - Bot MUST be able to read DM history
+- ✅ `im:read` - Bot MUST be able to access DM metadata  
+- ✅ `im:write` - Bot MUST be able to write to DMs (⚠️ see security note below — applies to both OpenClaw and Hermes)
+- ✅ `chat:write` - Bot MUST be able to send messages
+
+> **⚠️ Security note on `im:write` (applies to OpenClaw *and* Hermes):** This scope lets the bot *initiate* unsolicited DMs to **any** workspace member — neither OpenClaw's `allowFrom` nor Hermes' `SLACK_ALLOWED_USERS` gate outbound messages. A compromised agent host or leaked `xoxb-` token can DM-spam or phish the entire workspace. Mitigations: keep the host hardened; treat the bot token as a high-value secret; rotate the token immediately on suspicion (Slack API → **OAuth & Permissions** → **Rotate Tokens** → re-run `clm agent configure <name> --stage channels` with the new bearer); audit `users:read` calls in your workspace's Slack audit log if you suspect abuse.
+
+### Required Event Subscriptions
+Without these, the bot **will not receive your DMs**:
+- ✅ `message.im` - Fires when you send a DM to the bot (**CRITICAL**)
+- ✅ `app_mention` - Fires when you @-mention the bot in channels
+
+### What Happens Without These?
+- **Missing `im:*` scopes:** Slack UI won't let you message the bot (Message button disabled/missing in Slack app directory)
+- **Missing `message.im` event:** Bot receives no notification when you DM it (messages sent but bot never sees them)
+- **Missing `chat:write` scope:** Bot can receive messages but cannot respond
+
+**Verification After Setup:** 
+1. Go to https://api.slack.com/apps → Select your app
+2. Navigate to **Event Subscriptions** → **Subscribe to bot events**
+3. Confirm `message.im` is listed
+4. If not, add it and **reinstall the app to your workspace** (required for changes to take effect)
+
+---
+
 ## Setup
 
 ### Step 1: Create a Slack App
@@ -37,7 +68,7 @@ SLACK_APP_TOKEN=xapp-...
 1. Go to **[https://api.slack.com/apps/new](https://api.slack.com/apps/new)**
 2. Choose **From a manifest**
 3. Select your workspace
-4. Paste this manifest:
+4. Paste this manifest (includes all required scopes and events for DM support):
 
 ```json
 {
@@ -91,6 +122,8 @@ SLACK_APP_TOKEN=xapp-...
 }
 ```
 
+> **Note:** The manifest includes `im:history`, `im:read`, `im:write` (DM scopes) and `message.im` (DM event) which are **required** for direct messaging. Without these, users cannot send DMs to your bot.
+
 5. Click **Create**
 
 ### Step 2: Generate App-Level Token
@@ -105,7 +138,22 @@ This is the `xapp-` token required for Socket Mode.
 6. **Copy the token** — it starts with `xapp-`
 7. Save this — you'll enter it as `SLACK_APP_TOKEN` during configuration
 
-### Step 3: Install App to Workspace
+### Step 3: Verify Event Subscriptions (Critical for DMs)
+
+Before installing, verify the event subscriptions are correct:
+
+1. Go to **Event Subscriptions** (sidebar)
+2. Confirm **Enable Events** is ON
+3. Scroll to **Subscribe to bot events**
+4. **Verify `message.im` is in the list** (required for DMs)
+5. If `message.im` is missing:
+   - Click **Add Bot User Event**
+   - Select `message.im`
+   - Click **Save Changes**
+
+> **Why this matters:** Without `message.im`, your bot will never receive direct messages. This is the #1 reason DMs don't work.
+
+### Step 4: Install App to Workspace
 
 1. Go to **OAuth & Permissions** (sidebar)
 2. Click **Install to Workspace**
@@ -113,7 +161,7 @@ This is the `xapp-` token required for Socket Mode.
 4. **Copy the Bot User OAuth Token** — it starts with `xoxb-`
 5. Save this — you'll enter it as `SLACK_BOT_TOKEN` during configuration
 
-### Step 4: Invite Bot to a Channel
+### Step 5: Invite Bot to a Channel
 
 In Slack, go to the channel where you want the bot and type:
 
@@ -123,14 +171,14 @@ In Slack, go to the channel where you want the bot and type:
 
 Slack will prompt you to invite the bot to the channel.
 
-### Step 5: Get Your User ID
+### Step 6: Get Your User ID
 
 1. In Slack, click your profile picture (top right)
 2. Click **⋯** (three dots) > **Copy Member ID**
 3. The ID starts with `U` (e.g., `U01ABC2DEF`)
 4. This goes in the `allowFrom` list during configuration
 
-### Step 6: Configure in Clawrium
+### Step 7: Configure in Clawrium
 
 ```bash
 clm agent configure <agent-name>
@@ -216,23 +264,29 @@ Hermes uses a simpler configuration model — env vars rendered directly into `~
 
 ### Required scopes (minimal set for Hermes)
 
-| Scope | Purpose |
-|-------|---------|
-| `app_mentions:read` | Bot can see when @-mentioned in channels |
-| `chat:write` | Bot can send messages |
-| `channels:read` | Bot can list public channels |
-| `groups:read` | Bot can list private channels it's a member of |
-| `im:history` | Bot can read DM history |
-| `im:read` | Bot can read DM metadata |
-| `im:write` | Bot can open/write DMs |
-| `users:read` | Bot can look up user info |
+> **⚠️ Critical for DMs:** The three `im:*` scopes below are **required** for direct messaging. Without them, users cannot DM the bot in Slack.
+
+| Scope | Required For | What Breaks Without It |
+|-------|--------------|------------------------|
+| `app_mentions:read` | Channels | Bot won't see @-mentions in channels |
+| `chat:write` | All | Bot cannot send any messages (DMs or channels) |
+| `channels:read` | Channels | Bot cannot list/join public channels |
+| `groups:read` | Private Channels | Bot cannot list private channels it's in |
+| `im:history` | **DMs** | **Bot cannot read DM history (DMs fail)** |
+| `im:read` | **DMs** | **Bot cannot access DM metadata (DMs fail)** |
+| `im:write` | **DMs** | **Slack won't allow users to message the bot** |
+| `users:read` | All | Bot cannot look up user info for allowlist checks |
+
+> **⚠️ Security note on `im:write`:** This scope also permits the bot to *initiate* unsolicited DMs to **any** workspace member — the `SLACK_ALLOWED_USERS` allowlist only gates inbound commands, not outbound messages. A compromised agent host or leaked bot token could DM-spam or phish the entire workspace. Keep the agent host hardened and the `xoxb-` bot token in `secrets.json` only. **On suspicion of leakage:** rotate via Slack API → **OAuth & Permissions** → **Rotate Tokens**, then re-run `clm agent configure <name> --stage channels` with the new bearer.
 
 ### Required event subscriptions
 
-| Event | Purpose |
-|-------|---------|
-| `app_mention` | Fires when someone @-mentions the bot in a channel |
-| `message.im` | Fires on direct messages to the bot |
+> **⚠️ Critical for DMs:** Without `message.im`, the bot will never receive your direct messages even if you can send them.
+
+| Event | Required For | What Breaks Without It |
+|-------|--------------|------------------------|
+| `app_mention` | Channels | Bot won't respond to @-mentions |
+| `message.im` | **DMs** | **Bot receives no notification when you DM it** |
 
 ### Access control differences from OpenClaw
 
@@ -328,11 +382,60 @@ The bot must be a member of the home channel. In Slack, go to that channel and t
 </details>
 
 <details>
-<summary><strong>Bot doesn't respond to DMs</strong></summary>
+<summary><strong>❌ CRITICAL: Bot doesn't respond to DMs</strong></summary>
 
-1. Confirm your Slack Member ID is in `hosts.json` `channels.slack.allowed_users`. Hermes drops messages from non-allowlisted users silently.
-2. Verify `im:history`, `im:read`, and `im:write` scopes are present.
-3. Verify `message.im` event subscription is enabled.
+**This is the most common issue.** Follow these steps in order:
+
+### 1. Can you even send a DM to the bot?
+- In Slack, go to **Apps** in the sidebar
+- Find your bot
+- Try to click **Message**
+
+**If you can't click Message or it's grayed out:**
+→ Your Slack app is missing the `im:write` scope. Go to Slack API → OAuth & Permissions → Add `im:write` → Reinstall app to workspace.
+
+**If you can send a DM but bot doesn't respond:**
+→ Continue to step 2.
+
+### 2. Verify Event Subscription
+- Go to https://api.slack.com/apps
+- Select your app
+- Go to **Event Subscriptions**
+- Scroll to **Subscribe to bot events**
+- **Confirm `message.im` is in the list**
+
+**If `message.im` is missing:**
+→ Click **Add Bot User Event** → Select `message.im` → **Save Changes** → **Reinstall app to workspace** (required!)
+
+### 3. Verify OAuth Scopes
+Go to **OAuth & Permissions** → **Scopes** → **Bot Token Scopes** and confirm:
+- ✅ `im:history`
+- ✅ `im:read`  
+- ✅ `im:write`
+- ✅ `chat:write`
+
+**If any are missing:** Add them → Reinstall app to workspace.
+
+### 4. Verify User Allowlist (Hermes only)
+Your Slack Member ID must be in the allowed users list. Replace `<name>` with your hermes agent name:
+```bash
+AGENT=<name>
+cat ~/.config/clawrium/hosts.json | jq --arg n "$AGENT" '.[] | select(.agents[$n]) | .agents[$n].config.channels.slack.allowed_users'
+```
+
+**Find your Member ID:** Slack profile → ⋯ (three dots) → Copy Member ID
+
+**If your ID is missing:** Run `clm agent configure <name> --stage channels` and add your ID.
+
+### 5. Check Agent Logs
+```bash
+ssh <agent-host> "sudo journalctl -u hermes-<name> -f"
+```
+
+Send a test DM and watch for errors. Common errors:
+- `missing_scope: im:history` → Add scope and reinstall app
+- `not_authed` → Token expired, regenerate and reconfigure
+- Silent (no logs) → Event subscription `message.im` is missing
 
 </details>
 

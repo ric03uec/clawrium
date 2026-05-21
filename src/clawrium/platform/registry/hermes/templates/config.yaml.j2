@@ -15,17 +15,64 @@
 {% set model_id = provider.default_model | default('') %}
 {% set endpoint = provider.endpoint | default('') %}
 
-model:
+{# --- Provider block ---
+   One block per provider, emitting both main chat model and the lightweight
+   aux model used for hermes' title_generation task (so short conversation
+   titles don't run on the expensive main model). `auxiliary.title_generation
+   .provider` is intentionally omitted — defaults to "auto", which routes the
+   aux task to the main agent's provider client with the model below.
+   For ollama/custom the local model is already cheap, no aux pin.
+
+   Aux model IDs: each provider uses its **native** ID format —
+     anthropic → Anthropic API ID (https://docs.claude.com/en/docs/about-claude/models)
+     openai → bare OpenAI API ID (https://platform.openai.com/docs/models)
+     openrouter → openrouter.ai slug (https://openrouter.ai/models). NB: anthropic
+       slugs on OpenRouter use dot version separators ("4.5"), NOT hyphens — verify
+       against the model catalog when bumping.
+     bedrock → bedrock.region above governs the regional endpoint; the model ID
+       below uses no cross-region inference prefix so eu/ap regions work.
+   Hermes validates aux model IDs lazily (at first title-generation call) so a
+   wrong ID surfaces as a per-request error in journalctl, not at configure time. #}
 {% if provider_type == 'openrouter' %}
+model:
   provider: "openrouter"
   base_url: "https://openrouter.ai/api/v1"
+{% if model_id %}  default: "{{ model_id }}"
+{% endif %}
+auxiliary:
+  title_generation:
+    model: "anthropic/claude-haiku-4.5"
 {% elif provider_type == 'anthropic' %}
+model:
   provider: "anthropic"
+{% if model_id %}  default: "{{ model_id }}"
+{% endif %}
+auxiliary:
+  title_generation:
+    model: "claude-haiku-4-5-20251001"
 {% elif provider_type == 'openai' %}
+model:
   provider: "openai"
+{% if model_id %}  default: "{{ model_id }}"
+{% endif %}
+auxiliary:
+  title_generation:
+    model: "gpt-5-nano"
 {% elif provider_type == 'bedrock' %}
+model:
   provider: "bedrock"
+{% if model_id %}  default: "{{ model_id }}"
+{% endif %}
+bedrock:
+  region: "{{ provider.region | default('us-east-1') }}"
+auxiliary:
+  title_generation:
+{# Plain bedrock model ID (no `us.` / `eu.` / `ap.` cross-region inference
+   prefix) — Bedrock routes within `bedrock.region` above. The cross-region
+   prefix is valid only in specific regions and would 404 in others. #}
+    model: "anthropic.claude-haiku-4-5-20251001-v1:0"
 {% elif provider_type == 'ollama' %}
+model:
   provider: "custom"
 {# Hermes' custom provider expects an OpenAI-compatible /v1 root. Append /v1
    when the clm provider endpoint omits it (e.g. raw Ollama base URL). #}
@@ -35,16 +82,13 @@ model:
 {% elif endpoint_clean %}
   base_url: "{{ endpoint_clean }}/v1"
 {% endif %}
+{% if model_id %}  default: "{{ model_id }}"
+{% endif %}
 {% else %}
+model:
   provider: "auto"
+{% if model_id %}  default: "{{ model_id }}"
 {% endif %}
-{% if model_id %}
-  default: "{{ model_id }}"
-{% endif %}
-
-{% if provider_type == 'bedrock' %}
-bedrock:
-  region: "{{ provider.region | default('us-east-1') }}"
 {% endif %}
 
 {# --- MCP Servers (from assigned integrations) ---
@@ -68,12 +112,10 @@ mcp_servers:
 {% set atlassian_url = (intg.ATLASSIAN_URL | default('')).rstrip('/') %}
   {{ server_name }}:
     command: "/home/{{ agent_name }}/.local/bin/uvx"
-    {# Pin runtime version with --from so a missing tool venv (manual delete,
-       partial cleanup) does not silently resolve to mcp-atlassian latest. #}
-    {# `mcp_atlassian_version` is required: the playbook supplies it via
-       `vars:` so install and runtime stay in lockstep. No Jinja fallback —
-       drift between pre-install pin and runtime pin would silently install
-       one version and launch another. #}
+    {# `--from mcp-atlassian=={{ mcp_atlassian_version }}` keeps runtime in
+       lockstep with the playbook's `uv tool install` pin. Without --from, a
+       missing/wiped tool venv would silently resolve to mcp-atlassian latest.
+       Bump both pins together. #}
     args: ["--from", "mcp-atlassian=={{ mcp_atlassian_version }}", "mcp-atlassian"]
     env:
       JIRA_URL: {{ yaml_quote(atlassian_url) }}
