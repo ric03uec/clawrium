@@ -65,15 +65,20 @@ _SESSION_PATTERN = re.compile(r"^[a-zA-Z0-9_:.-]{1,255}$")
 # (issue #455 ATX W2) and the exception sanitizer use identical
 # coverage; drifting one would reintroduce the bypass.
 _CONTROL_AND_BIDI_RE = re.compile(
+    # Use explicit \uXXXX escapes (matching chat_hermes._CONTROL_CHARS_RE).
+    # Literal bidi/zero-width codepoints in source are invisible to most
+    # editors and easily corrupted by auto-formatters, BOM insertion, or
+    # careless copy-paste — \uXXXX escapes are grep-able and survive
+    # every editor.
     "["
     "\x00-\x1f\x7f-\x9f"
-    "؜"             # ARABIC LETTER MARK (UAX#9 bidi format char)
-    "​-‏"      # ZWSP, ZWNJ, ZWJ, LRM, RLM
-    " - "      # LINE / PARAGRAPH SEPARATOR
-    "‪-‮"      # LRE, RLE, PDF, LRO, RLO
-    "⁠"             # WORD JOINER
-    "⁦-⁩"      # LRI, RLI, FSI, PDI
-    "﻿"             # ZWNBSP / BOM
+    "\u061c"             # ARABIC LETTER MARK (UAX#9 bidi format char)
+    "\u200b-\u200f"      # ZWSP, ZWNJ, ZWJ, LRM, RLM
+    "\u2028-\u2029"      # LINE / PARAGRAPH SEPARATOR
+    "\u202a-\u202e"      # LRE, RLE, PDF, LRO, RLO
+    "\u2060"             # WORD JOINER
+    "\u2066-\u2069"      # LRI, RLI, FSI, PDI
+    "\ufeff"             # ZWNBSP / BOM
     "]"
 )
 

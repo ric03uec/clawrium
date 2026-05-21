@@ -1849,9 +1849,16 @@ def test_chat_loop_strips_bidi_chars_from_agent_label(monkeypatch):
     )
 
     first_args = [c["args"][0] for c in recorder.calls if c["args"]]
-    # No prefix should still contain the bidi char.
+    # No print call's first arg should still contain the bidi char.
     assert not any("‮" in arg for arg in first_args if isinstance(arg, str)), (
         "RLO U+202E leaked into a print call's first positional arg"
+    )
+    # Positive assertion (ATX round-2 gap #3): the sanitized prefix
+    # must actually be present — a sanitizer that drops the entire
+    # label would silently satisfy the negative assertion above.
+    assert "neat agent> " in first_args, (
+        "expected sanitized prefix 'neat agent> ' was not emitted; "
+        f"observed first args: {first_args!r}"
     )
 
 
@@ -2002,3 +2009,140 @@ def test_reset_prompt_session_clears_global():
     chat_module._PROMPT_SESSION = object()
     chat_module._reset_prompt_session()
     assert chat_module._PROMPT_SESSION is None
+
+
+class _NullResponseFakeClient(FakeChatClient):
+    """Drives the `else` / `[no response]` branch in `_chat_loop` — no
+    streaming delta and an empty/falsy final response. `FakeChatClient`
+    streams a delta, so this branch is dead code without a dedicated
+    variant (ATX round-2 gap #1)."""
+
+    async def send_message(self, message: str, **kwargs):
+        self.messages.append(message)
+        self.last_kwargs = kwargs
+        return ""
+
+
+def test_chat_loop_no_response_branch_uses_green_style(monkeypatch):
+    """The `else` branch that emits `[no response]` is itself a
+    Rich-markup-like string. If a future regression removed
+    `markup=False` there, Rich would attempt to parse `[no response]`
+    as a tag (`[no` → opening) and either crash or render the line
+    wrong. Pin both the prefix and body kwargs (ATX round-2 gap #1)."""
+    backend = _NullResponseFakeClient()
+    inputs = iter(["hello", "/exit"])
+
+    async def fake_read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
+        return next(inputs)
+
+    monkeypatch.setattr(chat_module, "_read_user_input", fake_read_user_input)
+    recorder = _install_print_recorder(monkeypatch)
+
+    asyncio.run(
+        chat_module._chat_loop(
+            backend=backend,
+            session_key="main",
+            response_timeout_seconds=30.0,
+            idle_timeout_seconds=10.0,
+            chat_type="websocket",
+            agent_label="silent",
+        )
+    )
+
+    prefix_calls = [
+        call
+        for call in recorder.calls
+        if call["args"] and call["args"][0] == "silent> "
+    ]
+    assert prefix_calls, "no-response path did not emit the agent prefix"
+    for call in prefix_calls:
+        assert call["kwargs"].get("style") == "bold green"
+        assert call["kwargs"].get("markup") is False
+
+    no_response_calls = [
+        call
+        for call in recorder.calls
+        if call["args"] and call["args"][0] == "[no response]"
+    ]
+    assert no_response_calls, "expected literal '[no response]' body to be printed"
+    for call in no_response_calls:
+        # markup=False is what guarantees Rich does NOT parse `[no` as
+        # an opening tag — the regression this test guards against.
+        assert call["kwargs"].get("markup") is False
+
+
+def test_read_user_input_non_tty_honors_idle_timeout(monkeypatch):
+    """`asyncio.wait_for` must wrap the non-TTY arm too, not only the
+    TTY one. Otherwise piped invocations with `--idle-timeout` would
+    silently hang waiting on `input()` forever (ATX round-2 gap #4)."""
+    import sys as _sys
+
+    class _FakeStdin:
+        def isatty(self):
+            return False
+
+    monkeypatch.setattr(_sys, "stdin", _FakeStdin())
+
+    def _slow_input(_prompt):
+        import time
+
+        time.sleep(5)
+        return "never"
+
+    monkeypatch.setattr("builtins.input", _slow_input)
+
+    with pytest.raises(TimeoutError):
+        asyncio.run(chat_module._read_user_input("you> ", 0.05))
+
+
+def test_chat_invokes_reset_prompt_session_before_chat_loop(monkeypatch):
+    """`chat()` MUST call `_reset_prompt_session` at the top of every
+    reconnect iteration so a stale `PromptSession` from a previous
+    `asyncio.run()` cannot anchor the new event loop. Pin the call-
+    site contract against future regressions, e.g. someone moving the
+    reset into the `except` block (ATX round-2 gap #5)."""
+    # Patch the get_agent_by_name resolution and backend builder so
+    # `chat()` reaches the reconnect loop without doing network I/O.
+    host = {"hostname": "host1", "alias": "h1"}
+    agent = {
+        "agent_name": "spy-agent",
+        "config": {"gateway": {"url": "ws://host1:9", "auth": "tok"}},
+    }
+    monkeypatch.setattr(
+        "clawrium.cli.chat.get_agent_by_name",
+        lambda _name: (host, "openclaw", agent),
+    )
+
+    class _StubBackend:
+        async def connect(self):
+            pass
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(
+        chat_module,
+        "_build_openclaw_backend",
+        lambda **_: _StubBackend(),
+    )
+
+    # No-op _chat_loop so we observe the reset call without driving
+    # the whole REPL.
+    async def _noop_chat_loop(**_kwargs):
+        return None
+
+    monkeypatch.setattr(chat_module, "_chat_loop", _noop_chat_loop)
+
+    counter = {"calls": 0}
+
+    def _spy_reset():
+        counter["calls"] += 1
+
+    monkeypatch.setattr(chat_module, "_reset_prompt_session", _spy_reset)
+
+    result = runner.invoke(app, ["chat", "spy-agent"])
+    assert result.exit_code == 0, result.output
+    # At least one reset before the first (and only successful) loop run.
+    assert counter["calls"] >= 1, (
+        "chat() must call _reset_prompt_session before asyncio.run(_chat_loop)"
+    )
