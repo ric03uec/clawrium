@@ -3,6 +3,7 @@ name: create-vhs
 description: Record a CLI demo GIF using VHS (charmbracelet/vhs)
 argument-hint: "<scenario-name> [--description 'what to demo']"
 ---
+name: create-vhs
 
 # Demo Recording with VHS
 
