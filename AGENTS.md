@@ -51,6 +51,16 @@ clm agent skill install <agent-name> clawrium/tdd
 clm ps
 ```
 
+## Installation Source of Truth
+
+Install instructions live in [`docs/installation.md`](docs/installation.md). This is the canonical source — when updating install steps:
+
+1. Edit `docs/installation.md` first.
+2. Mirror the body verbatim to `website/docs/installation.md`. Keep the Docusaurus frontmatter and the mirror-warning HTML comment at the top of that file; everything below them must match `docs/installation.md` exactly.
+3. The README's install section is intentionally brief (just the two `uv tool install` / `uvx` commands). Only update it if those commands change.
+
+The website docs MUST follow `docs/installation.md` exactly. Do not edit `website/docs/installation.md` directly.
+
 ## Key Concepts
 
 - **Host**: A machine in your network that runs one or more agents
