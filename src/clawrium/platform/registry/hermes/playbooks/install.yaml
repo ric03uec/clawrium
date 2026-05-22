@@ -277,6 +277,84 @@
         or not ((node_version_major.stdout | default('0')) is match('^[0-9]+$'))
         or (node_version_major.stdout | default('0') | int) < 18
 
+    # Issue #490 — Pre-build the TUI bundle + work around two upstream
+    # NousResearch/hermes-agent v2026.5.7 defects.
+    #
+    # Defect A (filename drift): `ui-tui/packages/hermes-ink/package.json`'s
+    # `build` script writes `dist/entry-exports.js`, but
+    # `hermes_cli/main.py:_hermes_ink_bundle_stale` checks for
+    # `dist/ink-bundle.js`. The expected file is never produced, so the
+    # staleness check is permanently True, which propagates through
+    # `_tui_build_needed` and forces a rebuild on every dashboard chat
+    # request.
+    #
+    # Defect B (blocking subprocess in async handler):
+    # `web_server.py:pty_ws` calls `_resolve_chat_argv` (→ `_make_tui_argv`,
+    # → `subprocess.run([npm, "run", "build"], ...)`) synchronously between
+    # `await ws.accept()` and the PTY spawn. With defect A active, every
+    # chat WS upgrade triggers a multi-second blocking build that prevents
+    # uvicorn from flushing the queued HTTP 101 to the client — browsers
+    # see the handshake fail.
+    #
+    # Mitigation here:
+    #   (1) Run `npm install + npm run build` at install time so the
+    #       runtime never needs to.
+    #   (2) Copy `entry-exports.js` → `ink-bundle.js` so the staleness
+    #       check finds the file it's looking for.
+    #   (3) Touch `ink-bundle.js` (fresh mtime, defeats
+    #       `_hermes_ink_bundle_stale`) and `dist/entry.js` (fresh mtime
+    #       newer than all `.ts/.tsx` + meta files, defeats
+    #       `_tui_build_needed`).
+    #
+    # Retire this block once upstream lands fixes for both defects (track
+    # via issue #490).
+    - name: Install ui-tui Node dependencies (idempotent)
+      ansible.builtin.command:
+        cmd: npm install --silent --no-fund --no-audit --no-progress
+        chdir: "/home/{{ agent_name }}/.hermes/code/ui-tui"
+      become_user: "{{ agent_name }}"
+      environment:
+        CI: "1"
+      register: hermes_ui_tui_npm_install
+      changed_when: false
+      failed_when: hermes_ui_tui_npm_install.rc != 0
+
+    - name: Pre-build ui-tui bundle (avoid lazy build in /api/pty handler)
+      ansible.builtin.command:
+        cmd: npm run build
+        chdir: "/home/{{ agent_name }}/.hermes/code/ui-tui"
+      become_user: "{{ agent_name }}"
+      register: hermes_ui_tui_build
+      changed_when: "'esbuild' in (hermes_ui_tui_build.stdout | default(''))"
+      failed_when: hermes_ui_tui_build.rc != 0
+
+    - name: Alias entry-exports.js to ink-bundle.js (upstream filename drift workaround)
+      ansible.builtin.copy:
+        src: "/home/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/entry-exports.js"
+        dest: "/home/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/ink-bundle.js"
+        remote_src: true
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0644"
+
+    - name: Touch ink-bundle.js so _hermes_ink_bundle_stale sees a fresh mtime
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/ink-bundle.js"
+        state: touch
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0644"
+      changed_when: false
+
+    - name: Touch ui-tui/dist/entry.js so _tui_build_needed sees a fresh mtime
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.hermes/code/ui-tui/dist/entry.js"
+        state: touch
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0755"
+      changed_when: false
+
     # Service is dropped DISABLED and NOT started. Phase 2 (configure) writes
     # provider credentials to .env and turns the unit on. Calling
     # `clm agent start` before configure will start the unit, but hermes will

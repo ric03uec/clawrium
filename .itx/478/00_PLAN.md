@@ -329,3 +329,61 @@ If the second line is `True`, the chat WebSocket will work — reload the dashbo
 
 - `tests/test_hermes_playbooks.py` — assert install.yaml uses `uv pip install … --editable …code[web,pty]`, not `pip install --upgrade hermes-agent[web,pty]`. Prevents accidental revert.
 - Optional integration assertion (if a hermes test host is available): after install, `python -c "import hermes_cli; ..."` resolves to `/home/<agent>/.hermes/code/`.
+
+---
+
+## Second follow-up — chat WS still broken (filename drift + blocking subprocess)
+
+GitHub: #490
+
+### Outcome after PR #489
+
+After PR #489 lands the editable-install fix, `hermes_cli.__file__` correctly resolves to `/home/<agent>/.hermes/code/hermes_cli/__init__.py` and `PROJECT_ROOT/ui-tui` exists. The `/api/pty` handler reaches `_make_tui_argv` without crashing — but the chat WS still fails.
+
+### Why
+
+Two distinct upstream `NousResearch/hermes-agent` v2026.5.7 defects layered on top of each other:
+
+1. **Filename drift** — `packages/hermes-ink/package.json`'s build script writes `dist/entry-exports.js`, but `hermes_cli/main.py:_hermes_ink_bundle_stale` looks for `dist/ink-bundle.js`. The check is permanently True; `_tui_build_needed` is therefore permanently True; `_make_tui_argv` runs `npm run build` on every chat WS request.
+2. **Blocking subprocess in async handler** — `web_server.py:pty_ws` calls `_resolve_chat_argv` (and through it `subprocess.run([npm, "run", "build"], …)`) synchronously between `await ws.accept()` and the PTY spawn. While npm runs (~11s on `maurice@wolf-i`), the asyncio event loop is blocked and uvicorn can't flush the queued HTTP 101 to the client. The browser's WS handshake times out.
+
+Empirical verification on `maurice@wolf-i`:
+
+| WS endpoint | Result |
+|---|---|
+| `/api/events` | open <1s |
+| `/api/ws` | open + first JSON-RPC event |
+| `/api/pub` | open <1s |
+| `/api/pty` | timeout 4s → `InvalidMessage` at 11.6s |
+
+`_make_tui_argv(...)` cold-run: 11.4s every call, because `_hermes_ink_bundle_stale` never goes False.
+
+### Mitigation (PR #491)
+
+Five new tasks in `install.yaml`, ordered between the Node ≥ 18 check and the systemd unit creation:
+
+1. **`npm install`** in `/home/<agent>/.hermes/code/ui-tui` (idempotent).
+2. **`npm run build`** in the same dir — produces `dist/entry.js` + `packages/hermes-ink/dist/entry-exports.js`. Pre-builds at install time so the runtime never reaches the blocking subprocess path.
+3. **Copy `entry-exports.js` → `ink-bundle.js`** with `remote_src: true`. Works around defect 1 (the staleness check now finds the file it's looking for).
+4. **`file: state: touch` on `ink-bundle.js`** — fresh mtime, defeats `_hermes_ink_bundle_stale`'s ts-source-mtime comparison.
+5. **`file: state: touch` on `ui-tui/dist/entry.js`** — fresh mtime, defeats `_tui_build_needed`'s walk across `.ts/.tsx` + meta files.
+
+With this in place: `_make_tui_argv` skips the build branch on every call (returns in ~20ms instead of 11s), the PTY spawns immediately, the WS handshake completes in <100ms.
+
+### Caveats
+
+- This is a workaround. The latent design flaw (sync subprocess in async handler) remains; if anything ever future-triggers `_tui_build_needed = True` (e.g., a future hermes version touches a `.ts` file mtime past `dist/entry.js`), the hang recurs.
+- Out-of-band `git pull` or `npm install` inside `/home/<agent>/.hermes/code/ui-tui` refreshes source mtimes past `dist/entry.js` and requires a `clm agent install --force` to re-apply the mtime bumps.
+- Two upstream bugs need to be filed against `NousResearch/hermes-agent` before this workaround can be retired (see #490 for the details).
+
+### Rollout
+
+PR #491 ships the install.yaml change. To apply to existing agents:
+
+```bash
+cd /home/devashish/workspace/ric03uec/clawrium
+uv run clm agent install --type hermes --host <host> --name <agent> --force
+uv run clm agent restart <agent>
+```
+
+For brand-new agents, no manual steps — the install playbook does the right thing out of the box.
