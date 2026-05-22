@@ -193,3 +193,139 @@ Dependency chain: A → B → C, each as its own PR.
 - Persistent tunnels surviving clm GUI restart.
 - Reverse-proxy / TLS termination.
 - Dashboard token rotation tied to clm lifecycle ops (not needed; dashboard token rotates per process start).
+
+---
+
+## Post-merge follow-up — chat WebSocket broken on first install
+
+GitHub: https://github.com/ric03uec/clawrium/issues/478#issuecomment-4522718217
+
+### Symptom
+
+After 478-B + 478-C landed on `main` (commits `4607d8f`, `5ba5eb5`), `clm agent open <hermes>` brings up the dashboard via SSH tunnel and every static/REST page renders correctly, but the **chat tab's WebSocket fails to connect**. Browser console:
+
+```
+WebSocket connection to 'ws://127.0.0.1:<local-port>/api/pty?token=…&channel=…' failed:
+```
+
+Bare abnormal closure — no status code, no banner, no specific reason.
+
+### Root cause
+
+`hermes_cli` on the agent host is installed **non-editably**. With a non-editable install, `hermes_cli.main:88`'s `PROJECT_ROOT = Path(__file__).parent.parent` resolves to the site-packages root, where `ui-tui/` does not exist (the Node project is not packaged in the published wheel).
+
+The `/api/pty` handler (`hermes_cli/web_server.py:3097-3127`) calls `_resolve_chat_argv(...)` after `ws.accept()` and only catches `SystemExit`. `_resolve_chat_argv` → `_make_tui_argv(PROJECT_ROOT / "ui-tui")` → `subprocess.run([npm, "install"], cwd=str(tui_dir), …)` raises `FileNotFoundError` on the missing `cwd`. The exception escapes into Starlette, which aborts the WS with no close frame → browser reports a bare "failed:" with no code.
+
+Other dashboard pages work because only the chat tab's PTY endpoint touches the on-disk source tree at request time.
+
+### How the wrong install got there
+
+478-B's `install.yaml` task replaces the upstream installer's editable layout with a PyPI wheel install:
+
+```yaml
+- name: Install hermes-agent[web,pty] extras (dashboard + pty support)
+  ansible.builtin.command:
+    argv:
+      - "{{ hermes_interpreter.stdout }}"
+      - -m
+      - pip
+      - install
+      - --upgrade
+      - "hermes-agent[web,pty]"
+```
+
+`pip install --upgrade hermes-agent[web,pty]` pulls the wheel from PyPI and overwrites the editable `hermes_cli` the upstream `install.sh` originally produced. After this, `hermes_cli.__file__` lives in site-packages — no `ui-tui/` alongside it.
+
+### Ruled out
+
+- SSH tunnel / loopback rejection — `_ws_client_is_allowed` accepts `127.0.0.1`; `ssh -L` arrives with `client.host == "127.0.0.1"`. A reject would close `4403` pre-accept and show as HTTP 403 in console.
+- Token mismatch — token injected into `index.html` per page load; if HTTP works, WS token is the same. Bad token closes `4401` pre-accept with a visible banner.
+- CORS / Host-header middleware — both `@app.middleware("http")`, don't run on WS upgrades.
+- `--tui` flag / `HERMES_DASHBOARD_TUI=1` missing — systemd unit sets both. If `_DASHBOARD_EMBEDDED_CHAT_ENABLED` were false, the close would be `4403` pre-accept (HTTP 403).
+- uvicorn missing WS support — `web` extra includes `uvicorn[standard]`.
+
+### Fix
+
+Replace the non-editable install with an editable install pointed at the upstream installer's source checkout (`/home/<agent>/.hermes/code`). The upstream installer pins the venv path via `--dir /home/<agent>/.hermes/code`, so the interpreter location is predictable; resolve it directly instead of parsing the `hermes` bash-wrapper shebang.
+
+Updated install step (replaces the broken task in `install.yaml`):
+
+```yaml
+- name: Resolve hermes venv python interpreter
+  ansible.builtin.set_fact:
+    hermes_interpreter: "/home/{{ agent_name }}/.hermes/code/venv/bin/python3"
+
+- name: Verify hermes venv interpreter exists
+  ansible.builtin.stat:
+    path: "{{ hermes_interpreter }}"
+  register: hermes_interpreter_stat
+
+- name: Fail if hermes venv interpreter missing
+  ansible.builtin.fail:
+    msg: >-
+      Hermes venv python not found at {{ hermes_interpreter }}.
+      The upstream hermes installer should have created it.
+      Re-run with --force, or inspect the venv manually.
+  when: not hermes_interpreter_stat.stat.exists
+
+- name: Install hermes-agent[web,pty] extras (editable from source)
+  ansible.builtin.command:
+    argv:
+      - uv
+      - pip
+      - install
+      - --python
+      - "{{ hermes_interpreter }}"
+      - --editable
+      - "/home/{{ agent_name }}/.hermes/code[web,pty]"
+  become_user: "{{ agent_name }}"
+  register: hermes_extras_install
+  changed_when: "'Successfully installed' in (hermes_extras_install.stdout | default(''))"
+```
+
+Why the interpreter resolution also changed: the upstream `hermes` binary at `/home/<agent>/.local/bin/hermes` is a bash wrapper, not a Python script. Parsing its shebang yields `/usr/bin/env` or `bash`, neither of which can be invoked as `-m pip`. The venv path is pinned by the upstream installer, so resolve it directly + stat to fail loudly if missing.
+
+### Rollout
+
+`clm` is installed globally via `uv tool install clawrium` at v26.5.2 — it does not see the uncommitted `install.yaml` change. Run `clm` out of the working tree so the new playbook ships to the host:
+
+```bash
+cd /home/devashish/workspace/ric03uec/clawrium
+
+# Re-run install with the editable extras task. --force re-executes the
+# playbook even on a version-matched install.
+uv run clm agent install --type hermes --host <host-alias> \
+  --name <hermes-agent-name> --force
+
+# Restart so the dashboard process re-imports hermes_cli from the new
+# editable layout (PROJECT_ROOT now resolves to /home/<agent>/.hermes/code).
+uv run clm agent restart <hermes-agent-name>
+```
+
+Verify on the agent host:
+
+```bash
+ssh <host> "sudo -u <agent_name> /home/<agent_name>/.hermes/code/venv/bin/python3 -c \
+  'import hermes_cli, pathlib; print(hermes_cli.__file__); \
+   print((pathlib.Path(hermes_cli.__file__).parent.parent / \"ui-tui\").exists())'"
+```
+
+Expected:
+
+```
+/home/<agent_name>/.hermes/code/hermes_cli/__init__.py
+True
+```
+
+If the second line is `True`, the chat WebSocket will work — reload the dashboard tab.
+
+### Files changed (uncommitted)
+
+- `src/clawrium/platform/registry/hermes/playbooks/install.yaml` — editable install + direct interpreter resolution (described above).
+- `src/clawrium/core/web_ui.py` — unrelated fix to `_build_ssh_config` to resolve identity files via `get_host_private_key(key_id)`, matching the convention in `skills_apply.py`, `lifecycle.py`, `install.py`, `reset.py`, `health.py`. `hosts.json` records do not carry inline `ssh_key` paths; keys live under `~/.config/clawrium/keys/<key_id>/`.
+- `tests/test_hermes_playbooks.py`, `tests/test_web_ui_resolver.py` — test updates for the above.
+
+### Tests to add
+
+- `tests/test_hermes_playbooks.py` — assert install.yaml uses `uv pip install … --editable …code[web,pty]`, not `pip install --upgrade hermes-agent[web,pty]`. Prevents accidental revert.
+- Optional integration assertion (if a hermes test host is available): after install, `python -c "import hermes_cli; ..."` resolves to `/home/<agent>/.hermes/code/`.

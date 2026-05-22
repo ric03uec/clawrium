@@ -212,14 +212,37 @@ def test_resolve_returns_none_for_host_without_address(monkeypatch):
     assert resolve("demo") is None
 
 
-def test_resolve_ssh_config_includes_port_and_identity(monkeypatch):
-    """`ssh_port` and `ssh_key` from the host record flow into `ssh_config`."""
+def test_resolve_ssh_config_resolves_identity_via_key_id(monkeypatch, tmp_path):
+    """ssh_config.identity_file is resolved via get_host_private_key(key_id).
+
+    Real clm host records store `key_id` (e.g. "wolf-i") and the private
+    key lives under ~/.config/clawrium/keys/<key_id>/xclm_ed25519. The
+    resolver MUST go through `get_host_private_key`, not look at an
+    inline `ssh_key` / `identity_file` field that does not exist in real
+    records. Regression anchor for the bug that caused
+    `Permission denied (publickey)` when the GUI / `clm agent open`
+    tried to tunnel to a hermes dashboard.
+    """
+    key_file = tmp_path / "xclm_ed25519"
+    key_file.write_text("fake-private-key")
+
+    calls = []
+
+    def fake_lookup(kid):
+        calls.append(kid)
+        return key_file if kid == "wolf-i" else None
+
+    monkeypatch.setattr(web_ui_module, "get_host_private_key", fake_lookup)
+
     host_record = {
-        "hostname": "homelab",
-        "user": "ops",
-        "ssh_port": 2222,
-        "ssh_key": "/home/ops/.ssh/id_ed25519",
-        "addresses": [{"address": "homelab", "is_primary": True, "label": None}],
+        "hostname": "wolf.tailf7742d.ts.net",
+        "user": "xclm",
+        "port": 22,
+        "key_id": "wolf-i",
+        "auth_method": "key",
+        "addresses": [
+            {"address": "wolf.tailf7742d.ts.net", "is_primary": True, "label": None}
+        ],
     }
     _patch_agent(
         monkeypatch,
@@ -230,18 +253,109 @@ def test_resolve_ssh_config_includes_port_and_identity(monkeypatch):
 
     resolved = resolve("demo")
     assert resolved is not None
-    assert resolved.ssh_config.get("user") == "ops"
-    assert resolved.ssh_config.get("port") == 2222
-    assert resolved.ssh_config.get("identity_file") == "/home/ops/.ssh/id_ed25519"
+    assert resolved.ssh_config == {
+        "user": "xclm",
+        "port": 22,
+        "identity_file": str(key_file),
+    }
+    assert calls == ["wolf-i"]
 
 
-def test_resolve_drops_identity_file_with_shell_metachars(monkeypatch):
-    """A malformed identity_file path (shell metachars / null bytes) is dropped."""
+def test_resolve_ssh_config_falls_back_to_hostname_when_key_id_missing(
+    monkeypatch, tmp_path
+):
+    """Legacy host records without `key_id` fall back to looking up by hostname.
+
+    Matches the established `key_id = host.get("key_id") or hostname`
+    fallback at skills_apply.py:392 and lifecycle.py:296.
+    """
+    key_file = tmp_path / "xclm_ed25519"
+    key_file.write_text("fake")
+
+    calls = []
+
+    def fake_lookup(kid):
+        calls.append(kid)
+        return key_file if kid == "legacy-host" else None
+
+    monkeypatch.setattr(web_ui_module, "get_host_private_key", fake_lookup)
+
     host_record = {
-        "hostname": "homelab",
-        "user": "ops",
-        "ssh_key": "/home/ops/.ssh/id_rsa; rm -rf /",
-        "addresses": [{"address": "homelab", "is_primary": True, "label": None}],
+        "hostname": "legacy-host",
+        "user": "xclm",
+        "port": 22,
+        "addresses": [{"address": "legacy-host", "is_primary": True, "label": None}],
+    }
+    _patch_agent(
+        monkeypatch,
+        host=host_record,
+        agent_type="hermes",
+        agent_record={"agent_name": "demo", "type": "hermes", "config": {}},
+    )
+
+    resolved = resolve("demo")
+    assert resolved is not None
+    assert resolved.ssh_config.get("identity_file") == str(key_file)
+    assert calls == ["legacy-host"]
+
+
+def test_resolve_ssh_config_omits_identity_when_key_missing(monkeypatch):
+    """When no private key is found for the host, identity_file is absent.
+
+    The rest of ssh_config (user, port) must still be populated so the
+    caller can surface a meaningful diagnostic ("no key for host X") and
+    so unrelated tunnel-spawning code can still run.
+    """
+    monkeypatch.setattr(web_ui_module, "get_host_private_key", lambda _kid: None)
+
+    host_record = {
+        "hostname": "wolf.tailf7742d.ts.net",
+        "user": "xclm",
+        "port": 22,
+        "key_id": "wolf-i",
+        "addresses": [
+            {"address": "wolf.tailf7742d.ts.net", "is_primary": True, "label": None}
+        ],
+    }
+    _patch_agent(
+        monkeypatch,
+        host=host_record,
+        agent_type="hermes",
+        agent_record={"agent_name": "demo", "type": "hermes", "config": {}},
+    )
+
+    resolved = resolve("demo")
+    assert resolved is not None
+    assert "identity_file" not in resolved.ssh_config
+    assert resolved.ssh_config.get("user") == "xclm"
+    assert resolved.ssh_config.get("port") == 22
+
+
+def test_resolve_ssh_config_drops_identity_with_shell_metachars_in_resolved_path(
+    monkeypatch, tmp_path
+):
+    """A resolved key path containing shell metachars / newlines is dropped.
+
+    Defense in depth: even though `get_host_private_key` only ever
+    returns paths under `~/.config/clawrium/keys/`, a malicious or
+    corrupted directory layout could in principle yield a path with a
+    newline. `_safe_identity_file` must reject it.
+    """
+    from pathlib import Path
+
+    bad_path = Path(str(tmp_path) + "/key\nmalicious")
+    monkeypatch.setattr(
+        web_ui_module, "get_host_private_key", lambda _kid: bad_path
+    )
+
+    host_record = {
+        "hostname": "wolf.tailf7742d.ts.net",
+        "user": "xclm",
+        "port": 22,
+        "key_id": "wolf-i",
+        "addresses": [
+            {"address": "wolf.tailf7742d.ts.net", "is_primary": True, "label": None}
+        ],
     }
     _patch_agent(
         monkeypatch,

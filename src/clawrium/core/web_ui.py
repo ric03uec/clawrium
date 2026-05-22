@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from clawrium.core.hosts import get_agent_by_name
+from clawrium.core.keys import get_host_private_key
 from clawrium.core.registry import (
     InvalidAgentTypeError,
     ManifestNotFoundError,
@@ -109,17 +110,28 @@ def _safe_identity_file(value: object) -> str | None:
 
 
 def _build_ssh_config(host: dict[str, Any]) -> dict[str, Any]:
-    """Extract SSH connection params from a host record."""
+    """Extract SSH connection params from a host record.
+
+    Identity is resolved via `get_host_private_key(key_id)` — matching the
+    convention in skills_apply.py, lifecycle.py, install.py, reset.py, and
+    health.py. Real `hosts.json` records do not carry an inline `ssh_key`
+    path; the key lives under `~/.config/clawrium/keys/<key_id>/` and the
+    lookup must go through `core.keys`.
+    """
     ssh: dict[str, Any] = {}
     user = host.get("user")
     if isinstance(user, str) and user:
         ssh["user"] = user
-    port = host.get("ssh_port")
+    port = host.get("port")
     if isinstance(port, int) and not isinstance(port, bool) and port > 0:
         ssh["port"] = port
-    identity = _safe_identity_file(host.get("ssh_key") or host.get("identity_file"))
-    if identity is not None:
-        ssh["identity_file"] = identity
+    key_id = host.get("key_id") or host.get("hostname")
+    if isinstance(key_id, str) and key_id:
+        resolved = get_host_private_key(key_id)
+        if resolved is not None:
+            identity = _safe_identity_file(str(resolved))
+            if identity is not None:
+                ssh["identity_file"] = identity
     return ssh
 
 

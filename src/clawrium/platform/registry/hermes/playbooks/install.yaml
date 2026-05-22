@@ -182,40 +182,67 @@
 
     # Issue #478 phase 2: native dashboard support.
     #
-    # The upstream `hermes` CLI lives at /home/<agent>/.local/bin/hermes and
-    # is a thin wrapper whose shebang points at the interpreter inside the
-    # uv-managed venv. Read the shebang directly rather than guessing the
-    # venv layout — uv has changed its on-disk paths between releases.
-    - name: Discover hermes interpreter path from binary shebang
-      ansible.builtin.shell: |
-        set -euo pipefail
-        head -n1 /home/{{ agent_name }}/.local/bin/hermes \
-          | sed -e 's|^#!||' -e 's| .*||'
-      register: hermes_interpreter
-      changed_when: false
-      become_user: "{{ agent_name }}"
+    # The upstream `hermes` CLI at /home/<agent>/.local/bin/hermes is a
+    # thin BASH wrapper (verified on a live install), not a python script
+    # — it `exec`s the venv entry point at .hermes/code/venv/bin/hermes.
+    # Parsing its shebang yields `/usr/bin/env` or `bash`, neither of
+    # which can be invoked as `-m pip`.
+    #
+    # The hermes upstream installer pins the venv path via
+    # `--dir /home/<agent>/.hermes/code`, so the interpreter lives at a
+    # stable, predictable location regardless of uv's internal layout
+    # choices. Resolve it directly + stat to fail loudly if missing.
+    - name: Resolve hermes venv python interpreter
+      ansible.builtin.set_fact:
+        hermes_interpreter: "/home/{{ agent_name }}/.hermes/code/venv/bin/python3"
 
-    - name: Fail if hermes interpreter could not be resolved
+    - name: Verify hermes venv interpreter exists
+      ansible.builtin.stat:
+        path: "{{ hermes_interpreter }}"
+      register: hermes_interpreter_stat
+
+    - name: Fail if hermes venv interpreter missing
       ansible.builtin.fail:
         msg: >-
-          Could not resolve hermes interpreter from
-          /home/{{ agent_name }}/.local/bin/hermes shebang.
-          Re-run with --force, or inspect the file manually.
-      when: (hermes_interpreter.stdout | default('')) | length == 0
+          Hermes venv python not found at {{ hermes_interpreter }}.
+          The upstream hermes installer should have created it.
+          Re-run with --force, or inspect the venv manually.
+      when: not hermes_interpreter_stat.stat.exists
 
-    # Install `hermes-agent[web,pty]` extras into the same interpreter the
-    # upstream installer used. `--upgrade` is required because the upstream
-    # script already installed the base `hermes-agent` package; without it
-    # pip skips the install (and therefore the extras) as already satisfied.
-    - name: Install hermes-agent[web,pty] extras (dashboard + pty support)
+    # Install the [web,pty] extras EDITABLE from the source checkout
+    # the upstream installer cloned at /home/<agent>/.hermes/code.
+    #
+    # Why editable (not a PyPI install of hermes-agent[web,pty]):
+    # hermes_cli resolves `PROJECT_ROOT = Path(__file__).parent.parent`
+    # to locate source-tree-resident resources (ui-tui/, web/,
+    # scripts/, pyproject.toml). With a non-editable install
+    # `__file__` lives in site-packages and PROJECT_ROOT misses the
+    # source tree — the dashboard's chat-sidebar /pty_ws endpoint then
+    # crashes with FileNotFoundError on `<site-packages>/ui-tui`.
+    # Editable installs leave the code in the source checkout and
+    # point Python at it via a `.pth` file, so PROJECT_ROOT correctly
+    # resolves to /home/<agent>/.hermes/code.
+    #
+    # Why `uv pip` (not `python -m pip`): the upstream installer
+    # builds the venv with uv, which doesn't ship pip inside the
+    # venv. uv is on the agent user's PATH (the upstream installer
+    # guarantees it). `--python` targets the venv directly.
+    #
+    # Why no `--upgrade`: `--editable` is the operation we want
+    # (re-point to source). The upstream installer already ran
+    # `uv pip install -e ".[all]"` so this task is idempotent — extras
+    # are additive in pip; specifying just [web,pty] doesn't remove
+    # other extras already installed.
+    - name: Install hermes-agent[web,pty] extras (editable from source)
       ansible.builtin.command:
         argv:
-          - "{{ hermes_interpreter.stdout }}"
-          - -m
+          - uv
           - pip
           - install
-          - --upgrade
-          - "hermes-agent[web,pty]"
+          - --python
+          - "{{ hermes_interpreter }}"
+          - --editable
+          - "/home/{{ agent_name }}/.hermes/code[web,pty]"
       become_user: "{{ agent_name }}"
       register: hermes_extras_install
       changed_when: "'Successfully installed' in (hermes_extras_install.stdout | default(''))"
@@ -232,6 +259,8 @@
           exit 0
         fi
         node --version | sed -e 's/^v//' -e 's/\..*//'
+      args:
+        executable: /bin/bash
       register: node_version_major
       changed_when: false
       failed_when: false
