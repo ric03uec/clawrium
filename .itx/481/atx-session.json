@@ -1,11 +1,39 @@
 {
-  "session_id": null,
+  "session_id": "a11a750e-7118-4b67-94c1-79bd63292954",
   "transport": "cli",
-  "commit_sha": "d6c7de7",
-  "iteration": 0,
-  "last_rating": null,
-  "last_blockers": [],
-  "started_at": "2026-05-22T15:15:00Z",
-  "updated_at": "2026-05-22T15:15:00Z",
-  "skipped_reason": "atx CLI reported 'No active session' — hook-driven state not visible from this entry path. Documented in PR Callouts."
+  "commit_sha": "8674785",
+  "iterations": [
+    {
+      "iter": 1,
+      "rating": 3,
+      "blocking": 0,
+      "warnings": 7,
+      "test_gaps": 6,
+      "suggestions": 5,
+      "cost_usd": 1.82,
+      "task_id": "a11a750e-7118-4b67-94c1-79bd63292954",
+      "agents": ["leader", "core-lifecycle", "test-coverage", "security", "ansible-registry"]
+    },
+    {
+      "iter": 2,
+      "rating": 3,
+      "blocking": 0,
+      "warnings_in_scope_fixed": 3,
+      "warnings_deferred_phase3": 2,
+      "cost_usd": 3.59,
+      "agents": ["leader", "cli-ux", "test-coverage", "security", "ansible-registry", "core-lifecycle"]
+    },
+    {
+      "iter": 3,
+      "rating_core_lifecycle": 4,
+      "blocking": 0,
+      "warnings": 2,
+      "suggestions": 2,
+      "cost_usd": 2.23,
+      "agents": ["core-lifecycle"]
+    }
+  ],
+  "total_cost_usd": 7.64,
+  "iteration_ceiling_reached": true,
+  "final_state": "no-blockers; all in-scope warnings resolved; out-of-scope items deferred to Phase 3 with TODO-FOLLOWUP callouts"
 }
