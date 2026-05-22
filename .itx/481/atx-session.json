@@ -1,0 +1,11 @@
+{
+  "session_id": null,
+  "transport": "cli",
+  "commit_sha": "d6c7de7",
+  "iteration": 0,
+  "last_rating": null,
+  "last_blockers": [],
+  "started_at": "2026-05-22T15:15:00Z",
+  "updated_at": "2026-05-22T15:15:00Z",
+  "skipped_reason": "atx CLI reported 'No active session' — hook-driven state not visible from this entry path. Documented in PR Callouts."
+}
