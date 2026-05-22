@@ -1,11 +1,15 @@
 {
-  "session_id": "d051f033-fa57-4b74-9793-cef1abf8bca4",
+  "session_id": "iter-1: b3d32c2b-47ee-4e4d-87c6-21f296fae58b / iter-2: 6ab58a47-89d8-4285-85c2-5fbca33e5009-equiv / iter-3: cleared",
   "transport": "cli",
-  "commit_sha": "pending-commit",
-  "iteration": 1,
-  "last_rating": null,
+  "commit_sha": "fb1cb87",
+  "iteration": 3,
+  "last_rating": "4-5/5 (security:5, ansible:5, core-lifecycle:4, test-coverage:4)",
   "last_blockers": [],
   "started_at": "2026-05-22T15:28:12Z",
-  "updated_at": "2026-05-22T15:33:17Z",
-  "notes": "atx review --format json timed out after 5m0s on iteration 1. CLI present at /home/devashish/bin/atx but no live hook-driven session. Proceeding without ATX per skill fallback chain."
+  "updated_at": "2026-05-22T16:30:00Z",
+  "iterations": [
+    { "n": 1, "rating": "2/5", "blockers": ["B1: pool exhaustion", "B2: lifecycle tests"], "fixed_in": "4d999bb" },
+    { "n": 2, "rating": "2/5", "blockers": ["B-iter2-1: configure.yaml Also=", "B-iter2-2: B1 test gap"], "fixed_in": "fb1cb87" },
+    { "n": 3, "rating": "4-5/5", "blockers": [], "status": "cleared" }
+  ]
 }
