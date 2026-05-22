@@ -1513,7 +1513,12 @@ def _run_validate_stage(
         provider_id = provider_result.details.get("provider_id")
         conn_result = verify_provider_connectivity(provider_id)
         if conn_result.passed:
-            console.print("  [green]✓[/green] Provider connectivity OK")
+            if conn_result.details.get("skipped"):
+                console.print(
+                    "  [yellow]⚠[/yellow] Provider connectivity check skipped"
+                )
+            else:
+                console.print("  [green]✓[/green] Provider connectivity OK")
             for warning in conn_result.warnings:
                 console.print(f"    [yellow]Warning:[/yellow] {rich_escape(warning)}")
                 all_warnings.append(warning)

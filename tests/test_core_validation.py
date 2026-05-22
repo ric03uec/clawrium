@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from clawrium.core.validation import (
     ValidationResult,
@@ -412,64 +412,68 @@ class TestTestProviderConnectivity:
 
 
 class TestTestOllamaConnectivity:
-    """Tests for Ollama connectivity."""
+    """Tests for Ollama connectivity skip behaviour.
 
-    def test_ollama_running(self, isolated_config: Path):
-        """Returns success when Ollama is running."""
+    `clm` runs on the control machine but the agent (which will actually
+    talk to Ollama) runs on a remote host. A control-machine HTTP probe
+    can fail purely because the operator's laptop is on a different
+    network than the agent host. The check is deliberately skipped with
+    a warning so the operator knows to verify reachability themselves.
+    """
+
+    def _write_ollama_provider(
+        self, isolated_config: Path, endpoint: str = "http://192.168.1.17:11434"
+    ) -> None:
         isolated_config.mkdir(parents=True, exist_ok=True)
-        providers_file = isolated_config / "providers.json"
-        providers_file.write_text(
+        (isolated_config / "providers.json").write_text(
             json.dumps(
-                [
-                    {
-                        "name": "test-ollama",
-                        "type": "ollama",
-                        "endpoint": "http://localhost:11434",
-                    }
-                ]
+                [{"name": "test-ollama", "type": "ollama", "endpoint": endpoint}]
             )
         )
 
+    def test_ollama_connectivity_check_is_skipped_with_warning(
+        self, isolated_config: Path
+    ):
+        """verify_provider_connectivity must NOT probe Ollama from the
+        control machine. It returns passed=True with a warning that names
+        the endpoint and points the operator at the agent host."""
+        self._write_ollama_provider(isolated_config)
+
         with patch("clawrium.core.validation.urllib.request.urlopen") as mock_urlopen:
-            mock_response = MagicMock()
-            mock_response.read.return_value = json.dumps(
-                {"models": [{"name": "llama3:latest"}]}
-            ).encode()
-            mock_response.__enter__ = MagicMock(return_value=mock_response)
-            mock_response.__exit__ = MagicMock(return_value=False)
-            mock_urlopen.return_value = mock_response
-
             result = verify_provider_connectivity("test-ollama")
-            assert result.passed is True
-            assert "llama3:latest" in result.details.get("models", [])
+            mock_urlopen.assert_not_called()
 
-    def test_ollama_no_models(self, isolated_config: Path):
-        """Returns warning when Ollama has no models."""
-        isolated_config.mkdir(parents=True, exist_ok=True)
-        providers_file = isolated_config / "providers.json"
-        providers_file.write_text(
-            json.dumps(
-                [
-                    {
-                        "name": "test-ollama",
-                        "type": "ollama",
-                        "endpoint": "http://localhost:11434",
-                    }
-                ]
-            )
+        assert result.passed is True
+        assert result.errors == []
+        assert len(result.warnings) == 1
+        warning = result.warnings[0]
+        assert "192.168.1.17:11434" in warning
+        assert "agent host" in warning.lower()
+        assert "curl" in warning
+        assert result.details.get("skipped") is True
+        assert result.details.get("type") == "ollama"
+        assert result.details.get("endpoint") == "http://192.168.1.17:11434"
+
+    def test_ollama_skip_warning_uses_fallback_when_endpoint_missing(
+        self, isolated_config: Path
+    ):
+        """When the provider entry has no endpoint, the warning still
+        renders cleanly (no empty-string artifact) and the empty-endpoint
+        path must not probe the network either."""
+        self._write_ollama_provider(isolated_config, endpoint="")
+
+        with patch("clawrium.core.validation.urllib.request.urlopen") as mock_urlopen:
+            result = verify_provider_connectivity("test-ollama")
+            mock_urlopen.assert_not_called()
+
+        assert result.passed is True
+        assert result.errors == []
+        assert result.details.get("skipped") is True
+        assert result.details.get("type") == "ollama"
+        assert result.details.get("endpoint") == ""
+        assert any("<endpoint not configured>" in w for w in result.warnings), (
+            result.warnings
         )
-
-        with patch("clawrium.core.validation.urllib.request.urlopen") as mock_urlopen:
-            mock_response = MagicMock()
-            mock_response.read.return_value = json.dumps({"models": []}).encode()
-            mock_response.__enter__ = MagicMock(return_value=mock_response)
-            mock_response.__exit__ = MagicMock(return_value=False)
-            mock_urlopen.return_value = mock_response
-
-            result = verify_provider_connectivity("test-ollama")
-            assert result.passed is True
-            assert len(result.warnings) == 1
-            assert "no models" in result.warnings[0].lower()
 
 
 class TestValidateOpenClawGateway:

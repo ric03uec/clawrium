@@ -81,12 +81,6 @@ ERROR_MESSAGES = {
         "Insufficient quota for {provider}. "
         "Check your account balance or upgrade your plan."
     ),
-    "ollama_not_running": (
-        "Ollama server is not running at {endpoint}. Start it with: ollama serve"
-    ),
-    "ollama_no_models": (
-        "No models found on Ollama server. Pull a model with: ollama pull <model>"
-    ),
     "bedrock_credentials": (
         "AWS credentials not configured for Bedrock provider '{provider}'. "
         "Run: clm provider add --type bedrock --name <name>"
@@ -137,7 +131,6 @@ ERROR_MESSAGES = {
 WARNING_MESSAGES = {
     "soul_md_empty": "SOUL.md file is empty. Agent will use default personality.",
     "soul_md_large": "SOUL.md is larger than 10KB. Consider shortening for better performance.",
-    "ollama_no_models": "No models found on Ollama server. Pull a model with: ollama pull <model>",
 }
 
 
@@ -343,8 +336,30 @@ def verify_provider_connectivity(
 
     provider_type = provider.get("type", "")
 
+    # Ollama connectivity is skipped: this check runs on the control
+    # machine (where `clm` is invoked), but Ollama will be reached from
+    # the agent host at runtime. A control-machine probe can fail purely
+    # because the operator's laptop is on a different network than the
+    # agent host, even when the agent → Ollama path works fine. The
+    # correct fix is to move the probe into the configure playbook so
+    # ansible runs it on the agent host. Tracked as a follow-up; the
+    # implementation must use Ansible's `uri:` module (not shell/curl)
+    # and re-run validate_ollama_url() at read time to block SSRF from
+    # a hand-edited providers.json.
     if provider_type == "ollama":
-        return _test_ollama_connectivity(provider, timeout)
+        endpoint = provider.get("endpoint", "")
+        endpoint_display = endpoint or "<endpoint not configured>"
+        return ValidationResult(
+            passed=True,
+            warnings=[
+                f"Ollama endpoint {endpoint_display}: this probe runs on the "
+                "control machine, but the agent will reach Ollama from the "
+                "agent host. Verify reachability manually from the agent "
+                f"host, e.g.: ssh <agent-host> curl -fsS "
+                f"{endpoint_display}/api/tags"
+            ],
+            details={"type": "ollama", "skipped": True, "endpoint": endpoint},
+        )
 
     if provider_type == "bedrock":
         return _test_bedrock_connectivity(provider, timeout)
@@ -599,55 +614,6 @@ def _test_zai_connectivity(api_key: str, timeout: int) -> ValidationResult:
         return ValidationResult(passed=True, details={"endpoint": url})
 
     return ValidationResult(passed=True)
-
-
-def _test_ollama_connectivity(provider: dict, timeout: int) -> ValidationResult:
-    """Test Ollama server connectivity."""
-    endpoint = provider.get("endpoint", "http://localhost:11434")
-
-    if endpoint.endswith("/"):
-        endpoint = endpoint.rstrip("/")
-
-    url = f"{endpoint}/api/tags"
-
-    try:
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            body = response.read().decode("utf-8")
-            data = json.loads(body) if body else {}
-            models = data.get("models", [])
-            model_names = [m.get("name", "") for m in models if isinstance(m, dict)]
-
-            warnings = []
-            if not model_names:
-                warnings.append(WARNING_MESSAGES["ollama_no_models"])
-
-            return ValidationResult(
-                passed=True,
-                warnings=warnings,
-                details={"endpoint": endpoint, "models": model_names},
-            )
-    except urllib.error.URLError as e:
-        return ValidationResult(
-            passed=False,
-            errors=[ERROR_MESSAGES["ollama_not_running"].format(endpoint=endpoint)],
-            details={"endpoint": endpoint, "error": str(e.reason)},
-        )
-    except socket.timeout:
-        return ValidationResult(
-            passed=False,
-            errors=[
-                ERROR_MESSAGES["connection_timeout"].format(
-                    provider="Ollama", timeout=timeout
-                )
-            ],
-        )
-    except Exception as e:
-        return ValidationResult(
-            passed=False,
-            errors=[ERROR_MESSAGES["ollama_not_running"].format(endpoint=endpoint)],
-            details={"error": str(e)},
-        )
 
 
 def _test_bedrock_connectivity(provider: dict, timeout: int) -> ValidationResult:
