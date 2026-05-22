@@ -87,14 +87,12 @@ def test_build_ssh_for_loopback_targets_remote_loopback():
 
 
 def test_build_ssh_for_wildcard_resolves_to_remote_loopback():
-    """A `wildcard`-bound agent (zeroclaw) still tunnels to remote loopback.
+    """Value lock-in: `bind='wildcard'` produces a `-L L:127.0.0.1:R` flag.
 
-    Locks in the BIND_ADDRESS_MAP contract: the tunnel builder consumes
-    `BIND_ADDRESS_MAP[resolved.bind]` for the `-L` remote target rather
-    than hardcoding `127.0.0.1`. The runtime output happens to be the
-    same as the loopback case today (both map to 127.0.0.1), but the
-    test asserts the *code path* — change `BIND_ADDRESS_MAP['wildcard']`
-    in `web_ui.py` and this test breaks loudly. ATX iteration 2 B-new1.
+    This is a value assertion only — both code paths (a real lookup of
+    `BIND_ADDRESS_MAP['wildcard']` and a hardcoded `'127.0.0.1'`) would
+    pass it today. `test_build_ssh_for_consults_bind_address_map_*`
+    below are the load-bearing tests for the map-lookup contract.
     """
     resolved = ResolvedUI(
         host="zero.local",
@@ -107,13 +105,12 @@ def test_build_ssh_for_wildcard_resolves_to_remote_loopback():
     assert forward == "39211:127.0.0.1:40123"
 
 
-def test_build_ssh_for_consults_bind_address_map(monkeypatch):
-    """The builder MUST go through `BIND_ADDRESS_MAP`, not a hardcoded literal.
+def test_build_ssh_for_consults_bind_address_map_wildcard(monkeypatch):
+    """The builder MUST go through `BIND_ADDRESS_MAP['wildcard']`.
 
-    Defense-in-depth regression anchor for the contract documented in
-    `web_ui.py`. We swap a sentinel into `BIND_ADDRESS_MAP['wildcard']`
-    and assert the `-L` flag reflects the swap. If a future refactor
-    re-introduces a hardcoded `127.0.0.1`, this test fails.
+    Swap a sentinel into the map and assert the `-L` flag reflects the
+    swap. If a future refactor re-introduces a hardcoded `127.0.0.1`
+    for the wildcard path this test fails. ATX iter 2 B-new1.
     """
     monkeypatch.setitem(
         web_ui_tunnel.BIND_ADDRESS_MAP, "wildcard", "10.99.99.99"
@@ -127,6 +124,50 @@ def test_build_ssh_for_consults_bind_address_map(monkeypatch):
     cmd = _build_ssh_for(resolved, local_port=39211)
     forward = next(arg for arg in cmd if arg.startswith("39211:"))
     assert forward == "39211:10.99.99.99:40123"
+
+
+def test_build_ssh_for_consults_bind_address_map_loopback(monkeypatch):
+    """Symmetric to the wildcard sentinel test, for `bind='loopback'`.
+
+    Closes a regression vector where a refactor could keep the map
+    lookup for `wildcard` while hardcoding `127.0.0.1` specifically
+    for `loopback` — the wildcard-only sentinel test would still pass.
+    ATX iter 3 W3.
+    """
+    monkeypatch.setitem(
+        web_ui_tunnel.BIND_ADDRESS_MAP, "loopback", "10.88.88.88"
+    )
+    resolved = ResolvedUI(
+        host="hermes.local",
+        remote_port=45123,
+        bind="loopback",
+        ssh_config={"user": "xclm"},
+    )
+    cmd = _build_ssh_for(resolved, local_port=39211)
+    forward = next(arg for arg in cmd if arg.startswith("39211:"))
+    assert forward == "39211:10.88.88.88:45123"
+
+
+def test_build_ssh_for_unknown_bind_raises_tunnel_error():
+    """An unknown `bind` value surfaces as `TunnelError`, not `KeyError`.
+
+    The manifest validator restricts `bind` to a closed enum at load
+    time so this path is unreachable through the bundled manifests.
+    But `Literal[...]` is unenforced at runtime — a tampered
+    `hosts.json` or a third-party manifest mocked through `load_manifest`
+    can produce a `ResolvedUI(bind='future_mode', ...)`. The builder
+    must fail loudly with a `TunnelError` referencing the bind name so
+    operators see "extend BIND_ADDRESS_MAP" rather than an opaque
+    `KeyError` traceback. ATX iter 3 W2.
+    """
+    resolved = ResolvedUI(
+        host="x.local",
+        remote_port=9000,
+        bind="future_mode",  # type: ignore[arg-type]  # intentional invalid value
+        ssh_config={"user": "u"},
+    )
+    with pytest.raises(TunnelError, match="unknown bind mode"):
+        _build_ssh_for(resolved, local_port=12345)
 
 
 def test_ensure_returns_existing_local_port_when_healthy(

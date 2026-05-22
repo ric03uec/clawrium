@@ -1123,9 +1123,19 @@ def test_load_manifest_rejects_invalid_web_ui_bind(monkeypatch):
         load_manifest("openclaw")
 
 
-@pytest.mark.parametrize("bind_value", ["loopback", "wildcard"])
+def _allowed_web_ui_binds() -> tuple[str, ...]:
+    """Surface `_ALLOWED_WEB_UI_BINDS` for parametrize so a new enum
+    member auto-extends this test instead of silently skipping it
+    (ATX iter 3 W4).
+    """
+    from clawrium.core.registry import _ALLOWED_WEB_UI_BINDS
+
+    return _ALLOWED_WEB_UI_BINDS
+
+
+@pytest.mark.parametrize("bind_value", _allowed_web_ui_binds())
 def test_load_manifest_accepts_web_ui_bind_values(monkeypatch, bind_value):
-    """Both members of the `bind` enum round-trip through validation (#491)."""
+    """Every member of the `bind` enum round-trips through validation (#491)."""
     from clawrium.core import registry
 
     manifest = deepcopy(_valid_manifest())
