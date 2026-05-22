@@ -2256,3 +2256,230 @@ def test_install_hermes_persists_zero_bind_in_hosts_json(monkeypatch, tmp_path):
     assert api_server["port"] == 8642
     # B3 invariant: bearer never lands in hosts.json
     assert "key" not in api_server
+
+
+# ---------------------------------------------------------------------------
+# Issue #478 phase 2: hermes dashboard port persistence (issue #482).
+# ---------------------------------------------------------------------------
+
+
+def _hermes_install_scaffold(monkeypatch, tmp_path, *, preexisting_agents=None):
+    """Shared fixture wiring for hermes install tests.
+
+    Returns (run_installation, persistent_host, update_calls, ansible_calls).
+    `preexisting_agents` populates `persistent_host['agents']` before the run.
+    """
+    import clawrium.core.install
+    from clawrium.core.install import run_installation
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "hermes",
+        "entries": [
+            {
+                "version": "2026.5.7",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.11"},
+                },
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install, "load_manifest", lambda x: mock_manifest
+    )
+
+    persistent_host = {
+        "hostname": "test-host",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    if preexisting_agents:
+        persistent_host["agents"] = dict(preexisting_agents)
+
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host", lambda _x: persistent_host
+    )
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *a, **k: {
+            "compatible": True,
+            "matched_entry": mock_manifest["entries"][0],
+            "reasons": [],
+        },
+    )
+
+    key_file = tmp_path / "key"
+    key_file.write_text("k")
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda _x: key_file
+    )
+
+    update_calls: list = []
+
+    def mock_update_host(hostname, updater):
+        nonlocal persistent_host
+        if "agents" not in persistent_host:
+            persistent_host["agents"] = {}
+        persistent_host = updater(persistent_host)
+        update_calls.append((hostname, persistent_host))
+        return True
+
+    monkeypatch.setattr(clawrium.core.install, "update_host", mock_update_host)
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", lambda *a, **k: True
+    )
+    monkeypatch.setattr(
+        clawrium.core.install, "get_instance_secrets", lambda _k: {}
+    )
+    monkeypatch.setattr(
+        clawrium.core.install, "set_instance_secret", lambda *a, **k: True
+    )
+
+    class SuccessfulResult:
+        status = "successful"
+
+        class Config:
+            artifact_dir = tmp_path / "artifacts"
+
+        config = Config()
+
+    import ansible_runner
+
+    ansible_calls: list = []
+
+    def fake_run(*args, **kwargs):
+        ansible_calls.append({"args": args, "kwargs": kwargs})
+        return SuccessfulResult()
+
+    monkeypatch.setattr(ansible_runner, "run", fake_run)
+
+    # `persistent_host` is reassigned inside the closure on each updater call,
+    # so we expose a getter rather than the original reference.
+    def get_persistent_host():
+        return persistent_host
+
+    return run_installation, get_persistent_host, update_calls, ansible_calls
+
+
+def test_install_hermes_dashboard_port_deterministic(monkeypatch, tmp_path):
+    """Two installs of the same agent name on a clean host must compute the
+    same dashboard port — the resolver and `clm agent open` need a stable
+    value, not a per-run random one."""
+    import hashlib
+
+    run_installation, get_host, _calls, _ansible_calls = _hermes_install_scaffold(
+        monkeypatch, tmp_path
+    )
+
+    result = run_installation("hermes", "test-host", name="hermes-portcheck")
+    assert result["success"] is True
+
+    expected = 45000 + (
+        int(hashlib.md5(b"hermes-portcheck").hexdigest(), 16) % 2000
+    )
+    dashboard = get_host()["agents"]["hermes-portcheck"]["config"]["dashboard"]
+    assert dashboard["enabled"] is True
+    assert dashboard["host"] == "127.0.0.1"
+    assert dashboard["port"] == expected
+    assert 45000 <= dashboard["port"] <= 46999
+
+
+def test_install_hermes_dashboard_port_persisted_to_hosts_json(
+    monkeypatch, tmp_path
+):
+    """The dashboard block must land in hosts.json under the agent's config
+    (not just in the in-flight ansible inventory)."""
+    run_installation, get_host, _calls, ansible_calls = _hermes_install_scaffold(
+        monkeypatch, tmp_path
+    )
+
+    result = run_installation("hermes", "test-host", name="hermes-persist")
+    assert result["success"] is True
+
+    dashboard = get_host()["agents"]["hermes-persist"]["config"]["dashboard"]
+    assert dashboard["port"]
+
+    # The ansible inventory passed to the claw playbook (second `run`) must
+    # carry `dashboard_port` so the playbook can render the unit file.
+    claw_run = ansible_calls[-1]
+    inv_vars = claw_run["kwargs"]["inventory"]["all"]["vars"]
+    assert inv_vars["dashboard_port"] == dashboard["port"]
+
+
+def test_install_hermes_dashboard_port_collision_bumps(monkeypatch, tmp_path):
+    """When another agent on the same host already owns the computed port,
+    the new install must pick the next free port (not silently overlap)."""
+    import hashlib
+
+    natural = 45000 + (
+        int(hashlib.md5(b"hermes-collide").hexdigest(), 16) % 2000
+    )
+    preexisting = {
+        "hermes-other": {
+            "type": "hermes",
+            "version": "2026.5.7",
+            "status": "installed",
+            "config": {
+                "dashboard": {
+                    "enabled": True,
+                    "host": "127.0.0.1",
+                    "port": natural,
+                }
+            },
+        }
+    }
+    run_installation, get_host, _calls, _ansible_calls = _hermes_install_scaffold(
+        monkeypatch, tmp_path, preexisting_agents=preexisting
+    )
+
+    result = run_installation("hermes", "test-host", name="hermes-collide")
+    assert result["success"] is True
+
+    dashboard = get_host()["agents"]["hermes-collide"]["config"]["dashboard"]
+    assert dashboard["port"] != natural
+    assert 45000 <= dashboard["port"] <= 46999
+
+
+def test_install_hermes_dashboard_port_preserved_on_reinstall(monkeypatch, tmp_path):
+    """Re-installing an agent must NOT silently move it to a new port; the
+    unit file on the host was rendered against the original port, and any
+    running tunnels would break."""
+    custom_port = 45777  # outside the deterministic-hash slot for this name
+    preexisting = {
+        "hermes-reinstall": {
+            "type": "hermes",
+            "version": "2026.5.7",
+            "status": "installed",
+            "installed_at": "2026-01-01T00:00:00+00:00",
+            "config": {
+                "dashboard": {
+                    "enabled": True,
+                    "host": "127.0.0.1",
+                    "port": custom_port,
+                }
+            },
+        }
+    }
+    run_installation, get_host, _calls, _ansible_calls = _hermes_install_scaffold(
+        monkeypatch, tmp_path, preexisting_agents=preexisting
+    )
+
+    result = run_installation("hermes", "test-host", name="hermes-reinstall")
+    assert result["success"] is True
+
+    dashboard = get_host()["agents"]["hermes-reinstall"]["config"]["dashboard"]
+    assert dashboard["port"] == custom_port

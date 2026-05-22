@@ -7,6 +7,30 @@
         path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
       register: service_file
 
+    - name: Check if dashboard systemd unit exists
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ agent_type }}-dashboard-{{ agent_name }}.service"
+      register: dashboard_unit_file
+
+    # PartOf would normally propagate stop from the gateway to the dashboard,
+    # but we want the dashboard down even if the gateway is already stopped
+    # (idempotent stop / disable). Stop dashboard FIRST so an in-flight
+    # request that races the gateway shutdown still completes against a live
+    # dashboard process.
+    - name: Stop hermes dashboard service gracefully
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-dashboard-{{ agent_name }}"
+        state: stopped
+      when: dashboard_unit_file.stat.exists
+      ignore_errors: yes
+
+    - name: Disable hermes dashboard service
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-dashboard-{{ agent_name }}"
+        enabled: no
+      when: dashboard_unit_file.stat.exists
+      ignore_errors: yes
+
     - name: Stop hermes service gracefully
       ansible.builtin.systemd:
         name: "{{ agent_type }}-{{ agent_name }}"

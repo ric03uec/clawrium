@@ -180,6 +180,74 @@
         group: "{{ agent_name }}"
         mode: "0700"
 
+    # Issue #478 phase 2: native dashboard support.
+    #
+    # The upstream `hermes` CLI lives at /home/<agent>/.local/bin/hermes and
+    # is a thin wrapper whose shebang points at the interpreter inside the
+    # uv-managed venv. Read the shebang directly rather than guessing the
+    # venv layout — uv has changed its on-disk paths between releases.
+    - name: Discover hermes interpreter path from binary shebang
+      ansible.builtin.shell: |
+        set -euo pipefail
+        head -n1 /home/{{ agent_name }}/.local/bin/hermes \
+          | sed -e 's|^#!||' -e 's| .*||'
+      register: hermes_interpreter
+      changed_when: false
+      become_user: "{{ agent_name }}"
+
+    - name: Fail if hermes interpreter could not be resolved
+      ansible.builtin.fail:
+        msg: >-
+          Could not resolve hermes interpreter from
+          /home/{{ agent_name }}/.local/bin/hermes shebang.
+          Re-run with --force, or inspect the file manually.
+      when: (hermes_interpreter.stdout | default('')) | length == 0
+
+    # Install `hermes-agent[web,pty]` extras into the same interpreter the
+    # upstream installer used. `--upgrade` is required because the upstream
+    # script already installed the base `hermes-agent` package; without it
+    # pip skips the install (and therefore the extras) as already satisfied.
+    - name: Install hermes-agent[web,pty] extras (dashboard + pty support)
+      ansible.builtin.command:
+        argv:
+          - "{{ hermes_interpreter.stdout }}"
+          - -m
+          - pip
+          - install
+          - --upgrade
+          - "hermes-agent[web,pty]"
+      become_user: "{{ agent_name }}"
+      register: hermes_extras_install
+      changed_when: "'Successfully installed' in (hermes_extras_install.stdout | default(''))"
+
+    # Node >= 18 is required for the dashboard SPA to build on first launch.
+    # `command -v node` succeeds even on broken installs; we additionally
+    # parse the major version. Surface a remediation message rather than the
+    # raw shell error so the operator knows exactly what to do.
+    - name: Verify Node.js >= 18 is present
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if ! command -v node >/dev/null 2>&1; then
+          echo "missing"
+          exit 0
+        fi
+        node --version | sed -e 's/^v//' -e 's/\..*//'
+      register: node_version_major
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if Node.js missing or older than v18
+      ansible.builtin.fail:
+        msg: >-
+          The hermes dashboard requires Node.js >= 18 on the agent host.
+          Detected: '{{ node_version_major.stdout | default('missing') }}'.
+          Install with: `sudo apt install -y nodejs npm` (or use nodesource
+          for a newer release).
+      when: >-
+        (node_version_major.stdout | default('missing')) == 'missing'
+        or not ((node_version_major.stdout | default('0')) is match('^[0-9]+$'))
+        or (node_version_major.stdout | default('0') | int) < 18
+
     # Service is dropped DISABLED and NOT started. Phase 2 (configure) writes
     # provider credentials to .env and turns the unit on. Calling
     # `clm agent start` before configure will start the unit, but hermes will
@@ -204,6 +272,37 @@
 
           [Install]
           WantedBy=multi-user.target
+        mode: "0644"
+      notify: Reload systemd
+
+    # Companion dashboard unit. `PartOf=` makes systemd propagate stop/restart
+    # from the gateway unit to this one automatically. `Also=` in the gateway
+    # unit's [Install] would be the symmetric hook, but we keep the dashboard
+    # unit's own [Install] WantedBy=multi-user.target so `systemctl enable
+    # hermes-dashboard-<name>` is also valid as a standalone action. ExecStart
+    # binds to loopback only — the SSH tunnel is the authentication boundary.
+    - name: Create dashboard systemd service file (disabled, not started)
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ agent_type }}-dashboard-{{ agent_name }}.service"
+        content: |
+          [Unit]
+          Description=Hermes Dashboard ({{ agent_name }})
+          After=network.target
+          PartOf={{ agent_type }}-{{ agent_name }}.service
+
+          [Service]
+          Type=simple
+          User={{ agent_name }}
+          WorkingDirectory=/home/{{ agent_name }}/.hermes
+          EnvironmentFile=/home/{{ agent_name }}/.hermes/.env
+          Environment=HERMES_DASHBOARD_TUI=1
+          ExecStart=/home/{{ agent_name }}/.local/bin/hermes dashboard --host 127.0.0.1 --port {{ dashboard_port }} --no-open --tui
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+          Also={{ agent_type }}-{{ agent_name }}.service
         mode: "0644"
       notify: Reload systemd
 

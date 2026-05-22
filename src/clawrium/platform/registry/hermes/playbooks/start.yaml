@@ -41,6 +41,45 @@
         daemon_reload: yes
       when: service_file_changed.changed
 
+    # Re-render the dashboard unit (issue #478 phase 2). `dashboard_port` is
+    # passed from lifecycle.py via hosts.json.agents.<name>.config.dashboard.
+    # Re-rendering here keeps the unit in sync if a future clm upgrade
+    # changes the ExecStart shape without forcing a full re-install. The
+    # `when:` guard lets agents installed before this change continue to
+    # start (the dashboard unit just stays absent).
+    - name: Sync dashboard systemd service file
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ agent_type }}-dashboard-{{ agent_name }}.service"
+        content: |
+          [Unit]
+          Description=Hermes Dashboard ({{ agent_name }})
+          After=network.target
+          PartOf={{ agent_type }}-{{ agent_name }}.service
+
+          [Service]
+          Type=simple
+          User={{ agent_name }}
+          WorkingDirectory=/home/{{ agent_name }}/.hermes
+          EnvironmentFile=/home/{{ agent_name }}/.hermes/.env
+          Environment=HERMES_DASHBOARD_TUI=1
+          ExecStart=/home/{{ agent_name }}/.local/bin/hermes dashboard --host 127.0.0.1 --port {{ dashboard_port }} --no-open --tui
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+          Also={{ agent_type }}-{{ agent_name }}.service
+        mode: "0644"
+      register: dashboard_file_changed
+      when: dashboard_port is defined and (dashboard_port | string) | length > 0
+
+    - name: Reload systemd if dashboard file changed
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      when:
+        - dashboard_file_changed is defined
+        - dashboard_file_changed.changed | default(false)
+
     - name: Start hermes service
       ansible.builtin.systemd:
         name: "{{ agent_type }}-{{ agent_name }}"
@@ -48,6 +87,23 @@
         enabled: yes
         daemon_reload: yes
       register: start_result
+
+    # Enable + start the dashboard companion unit (idempotent). PartOf in the
+    # unit file propagates stop/restart from the gateway, but `enable` and
+    # the initial `start` still have to be explicit. Skipped silently when
+    # the unit file is absent (legacy agents installed before this change).
+    - name: Check if dashboard systemd unit exists
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ agent_type }}-dashboard-{{ agent_name }}.service"
+      register: dashboard_unit_file
+
+    - name: Start hermes dashboard service
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-dashboard-{{ agent_name }}"
+        state: started
+        enabled: yes
+        daemon_reload: yes
+      when: dashboard_unit_file.stat.exists
 
     # Brief settle window so systemd has time to either reach `active` or
     # crash through `Restart=on-failure` cycles. Without this, ActiveState can

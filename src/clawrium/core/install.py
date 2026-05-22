@@ -381,6 +381,11 @@ def run_installation(
     # has nothing to write back — without this capture the credentials would
     # silently disappear on every clean re-install at the same version.
     preserved_gateway = [None]
+    # Capture hermes dashboard port BEFORE set_installing() wipes the agent
+    # record. Re-install must not silently move the dashboard to a new port —
+    # the systemd unit was rendered against the original value and any open
+    # tunnels would break.
+    preserved_dashboard_port = [None]
 
     def set_installing(h: dict) -> dict:
         # Check for incomplete installation under lock (unless cleanup or resume)
@@ -442,6 +447,19 @@ def run_installation(
                 preserved_gateway[0] = (
                     h["agents"][chosen_name[0]].get("config", {}).get("gateway")
                 )
+            if claw_name == "hermes":
+                existing_port = (
+                    h["agents"][chosen_name[0]]
+                    .get("config", {})
+                    .get("dashboard", {})
+                    .get("port")
+                )
+                if (
+                    isinstance(existing_port, int)
+                    and not isinstance(existing_port, bool)
+                    and 0 < existing_port <= 65535
+                ):
+                    preserved_dashboard_port[0] = existing_port
             h["agents"][chosen_name[0]]["status"] = "installing"
             h["agents"][chosen_name[0]]["error"] = None
             h["agents"][chosen_name[0]]["version"] = matched_version  # Update version
@@ -467,6 +485,19 @@ def run_installation(
                         .get("config", {})
                         .get("gateway")
                     )
+                if claw_name == "hermes":
+                    existing_port = (
+                        h["agents"][chosen_name[0]]
+                        .get("config", {})
+                        .get("dashboard", {})
+                        .get("port")
+                    )
+                    if (
+                        isinstance(existing_port, int)
+                        and not isinstance(existing_port, bool)
+                        and 0 < existing_port <= 65535
+                    ):
+                        preserved_dashboard_port[0] = existing_port
 
             h["agents"][chosen_name[0]] = {
                 "type": claw_name,
@@ -532,6 +563,47 @@ def run_installation(
     port_hash = int(hashlib.md5(agent_name.encode()).hexdigest(), 16)
     openclaw_port = 40000 + (port_hash % 2000)
 
+    # Hermes dashboard port (issue #478 phase 2). Persisted to
+    # hosts.json.agents.<name>.config.dashboard.port so the web-ui resolver
+    # and `clm agent open` agree on the loopback port the dashboard binds to.
+    # On re-install we MUST preserve the existing port: the dashboard systemd
+    # unit was rendered against the original port and silently moving to a
+    # new value would break any running tunnels.
+    dashboard_port = None
+    if claw_name == "hermes":
+        # preserved_dashboard_port is captured inside set_installing() right
+        # before the agent record is wiped. Reading from `host` here would
+        # see the wiped record in test environments (where get_host returns
+        # the same dict that update_host mutates) and on the resume path.
+        if preserved_dashboard_port[0] is not None:
+            dashboard_port = preserved_dashboard_port[0]
+        else:
+            candidate = 45000 + (port_hash % 2000)
+            # Collision check: another agent on the same host may already own
+            # the candidate port. Bump by +1 (wrapping within the 45000..46999
+            # window) until free. Hash collisions are rare but possible
+            # because the openclaw port also uses md5(agent_name) % 2000.
+            used_ports: set[int] = set()
+            for other_key, other_agent in host.get("agents", {}).items():
+                if other_key == agent_name or not isinstance(other_agent, dict):
+                    continue
+                other_port = (
+                    other_agent.get("config", {})
+                    .get("dashboard", {})
+                    .get("port")
+                )
+                if isinstance(other_port, int) and not isinstance(other_port, bool):
+                    used_ports.add(other_port)
+            # Bounded loop: 2000-port window; even if every slot were taken
+            # we exit after 2000 iterations.
+            for _ in range(2000):
+                if candidate not in used_ports:
+                    break
+                candidate += 1
+                if candidate > 46999:
+                    candidate = 45000
+            dashboard_port = candidate
+
     # Generate auth token for gateway access
     import secrets
 
@@ -594,6 +666,11 @@ def run_installation(
             "port": 8642,
             "key": hermes_api_server_key,
         }
+        config["dashboard"] = {
+            "enabled": True,
+            "host": "127.0.0.1",
+            "port": dashboard_port,
+        }
 
     inventory = {
         "all": {
@@ -613,6 +690,7 @@ def run_installation(
                 "config": config,
                 "template_path": str(template_path),
                 "force_install": force,
+                "dashboard_port": dashboard_port,
                 **secret_vars,  # Inject secrets as ansible vars
             },
         }
@@ -911,6 +989,19 @@ def run_installation(
                         "enabled": True,
                         "host": "0.0.0.0",
                         "port": 8642,
+                    }
+
+                # Persist hermes dashboard shape so the web_ui resolver and
+                # `clm agent open` can read host/port without recomputing.
+                # Loopback-only — the SSH tunnel is the authentication
+                # boundary (issue #478).
+                if claw_name == "hermes" and dashboard_port is not None:
+                    if "config" not in h["agents"][agent_name]:
+                        h["agents"][agent_name]["config"] = {}
+                    h["agents"][agent_name]["config"]["dashboard"] = {
+                        "enabled": True,
+                        "host": "127.0.0.1",
+                        "port": dashboard_port,
                     }
             return h
 

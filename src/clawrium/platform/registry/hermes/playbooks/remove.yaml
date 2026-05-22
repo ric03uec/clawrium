@@ -8,6 +8,25 @@
         path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
       register: service_file
 
+    - name: Check if dashboard systemd unit exists
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ agent_type }}-dashboard-{{ agent_name }}.service"
+      register: dashboard_unit_file
+
+    - name: Stop hermes dashboard service if running
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-dashboard-{{ agent_name }}"
+        state: stopped
+      when: dashboard_unit_file.stat.exists
+      ignore_errors: yes
+
+    - name: Disable hermes dashboard service
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-dashboard-{{ agent_name }}"
+        enabled: no
+      when: dashboard_unit_file.stat.exists
+      ignore_errors: yes
+
     - name: Stop hermes service if running
       ansible.builtin.systemd:
         name: "{{ agent_type }}-{{ agent_name }}"
@@ -21,6 +40,12 @@
         enabled: no
       when: service_file.stat.exists
       ignore_errors: yes
+
+    - name: Remove dashboard systemd unit file
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ agent_type }}-dashboard-{{ agent_name }}.service"
+        state: absent
+      notify: Reload systemd
 
     - name: Remove systemd service file
       ansible.builtin.file:

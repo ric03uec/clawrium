@@ -316,6 +316,29 @@ def _run_lifecycle_playbook(
     except Exception:
         pass
 
+    extra_vars: dict[str, object] = {}
+
+    # Issue #478 phase 2: hermes start/stop/remove playbooks need to re-render
+    # the dashboard systemd unit, which requires the per-instance loopback
+    # port persisted at install time. Pull it from hosts.json on every
+    # lifecycle op so the unit stays consistent if `clm` is upgraded
+    # between install and the next restart. Absent for agents installed
+    # before this change — the playbook guards on `dashboard_port is defined`.
+    if _resolve_agent_type(agent_type) == "hermes":
+        agent_record = host.get("agents", {}).get(agent_name, {})
+        dashboard = (
+            agent_record.get("config", {}).get("dashboard", {})
+            if isinstance(agent_record, dict)
+            else {}
+        )
+        dashboard_port = dashboard.get("port") if isinstance(dashboard, dict) else None
+        if (
+            isinstance(dashboard_port, int)
+            and not isinstance(dashboard_port, bool)
+            and 0 < dashboard_port <= 65535
+        ):
+            extra_vars["dashboard_port"] = dashboard_port
+
     inventory = {
         "all": {
             "hosts": {
@@ -328,6 +351,7 @@ def _run_lifecycle_playbook(
             "vars": {
                 "agent_name": agent_name,
                 "agent_type": agent_type,
+                **extra_vars,
                 **secret_vars,
             },
         }
