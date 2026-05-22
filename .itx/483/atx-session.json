@@ -1,0 +1,48 @@
+{
+  "session_id": "da8e57bf-397b-41a6-9631-790c7f95c3d5",
+  "transport": "cli",
+  "commit_sha": "bf3e9ce868e3f868228fbf7005527d0207681824",
+  "iteration": 3,
+  "last_rating": 2,
+  "last_blockers": [],
+  "started_at": "2026-05-22T15:50:45Z",
+  "updated_at": "2026-05-22T16:25:00Z",
+  "history": [
+    {
+      "iteration": 1,
+      "task_id": "05e682f3-c63c-4227-b618-0faa9b346b08",
+      "rating": 2,
+      "blocking": true,
+      "blockers": ["B1", "B2", "B3", "B4", "B5"],
+      "cost_usd": 2.6105504,
+      "duration_s": 1534
+    },
+    {
+      "iteration": 2,
+      "task_id": "(in-place rerun via atx review)",
+      "rating": 3,
+      "blocking": false,
+      "blockers": [],
+      "cost_usd": 1.8469414,
+      "notes": "All five iteration-1 blockers (B1-B5) verified fixed. Remaining items flagged were pre-existing or new warnings (fd-leak in _write_state on os.fdopen failure; ActionResponse missing error field; LifecycleError detail forwarded)."
+    },
+    {
+      "iteration": 3,
+      "task_id": "da8e57bf-397b-41a6-9631-790c7f95c3d5",
+      "rating": 2,
+      "blocking": false,
+      "blockers_pre_existing_out_of_scope": [
+        "Rich-markup-injection sweep across ~24 pre-existing exception handlers in agent.py (configure/remove/start/stop/restart/sync/etc.) — not in PR diff",
+        "ActionResponse error field across all lifecycle hooks — pre-existing in HTTP contract"
+      ],
+      "fixes_applied_in_iteration_3": [
+        "Closed raw fd in _write_state on os.fdopen failure (no leak under EMFILE)",
+        "Sanitized TunnelError str(e) via _ABS_PATH_RE before returning to browser",
+        "Reaper now holds _LAST_ACCESS_LOCK across close() to eliminate ensure/reap race",
+        "useAgentActions.invalidate() now invalidates the agent-web-ui query key too"
+      ],
+      "cost_usd": 2.5390478,
+      "notes": "Iteration ceiling reached. Remaining unresolved items are pre-existing project-wide code paths not touched by this PR; documented as Callouts in PR body."
+    }
+  ]
+}

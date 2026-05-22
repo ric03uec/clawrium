@@ -215,6 +215,42 @@ clm agent remove <agent-name>    # stop, remove unit, rm ~/.hermes/, userdel
 
 ---
 
+## Native dashboard
+
+Hermes ships an upstream web dashboard alongside the API gateway. Phase 2 of issue #478 installs a second systemd unit (`hermes-dashboard-<agent-name>.service`) that binds `127.0.0.1:<port>` (loopback only — never `0.0.0.0`) on the agent host. The port is computed deterministically at install (`45000 + hash(agent_name) % 2000`, collision-bumped) and persisted to `hosts.json.agents.<name>.config.dashboard.port`.
+
+Open the dashboard from either surface:
+
+```bash
+# CLI — spawns an SSH local-port-forward and opens your default browser
+clm agent open <hermes-name>
+
+# Just print the URL (no tunnel, no browser)
+clm agent open <hermes-name> --print
+```
+
+In the GUI, every hermes agent dashboard has an **"Open Agent UI"** button in the header that opens the same URL in a new tab. Non-hermes agents do not see this button.
+
+### How the tunnel works (and why no token setup)
+
+The dashboard binds loopback on the agent host — it is **not reachable over the LAN**. `clm agent open` establishes:
+
+```
+your-machine:127.0.0.1:<random>  ──SSH-L──►  agent-host:127.0.0.1:<dashboard-port>
+```
+
+Authentication piggybacks on the SSH key Ansible already uses for the host. The dashboard itself has no password / bearer-token wall: anyone with shell access to the agent host (root or the agent's UNIX user) could already reach loopback directly, so adding an extra in-process auth layer would offer no real defense beyond what SSH already provides.
+
+State for each tunnel is persisted at `~/.config/clawrium/tunnels/<agent_key>.json` (PID, local port, SSH command-line signature). A second `clm agent open` for the same agent reuses the live tunnel rather than spawning a duplicate; the GUI does the same via the `/api/fleet/agents/{key}/web-ui` endpoint. Tunnels opened by the GUI auto-close after 30 minutes of inactivity (a reaper task runs every 5 minutes). CLI tunnels close on `Ctrl-C` (SIGINT), on SIGTERM (the CLI installs a SIGTERM handler that mirrors SIGINT cleanup), or when the `clm` process exits normally (`atexit`). A hard `kill -9 <pid>` (SIGKILL) cannot be caught and will leak the underlying `ssh` subprocess; the next `clm agent open` against the same agent will detect and evict the stale state via the PID + cmdline guard.
+
+If the dashboard is unreachable, the most common causes are:
+
+- `hermes-dashboard-<agent-name>.service` is not running — `clm agent start <name>` re-enables both gateway and dashboard units.
+- The host's SSH key has rotated and `ssh -i <key>` can no longer authenticate — re-run `clm host init <host>` to refresh.
+- Local-port conflict — the tunnel manager picks an ephemeral free port each time, so this should be rare; check `~/.config/clawrium/tunnels/<agent>.json` and remove it if stale.
+
+---
+
 ## Memory model
 
 Hermes ships a two-file Markdown memory backend at `~/.hermes/memories/`:
