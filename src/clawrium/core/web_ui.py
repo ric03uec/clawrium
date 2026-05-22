@@ -148,11 +148,15 @@ def resolve(agent_key: str) -> ResolvedUI | None:
         match = get_agent_by_name(agent_key)
     except ValueError as exc:
         # `get_agent_by_name` raises `ValueError` on ambiguous matches across
-        # hosts. We deliberately treat that as "no native UI available" rather
-        # than crashing — callers (CLI / GUI) render "not available" instead
-        # of a stack trace. A debug-level log preserves diagnosability without
-        # spamming production logs.
-        logger.debug("resolve(%s): suppressed ValueError: %s", agent_key, exc)
+        # hosts. We treat that as "no native UI available" rather than
+        # crashing — callers (CLI / GUI) render "not available" instead of
+        # a stack trace. Logged at WARNING so operators can act on it.
+        logger.warning(
+            "resolve(%s): agent name is ambiguous across multiple hosts — "
+            "use '<name>@<host>' to disambiguate (%s)",
+            agent_key,
+            exc,
+        )
         return None
 
     if match is None:
@@ -162,9 +166,18 @@ def resolve(agent_key: str) -> ResolvedUI | None:
 
     try:
         manifest = load_manifest(agent_type)
-    except (ManifestNotFoundError, ManifestParseError) as exc:
+    except ManifestNotFoundError as exc:
+        # Agent type with no bundled manifest — legitimate "no feature" path.
+        # Debug-level keeps production logs quiet.
         logger.debug(
-            "resolve(%s): manifest load failed for type %r: %s",
+            "resolve(%s): no manifest for type %r: %s", agent_key, agent_type, exc
+        )
+        return None
+    except ManifestParseError as exc:
+        # Corrupt manifest is operator-actionable — surface it.
+        logger.warning(
+            "resolve(%s): manifest for type %r is corrupted: %s — "
+            "run 'clm registry list' to verify",
             agent_key,
             agent_type,
             exc,

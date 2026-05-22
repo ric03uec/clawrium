@@ -1187,7 +1187,9 @@ def test_load_manifest_rejects_web_ui_bool_default_port(monkeypatch):
     [
         (-1, False),
         (0, False),
-        (1, True),
+        (1, False),  # privileged port rejected outright
+        (80, False),  # privileged port rejected outright
+        (1023, False),  # privileged port rejected outright
         (1024, True),
         (9119, True),
         (65535, True),
@@ -1196,7 +1198,13 @@ def test_load_manifest_rejects_web_ui_bool_default_port(monkeypatch):
     ],
 )
 def test_load_manifest_web_ui_default_port_boundaries(monkeypatch, port, is_valid):
-    """`default_port` accepts 1..65535 inclusive; everything else rejected."""
+    """`default_port` accepts 1024..65535 inclusive; everything else rejected.
+
+    Privileged ports (<1024) are rejected at manifest-load time because
+    non-root agent processes cannot bind them — `logger.warning` would be
+    invisible in the default uv-tool deployment, so a silent accept would
+    be a latent footgun.
+    """
     from clawrium.core import registry
 
     manifest = deepcopy(_valid_manifest())
@@ -1211,23 +1219,6 @@ def test_load_manifest_web_ui_default_port_boundaries(monkeypatch, port, is_vali
     else:
         with pytest.raises(ManifestParseError, match="features.web_ui.default_port"):
             load_manifest("openclaw")
-
-
-def test_load_manifest_warns_on_privileged_web_ui_port(monkeypatch, caplog):
-    """`default_port` in the privileged range emits a warning (but loads)."""
-    from clawrium.core import registry
-
-    manifest = deepcopy(_valid_manifest())
-    block = _valid_web_ui_block()
-    block["default_port"] = 80
-    manifest["features"] = {"web_ui": block}
-    monkeypatch.setattr(registry.yaml, "safe_load", lambda _: manifest)
-
-    with caplog.at_level("WARNING", logger="clawrium.core.registry"):
-        loaded = load_manifest("openclaw")
-
-    assert loaded["features"]["web_ui"]["default_port"] == 80
-    assert any("privileged web_ui.default_port" in rec.message for rec in caplog.records)
 
 
 def test_load_manifest_rejects_web_ui_non_dict(monkeypatch):

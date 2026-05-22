@@ -88,19 +88,41 @@ def test_resolve_missing_agent_returns_none(monkeypatch):
     assert resolve("ghost") is None
 
 
-def test_resolve_ambiguous_agent_returns_none(monkeypatch):
-    """Ambiguous name (matches multiple hosts) → swallowed to `None`.
+def test_resolve_ambiguous_agent_returns_none(monkeypatch, caplog):
+    """Ambiguous name (matches multiple hosts) → `None` and a WARNING log.
 
     `clm chat` and similar surfaces raise an interactive prompt for this
     case; the resolver returns `None` so the caller can render a static
-    "Native UI not available" rather than a stack trace.
+    "Native UI not available" rather than a stack trace. The log surfaces
+    the disambiguation hint to operators.
     """
 
     def raise_ambiguous(_key):
-        raise ValueError("ambiguous across hosts")
+        raise ValueError("ambiguous across hosts: demo@hostA, demo@hostB")
 
     monkeypatch.setattr(web_ui_module, "get_agent_by_name", raise_ambiguous)
-    assert resolve("dupe") is None
+    with caplog.at_level("WARNING", logger="clawrium.core.web_ui"):
+        assert resolve("dupe") is None
+    assert any("ambiguous" in rec.message for rec in caplog.records)
+
+
+def test_resolve_logs_warning_on_manifest_parse_error(monkeypatch, caplog):
+    """A corrupt manifest is operator-actionable → logged at WARNING."""
+    from clawrium.core.registry import ManifestParseError
+
+    def boom(_t):
+        raise ManifestParseError("corrupt manifest bytes")
+
+    monkeypatch.setattr(web_ui_module, "load_manifest", boom)
+    _patch_agent(
+        monkeypatch,
+        host=_host(),
+        agent_type="hermes",
+        agent_record={"agent_name": "demo", "type": "hermes", "config": {}},
+    )
+    with caplog.at_level("WARNING", logger="clawrium.core.web_ui"):
+        assert resolve("demo") is None
+    assert any("corrupted" in rec.message for rec in caplog.records)
 
 
 def test_resolve_empty_agent_key_returns_none():

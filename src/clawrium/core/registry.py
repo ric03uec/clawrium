@@ -559,20 +559,17 @@ def _validate_web_ui(web_ui_value: object, agent_type: str) -> WebUIFeatureConfi
     if (
         not isinstance(default_port, int)
         or isinstance(default_port, bool)
-        or default_port <= 0
+        or default_port < 1024
         or default_port > 65535
     ):
+        # Privileged ports (1..1023) are rejected outright — non-root agent
+        # processes cannot bind them, and `logger.warning` is invisible in
+        # the default uv-tool deployment, so a silent accept would be a
+        # latent footgun. Fail loudly at manifest-load time instead.
         _raise_parse_error(
             agent_type,
             "has invalid `features.web_ui.default_port` "
-            "(expected integer in 1..65535)",
-        )
-    if default_port < 1024:
-        logger.warning(
-            "Manifest for '%s' declares privileged web_ui.default_port=%d "
-            "(<1024). Non-root agent processes will fail to bind.",
-            agent_type,
-            default_port,
+            "(expected integer in 1024..65535)",
         )
 
     port_field = web_ui.get("port_field")
