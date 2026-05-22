@@ -63,6 +63,11 @@
     # to a pre-installed per-user systemd unit and exits 1 if that unit isn't
     # there — see `hermes gateway --help`). Phase 1's install.yaml dropped the
     # initial unit; configure.yaml owns the runtime ExecStart.
+    # ATX iter-2 blocker fix: re-rendering the gateway unit here MUST also
+    # carry `Also=<dashboard>` so a `clm agent configure` after install
+    # does not silently drop the directive set by install.yaml. Without
+    # this, `systemctl enable hermes-<name>` stops pulling the dashboard
+    # companion on every reconfigure.
     - name: Sync hermes systemd unit (Phase 2 ExecStart)
       ansible.builtin.copy:
         dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
@@ -85,7 +90,9 @@
 
           [Install]
           WantedBy=multi-user.target
+          Also={{ agent_type }}-dashboard-{{ agent_name }}.service
         mode: "0644"
+      no_log: true
       notify: Restart hermes service
 
     # Render ~/.hermes/.env (provider API key + API_SERVER_* + low-priority

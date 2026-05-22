@@ -2485,3 +2485,37 @@ def test_install_hermes_dashboard_port_preserved_on_reinstall(monkeypatch, tmp_p
 
     dashboard = get_host()["agents"]["hermes-reinstall"]["config"]["dashboard"]
     assert dashboard["port"] == custom_port
+
+
+def test_install_hermes_dashboard_port_pool_exhausted(monkeypatch, tmp_path):
+    """ATX iter-2 blocker: the for/else exhaustion sentinel at install.py
+    must raise InstallationError when all 2000 ports in 45000..46999 are
+    occupied. Without a test, a refactor that drops the sentinel would
+    silently re-introduce the colliding-port footgun (B1 in iter-1)."""
+    from clawrium.core.install import InstallationError
+
+    # Fill every slot in the allocation window.
+    preexisting = {
+        f"hermes-occ-{port}": {
+            "type": "hermes",
+            "version": "2026.5.7",
+            "status": "installed",
+            "config": {
+                "dashboard": {
+                    "enabled": True,
+                    "host": "127.0.0.1",
+                    "port": port,
+                }
+            },
+        }
+        for port in range(45000, 47000)
+    }
+
+    run_installation, _get_host, _calls, _ansible_calls = _hermes_install_scaffold(
+        monkeypatch, tmp_path, preexisting_agents=preexisting
+    )
+
+    import pytest
+
+    with pytest.raises(InstallationError, match="[Pp]ool exhausted"):
+        run_installation("hermes", "test-host", name="hermes-new")
