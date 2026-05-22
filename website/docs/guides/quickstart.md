@@ -277,5 +277,5 @@ clm agent logs my-assistant
 ```
 
 Common issues:
-- Invalid API key (re-run `clm agent configure my-assistant --stage provider`)
+- Invalid API key (re-run `clm agent configure my-assistant --stage providers`)
 - Port already in use (check with `clm agent status my-assistant`)
