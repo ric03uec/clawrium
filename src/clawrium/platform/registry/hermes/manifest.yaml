@@ -13,6 +13,15 @@ features:
   # Chat dispatch resolves to the OpenAI-compatible HTTP backend for hermes.
   chat:
     type: openai
+  # Native browser dashboard shipped by hermes upstream. Bound to loopback
+  # on the agent host; clm tunnels through SSH (see issue #478). `port_field`
+  # is the dotted path inside `hosts.json.agents.<name>.config` where the
+  # per-instance dashboard port is persisted at install time.
+  web_ui:
+    enabled: true
+    bind: loopback
+    default_port: 9119
+    port_field: dashboard.port
 
 # Secrets configuration.
 # All provider keys are optional: Phase 1 installs the binary in an inert state.
