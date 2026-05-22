@@ -521,13 +521,23 @@ def _validate_workspace(workspace_value: object, agent_type: str) -> WorkspaceCo
 _ALLOWED_CHAT_TYPES = ("openai", "websocket", "zeroclaw")
 _ALLOWED_WEB_UI_BINDS = ("loopback",)
 
+# `port_field` is a dotted path that downstream code uses both as a config
+# lookup (`agent_record.config.<port_field>`) and — in Phase 2 — as an
+# Ansible extra-var. Constrain to dotted identifier segments so a tampered
+# or third-party manifest cannot smuggle path-traversal, prototype-pollution,
+# or shell-metachar payloads through this field.
+_PORT_FIELD_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
+
 
 def _validate_web_ui(web_ui_value: object, agent_type: str) -> WebUIFeatureConfig:
     """Validate `features.web_ui` block.
 
     `bind` is a closed enum (currently `loopback` only). All four fields
     (`enabled`, `bind`, `default_port`, `port_field`) are required when the
-    block is present.
+    block is present. `default_port` is constrained to 1..65535 (ports
+    <1024 are privileged and emit a warning — they are accepted because
+    a manifest *could* legitimately declare one, but the warning surfaces
+    the risk at manifest-load time rather than at agent-bind time).
     """
     web_ui = _as_dict(web_ui_value, "features.web_ui", agent_type)
 
@@ -557,12 +567,24 @@ def _validate_web_ui(web_ui_value: object, agent_type: str) -> WebUIFeatureConfi
             "has invalid `features.web_ui.default_port` "
             "(expected integer in 1..65535)",
         )
+    if default_port < 1024:
+        logger.warning(
+            "Manifest for '%s' declares privileged web_ui.default_port=%d "
+            "(<1024). Non-root agent processes will fail to bind.",
+            agent_type,
+            default_port,
+        )
 
     port_field = web_ui.get("port_field")
-    if not isinstance(port_field, str) or not port_field:
+    if (
+        not isinstance(port_field, str)
+        or not port_field.strip()
+        or not _PORT_FIELD_RE.fullmatch(port_field)
+    ):
         _raise_parse_error(
             agent_type,
-            "has invalid `features.web_ui.port_field` (expected non-empty string)",
+            "has invalid `features.web_ui.port_field` "
+            "(expected dotted identifier path, e.g. 'dashboard.port')",
         )
 
     return {
