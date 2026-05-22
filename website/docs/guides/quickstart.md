@@ -131,9 +131,9 @@ Verify with:
 clm host list
 ```
 ```
-ALIAS      HOSTNAME         STATUS    CPU    MEMORY  GPU
-────────────────────────────────────────────────────────────
-homelab    192.168.1.100    online    4      16 GB   -
+Alias      Host            Architecture   Cores   Memory (GB)   Tags
+──────────────────────────────────────────────────────────────────────
+homelab    192.168.1.100   x86_64         4       16.0          -
 ```
 
 ## Step 5: Install the Agent
@@ -196,9 +196,7 @@ Stage 4/4: Validation
 ✓ Channels: CLI
 ✓ Configuration valid
 
-Save and start agent? [Y/n]: y
-✓ Configuration saved
-✓ Agent started
+Configuration complete. Run 'clm agent start my-assistant' to start your agent.
 ```
 
 ## Step 7: Check Fleet Status
@@ -277,5 +275,5 @@ clm agent logs my-assistant
 ```
 
 Common issues:
-- Invalid API key (re-run `clm agent configure my-assistant --stage provider`)
+- Invalid API key (re-run `clm agent configure my-assistant --stage providers`)
 - Port already in use (check with `clm agent status my-assistant`)

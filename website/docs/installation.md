@@ -104,7 +104,7 @@ Check the version:
 clm --version
 ```
 ```
-clm, version 26.5.4
+clm 26.5.4
 ```
 
 ## Initialize Clawrium
