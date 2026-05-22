@@ -106,6 +106,23 @@ def test_resolve_ambiguous_agent_returns_none(monkeypatch, caplog):
     assert any("ambiguous" in rec.message for rec in caplog.records)
 
 
+def test_resolve_returns_none_on_invalid_agent_type(monkeypatch):
+    """A tampered hosts.json with a path-traversal `type` value yields `None`."""
+    from clawrium.core.registry import InvalidAgentTypeError
+
+    def boom(_t):
+        raise InvalidAgentTypeError("path traversal in agent type")
+
+    monkeypatch.setattr(web_ui_module, "load_manifest", boom)
+    _patch_agent(
+        monkeypatch,
+        host=_host(),
+        agent_type="../evil",
+        agent_record={"agent_name": "demo", "type": "../evil", "config": {}},
+    )
+    assert resolve("demo") is None
+
+
 def test_resolve_logs_warning_on_manifest_parse_error(monkeypatch, caplog):
     """A corrupt manifest is operator-actionable → logged at WARNING."""
     from clawrium.core.registry import ManifestParseError

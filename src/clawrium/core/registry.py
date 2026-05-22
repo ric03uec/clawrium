@@ -534,10 +534,10 @@ def _validate_web_ui(web_ui_value: object, agent_type: str) -> WebUIFeatureConfi
 
     `bind` is a closed enum (currently `loopback` only). All four fields
     (`enabled`, `bind`, `default_port`, `port_field`) are required when the
-    block is present. `default_port` is constrained to 1..65535 (ports
-    <1024 are privileged and emit a warning — they are accepted because
-    a manifest *could* legitimately declare one, but the warning surfaces
-    the risk at manifest-load time rather than at agent-bind time).
+    block is present. `default_port` is constrained to 1024..65535 —
+    privileged ports (<1024) are rejected outright because non-root agent
+    processes cannot bind them. `port_field` must be a dotted identifier
+    path (e.g. `dashboard.port`).
     """
     web_ui = _as_dict(web_ui_value, "features.web_ui", agent_type)
 

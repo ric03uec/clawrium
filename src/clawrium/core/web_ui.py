@@ -23,6 +23,7 @@ from typing import Any, Literal
 
 from clawrium.core.hosts import get_agent_by_name
 from clawrium.core.registry import (
+    InvalidAgentTypeError,
     ManifestNotFoundError,
     ManifestParseError,
     load_manifest,
@@ -166,9 +167,11 @@ def resolve(agent_key: str) -> ResolvedUI | None:
 
     try:
         manifest = load_manifest(agent_type)
-    except ManifestNotFoundError as exc:
-        # Agent type with no bundled manifest — legitimate "no feature" path.
-        # Debug-level keeps production logs quiet.
+    except (ManifestNotFoundError, InvalidAgentTypeError) as exc:
+        # No manifest for this type, or the type itself was rejected by
+        # `validate_agent_type` (path traversal, invalid chars from a
+        # tampered hosts.json). Both are "no feature" from the resolver's
+        # perspective; keep at DEBUG to honour the None-return contract.
         logger.debug(
             "resolve(%s): no manifest for type %r: %s", agent_key, agent_type, exc
         )
@@ -194,6 +197,11 @@ def resolve(agent_key: str) -> ResolvedUI | None:
 
     config = agent_record.get("config") or {}
     persisted_port = _dotted_lookup(config, web_ui["port_field"])
+    # Persisted ports accepted down to 1 — the manifest validator forbids
+    # privileged default_port values, but a per-instance override that an
+    # operator manually wrote into hosts.json is resolved faithfully here;
+    # the bind attempt at agent-start time will surface any privilege
+    # problem with a clear OS error.
     if (
         isinstance(persisted_port, int)
         and not isinstance(persisted_port, bool)

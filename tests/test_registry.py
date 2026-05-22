@@ -1252,31 +1252,19 @@ def test_load_manifest_rejects_web_ui_missing_field(monkeypatch, missing_field):
     "bad_port_field",
     [
         "   ",  # whitespace-only
-        "secrets.api_key",  # would be valid identifier path but flagged downstream — see below
-        "..port",  # leading dot
-        "port..nested",  # double dot
+        "..port",  # leading double dot
+        "port..nested",  # double dot in middle
         ".port",  # leading dot
         "port.",  # trailing dot
         "port name",  # space in segment
-        "__proto__.x",  # double underscore prefix is fine; this one passes the regex actually
         "9port.x",  # leading digit in first segment
+        "port-name",  # hyphen not allowed
+        "port/x",  # slash (path traversal)
     ],
 )
 def test_load_manifest_rejects_web_ui_invalid_port_field_shape(monkeypatch, bad_port_field):
-    """`port_field` must be a dotted-identifier path (rejects shell metachars, leading digits, empty segments).
-
-    Note: `secrets.api_key` and `__proto__.x` are *valid* dotted-identifier
-    paths and therefore pass the shape check — defense-in-depth happens at
-    the consumer layer in Phase 2/3 (Ansible extra-vars use parameterized
-    var substitution, not string concatenation). This test fixes the
-    *shape* contract; semantic safety is a higher-layer concern.
-    """
+    """`port_field` must be a dotted-identifier path; everything else rejected."""
     from clawrium.core import registry
-
-    # Skip the two cases that are actually valid identifier paths — they exist
-    # in the parametrize list to document the contract boundary.
-    if bad_port_field in ("secrets.api_key", "__proto__.x"):
-        return
 
     manifest = deepcopy(_valid_manifest())
     block = _valid_web_ui_block()
@@ -1286,6 +1274,39 @@ def test_load_manifest_rejects_web_ui_invalid_port_field_shape(monkeypatch, bad_
 
     with pytest.raises(ManifestParseError, match="features.web_ui.port_field"):
         load_manifest("openclaw")
+
+
+@pytest.mark.parametrize(
+    "good_port_field",
+    [
+        "port",
+        "dashboard.port",
+        "deep.nested.path.port",
+        "_underscore",
+        "with_underscore.x",
+        "__proto__.x",  # valid identifier even if semantically odd
+        "secrets.api_key",  # valid identifier — semantic safety is a higher-layer concern
+    ],
+)
+def test_load_manifest_accepts_web_ui_valid_port_field_shape(monkeypatch, good_port_field):
+    """Dotted-identifier shapes pass validation regardless of segment names.
+
+    `secrets.api_key` and `__proto__.x` are deliberately on the accept list
+    to document the contract: this validator enforces *shape* only.
+    Semantic safety (don't smuggle secrets through this field) is the
+    consumer layer's job in Phase 2 — Ansible extra-vars use parameterized
+    var substitution, not string concatenation.
+    """
+    from clawrium.core import registry
+
+    manifest = deepcopy(_valid_manifest())
+    block = _valid_web_ui_block()
+    block["port_field"] = good_port_field
+    manifest["features"] = {"web_ui": block}
+    monkeypatch.setattr(registry.yaml, "safe_load", lambda _: manifest)
+
+    loaded = load_manifest("openclaw")
+    assert loaded["features"]["web_ui"]["port_field"] == good_port_field
 
 
 def test_allowed_web_ui_binds_matches_literal():
