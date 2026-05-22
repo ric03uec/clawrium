@@ -67,7 +67,18 @@ def test_hermes_install_playbook_creates_dashboard_unit():
         in content
     ), "Dashboard unit file path"
     assert "PartOf={{ agent_type }}-{{ agent_name }}.service" in content
-    assert "Also={{ agent_type }}-{{ agent_name }}.service" in content
+    # ATX W1: `Also=` lives on the gateway unit, not the dashboard unit
+    # — see install.yaml comment for why. Confirm the dashboard side
+    # does NOT carry an `Also=` to the gateway (which would be the
+    # silent-disable footgun).
+    assert "Also={{ agent_type }}-dashboard-{{ agent_name }}.service" in content, (
+        "Gateway unit must carry `Also=<dashboard>` so enabling the gateway "
+        "also enables the companion"
+    )
+    assert "Also={{ agent_type }}-{{ agent_name }}.service" not in content, (
+        "Dashboard unit must NOT carry `Also=<gateway>` — that would let "
+        "`systemctl disable dashboard` silently disable the gateway"
+    )
     assert "Environment=HERMES_DASHBOARD_TUI=1" in content
     assert "hermes dashboard --host 127.0.0.1" in content
     assert "--port {{ dashboard_port }}" in content
@@ -113,6 +124,37 @@ def test_hermes_stop_playbook_stops_dashboard_unit():
         "dashboard" in n.lower() and "stop" in n.lower() for n in names
     ), "stop.yaml must stop the dashboard unit"
     assert "{{ agent_type }}-dashboard-{{ agent_name }}" in content
+
+
+def test_hermes_stop_playbook_orders_dashboard_before_gateway():
+    """ATX W10: stop.yaml's own comment calls 'Stop dashboard FIRST' a
+    load-bearing design (in-flight requests must complete against a live
+    gateway). The order is a real invariant — pin it."""
+    content = _hermes_playbook("stop")
+    tasks = _tasks(content)
+    names = [t.get("name", "") for t in tasks]
+
+    def _find(predicate) -> int:
+        for i, n in enumerate(names):
+            if predicate(n):
+                return i
+        return -1
+
+    dashboard_stop_idx = _find(
+        lambda n: "dashboard" in n.lower() and "stop" in n.lower()
+        and "gracefully" in n.lower()
+    )
+    gateway_stop_idx = _find(
+        lambda n: "stop" in n.lower()
+        and "gracefully" in n.lower()
+        and "dashboard" not in n.lower()
+    )
+    assert dashboard_stop_idx >= 0, "no graceful dashboard-stop task found"
+    assert gateway_stop_idx >= 0, "no graceful gateway-stop task found"
+    assert dashboard_stop_idx < gateway_stop_idx, (
+        f"dashboard stop (idx {dashboard_stop_idx}) must precede "
+        f"gateway stop (idx {gateway_stop_idx})"
+    )
 
 
 def test_hermes_remove_playbook_removes_dashboard_unit():

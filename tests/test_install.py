@@ -2411,7 +2411,9 @@ def test_install_hermes_dashboard_port_persisted_to_hosts_json(
     assert result["success"] is True
 
     dashboard = get_host()["agents"]["hermes-persist"]["config"]["dashboard"]
-    assert dashboard["port"]
+    # ATX W9: truthy check would pass any nonzero int; assert the
+    # documented allocation window invariant.
+    assert 45000 <= dashboard["port"] <= 46999
 
     # The ansible inventory passed to the claw playbook (second `run`) must
     # carry `dashboard_port` so the playbook can render the unit file.

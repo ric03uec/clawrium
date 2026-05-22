@@ -310,6 +310,161 @@ class TestRunLifecyclePlaybook:
             "(ATX iter-5 NW-A / iter-6)"
         )
 
+    def _run_with_inventory_capture(
+        self,
+        tmp_path: Path,
+        host: dict,
+        agent_type: str,
+        agent_name: str,
+    ) -> dict:
+        """Helper: invoke _run_lifecycle_playbook with a stub ansible runner
+        and return the inventory dict the call would have passed to ansible.
+
+        Centralises the patch setup so the three injection tests below stay
+        focused on the inventory assertion they actually care about.
+        """
+        playbook_path = tmp_path / "start.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+
+        runner = MagicMock()
+        runner.status = "successful"
+        runner.events = []
+
+        with patch(
+            "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+            return_value=playbook_path,
+        ), patch(
+            "clawrium.core.lifecycle.get_host_private_key",
+            return_value=key_path,
+        ), patch(
+            "clawrium.core.lifecycle.ansible_runner.run",
+            return_value=runner,
+        ) as mock_run, patch(
+            "clawrium.core.lifecycle.get_config_dir",
+            return_value=tmp_path,
+        ), patch(
+            "clawrium.core.lifecycle.get_instance_secrets",
+            return_value={},
+        ), patch(
+            "clawrium.core.lifecycle.get_instance_key",
+            return_value="test-key",
+        ):
+            _run_lifecycle_playbook(
+                agent_type, agent_name, host["hostname"], "start", host
+            )
+
+        # ansible_runner.run is invoked as a keyword-only call in
+        # _run_lifecycle_playbook, so inventory lands in call_args.kwargs.
+        return mock_run.call_args.kwargs["inventory"]
+
+    def test_hermes_dashboard_port_injected_into_inventory(
+        self, tmp_path: Path
+    ):
+        """ATX B2: hermes agent with a valid dashboard.port in hosts.json
+        must surface it as `dashboard_port` in the ansible inventory so
+        start/stop/remove playbooks can re-render the unit file."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "her-test": {
+                    "type": "hermes",
+                    "config": {
+                        "dashboard": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 45100,
+                        }
+                    },
+                }
+            },
+        }
+        inventory = self._run_with_inventory_capture(
+            tmp_path, host, "hermes", "her-test"
+        )
+        assert inventory["all"]["vars"]["dashboard_port"] == 45100
+
+    def test_non_hermes_agent_does_not_get_dashboard_port(
+        self, tmp_path: Path
+    ):
+        """ATX B2: zeroclaw / openclaw / nemoclaw must NOT receive a
+        dashboard_port var. The agent-type guard is the only thing
+        preventing future playbook tasks guarded by `when: dashboard_port
+        is defined` from firing on the wrong claw."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "zer-test": {
+                    "type": "zeroclaw",
+                    # A bogus dashboard config that should be IGNORED for
+                    # non-hermes: regression guard against a refactor that
+                    # drops the agent-type check.
+                    "config": {"dashboard": {"port": 45100}},
+                }
+            },
+        }
+        inventory = self._run_with_inventory_capture(
+            tmp_path, host, "zeroclaw", "zer-test"
+        )
+        assert "dashboard_port" not in inventory["all"]["vars"]
+
+    def test_hermes_legacy_agent_no_dashboard_config_does_not_inject_port(
+        self, tmp_path: Path
+    ):
+        """ATX B2: a hermes agent installed before issue #482 has no
+        config.dashboard key at all. The injection path must fall through
+        cleanly — no AttributeError, no `dashboard_port: null` leak."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "her-legacy": {
+                    "type": "hermes",
+                    # Pre-#482 record: no `config` block at all.
+                }
+            },
+        }
+        inventory = self._run_with_inventory_capture(
+            tmp_path, host, "hermes", "her-legacy"
+        )
+        assert "dashboard_port" not in inventory["all"]["vars"]
+
+    def test_hermes_out_of_window_dashboard_port_rejected(self, tmp_path: Path):
+        """ATX W5: a tampered hosts.json with `dashboard.port = 80` must
+        NOT escape into the ansible inventory. Only ports in the documented
+        45000..46999 allocation window are propagated."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "her-tampered": {
+                    "type": "hermes",
+                    "config": {
+                        "dashboard": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 80,
+                        }
+                    },
+                }
+            },
+        }
+        inventory = self._run_with_inventory_capture(
+            tmp_path, host, "hermes", "her-tampered"
+        )
+        assert "dashboard_port" not in inventory["all"]["vars"]
+
 
 class TestStartClaw:
     """Tests for start_claw function."""

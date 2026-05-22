@@ -13,7 +13,9 @@
       when: not service_file.stat.exists
 
     # Re-render the unit (idempotent) so changes to ExecStart / WorkingDirectory
-    # via a clm upgrade are picked up without forcing a full reinstall.
+    # via a clm upgrade are picked up without forcing a full reinstall. The
+    # `Also=` directive on this unit (not the dashboard unit) is intentional
+    # — see install.yaml comments / ATX W1.
     - name: Sync systemd service file
       ansible.builtin.copy:
         dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
@@ -33,7 +35,9 @@
 
           [Install]
           WantedBy=multi-user.target
+          Also={{ agent_type }}-dashboard-{{ agent_name }}.service
         mode: "0644"
+      no_log: true
       register: service_file_changed
 
     - name: Reload systemd if service file changed
@@ -68,8 +72,8 @@
 
           [Install]
           WantedBy=multi-user.target
-          Also={{ agent_type }}-{{ agent_name }}.service
         mode: "0644"
+      no_log: true
       register: dashboard_file_changed
       when: dashboard_port is defined and (dashboard_port | string) | length > 0
 

@@ -332,10 +332,13 @@ def _run_lifecycle_playbook(
             else {}
         )
         dashboard_port = dashboard.get("port") if isinstance(dashboard, dict) else None
+        # ATX W5: restrict to the documented allocation window so a
+        # tampered hosts.json cannot inject a privileged or third-party
+        # port into the ansible inventory.
         if (
             isinstance(dashboard_port, int)
             and not isinstance(dashboard_port, bool)
-            and 0 < dashboard_port <= 65535
+            and 45000 <= dashboard_port <= 46999
         ):
             extra_vars["dashboard_port"] = dashboard_port
 

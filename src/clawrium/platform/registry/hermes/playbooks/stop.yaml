@@ -68,6 +68,19 @@
       changed_when: false
       failed_when: process_check.rc == 0
 
+    # ATX W7: dashboard runs as a separate `hermes dashboard ...` command
+    # (with its own node child process). The gateway pgrep above does not
+    # catch a stuck dashboard, so an operator who relies on `clm agent stop`
+    # could be left with the dashboard still bound to its loopback port.
+    # Only enforce when the dashboard unit is actually installed.
+    - name: Verify hermes dashboard process is stopped
+      ansible.builtin.command:
+        cmd: pgrep -u {{ agent_name }} -f "hermes dashboard"
+      register: dashboard_process_check
+      changed_when: false
+      failed_when: dashboard_process_check.rc == 0
+      when: dashboard_unit_file.stat.exists
+
     - name: Display success message
       ansible.builtin.debug:
         msg: "Hermes service {{ agent_type }}-{{ agent_name }} stopped and disabled. ~/.hermes/ preserved."

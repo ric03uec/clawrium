@@ -454,10 +454,13 @@ def run_installation(
                     .get("dashboard", {})
                     .get("port")
                 )
+                # ATX W5: restrict to the documented allocation window so a
+                # hand-edited hosts.json with `port: 80` cannot escape into
+                # the systemd ExecStart.
                 if (
                     isinstance(existing_port, int)
                     and not isinstance(existing_port, bool)
-                    and 0 < existing_port <= 65535
+                    and 45000 <= existing_port <= 46999
                 ):
                     preserved_dashboard_port[0] = existing_port
             h["agents"][chosen_name[0]]["status"] = "installing"
@@ -492,10 +495,11 @@ def run_installation(
                         .get("dashboard", {})
                         .get("port")
                     )
+                    # ATX W5: restrict to the documented allocation window.
                     if (
                         isinstance(existing_port, int)
                         and not isinstance(existing_port, bool)
-                        and 0 < existing_port <= 65535
+                        and 45000 <= existing_port <= 46999
                     ):
                         preserved_dashboard_port[0] = existing_port
 
@@ -594,14 +598,24 @@ def run_installation(
                 )
                 if isinstance(other_port, int) and not isinstance(other_port, bool):
                     used_ports.add(other_port)
-            # Bounded loop: 2000-port window; even if every slot were taken
-            # we exit after 2000 iterations.
+            # Bounded loop with `for/else` exhaustion sentinel: if every slot
+            # in the 45000..46999 window is taken we MUST raise rather than
+            # silently land on a colliding port (ATX B1). Without the
+            # sentinel the loop exits with `candidate in used_ports` still
+            # true and the install proceeds with a broken dashboard.
             for _ in range(2000):
                 if candidate not in used_ports:
                     break
                 candidate += 1
                 if candidate > 46999:
                     candidate = 45000
+            else:
+                raise InstallationError(
+                    "Dashboard port pool exhausted on "
+                    f"{host['hostname']} (all 2000 slots in "
+                    "45000-46999 are occupied). Remove unused hermes "
+                    "agents before installing another."
+                )
             dashboard_port = candidate
 
     # Generate auth token for gateway access
@@ -690,7 +704,15 @@ def run_installation(
                 "config": config,
                 "template_path": str(template_path),
                 "force_install": force,
-                "dashboard_port": dashboard_port,
+                # ATX W2: scope dashboard_port to hermes only. Unconditional
+                # injection puts `dashboard_port: null` in non-hermes
+                # inventories where `when: dashboard_port is defined`
+                # would silently evaluate True.
+                **(
+                    {"dashboard_port": dashboard_port}
+                    if dashboard_port is not None
+                    else {}
+                ),
                 **secret_vars,  # Inject secrets as ansible vars
             },
         }

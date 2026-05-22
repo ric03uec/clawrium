@@ -253,6 +253,14 @@
     # `clm agent start` before configure will start the unit, but hermes will
     # exit immediately because no provider is configured — documented in the
     # plan as expected behavior.
+    #
+    # `Also=` lives on the GATEWAY unit (this one), not the dashboard unit:
+    # systemd's `Also=` is symmetric on enable/disable, so the directive
+    # belongs on the unit whose lifecycle should pull the dependent. Enabling
+    # the gateway → enables the dashboard companion. Disabling the gateway
+    # → disables the dashboard. The reverse (disabling the dashboard alone)
+    # MUST NOT take the gateway down with it — that's why `Also=` is here
+    # and not on the dashboard side (ATX W1).
     - name: Create systemd service file (disabled, not started)
       ansible.builtin.copy:
         dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
@@ -272,15 +280,15 @@
 
           [Install]
           WantedBy=multi-user.target
+          Also={{ agent_type }}-dashboard-{{ agent_name }}.service
         mode: "0644"
+      no_log: true
       notify: Reload systemd
 
     # Companion dashboard unit. `PartOf=` makes systemd propagate stop/restart
-    # from the gateway unit to this one automatically. `Also=` in the gateway
-    # unit's [Install] would be the symmetric hook, but we keep the dashboard
-    # unit's own [Install] WantedBy=multi-user.target so `systemctl enable
-    # hermes-dashboard-<name>` is also valid as a standalone action. ExecStart
-    # binds to loopback only — the SSH tunnel is the authentication boundary.
+    # from the gateway unit to this one automatically. The gateway unit's
+    # `Also=` (above) is the symmetric enable/disable hook. ExecStart binds
+    # to loopback only — the SSH tunnel is the authentication boundary.
     - name: Create dashboard systemd service file (disabled, not started)
       ansible.builtin.copy:
         dest: "/etc/systemd/system/{{ agent_type }}-dashboard-{{ agent_name }}.service"
@@ -302,13 +310,16 @@
 
           [Install]
           WantedBy=multi-user.target
-          Also={{ agent_type }}-{{ agent_name }}.service
         mode: "0644"
+      no_log: true
       notify: Reload systemd
 
-    - name: Reload systemd to pick up unit file
-      ansible.builtin.systemd:
-        daemon_reload: yes
+    # ATX W6: eager daemon-reload removed. The two unit-file copy tasks
+    # above notify the `Reload systemd` handler; a flush_handlers ensures
+    # the reload runs before the success message (and any future tasks
+    # below) without firing twice when nothing changed.
+    - name: Flush handlers to apply systemd daemon-reload
+      ansible.builtin.meta: flush_handlers
 
     - name: Display install success
       ansible.builtin.debug:
