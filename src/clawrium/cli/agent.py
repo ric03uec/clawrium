@@ -38,6 +38,7 @@ from clawrium.core.onboarding import (
 __all__ = ["agent_app"]
 
 console = Console()
+err_console = Console(stderr=True)
 
 VALID_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
 
@@ -2692,6 +2693,159 @@ def sync(
     except KeyboardInterrupt:
         console.print("\nCancelled.")
         raise typer.Exit(code=1)
+
+
+def _host_is_local(host: str) -> bool:
+    """Heuristic: return True if ``host`` resolves to a loopback / local IP.
+
+    Used by ``clm agent open`` to skip the SSH tunnel when the agent runs
+    on the same machine as the CLI invocation. Conservative — anything we
+    cannot definitively classify as loopback returns False so we err on
+    the side of opening a tunnel.
+    """
+    import ipaddress
+
+    if not host:
+        return False
+    candidate = host.strip().lower()
+    if candidate in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+        return True
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        return False
+
+
+@agent_app.command(name="open")
+def open_ui(
+    claw_name: str = typer.Argument(..., help="Agent name to open the native UI for"),
+    print_url: bool = typer.Option(
+        False,
+        "--print",
+        help="Print the remote URL and exit; do not spawn a tunnel or open a browser.",
+    ),
+) -> None:
+    """Open an agent's native web UI in your default browser.
+
+    For remote agents this establishes an SSH local-port-forward tunnel to
+    the agent's loopback dashboard port and points your browser at the
+    local end of the tunnel. The tunnel runs until you Ctrl-C.
+
+    Only hermes agents expose a native UI today; running this against an
+    openclaw / zeroclaw agent prints a hard-error.
+    """
+    import signal
+    import webbrowser
+
+    from clawrium.core.health import ClawStatus, check_claw_health
+    from clawrium.core.web_ui import resolve as resolve_web_ui
+    from clawrium.core.web_ui_tunnel import (
+        TunnelError,
+        close as close_tunnel,
+        ensure as ensure_tunnel,
+    )
+
+    import threading
+
+    try:
+        hostname, host_data, claw_type, _, installed_name = _resolve_agent_instance(
+            claw_name
+        )
+    except AgentNameResolutionError as e:
+        err_console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        raise typer.Exit(code=1)
+    except HostsFileCorruptedError as e:
+        err_console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        raise typer.Exit(code=1)
+
+    if claw_type != "hermes":
+        err_console.print(
+            f"[red]Error:[/red] Native UI not supported for agent type "
+            f"'{rich_escape(claw_type)}'. Only hermes is supported in this release."
+        )
+        raise typer.Exit(code=1)
+
+    resolved = resolve_web_ui(installed_name)
+    if resolved is None:
+        err_console.print(
+            f"[red]Error:[/red] Agent '{rich_escape(installed_name)}' does not "
+            "declare a native web UI in its manifest."
+        )
+        raise typer.Exit(code=1)
+
+    remote_url = f"http://{resolved.host}:{resolved.remote_port}/"
+
+    if print_url:
+        # Machine-readable: bypass Rich entirely so a crafted hostname can't
+        # render markup, and stdout stays a clean URL for piping.
+        print(remote_url)
+        return
+
+    try:
+        health = check_claw_health(installed_name, host_data)
+    except Exception as e:  # noqa: BLE001 — best-effort probe; surface but don't crash
+        err_console.print(
+            f"[yellow]Warning:[/yellow] Could not verify agent status "
+            f"({rich_escape(str(e))}); proceeding."
+        )
+        health = None
+
+    if health and health["status"] not in (ClawStatus.READY, ClawStatus.RUNNING):
+        status_label = (
+            health["status"].value
+            if isinstance(health["status"], ClawStatus)
+            else str(health["status"])
+        )
+        err_console.print(
+            f"[red]Error:[/red] Agent '{rich_escape(installed_name)}' is not "
+            f"running (status: {rich_escape(status_label)}). "
+            f"Try: clm agent start {rich_escape(installed_name)}"
+        )
+        raise typer.Exit(code=1)
+
+    if _host_is_local(resolved.host):
+        local_url = f"http://127.0.0.1:{resolved.remote_port}/"
+        console.print(
+            f"[green]Opening native UI for[/green] {rich_escape(installed_name)} "
+            f"(local agent, no tunnel needed)"
+        )
+        console.print(f"  URL: {rich_escape(local_url)}")
+        webbrowser.open(local_url)
+        return
+
+    try:
+        local_port = ensure_tunnel(installed_name)
+    except TunnelError as e:
+        err_console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        raise typer.Exit(code=1)
+
+    local_url = f"http://127.0.0.1:{local_port}/"
+    console.print(
+        f"[green]Opening native UI for[/green] {rich_escape(installed_name)}"
+    )
+    console.print(f"  Local port: {local_port}")
+    console.print(f"  URL: {rich_escape(local_url)}")
+    console.print("  Press Ctrl-C to close the tunnel and exit.")
+    webbrowser.open(local_url)
+
+    # threading.Event is portable; signal.pause() is POSIX-only. SIGINT
+    # (Ctrl-C) and SIGTERM both flip the event so SIGTERM-from-shell also
+    # cleans up the tunnel instead of orphaning the ssh subprocess.
+    stop_event = threading.Event()
+
+    def _on_signal(signum: int, frame: object) -> None:
+        del signum, frame
+        stop_event.set()
+
+    prev_int = signal.signal(signal.SIGINT, _on_signal)
+    prev_term = signal.signal(signal.SIGTERM, _on_signal)
+    try:
+        stop_event.wait()
+    finally:
+        signal.signal(signal.SIGINT, prev_int)
+        signal.signal(signal.SIGTERM, prev_term)
+        close_tunnel(installed_name)
+        console.print("\n[green]Tunnel closed.[/green]")
 
 
 @agent_app.command()

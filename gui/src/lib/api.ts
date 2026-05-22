@@ -65,6 +65,8 @@ export const api = {
   getFleetHealth: (signal?: AbortSignal) =>
     request<FleetHealthResponse>("/fleet/health", { signal }),
   getAgent: (key: string) => request<AgentDetail>(`/fleet/agents/${key}`),
+  getAgentWebUI: (key: string) =>
+    request<WebUIResponse>(`/fleet/agents/${key}/web-ui`),
   startAgent: (key: string) => request<ActionResponse>(`/agents/${key}/start`, { method: "POST" }),
   stopAgent: (key: string) => request<ActionResponse>(`/agents/${key}/stop`, { method: "POST" }),
   restartAgent: (key: string) => request<ActionResponse>(`/agents/${key}/restart`, { method: "POST" }),
@@ -253,6 +255,7 @@ import type {
   FleetHealthResponse,
   AgentDetail,
   ActionResponse,
+  WebUIResponse,
   TopologyResponse,
   Provider,
   ProviderTypesMap,

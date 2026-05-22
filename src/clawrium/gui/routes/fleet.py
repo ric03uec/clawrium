@@ -8,6 +8,7 @@ async-safe thread offloading for SSH-based health checks.
 import asyncio
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -20,6 +21,8 @@ from clawrium.cli.tui.data import (
     get_fleet_data_local,
     load_hosts_safe,
 )
+from clawrium.core import web_ui as web_ui_module
+from clawrium.core import web_ui_tunnel
 from clawrium.core.health import ClawStatus
 from clawrium.core.lifecycle import (
     LifecycleError,
@@ -53,6 +56,27 @@ _ABS_PATH_RE = re.compile(r"(?:/[\w.\-]+)+")
 
 # Generic error message for lifecycle operations to avoid path leakage
 _LIFECYCLE_GENERIC_ERROR = "Lifecycle operation failed. Check server logs."
+
+# Per-agent last-access timestamp for the GUI web-ui tunnel reaper. Keys
+# are agent_key strings; values are wall-clock unix seconds from the most
+# recent /web-ui hit. The reaper task in server.py reads this map.
+_LAST_ACCESS_LOCK = asyncio.Lock()
+WEB_UI_LAST_ACCESS: dict[str, float] = {}
+
+
+def _host_is_local(host: str) -> bool:
+    """Same heuristic as the CLI helper. Loopback / localhost only."""
+    import ipaddress
+
+    if not host:
+        return False
+    candidate = host.strip().lower()
+    if candidate in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+        return True
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        return False
 
 
 def _sanitize_health_error(error: str | None) -> str | None:
@@ -268,3 +292,108 @@ async def restart_agent_endpoint(agent_key: str):
         raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR)
 
 
+@router.get("/fleet/agents/{agent_key}/web-ui")
+async def agent_web_ui(agent_key: str) -> dict[str, Any]:
+    """Resolve / establish the native-UI tunnel for an agent.
+
+    Returns ``{ available, local_url, reason }``. ``available: true`` means
+    a tunnel is up (or the agent is local) and ``local_url`` points at the
+    browser-openable URL. ``available: false`` carries a human-readable
+    ``reason`` (e.g. agent type does not expose a UI, agent not running).
+    404 is returned only when the agent cannot be found at all.
+    """
+    resolved_match = await asyncio.to_thread(resolve_agent, agent_key)
+    if resolved_match is None:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+    _host_record, agent_type, _agent_record = resolved_match
+
+    ui = await asyncio.to_thread(web_ui_module.resolve, agent_key)
+    if ui is None:
+        return {
+            "available": False,
+            "local_url": None,
+            "reason": (
+                f"Agent type '{agent_type}' does not expose a native web UI."
+            ),
+        }
+
+    if _host_is_local(ui.host):
+        # Local agents don't need a tunnel, so we deliberately do NOT stamp
+        # WEB_UI_LAST_ACCESS here (ATX suggestion: keep the reaper map
+        # focused on tunneled agents only).
+        return {
+            "available": True,
+            "local_url": f"http://127.0.0.1:{ui.remote_port}/",
+            "reason": None,
+        }
+
+    try:
+        local_port = await asyncio.to_thread(web_ui_tunnel.ensure, agent_key)
+    except web_ui_tunnel.TunnelError as e:
+        logger.warning("web-ui tunnel failed for %s: %s", agent_key, e)
+        # TunnelError messages may contain ssh stderr that includes
+        # filesystem paths; reuse the existing path-redaction regex so
+        # nothing internal leaks to the browser body.
+        return {
+            "available": False,
+            "local_url": None,
+            "reason": _ABS_PATH_RE.sub("<path>", str(e)),
+        }
+    except Exception:  # noqa: BLE001 — log full trace, return generic message
+        logger.error("web-ui tunnel unexpected error for %s", agent_key, exc_info=True)
+        return {
+            "available": False,
+            "local_url": None,
+            "reason": "Internal error establishing tunnel; see server logs.",
+        }
+
+    async with _LAST_ACCESS_LOCK:
+        WEB_UI_LAST_ACCESS[agent_key] = time.time()
+
+    return {
+        "available": True,
+        "local_url": f"http://127.0.0.1:{local_port}/",
+        "reason": None,
+    }
+
+
+async def reap_idle_tunnels(threshold_seconds: float = 1800.0) -> int:
+    """Close tunnels that have been idle longer than ``threshold_seconds``.
+
+    Returns the number of tunnels closed. The reaper task in
+    ``gui.server`` calls this every 5 minutes. The lock guards the
+    in-memory access map against the /web-ui handler bumping a timestamp
+    mid-sweep; the tunnel close itself is best-effort.
+
+    ATX W6: re-check each candidate under the lock immediately before
+    calling ``close()``. A concurrent ``/web-ui`` request could re-stamp
+    a key between the initial pop and the close — without the recheck
+    we would kill a brand-new tunnel.
+    """
+    closed = 0
+    now = time.time()
+    async with _LAST_ACCESS_LOCK:
+        stale = [
+            key
+            for key, ts in WEB_UI_LAST_ACCESS.items()
+            if (now - ts) > threshold_seconds
+        ]
+        for key in stale:
+            WEB_UI_LAST_ACCESS.pop(key, None)
+    for key in stale:
+        # Hold the access-map lock across the close() call. The /web-ui
+        # handler stamps the map only after ensure() returns, so holding
+        # this lock keeps a fresh access stamp from landing mid-close.
+        # ensure() itself uses a different mutex (per-key) and may run
+        # concurrently — that's fine: the worst case is we kill a tunnel
+        # whose ensure() finished but whose handler hadn't stamped yet,
+        # in which case the next /web-ui call rebuilds the tunnel.
+        async with _LAST_ACCESS_LOCK:
+            if key in WEB_UI_LAST_ACCESS:
+                continue
+            try:
+                await asyncio.to_thread(web_ui_tunnel.close, key)
+                closed += 1
+            except Exception:  # noqa: BLE001
+                logger.debug("reaper close failed for %s", key, exc_info=True)
+    return closed

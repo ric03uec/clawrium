@@ -70,6 +70,12 @@ export interface ActionResponse {
   agent: string;
 }
 
+export interface WebUIResponse {
+  available: boolean;
+  local_url: string | null;
+  reason: string | null;
+}
+
 // Topology types
 export interface TopologyResponse {
   control: TopologyControl;

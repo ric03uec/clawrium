@@ -1,9 +1,9 @@
 "use client";
 
-import { AgentDetail, AgentStatus } from "@/lib/types";
+import { AgentDetail } from "@/lib/types";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Button } from "@/components/ui/button";
-import { useAgentActions } from "@/hooks";
+import { useAgentActions, useAgentWebUI } from "@/hooks";
 
 interface AgentHeaderProps {
   agent: AgentDetail;
@@ -13,6 +13,11 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
   const { start, stop, restart } = useAgentActions(agent.agent_key);
   const isRunning = agent.status === "running";
   const isStopped = agent.status === "stopped";
+
+  // Native UI button is hermes-only today. The hook is a no-op for other
+  // agent types (enabled flag in useAgentWebUI gates the fetch).
+  const showWebUI = agent.agent_type === "hermes";
+  const webUI = useAgentWebUI(agent.agent_key, agent.agent_type, agent.status);
 
   return (
     <div className="bg-white rounded-xl border border-default p-6 shadow-sm">
@@ -31,6 +36,40 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          {showWebUI && (() => {
+            const tooltip = webUI.isLoading
+              ? "Establishing tunnel..."
+              : webUI.isError
+                ? "Could not reach backend — will retry."
+                : webUI.data?.available
+                  ? "Open the native dashboard in a new tab"
+                  : webUI.data?.reason || "Native UI not available";
+            return (
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={
+                  webUI.isLoading ||
+                  webUI.isError ||
+                  !webUI.data?.available ||
+                  !webUI.data?.local_url
+                }
+                onClick={() => {
+                  if (webUI.data?.local_url) {
+                    window.open(
+                      webUI.data.local_url,
+                      "_blank",
+                      "noopener,noreferrer",
+                    );
+                  }
+                }}
+                title={tooltip}
+                aria-label={tooltip}
+              >
+                {webUI.isLoading ? "Opening..." : "Open Agent UI"}
+              </Button>
+            );
+          })()}
           {isStopped && (
             <Button
               variant="primary"

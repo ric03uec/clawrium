@@ -101,6 +101,17 @@ Rules (issue #437):
   whenever the bearer is overwritten. The CLI renders it as a yellow
   notice during `configure`/`sync`/`restart`.
 
+## Hermes Native Dashboard (issue #478)
+
+Hermes is the only agent type that ships a native web UI today. Two systemd units run side-by-side on the agent host:
+
+- `hermes-<agent_name>.service` — the OpenAI-compatible API gateway (the existing unit).
+- `hermes-dashboard-<agent_name>.service` — the SPA dashboard, with `PartOf=hermes-<agent_name>.service` and `Also=hermes-<agent_name>.service` in `[Install]`. systemd propagates stop/restart of the gateway to the dashboard automatically; we explicitly `enable` the dashboard unit on first start.
+
+The dashboard binds `127.0.0.1:<port>` only — never `0.0.0.0`. There is no in-process auth: the **SSH key Ansible already uses for the host is the auth boundary**. Anyone with shell access to the agent host could reach loopback directly, so layering a token wall on top would not raise the security floor.
+
+`clm agent open <hermes-name>` (CLI) and the GUI's **Open Agent UI** button both rely on the same loopback-bound dashboard. The tunnel manager at `src/clawrium/core/web_ui_tunnel.py` is idempotent — a second invocation for a live tunnel reuses the existing local port (state at `~/.config/clawrium/tunnels/<agent_key>.json`, PID + cmdline-guarded). The GUI auto-reaps tunnels idle > 30 minutes; CLI tunnels close on `Ctrl-C` or process exit.
+
 ## Tech Stack
 
 - **CLI**: Python + Typer

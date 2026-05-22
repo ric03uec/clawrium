@@ -4,12 +4,17 @@ Serves the static Next.js frontend and provides REST API
 endpoints for fleet management, token tracking, and chat.
 """
 
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 
+from clawrium.core import web_ui_tunnel
 from clawrium.gui.routes import (
     agents,
     fleet,
@@ -21,10 +26,58 @@ from clawrium.gui.routes import (
     usage,
 )
 
+logger = logging.getLogger(__name__)
+
+# Reaper cadence. The web-ui /web-ui handler stamps a per-agent last-access
+# timestamp; this task sweeps the map every 5 minutes and closes any tunnel
+# that has been idle for more than 30 minutes.
+WEB_UI_REAPER_INTERVAL_S = 300.0
+WEB_UI_REAPER_THRESHOLD_S = 1800.0
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """App lifespan: start the web-ui tunnel reaper, drain on shutdown."""
+
+    async def _reaper_loop() -> None:
+        while True:
+            try:
+                await asyncio.sleep(WEB_UI_REAPER_INTERVAL_S)
+                closed = await fleet.reap_idle_tunnels(WEB_UI_REAPER_THRESHOLD_S)
+                if closed:
+                    logger.info("web-ui reaper closed %d idle tunnel(s)", closed)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 — keep the loop alive
+                logger.exception("web-ui reaper iteration failed")
+
+    task = asyncio.create_task(_reaper_loop(), name="web-ui-reaper")
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
+        # close() does a SIGTERM→busy-wait→SIGKILL dance that can block up
+        # to ~2 s per tunnel. Run sequentially via asyncio.to_thread so the
+        # event loop isn't blocked and uvicorn's graceful-shutdown budget
+        # isn't exceeded when multiple tunnels are open.
+        keys = list(fleet.WEB_UI_LAST_ACCESS.keys())
+        for key in keys:
+            try:
+                await asyncio.to_thread(web_ui_tunnel.close, key)
+            except Exception:  # noqa: BLE001
+                logger.debug("shutdown close failed for %s", key, exc_info=True)
+        fleet.WEB_UI_LAST_ACCESS.clear()
+
+
 app = FastAPI(
     title="Clawrium GUI",
     description="Local web dashboard for AI assistant fleet management",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
