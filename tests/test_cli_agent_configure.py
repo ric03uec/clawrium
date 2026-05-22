@@ -3643,6 +3643,7 @@ class TestRunChannelsStageZeroclaw:
                 self._VALID_TOKEN,             # Bot token
                 "740723459344302120",          # Allowed user IDs
                 "987654321098765432",          # Allowed guild IDs
+                "partial",                     # Discord stream mode
             ]
             result = _run_channels_stage(
                 "192.168.1.100", "zeroclaw", False, "assistant"
@@ -3657,6 +3658,7 @@ class TestRunChannelsStageZeroclaw:
         assert cfg["allowed_users"] == ["740723459344302120"]
         assert cfg["allowed_guilds"] == ["987654321098765432"]
         assert cfg["require_mention"] is True
+        assert cfg["stream_mode"] == "partial"
 
         # OpenClaw nested keys MUST NOT appear (would silently disable the
         # template's [channels.discord] block because bot_token gate fails
@@ -3706,6 +3708,7 @@ class TestRunChannelsStageZeroclaw:
                 self._VALID_TOKEN,             # bot token
                 "",                            # empty allowed users
                 "",                            # empty allowed guilds
+                "partial",                     # stream mode
             ]
             result = _run_channels_stage(
                 "192.168.1.100", "zeroclaw", False, "assistant"
@@ -3941,6 +3944,7 @@ class TestRunChannelsStageZeroclaw:
                 self._VALID_TOKEN,
                 "740723459344302120",
                 "",
+                "partial",                     # stream mode
             ]
             result = _run_channels_stage(
                 "192.168.1.100", "zeroclaw", False, "assistant"
@@ -3953,4 +3957,210 @@ class TestRunChannelsStageZeroclaw:
             "Token must be stored BEFORE sync so lifecycle.configure_agent's "
             "hydration block can find it (ATX Round 3 B2 deadlock)."
         )
+
+    def test_zeroclaw_discord_stream_mode_invalid_rejected(
+        self, isolated_config: Path
+    ):
+        """#468: stream_mode is constrained to off/partial/multi_message.
+        Any other string (case-insensitive match after strip+lower) must
+        fail loudly so a typo doesn't silently fall back to upstream's
+        "off" default and bring back the "chat stuck until done" symptom."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config"),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,
+                self._VALID_TOKEN,
+                "740723459344302120",
+                "",
+                "streamy",  # invalid
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is False
+
+    def test_zeroclaw_discord_stream_mode_multi_message_persists_delay(
+        self, isolated_config: Path
+    ):
+        """When stream_mode = multi_message, the wizard prompts for the
+        per-message delay and persists it. Verifies the conditional prompt
+        branch fires + the field lands in synced channels_config."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(_host, _claw, channels_config, _name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,
+                self._VALID_TOKEN,
+                "740723459344302120",
+                "",
+                "multi_message",
+                "15000",
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is True
+        assert synced[0]["discord"]["stream_mode"] == "multi_message"
+        assert synced[0]["discord"]["multi_message_delay_ms"] == 15000
+
+    def test_zeroclaw_discord_stream_mode_off_skips_delay_prompt(
+        self, isolated_config: Path
+    ):
+        """stream_mode = "off" or "partial" must NOT prompt for
+        multi_message_delay_ms — that field is only meaningful in
+        multi_message mode. A regression that prompts unconditionally would
+        consume an extra mock value and raise StopIteration here."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(_host, _claw, channels_config, _name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,
+                self._VALID_TOKEN,
+                "740723459344302120",
+                "",
+                "off",
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is True
+        assert synced[0]["discord"]["stream_mode"] == "off"
+        assert "multi_message_delay_ms" not in synced[0]["discord"]
+
+    def test_zeroclaw_discord_multi_message_delay_out_of_bounds_rejected(
+        self, isolated_config: Path
+    ):
+        """Wizard bounds the delay to 10000–60000 ms. Values below the
+        floor (e.g. 5000 ms) must fail — Discord enforces ~5 messages / 5s
+        per channel, so anything tighter than ~1s/msg risks 429s on long
+        multi-paragraph responses; the 10s floor leaves a comfortable
+        headroom."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config"),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,
+                self._VALID_TOKEN,
+                "740723459344302120",
+                "",
+                "multi_message",
+                "5000",  # below 10000 ms floor
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is False
+
+    def test_zeroclaw_discord_stream_mode_case_insensitive(
+        self, isolated_config: Path
+    ):
+        """The wizard lower-cases the stream_mode input before validating.
+        "PARTIAL" must succeed and persist as "partial". Catches a
+        regression where the .lower() is dropped."""
+        from clawrium.cli.agent import _run_channels_stage
+
+        create_test_keypair(isolated_config, "work")
+        create_host_with_claw(
+            isolated_config,
+            claw_type="zeroclaw",
+            onboarding_state="channels",
+            config={"provider": {"name": "test-provider", "type": "anthropic"}},
+        )
+
+        synced: list[dict] = []
+
+        def capture_sync(_host, _claw, channels_config, _name):
+            synced.append(channels_config)
+
+        with (
+            patch("clawrium.cli.agent.typer.prompt") as mock_p,
+            patch("clawrium.cli.agent.typer.confirm", return_value=True),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
+            patch("clawrium.core.secrets.set_instance_secret"),
+            patch("clawrium.cli.agent.complete_stage"),
+        ):
+            mock_p.side_effect = [
+                2,
+                self._VALID_TOKEN,
+                "740723459344302120",
+                "",
+                "PARTIAL",
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "zeroclaw", False, "assistant"
+            )
+
+        assert result is True
+        assert synced[0]["discord"]["stream_mode"] == "partial"
 

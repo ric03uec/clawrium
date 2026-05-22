@@ -114,16 +114,23 @@ max_tool_result_chars = 200000
 max_history_messages = 200
 keep_tool_context_turns = 8
 
-{# --- Discord channel (#422) -----------------------------------------------
-   ZeroClaw v0.7.5 schema per docs/book/src/channels/chat-others.md:
+{# --- Discord channel (#422, stream_mode added in #468) --------------------
+   ZeroClaw v0.7.5 schema per docs/book/src/channels/chat-others.md +
+   providers/streaming.md + upstream issue zeroclaw-labs/zeroclaw#4452:
      [channels.discord]
      enabled, bot_token, allowed_guilds, allowed_users,
-     reply_to_mentions_only, draft_update_interval_ms
+     reply_to_mentions_only, draft_update_interval_ms,
+     stream_mode, multi_message_delay_ms
    bot_token is inline TOML (NOT an env var) — distinct from hermes which
    reads DISCORD_BOT_TOKEN from .env. The token is hydrated into
    config.channels.discord.bot_token by lifecycle.configure_agent before this
    template runs (mirrors the hermes hydration path; same secrets.json key
    DISCORD_BOT_TOKEN).
+
+   stream_mode governs whether long turns surface mid-turn progress to
+   Discord. Upstream default is "off" (silent until the final reply lands),
+   which is the symptom #468 tracked. Valid values: "off", "partial",
+   "multi_message". The wizard defaults new agents to "partial".
 
    Hermes-wizard fields with no upstream zeroclaw equivalent are dropped
    silently here: home_channel, home_channel_name, home_channel_thread_id,
@@ -161,6 +168,20 @@ allowed_users = []
 reply_to_mentions_only = {{ _discord.get('require_mention', true) | bool | lower }}
 {% if _discord.get('draft_update_interval_ms') %}
 draft_update_interval_ms = {{ _discord.get('draft_update_interval_ms') | int }}
+{% endif %}
+{# stream_mode (#468): emitted only when set. The daemon defaults to
+   "off" when the key is absent, which is the "chat stuck until done"
+   symptom. Wizard prompts default new agents to "partial". Valid values
+   are constrained by the wizard but toml_escape is still applied so a
+   hand-edited hosts.json can't inject TOML structure via this field. #}
+{% if _discord.get('stream_mode') %}
+stream_mode = "{{ toml_escape(_discord.get('stream_mode')) }}"
+{% endif %}
+{# multi_message_delay_ms is only consulted when stream_mode = "multi_message".
+   Same falsy-zero behaviour as draft_update_interval_ms — value 0 is
+   dropped so the daemon's compiled-in default applies. #}
+{% if _discord.get('multi_message_delay_ms') %}
+multi_message_delay_ms = {{ _discord.get('multi_message_delay_ms') | int }}
 {% endif %}
 {% endif %}
 

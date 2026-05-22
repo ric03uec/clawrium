@@ -652,6 +652,103 @@ class TestChannelsDiscordBlock:
         )
         assert 'bot_token = "tok\\"with\\"quote\\\\and\\\\bs"' in rendered
 
+    def test_discord_stream_mode_omitted_when_unset(self):
+        """#468: stream_mode is only rendered when explicitly set so the
+        daemon's compiled-in default ("off") applies for legacy hosts.json
+        records that predate the field."""
+        rendered = _render_with_channels_and_integrations(
+            channels={
+                "discord": {
+                    "enabled": True,
+                    "bot_token": "DUMMY",
+                }
+            },
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        assert "stream_mode" not in rendered
+
+    def test_discord_stream_mode_partial_rendered(self):
+        """#468 happy path: stream_mode = "partial" surfaces mid-turn
+        progress on long tool sequences."""
+        rendered = _render_with_channels_and_integrations(
+            channels={
+                "discord": {
+                    "enabled": True,
+                    "bot_token": "DUMMY",
+                    "stream_mode": "partial",
+                }
+            },
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        assert 'stream_mode = "partial"' in rendered
+
+    def test_discord_stream_mode_multi_message_rendered(self):
+        """The third valid value alongside off/partial. Pinning the exact
+        emitted form so the daemon parses it as a string literal, not a
+        bare identifier."""
+        rendered = _render_with_channels_and_integrations(
+            channels={
+                "discord": {
+                    "enabled": True,
+                    "bot_token": "DUMMY",
+                    "stream_mode": "multi_message",
+                }
+            },
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        assert 'stream_mode = "multi_message"' in rendered
+
+    def test_discord_stream_mode_toml_escaped(self):
+        """The wizard constrains stream_mode to off/partial/multi_message,
+        but a hand-edited hosts.json could ship anything. toml_escape on
+        the value prevents a `"; injected = "evil` payload from breaking
+        out of the basic string into a top-level TOML statement."""
+        rendered = _render_with_channels_and_integrations(
+            channels={
+                "discord": {
+                    "enabled": True,
+                    "bot_token": "DUMMY",
+                    "stream_mode": 'partial"\ninjected = "evil',
+                }
+            },
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        for line in rendered.splitlines():
+            assert not line.strip().startswith("injected"), (
+                f"stream_mode value broke out of TOML basic string: {line!r}"
+            )
+
+    def test_discord_multi_message_delay_ms_rendered(self):
+        rendered = _render_with_channels_and_integrations(
+            channels={
+                "discord": {
+                    "enabled": True,
+                    "bot_token": "DUMMY",
+                    "stream_mode": "multi_message",
+                    "multi_message_delay_ms": 1200,
+                }
+            },
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        assert "multi_message_delay_ms = 1200" in rendered
+
+    def test_discord_multi_message_delay_ms_zero_omitted(self):
+        """Symmetric to draft_update_interval_ms — the falsy-guard drops
+        zero so the daemon's default applies. Pinning so any future change
+        is intentional."""
+        rendered = _render_with_channels_and_integrations(
+            channels={
+                "discord": {
+                    "enabled": True,
+                    "bot_token": "DUMMY",
+                    "stream_mode": "multi_message",
+                    "multi_message_delay_ms": 0,
+                }
+            },
+            provider={"type": "anthropic", "default_model": "m"},
+        )
+        assert "multi_message_delay_ms" not in rendered
+
 
 class TestAgentBlock:
     """[agent] pins the daemon's tool-loop + context budgets above their

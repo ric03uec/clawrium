@@ -257,6 +257,8 @@ The clm-managed `[channels.discord]` block uses **only** the keys documented in 
 | `allowed_guilds = [...]` | `allowed_guilds` | empty array if unset; zeroclaw-specific (no hermes equivalent) |
 | `reply_to_mentions_only` | `require_mention` | renamed to match the upstream key |
 | `draft_update_interval_ms` | `draft_update_interval_ms` | optional — defaults handled by the daemon when omitted |
+| `stream_mode` | `stream_mode` | `"off"` / `"partial"` / `"multi_message"`. Wizard default is `"partial"` so long turns surface mid-turn progress to Discord instead of going silent until done. Upstream default is `"off"`. |
+| `multi_message_delay_ms` | `multi_message_delay_ms` | optional — only consulted when `stream_mode = "multi_message"`. Wizard prompts in the 10000–60000 ms range (10–60 s) so multi-paragraph responses stay under Discord's ~5 messages / 5 s per-channel rate limit; the daemon's compiled-in default applies when omitted. |
 
 ### Hermes-side fields with no ZeroClaw equivalent
 
@@ -284,8 +286,20 @@ Prompts:
 | `Allowed Discord user IDs` | `allowed_users` list |
 | `Allowed guild IDs` (optional) | `allowed_guilds` list |
 | `Reply to mentions only?` | `require_mention` → rendered as `reply_to_mentions_only` |
+| `Discord stream mode (off/partial/multi_message)` | `stream_mode` (default `partial`) |
+| `Delay between Discord messages in ms` (only when `stream_mode = multi_message`) | `multi_message_delay_ms` (10000–60000) |
 
 `clm` then runs the configure playbook, which re-renders `~/.zeroclaw/config.toml` with the `[channels.discord]` block, restarts `zeroclaw-<name>.service`, and verifies the block landed by grepping for `^bot_token =` in the file.
+
+### Streaming progress on long-running turns
+
+Without `stream_mode`, zeroclaw buffers the whole turn before posting — agents working through long tool sequences (e.g. building a PR) appear silent in Discord until they finish. `stream_mode` controls this:
+
+| Value | Behaviour |
+|---|---|
+| `off` | Upstream default. Single message posted when the turn completes. |
+| `partial` (wizard default) | Edits a single draft message in place as the agent runs tools, then finalizes with the full response. Companion knob: `draft_update_interval_ms` (default 500 ms; bump to 750–1000 if you hit Discord rate limits). |
+| `multi_message` | Splits the final reply into multiple messages at paragraph boundaries with `multi_message_delay_ms` between bubbles. Doesn't surface tool progress — only paces the final. |
 
 ### Resulting on-disk shape (ZeroClaw)
 
@@ -297,6 +311,7 @@ allowed_guilds = ["987654321098765432"]
 allowed_users = ["740723459344302120"]
 reply_to_mentions_only = true
 draft_update_interval_ms = 750
+stream_mode = "partial"
 ```
 
 In `hosts.json` (agents.`<name>`.config.channels.discord):
