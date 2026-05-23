@@ -5,8 +5,8 @@ authors: [ric03uec]
 tags: [announcements]
 ---
 
-I installed my first [Openclaw][openclaw] on an old Ubuntu box. Smooth.
-Then I dug up a Raspberry Pi and put [Zeroclaw][zeroclaw] on it. A week
+I installed my first [OpenClaw][openclaw] on an old Ubuntu box. Smooth.
+Then I dug up a Raspberry Pi and put [ZeroClaw][zeroclaw] on it. A week
 later I was spending more time on SSH gymnastics than actually using the
 agents — upgrading one, swapping a model on another, debugging logs on a
 third, rotating a token on the fourth. The agents were fine. The
@@ -25,24 +25,25 @@ that treats your AI agents as a fleet.
 
 ## What `clm` does today
 
-- Deploy multiple agent types ([openclaw][openclaw], [zeroclaw][zeroclaw],
-  [hermes][hermes]) across hosts on your local network or cloud
+- Deploy multiple agent types ([OpenClaw][openclaw], [ZeroClaw][zeroclaw],
+  [Hermes][hermes]) across hosts on your local network or cloud
 - Normalized configuration, secrets, and integrations across every
   supported agent type
 - Swap models, rotate secrets, update personas without SSH-ing anywhere
-- Install reusable [skills][skills] onto agents from a shared registry
+- Install reusable skills onto agents from a shared registry
 - One status pane (`clm ps`) for the whole fleet
 
 The aspiration is broader — backups, cost guardrails, central log
 aggregation, drift remediation, agent cloning — and I'm building it in
-the open as the use cases sharpen.
+the open as the use cases sharpen. See the [docs][docs] for the full
+shape of what's wired up today.
 
 ## Why now
 
 The agents I talk to teams about are no longer hobby projects. They're
 solving real work — but every team I've spoken to manages more than one,
 and once you cross that threshold, the operational burden eats the
-productivity gain. One org I talked to runs a separate Openclaw per
+productivity gain. One org I talked to runs a separate OpenClaw per
 engineering team. The 90% of configuration that's shared (Linear, Slack,
 Confluence) is duplicated and managed differently in each instance.
 Clawrium pulls those agents under one umbrella.
@@ -51,7 +52,7 @@ In the pets-vs-cattle framing, Clawrium agents are still pets. They're
 just pets that are well-trained, on a leash, and play well with each
 other.
 
-## What I'm building it with
+## What I'm building with it
 
 Two real use cases drive the roadmap:
 
@@ -62,17 +63,13 @@ Two real use cases drive the roadmap:
 2. **Team assistants at work** — one agent per team, tuned to their
    domain and ownership. Reduces the logistics tax on humans.
 
-## Architecture, briefly
-
-Four layers, each with a single responsibility:
-
-- **Transport** — Ansible, for idempotency, host management, and drift.
-- **Configuration** — normalized config (helm-chart-style) across agent
-  types.
-- **Execution** — merging, templating, workflows, domain models.
-- **UX** — CLI and TUI. Kept deliberately thin.
-
 ## Try it
+
+If you want the full picture, the [architecture][architecture] page
+covers how the layers fit together, and the [installation][install]
+page is the canonical step-by-step.
+
+The 30-second version:
 
 ```bash
 uv tool install clawrium
@@ -80,20 +77,17 @@ clm host init <ip> --user <user>
 clm agent install --type openclaw --host <alias>
 ```
 
-Full walkthrough in the [installation docs][install] and
-[quickstart][quickstart].
+---
 
-- **GitHub:** [github.com/ric03uec/clawrium][repo]
-- **Issues / feature requests:** [open one here][issues]
+- **Repo:** [github.com/ric03uec/clawrium][repo]
+- **Issues:** [open one here][issues]
+- **Docs:** [ric03uec.github.io/clawrium][docs]
 
-Clawrium is the control plane for a fleet of specialized agents working
-together. More posts coming as the project finds its shape.
-
-[openclaw]: https://github.com/ric03uec/clawrium/tree/main/src/clawrium/platform/registry/openclaw
-[zeroclaw]: https://github.com/ric03uec/clawrium/tree/main/src/clawrium/platform/registry/zeroclaw
-[hermes]: https://github.com/ric03uec/clawrium/tree/main/src/clawrium/platform/registry/hermes
-[skills]: https://github.com/ric03uec/clawrium/tree/main/skills
+[openclaw]: https://github.com/openclaw/openclaw
+[zeroclaw]: https://github.com/zeroclaw-labs/zeroclaw
+[hermes]: https://github.com/NousResearch/hermes-agent
+[architecture]: /docs/architecture
 [install]: /docs/installation
-[quickstart]: /docs/guides/quickstart
+[docs]: /docs/
 [repo]: https://github.com/ric03uec/clawrium
 [issues]: https://github.com/ric03uec/clawrium/issues
