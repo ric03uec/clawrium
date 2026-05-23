@@ -814,15 +814,22 @@ class TestAutonomyBlock:
         assert '"/proc"' in rendered
         assert '"~/.ssh"' in rendered
         assert '"~/.config/clawrium"' in rendered
-        # Inter-session tool gating boundary. Authoritative source is
-        # zeroclaw v0.7.5 crates/zeroclaw-tools/src/sessions.rs — six
-        # sessions_* tools exist upstream. Two take no `session_id` and
-        # are safe to auto-approve (enumeration only). The other four
-        # take a target `session_id` (cross-session read/write/destroy)
-        # and MUST stay gated; together with sessions_list they form an
-        # enumerate→exfiltrate chain. Update assertions if upstream adds
+        # Inter-session tools — full surface auto-approved (fully
+        # autonomous posture). Authoritative source is zeroclaw v0.7.5
+        # crates/zeroclaw-tools/src/sessions.rs — six sessions_* tools
+        # exist upstream. All six are pre-approved; safety for the
+        # cross-session read/write/destroy ops is delegated to
+        # allowed_commands / forbidden_commands / forbidden_paths and
+        # the max_* budget ceilings. Update assertions if upstream adds
         # or renames a sessions_* tool.
-        expected_sessions_auto_approve = {"sessions_current", "sessions_list"}
+        expected_sessions_auto_approve = {
+            "sessions_current",
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_reset",
+            "sessions_delete",
+        }
         sessions_in_auto_approve = set(
             _re422.findall(r'"(sessions_[^"]+)"', rendered)
         )

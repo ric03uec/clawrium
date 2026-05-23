@@ -290,39 +290,59 @@ shell_env_passthrough = [{% for _entry in _passthrough %}"{{ _entry }}"{% if not
    `TOML parse error … invalid type: map, expected a sequence` — the
    shipped binary's `strings` output shows `autonomy.auto-approve` /
    `auto_approve` as a Vec<String> field directly on the autonomy
-   struct (doc is ahead of the schema). All low- and medium-risk
-   built-in tools are auto-approved so supervised mode stops gating
-   routine work; `shell` and `browser` (high-risk) stay gated.
-   `http_request` is the daemon identifier surfaced in approval
-   prompts (the doc shorthand `http` is not the runtime name). #}
+   struct (doc is ahead of the schema).
+
+   FULLY AUTONOMOUS POSTURE: every tool in the runtime registry is
+   pre-approved. Per-call human-in-the-loop gating is OFF; safety is
+   delegated to `allowed_commands` / `forbidden_commands` /
+   `forbidden_paths` (above) and the `max_*` budget ceilings. Sourced
+   from `GET /api/tools` against a live v0.7.5 daemon — keep in sync
+   when upstream adds tools. Also includes upstream-documented names
+   that the runtime may surface under slightly different identifiers
+   (http_request, web_search, time, file_list, pdf_read, memory_*,
+   tool_search) so approval prompts never fire regardless of binary
+   version. #}
 auto_approve = [
-  # File ops (read-only)
+  # Shell / browser (high-risk — bounded by allowed/forbidden_commands)
+  "shell",
+  "browser",
+  "browser_open",
+  # File ops
   "file_read",
   "file_list",
+  "file_write",
+  "file_edit",
   "content_search",
   "glob_search",
   "pdf_read",
   "image_info",
-  # File mutation
-  "file_write",
-  "file_edit",
+  "screenshot",
   # Web / HTTP
   "http_request",
   "web_fetch",
   "web_search",
   "web_search_tool",
-  # Time / info
+  # Time / info / utilities
   "time",
   "weather",
-  # Memory
+  "calculator",
+  "canvas",
+  "llm_task",
+  # Memory (incl. destructive)
   "memory_search",
   "memory_pin",
   "memory_recall",
   "memory_store",
   "memory_forget",
+  "memory_export",
+  "memory_purge",
+  # Daemon control (model/routing/proxy)
+  "model_routing_config",
+  "model_switch",
+  "proxy_config",
   # Git
   "git_operations",
-  # Scheduling
+  # Scheduling / cron
   "schedule",
   "cron_add",
   "cron_list",
@@ -330,29 +350,24 @@ auto_approve = [
   "cron_run",
   "cron_runs",
   "cron_update",
+  # Backup / system
+  "backup",
+  # Notifications
+  "pushover",
   # Channel interaction
   "ask_user",
   "escalate_to_human",
-  # Inter-session enumeration (zeroclaw v0.7.5 crates/zeroclaw-tools/
-  # src/sessions.rs). Six sessions_* tools exist upstream. Only the two
-  # below are auto-approved because they take no `session_id` target
-  # parameter and surface only metadata:
-  #   sessions_current() — returns the active session's key/name
-  #   sessions_list(limit?) — returns {key, channel, msgs, last_activity}
-  # Gated (NOT in auto_approve) — operator must approve each call:
-  #   sessions_history(session_id, limit?) — reads ANY session's full
-  #       transcript; cross-session read is a new exposure tier
-  #       (credentials/secrets pasted into other chats).
-  #   sessions_send(session_id, message) — writes to ANY session;
-  #       enumerate→exfiltrate vector when chained with sessions_list.
-  #   sessions_reset(session_id), sessions_delete(session_id) —
-  #       destructive Act ops.
-  # Pre-approving sessions_list alone unblocks `clm chat` from dying
-  # immediately on enumeration; sessions_send-class flows still fail
-  # until clm chat learns to render approval_request frames inline.
+  "poll",
+  "reaction",
+  # Inter-session — full surface auto-approved (cross-session read/write
+  # is now allowed; revisit if multi-tenant scenarios appear).
   "sessions_current",
   "sessions_list",
-  # Tool catalog (read-only)
+  "sessions_history",
+  "sessions_send",
+  "sessions_reset",
+  "sessions_delete",
+  # Tool catalog
   "tool_search",
 ]
 
