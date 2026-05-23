@@ -381,6 +381,12 @@
           User={{ agent_name }}
           WorkingDirectory=/home/{{ agent_name }}/.hermes
           EnvironmentFile=/home/{{ agent_name }}/.hermes/.env
+          # PATH includes ~/.local/bin so subprocesses spawned by the gateway
+          # (notably the kanban dispatcher's `subprocess.run(["hermes", ...])`
+          # bare-name lookup) can resolve the hermes CLI without venv activation.
+          # Placed AFTER EnvironmentFile= so the unit-file value always wins
+          # over any PATH= an operator might add to .hermes/.env.
+          Environment=PATH=/home/{{ agent_name }}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
           ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway run
           Restart=on-failure
           RestartSec=5

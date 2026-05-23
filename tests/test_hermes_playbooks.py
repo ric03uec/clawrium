@@ -7,6 +7,7 @@ so they're fast and do not require a live host.
 
 from importlib.resources import files
 
+import pytest
 import yaml
 
 
@@ -545,4 +546,31 @@ def test_install_playbook_prebuild_tasks_are_ordered():
         f"alias copy (idx {copy_alias_idx}) must precede touch of dist/entry.js "
         f"(idx {touch_entry_idx}) — touches close the pre-build block and "
         f"must come last."
+    )
+
+
+@pytest.mark.parametrize("playbook", ["install", "start", "configure"])
+def test_hermes_gateway_unit_has_path_in_environment(playbook):
+    """All three playbooks that render the hermes gateway systemd unit MUST
+    include `Environment=PATH=/home/{{ agent_name }}/.local/bin:...`.
+
+    The hermes kanban dispatcher calls `subprocess.run(["hermes", ...])` with
+    a bare-name PATH lookup. systemd's default service PATH does not include
+    `~/.local/bin` where the hermes CLI shim lives, so spawns fail and cards
+    are parked in `gave_up` after 2 retries. The unit must inject PATH so the
+    dispatcher (and any other bare-name subprocess) can resolve `hermes`.
+
+    Drift between install/start/configure has already been observed
+    (After=network-online.target, StandardOutput=journal exist only in
+    configure). This test anchors the PATH line in all three to prevent
+    silently dropping it from one.
+    """
+    content = _hermes_playbook(playbook)
+    assert (
+        "Environment=PATH=/home/{{ agent_name }}/.local/bin:" in content
+    ), (
+        f"{playbook}.yaml gateway unit must declare "
+        f"Environment=PATH=/home/{{{{ agent_name }}}}/.local/bin:... so the "
+        f"kanban dispatcher's `subprocess.run(['hermes',...])` bare PATH "
+        f"lookup resolves the hermes CLI shim."
     )
