@@ -28,8 +28,15 @@ def _patch_agent(monkeypatch, host: dict, agent_type: str, agent_record: dict) -
     )
 
 
-def test_resolve_hermes_returns_default_port(monkeypatch):
-    """A hermes agent with no persisted dashboard port resolves to the manifest default."""
+def test_resolve_hermes_without_persisted_port_returns_none(monkeypatch, caplog):
+    """A hermes agent without persisted `dashboard.port` resolves to None.
+
+    Issue #491: the hermes manifest no longer carries a `default_port`
+    fallback (install.py computes a per-instance port in 45000..46999
+    and persists it). When the persisted value is missing the resolver
+    must surface "no UI available" rather than inventing a port that
+    would land us on whichever instance happened to bind 9119.
+    """
     _patch_agent(
         monkeypatch,
         host=_host("hermes.local"),
@@ -37,13 +44,9 @@ def test_resolve_hermes_returns_default_port(monkeypatch):
         agent_record={"agent_name": "demo", "type": "hermes", "config": {}},
     )
 
-    resolved = resolve("demo")
-
-    assert isinstance(resolved, ResolvedUI)
-    assert resolved.host == "hermes.local"
-    assert resolved.remote_port == 9119
-    assert resolved.bind == "loopback"
-    assert resolved.ssh_config.get("user") == "xclm"
+    with caplog.at_level("WARNING", logger="clawrium.core.web_ui"):
+        assert resolve("demo") is None
+    assert any("dashboard.port" in rec.message for rec in caplog.records)
 
 
 def test_resolve_hermes_uses_persisted_port(monkeypatch):
@@ -71,15 +74,44 @@ def test_resolve_openclaw_returns_none(monkeypatch):
     assert resolve("oc") is None
 
 
-def test_resolve_zeroclaw_returns_none(monkeypatch):
-    """zeroclaw's manifest does not declare `features.web_ui`."""
+def test_resolve_zeroclaw_returns_gateway_port(monkeypatch):
+    """zeroclaw resolves to its persisted `gateway.port` (mirror of #478)."""
+    agent_record = {
+        "agent_name": "zc",
+        "type": "zeroclaw",
+        "config": {"gateway": {"port": 40123}},
+    }
+    _patch_agent(
+        monkeypatch,
+        host=_host("zero.local"),
+        agent_type="zeroclaw",
+        agent_record=agent_record,
+    )
+
+    resolved = resolve("zc")
+
+    assert isinstance(resolved, ResolvedUI)
+    assert resolved.host == "zero.local"
+    assert resolved.remote_port == 40123
+    assert resolved.bind == "wildcard"
+
+
+def test_resolve_zeroclaw_without_persisted_port_returns_none(monkeypatch, caplog):
+    """zeroclaw without persisted `gateway.port` resolves to None (#491).
+
+    Same rationale as the hermes test above: zeroclaw computes a
+    per-instance port at install time, so inventing a default would
+    silently serve a different instance's UI.
+    """
     _patch_agent(
         monkeypatch,
         host=_host(),
         agent_type="zeroclaw",
         agent_record={"agent_name": "zc", "type": "zeroclaw", "config": {}},
     )
-    assert resolve("zc") is None
+    with caplog.at_level("WARNING", logger="clawrium.core.web_ui"):
+        assert resolve("zc") is None
+    assert any("gateway.port" in rec.message for rec in caplog.records)
 
 
 def test_resolve_missing_agent_returns_none(monkeypatch):
@@ -161,7 +193,11 @@ def test_resolve_uses_primary_address_when_distinct_from_hostname(monkeypatch):
         monkeypatch,
         host=host,
         agent_type="hermes",
-        agent_record={"agent_name": "demo", "type": "hermes", "config": {}},
+        agent_record={
+            "agent_name": "demo",
+            "type": "hermes",
+            "config": {"dashboard": {"port": 45123}},
+        },
     )
 
     resolved = resolve("demo")
@@ -170,8 +206,15 @@ def test_resolve_uses_primary_address_when_distinct_from_hostname(monkeypatch):
     assert resolved.ssh_config.get("user") == "ops"
 
 
-def test_resolve_falls_back_to_default_port_for_invalid_persisted(monkeypatch):
-    """A non-int (or out-of-range) persisted port is ignored; default wins."""
+def test_resolve_returns_none_for_invalid_persisted_when_no_default(monkeypatch, caplog):
+    """A non-int (or out-of-range) persisted port with no `default_port`
+    in the manifest → None (#491).
+
+    Previously the resolver fell back to `default_port`. Now that the
+    bundled hermes/zeroclaw manifests no longer carry a default (a
+    manifest-wide default would collide for hosts running multiple
+    instances), an invalid persisted port must surface as "no UI".
+    """
     agent_record = {
         "agent_name": "demo",
         "type": "hermes",
@@ -179,9 +222,43 @@ def test_resolve_falls_back_to_default_port_for_invalid_persisted(monkeypatch):
     }
     _patch_agent(monkeypatch, host=_host(), agent_type="hermes", agent_record=agent_record)
 
-    resolved = resolve("demo")
+    with caplog.at_level("WARNING", logger="clawrium.core.web_ui"):
+        assert resolve("demo") is None
+    assert any("dashboard.port" in rec.message for rec in caplog.records)
+
+
+def test_resolve_uses_manifest_default_when_present(monkeypatch):
+    """If a manifest *does* declare `default_port`, the resolver still
+    honors it (back-compat for third-party manifests that opt in).
+
+    The bundled hermes/zeroclaw manifests omit `default_port` post-#491
+    on purpose, but the schema still accepts it. Lock in the fallback
+    path against a mocked manifest so the behaviour doesn't regress for
+    out-of-tree consumers.
+    """
+    manifest = {
+        "agent": {"type": "third-party", "description": "t"},
+        "platforms": [],
+        "features": {
+            "web_ui": {
+                "enabled": True,
+                "bind": "loopback",
+                "default_port": 8080,
+                "port_field": "dashboard.port",
+            }
+        },
+    }
+    monkeypatch.setattr(web_ui_module, "load_manifest", lambda _t: manifest)
+    _patch_agent(
+        monkeypatch,
+        host=_host(),
+        agent_type="third-party",
+        agent_record={"agent_name": "tp", "type": "third-party", "config": {}},
+    )
+
+    resolved = resolve("tp")
     assert resolved is not None
-    assert resolved.remote_port == 9119
+    assert resolved.remote_port == 8080
 
 
 def test_resolve_handles_unknown_agent_type(monkeypatch):
@@ -248,7 +325,11 @@ def test_resolve_ssh_config_resolves_identity_via_key_id(monkeypatch, tmp_path):
         monkeypatch,
         host=host_record,
         agent_type="hermes",
-        agent_record={"agent_name": "demo", "type": "hermes", "config": {}},
+        agent_record={
+            "agent_name": "demo",
+            "type": "hermes",
+            "config": {"dashboard": {"port": 45123}},
+        },
     )
 
     resolved = resolve("demo")
@@ -290,7 +371,11 @@ def test_resolve_ssh_config_falls_back_to_hostname_when_key_id_missing(
         monkeypatch,
         host=host_record,
         agent_type="hermes",
-        agent_record={"agent_name": "demo", "type": "hermes", "config": {}},
+        agent_record={
+            "agent_name": "demo",
+            "type": "hermes",
+            "config": {"dashboard": {"port": 45123}},
+        },
     )
 
     resolved = resolve("demo")
@@ -321,7 +406,11 @@ def test_resolve_ssh_config_omits_identity_when_key_missing(monkeypatch):
         monkeypatch,
         host=host_record,
         agent_type="hermes",
-        agent_record={"agent_name": "demo", "type": "hermes", "config": {}},
+        agent_record={
+            "agent_name": "demo",
+            "type": "hermes",
+            "config": {"dashboard": {"port": 45123}},
+        },
     )
 
     resolved = resolve("demo")
@@ -361,7 +450,11 @@ def test_resolve_ssh_config_drops_identity_with_shell_metachars_in_resolved_path
         monkeypatch,
         host=host_record,
         agent_type="hermes",
-        agent_record={"agent_name": "demo", "type": "hermes", "config": {}},
+        agent_record={
+            "agent_name": "demo",
+            "type": "hermes",
+            "config": {"dashboard": {"port": 45123}},
+        },
     )
 
     resolved = resolve("demo")
@@ -408,6 +501,13 @@ def test_bind_address_map_covers_loopback():
     from clawrium.core.web_ui import BIND_ADDRESS_MAP
 
     assert BIND_ADDRESS_MAP["loopback"] == "127.0.0.1"
+
+
+def test_bind_address_map_covers_wildcard():
+    """`wildcard` agents (zeroclaw) still tunnel to remote loopback."""
+    from clawrium.core.web_ui import BIND_ADDRESS_MAP
+
+    assert BIND_ADDRESS_MAP["wildcard"] == "127.0.0.1"
 
 
 def test_resolve_returns_none_when_enabled_false(monkeypatch):

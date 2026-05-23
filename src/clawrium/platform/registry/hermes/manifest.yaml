@@ -16,16 +16,13 @@ features:
   # Native browser dashboard shipped by hermes upstream. Bound to loopback
   # on the agent host; clm tunnels through SSH (see issue #478). `port_field`
   # is the dotted path inside `hosts.json.agents.<name>.config` where the
-  # per-instance dashboard port is persisted at install time.
-  #
-  # default_port 9119 mirrors the upstream `hermes dashboard` default in
-  # `hermes_cli/web_server.py` (see .itx/478/00_PLAN.md for the upstream
-  # reference). Phase 2's install playbook MUST assert the deployed port
-  # matches this manifest value, or override it explicitly per-instance.
+  # per-instance dashboard port is persisted at install time. No
+  # `default_port`: install.py computes a per-instance port in 45000..46999
+  # so a manifest-wide default would silently collide on a host running
+  # multiple hermes instances (issue #491).
   web_ui:
     enabled: true
     bind: loopback
-    default_port: 9119
     port_field: dashboard.port
 
 # Secrets configuration.

@@ -2728,11 +2728,13 @@ def open_ui(
     """Open an agent's native web UI in your default browser.
 
     For remote agents this establishes an SSH local-port-forward tunnel to
-    the agent's loopback dashboard port and points your browser at the
-    local end of the tunnel. The tunnel runs until you Ctrl-C.
+    the agent's dashboard port (resolved to the remote loopback regardless
+    of whether the agent itself binds 127.0.0.1 or 0.0.0.0) and points your
+    browser at the local end of the tunnel. The tunnel runs until you
+    Ctrl-C.
 
-    Only hermes agents expose a native UI today; running this against an
-    openclaw / zeroclaw agent prints a hard-error.
+    Hermes and zeroclaw expose a native UI today; agents whose manifests
+    do not declare `features.web_ui` (e.g. openclaw) print a hard-error.
     """
     import signal
     import webbrowser
@@ -2756,13 +2758,6 @@ def open_ui(
         raise typer.Exit(code=1)
     except HostsFileCorruptedError as e:
         err_console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
-        raise typer.Exit(code=1)
-
-    if claw_type != "hermes":
-        err_console.print(
-            f"[red]Error:[/red] Native UI not supported for agent type "
-            f"'{rich_escape(claw_type)}'. Only hermes is supported in this release."
-        )
         raise typer.Exit(code=1)
 
     resolved = resolve_web_ui(installed_name)

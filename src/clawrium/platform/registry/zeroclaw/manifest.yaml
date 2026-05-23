@@ -20,6 +20,19 @@ features:
   # auth header, different stream semantics).
   chat:
     type: zeroclaw
+  # Native web dashboard served by the gateway daemon itself (same process,
+  # same port as `config.gateway.port` — no separate systemd unit). `bind:
+  # wildcard` reflects zeroclaw's actual bind on 0.0.0.0; the SSH tunnel
+  # still targets remote loopback via BIND_ADDRESS_MAP. No `default_port`
+  # because zeroclaw computes a per-instance port at install time
+  # (`40000 + hash % 2000`) and `configure.yaml` always persists it under
+  # `gateway.port` — a manifest-wide default would silently collide on a
+  # host running multiple zeroclaw instances.
+  # Mirrors hermes #478 for `clm agent open`.
+  web_ui:
+    enabled: true
+    bind: wildcard
+    port_field: gateway.port
 
 # Secrets for this agent. Provider URL and model are now sourced from the
 # providers system (selected during the onboarding `providers` stage and

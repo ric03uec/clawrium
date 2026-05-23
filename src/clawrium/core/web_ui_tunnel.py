@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from clawrium.core.config import get_config_dir, init_config_dir
-from clawrium.core.web_ui import ResolvedUI, resolve
+from clawrium.core.web_ui import BIND_ADDRESS_MAP, ResolvedUI, resolve
 
 __all__ = [
     "TunnelError",
@@ -207,6 +207,7 @@ def _pick_free_port() -> int:
 def _ssh_command(
     local_port: int,
     remote_port: int,
+    remote_bind_addr: str,
     ssh_user: str,
     ssh_host: str,
     ssh_port: int | None,
@@ -216,7 +217,7 @@ def _ssh_command(
         "ssh",
         "-N",
         "-L",
-        f"{local_port}:127.0.0.1:{remote_port}",
+        f"{local_port}:{remote_bind_addr}:{remote_port}",
         "-o",
         "ServerAliveInterval=30",
         "-o",
@@ -376,9 +377,21 @@ def _build_ssh_for(resolved: ResolvedUI, local_port: int) -> list[str]:
         raise TunnelError(
             "SSH user not configured for host; cannot establish tunnel."
         )
+    try:
+        remote_bind_addr = BIND_ADDRESS_MAP[resolved.bind]
+    except KeyError as e:
+        # The manifest validator restricts `bind` to a closed enum, so this
+        # is unreachable in practice. Surfacing it as TunnelError keeps the
+        # BIND_ADDRESS_MAP contract enforced rather than aspirational: a
+        # future bind mode added to the manifest schema MUST also extend
+        # the map, or the tunnel builder fails loudly here.
+        raise TunnelError(
+            f"unknown bind mode {resolved.bind!r} — extend BIND_ADDRESS_MAP"
+        ) from e
     return _ssh_command(
         local_port=local_port,
         remote_port=resolved.remote_port,
+        remote_bind_addr=remote_bind_addr,
         ssh_user=user,
         ssh_host=resolved.host,
         ssh_port=ssh.get("port") if isinstance(ssh.get("port"), int) else None,

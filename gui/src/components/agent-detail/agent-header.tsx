@@ -3,7 +3,7 @@
 import { AgentDetail } from "@/lib/types";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Button } from "@/components/ui/button";
-import { useAgentActions, useAgentWebUI } from "@/hooks";
+import { useAgentActions, useAgentWebUI, WEB_UI_AGENT_TYPES } from "@/hooks";
 
 interface AgentHeaderProps {
   agent: AgentDetail;
@@ -14,9 +14,10 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
   const isRunning = agent.status === "running";
   const isStopped = agent.status === "stopped";
 
-  // Native UI button is hermes-only today. The hook is a no-op for other
-  // agent types (enabled flag in useAgentWebUI gates the fetch).
-  const showWebUI = agent.agent_type === "hermes";
+  // Native UI button shows for any agent type whose manifest declares
+  // `features.web_ui`. Allowlist lives in the hook so the fetch and the
+  // render decision stay in sync.
+  const showWebUI = WEB_UI_AGENT_TYPES.has(agent.agent_type);
   const webUI = useAgentWebUI(agent.agent_key, agent.agent_type, agent.status);
 
   return (

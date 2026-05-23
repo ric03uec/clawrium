@@ -101,16 +101,24 @@ Rules (issue #437):
   whenever the bearer is overwritten. The CLI renders it as a yellow
   notice during `configure`/`sync`/`restart`.
 
-## Hermes Native Dashboard (issue #478)
+## Native Dashboards (issues #478, #491)
 
-Hermes is the only agent type that ships a native web UI today. Two systemd units run side-by-side on the agent host:
+Two agent types ship a native web UI today: **hermes** (issue #478) and **zeroclaw** (issue #491). The manifest's `features.web_ui` block is the single gate — `clm agent open <name>` and the GUI's **Open Agent UI** button both consult the resolver in `src/clawrium/core/web_ui.py`, which returns `None` for any agent whose manifest does not declare `features.web_ui`.
+
+**Hermes** (issue #478) runs the dashboard in a separate systemd unit on the agent host:
 
 - `hermes-<agent_name>.service` — the OpenAI-compatible API gateway (the existing unit).
 - `hermes-dashboard-<agent_name>.service` — the SPA dashboard, with `PartOf=hermes-<agent_name>.service` and `Also=hermes-<agent_name>.service` in `[Install]`. systemd propagates stop/restart of the gateway to the dashboard automatically; we explicitly `enable` the dashboard unit on first start.
 
-The dashboard binds `127.0.0.1:<port>` only — never `0.0.0.0`. There is no in-process auth: the **SSH key Ansible already uses for the host is the auth boundary**. Anyone with shell access to the agent host could reach loopback directly, so layering a token wall on top would not raise the security floor.
+The hermes dashboard binds `127.0.0.1:<port>` only (`features.web_ui.bind: loopback`). install.py picks the per-instance port in `45000..46999` and persists it under `hosts.json.agents.<name>.config.dashboard.port`.
 
-`clm agent open <hermes-name>` (CLI) and the GUI's **Open Agent UI** button both rely on the same loopback-bound dashboard. The tunnel manager at `src/clawrium/core/web_ui_tunnel.py` is idempotent — a second invocation for a live tunnel reuses the existing local port (state at `~/.config/clawrium/tunnels/<agent_key>.json`, PID + cmdline-guarded). The GUI auto-reaps tunnels idle > 30 minutes; CLI tunnels close on `Ctrl-C` or process exit.
+**Zeroclaw** (issue #491) does not run a separate dashboard unit — the gateway daemon itself serves the SPA on the same port as `config.gateway.port` (`features.web_ui.bind: wildcard`, port persisted under `gateway.port`). install.py picks the per-instance gateway port in `40000..41999`.
+
+**Auth boundary (both agent types).** There is no in-process auth on the dashboard: the **SSH key Ansible already uses for the host is the auth boundary**. Anyone with shell access to the agent host could reach the dashboard directly, so layering a token wall on top would not raise the security floor. Zeroclaw's `0.0.0.0` bind is an upstream property; this trust model still holds because reachability is gated at the network/SSH layer.
+
+**Tunnel reuse.** The tunnel manager at `src/clawrium/core/web_ui_tunnel.py` is idempotent — a second invocation for a live tunnel reuses the existing local port (state at `~/.config/clawrium/tunnels/<agent_key>.json`, PID + cmdline-guarded). The GUI auto-reaps tunnels idle > 30 minutes; CLI tunnels close on `Ctrl-C` or process exit. The remote target is always loopback regardless of `bind`: both `BIND_ADDRESS_MAP["loopback"]` and `BIND_ADDRESS_MAP["wildcard"]` resolve to `127.0.0.1`, because the SSH local-forward terminates on the remote loopback interface — reachable for both bind modes.
+
+**No `default_port` in bundled manifests.** Both hermes and zeroclaw manifests omit `features.web_ui.default_port`. install.py always persists a per-instance port at `port_field`; a manifest-wide default would silently collide on hosts running multiple agents of the same type. The resolver surfaces a missing persisted port as "no UI available" rather than inventing one. Third-party manifests may still opt into `default_port` — the schema accepts it.
 
 ## Tech Stack
 
