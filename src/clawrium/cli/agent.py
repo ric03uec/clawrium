@@ -948,11 +948,14 @@ def _run_channels_stage(
 
             channels_config = {"discord": discord_cfg}
         elif claw_type == "zeroclaw":
-            # ZeroClaw shape (#422): flat TOML keys per zeroclaw v0.7.5 docs
-            # (docs/book/src/channels/chat-others.md):
+            # ZeroClaw shape (#422): flat TOML keys per the v0.7.5 schema in
+            # crates/zeroclaw-channels/src/discord.rs (the daemon's struct
+            # — the book docs at docs/book/src/channels/chat-others.md said
+            # `reply_to_mentions_only` but no such field exists in the
+            # schema; serde silently drops unknown keys):
             #   [channels.discord]
             #   enabled, bot_token, allowed_guilds, allowed_users,
-            #   reply_to_mentions_only, draft_update_interval_ms
+            #   mention_only, draft_update_interval_ms
             # The CLI collects the persistable fields here; `bot_token` is
             # stored in secrets.json below and hydrated into config.toml by
             # lifecycle.configure_agent before the playbook runs. No
@@ -1037,9 +1040,10 @@ def _run_channels_stage(
                 )
 
             # `require_mention` is the clm-side knob; lifecycle/config.toml.j2
-            # translates it to upstream `reply_to_mentions_only`. Default
-            # true is intentional security hardening — more restrictive than
-            # the zeroclaw v0.7.5 default for new bots. ATX Round 3 S1.
+            # translates it to upstream `mention_only` (the canonical field
+            # in zeroclaw-channels/src/discord.rs at v0.7.5). Default true
+            # is intentional security hardening — more restrictive than the
+            # zeroclaw v0.7.5 default for new bots. ATX Round 3 S1.
             # Wording aligned to hermes prompt for mixed-fleet operators
             # (Round 3 W2).
             require_mention = typer.confirm(

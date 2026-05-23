@@ -115,11 +115,14 @@ max_history_messages = 200
 keep_tool_context_turns = 8
 
 {# --- Discord channel (#422, stream_mode added in #468) --------------------
-   ZeroClaw v0.7.5 schema per docs/book/src/channels/chat-others.md +
-   providers/streaming.md + upstream issue zeroclaw-labs/zeroclaw#4452:
+   ZeroClaw v0.7.5 schema. Authoritative source is the Rust struct in
+   crates/zeroclaw-channels/src/discord.rs (NOT the book docs — the docs
+   list `reply_to_mentions_only` but no such field exists in the schema
+   at v0.7.5; the daemon's serde silently drops unknown keys). Verified
+   fields:
      [channels.discord]
      enabled, bot_token, allowed_guilds, allowed_users,
-     reply_to_mentions_only, draft_update_interval_ms,
+     mention_only, draft_update_interval_ms,
      stream_mode, multi_message_delay_ms
    bot_token is inline TOML (NOT an env var) — distinct from hermes which
    reads DISCORD_BOT_TOKEN from .env. The token is hydrated into
@@ -154,8 +157,15 @@ allowed_users = [{% for user in _discord.get('allowed_users') %}"{{ toml_escape(
 {% else %}
 allowed_users = []
 {% endif %}
-{# require_mention is the hermes-side knob; upstream calls it
-   reply_to_mentions_only. Same semantics — translate verbatim.
+{# require_mention is the hermes-side knob; upstream's canonical field
+   in crates/zeroclaw-channels/src/discord.rs is `mention_only`. The
+   book docs at docs/book/src/channels/chat-others.md said
+   `reply_to_mentions_only`, but that field doesn't exist in the schema
+   — the daemon's serde silently drops it. Every clawrium-deployed
+   zeroclaw bot before this fix had its `require_mention=true` flag
+   rendered into a no-op key and ran as an ambient responder
+   regardless. Translate to the canonical name here.
+
    ATX Round 3 W3 + Round 4 B1-R4: default `true` to match the CLI
    prompt's default, applied via dict.get(key, default) at the Python
    level rather than `| default(true)` — Jinja2's default() filter only
@@ -165,7 +175,7 @@ allowed_users = []
    predating the field, turning mention-gated bots into ambient
    responders — exactly the safety regression Round 3 W3 was meant to
    prevent. #}
-reply_to_mentions_only = {{ _discord.get('require_mention', true) | bool | lower }}
+mention_only = {{ _discord.get('require_mention', true) | bool | lower }}
 {% if _discord.get('draft_update_interval_ms') %}
 draft_update_interval_ms = {{ _discord.get('draft_update_interval_ms') | int }}
 {% endif %}

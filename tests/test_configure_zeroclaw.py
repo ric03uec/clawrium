@@ -472,8 +472,16 @@ class TestChannelsDiscordBlock:
         assert 'bot_token = "DUMMY_BOT_TOKEN_VALUE"' in rendered
         assert 'allowed_users = ["123456789012345678"]' in rendered
         assert 'allowed_guilds = ["987654321098765432"]' in rendered
-        # require_mention (hermes naming) → reply_to_mentions_only (upstream).
-        assert "reply_to_mentions_only = true" in rendered
+        # require_mention (clm-side naming) → mention_only (canonical
+        # zeroclaw field at v0.7.5 per crates/zeroclaw-channels/src/
+        # discord.rs). The book docs misleadingly listed
+        # `reply_to_mentions_only`; that key doesn't exist in the schema.
+        assert "mention_only = true" in rendered
+        assert "reply_to_mentions_only" not in rendered, (
+            "reply_to_mentions_only is a phantom field — the daemon silently "
+            "drops unknown keys. Anchor: this assertion catches a regression "
+            "to the doc-name that left every bot in ambient-responder mode."
+        )
         assert "draft_update_interval_ms = 750" in rendered
 
     def test_discord_block_drops_hermes_only_fields(self):
@@ -498,16 +506,20 @@ class TestChannelsDiscordBlock:
         assert "allow_all_users" not in rendered
         assert "allowed_channels" not in rendered
 
-    def test_discord_legacy_record_defaults_reply_to_mentions_to_true(self):
+    def test_discord_legacy_record_defaults_mention_only_to_true(self):
         """ATX Round 4 B1-R4: a hosts.json record predating the
         require_mention field (the dict has `enabled` + `bot_token` but no
-        require_mention) MUST render `reply_to_mentions_only = true`.
+        require_mention) MUST render `mention_only = true`.
 
         The fragile form `_discord.get('require_mention') | default(true)`
         silently rendered `false` because dict.get returns None for missing
         keys and Jinja's default() only fires on Undefined. dict.get(key,
         default) applies the default at the Python level, bypassing the
-        filter entirely."""
+        filter entirely.
+
+        Field name is `mention_only` (canonical at zeroclaw v0.7.5 in
+        crates/zeroclaw-channels/src/discord.rs), not the book-docs name
+        `reply_to_mentions_only` which the daemon silently drops."""
         rendered = _render_with_channels_and_integrations(
             channels={
                 "discord": {
@@ -520,10 +532,10 @@ class TestChannelsDiscordBlock:
             },
             provider={"type": "anthropic", "default_model": "m"},
         )
-        assert "reply_to_mentions_only = true" in rendered, (
-            "Legacy hosts.json record rendered reply_to_mentions_only=false "
-            "— this is the ATX Round 4 B1-R4 safety regression. The CLI "
-            "default is True; the template must match."
+        assert "mention_only = true" in rendered, (
+            "Legacy hosts.json record rendered mention_only=false — this is "
+            "the ATX Round 4 B1-R4 safety regression. The CLI default is "
+            "True; the template must match."
         )
 
     def test_discord_bot_token_newline_toml_injection_blocked(self):
@@ -635,7 +647,7 @@ class TestChannelsDiscordBlock:
             },
             provider={"type": "anthropic", "default_model": "m"},
         )
-        assert "reply_to_mentions_only = false" in rendered
+        assert "mention_only = false" in rendered
 
     def test_discord_bot_token_toml_escaped(self):
         """Tokens with embedded quotes/backslashes must be escaped so they
