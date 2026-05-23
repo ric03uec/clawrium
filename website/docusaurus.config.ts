@@ -19,11 +19,12 @@ const config: Config = {
   trailingSlash: false,
 
   onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
 
   markdown: {
     mermaid: true,
     hooks: {
-      onBrokenMarkdownLinks: 'warn',
+      onBrokenMarkdownLinks: 'throw',
     },
   },
 
@@ -40,7 +41,20 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           editUrl: 'https://github.com/ric03uec/clawrium/tree/main/website/',
         },
-        blog: false,
+        blog: {
+          showReadingTime: true,
+          blogTitle: 'Clawrium Blog',
+          blogDescription: 'Updates, tutorials, and announcements from the Clawrium project',
+          blogSidebarTitle: 'Recent posts',
+          onInlineTags: 'throw',
+          onInlineAuthors: 'throw',
+          onUntruncatedBlogPosts: 'throw',
+          feedOptions: {
+            type: ['rss', 'atom'],
+            xslt: true,
+          },
+          editUrl: 'https://github.com/ric03uec/clawrium/tree/main/website/',
+        },
         theme: {
           customCss: './src/css/custom.css',
         },
@@ -67,6 +81,11 @@ const config: Config = {
           sidebarId: 'tutorialSidebar',
           position: 'left',
           label: 'Docs',
+        },
+        {
+          to: '/blog',
+          label: 'Blog',
+          position: 'left',
         },
         {
           href: 'https://github.com/ric03uec/clawrium',
@@ -115,6 +134,10 @@ const config: Config = {
         {
           title: 'More',
           items: [
+            {
+              label: 'Blog',
+              to: '/blog',
+            },
             {
               label: 'GitHub',
               href: 'https://github.com/ric03uec/clawrium',
