@@ -41,7 +41,7 @@
 [Service]
 {# `default({}, true)` (boolean=true) coerces both undefined AND falsy values
    (None, []) to the empty dict — plain `default({})` would let None through
-   and crash on the length call. Mirrors hermes .env.j2:111-114. #}
+   and crash on the length call. Mirrors hermes hermes.env.j2:111-114. #}
 {% set _integrations = integrations | default({}, true) %}
 {% if _integrations | length > 0 %}
 {% for _name, _integration in _integrations | dictsort %}

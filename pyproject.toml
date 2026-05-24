@@ -74,6 +74,11 @@ pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+# Fail loudly when a `@pytest.mark.parametrize` body comes back empty —
+# without this, a regression in the parametrize source (e.g.
+# tests/platform/test_template_naming.py if REGISTRY_ROOT moves) would
+# silently skip the parametrized cases and leave CI green. ATX #510 W4.
+empty_parameter_set_mark = "fail_at_collect"
 
 [dependency-groups]
 dev = [

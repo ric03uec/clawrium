@@ -74,6 +74,15 @@ Same posture as audit-before §"Spec items 3, 7, 8":
 - Timestamps and AGE values are point-in-time and will drift between
   runs — the diff scope treats them as **expected drift** (see "Diff
   scope" below).
+- **Tailnet identifier and LAN IPs are redacted** in this artifact:
+  - `wolf.<redacted>.ts.net` stands in for the real tailnet hostname.
+  - `192.168.1.X` / `192.168.1.Y` stand in for LAN addresses.
+  - Bundle 1's `audit-before.md` was captured before this redaction
+    policy was adopted; the same identifiers appear there in cleartext.
+    Rewriting history to redact the prior bundle is out of scope for
+    #510 (would require force-pushing already-published stack branches).
+    A follow-up issue can rebase the integration branch once the stack
+    closes if the exposure needs full mitigation.
 
 ### Diff scope — what is line-for-line vs what is not
 
@@ -117,7 +126,7 @@ the source as-of this branch — i.e. the post-rename surface.
 ```text
 Name:       wolf-i
 Kind:       host
-Address:    wolf.tailf7742d.ts.net
+Address:    wolf.<redacted>.ts.net
 User:       xclm
 Port:       22
 Status:     ready
@@ -129,8 +138,8 @@ Aliases (1):
   wolf-i
 
 Addresses (2):
-    192.168.1.36
-  * wolf.tailf7742d.ts.net  (tailscale)
+    192.168.1.Y
+  * wolf.<redacted>.ts.net  (tailscale)
 
 Agents (6):
   wolf-i  (openclaw)  installed
@@ -183,8 +192,8 @@ nemotron-alpha   zeroclaw   wolf-i   -          ready    2d
 
 ```text
 NAME     ADDRESS                  USER   STATUS   AGE
-wolf-i   wolf.tailf7742d.ts.net   xclm   ready    43d
-kevin    192.168.1.35             xclm   ready    6d
+wolf-i   wolf.<redacted>.ts.net   xclm   ready    43d
+kevin    192.168.1.X             xclm   ready    6d
 ```
 
 ### `clawctl agent registry get` (was `clm agent registry list`)
@@ -378,7 +387,7 @@ agent/nemotron-alpha
     "name": "wolf-i",
     "type": "openclaw",
     "host": "wolf-i",
-    "address": "wolf.tailf7742d.ts.net",
+    "address": "wolf.<redacted>.ts.net",
     "provider": null,
     "status": "ready",
     "age_seconds": 3711576,
@@ -391,7 +400,7 @@ agent/nemotron-alpha
     "name": "espresso",
     "type": "hermes",
     "host": "wolf-i",
-    "address": "wolf.tailf7742d.ts.net",
+    "address": "wolf.<redacted>.ts.net",
     "provider": null,
     "status": "ready",
     "age_seconds": 1190244,
@@ -404,7 +413,7 @@ agent/nemotron-alpha
     "name": "maurice",
     "type": "hermes",
     "host": "wolf-i",
-    "address": "wolf.tailf7742d.ts.net",
+    "address": "wolf.<redacted>.ts.net",
     "provider": null,
     "status": "ready",
     "age_seconds": 174878,
@@ -431,8 +440,8 @@ nemotron-alpha   zeroclaw   wolf-i   -   ready   2d
 ```yaml
 - kind: host
   name: wolf-i
-  hostname: wolf.tailf7742d.ts.net
-  address: wolf.tailf7742d.ts.net
+  hostname: wolf.<redacted>.ts.net
+  address: wolf.<redacted>.ts.net
   user: xclm
   port: 22
   status: ready
@@ -443,11 +452,11 @@ nemotron-alpha   zeroclaw   wolf-i   -   ready   2d
   aliases:
   - wolf-i
   addresses:
-  - address: 192.168.1.36
+  - address: 192.168.1.Y
     is_primary: false
     label: null
     added_at: '2026-04-11T04:46:19.295019+00:00'
-  - address: wolf.tailf7742d.ts.net
+  - address: wolf.<redacted>.ts.net
     is_primary: true
     label: tailscale
     added_at: '2026-04-18T05:23:07.941758+00:00'
@@ -464,8 +473,8 @@ wolf-i
 
 ```text
 ADDRESS                  PRIMARY   LABEL       ADDED
-192.168.1.36             no        -           2026-04-11T04:46:19.295019+00:00
-wolf.tailf7742d.ts.net   yes       tailscale   2026-04-18T05:23:07.941758+00:00
+192.168.1.Y             no        -           2026-04-11T04:46:19.295019+00:00
+wolf.<redacted>.ts.net   yes       tailscale   2026-04-18T05:23:07.941758+00:00
 ```
 
 ### `clawctl agent describe maurice`
@@ -475,7 +484,7 @@ Name:       maurice
 Kind:       agent
 Type:       hermes
 Version:    2026.5.7
-Host:       wolf-i (wolf.tailf7742d.ts.net)
+Host:       wolf-i (wolf.<redacted>.ts.net)
 Provider:   -
 Status:     ready
 Age:        2d

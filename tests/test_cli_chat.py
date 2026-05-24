@@ -1021,6 +1021,14 @@ class TestHermesChat:
         assert result.exit_code == 1
         assert "hermes_api_server_key" in result.output.lower()
         assert "re-run" in result.output.lower()
+        # ATX W3 — the remediation hint must be copy-pasteable; the
+        # literal "..." would land in users' shells as an unparseable
+        # agent name. The `<name>` placeholder makes the substitution
+        # obvious.
+        assert "..." not in result.output, (
+            "remediation hint contains literal '...' — users will copy "
+            "it verbatim. Use '<name>' as a placeholder instead."
+        )
 
     def test_missing_api_server_block(self, monkeypatch):
         """Missing api_server config block surfaces a friendly error."""

@@ -749,7 +749,7 @@ def _build_hermes_backend(
     if not isinstance(raw_token, str) or not raw_token.strip():
         raise ValueError(
             "HERMES_API_SERVER_KEY missing from secrets.json. "
-            f"Re-run 'clawctl agent create {agent_type}-... --type {agent_type} --host {hostname}' "
+            f"Re-run 'clawctl agent create <name> --type {agent_type} --host {hostname}' "
             "to regenerate the API key."
         )
 
