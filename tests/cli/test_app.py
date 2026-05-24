@@ -60,20 +60,18 @@ def test_group_help_exits_zero(group: str) -> None:
 @pytest.mark.parametrize(
     "argv,expected",
     [
-        # Pattern A registry verbs are still stubbed in bundle 3 (#508).
-        # Bundle 4 (#509) replaces these with real implementations.
-        (
-            ["provider", "registry", "create"],
-            "Not implemented: provider registry create",
-        ),
-        (["channel", "registry", "create"], "Not implemented: channel registry create"),
-        (
-            ["integration", "registry", "get"],
-            "Not implemented: integration registry get",
-        ),
-        (["skill", "registry", "get"], "Not implemented: skill registry get"),
+        # `mcp registry` remains a placeholder per plan §4 (no MCP
+        # implementation yet); `agent exec` is intentionally a
+        # placeholder. The Pattern A registries (provider, channel,
+        # integration, skill) were stubs in bundle 3 (#508) and were
+        # replaced with real implementations in bundle 4 (#509) —
+        # those tests live alongside the per-noun modules under
+        # `tests/cli/clawctl/<noun>/`.
         (["mcp", "registry", "get"], "Not implemented: mcp registry get"),
-        # `agent exec` is intentionally a placeholder per plan §4.
+        (
+            ["mcp", "registry", "describe", "foo"],
+            "Not implemented: mcp registry describe",
+        ),
         (["agent", "exec", "any-name", "echo", "hi"], "Not implemented: agent exec"),
     ],
 )

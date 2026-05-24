@@ -1,15 +1,16 @@
 """`clawctl agent configure <name>` — non-interactive (+TTY fallback) configure.
 
-Plan §"Specific Outcomes":
-    `clawctl agent configure <n> --stage validate` runs validate stage
-    non-interactively.
+Bundle 4 (#509) closes Risk R3 from the parent plan: the `channels`
+stage no longer prompts for Discord/Slack input here. Channel
+configuration moves into the dedicated `clawctl channel registry
+create` + `clawctl agent channel attach` surfaces. Invoking
+`clawctl agent configure <n> --stage channels` now exits with a
+deprecation notice that points at the replacement commands.
 
-The full per-stage rewrite (providers/identity/channels/validate) with
-flag-driven inputs and Discord/Slack extraction lives in bundle 4
-(#509). This bundle wraps the existing legacy `cli/agent.py:configure`
-flow so the surface exists, the `--stage` flag works, and the
-non-interactive contract is enforced for the `validate` stage (the one
-the bundle's acceptance criteria call out by name).
+The remaining stages (`providers`, `identity`, `validate`) continue
+to delegate to the legacy `clawrium.core.onboarding.run_stage`. The
+non-interactive contract still applies: when stdin is not a TTY and a
+mandatory stage flag is missing, the verb fails fast (plan §7).
 """
 
 from __future__ import annotations
@@ -45,7 +46,10 @@ def configure(
     stage: Optional[Stage] = typer.Option(
         None,
         "--stage",
-        help="Specific stage to run (providers/identity/channels/validate).",
+        help=(
+            "Specific stage to run. Valid: providers, identity, validate. "
+            "'channels' is deprecated — use 'clawctl channel registry' instead."
+        ),
     ),
     provider: Optional[str] = typer.Option(
         None, "--provider", help="Provider name (when --stage=providers)."
@@ -54,11 +58,39 @@ def configure(
         None, "--personality", help="Personality preset (when --stage=identity)."
     ),
     channel: Optional[list[str]] = typer.Option(
-        None, "--channel", help="Channel name to attach. Repeatable."
+        None,
+        "--channel",
+        help=(
+            "DEPRECATED: channels are now managed via 'clawctl channel "
+            "registry create' + 'clawctl agent channel attach'."
+        ),
     ),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmations."),
 ) -> None:
     """Configure an agent (per-stage, non-interactive when flags supplied)."""
+    # ATX iter-2 B2 / W-NEW-5: argument-shape rejections fire before
+    # `safe_resolve_agent` so a typo'd agent name combined with a
+    # deprecated flag surfaces the actionable deprecation hint, not a
+    # misleading "agent not found" error.
+    if channel:
+        emit_error(
+            "--channel is no longer supported on 'clawctl agent configure'",
+            hint=(
+                "use 'clawctl channel registry create <name> ...' and "
+                f"'clawctl agent channel attach <name> --agent {name}'"
+            ),
+        )
+    if stage is Stage.channels:
+        # R3 closure: --stage channels is deprecated in favour of the
+        # dedicated channel surfaces. Exit with a clear pointer; no
+        # Discord/Slack prompts here.
+        emit_error(
+            "'clawctl agent configure --stage channels' is deprecated",
+            hint=(
+                "use 'clawctl channel registry create <name> --type ... ...' "
+                "and 'clawctl agent channel attach <name> --agent " + name + "'"
+            ),
+        )
+
     host, agent_key, claw_record = safe_resolve_agent(name)
     hostname = host["hostname"]
     agent_type = claw_record.get("type", agent_key)
@@ -68,21 +100,31 @@ def configure(
         if not stdin_is_tty():
             emit_error(
                 "missing required flag --stage",
-                hint="pass --stage providers|identity|channels|validate",
+                hint="pass --stage providers|identity|validate",
             )
+        # ATX iter-2 W2: stale hint pointed at the retired `clm` binary;
+        # the kubectl-style rewrite replaced it.
         emit_error(
             "interactive multi-stage configure not yet exposed via clawctl",
-            hint=(
-                "run a specific stage with --stage, or use legacy "
-                "'clm agent configure' until bundle 4"
-            ),
+            hint="run a specific stage with --stage providers|identity|validate",
         )
 
     # Provider stage requires provider flag (or TTY for prompt fallback).
     if stage is Stage.providers:
         require_flag(provider, flag="--provider")
-    if stage is Stage.channels and not channel and not stdin_is_tty():
-        require_flag(channel, flag="--channel")
+
+    # ATX iter-2 B1: `--personality` flowed into the verb signature but
+    # nothing read it back out. Until `run_stage` accepts a personality
+    # override, refuse the flag with an explicit pointer rather than
+    # accept-and-drop.
+    if personality is not None:
+        emit_error(
+            "--personality is not wired into 'clawctl agent configure' yet",
+            hint=(
+                "follow up in a separate issue; for now set personality via "
+                "'clawctl agent edit " + name + "'"
+            ),
+        )
 
     stream_action(
         resource=f"agent/{name}", message=f"configure stage={stage.value} on {hostname}"

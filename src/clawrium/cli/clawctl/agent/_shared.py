@@ -15,6 +15,31 @@ from clawrium.cli.output import emit_error
 from clawrium.core.hosts import HostsFileCorruptedError, get_agent_by_name
 
 
+def resolve_agent_key(host: dict, agent_name: str) -> str:
+    """Return the dict key under `host.agents` that matches `agent_name`.
+
+    `safe_resolve_agent` returns the agent's *type* string from
+    `core/hosts.py:get_agent_by_name`, which is not necessarily the
+    dict key used to mutate the agent record (modern installs key by
+    name, legacy installs key by type). This helper re-scans the
+    host's agents map to find the canonical key.
+
+    ATX iter-2 W3: extracted from three identical copies (`agent/
+    provider.py`, `agent/channel.py`, `agent/integration.py`) so any
+    future change to the resolution rule only has to land here.
+    """
+    agents = host.get("agents", {}) or {}
+    for key, record in agents.items():
+        if not isinstance(record, dict):
+            continue
+        if agent_name in (key, record.get("agent_name"), record.get("name")):
+            return key
+    emit_error(
+        f"agent {agent_name!r} not found on host {host.get('hostname', '?')}",
+        hint="clawctl agent get",
+    )
+
+
 def safe_resolve_agent(agent_name: str) -> tuple[dict, str, dict]:
     """Resolve `agent_name` → (host_record, agent_key, claw_record).
 

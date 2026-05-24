@@ -15,6 +15,7 @@ import typer
 
 from clawrium.cli.clawctl.agent import (
     chat as _chat,
+    channel as _channel,
     configure as _configure,
     create as _create,
     delete as _delete,
@@ -22,11 +23,16 @@ from clawrium.cli.clawctl.agent import (
     edit as _edit,
     exec as _exec,
     get as _get,
+    integration as _integration,
     logs as _logs,
+    memory as _memory,
     open as _open,
     port_forward as _port_forward,
+    provider as _provider,
     registry as _registry,
     restart as _restart,
+    secret as _secret,
+    skill as _skill,
     start as _start,
     stop as _stop,
     sync as _sync,
@@ -69,5 +75,12 @@ agent_app.command(
 )(_exec.exec_cmd)
 
 
-# Sub-groups.
+# Sub-groups (Pattern A per-agent + agent-scoped sub-resources, plus
+# the read-only types catalog).
+agent_app.add_typer(_provider.provider_app, name="provider")
+agent_app.add_typer(_channel.channel_app, name="channel")
+agent_app.add_typer(_integration.integration_app, name="integration")
+agent_app.add_typer(_skill.skill_app, name="skill")
+agent_app.add_typer(_secret.secret_app, name="secret")
+agent_app.add_typer(_memory.memory_app, name="memory")
 agent_app.add_typer(_registry.registry_app, name="registry")
