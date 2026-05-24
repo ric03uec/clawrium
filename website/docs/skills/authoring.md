@@ -147,9 +147,9 @@ real agent. For a `clawrium/<name>` skill, this means three agents
 matching type.
 
 ```bash
-clm agent skill install <agent> <registry>/<name>
-clm agent skill list    <agent>
-clm agent skill remove  <agent> <registry>/<name>
+clawctl agent skill attach <agent> <registry>/<name>
+clawctl agent skill get --agent    <agent>
+clawctl agent skill detach  <agent> <registry>/<name>
 ```
 
 The web dashboard's **Agents → `<agent>` → Skills** tab covers the

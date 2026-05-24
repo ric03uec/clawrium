@@ -849,9 +849,7 @@ def test_chat_loop_surfaces_history_truncation_notice(monkeypatch, capsys):
     assert "Use /reset to start fresh" in captured
 
 
-def test_chat_loop_breaks_when_protocol_error_disconnects_backend(
-    monkeypatch, capsys
-):
+def test_chat_loop_breaks_when_protocol_error_disconnects_backend(monkeypatch, capsys):
     """ATX Round 2 W2 / Round 3 B1: when a ChatProtocolError leaves the
     backend disconnected (e.g. zeroclaw's approval_request handler
     closes the socket before raising), the REPL must break immediately,
@@ -881,8 +879,12 @@ def test_chat_loop_breaks_when_protocol_error_disconnects_backend(
             self.closed = True
             self.is_connected = False
 
-        async def send_message(self, message, session_key, on_delta, response_timeout_seconds):
-            self.is_connected = False  # mirrors `await self.close()` in approval_request
+        async def send_message(
+            self, message, session_key, on_delta, response_timeout_seconds
+        ):
+            self.is_connected = (
+                False  # mirrors `await self.close()` in approval_request
+            )
             raise ChatProtocolError("ZeroClaw requested tool approval (tool='shell')")
 
         def clear_history(self):
@@ -1012,21 +1014,38 @@ class TestHermesChat:
     def test_missing_api_server_key(self, monkeypatch):
         """Missing HERMES_API_SERVER_KEY in secrets.json surfaces a friendly error."""
         self._patch_resolve(monkeypatch)
-        monkeypatch.setattr(
-            "clawrium.cli.chat.get_instance_secrets", lambda _key: {}
-        )
+        monkeypatch.setattr("clawrium.cli.chat.get_instance_secrets", lambda _key: {})
 
         result = runner.invoke(app, ["chat", "hermes-test"])
 
         assert result.exit_code == 1
         assert "hermes_api_server_key" in result.output.lower()
         assert "re-run" in result.output.lower()
+        # ATX iter-2 S-new-1: the remediation hint interpolates the
+        # actual agent_name so the user can copy-paste it directly. The
+        # ATX iter-1 W3 fix used `<name>` as a placeholder; iter-2
+        # promoted that to interpolation. Both checks below pin the
+        # current behavior: positive (the literal agent name is in the
+        # hint) and negative (no stray "..." that would survive a
+        # placeholder reintroduction).
+        assert "hermes-test" in result.output, (
+            "remediation hint must interpolate the actual agent_name "
+            "so the suggested command is copy-pasteable verbatim."
+        )
+        assert "..." not in result.output, (
+            "remediation hint must not contain literal '...' — users "
+            "will copy it verbatim and the CLI will fail to parse."
+        )
 
     def test_missing_api_server_block(self, monkeypatch):
         """Missing api_server config block surfaces a friendly error."""
         monkeypatch.setattr(
             "clawrium.cli.chat.get_agent_by_name",
-            lambda _name: (self.HOST, "hermes", {"agent_name": "hermes-test", "config": {}}),
+            lambda _name: (
+                self.HOST,
+                "hermes",
+                {"agent_name": "hermes-test", "config": {}},
+            ),
         )
         monkeypatch.setattr(
             "clawrium.cli.chat._resolve_chat_type", lambda _agent_type: "openai"
@@ -1110,7 +1129,9 @@ class TestHermesChat:
 
         def fake_asyncio_run(_coro):
             _coro.close()
-            raise ChatConnectionError("Failed to reach hermes at http://wolf-i.lan:8642/v1")
+            raise ChatConnectionError(
+                "Failed to reach hermes at http://wolf-i.lan:8642/v1"
+            )
 
         monkeypatch.setattr("clawrium.cli.chat.asyncio.run", fake_asyncio_run)
 
@@ -1157,7 +1178,9 @@ class TestHermesChat:
 
         def fake_asyncio_run(_coro):
             _coro.close()
-            raise ChatConnectionError("Failed to reach hermes at http://wolf-i.lan:8642/v1")
+            raise ChatConnectionError(
+                "Failed to reach hermes at http://wolf-i.lan:8642/v1"
+            )
 
         monkeypatch.setattr("clawrium.cli.chat.asyncio.run", fake_asyncio_run)
 
@@ -1165,7 +1188,7 @@ class TestHermesChat:
 
         assert result.exit_code == 1
         assert "legacy bind" in result.output.lower()
-        assert "clm agent configure hermes-test" in result.output
+        assert "clawctl agent configure hermes-test" in result.output
 
     def test_401_remediation(self, monkeypatch):
         """401 path surfaces a 'Re-run clm agent configure' remediation hint.
@@ -1186,7 +1209,7 @@ class TestHermesChat:
         assert result.exit_code == 1
         assert "authentication failed" in result.output.lower()
         assert "re-run" in result.output.lower()
-        assert "clm agent configure hermes-test" in result.output
+        assert "clawctl agent configure hermes-test" in result.output
         # Status code MUST NOT appear in user output (exit criterion: no raw
         # HTTP codes dumped). The exception type is the discriminator.
         assert "401" not in result.output
@@ -1211,7 +1234,7 @@ class TestHermesChat:
         assert result.exit_code == 1
         assert "authentication failed" in result.output.lower()
         assert "re-run" in result.output.lower()
-        assert "clm agent configure hermes-test" in result.output
+        assert "clawctl agent configure hermes-test" in result.output
 
     def test_session_flag_warns_for_hermes(self, monkeypatch):
         """Passing `--session <non-default>` to a hermes agent logs a dim
@@ -1256,9 +1279,7 @@ class TestHermesChat:
             "clawrium.cli.chat._resolve_chat_type", lambda _agent_type: "openai"
         )
         # No HERMES_API_SERVER_KEY -> _build_hermes_backend raises ValueError.
-        monkeypatch.setattr(
-            "clawrium.cli.chat.get_instance_secrets", lambda _key: {}
-        )
+        monkeypatch.setattr("clawrium.cli.chat.get_instance_secrets", lambda _key: {})
 
         result = runner.invoke(
             app, ["chat", "hermes-test", "--session", "custom-session"]
@@ -1308,13 +1329,9 @@ class TestHermesChat:
         def make_client(*args, **kwargs):
             # Discard any transport the backend might pass; wire ours in.
             kwargs.pop("transport", None)
-            return real_async_client(
-                transport=_httpx.MockTransport(handler), **kwargs
-            )
+            return real_async_client(transport=_httpx.MockTransport(handler), **kwargs)
 
-        monkeypatch.setattr(
-            "clawrium.core.chat_hermes.httpx.AsyncClient", make_client
-        )
+        monkeypatch.setattr("clawrium.core.chat_hermes.httpx.AsyncClient", make_client)
 
         # Feed one message into the REPL so send_message() actually runs.
         result = runner.invoke(app, ["chat", "hermes-test"], input="hello\n")
@@ -1366,9 +1383,7 @@ class TestHermesChat:
         # Truthy dict, but no "value" field — the old code would KeyError.
         monkeypatch.setattr(
             "clawrium.cli.chat.get_instance_secrets",
-            lambda _key: {
-                "HERMES_API_SERVER_KEY": {"key": "HERMES_API_SERVER_KEY"}
-            },
+            lambda _key: {"HERMES_API_SERVER_KEY": {"key": "HERMES_API_SERVER_KEY"}},
         )
 
         result = runner.invoke(app, ["chat", "hermes-test"])
@@ -1472,6 +1487,7 @@ class TestZeroclawChat:
         backend = captured["backend"]
         # Must be the ZeroClaw backend, not the openclaw client.
         from clawrium.core.chat_zeroclaw import ZeroClawChatBackend
+
         assert isinstance(backend, ZeroClawChatBackend)
         # URL ends with /ws/chat (idempotent suffix append).
         assert backend.gateway_url.endswith("/ws/chat")
@@ -1530,7 +1546,7 @@ class TestZeroclawChat:
 
         assert result.exit_code == 1
         assert "authentication failed" in result.output.lower()
-        assert "clm agent configure zc-test" in result.output
+        assert "clawctl agent configure zc-test" in result.output
 
     def test_timeout_surfaces_timeout_hint(self, monkeypatch):
         """ATX Round 1 W6 / Round 4 W-B: a recv-timeout ChatConnectionError
@@ -1572,7 +1588,7 @@ class TestZeroclawChat:
         result = runner.invoke(app, ["chat", "zc-test"])
 
         assert result.exit_code == 1
-        assert "clm agent configure zc-test" in result.output
+        assert "clawctl agent configure zc-test" in result.output
         # The timeout-specific hint must NOT fire on the unreachable path.
         assert "Try a higher --timeout" not in result.output
 
@@ -1673,9 +1689,7 @@ def test_chat_loop_uses_agent_name_in_prefix(monkeypatch):
         )
     )
 
-    rendered_first_args = [
-        call["args"][0] for call in recorder.calls if call["args"]
-    ]
+    rendered_first_args = [call["args"][0] for call in recorder.calls if call["args"]]
     assert "cuddly-otter> " in rendered_first_args
     assert "agent> " not in rendered_first_args
 
@@ -1764,9 +1778,7 @@ def test_chat_loop_non_streaming_final_text_uses_green_style(monkeypatch):
     )
 
     prefix_calls = [
-        call
-        for call in recorder.calls
-        if call["args"] and call["args"][0] == "nemo> "
+        call for call in recorder.calls if call["args"] and call["args"][0] == "nemo> "
     ]
     assert prefix_calls, "non-streaming path did not emit the agent prefix"
     for call in prefix_calls:

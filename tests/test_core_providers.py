@@ -206,7 +206,9 @@ class TestOllamaDiscovery:
         }
         mock_response.raise_for_status = MagicMock()
 
-        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
+        with patch(
+            "clawrium.core.providers.storage.requests.get", return_value=mock_response
+        ):
             models = fetch_ollama_models("http://example.com:11434")
 
         assert models == ["llama3:latest", "mistral:latest"]
@@ -217,7 +219,9 @@ class TestOllamaDiscovery:
         mock_response.json.return_value = {"models": []}
         mock_response.raise_for_status = MagicMock()
 
-        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
+        with patch(
+            "clawrium.core.providers.storage.requests.get", return_value=mock_response
+        ):
             models = fetch_ollama_models("http://example.com:11434")
 
         assert models == []
@@ -256,7 +260,9 @@ class TestOllamaDiscovery:
             response=mock_response
         )
 
-        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
+        with patch(
+            "clawrium.core.providers.storage.requests.get", return_value=mock_response
+        ):
             with pytest.raises(OllamaConnectionError) as exc_info:
                 fetch_ollama_models("http://example.com:11434")
             assert "error" in str(exc_info.value).lower()
@@ -270,7 +276,9 @@ class TestOllamaDiscovery:
             response=None
         )
 
-        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
+        with patch(
+            "clawrium.core.providers.storage.requests.get", return_value=mock_response
+        ):
             with pytest.raises(OllamaConnectionError) as exc_info:
                 fetch_ollama_models("http://example.com:11434")
             assert "unknown" in str(exc_info.value).lower()
@@ -281,7 +289,9 @@ class TestOllamaDiscovery:
         mock_response.json.side_effect = json.JSONDecodeError("Invalid", "", 0)
         mock_response.raise_for_status = MagicMock()
 
-        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
+        with patch(
+            "clawrium.core.providers.storage.requests.get", return_value=mock_response
+        ):
             with pytest.raises(OllamaConnectionError) as exc_info:
                 fetch_ollama_models("http://example.com:11434")
             assert "invalid response" in str(exc_info.value).lower()

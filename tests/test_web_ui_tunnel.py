@@ -69,7 +69,9 @@ def test_cmdline_signature_matches_actual_proc_format():
 
 
 def test_cmdline_signature_rejects_unrelated_cmdline():
-    signature = _cmdline_signature(["ssh", "-N", "-L", "1234:127.0.0.1:9119", "xclm@host"])
+    signature = _cmdline_signature(
+        ["ssh", "-N", "-L", "1234:127.0.0.1:9119", "xclm@host"]
+    )
     assert not _cmdline_matches("nginx: worker process", signature)
 
 
@@ -112,9 +114,7 @@ def test_build_ssh_for_consults_bind_address_map_wildcard(monkeypatch):
     swap. If a future refactor re-introduces a hardcoded `127.0.0.1`
     for the wildcard path this test fails. ATX iter 2 B-new1.
     """
-    monkeypatch.setitem(
-        web_ui_tunnel.BIND_ADDRESS_MAP, "wildcard", "10.99.99.99"
-    )
+    monkeypatch.setitem(web_ui_tunnel.BIND_ADDRESS_MAP, "wildcard", "10.99.99.99")
     resolved = ResolvedUI(
         host="zero.local",
         remote_port=40123,
@@ -134,9 +134,7 @@ def test_build_ssh_for_consults_bind_address_map_loopback(monkeypatch):
     for `loopback` — the wildcard-only sentinel test would still pass.
     ATX iter 3 W3.
     """
-    monkeypatch.setitem(
-        web_ui_tunnel.BIND_ADDRESS_MAP, "loopback", "10.88.88.88"
-    )
+    monkeypatch.setitem(web_ui_tunnel.BIND_ADDRESS_MAP, "loopback", "10.88.88.88")
     resolved = ResolvedUI(
         host="hermes.local",
         remote_port=45123,
@@ -233,7 +231,9 @@ def test_ensure_evicts_stale_pid_then_spawns_new_tunnel(
     fake_proc.pid = 4242
     fake_proc.poll.return_value = None
     monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", lambda cmd: fake_proc)
-    monkeypatch.setattr(web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0: True)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0: True
+    )
 
     result = ensure("demo")
     assert result > 0
@@ -262,9 +262,7 @@ def test_cmdline_guard_refuses_kill_for_mismatched_pid(
     monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: True)
     monkeypatch.setattr(web_ui_tunnel, "_read_cmdline", lambda pid: "init")
     kill_calls: list[int] = []
-    monkeypatch.setattr(
-        "os.kill", lambda pid, sig: kill_calls.append(pid)
-    )
+    monkeypatch.setattr("os.kill", lambda pid, sig: kill_calls.append(pid))
 
     web_ui_tunnel._evict_stale("demo")
     assert kill_calls == []
@@ -283,7 +281,9 @@ def test_ensure_raises_when_ssh_fails_to_bind(
     fake_proc.poll.return_value = 1
     fake_proc.stderr = None
     monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", lambda cmd: fake_proc)
-    monkeypatch.setattr(web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0: False)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0: False
+    )
 
     with pytest.raises(TunnelError):
         ensure("demo")

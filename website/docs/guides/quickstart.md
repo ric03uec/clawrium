@@ -39,10 +39,10 @@ Installed 1 package in 12ms
 Verify installation:
 
 ```bash
-clm --help
+clawctl --help
 ```
 ```
- Usage: clm [OPTIONS] COMMAND [ARGS]...
+ Usage: clawctl [OPTIONS] COMMAND [ARGS]...
 
  Clawrium - Manage your AI assistant fleet
 
@@ -61,7 +61,7 @@ clm --help
 Create the configuration directory and validate dependencies:
 
 ```bash
-clm init
+clawctl service init
 ```
 ```
 ✓ Configuration directory created at ~/.config/clawrium/
@@ -69,7 +69,7 @@ clm init
 ✓ SSH client found: OpenSSH_9.0p1
 ✓ Dependencies validated
 
-Clawrium is ready! Next: clm host init <hostname> --user <user>
+Clawrium is ready! Next: clawctl host create --bootstrap <hostname> --user <user>
 ```
 
 ## Step 3: Prepare a Host
@@ -77,7 +77,7 @@ Clawrium is ready! Next: clm host init <hostname> --user <user>
 Initialize the target host. Clawrium generates a unique keypair and sets up the `xclm` management user:
 
 ```bash
-clm host init 192.168.1.100 --user myuser
+clawctl host create --bootstrap 192.168.1.100 --user myuser
 ```
 
 Replace:
@@ -97,7 +97,7 @@ Configuring xclm user on remote host...
   Adding SSH public key...
 ✓ Host initialization complete
 
-Next: clm host add 192.168.1.100 --alias <friendly-name>
+Next: clawctl host create 192.168.1.100 --alias <friendly-name>
 ```
 
 :::note Manual setup required?
@@ -109,7 +109,7 @@ If automatic setup fails (e.g., password authentication disabled), Clawrium show
 Add the initialized host to your fleet:
 
 ```bash
-clm host add 192.168.1.100 --alias homelab
+clawctl host create 192.168.1.100 --alias homelab
 ```
 ```
 Connecting to 192.168.1.100 as xclm...
@@ -128,7 +128,7 @@ Detecting hardware capabilities...
 Verify with:
 
 ```bash
-clm host list
+clawctl host get
 ```
 ```
 Alias      Host            Architecture   Cores   Memory (GB)   Tags
@@ -141,7 +141,7 @@ homelab    192.168.1.100   x86_64         4       16.0          -
 Install OpenClaw on your host:
 
 ```bash
-clm agent install --type openclaw --host homelab --name my-assistant
+clawctl agent create --type openclaw --host homelab --name my-assistant
 ```
 ```
 Fetching openclaw manifest...
@@ -154,7 +154,7 @@ Installing on homelab...
   Creating systemd service...
 ✓ Agent 'my-assistant' installed
 
-Next: clm agent configure my-assistant
+Next: clawctl agent configure my-assistant
 ```
 
 ## Step 6: Configure the Agent
@@ -162,7 +162,7 @@ Next: clm agent configure my-assistant
 Run the configuration wizard:
 
 ```bash
-clm agent configure my-assistant
+clawctl agent configure my-assistant
 ```
 ```
 ═══════════════════════════════════════════════════════════
@@ -196,7 +196,7 @@ Stage 4/4: Validation
 ✓ Channels: CLI
 ✓ Configuration valid
 
-Configuration complete. Run 'clm agent start my-assistant' to start your agent.
+Configuration complete. Run 'clawctl agent start my-assistant' to start your agent.
 ```
 
 ## Step 7: Check Fleet Status
@@ -204,7 +204,7 @@ Configuration complete. Run 'clm agent start my-assistant' to start your agent.
 Verify your fleet:
 
 ```bash
-clm ps
+clawctl agent get
 ```
 ```
 HOST        AGENT          TYPE       PROVIDER   STATUS    UPTIME
@@ -217,7 +217,7 @@ homelab     my-assistant   openclaw   anthropic  running   1m
 Test your agent:
 
 ```bash
-clm chat my-assistant
+clawctl agent chat my-assistant
 ```
 ```
 Connected to my-assistant (openclaw) on homelab
@@ -271,9 +271,9 @@ sudo whoami
 Check the agent logs:
 
 ```bash
-clm agent logs my-assistant
+clawctl agent logs my-assistant
 ```
 
 Common issues:
-- Invalid API key (re-run `clm agent configure my-assistant --stage providers`)
-- Port already in use (check with `clm agent status my-assistant`)
+- Invalid API key (re-run `clawctl agent configure my-assistant --stage providers`)
+- Port already in use (check with `clawctl agent describe my-assistant`)

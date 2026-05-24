@@ -36,16 +36,16 @@ Integrations are managed independently of agents — define one once, then attac
 **From the CLI:**
 
 ```bash
-clm integration types                 # list supported types
-clm integration add my-github --type github
-clm integration credentials my-github # paste tokens interactively
+clawctl integration registry get --types                 # list supported types
+clawctl integration registry create my-github --type github
+clawctl integration registry describe my-github # paste tokens interactively
 ```
 
-See the [`clm integration` reference](../../reference/cli/integration.md) for the full command set.
+See the [`clawctl integration` reference](../../reference/cli/integration.md) for the full command set.
 
 **From the web dashboard:**
 
-The [`Integrations` page](../../web-dashboard.md#integrations) (`clm gui` → Integrations) lists every configured integration with its agent usage count and renders dynamic credential fields per type — `Add Integration` for new ones, `Edit credentials` to rotate without re-typing the unchanged values. Credential values are never sent to the browser.
+The [`Integrations` page](../../web-dashboard.md#integrations) (`clawctl gui` → Integrations) lists every configured integration with its agent usage count and renders dynamic credential fields per type — `Add Integration` for new ones, `Edit credentials` to rotate without re-typing the unchanged values. Credential values are never sent to the browser.
 
 ## Security
 

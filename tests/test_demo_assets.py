@@ -108,7 +108,11 @@ class TestTapeFileStructure:
     def test_tape_sets_bash_shell(self) -> None:
         """`Set Shell "bash"` must be present so commands behave consistently."""
         shell_re = re.compile(r'^\s*Set\s+Shell\s+"bash"\s*$', re.MULTILINE)
-        bad = [tape.name for tape in self._tape_files() if not shell_re.search(tape.read_text())]
+        bad = [
+            tape.name
+            for tape in self._tape_files()
+            if not shell_re.search(tape.read_text())
+        ]
         assert not bad, (
             'Tapes missing `Set Shell "bash"`: '
             + ", ".join(bad)
@@ -137,5 +141,7 @@ class TestTapeFileStructure:
                 )
             for lineno, line in enumerate(text.splitlines(), 1):
                 if bad_path_re.search(line):
-                    issues.append(f"{tape.name}:{lineno}: hardcoded home path: {line.strip()}")
+                    issues.append(
+                        f"{tape.name}:{lineno}: hardcoded home path: {line.strip()}"
+                    )
         assert not issues, "Tape portability issues:\n  - " + "\n  - ".join(issues)

@@ -115,7 +115,7 @@ def test_host_add_requires_keypair(isolated_config: Path):
 
     assert result.exit_code == 1
     assert "no keypair" in result.output.lower()
-    assert "host init" in result.output.lower()
+    assert "host create --bootstrap" in result.output.lower()
 
 
 def test_host_list_empty(isolated_config: Path):
@@ -628,7 +628,9 @@ def test_host_alias_hostname_conflict(isolated_config: Path, sample_host_data: d
 
     # Try to set alias to existing hostname
     result = runner.invoke(
-        app, ["host", "alias", "192.168.1.100", "--set", "192.168.1.101"], env=os.environ
+        app,
+        ["host", "alias", "192.168.1.100", "--set", "192.168.1.101"],
+        env=os.environ,
     )
 
     assert result.exit_code == 1
@@ -754,7 +756,9 @@ def test_host_tag_set(isolated_config: Path, sample_host_data: dict):
     hosts_file.write_text(json.dumps([host_data]))
 
     result = runner.invoke(
-        app, ["host", "tag", "192.168.1.100", "--set", "staging,backend"], env=os.environ
+        app,
+        ["host", "tag", "192.168.1.100", "--set", "staging,backend"],
+        env=os.environ,
     )
 
     assert result.exit_code == 0
@@ -815,9 +819,7 @@ def test_host_tag_no_operation(isolated_config: Path, sample_host_data: dict):
     hosts_file = isolated_config / "hosts.json"
     hosts_file.write_text(json.dumps([sample_host_data]))
 
-    result = runner.invoke(
-        app, ["host", "tag", "192.168.1.100"], env=os.environ
-    )
+    result = runner.invoke(app, ["host", "tag", "192.168.1.100"], env=os.environ)
 
     assert result.exit_code == 1
     assert "specify" in result.output.lower()
@@ -994,9 +996,7 @@ def test_host_update_requires_field(isolated_config: Path, sample_host_data: dic
     hosts_file = isolated_config / "hosts.json"
     hosts_file.write_text(json.dumps([sample_host_data]))
 
-    result = runner.invoke(
-        app, ["host", "update", "192.168.1.100"], env=os.environ
-    )
+    result = runner.invoke(app, ["host", "update", "192.168.1.100"], env=os.environ)
 
     assert result.exit_code == 1
     assert "at least one field" in result.output.lower()
@@ -1172,7 +1172,9 @@ def test_address_add_duplicate_fails(isolated_config: Path, sample_host_data: di
 
     # Try to add the same address that already exists (hostname)
     result = runner.invoke(
-        app, ["host", "address", "add", "192.168.1.100", "192.168.1.100"], env=os.environ
+        app,
+        ["host", "address", "add", "192.168.1.100", "192.168.1.100"],
+        env=os.environ,
     )
 
     assert result.exit_code == 1
@@ -1190,8 +1192,18 @@ def test_address_remove_success(isolated_config: Path):
         "user": "xclm",
         "auth_method": "key",
         "addresses": [
-            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
-            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+            {
+                "address": "192.168.1.100",
+                "is_primary": True,
+                "label": "lan",
+                "added_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "address": "10.0.0.100",
+                "is_primary": False,
+                "label": "vpn",
+                "added_at": "2024-01-02T00:00:00Z",
+            },
         ],
         "hardware": {},
         "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
@@ -1200,7 +1212,9 @@ def test_address_remove_success(isolated_config: Path):
     hosts_file.write_text(json.dumps([host_data]))
 
     result = runner.invoke(
-        app, ["host", "address", "remove", "192.168.1.100", "10.0.0.100"], env=os.environ
+        app,
+        ["host", "address", "remove", "192.168.1.100", "10.0.0.100"],
+        env=os.environ,
     )
 
     assert result.exit_code == 0
@@ -1224,8 +1238,18 @@ def test_address_remove_primary_fails(isolated_config: Path):
         "user": "xclm",
         "auth_method": "key",
         "addresses": [
-            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
-            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+            {
+                "address": "192.168.1.100",
+                "is_primary": True,
+                "label": "lan",
+                "added_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "address": "10.0.0.100",
+                "is_primary": False,
+                "label": "vpn",
+                "added_at": "2024-01-02T00:00:00Z",
+            },
         ],
         "hardware": {},
         "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
@@ -1234,7 +1258,9 @@ def test_address_remove_primary_fails(isolated_config: Path):
     hosts_file.write_text(json.dumps([host_data]))
 
     result = runner.invoke(
-        app, ["host", "address", "remove", "192.168.1.100", "192.168.1.100"], env=os.environ
+        app,
+        ["host", "address", "remove", "192.168.1.100", "192.168.1.100"],
+        env=os.environ,
     )
 
     assert result.exit_code == 1
@@ -1252,8 +1278,18 @@ def test_address_list_shows_all(isolated_config: Path):
         "user": "xclm",
         "auth_method": "key",
         "addresses": [
-            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
-            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+            {
+                "address": "192.168.1.100",
+                "is_primary": True,
+                "label": "lan",
+                "added_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "address": "10.0.0.100",
+                "is_primary": False,
+                "label": "vpn",
+                "added_at": "2024-01-02T00:00:00Z",
+            },
         ],
         "hardware": {},
         "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
@@ -1283,8 +1319,18 @@ def test_address_set_primary_success(isolated_config: Path):
         "user": "xclm",
         "auth_method": "key",
         "addresses": [
-            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
-            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+            {
+                "address": "192.168.1.100",
+                "is_primary": True,
+                "label": "lan",
+                "added_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "address": "10.0.0.100",
+                "is_primary": False,
+                "label": "vpn",
+                "added_at": "2024-01-02T00:00:00Z",
+            },
         ],
         "hardware": {},
         "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
@@ -1293,7 +1339,9 @@ def test_address_set_primary_success(isolated_config: Path):
     hosts_file.write_text(json.dumps([host_data]))
 
     result = runner.invoke(
-        app, ["host", "address", "set-primary", "192.168.1.100", "10.0.0.100"], env=os.environ
+        app,
+        ["host", "address", "set-primary", "192.168.1.100", "10.0.0.100"],
+        env=os.environ,
     )
 
     assert result.exit_code == 0
@@ -1316,9 +1364,24 @@ def test_host_list_shows_additional_count(isolated_config: Path):
         "user": "xclm",
         "auth_method": "key",
         "addresses": [
-            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
-            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
-            {"address": "mybox.example.com", "is_primary": False, "label": "external", "added_at": "2024-01-03T00:00:00Z"},
+            {
+                "address": "192.168.1.100",
+                "is_primary": True,
+                "label": "lan",
+                "added_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "address": "10.0.0.100",
+                "is_primary": False,
+                "label": "vpn",
+                "added_at": "2024-01-02T00:00:00Z",
+            },
+            {
+                "address": "mybox.example.com",
+                "is_primary": False,
+                "label": "external",
+                "added_at": "2024-01-03T00:00:00Z",
+            },
         ],
         "hardware": {},
         "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
@@ -1344,8 +1407,18 @@ def test_host_ps_shows_all_addresses(isolated_config: Path, mock_ssh_client):
         "user": "xclm",
         "auth_method": "key",
         "addresses": [
-            {"address": "192.168.1.100", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
-            {"address": "10.0.0.100", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+            {
+                "address": "192.168.1.100",
+                "is_primary": True,
+                "label": "lan",
+                "added_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "address": "10.0.0.100",
+                "is_primary": False,
+                "label": "vpn",
+                "added_at": "2024-01-02T00:00:00Z",
+            },
         ],
         "hardware": {},
         "metadata": {"added_at": "2024-01-01", "last_seen": "2024-01-01", "tags": []},
@@ -1404,7 +1477,9 @@ def test_address_add_invalid_shell_chars(isolated_config: Path, sample_host_data
     hosts_file.write_text(json.dumps([sample_host_data]))
 
     result = runner.invoke(
-        app, ["host", "address", "add", "192.168.1.100", "host;rm -rf /"], env=os.environ
+        app,
+        ["host", "address", "add", "192.168.1.100", "host;rm -rf /"],
+        env=os.environ,
     )
 
     assert result.exit_code == 1
@@ -1420,7 +1495,9 @@ def test_address_add_invalid_user_prefix(isolated_config: Path, sample_host_data
     hosts_file.write_text(json.dumps([sample_host_data]))
 
     result = runner.invoke(
-        app, ["host", "address", "add", "192.168.1.100", "user@host.example.com"], env=os.environ
+        app,
+        ["host", "address", "add", "192.168.1.100", "user@host.example.com"],
+        env=os.environ,
     )
 
     assert result.exit_code == 1

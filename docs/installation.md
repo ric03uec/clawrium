@@ -60,51 +60,56 @@ Installed 1 package in 12ms
 ### Run Without Installing
 
 ```bash
-uvx --from clawrium clm --help
+uvx --from clawrium clawctl --help
 ```
 
 This runs the latest version without permanent installation - useful for trying it out.
 
 ## Verify Installation
 
-Run the `clm` command to verify installation:
+Run the `clawctl` command to verify installation:
 
 ```bash
-clm --help
+clawctl --help
 ```
 
 You should see:
 
 ```
- Usage: clm [OPTIONS] COMMAND [ARGS]...
+ Usage: clawctl [OPTIONS] COMMAND [ARGS]...
 
- Clawrium - Manage your AI assistant fleet
+ clawctl — manage your AI assistant fleet, kubectl-style.
 
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
-│ init      Initialize Clawrium and check dependencies                         │
-│ host      Manage hosts in your fleet                                         │
-│ provider  Manage inference providers (LLM APIs)                              │
-│ agent     Manage agents in your fleet                                        │
-│ ps        Show fleet status across all hosts                                 │
-│ chat      Chat with a deployed agent                                         │
+│ service     System-level lifecycle ops (init, snapshot, ...)                 │
+│ host        Manage hosts in your fleet                                       │
+│ provider    Manage inference providers (LLM APIs)                            │
+│ integration Manage external service integrations                             │
+│ channel     Manage chat-channel attachables (Discord, Slack, ...)            │
+│ skill       Browse the skills catalog                                        │
+│ agent       Manage agents in your fleet                                      │
+│ tui         Launch the interactive TUI dashboard                             │
+│ gui         Launch the local web GUI dashboard                               │
+│ version     Show clawctl version and exit                                    │
+│ completion  Emit a shell-completion script                                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
 Check the version:
 
 ```bash
-clm --version
+clawctl --version
 ```
 ```
-clm, version 26.5.4
+clawctl 26.5.4
 ```
 
 ## Initialize Clawrium
 
-Run `clm init` to create the configuration directory and check dependencies:
+Run `clawctl service init` to create the configuration directory and check dependencies:
 
 ```bash
-clm init
+clawctl service init
 ```
 ```
 ✓ Configuration directory created at ~/.config/clawrium/
@@ -112,7 +117,7 @@ clm init
 ✓ SSH client found: OpenSSH_9.0p1
 ✓ Dependencies validated
 
-Clawrium is ready! Next: clm host init <hostname> --user <user>
+Clawrium is ready! Next: clawctl host create <hostname> --user <user> --bootstrap
 ```
 
 This creates:
@@ -121,7 +126,7 @@ This creates:
 
 ## Troubleshooting
 
-### "command not found: clm"
+### "command not found: clawctl"
 
 The uv tools directory isn't in your PATH. Add it:
 

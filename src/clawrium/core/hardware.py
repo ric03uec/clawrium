@@ -50,7 +50,9 @@ def extract_hardware_from_facts(facts: dict) -> dict:
         Hardware dict with architecture, cores, memory, mounts, os, os_version
     """
     product_name_raw = facts.get("ansible_product_name")
-    product_name = product_name_raw.strip() if isinstance(product_name_raw, str) else None
+    product_name = (
+        product_name_raw.strip() if isinstance(product_name_raw, str) else None
+    )
     if product_name == "":
         product_name = None
 

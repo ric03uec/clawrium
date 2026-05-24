@@ -1,0 +1,21 @@
+{
+  "session_id": "aa61eee7-826c-414b-af3e-9741132e6c00",
+  "iter1_session_id": "d8d35c45-7936-4ea7-ac6f-c1cd84f9ffb0",
+  "iter2_session_id": "aa61eee7-826c-414b-af3e-9741132e6c00",
+  "transport": "cli",
+  "commit_sha": "db930ae64fc1081f921e3f23f909120ecc2857ac",
+  "iteration": 3,
+  "iter1_rating": 3,
+  "iter2_rating": 4,
+  "last_rating": 4,
+  "last_blockers": [],
+  "warnings_resolved_iter1": ["W1","W2","W3","W4","W5"],
+  "warnings_resolved_iter2": ["W-new-1","W-new-2","W-new-3"],
+  "suggestions_resolved_iter2": ["S-new-1"],
+  "suggestions_deferred_iter2": ["S-new-2","S-new-3"],
+  "atx_cost_usd_total": 7.0725,
+  "atx_duration_s_total": 1186,
+  "started_at": "2026-05-24T21:18:26Z",
+  "updated_at": "2026-05-24T21:49:16Z",
+  "verdict": "iter-2 rated 4/5 with 0 blockers — above merge threshold. iter-3 commit closes 3 warnings + 1 suggestion per reviewer note 'rating stands at 4/5 with 0 blockers; re-review not required.'"
+}

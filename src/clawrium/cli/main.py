@@ -40,9 +40,7 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    version: bool = typer.Option(
-        False, "--version", help="Show version and exit"
-    ),
+    version: bool = typer.Option(False, "--version", help="Show version and exit"),
 ) -> None:
     """Clawrium CLI main entry point."""
     if version:
@@ -94,7 +92,7 @@ def chat(
         help="Seconds to wait for user input before auto-exit (0 disables).",
     ),
 ) -> None:
-    """Start interactive chat with an installed agent (use `clm ps` to find names)."""
+    """Start interactive chat with an installed agent (use `clawctl agent get` to find names)."""
     chat_command(
         agent_name=agent_name,
         session=session,

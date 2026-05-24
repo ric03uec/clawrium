@@ -86,7 +86,7 @@ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
 ### 3. Add to Clawrium
 
 ```bash
-clm provider add my-vertex --type vertex
+clawctl provider registry create my-vertex --type vertex
 ```
 
 Note: Vertex AI uses Google Cloud authentication, not an API key.
@@ -101,13 +101,13 @@ Choose a default model during setup:
 
 ```bash
 # View provider details
-clm provider list
+clawctl provider registry get
 
 # Change default model
-clm provider edit my-vertex --model gemini-2.5-flash
+clawctl provider registry edit my-vertex --model gemini-2.5-flash
 
 # Remove provider
-clm provider remove my-vertex
+clawctl provider registry delete my-vertex
 ```
 
 ## Pricing
@@ -130,7 +130,7 @@ Approximate costs:
 During agent onboarding:
 
 ```bash
-clm agent configure my-agent
+clawctl agent configure my-agent
 # Select my-vertex when prompted for provider
 ```
 

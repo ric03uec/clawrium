@@ -120,7 +120,7 @@ def test_openclaw_playbook_writes_clawrium_managed_sentinel():
     distinguish clawrium-owned dirs from user-authored ones under
     `~/.openclaw/skills/`."""
     text, play = _load_playbook("openclaw")
-    assert "managed_marker: \".clawrium-managed\"" in text
+    assert 'managed_marker: ".clawrium-managed"' in text
     names = _task_names(play)
     assert "Mark each desired skill as clawrium-managed" in names
 
@@ -226,16 +226,15 @@ def test_zeroclaw_playbook_preremoves_desired_and_installed_slugs():
     # not all desired (would error on first-install for new slugs) and
     # not all installed (that's the prune step's job). Exact match
     # guards against a mutated expression that appends extra filters.
-    assert (
-        preremove["loop"]
-        == "{{ desired_skill_names | intersect(installed_slugs) }}"
-    )
+    assert preremove["loop"] == "{{ desired_skill_names | intersect(installed_slugs) }}"
     # Per-iteration regex guard: defense-in-depth so a tampered
     # extravar that bypassed the earlier validate task still can't
     # be passed as `zeroclaw skills remove <slug>`.
     when_clauses = preremove.get("when")
     assert when_clauses is not None, "pre-remove must have a `when:` guard"
-    when_str = " ".join(when_clauses) if isinstance(when_clauses, list) else when_clauses
+    when_str = (
+        " ".join(when_clauses) if isinstance(when_clauses, list) else when_clauses
+    )
     assert "match('^[a-z0-9][a-z0-9_-]*$')" in when_str, when_str
     # Must run as the agent user (zeroclaw is single-user-scoped — the
     # binary won't find the right config.toml as root).
@@ -266,8 +265,7 @@ def test_zeroclaw_playbook_uses_workspace_skills_path():
     reverting to the wrong path."""
     text, _ = _load_playbook("zeroclaw")
     assert (
-        'workspace_skills: "/home/{{ agent_name }}/.zeroclaw/workspace/skills"'
-        in text
+        'workspace_skills: "/home/{{ agent_name }}/.zeroclaw/workspace/skills"' in text
     )
 
 
@@ -324,9 +322,7 @@ def test_zeroclaw_playbook_audit_gate_runs_for_every_desired_skill():
     # in EXECUTABLE yaml (set_fact / when / loop), the test fails. We
     # strip line comments (`#...`) first so the explainer comments
     # documenting *why* we removed the filter don't false-positive.
-    non_comment = "\n".join(
-        line.split("#", 1)[0] for line in text.splitlines()
-    )
+    non_comment = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
     assert "difference(installed_slugs)" not in non_comment
 
 
@@ -338,16 +334,11 @@ def test_zeroclaw_playbook_install_wrapped_in_block_always():
     _, play = _load_playbook("zeroclaw")
     # Find the wrapper block by its name. Wrapper has `block:` and
     # `always:` keys, no module key of its own.
-    wrapper = next(
-        t
-        for t in play["tasks"]
-        if "block" in t and "always" in t
-    )
+    wrapper = next(t for t in play["tasks"] if "block" in t and "always" in t)
     block_names = [t.get("name", "") for t in wrapper["block"]]
     always_names = [t.get("name", "") for t in wrapper["always"]]
     assert (
-        "Install each desired skill via native `zeroclaw skills install`"
-        in block_names
+        "Install each desired skill via native `zeroclaw skills install`" in block_names
     )
     assert "Clean up remote staging directory" in always_names
 
@@ -389,6 +380,5 @@ def test_zeroclaw_playbook_install_uses_argv_form_not_shell():
             "must use argv form"
         )
         assert "argv" in cmd, (
-            f"task {task.get('name')!r} must use `argv:` form, "
-            "not `cmd:` string"
+            f"task {task.get('name')!r} must use `argv:` form, not `cmd:` string"
         )

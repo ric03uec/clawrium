@@ -311,7 +311,7 @@ OpenRouter provides unified access to multiple AI models through a single API.
 ### 2. Add to Clawrium
 
 ```bash
-clm provider add my-router --type openrouter
+clawctl provider registry create my-router --type openrouter
 ```
 
 You will be prompted to enter your API key securely.
@@ -327,16 +327,16 @@ Choose from OpenRouter's extensive model list:
 
 ```bash
 # View provider details
-clm provider list
+clawctl provider registry get
 
 # Change default model
-clm provider edit my-router --model anthropic/claude-sonnet-4
+clawctl provider registry edit my-router --model anthropic/claude-sonnet-4
 
 # Update API key
-clm provider edit my-router --update-key
+clawctl provider registry edit my-router --update-key
 
 # Remove provider
-clm provider remove my-router
+clawctl provider registry delete my-router
 ```
 
 ## Benefits
@@ -355,7 +355,7 @@ OpenRouter adds a small fee on top of provider costs. Check [OpenRouter pricing]
 During agent onboarding:
 
 ```bash
-clm agent configure my-agent
+clawctl agent configure my-agent
 # Select my-router when prompted for provider
 ```
 
@@ -364,7 +364,7 @@ clm agent configure my-agent
 You can switch models without changing providers:
 
 ```bash
-clm provider edit my-router --model deepseek/deepseek-chat-v3
+clawctl provider registry edit my-router --model deepseek/deepseek-chat-v3
 ```
 
 Then restart your agent to use the new model.

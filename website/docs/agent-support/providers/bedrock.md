@@ -124,7 +124,7 @@ You need AWS credentials with Bedrock access:
 ### 3. Add to Clawrium
 
 ```bash
-clm provider add my-bedrock --type bedrock
+clawctl provider registry create my-bedrock --type bedrock
 ```
 
 You will be prompted to enter:
@@ -141,16 +141,16 @@ Choose a default model during setup:
 
 ```bash
 # View provider details
-clm provider list
+clawctl provider registry get
 
 # Change default model
-clm provider edit my-bedrock --model anthropic.claude-sonnet-4-20250514-v1:0
+clawctl provider registry edit my-bedrock --model anthropic.claude-sonnet-4-20250514-v1:0
 
 # Update AWS credentials
-clm provider edit my-bedrock --update-key
+clawctl provider registry edit my-bedrock --update-key
 
 # Remove provider
-clm provider remove my-bedrock
+clawctl provider registry delete my-bedrock
 ```
 
 ## Pricing
@@ -180,7 +180,7 @@ Example approximate costs:
 During agent onboarding:
 
 ```bash
-clm agent configure my-agent
+clawctl agent configure my-agent
 # Select my-bedrock when prompted for provider
 ```
 

@@ -45,7 +45,7 @@ Discord channel allows your agent to operate as a bot in Discord servers.
 During agent onboarding:
 
 ```bash
-clm agent configure my-agent
+clawctl agent configure my-agent
 ```
 
 When prompted for channels:
@@ -62,7 +62,7 @@ When prompted for channels:
 ### 4. Start Agent
 
 ```bash
-clm agent start my-agent
+clawctl agent start my-agent
 ```
 
 The bot will come online in your Discord server.
@@ -119,7 +119,7 @@ Once running, interact with the bot by:
 
 **"Token invalid"**
 - Regenerate token in Discord Developer Portal
-- Re-run: `clm agent configure <name> --stage channels`
+- Re-run: `clawctl agent configure <name> --stage channels`
 
 **"Missing permissions"**
 - Re-invite bot with correct permissions
@@ -135,7 +135,7 @@ Once running, interact with the bot by:
 
 Hermes uses a simpler configuration model than OpenClaw — env vars rendered directly into `~/.hermes/.env`. There are no SecretRef objects; the bot token is written as a plain value in the env file (mode 0600 on the agent host).
 
-### Env vars rendered by clm
+### Env vars rendered by clawctl
 
 | Variable | Required | Description |
 |----------|:--------:|-------------|
@@ -151,7 +151,7 @@ Hermes uses a simpler configuration model than OpenClaw — env vars rendered di
 ### Interactive setup (Hermes)
 
 ```bash
-clm agent configure <hermes-name> --stage channels
+clawctl agent configure <hermes-name> --stage channels
 ```
 
 The wizard offers `cli`, `discord`, and `slack`. Pick `discord` and the CLI prompts for:
@@ -165,7 +165,7 @@ The wizard offers `cli`, `discord`, and `slack`. Pick `discord` and the CLI prom
 | Allowed channel IDs | `hosts.json` `channels.discord.allowed_channels` | optional | Restrict the bot to specific channels (comma-separated). Empty = any channel the bot is invited to. |
 | Require `@mention` to respond? | `hosts.json` `channels.discord.require_mention` | optional | Defaults to true. DMs always work regardless. |
 
-`clm` then runs the configure playbook which re-renders `~/.hermes/.env` with the `DISCORD_*` block and restarts `hermes-<name>.service`. Verification tasks confirm the token + an allowlist landed in the env file before the playbook reports success.
+`clawctl` then runs the configure playbook which re-renders `~/.hermes/.env` with the `DISCORD_*` block and restarts `hermes-<name>.service`. Verification tasks confirm the token + an allowlist landed in the env file before the playbook reports success.
 
 ### Resulting on-disk shape (Hermes)
 
@@ -197,11 +197,11 @@ The wizard offers `cli`, `discord`, and `slack`. Pick `discord` and the CLI prom
 }
 ```
 
-The bot token **never** lands in `hosts.json` — the configure flow strips it from `config.channels.discord` before persisting (B3 invariant, mirrored from the `api_server.key` strip). Re-running `clm agent configure --stage channels` with the same token reuses it byte-identical (idempotency contract).
+The bot token **never** lands in `hosts.json` — the configure flow strips it from `config.channels.discord` before persisting (B3 invariant, mirrored from the `api_server.key` strip). Re-running `clawctl agent configure --stage channels` with the same token reuses it byte-identical (idempotency contract).
 
 ### Removal (Hermes)
 
-`clm agent remove <name> --force` purges the entire instance entry from `secrets.json`, including `DISCORD_BOT_TOKEN`. There is no separate "rotate Discord token" command — re-run the channels stage with a new token to overwrite.
+`clawctl agent delete <name> --force` purges the entire instance entry from `secrets.json`, including `DISCORD_BOT_TOKEN`. There is no separate "rotate Discord token" command — re-run the channels stage with a new token to overwrite.
 
 ### Hermes-specific troubleshooting
 
@@ -224,20 +224,20 @@ Hermes' default log level is WARNING, and Discord-init success/failure logs at I
 ssh <agent-host> "sudo journalctl -u hermes-<name>.service -n 200 --no-pager | grep -iE 'discord|platform'"
 ```
 
-If you see nothing, temporarily bump `LOG_LEVEL=INFO` in `~/.hermes/.env` (manual edit — note the override will be wiped on next `clm agent configure`) and restart the service. The Discord init line will read `INFO  hermes.platforms.discord: connected as <bot-name>#<discriminator>`.
+If you see nothing, temporarily bump `LOG_LEVEL=INFO` in `~/.hermes/.env` (manual edit — note the override will be wiped on next `clawctl agent configure`) and restart the service. The Discord init line will read `INFO  hermes.platforms.discord: connected as <bot-name>#<discriminator>`.
 
 </details>
 
 <details>
 <summary><strong><code>DISCORD_ALLOW_ALL_USERS=true</code> is set and I want to lock it down</strong></summary>
 
-Re-run `clm agent configure <name> --stage channels`, pick `discord` again, and pass specific user IDs (not `all`) at the allowlist prompt. The new value overwrites the previous `channels.discord` block in `hosts.json`, and the next `~/.hermes/.env` render drops `DISCORD_ALLOW_ALL_USERS` entirely.
+Re-run `clawctl agent configure <name> --stage channels`, pick `discord` again, and pass specific user IDs (not `all`) at the allowlist prompt. The new value overwrites the previous `channels.discord` block in `hosts.json`, and the next `~/.hermes/.env` render drops `DISCORD_ALLOW_ALL_USERS` entirely.
 
 </details>
 
 ### Non-interactive flags (Hermes)
 
-Planned for a follow-up — interactive is the supported path in this release. For automation today, drive `clm agent configure --stage channels` via expect/pexpect, or set the values directly in `hosts.json` + `secrets.json` and re-run the stage to trigger a re-render.
+Planned for a follow-up — interactive is the supported path in this release. For automation today, drive `clawctl agent configure --stage channels` via expect/pexpect, or set the values directly in `hosts.json` + `secrets.json` and re-run the stage to trigger a re-render.
 
 ---
 
@@ -245,9 +245,9 @@ Planned for a follow-up — interactive is the supported path in this release. F
 
 ZeroClaw consumes Discord credentials via **inline TOML**, not env vars. The bot token lives directly in `~/.zeroclaw/config.toml` under `[channels.discord]`, mode 0600. This differs from Hermes (env-based) and OpenClaw (env-based). Source of truth: zeroclaw upstream `docs/book/src/channels/chat-others.md` (v0.7.5).
 
-### Schema rendered by clm
+### Schema rendered by clawctl
 
-The clm-managed `[channels.discord]` block uses **only** the keys documented in zeroclaw v0.7.5:
+The clawctl-managed `[channels.discord]` block uses **only** the keys documented in zeroclaw v0.7.5:
 
 | TOML key | Source field in `hosts.json` `channels.discord.*` | Notes |
 |---|---|---|
@@ -266,14 +266,14 @@ These wizard inputs land in `hosts.json` but are **not** rendered into `~/.zeroc
 
 - `home_channel`, `home_channel_name`, `home_channel_thread_id` — no upstream zeroclaw concept of a "home" channel.
 - `allow_all_users` — zeroclaw uses an empty `allowed_users = []` array to mean "allow everyone"; the boolean has no direct upstream representation.
-- `allowed_channels` — zeroclaw's upstream `allowed_destinations` is the nearest concept but is documented only generically (`channels/overview.md`), not under the Discord-specific schema; clm does not emit it pending a confirmed mapping.
+- `allowed_channels` — zeroclaw's upstream `allowed_destinations` is the nearest concept but is documented only generically (`channels/overview.md`), not under the Discord-specific schema; clawctl does not emit it pending a confirmed mapping.
 
 If you set any of these via the wizard for a zeroclaw agent, they persist to `hosts.json` for forward compatibility but have no runtime effect.
 
 ### Interactive setup (ZeroClaw)
 
 ```bash
-clm agent configure <zeroclaw-name> --stage channels
+clawctl agent configure <zeroclaw-name> --stage channels
 ```
 
 Prompts:
@@ -289,7 +289,7 @@ Prompts:
 | `Discord stream mode (off/partial/multi_message)` | `stream_mode` (default `partial`) |
 | `Delay between Discord messages in ms` (only when `stream_mode = multi_message`) | `multi_message_delay_ms` (10000–60000) |
 
-`clm` then runs the configure playbook, which re-renders `~/.zeroclaw/config.toml` with the `[channels.discord]` block, restarts `zeroclaw-<name>.service`, and verifies the block landed by grepping for `^bot_token =` in the file.
+`clawctl` then runs the configure playbook, which re-renders `~/.zeroclaw/config.toml` with the `[channels.discord]` block, restarts `zeroclaw-<name>.service`, and verifies the block landed by grepping for `^bot_token =` in the file.
 
 ### Streaming progress on long-running turns
 
@@ -329,7 +329,7 @@ In `hosts.json` (agents.`<name>`.config.channels.discord):
 
 ### Removal (ZeroClaw)
 
-Re-run `clm agent configure <name> --stage channels` and answer **No** to "Enable Discord channel?". On the next render, the `[channels.discord]` block disappears from `config.toml` and the daemon stops listening on Discord on restart. To also wipe the persisted token, manually remove the `DISCORD_BOT_TOKEN` entry from `secrets.json`.
+Re-run `clawctl agent configure <name> --stage channels` and answer **No** to "Enable Discord channel?". On the next render, the `[channels.discord]` block disappears from `config.toml` and the daemon stops listening on Discord on restart. To also wipe the persisted token, manually remove the `DISCORD_BOT_TOKEN` entry from `secrets.json`.
 
 ### ZeroClaw-specific troubleshooting
 
@@ -349,7 +349,7 @@ Re-run `clm agent configure <name> --stage channels` and answer **No** to "Enabl
 ssh <agent-host> "sudo journalctl -u zeroclaw-<name>.service -n 200 --no-pager | grep -iE 'discord|channel'"
 ```
 
-If the daemon logged a token error, rotate the bot token in the Discord Developer Portal and re-run `clm agent configure <name> --stage channels` to push the new value.
+If the daemon logged a token error, rotate the bot token in the Discord Developer Portal and re-run `clawctl agent configure <name> --stage channels` to push the new value.
 
 </details>
 

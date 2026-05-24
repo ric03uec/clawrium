@@ -1,12 +1,12 @@
-"""`clm skill` — browse the in-repo skills catalog.
+"""`clawctl skill registry` — browse the in-repo skills catalog (legacy backend).
 
-Phase 1 surface: `list` (optionally filtered by `--registry`) and `show`
+Phase 1 surface: `get` (optionally filtered by `--registry`) and `describe`
 (prints metadata + SKILL.md body). Per-agent install/remove lives under
-`clm agent skill` and is wired up in Phase 2.
+`clawctl agent skill` and is wired up in Phase 2.
 
 All errors raised by `clawrium.core.skills` are caught here and rendered
 as a single-line `[red]Error:[/red] …` message with a non-zero exit code,
-matching the existing `clm registry`/`clm agent` UX. The catch list is
+matching the existing `clawctl agent registry`/`clawctl agent` UX. The catch list is
 explicit — we never swallow `Exception`.
 """
 
@@ -62,10 +62,7 @@ def list_skills_command(
         None,
         "--registry",
         "-r",
-        help=(
-            "Filter to a single registry. "
-            f"Valid values: {', '.join(REGISTRIES)}."
-        ),
+        help=(f"Filter to a single registry. Valid values: {', '.join(REGISTRIES)}."),
     ),
 ) -> None:
     """List skills in the catalog as a registry/name table."""
@@ -152,8 +149,7 @@ def show(
     compatibility = skill.metadata.get("compatibility")
     if isinstance(compatibility, dict):
         compat = ", ".join(
-            f"{claw}={'yes' if flag else 'no'}"
-            for claw, flag in compatibility.items()
+            f"{claw}={'yes' if flag else 'no'}" for claw, flag in compatibility.items()
         )
         metadata_table.add_row("compatibility", escape(compat))
     elif skill.ref.registry in {"openclaw", "hermes", "zeroclaw"}:

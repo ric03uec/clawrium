@@ -1,11 +1,11 @@
 ---
-description: Complete CLI reference for the clm command. Root commands and command groups for managing your AI claw fleet.
-keywords: [CLI, reference, commands, clm, usage, options]
+description: Complete CLI reference for the clawctl command. Root commands and command groups for managing your AI claw fleet.
+keywords: [CLI, reference, commands, clawctl, usage, options]
 ---
 
 # CLI Reference
 
-Clawrium provides the `clm` command-line interface for managing your AI claw fleet.
+Clawrium provides the `clawctl` command-line interface for managing your AI claw fleet.
 
 ## Installation
 
@@ -16,40 +16,40 @@ uv tool install clawrium
 Or run without installing:
 
 ```bash
-uvx --from clawrium clm --help
+uvx --from clawrium clawctl --help
 ```
 
 ## Command Structure
 
 ```
-clm <command> [options]
-clm <group> <command> [options]
+clawctl <command> [options]
+clawctl <group> <command> [options]
 ```
 
 ## Root Commands
 
 | Command | Description |
 |---------|-------------|
-| [`clm init`](#clm-init) | Initialize Clawrium and check dependencies |
-| [`clm status`](#clm-status) | Show fleet status across all hosts |
-| [`clm agent install`](#clm-agent-install) | Install an agent on a host |
+| [`clawctl service init`](#clawctl-service-init) | Initialize Clawrium and check dependencies |
+| [`clawctl agent describe`](#clawctl-agent-describe) | Show fleet status across all hosts |
+| [`clawctl agent create`](#clawctl-agent-create) | Install an agent on a host |
 
 ## Command Groups
 
 | Group | Description |
 |-------|-------------|
-| [`clm host`](host.md) | Manage hosts in your fleet |
-| [`clm registry`](registry.md) | Browse available claw types |
-| [`clm secret`](secret.md) | Manage secrets for claw instances |
+| [`clawctl host`](host.md) | Manage hosts in your fleet |
+| [`clawctl agent registry`](registry.md) | Browse available claw types |
+| [`clawctl agent secret`](secret.md) | Manage secrets for claw instances |
 
 ---
 
-## clm init
+## clawctl service init
 
 Initialize Clawrium configuration directory and check dependencies.
 
 ```bash
-clm init
+clawctl service init
 ```
 
 Creates the configuration directory at `~/.config/clawrium/` (or `$XDG_CONFIG_HOME/clawrium/` if set) and verifies that all required dependencies are available.
@@ -57,7 +57,7 @@ Creates the configuration directory at `~/.config/clawrium/` (or `$XDG_CONFIG_HO
 ### Example
 
 ```bash
-$ clm init
+$ clawctl service init
 Clawrium initialized!
 Config directory: /home/user/.config/clawrium
 
@@ -79,12 +79,12 @@ Config directory: /home/user/.config/clawrium
 
 ---
 
-## clm status
+## clawctl agent describe
 
 Show fleet status across all hosts.
 
 ```bash
-clm status [--host HOST]
+clawctl agent describe [--host HOST]
 ```
 
 Displays claw instances grouped by claw type with live health checks. Shows name, version, host, and status for each installed claw.
@@ -98,7 +98,7 @@ Displays claw instances grouped by claw type with live health checks. Shows name
 ### Example
 
 ```bash
-$ clm status
+$ clawctl agent describe
                          zeroclaw
 ┏━━━━━━━━━━┳━━━━━━━━━┳━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┓
 ┃ Host     ┃ Version ┃ User ┃ Status   ┃ Installed  ┃
@@ -111,7 +111,7 @@ $ clm status
 Filter to a specific host:
 
 ```bash
-$ clm status --host pi-lab
+$ clawctl agent describe --host pi-lab
 ```
 
 ### Status Values
@@ -127,12 +127,12 @@ $ clm status --host pi-lab
 
 ---
 
-## clm agent install
+## clawctl agent create
 
 Install an agent on a host.
 
 ```bash
-clm agent install [--type AGENT_TYPE] [--host HOST] [--yes]
+clawctl agent create [--type AGENT_TYPE] [--host HOST] [--yes]
 ```
 
 Without flags, prompts for agent type and host selection interactively. With `--type` and `--host` flags, runs directly for scripting.
@@ -148,7 +148,7 @@ Without flags, prompts for agent type and host selection interactively. With `--
 ### Interactive Example
 
 ```bash
-$ clm agent install
+$ clawctl agent create
 
 Available agent types:
   1. zeroclaw (v0.1.0) - Zero-config Claude assistant
@@ -180,7 +180,7 @@ Success! zeroclaw v0.1.0 installed on pi-lab
 ### Non-Interactive Example
 
 ```bash
-$ clm agent install --type zeroclaw --host pi-lab --yes
+$ clawctl agent create --type zeroclaw --host pi-lab --yes
 ```
 
 ### Exit Codes

@@ -21,7 +21,9 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-STAGED_FRONTEND_INDEX = REPO_ROOT / "src" / "clawrium" / "gui" / "frontend" / "index.html"
+STAGED_FRONTEND_INDEX = (
+    REPO_ROOT / "src" / "clawrium" / "gui" / "frontend" / "index.html"
+)
 
 
 pytestmark = [
@@ -71,7 +73,9 @@ def test_wheel_includes_frontend_index(wheel_names: set[str]) -> None:
 
 def test_wheel_includes_next_static_assets(wheel_names: set[str]) -> None:
     """Without `_next/`, every route would render HTML that 404s all its JS/CSS."""
-    has_next_dir = any(n.startswith("clawrium/gui/frontend/_next/") for n in wheel_names)
+    has_next_dir = any(
+        n.startswith("clawrium/gui/frontend/_next/") for n in wheel_names
+    )
     has_js_chunk = any(
         n.startswith("clawrium/gui/frontend/_next/static/chunks/") and n.endswith(".js")
         for n in wheel_names
@@ -98,7 +102,8 @@ def test_wheel_frontend_has_all_route_pages(wheel_names: set[str]) -> None:
     expected_pages = sorted(p.name for p in staged_frontend.glob("*.html"))
     assert expected_pages, "no staged HTML pages found — UI build is empty"
     missing = [
-        page for page in expected_pages
+        page
+        for page in expected_pages
         if f"clawrium/gui/frontend/{page}" not in wheel_names
     ]
     assert not missing, (
@@ -118,12 +123,14 @@ def test_wheel_includes_all_skill_namespaces(wheel_names: set[str]) -> None:
     """
     skills_root = REPO_ROOT / "skills"
     namespaces = sorted(
-        p.name for p in skills_root.iterdir()
+        p.name
+        for p in skills_root.iterdir()
         if p.is_dir() and not p.name.startswith(("_", "."))
     )
     assert namespaces, "no skill namespaces found in source tree"
     missing = [
-        ns for ns in namespaces
+        ns
+        for ns in namespaces
         if not any(n.startswith(f"clawrium/_skills/{ns}/") for n in wheel_names)
     ]
     assert not missing, (
@@ -160,9 +167,7 @@ def test_sdist_includes_staged_frontend(tmp_path: Path) -> None:
     assert len(sdists) == 1, f"expected exactly one sdist, found: {sdists}"
     with tarfile.open(sdists[0]) as tf:
         names = tf.getnames()
-    assert any(
-        n.endswith("/src/clawrium/gui/frontend/index.html") for n in names
-    ), (
+    assert any(n.endswith("/src/clawrium/gui/frontend/index.html") for n in names), (
         "Sdist is missing the staged frontend. Without this in the sdist, uv's "
         "sdist→wheel roundtrip build fails because the wheel-target force-include "
         "can't find `src/clawrium/gui/frontend/`. Check the "

@@ -54,7 +54,9 @@ def main():
             return None
 
         provider_type = provider.get("type")
-        if provider_type == "openrouter" and not default_model.startswith("openrouter/"):
+        if provider_type == "openrouter" and not default_model.startswith(
+            "openrouter/"
+        ):
             return f"openrouter/{default_model}"
         if provider_type == "ollama" and not default_model.startswith("ollama/"):
             return f"ollama/{default_model}"

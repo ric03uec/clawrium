@@ -152,7 +152,9 @@ def test_zeroclaw_remove_playbook_cleans_workspace_and_state():
     assert "/home/{{ agent_name }}/workspace" not in content
 
 
-def _zeroclaw_install_setup(monkeypatch, tmp_path, host_record: dict, version: str = "0.7.5"):
+def _zeroclaw_install_setup(
+    monkeypatch, tmp_path, host_record: dict, version: str = "0.7.5"
+):
     """Shared setup for zeroclaw install mock tests. Mirrors hermes pattern."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
@@ -291,6 +293,7 @@ def test_install_was_skipped_handles_zeroclaw_fact():
         ]
 
     assert _install_was_skipped(Result(), "zeroclaw") is True
+
     # hermes fact does not trigger zeroclaw skip detection.
     class HermesResult:
         events = [
@@ -395,12 +398,11 @@ def test_zeroclaw_configure_renders_workspace_with_force_no():
     import yaml
 
     zeroclaw_pkg = files("clawrium.platform.registry.zeroclaw")
-    data = yaml.safe_load(
-        (zeroclaw_pkg / "playbooks" / "configure.yaml").read_text()
-    )
+    data = yaml.safe_load((zeroclaw_pkg / "playbooks" / "configure.yaml").read_text())
     tasks = data[0]["tasks"]
     workspace_renders = [
-        t for t in tasks
+        t
+        for t in tasks
         if isinstance(t.get("ansible.builtin.template"), dict)
         and "/.zeroclaw/workspace/" in t["ansible.builtin.template"].get("dest", "")
     ]
@@ -519,8 +521,8 @@ def test_pair_playbook_handles_locked_daemon():
     )
     validate_task = by_name[validate_name]
     validate_msg = (validate_task.get("ansible.builtin.fail") or {}).get("msg", "")
-    assert "clm agent configure" in validate_msg, (
-        "401 path must direct the operator to `clm agent configure` (ATX B2)"
+    assert "clawctl agent configure" in validate_msg, (
+        "401 path must direct the operator to `clawctl agent configure` (ATX B2)"
     )
     assert "journalctl" in validate_msg, (
         "503 path must direct the operator to daemon logs (ATX B2)"
@@ -567,7 +569,7 @@ def test_pair_playbook_handles_locked_daemon():
         "401 branch must name devices.db so the operator knows where to "
         "look on the host (iter-3 NW7)"
     )
-    assert "clm agent configure zer-test" in rendered_401
+    assert "clawctl agent configure zer-test" in rendered_401
 
     rendered_503 = " ".join(
         msg_template.render(
@@ -584,18 +586,16 @@ def test_pair_playbook_handles_locked_daemon():
     assert "pairing disabled" in rendered_503 or "unavailable" in rendered_503, (
         "503 branch must explain why the daemon refused (iter-3 NW7)"
     )
-    assert "clm agent configure zer-test" in rendered_503
+    assert "clawctl agent configure zer-test" in rendered_503
 
     # NW7 cross-leak: BOTH 401 phrases absent from 503, BOTH 503 phrases
     # absent from 401. A swapped branch would fail one of these four.
     assert "stale" not in rendered_503 and "devices.db" not in rendered_503, (
-        "401 branch's bearer-staleness guidance leaked into 503 render "
-        "(iter-3 NW7)"
+        "401 branch's bearer-staleness guidance leaked into 503 render (iter-3 NW7)"
     )
-    assert "pairing disabled" not in rendered_401 and "unavailable" not in rendered_401, (
-        "503 branch's daemon-availability guidance leaked into 401 render "
-        "(iter-3 NW7)"
-    )
+    assert (
+        "pairing disabled" not in rendered_401 and "unavailable" not in rendered_401
+    ), "503 branch's daemon-availability guidance leaked into 401 render (iter-3 NW7)"
     assert "journalctl" not in rendered_401, (
         "401 branch must not also include 503's journalctl guidance"
     )
@@ -625,8 +625,7 @@ def test_pair_playbook_handles_locked_daemon():
 
     for field in fields_under_check:
         guarded = any(
-            f"{field} | length" in w and f"{field} is none" in w
-            for w in when_clauses
+            f"{field} | length" in w and f"{field} is none" in w for w in when_clauses
         )
         assert guarded, (
             f"`{field} | length` must coexist with `{field} is none` in "
@@ -702,7 +701,8 @@ def test_memory_delete_no_log_on_delete_task_across_all_claws():
         data = yaml.safe_load((pkg / "playbooks" / "memory_delete.yaml").read_text())
         tasks = data[0]["tasks"]
         delete_tasks = [
-            t for t in tasks
+            t
+            for t in tasks
             if isinstance(t.get("ansible.builtin.file"), dict)
             and t["ansible.builtin.file"].get("state") == "absent"
         ]

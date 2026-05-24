@@ -40,8 +40,16 @@ class TestIntegrationList:
         """'clm integration list' shows configured integrations."""
         isolated_config.mkdir(parents=True, exist_ok=True)
         integrations = [
-            {"name": "work-github", "type": "github", "created_at": "2026-04-15T10:00:00Z"},
-            {"name": "company-atlassian", "type": "atlassian", "created_at": "2026-04-15T11:00:00Z"},
+            {
+                "name": "work-github",
+                "type": "github",
+                "created_at": "2026-04-15T10:00:00Z",
+            },
+            {
+                "name": "company-atlassian",
+                "type": "atlassian",
+                "created_at": "2026-04-15T11:00:00Z",
+            },
         ]
         (isolated_config / INTEGRATIONS_FILE).write_text(json.dumps(integrations))
 
@@ -62,14 +70,16 @@ class TestIntegrationAdd:
         result = runner.invoke(app, ["integration", "add", "my-github"])
 
         assert result.exit_code != 0
-        assert "type" in result.output.lower() or "missing option" in result.output.lower()
+        assert (
+            "type" in result.output.lower() or "missing option" in result.output.lower()
+        )
 
     def test_add_rejects_invalid_type(self, isolated_config):
         """'clm integration add' rejects invalid integration type."""
         result = runner.invoke(
             app,
             ["integration", "add", "my-int", "--type", "invalid-type"],
-            input="\n"  # Cancel prompt
+            input="\n",  # Cancel prompt
         )
 
         assert result.exit_code == 1
@@ -78,9 +88,7 @@ class TestIntegrationAdd:
     def test_add_rejects_invalid_name(self, isolated_config):
         """'clm integration add' rejects invalid integration name."""
         result = runner.invoke(
-            app,
-            ["integration", "add", "123invalid", "--type", "github"],
-            input="\n"
+            app, ["integration", "add", "123invalid", "--type", "github"], input="\n"
         )
 
         assert result.exit_code == 1
@@ -94,7 +102,7 @@ class TestIntegrationAdd:
         result = runner.invoke(
             app,
             ["integration", "add", "my-github", "--type", "github"],
-            input="ghp_test123\n"
+            input="ghp_test123\n",
         )
 
         assert result.exit_code == 0
@@ -118,7 +126,7 @@ class TestIntegrationAdd:
         result = runner.invoke(
             app,
             ["integration", "add", "my-github", "--type", "github"],
-            input="ghp_test\n"
+            input="ghp_test\n",
         )
 
         assert result.exit_code == 1
@@ -139,12 +147,16 @@ class TestIntegrationShow:
         """'clm integration show' displays integration details."""
         isolated_config.mkdir(parents=True, exist_ok=True)
         (isolated_config / INTEGRATIONS_FILE).write_text(
-            json.dumps([{
-                "name": "work-github",
-                "type": "github",
-                "created_at": "2026-04-15T10:00:00Z",
-                "updated_at": "2026-04-15T10:00:00Z",
-            }])
+            json.dumps(
+                [
+                    {
+                        "name": "work-github",
+                        "type": "github",
+                        "created_at": "2026-04-15T10:00:00Z",
+                        "updated_at": "2026-04-15T10:00:00Z",
+                    }
+                ]
+            )
         )
 
         result = runner.invoke(app, ["integration", "show", "work-github"])
@@ -172,11 +184,7 @@ class TestIntegrationRemove:
         )
 
         # Decline confirmation
-        result = runner.invoke(
-            app,
-            ["integration", "remove", "my-github"],
-            input="n\n"
-        )
+        result = runner.invoke(app, ["integration", "remove", "my-github"], input="n\n")
 
         assert result.exit_code == 0
         assert "cancelled" in result.output.lower()
@@ -192,16 +200,18 @@ class TestIntegrationRemove:
             json.dumps([{"name": "my-github", "type": "github"}])
         )
 
-        with patch(
-            "clawrium.core.integrations.remove_integration_credentials",
-            return_value=True
-        ), patch(
-            "clawrium.core.integrations.find_agents_using_integration",
-            return_value=[]
+        with (
+            patch(
+                "clawrium.core.integrations.remove_integration_credentials",
+                return_value=True,
+            ),
+            patch(
+                "clawrium.core.integrations.find_agents_using_integration",
+                return_value=[],
+            ),
         ):
             result = runner.invoke(
-                app,
-                ["integration", "remove", "my-github", "--force"]
+                app, ["integration", "remove", "my-github", "--force"]
             )
 
         assert result.exit_code == 0
@@ -218,17 +228,18 @@ class TestIntegrationRemove:
             json.dumps([{"name": "my-github", "type": "github"}])
         )
 
-        with patch(
-            "clawrium.core.integrations.remove_integration_credentials",
-            return_value=True
-        ), patch(
-            "clawrium.core.integrations.find_agents_using_integration",
-            return_value=[]
+        with (
+            patch(
+                "clawrium.core.integrations.remove_integration_credentials",
+                return_value=True,
+            ),
+            patch(
+                "clawrium.core.integrations.find_agents_using_integration",
+                return_value=[],
+            ),
         ):
             result = runner.invoke(
-                app,
-                ["integration", "remove", "my-github"],
-                input="y\n"
+                app, ["integration", "remove", "my-github"], input="y\n"
             )
 
         assert result.exit_code == 0
@@ -243,12 +254,10 @@ class TestIntegrationRemove:
 
         with patch(
             "clawrium.core.integrations.find_agents_using_integration",
-            return_value=[("host1", "agent1")]
+            return_value=[("host1", "agent1")],
         ):
             result = runner.invoke(
-                app,
-                ["integration", "remove", "my-github"],
-                input="y\n"
+                app, ["integration", "remove", "my-github"], input="y\n"
             )
 
         assert result.exit_code == 1
@@ -266,16 +275,18 @@ class TestIntegrationRemove:
             json.dumps([{"name": "my-github", "type": "github"}])
         )
 
-        with patch(
-            "clawrium.core.integrations.remove_integration_credentials",
-            return_value=True
-        ), patch(
-            "clawrium.core.integrations.find_agents_using_integration",
-            return_value=[("host1", "agent1")]
+        with (
+            patch(
+                "clawrium.core.integrations.remove_integration_credentials",
+                return_value=True,
+            ),
+            patch(
+                "clawrium.core.integrations.find_agents_using_integration",
+                return_value=[("host1", "agent1")],
+            ),
         ):
             result = runner.invoke(
-                app,
-                ["integration", "remove", "my-github", "--force"]
+                app, ["integration", "remove", "my-github", "--force"]
             )
 
         assert result.exit_code == 0
@@ -305,7 +316,7 @@ class TestIntegrationCredentials:
 
         with patch(
             "clawrium.core.integrations.get_integration_credentials",
-            return_value={"GITHUB_TOKEN": "ghp_test123"}
+            return_value={"GITHUB_TOKEN": "ghp_test123"},
         ):
             result = runner.invoke(app, ["integration", "credentials", "work-github"])
 
@@ -333,14 +344,16 @@ class TestIntegrationStaleType:
             json.dumps([{"name": "stale-ticket", "type": "jira"}])
         )
 
-    def test_show_with_unknown_type_exits_nonzero_with_remediation(self, isolated_config):
+    def test_show_with_unknown_type_exits_nonzero_with_remediation(
+        self, isolated_config
+    ):
         self._seed_stale_jira(isolated_config)
         result = runner.invoke(app, ["integration", "show", "stale-ticket"])
 
         assert result.exit_code == 1
-        assert result.exception is None or isinstance(
-            result.exception, SystemExit
-        ), f"Unexpected exception: {result.exception!r}"
+        assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"Unexpected exception: {result.exception!r}"
+        )
         assert "not a known type" in result.output.lower()
         assert "Error:" in result.output
         # Remediation must interpolate the actual integration name, not <name>.

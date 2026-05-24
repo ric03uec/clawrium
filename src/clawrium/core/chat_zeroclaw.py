@@ -44,6 +44,7 @@ from clawrium.core.chat import (
     ChatProtocolError,
     SecretStr,
 )
+
 # Reuse the sanitizer + control-char regex from chat_hermes so all
 # server-supplied text passes through the same bidi/zero-width strip
 # before reaching any Rich renderer. Keeps the four sanitizer call sites
@@ -64,19 +65,21 @@ logger = logging.getLogger(__name__)
 # logged and dropped (forward-compat — upstream may add new event types
 # without bumping a protocol version, and we don't want unrelated tooling
 # events to crash the REPL).
-_KNOWN_SERVER_FRAMES = frozenset({
-    "connected",
-    "session_start",
-    "chunk",
-    "thinking",
-    "tool_call",
-    "tool_result",
-    "approval_request",
-    "chunk_reset",
-    "done",
-    "error",
-    "aborted",
-})
+_KNOWN_SERVER_FRAMES = frozenset(
+    {
+        "connected",
+        "session_start",
+        "chunk",
+        "thinking",
+        "tool_call",
+        "tool_result",
+        "approval_request",
+        "chunk_reset",
+        "done",
+        "error",
+        "aborted",
+    }
+)
 
 
 def sanitize_server_text(text: Any) -> str:
@@ -111,6 +114,7 @@ RECV_TIMEOUT_MSG_PREFIX = "Timed out waiting for ZeroClaw response"
 #    failure so a transient DNS hiccup never SUPPRESSES the warning.
 def _warn_if_token_in_cleartext(gateway_url: str) -> None:
     from urllib.parse import urlparse
+
     parsed = urlparse(gateway_url)
     if parsed.scheme != "ws":
         return
@@ -128,9 +132,7 @@ def _warn_if_token_in_cleartext(gateway_url: str) -> None:
         infos = []
     if infos:
         try:
-            if all(
-                ipaddress.ip_address(info[4][0]).is_loopback for info in infos
-            ):
+            if all(ipaddress.ip_address(info[4][0]).is_loopback for info in infos):
                 return
         except (ValueError, IndexError):
             pass
@@ -164,9 +166,7 @@ class ZeroClawChatBackend:
     ) -> None:
         self.gateway_url = gateway_url
         self._auth_token = (
-            auth_token
-            if isinstance(auth_token, SecretStr)
-            else SecretStr(auth_token)
+            auth_token if isinstance(auth_token, SecretStr) else SecretStr(auth_token)
         )
         self._timeout_seconds = timeout_seconds
         self._ws: Any | None = None
@@ -242,9 +242,7 @@ class ZeroClawChatBackend:
                 f"Failed to reach ZeroClaw gateway at {self.gateway_url}: {exc}"
             ) from exc
         except WebSocketException as exc:
-            raise ChatConnectionError(
-                f"WebSocket connection failed: {exc}"
-            ) from exc
+            raise ChatConnectionError(f"WebSocket connection failed: {exc}") from exc
 
     async def close(self) -> None:
         if self._ws is not None:
@@ -436,9 +434,7 @@ class ZeroClawChatBackend:
         try:
             await self._ws.send(json.dumps(payload))
         except ConnectionClosed as exc:
-            raise ChatConnectionError(
-                "ZeroClaw gateway closed the connection"
-            ) from exc
+            raise ChatConnectionError("ZeroClaw gateway closed the connection") from exc
         except WebSocketException as exc:
             raise ChatConnectionError(
                 f"Failed to send to ZeroClaw gateway: {exc}"
@@ -458,9 +454,7 @@ class ZeroClawChatBackend:
                 f"Timed out waiting for ZeroClaw response after {timeout}s"
             ) from exc
         except ConnectionClosed as exc:
-            raise ChatConnectionError(
-                "ZeroClaw gateway closed the connection"
-            ) from exc
+            raise ChatConnectionError("ZeroClaw gateway closed the connection") from exc
         except WebSocketException as exc:
             raise ChatConnectionError(f"Connection lost: {exc}") from exc
 
@@ -476,9 +470,7 @@ class ZeroClawChatBackend:
         try:
             frame = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise ChatProtocolError(
-                "ZeroClaw sent malformed JSON frame"
-            ) from exc
+            raise ChatProtocolError("ZeroClaw sent malformed JSON frame") from exc
         if not isinstance(frame, dict):
             raise ChatProtocolError("ZeroClaw frame must be a JSON object")
         return frame

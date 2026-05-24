@@ -16,7 +16,7 @@ Clawrium manages AI assistant deployments across your network through three key 
 graph TB
     subgraph "Your Network"
         subgraph "Clawrium CLI"
-            CLM[clm]
+            CLM[clawctl]
             CONFIG[~/.config/clawrium/]
         end
 
@@ -68,11 +68,11 @@ The **Registry** defines available claw types with their versions, dependencies,
 ```mermaid
 sequenceDiagram
     participant User
-    participant CLM as clm CLI
+    participant CLM as clawctl CLI
     participant Host as Target Host
     participant Config as ~/.config/clawrium/
 
-    User->>CLM: clm host init hostname --user myuser
+    User->>CLM: clawctl host create --bootstrap hostname --user myuser
     CLM->>Config: Generate SSH keypair
     CLM->>Host: SSH as myuser (sudo)
     Host->>Host: Create xclm user
@@ -80,7 +80,7 @@ sequenceDiagram
     Host->>Host: Add public key
     CLM->>Config: Save host entry
 
-    User->>CLM: clm host add hostname
+    User->>CLM: clawctl host create hostname
     CLM->>Config: Read keypair
     CLM->>Host: SSH as xclm
     Host-->>CLM: Hardware capabilities
@@ -89,8 +89,8 @@ sequenceDiagram
 
 **Steps:**
 
-1. **Initialize** (`clm host init`): Generates per-host keypair, configures xclm user
-2. **Add** (`clm host add`): Verifies connectivity, detects hardware, saves to config
+1. **Initialize** (`clawctl host create --bootstrap`): Generates per-host keypair, configures xclm user
+2. **Add** (`clawctl host create`): Verifies connectivity, detects hardware, saves to config
 3. **Manage**: List, check status, or remove hosts as needed
 
 ## Claw Installation Flow
@@ -98,11 +98,11 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant User
-    participant CLM as clm CLI
+    participant CLM as clawctl CLI
     participant Registry
     participant Host as Target Host
 
-    User->>CLM: clm agent install --type openclaw --host myhost
+    User->>CLM: clawctl agent create --type openclaw --host myhost
     CLM->>Registry: Get OpenClaw definition
     Registry-->>CLM: Version, dependencies, template
     CLM->>Host: SSH as xclm
@@ -239,7 +239,7 @@ sequenceDiagram
     participant Ansible
     participant Host
 
-    User->>CLI: clm agent install --type zeroclaw --host pi-lab
+    User->>CLI: clawctl agent create --type zeroclaw --host pi-lab
     CLI->>Config: Load host info for pi-lab
     Config-->>CLI: SSH key, connection details
     CLI->>Ansible: Generate playbook
@@ -261,10 +261,10 @@ sequenceDiagram
     participant Secrets
     participant Host
 
-    User->>CLI: clm secret set API_KEY
+    User->>CLI: clawctl agent secret create API_KEY
     CLI->>CLI: Read value (hidden prompt)
     CLI->>Secrets: Store encrypted value
-    User->>CLI: clm agent install --type zeroclaw
+    User->>CLI: clawctl agent create --type zeroclaw
     CLI->>Secrets: Retrieve secrets
     Secrets-->>CLI: API_KEY value
     CLI->>Ansible: Inject into playbook

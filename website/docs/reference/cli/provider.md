@@ -3,7 +3,7 @@
 Manage inference providers (LLM APIs) for claw instances.
 
 ```bash
-clm provider <command> [options]
+clawctl provider <command> [options]
 ```
 
 Providers are configured locally in `~/.config/clawrium/providers.json`. API keys and AWS credentials are stored securely in `~/.config/clawrium/secrets.yml` and are never transmitted in plain text.
@@ -14,21 +14,21 @@ Providers are configured locally in `~/.config/clawrium/providers.json`. API key
 
 | Command | Description |
 |---------|-------------|
-| [`clm provider add`](#clm-provider-add) | Add a new inference provider |
-| [`clm provider list`](#clm-provider-list) | List all configured providers |
-| [`clm provider edit`](#clm-provider-edit) | Edit an existing provider |
-| [`clm provider remove`](#clm-provider-remove) | Remove a provider |
-| [`clm provider types`](#clm-provider-types) | List provider types or show models for a type |
-| [`clm provider refresh`](#clm-provider-refresh) | Refresh Ollama models |
+| [`clawctl provider registry create`](#clawctl-provider-registry-create) | Add a new inference provider |
+| [`clawctl provider registry get`](#clawctl-provider-registry-get) | List all configured providers |
+| [`clawctl provider registry edit`](#clawctl-provider-registry-edit) | Edit an existing provider |
+| [`clawctl provider registry delete`](#clawctl-provider-registry-delete) | Remove a provider |
+| [`clawctl provider registry get --types`](#clawctl-provider-registry-get---types) | List provider types or show models for a type |
+| [`clawctl provider registry refresh`](#clawctl-provider-registry-refresh) | Refresh Ollama models |
 
 ---
 
-## clm provider add
+## clawctl provider registry create
 
 Add a new inference provider.
 
 ```bash
-clm provider add <name> --type <type> [options]
+clawctl provider registry create <name> --type <type> [options]
 ```
 
 API keys are collected securely via interactive prompt (not visible in process listing).
@@ -52,7 +52,7 @@ API keys are collected securely via interactive prompt (not visible in process l
 Add an OpenAI provider:
 
 ```bash
-$ clm provider add myopenai --type openai
+$ clawctl provider registry create myopenai --type openai
 API key: ********
 Available models for openai:
   1. gpt-4o
@@ -65,7 +65,7 @@ Provider 'myopenai' added successfully!
 Add an Anthropic provider with a specific model:
 
 ```bash
-$ clm provider add work-claude --type anthropic --model claude-sonnet-4-20250514
+$ clawctl provider registry create work-claude --type anthropic --model claude-sonnet-4-20250514
 API key: ********
 Provider 'work-claude' added successfully!
 ```
@@ -73,7 +73,7 @@ Provider 'work-claude' added successfully!
 Add a local Ollama provider:
 
 ```bash
-$ clm provider add local-llm --type ollama --url http://myserver.example.com:11434
+$ clawctl provider registry create local-llm --type ollama --url http://myserver.example.com:11434
 Connecting to Ollama server at http://myserver.example.com:11434...
 Found 3 models
 Available models:
@@ -87,7 +87,7 @@ Provider 'local-llm' added successfully!
 Add an AWS Bedrock provider:
 
 ```bash
-$ clm provider add my-bedrock --type bedrock
+$ clawctl provider registry create my-bedrock --type bedrock
 AWS Bedrock requires Access Key and Secret Key
 AWS Access Key ID: ********
 **
@@ -112,12 +112,12 @@ Provider 'my-bedrock' added successfully!
 
 ---
 
-## clm provider list
+## clawctl provider registry get
 
 List all configured providers.
 
 ```bash
-clm provider list
+clawctl provider registry get
 ```
 
 Displays a table of all configured providers with masked API keys.
@@ -125,7 +125,7 @@ Displays a table of all configured providers with masked API keys.
 ### Example
 
 ```bash
-$ clm provider list
+$ clawctl provider registry get
                     Configured Providers
 ┏━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
 ┃ Name         ┃ Type      ┃ Model            ┃ API Key           ┃ Added      ┃
@@ -139,8 +139,8 @@ $ clm provider list
 No providers configured:
 
 ```bash
-$ clm provider list
-No providers configured. Use 'clm provider add' to add a provider.
+$ clawctl provider registry get
+No providers configured. Use 'clawctl provider registry create' to add a provider.
 ```
 
 ### Exit Codes
@@ -152,12 +152,12 @@ No providers configured. Use 'clm provider add' to add a provider.
 
 ---
 
-## clm provider edit
+## clawctl provider registry edit
 
 Edit an existing provider configuration.
 
 ```bash
-clm provider edit <name> [options]
+clawctl provider registry edit <name> [options]
 ```
 
 ### Arguments
@@ -179,14 +179,14 @@ clm provider edit <name> [options]
 Change default model:
 
 ```bash
-$ clm provider edit myopenai --model gpt-4o-mini
+$ clawctl provider registry edit myopenai --model gpt-4o-mini
 Provider 'myopenai' updated successfully!
 ```
 
 Update Ollama server URL:
 
 ```bash
-$ clm provider edit local-llm --url http://newserver.example.com:11434
+$ clawctl provider registry edit local-llm --url http://newserver.example.com:11434
 Connecting to Ollama server at http://newserver.example.com:11434...
 Found 5 models
 Provider 'local-llm' updated successfully!
@@ -195,7 +195,7 @@ Provider 'local-llm' updated successfully!
 Update API key:
 
 ```bash
-$ clm provider edit myopenai --update-key
+$ clawctl provider registry edit myopenai --update-key
 New API key: ********
 API key updated.
 Provider 'myopenai' updated successfully!
@@ -204,7 +204,7 @@ Provider 'myopenai' updated successfully!
 Update AWS Bedrock credentials:
 
 ```bash
-$ clm provider edit my-bedrock --update-key
+$ clawctl provider registry edit my-bedrock --update-key
 AWS Bedrock requires Access Key and Secret Key
 New AWS Access Key ID: ********
 **
@@ -223,12 +223,12 @@ Provider 'my-bedrock' updated successfully!
 
 ---
 
-## clm provider remove
+## clawctl provider registry delete
 
 Remove a provider configuration.
 
 ```bash
-clm provider remove <name> [--force]
+clawctl provider registry delete <name> [--force]
 ```
 
 ### Arguments
@@ -246,7 +246,7 @@ clm provider remove <name> [--force]
 ### Examples
 
 ```bash
-$ clm provider remove myopenai
+$ clawctl provider registry delete myopenai
 Remove provider 'myopenai'? This cannot be undone. [y/N]: y
 Provider 'myopenai' removed successfully.
 ```
@@ -254,7 +254,7 @@ Provider 'myopenai' removed successfully.
 Force removal:
 
 ```bash
-$ clm provider remove old-provider --force
+$ clawctl provider registry delete old-provider --force
 Provider 'old-provider' removed successfully.
 ```
 
@@ -267,12 +267,12 @@ Provider 'old-provider' removed successfully.
 
 ---
 
-## clm provider types
+## clawctl provider registry get --types
 
 List supported provider types or show models for a specific type.
 
 ```bash
-clm provider types [<type>] [models]
+clawctl provider registry get --types [<type>] [models]
 ```
 
 ### Arguments
@@ -287,7 +287,7 @@ clm provider types [<type>] [models]
 List all supported provider types:
 
 ```bash
-$ clm provider types
+$ clawctl provider registry get --types
 Supported provider types:
 
   anthropic - 7 models
@@ -302,17 +302,17 @@ Supported provider types:
 Show available actions for a type:
 
 ```bash
-$ clm provider types openai
+$ clawctl provider registry get --types openai
 Provider type: openai
 
 Available actions:
-  clm provider types openai models  # List available models
+  clawctl provider registry get --types openai models  # List available models
 ```
 
 List models for a provider type:
 
 ```bash
-$ clm provider types openai models
+$ clawctl provider registry get --types openai models
 Available models for openai (51 models)
 
   ID                   Name             Lab       Context
@@ -325,7 +325,7 @@ Available models for openai (51 models)
 List models for multi-lab provider (grouped by lab):
 
 ```bash
-$ clm provider types openrouter models
+$ clawctl provider registry get --types openrouter models
 Available models for openrouter (200+ models from 8 labs)
 
 Anthropic (5 models)
@@ -348,12 +348,12 @@ OpenAI (10 models)
 
 ---
 
-## clm provider refresh
+## clawctl provider registry refresh
 
 Refresh available models from an Ollama server.
 
 ```bash
-clm provider refresh <name>
+clawctl provider registry refresh <name>
 ```
 
 Re-fetches the model list from the Ollama server and updates the saved configuration.
@@ -367,7 +367,7 @@ Re-fetches the model list from the Ollama server and updates the saved configura
 ### Example
 
 ```bash
-$ clm provider refresh local-llm
+$ clawctl provider registry refresh local-llm
 Connecting to Ollama server at http://myserver.example.com:11434...
 Found 5 models
 

@@ -14,20 +14,12 @@ from clawrium.gui.routes import integrations as integrations_route
 @pytest.fixture
 def isolated_config(tmp_path, monkeypatch):
     """Point integrations storage + secrets module at a temp dir."""
-    monkeypatch.setattr(
-        "clawrium.core.integrations.get_config_dir", lambda: tmp_path
-    )
-    monkeypatch.setattr(
-        "clawrium.core.integrations.init_config_dir", lambda: tmp_path
-    )
+    monkeypatch.setattr("clawrium.core.integrations.get_config_dir", lambda: tmp_path)
+    monkeypatch.setattr("clawrium.core.integrations.init_config_dir", lambda: tmp_path)
     # Secrets storage also needs isolation so set_integration_credential
     # does not touch the real ~/.config/clawrium.
-    monkeypatch.setattr(
-        "clawrium.core.secrets.get_config_dir", lambda: tmp_path
-    )
-    monkeypatch.setattr(
-        "clawrium.core.secrets.init_config_dir", lambda: tmp_path
-    )
+    monkeypatch.setattr("clawrium.core.secrets.get_config_dir", lambda: tmp_path)
+    monkeypatch.setattr("clawrium.core.secrets.init_config_dir", lambda: tmp_path)
     return tmp_path
 
 
@@ -139,9 +131,7 @@ def test_update_credentials_404_when_missing(isolated_config):
         credentials={"GITHUB_TOKEN": "new"}
     )
     with pytest.raises(HTTPException) as exc:
-        _run(
-            integrations_route.update_integration_credentials("nope", body)
-        )
+        _run(integrations_route.update_integration_credentials("nope", body))
     assert exc.value.status_code == 404
 
 
@@ -157,9 +147,7 @@ def test_update_credentials_rejects_unknown_key(isolated_config):
         credentials={"BOGUS": "value"}
     )
     with pytest.raises(HTTPException) as exc:
-        _run(
-            integrations_route.update_integration_credentials("mygh", bad)
-        )
+        _run(integrations_route.update_integration_credentials("mygh", bad))
     assert exc.value.status_code == 400
 
 
@@ -179,9 +167,7 @@ def test_update_credentials_persists_only_non_empty_values(isolated_config):
             "ATLASSIAN_API_TOKEN": "token-xyz",
         }
     )
-    result = _run(
-        integrations_route.update_integration_credentials("myjira", body)
-    )
+    result = _run(integrations_route.update_integration_credentials("myjira", body))
     assert sorted(result["updated_keys"]) == [
         "ATLASSIAN_API_TOKEN",
         "ATLASSIAN_URL",
@@ -276,9 +262,7 @@ def test_router_is_registered_on_app():
     assert "GET" in methods_by_path.get("/api/integrations/types", set())
     assert "GET" in methods_by_path.get("/api/integrations/{name}", set())
     assert "DELETE" in methods_by_path.get("/api/integrations/{name}", set())
-    assert "PATCH" in methods_by_path.get(
-        "/api/integrations/{name}/credentials", set()
-    )
+    assert "PATCH" in methods_by_path.get("/api/integrations/{name}/credentials", set())
 
 
 def test_get_detail_raises_500_when_file_corrupted(isolated_config):
@@ -343,9 +327,7 @@ def test_update_credentials_response_never_contains_value(isolated_config):
     body = integrations_route.IntegrationCredentialsUpdate(
         credentials={"GITHUB_TOKEN": "ghp_sentinel_value_xyz"}
     )
-    result = _run(
-        integrations_route.update_integration_credentials("mygh", body)
-    )
+    result = _run(integrations_route.update_integration_credentials("mygh", body))
     assert "ghp_sentinel_value_xyz" not in json.dumps(result)
     assert result["updated_keys"] == ["GITHUB_TOKEN"]
 
@@ -405,9 +387,7 @@ def test_list_endpoint_returns_agent_count_per_integration(
     monkeypatch.setattr("clawrium.core.hosts.load_hosts", fake_load_hosts)
 
     result = _run(integrations_route.list_integrations())
-    summary = next(
-        i for i in result["integrations"] if i["name"] == "mygh"
-    )
+    summary = next(i for i in result["integrations"] if i["name"] == "mygh")
     assert summary["agent_count"] == 2
 
 

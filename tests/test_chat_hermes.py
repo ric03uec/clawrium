@@ -27,7 +27,9 @@ from clawrium.core.chat import (
 from clawrium.core.chat_hermes import HermesOpenAIBackend
 
 
-def _build_backend(transport: httpx.MockTransport, **overrides: Any) -> HermesOpenAIBackend:
+def _build_backend(
+    transport: httpx.MockTransport, **overrides: Any
+) -> HermesOpenAIBackend:
     backend = HermesOpenAIBackend(
         base_url=overrides.pop("base_url", "http://hermes.test:8642/v1"),
         auth_token=overrides.pop("auth_token", SecretStr("token-abc")),
@@ -70,9 +72,7 @@ def test_happy_path_returns_assistant_content():
     assert captured["headers"]["authorization"] == "Bearer token-abc"
     assert captured["body"]["model"] == "hermes"
     assert captured["body"]["stream"] is True
-    assert captured["body"]["messages"] == [
-        {"role": "user", "content": "hello"}
-    ]
+    assert captured["body"]["messages"] == [{"role": "user", "content": "hello"}]
 
 
 def test_send_message_invokes_on_delta_with_full_text():
@@ -205,9 +205,7 @@ def test_base_url_trailing_slash_is_normalized():
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured["url"] = str(request.url)
-        return httpx.Response(
-            200, json={"choices": [{"message": {"content": "ok"}}]}
-        )
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
 
     backend = _build_backend(
         httpx.MockTransport(handler), base_url="http://hermes.test:8642/v1/"
@@ -993,9 +991,7 @@ def test_response_timeout_seconds_defaults_to_instance_timeout():
     def handler(request: httpx.Request) -> httpx.Response:
         # httpx exposes the request timeout via extensions when set
         captured["timeout"] = request.extensions.get("timeout")
-        return httpx.Response(
-            200, json={"choices": [{"message": {"content": "ok"}}]}
-        )
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
 
     backend = HermesOpenAIBackend(
         base_url="http://hermes.test:8642/v1",

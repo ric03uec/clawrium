@@ -6,39 +6,39 @@ Clawrium is a CLI tool for managing AI agent fleets on local networks.
 
 1. [Installation](installation.md) - Install Clawrium on your management machine
 2. [Host Preparation](host-preparation.md) - Prepare hosts for management (create xclm user, setup SSH)
-3. Host Management - Add, list, and manage hosts with `clm host`
-4. Agent Deployment - Deploy AI assistants to your fleet with `clm agent`
+3. Host Management - Add, list, and manage hosts with `clawctl host`
+4. Agent Deployment - Deploy AI assistants to your fleet with `clawctl agent`
 5. [Agent Onboarding](agent-onboarding.md) - Configure newly installed agents through guided workflow
 
 ## Quick Reference
 
 ```bash
 # Initialize config
-clm init
+clawctl service init
 
 # Initialize a host (generates keypair, attempts auto-setup of xclm user)
-clm host init <hostname> --user <your-ssh-user>
+clawctl host create --bootstrap <hostname> --user <your-ssh-user>
 
 # Add an initialized host to the fleet
-clm host add <hostname> --alias <host-alias>
+clawctl host create <hostname> --alias <host-alias>
 
 # List all hosts
-clm host list
+clawctl host get
 
 # Check host status (exits with code 1 if unreachable - useful for scripting)
-clm host ps <host-alias>
+clawctl host describe <host-alias>
 
 # Add inference provider
-clm provider add anthropic --type anthropic
+clawctl provider registry create anthropic --type anthropic
 
 # Install, configure, and start an agent
-clm agent install --type <agent-type> --host <host-alias> --name <agent-name>
-clm agent configure <agent-name>
-clm agent start <agent-name>
+clawctl agent create --type <agent-type> --host <host-alias> --name <agent-name>
+clawctl agent configure <agent-name>
+clawctl agent start <agent-name>
 
 # Remove a host and its keypair
-clm host remove <hostname>
-clm host remove <hostname> --force
+clawctl host delete <hostname>
+clawctl host delete <hostname> --force
 ```
 
 ## User Data
@@ -53,7 +53,7 @@ Current files stored in `~/.config/clawrium/` (or `$XDG_CONFIG_HOME/clawrium/` i
 
 **Note:** Clawrium also modifies `~/.ssh/known_hosts` when accepting host keys on first connection (TOFU - Trust On First Use).
 
-When a host is removed with `clm host remove`, both the host entry in `hosts.json` and the per-host keypair in `keys/<hostname>/` are deleted.
+When a host is removed with `clawctl host delete`, both the host entry in `hosts.json` and the per-host keypair in `keys/<hostname>/` are deleted.
 
 ## Key Concepts
 
@@ -67,7 +67,7 @@ When a host is removed with `clm host remove`, both the host entry in `hosts.jso
 
 ## Design Decisions
 
-- [aichat investigation](research/aichat.md) — why `clm chat` will be a pure-Python REPL on `httpx` instead of shelling out to [aichat](https://github.com/sigoden/aichat) (in progress — see [#322](https://github.com/ric03uec/clawrium/issues/322)).
+- [aichat investigation](research/aichat.md) — why `clawctl agent chat` will be a pure-Python REPL on `httpx` instead of shelling out to [aichat](https://github.com/sigoden/aichat) (in progress — see [#322](https://github.com/ric03uec/clawrium/issues/322)).
 
 ## FAQ
 

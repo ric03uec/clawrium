@@ -99,20 +99,19 @@ def test_install_playbook_resolves_venv_interpreter_directly():
         f"{[n for n in names if 'shebang' in n.lower()]}"
     )
 
-    expected_path = (
-        "/home/{{ agent_name }}/.hermes/code/venv/bin/python3"
-    )
+    expected_path = "/home/{{ agent_name }}/.hermes/code/venv/bin/python3"
     set_fact_task = next(
         (
-            t for t in tasks
+            t
+            for t in tasks
             if isinstance(
                 _task_module_value(t, "ansible.builtin.set_fact", "set_fact"),
                 dict,
             )
             and (
-                _task_module_value(
-                    t, "ansible.builtin.set_fact", "set_fact"
-                ).get("hermes_interpreter")
+                _task_module_value(t, "ansible.builtin.set_fact", "set_fact").get(
+                    "hermes_interpreter"
+                )
                 == expected_path
             )
         ),
@@ -169,17 +168,15 @@ def test_install_playbook_extras_install_is_editable_from_source_checkout():
     tasks = _tasks(_hermes_playbook("install"))
     extras_task = next(
         (
-            t for t in tasks
-            if "[web,pty]" in str(
-                _task_module_value(t, "ansible.builtin.command", "command")
-            )
+            t
+            for t in tasks
+            if "[web,pty]"
+            in str(_task_module_value(t, "ansible.builtin.command", "command"))
         ),
         None,
     )
     assert extras_task is not None, "No task installing the [web,pty] extras"
-    cmd_value = _task_module_value(
-        extras_task, "ansible.builtin.command", "command"
-    )
+    cmd_value = _task_module_value(extras_task, "ansible.builtin.command", "command")
     argv = cmd_value.get("argv", []) if isinstance(cmd_value, dict) else []
 
     assert argv[:3] == ["uv", "pip", "install"], (
@@ -206,7 +203,8 @@ def test_install_playbook_extras_install_is_editable_from_source_checkout():
         "the editable install the upstream installer set up."
     )
     source_specs = [
-        a for a in argv
+        a
+        for a in argv
         if a.startswith("/home/{{ agent_name }}/.hermes/code")
         and a.endswith("[web,pty]")
     ]
@@ -271,9 +269,9 @@ def test_hermes_start_playbook_starts_and_enables_dashboard_unit():
     content = _hermes_playbook("start")
     tasks = _tasks(content)
     names = [t.get("name", "") for t in tasks]
-    assert any(
-        "dashboard" in n.lower() and "start" in n.lower() for n in names
-    ), "start.yaml must start the dashboard unit"
+    assert any("dashboard" in n.lower() and "start" in n.lower() for n in names), (
+        "start.yaml must start the dashboard unit"
+    )
     # The unit name string the systemd module operates on:
     assert "{{ agent_type }}-dashboard-{{ agent_name }}" in content
 
@@ -292,9 +290,9 @@ def test_hermes_stop_playbook_stops_dashboard_unit():
     content = _hermes_playbook("stop")
     tasks = _tasks(content)
     names = [t.get("name", "") for t in tasks]
-    assert any(
-        "dashboard" in n.lower() and "stop" in n.lower() for n in names
-    ), "stop.yaml must stop the dashboard unit"
+    assert any("dashboard" in n.lower() and "stop" in n.lower() for n in names), (
+        "stop.yaml must stop the dashboard unit"
+    )
     assert "{{ agent_type }}-dashboard-{{ agent_name }}" in content
 
 
@@ -313,13 +311,18 @@ def test_hermes_stop_playbook_orders_dashboard_before_gateway():
         return -1
 
     dashboard_stop_idx = _find(
-        lambda n: "dashboard" in n.lower() and "stop" in n.lower()
-        and "gracefully" in n.lower()
+        lambda n: (
+            "dashboard" in n.lower()
+            and "stop" in n.lower()
+            and "gracefully" in n.lower()
+        )
     )
     gateway_stop_idx = _find(
-        lambda n: "stop" in n.lower()
-        and "gracefully" in n.lower()
-        and "dashboard" not in n.lower()
+        lambda n: (
+            "stop" in n.lower()
+            and "gracefully" in n.lower()
+            and "dashboard" not in n.lower()
+        )
     )
     assert dashboard_stop_idx >= 0, "no graceful dashboard-stop task found"
     assert gateway_stop_idx >= 0, "no graceful gateway-stop task found"
@@ -337,9 +340,9 @@ def test_hermes_remove_playbook_removes_dashboard_unit():
     )
     tasks = _tasks(content)
     names = [t.get("name", "") for t in tasks]
-    assert any(
-        "dashboard" in n.lower() and "remove" in n.lower() for n in names
-    ), "remove.yaml must remove the dashboard unit file"
+    assert any("dashboard" in n.lower() and "remove" in n.lower() for n in names), (
+        "remove.yaml must remove the dashboard unit file"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -368,9 +371,7 @@ def _find_task_by_chdir(tasks: list[dict], chdir: str, cmd_contains: str):
     """Return the first command-module task whose `cmd` contains
     `cmd_contains` and whose `chdir` matches."""
     for t in tasks:
-        cmd_value = _task_module_value(
-            t, "ansible.builtin.command", "command"
-        )
+        cmd_value = _task_module_value(t, "ansible.builtin.command", "command")
         if not isinstance(cmd_value, dict):
             continue
         if cmd_value.get("chdir") != chdir:
@@ -396,13 +397,11 @@ def test_install_playbook_pre_builds_ui_tui_node_deps():
         "install at WS handshake time."
     )
     assert task.get("become_user") == "{{ agent_name }}", (
-        "npm install must run as the agent user so node_modules is "
-        "owned correctly."
+        "npm install must run as the agent user so node_modules is owned correctly."
     )
     env = task.get("environment") or {}
     assert env.get("CI") == "1", (
-        "Set CI=1 so npm doesn't drop into interactive prompts on a "
-        "headless host."
+        "Set CI=1 so npm doesn't drop into interactive prompts on a headless host."
     )
 
 
@@ -417,8 +416,7 @@ def test_install_playbook_pre_builds_ui_tui_bundle():
     tasks = _tasks(_hermes_playbook("install"))
     task = _find_task_by_chdir(tasks, _UI_TUI_DIR, "npm run build")
     assert task is not None, (
-        "Missing `npm run build` task with chdir = "
-        f"{_UI_TUI_DIR!r}."
+        f"Missing `npm run build` task with chdir = {_UI_TUI_DIR!r}."
     )
     assert task.get("become_user") == "{{ agent_name }}", (
         "npm run build must run as the agent user."
@@ -436,16 +434,16 @@ def test_install_playbook_aliases_entry_exports_to_ink_bundle():
     dest_path = f"{_INK_DIST}/ink-bundle.js"
     task = next(
         (
-            t for t in tasks
+            t
+            for t in tasks
             if isinstance(
-                _task_module_value(t, "ansible.builtin.copy", "copy"), dict,
+                _task_module_value(t, "ansible.builtin.copy", "copy"),
+                dict,
             )
-            and _task_module_value(t, "ansible.builtin.copy", "copy").get(
-                "src"
-            ) == src_path
-            and _task_module_value(t, "ansible.builtin.copy", "copy").get(
-                "dest"
-            ) == dest_path
+            and _task_module_value(t, "ansible.builtin.copy", "copy").get("src")
+            == src_path
+            and _task_module_value(t, "ansible.builtin.copy", "copy").get("dest")
+            == dest_path
         ),
         None,
     )
@@ -566,9 +564,7 @@ def test_hermes_gateway_unit_has_path_in_environment(playbook):
     silently dropping it from one.
     """
     content = _hermes_playbook(playbook)
-    assert (
-        "Environment=PATH=/home/{{ agent_name }}/.local/bin:" in content
-    ), (
+    assert "Environment=PATH=/home/{{ agent_name }}/.local/bin:" in content, (
         f"{playbook}.yaml gateway unit must declare "
         f"Environment=PATH=/home/{{{{ agent_name }}}}/.local/bin:... so the "
         f"kanban dispatcher's `subprocess.run(['hermes',...])` bare PATH "

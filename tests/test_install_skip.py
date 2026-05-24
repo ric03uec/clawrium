@@ -182,7 +182,9 @@ def _skip_marker_event(version: str, path: str) -> dict:
     }
 
 
-def _setup_common_zeroclaw(monkeypatch, tmp_path, host_record: dict, version: str = "0.7.5"):
+def _setup_common_zeroclaw(
+    monkeypatch, tmp_path, host_record: dict, version: str = "0.7.5"
+):
     """Same as `_setup_common` but pinned to the zeroclaw manifest shape.
 
     Added for ATX Round 1 W1: re-install on a paired zeroclaw must not
@@ -225,9 +227,7 @@ def _setup_common_zeroclaw(monkeypatch, tmp_path, host_record: dict, version: st
 
     host_state = [host_record]
 
-    monkeypatch.setattr(
-        clawrium.core.install, "get_host", lambda _: host_state[0]
-    )
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda _: host_state[0])
 
     def mock_update_host(_, updater):
         host_state[0] = updater(host_state[0])
@@ -1004,9 +1004,7 @@ def test_install_reinstalls_when_per_agent_binary_at_non_target_even_if_system_m
     assert result.get("skipped") is not True
 
 
-def test_install_falls_back_to_path_when_per_agent_binary_absent(
-    monkeypatch, tmp_path
-):
+def test_install_falls_back_to_path_when_per_agent_binary_absent(monkeypatch, tmp_path):
     """T3 — PATH fallback when no per-agent binary exists.
 
     A legacy host where someone hand-installed `/usr/local/bin/openclaw` at the

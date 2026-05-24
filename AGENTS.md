@@ -2,10 +2,10 @@
 
 ## How It Works
 
-Clawrium is a CLI tool (`clm`) that manages AI agent fleets across your local network. Point it at any machine, and it handles deployment, configuration, and lifecycle management via SSH and Ansible.
+Clawrium is a CLI tool (`clawctl`) that manages AI agent fleets across your local network. Point it at any machine, and it handles deployment, configuration, and lifecycle management via SSH and Ansible.
 
 ```
-Your Machine (clm CLI)
+Your Machine (clawctl CLI)
     │
     ├── Host A ──> zeroclaw instance
     ├── Host B ──> openclaw instance
@@ -17,7 +17,7 @@ Your Machine (clm CLI)
 - **Single pane of glass**: Manage all agents from one CLI instead of SSH-ing to each host
 - **Consistent lifecycle**: Same commands for install, configure, start, stop, remove across all agent types
 - **Secrets management**: Secure API key storage with per-agent isolation
-- **Fleet visibility**: `clm ps` shows status of all agents across all hosts
+- **Fleet visibility**: `clawctl agent get` shows status of all agents across all hosts
 
 ## Who Is This For
 
@@ -32,23 +32,23 @@ Your Machine (clm CLI)
 uv tool install clawrium
 
 # Add a host
-clm host init 192.168.1.100 --user myuser
-clm host add 192.168.1.100 --alias mybox
+clawctl host create 192.168.1.100 --user myuser --bootstrap
+clawctl host create 192.168.1.100 --alias mybox
 
 # Install an agent
-clm agent install --type openclaw --host mybox
+clawctl agent create <agent-name> --type openclaw --host mybox
 
 # Configure and start
-clm agent configure <agent-name>
-clm agent start <agent-name>
+clawctl agent configure <agent-name>
+clawctl agent start <agent-name>
 
 # Install a skill onto the agent (catalog: skills/)
-clm skill list
-clm skill show clawrium/tdd       # Inspect a skill before installing
-clm agent skill install <agent-name> clawrium/tdd
+clawctl skill registry get
+clawctl skill registry describe clawrium/tdd       # Inspect a skill before installing
+clawctl agent skill attach clawrium/tdd --agent <agent-name>
 
 # Check fleet status
-clm ps
+clawctl agent get
 ```
 
 ## Installation Source of Truth
@@ -78,23 +78,23 @@ The website docs MUST follow `docs/installation.md` exactly. Do not edit `websit
 
 ## Gateway Token Lifecycle (zeroclaw)
 
-The zeroclaw gateway authenticates `clm chat` sessions with a bearer token
+The zeroclaw gateway authenticates `clawctl agent chat` sessions with a bearer token
 the daemon mints via a `/pair/code` → `/pair` loopback handshake. The
 daemon does not persist that bearer across systemd restarts, so the only
-way for `clm` to guarantee `hosts.json.gateway.auth` equals the bearer the
+way for `clawctl` to guarantee `hosts.json.gateway.auth` equals the bearer the
 daemon will enforce on the next request is to **always re-pair** on every
 lifecycle op that touches the daemon.
 
 Rules (issue #437):
 
-- `clm agent configure`, `clm agent sync`, and `clm agent restart` all
+- `clawctl agent configure`, `clawctl agent sync`, and `clawctl agent restart` all
   mint a fresh bearer and overwrite `hosts.json.gateway.auth` atomically.
 - There is no idempotent-skip path. Do not add a `--no-rotate` flag —
   branching here is the bug the original ATX Round 1 B3 code introduced.
-- Remote `clm chat` sessions (running on a different machine than the one
+- Remote `clawctl agent chat` sessions (running on a different machine than the one
   that ran the lifecycle op) will get a clean 401 on their next request.
   They must reconnect — that's the documented trade-off.
-- Local `clm chat` reconnects transparently: on 401 it reloads
+- Local `clawctl agent chat` reconnects transparently: on 401 it reloads
   `hosts.json` once, compares the bearer in memory vs disk, and rebuilds
   the backend with the fresh token if they differ.
 - A single `gateway_token_rotated` event is emitted from `lifecycle.py`
@@ -103,7 +103,7 @@ Rules (issue #437):
 
 ## Native Dashboards (issues #478, #491)
 
-Two agent types ship a native web UI today: **hermes** (issue #478) and **zeroclaw** (issue #491). The manifest's `features.web_ui` block is the single gate — `clm agent open <name>` and the GUI's **Open Agent UI** button both consult the resolver in `src/clawrium/core/web_ui.py`, which returns `None` for any agent whose manifest does not declare `features.web_ui`.
+Two agent types ship a native web UI today: **hermes** (issue #478) and **zeroclaw** (issue #491). The manifest's `features.web_ui` block is the single gate — `clawctl agent open <name>` and the GUI's **Open Agent UI** button both consult the resolver in `src/clawrium/core/web_ui.py`, which returns `None` for any agent whose manifest does not declare `features.web_ui`.
 
 **Hermes** (issue #478) runs the dashboard in a separate systemd unit on the agent host:
 

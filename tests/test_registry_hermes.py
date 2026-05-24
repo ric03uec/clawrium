@@ -153,7 +153,10 @@ def test_hermes_install_playbook_shape():
     # foreground process. `run` is the daemon entrypoint suitable for
     # `Type=simple` systemd units.
     assert "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway run" in content
-    assert "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway start" not in content
+    assert (
+        "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway start"
+        not in content
+    )
     assert "EnvironmentFile=/home/{{ agent_name }}/.hermes/.env" in content
 
     data = yaml.safe_load(content)
@@ -200,9 +203,7 @@ def test_hermes_install_force_drops_binary_before_reinstall():
     tasks = data[0]["tasks"]
 
     matching = [
-        t
-        for t in tasks
-        if "Remove existing Hermes binary" in t.get("name", "")
+        t for t in tasks if "Remove existing Hermes binary" in t.get("name", "")
     ]
     assert matching, (
         "install.yaml must remove the existing hermes binary when --force is set"
@@ -230,9 +231,7 @@ def test_hermes_install_env_file_permissions_enforced():
     data = yaml.safe_load(install_path.read_text())
     tasks = data[0]["tasks"]
 
-    enforce = [
-        t for t in tasks if "Enforce 0600" in t.get("name", "")
-    ]
+    enforce = [t for t in tasks if "Enforce 0600" in t.get("name", "")]
     assert enforce, "install.yaml must enforce 0600 on ~/.hermes/.env"
     file_args = enforce[0]["ansible.builtin.file"]
     assert file_args["path"] == "/home/{{ agent_name }}/.hermes/.env"
@@ -253,7 +252,9 @@ def test_hermes_install_env_file_created_with_mode_0600():
     tasks = data[0]["tasks"]
 
     create_tasks = [
-        t for t in tasks if t.get("name", "").startswith("Create empty Hermes environment file")
+        t
+        for t in tasks
+        if t.get("name", "").startswith("Create empty Hermes environment file")
     ]
     assert create_tasks, "install.yaml must have a task that creates ~/.hermes/.env"
     copy_args = create_tasks[0]["ansible.builtin.copy"]
@@ -322,7 +323,7 @@ def test_hermes_manifest_onboarding_stage_ordering():
     identity → channels → validate) so the configure wizard walks them in
     the expected sequence."""
     manifest = load_manifest("hermes")
-    stages = ((manifest.get("onboarding") or {}).get("stages") or {})
+    stages = (manifest.get("onboarding") or {}).get("stages") or {}
     keys = list(stages.keys())
     assert keys == ["providers", "identity", "channels", "validate"], (
         f"hermes stage ordering must match canonical pipeline, got {keys}"
@@ -342,7 +343,8 @@ def test_hermes_start_playbook_fails_on_inactive_service():
     tasks = data[0]["tasks"]
 
     fail_tasks = [
-        t for t in tasks
+        t
+        for t in tasks
         if t.get("ansible.builtin.fail") is not None
         and "not active" in t.get("name", "").lower()
     ]
@@ -362,7 +364,10 @@ def test_hermes_start_playbook_uses_gateway_run():
     start_path = hermes_pkg / "playbooks" / "start.yaml"
     content = start_path.read_text()
     assert "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway run" in content
-    assert "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway start" not in content
+    assert (
+        "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway start"
+        not in content
+    )
 
 
 def test_hermes_stop_playbook_pgrep_matches_python_process():
@@ -374,7 +379,7 @@ def test_hermes_stop_playbook_pgrep_matches_python_process():
     stop_path = hermes_pkg / "playbooks" / "stop.yaml"
     content = stop_path.read_text()
     # The pgrep invocation must use `-f` and match against the daemon command.
-    assert "-f \"hermes gateway run\"" in content or "-f 'hermes gateway run'" in content
+    assert '-f "hermes gateway run"' in content or "-f 'hermes gateway run'" in content
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +391,9 @@ def test_hermes_stop_playbook_pgrep_matches_python_process():
 # ---------------------------------------------------------------------------
 
 
-def _hermes_install_setup(monkeypatch, tmp_path, host_record: dict, version: str = "2026.5.7"):
+def _hermes_install_setup(
+    monkeypatch, tmp_path, host_record: dict, version: str = "2026.5.7"
+):
     """Shared setup for hermes install mock tests. Mirrors the openclaw
     pattern in tests/test_install_skip.py."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))

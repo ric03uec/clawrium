@@ -856,7 +856,9 @@ def _run_channels_stage(
                 allowed_users = ids
 
             home_channel_raw = typer.prompt(
-                "Discord home channel ID (Enter to skip)", default="", show_default=False
+                "Discord home channel ID (Enter to skip)",
+                default="",
+                show_default=False,
             ).strip()
             if home_channel_raw and not re.match(r"^\d{17,19}$", home_channel_raw):
                 console.print(
@@ -872,9 +874,10 @@ def _run_channels_stage(
 
             home_channel_name = "Home"
             if home_channel_raw:
-                home_channel_name_raw = typer.prompt(
-                    "Discord home channel name", default="Home"
-                ).strip() or "Home"
+                home_channel_name_raw = (
+                    typer.prompt("Discord home channel name", default="Home").strip()
+                    or "Home"
+                )
                 # Reject control chars (especially newlines) so a pasted value
                 # can't inject `\nMALICIOUS_VAR=...` into ~/.hermes/.env. Allow
                 # printable ASCII + common punctuation; cap length.
@@ -896,11 +899,7 @@ def _run_channels_stage(
             allowed_channels_raw = (allowed_channels_raw or "").strip()
             allowed_channels: list[str] = []
             if allowed_channels_raw:
-                cids = [
-                    s.strip()
-                    for s in allowed_channels_raw.split(",")
-                    if s.strip()
-                ]
+                cids = [s.strip() for s in allowed_channels_raw.split(",") if s.strip()]
                 # Comma-only input (`,` or `, ,`) is truthy after strip but
                 # parses to an empty list — without this guard the bot would
                 # silently respond in every channel of every allowlisted guild
@@ -971,9 +970,7 @@ def _run_channels_stage(
             allowed_users_raw = (allowed_users_raw or "").strip()
             allowed_users = []
             if allowed_users_raw:
-                ids = [
-                    s.strip() for s in allowed_users_raw.split(",") if s.strip()
-                ]
+                ids = [s.strip() for s in allowed_users_raw.split(",") if s.strip()]
                 # ATX Round 3 B1: comma-only input (`,` or `, ,`) is truthy
                 # after strip but `ids` resolves to []. Without this guard
                 # the agent silently becomes an open bot with no operator
@@ -1008,11 +1005,7 @@ def _run_channels_stage(
             allowed_guilds_raw = (allowed_guilds_raw or "").strip()
             allowed_guilds = []
             if allowed_guilds_raw:
-                gids = [
-                    s.strip()
-                    for s in allowed_guilds_raw.split(",")
-                    if s.strip()
-                ]
+                gids = [s.strip() for s in allowed_guilds_raw.split(",") if s.strip()]
                 # Symmetric B1 guard for guilds — comma-only input must fail
                 # loudly rather than silently allow any guild.
                 if not gids:
@@ -1127,9 +1120,7 @@ def _run_channels_stage(
             # Prompt for user ID(s) to allowlist
             user_id = typer.prompt("Your Discord user ID (for auto-approve)")
             if not re.match(r"^\d{17,19}$", user_id):
-                console.print(
-                    "[red]Error:[/red] Invalid user ID format (17-19 digits)"
-                )
+                console.print("[red]Error:[/red] Invalid user ID format (17-19 digits)")
                 return False
 
             channels_config = {
@@ -1278,9 +1269,10 @@ def _run_channels_stage(
 
             home_channel_name = ""
             if home_channel_raw:
-                home_channel_name_raw = typer.prompt(
-                    "Slack home channel name", default="general"
-                ).strip() or "general"
+                home_channel_name_raw = (
+                    typer.prompt("Slack home channel name", default="general").strip()
+                    or "general"
+                )
                 # Reject control chars so a pasted value can't inject into .env
                 if len(home_channel_name_raw) > 64 or not re.match(
                     r"^[A-Za-z0-9 _\-./#]+$", home_channel_name_raw
@@ -1396,8 +1388,7 @@ def _run_channels_stage(
             )
         except Exception as e:
             console.print(
-                f"[red]✗[/red] Failed to update channel metadata: "
-                f"{rich_escape(str(e))}"
+                f"[red]✗[/red] Failed to update channel metadata: {rich_escape(str(e))}"
             )
             return False
         console.print("[green]✓[/green] Channels configuration updated")
@@ -2819,9 +2810,7 @@ def open_ui(
         raise typer.Exit(code=1)
 
     local_url = f"http://127.0.0.1:{local_port}/"
-    console.print(
-        f"[green]Opening native UI for[/green] {rich_escape(installed_name)}"
-    )
+    console.print(f"[green]Opening native UI for[/green] {rich_escape(installed_name)}")
     console.print(f"  Local port: {local_port}")
     console.print(f"  URL: {rich_escape(local_url)}")
     console.print("  Press Ctrl-C to close the tunnel and exit.")

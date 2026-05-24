@@ -158,7 +158,9 @@ def test_status_host_filter(mock_hosts_with_claws):
 
     with patch("clawrium.cli.status.load_hosts", return_value=mock_hosts_with_claws):
         with patch("clawrium.cli.status.check_claw_health", mock_health):
-            result = runner.invoke(app, ["ps", "--host", "server1"], env={"COLUMNS": "200"})
+            result = runner.invoke(
+                app, ["ps", "--host", "server1"], env={"COLUMNS": "200"}
+            )
 
     assert result.exit_code == 0
     assert "server1" in result.output
@@ -1045,7 +1047,9 @@ def test_status_shows_provider_type_when_configured():
                     "status": "installed",
                     "installed_at": "2026-03-21T10:00:00Z",
                     "agent_name": "opc-server1",
-                    "config": {"provider": {"type": "openai", "default_model": "gpt-4o"}},
+                    "config": {
+                        "provider": {"type": "openai", "default_model": "gpt-4o"}
+                    },
                 }
             },
         }

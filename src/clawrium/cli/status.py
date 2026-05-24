@@ -172,7 +172,9 @@ def status(
             port = claw_record.get("config", {}).get("gateway", {}).get("port")
             port_display = str(port) if port else "-"
 
-            provider_type = claw_record.get("config", {}).get("provider", {}).get("type")
+            provider_type = (
+                claw_record.get("config", {}).get("provider", {}).get("type")
+            )
             provider_display = provider_type if provider_type else "-"
 
             # Get live status with color coding

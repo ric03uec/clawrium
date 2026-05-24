@@ -205,9 +205,10 @@ class TestAddIntegration:
 
     def test_adds_new_integration(self, tmp_path):
         """Adds new integration to empty file."""
-        with patch(
-            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
-        ), patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path):
+        with (
+            patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path),
+            patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path),
+        ):
             add_integration({"name": "my-github", "type": "github"})
             integrations = load_integrations()
             assert len(integrations) == 1
@@ -216,36 +217,42 @@ class TestAddIntegration:
     def test_raises_on_duplicate_name(self, tmp_path):
         """Raises DuplicateIntegrationError when name exists."""
         integrations_file = tmp_path / INTEGRATIONS_FILE
-        integrations_file.write_text(json.dumps([{"name": "my-github", "type": "github"}]))
+        integrations_file.write_text(
+            json.dumps([{"name": "my-github", "type": "github"}])
+        )
 
-        with patch(
-            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
-        ), patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path):
+        with (
+            patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path),
+            patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path),
+        ):
             with pytest.raises(DuplicateIntegrationError) as exc_info:
                 add_integration({"name": "my-github", "type": "github"})
             assert "already exists" in str(exc_info.value)
 
     def test_raises_on_invalid_name(self, tmp_path):
         """Raises InvalidIntegrationNameError for invalid name."""
-        with patch(
-            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
-        ), patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path):
+        with (
+            patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path),
+            patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path),
+        ):
             with pytest.raises(InvalidIntegrationNameError):
                 add_integration({"name": "123invalid", "type": "github"})
 
     def test_raises_on_invalid_type(self, tmp_path):
         """Raises InvalidIntegrationTypeError for invalid type."""
-        with patch(
-            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
-        ), patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path):
+        with (
+            patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path),
+            patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path),
+        ):
             with pytest.raises(InvalidIntegrationTypeError):
                 add_integration({"name": "myint", "type": "invalid-type"})
 
     def test_stamps_created_at_and_updated_at(self, tmp_path):
         """add_integration stamps timestamps when caller omits them."""
-        with patch(
-            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
-        ), patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path):
+        with (
+            patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path),
+            patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path),
+        ):
             add_integration({"name": "myint", "type": "github"})
             saved = load_integrations()
             assert len(saved) == 1
@@ -260,9 +267,10 @@ class TestAddIntegration:
     def test_preserves_caller_supplied_timestamps(self, tmp_path):
         """setdefault semantics: caller-supplied timestamps are not overwritten."""
         ts = "2025-01-01T00:00:00+00:00"
-        with patch(
-            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
-        ), patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path):
+        with (
+            patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path),
+            patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path),
+        ):
             add_integration(
                 {
                     "name": "myint",
@@ -317,12 +325,13 @@ class TestRemoveIntegration:
         integrations_file.write_text(json.dumps(integrations))
 
         # Mock remove_integration_credentials
-        with patch(
-            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
-        ), patch(
-            "clawrium.core.integrations.init_config_dir", return_value=tmp_path
-        ), patch(
-            "clawrium.core.integrations.remove_integration_credentials", return_value=True
+        with (
+            patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path),
+            patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path),
+            patch(
+                "clawrium.core.integrations.remove_integration_credentials",
+                return_value=True,
+            ),
         ):
             result = remove_integration("work-github")
             assert result is True
@@ -335,9 +344,10 @@ class TestRemoveIntegration:
         integrations_file = tmp_path / INTEGRATIONS_FILE
         integrations_file.write_text(json.dumps([{"name": "other", "type": "github"}]))
 
-        with patch(
-            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
-        ), patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path):
+        with (
+            patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path),
+            patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path),
+        ):
             result = remove_integration("nonexistent")
             assert result is False
 
@@ -366,13 +376,13 @@ class TestRemoveIntegration:
             )
             return True
 
-        with patch(
-            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
-        ), patch(
-            "clawrium.core.integrations.init_config_dir", return_value=tmp_path
-        ), patch(
-            "clawrium.core.integrations.remove_integration_credentials",
-            side_effect=observing_remove,
+        with (
+            patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path),
+            patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path),
+            patch(
+                "clawrium.core.integrations.remove_integration_credentials",
+                side_effect=observing_remove,
+            ),
         ):
             result = remove_integration("work-github")
             assert result is True
@@ -392,15 +402,12 @@ class TestCredentialStorage:
 
     def test_set_and_get_integration_credential(self):
         """Credential can be stored and retrieved."""
-        with patch(
-            "clawrium.core.secrets.set_instance_secret"
-        ) as mock_set, patch(
-            "clawrium.core.secrets.get_instance_secrets"
-        ) as mock_get:
+        with (
+            patch("clawrium.core.secrets.set_instance_secret") as mock_set,
+            patch("clawrium.core.secrets.get_instance_secrets") as mock_get,
+        ):
             mock_set.return_value = True
-            mock_get.return_value = {
-                "GITHUB_TOKEN": {"value": "ghp_test123"}
-            }
+            mock_get.return_value = {"GITHUB_TOKEN": {"value": "ghp_test123"}}
 
             # Set credential
             result = set_integration_credential(
@@ -415,9 +422,7 @@ class TestCredentialStorage:
 
     def test_remove_integration_credentials(self):
         """Credentials can be removed."""
-        with patch(
-            "clawrium.core.secrets.remove_instance_secrets"
-        ) as mock_remove:
+        with patch("clawrium.core.secrets.remove_instance_secrets") as mock_remove:
             mock_remove.return_value = True
             result = remove_integration_credentials("my-github")
             assert result is True
@@ -430,9 +435,7 @@ class TestCredentialStorage:
         future writer bug) must not raise KeyError; valid entries should
         still come through unchanged.
         """
-        with patch(
-            "clawrium.core.secrets.get_instance_secrets"
-        ) as mock_get:
+        with patch("clawrium.core.secrets.get_instance_secrets") as mock_get:
             mock_get.return_value = {
                 "GOOD_KEY": {"value": "abc"},
                 "MISSING_VALUE_KEY": {"description": "no value"},
@@ -450,12 +453,7 @@ class TestAgentIntegrations:
         with patch("clawrium.core.hosts.get_host") as mock_get_host:
             mock_get_host.return_value = {
                 "hostname": "testhost",
-                "agents": {
-                    "test-agent": {
-                        "type": "openclaw",
-                        "config": {}
-                    }
-                }
+                "agents": {"test-agent": {"type": "openclaw", "config": {}}},
             }
             result = get_agent_integrations("testhost", "test-agent")
             assert result == []
@@ -469,9 +467,9 @@ class TestAgentIntegrations:
                     "test-agent": {
                         "type": "openclaw",
                         "integrations": ["work-github", "company-jira"],
-                        "config": {}
+                        "config": {},
                     }
-                }
+                },
             }
             result = get_agent_integrations("testhost", "test-agent")
             assert result == ["work-github", "company-jira"]
@@ -485,18 +483,19 @@ class TestAgentIntegrations:
 
     def test_set_agent_integrations_updates_dedicated_field(self):
         """set_agent_integrations updates dedicated integrations field."""
-        host_data = {
-            "hostname": "testhost",
-            "agents": {"agent": {"type": "openclaw"}}
-        }
+        host_data = {"hostname": "testhost", "agents": {"agent": {"type": "openclaw"}}}
 
         def capture_and_run_updater(hostname, updater):
             # Simulate what update_host does: call the updater with host data
             updater(host_data)
             return True
 
-        with patch("clawrium.core.hosts.get_host") as mock_get_host, \
-             patch("clawrium.core.hosts.update_host", side_effect=capture_and_run_updater):
+        with (
+            patch("clawrium.core.hosts.get_host") as mock_get_host,
+            patch(
+                "clawrium.core.hosts.update_host", side_effect=capture_and_run_updater
+            ),
+        ):
             mock_get_host.return_value = host_data
 
             result = set_agent_integrations("testhost", "agent", ["github"])
@@ -511,12 +510,7 @@ class TestAgentIntegrations:
         captured_updater = None
         host_data = {
             "hostname": "testhost",
-            "agents": {
-                "agent": {
-                    "type": "openclaw",
-                    "integrations": ["existing"]
-                }
-            }
+            "agents": {"agent": {"type": "openclaw", "integrations": ["existing"]}},
         }
 
         def capture_and_run_updater(hostname, updater):
@@ -526,8 +520,12 @@ class TestAgentIntegrations:
             updater(host_data)
             return True
 
-        with patch("clawrium.core.hosts.get_host") as mock_get_host, \
-             patch("clawrium.core.hosts.update_host", side_effect=capture_and_run_updater):
+        with (
+            patch("clawrium.core.hosts.get_host") as mock_get_host,
+            patch(
+                "clawrium.core.hosts.update_host", side_effect=capture_and_run_updater
+            ),
+        ):
             mock_get_host.return_value = host_data
 
             result = add_agent_integration("testhost", "agent", "new-integration")
@@ -539,16 +537,13 @@ class TestAgentIntegrations:
 
     def test_add_agent_integration_returns_false_for_duplicate(self):
         """add_agent_integration returns False when already assigned."""
-        with patch("clawrium.core.hosts.get_host") as mock_get_host, \
-             patch("clawrium.core.hosts.update_host") as mock_update:
+        with (
+            patch("clawrium.core.hosts.get_host") as mock_get_host,
+            patch("clawrium.core.hosts.update_host") as mock_update,
+        ):
             mock_get_host.return_value = {
                 "hostname": "testhost",
-                "agents": {
-                    "agent": {
-                        "type": "openclaw",
-                        "integrations": ["existing"]
-                    }
-                }
+                "agents": {"agent": {"type": "openclaw", "integrations": ["existing"]}},
             }
             mock_update.return_value = True
             result = add_agent_integration("testhost", "agent", "existing")
@@ -561,9 +556,9 @@ class TestAgentIntegrations:
             "agents": {
                 "agent": {
                     "type": "openclaw",
-                    "integrations": ["integration1", "integration2"]
+                    "integrations": ["integration1", "integration2"],
                 }
-            }
+            },
         }
 
         def capture_and_run_updater(hostname, updater):
@@ -571,8 +566,12 @@ class TestAgentIntegrations:
             updater(host_data)
             return True
 
-        with patch("clawrium.core.hosts.get_host") as mock_get_host, \
-             patch("clawrium.core.hosts.update_host", side_effect=capture_and_run_updater):
+        with (
+            patch("clawrium.core.hosts.get_host") as mock_get_host,
+            patch(
+                "clawrium.core.hosts.update_host", side_effect=capture_and_run_updater
+            ),
+        ):
             mock_get_host.return_value = host_data
 
             result = remove_agent_integration("testhost", "agent", "integration1")
@@ -583,16 +582,13 @@ class TestAgentIntegrations:
 
     def test_remove_agent_integration_returns_false_when_not_found(self):
         """remove_agent_integration returns False when not assigned."""
-        with patch("clawrium.core.hosts.get_host") as mock_get_host, \
-             patch("clawrium.core.hosts.update_host") as mock_update:
+        with (
+            patch("clawrium.core.hosts.get_host") as mock_get_host,
+            patch("clawrium.core.hosts.update_host") as mock_update,
+        ):
             mock_get_host.return_value = {
                 "hostname": "testhost",
-                "agents": {
-                    "agent": {
-                        "type": "openclaw",
-                        "integrations": ["other"]
-                    }
-                }
+                "agents": {"agent": {"type": "openclaw", "integrations": ["other"]}},
             }
             mock_update.return_value = True
             result = remove_agent_integration("testhost", "agent", "nonexistent")
@@ -610,7 +606,7 @@ class TestFindAgentsUsingIntegration:
                     "hostname": "host1",
                     "agents": {
                         "agent1": {"type": "openclaw", "integrations": ["other"]}
-                    }
+                    },
                 }
             ]
             result = find_agents_using_integration("unused-integration")
@@ -624,15 +620,18 @@ class TestFindAgentsUsingIntegration:
                     "hostname": "host1",
                     "agents": {
                         "agent1": {"type": "openclaw", "integrations": ["my-github"]},
-                        "agent2": {"type": "zeroclaw", "integrations": ["other"]}
-                    }
+                        "agent2": {"type": "zeroclaw", "integrations": ["other"]},
+                    },
                 },
                 {
                     "hostname": "host2",
                     "agents": {
-                        "agent3": {"type": "openclaw", "integrations": ["my-github", "jira"]}
-                    }
-                }
+                        "agent3": {
+                            "type": "openclaw",
+                            "integrations": ["my-github", "jira"],
+                        }
+                    },
+                },
             ]
             result = find_agents_using_integration("my-github")
             assert len(result) == 2
@@ -647,7 +646,7 @@ class TestFindAgentsUsingIntegration:
                     "hostname": "host1",
                     "agents": {
                         "agent1": {"type": "openclaw"}  # No integrations field
-                    }
+                    },
                 }
             ]
             result = find_agents_using_integration("my-github")
@@ -663,11 +662,12 @@ class TestRemoveIntegrationWithUsageCheck:
         integrations_file = tmp_path / INTEGRATIONS_FILE
         integrations_file.write_text(json.dumps(integrations))
 
-        with patch(
-            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
-        ), patch(
-            "clawrium.core.integrations.find_agents_using_integration"
-        ) as mock_find:
+        with (
+            patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path),
+            patch(
+                "clawrium.core.integrations.find_agents_using_integration"
+            ) as mock_find,
+        ):
             mock_find.return_value = [("host1", "agent1")]
 
             with pytest.raises(IntegrationInUseError) as exc_info:
@@ -681,14 +681,13 @@ class TestRemoveIntegrationWithUsageCheck:
         integrations_file = tmp_path / INTEGRATIONS_FILE
         integrations_file.write_text(json.dumps(integrations))
 
-        with patch(
-            "clawrium.core.integrations.get_config_dir", return_value=tmp_path
-        ), patch(
-            "clawrium.core.integrations.init_config_dir", return_value=tmp_path
-        ), patch(
-            "clawrium.core.integrations.find_agents_using_integration"
-        ) as mock_find, patch(
-            "clawrium.core.integrations.remove_integration_credentials"
+        with (
+            patch("clawrium.core.integrations.get_config_dir", return_value=tmp_path),
+            patch("clawrium.core.integrations.init_config_dir", return_value=tmp_path),
+            patch(
+                "clawrium.core.integrations.find_agents_using_integration"
+            ) as mock_find,
+            patch("clawrium.core.integrations.remove_integration_credentials"),
         ):
             mock_find.return_value = [("host1", "agent1")]
 

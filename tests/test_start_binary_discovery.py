@@ -156,7 +156,9 @@ def test_start_restarts_service_when_unit_file_changes(
     assert sync is not None
     assert sync.get("register") == "service_file_changed"
 
-    restart = _task_by_name(start_tasks, "Restart openclaw service if unit file changed")
+    restart = _task_by_name(
+        start_tasks, "Restart openclaw service if unit file changed"
+    )
     assert restart is not None, "B3 restart task missing from start.yaml"
 
     systemd = restart.get("ansible.builtin.systemd") or restart.get("systemd")

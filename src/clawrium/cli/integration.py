@@ -181,7 +181,9 @@ def add(
     try:
         existing = get_integration(name)
         if existing:
-            console.print(f"[red]Error:[/red] Integration '{rich_escape(name)}' already exists")
+            console.print(
+                f"[red]Error:[/red] Integration '{rich_escape(name)}' already exists"
+            )
             raise typer.Exit(code=1)
     except IntegrationsFileCorruptedError as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -297,13 +299,17 @@ def show(
     try:
         credential_defs = get_credentials_for_type(integration_type)
     except InvalidIntegrationTypeError:
-        console.print(f"\n  [red]Error:[/red] {_unknown_type_remediation(integration_type, name)}")
+        console.print(
+            f"\n  [red]Error:[/red] {_unknown_type_remediation(integration_type, name)}"
+        )
         raise typer.Exit(code=1)
     required_keys = {c["key"] for c in credential_defs if c.get("required", False)}
     missing_keys = required_keys - set(credentials.keys())
 
     if missing_keys:
-        console.print(f"\n  [yellow]Missing required:[/yellow] {', '.join(sorted(missing_keys))}")
+        console.print(
+            f"\n  [yellow]Missing required:[/yellow] {', '.join(sorted(missing_keys))}"
+        )
 
 
 @integration_app.command()
@@ -407,12 +413,16 @@ def credentials(
         try:
             credential_defs = get_credentials_for_type(integration_type)
         except InvalidIntegrationTypeError:
-            console.print(f"\n  [red]Error:[/red] {_unknown_type_remediation(integration_type, name)}")
+            console.print(
+                f"\n  [red]Error:[/red] {_unknown_type_remediation(integration_type, name)}"
+            )
             raise typer.Exit(code=1)
         required_keys = {c["key"] for c in credential_defs if c.get("required", False)}
         missing = required_keys - set(credentials_dict.keys())
         if missing:
-            console.print(f"\n  [yellow]Missing required:[/yellow] {', '.join(sorted(missing))}")
+            console.print(
+                f"\n  [yellow]Missing required:[/yellow] {', '.join(sorted(missing))}"
+            )
 
         return
 
@@ -420,7 +430,9 @@ def credentials(
     try:
         credential_defs = get_credentials_for_type(integration_type)
     except InvalidIntegrationTypeError:
-        console.print(f"\n  [red]Error:[/red] {_unknown_type_remediation(integration_type, name)}")
+        console.print(
+            f"\n  [red]Error:[/red] {_unknown_type_remediation(integration_type, name)}"
+        )
         raise typer.Exit(code=1)
     credentials_to_store: list[tuple[str, str, str]] = []
 

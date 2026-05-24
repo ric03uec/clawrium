@@ -31,7 +31,7 @@ Connection failed: Connection refused
 2. **Wrong port number**
    ```bash
    # Specify the correct SSH port
-   clm host add 192.168.1.100 --port 2222
+   clawctl host create 192.168.1.100 --port 2222
    ```
 
 3. **Firewall blocking connection**
@@ -53,9 +53,9 @@ Permission denied (publickey)
 
 1. **Keypair not initialized**
    
-   Run `clm host init` first to generate the keypair:
+   Run `clawctl host create --bootstrap` first to generate the keypair:
    ```bash
-   clm host init 192.168.1.100 --user myuser
+   clawctl host create --bootstrap 192.168.1.100 --user myuser
    ```
 
 2. **xclm user not configured**
@@ -79,9 +79,9 @@ Permission denied (publickey)
 
 3. **Wrong SSH user**
    
-   For `clm host add`, Clawrium uses `xclm` by default. If you used a different user during init:
+   For `clawctl host create`, Clawrium uses `xclm` by default. If you used a different user during init:
    ```bash
-   clm host add 192.168.1.100 --user customuser
+   clawctl host create 192.168.1.100 --user customuser
    ```
 
 ### Host Key Verification Failed
@@ -122,27 +122,27 @@ Error: Host '192.168.1.100' already exists in fleet
 
 Remove the existing host entry first:
 ```bash
-clm host remove 192.168.1.100
-clm host init 192.168.1.100
+clawctl host delete 192.168.1.100
+clawctl host create --bootstrap 192.168.1.100
 ```
 
 Or use the alias to differentiate:
 ```bash
-clm host add 192.168.1.100 --alias new-name
+clawctl host create 192.168.1.100 --alias new-name
 ```
 
 ### "Keypair not found" Error
 
 **Symptoms:**
 ```
-Error: No keypair found for '192.168.1.100'. Run 'clm host init' first.
+Error: No keypair found for '192.168.1.100'. Run 'clawctl host create --bootstrap' first.
 ```
 
 **Solution:**
 
 Initialize the host first to generate the keypair:
 ```bash
-clm host init 192.168.1.100
+clawctl host create --bootstrap 192.168.1.100
 ```
 
 ### Hardware Detection Fails
@@ -162,7 +162,7 @@ Hardware detection requires certain commands on the host. Ensure the host has:
 
 For manual refresh:
 ```bash
-clm host status 192.168.1.100 --refresh
+clawctl host status 192.168.1.100 --refresh
 ```
 
 ## Host Reset Issues
@@ -185,7 +185,7 @@ sudo pkill -u oc-home
 
 Then retry the reset:
 ```bash
-clm host reset 192.168.1.100 --yes
+clawctl host reset 192.168.1.100 --yes
 ```
 
 ### Reset Doesn't Remove Everything
@@ -197,7 +197,7 @@ Some files or users remain after reset.
 
 Check what the reset would remove first:
 ```bash
-clm host reset 192.168.1.100 --dry-run
+clawctl host reset 192.168.1.100 --dry-run
 ```
 
 The reset only removes:
@@ -245,7 +245,7 @@ cat ~/.config/clawrium/hosts.json
 
 # If unrecoverable, remove and re-add hosts
 rm ~/.config/clawrium/hosts.json
-clm host add 192.168.1.100  # Re-initialize each host
+clawctl host create 192.168.1.100  # Re-initialize each host
 ```
 
 ## Debug Logging
@@ -255,7 +255,7 @@ Enable verbose output for troubleshooting:
 ```bash
 # Enable Ansible verbose mode
 export ANSIBLE_VERBOSITY=3
-clm host init 192.168.1.100
+clawctl host create --bootstrap 192.168.1.100
 ```
 
 ## Getting Help
@@ -265,7 +265,7 @@ If you can't resolve an issue:
 1. **Search existing issues**: [GitHub Issues](https://github.com/ric03uec/clawrium/issues)
 2. **Start a discussion**: [GitHub Discussions](https://github.com/ric03uec/clawrium/discussions)
 3. **File a bug report**: Include:
-   - Clawrium version (`clm --version`)
+   - Clawrium version (`clawctl --version`)
    - Full error message
    - Steps to reproduce
    - OS and architecture of both client and target host

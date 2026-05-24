@@ -41,7 +41,7 @@ Without these, you **cannot DM the bot**:
 - ✅ `im:write` - Bot MUST be able to write to DMs (⚠️ see security note below — applies to both OpenClaw and Hermes)
 - ✅ `chat:write` - Bot MUST be able to send messages
 
-> **⚠️ Security note on `im:write` (applies to OpenClaw *and* Hermes):** This scope lets the bot *initiate* unsolicited DMs to **any** workspace member — neither OpenClaw's `allowFrom` nor Hermes' `SLACK_ALLOWED_USERS` gate outbound messages. A compromised agent host or leaked `xoxb-` token can DM-spam or phish the entire workspace. Mitigations: keep the host hardened; treat the bot token as a high-value secret; rotate the token immediately on suspicion (Slack API → **OAuth & Permissions** → **Rotate Tokens** → re-run `clm agent configure <name> --stage channels` with the new bearer); audit `users:read` calls in your workspace's Slack audit log if you suspect abuse.
+> **⚠️ Security note on `im:write` (applies to OpenClaw *and* Hermes):** This scope lets the bot *initiate* unsolicited DMs to **any** workspace member — neither OpenClaw's `allowFrom` nor Hermes' `SLACK_ALLOWED_USERS` gate outbound messages. A compromised agent host or leaked `xoxb-` token can DM-spam or phish the entire workspace. Mitigations: keep the host hardened; treat the bot token as a high-value secret; rotate the token immediately on suspicion (Slack API → **OAuth & Permissions** → **Rotate Tokens** → re-run `clawctl agent configure <name> --stage channels` with the new bearer); audit `users:read` calls in your workspace's Slack audit log if you suspect abuse.
 
 ### Required Event Subscriptions
 Without these, the bot **will not receive your DMs**:
@@ -181,7 +181,7 @@ Slack will prompt you to invite the bot to the channel.
 ### Step 7: Configure in Clawrium
 
 ```bash
-clm agent configure <agent-name>
+clawctl agent configure <agent-name>
 # Select "slack" when prompted for channel
 # Enter your Bot Token, App Token, and User ID
 ```
@@ -189,7 +189,7 @@ clm agent configure <agent-name>
 Or reconfigure just the channels stage:
 
 ```bash
-clm agent configure <agent-name> --stage channels
+clawctl agent configure <agent-name> --stage channels
 ```
 
 ---
@@ -252,7 +252,7 @@ At runtime, OpenClaw resolves the token from the environment file written by Cla
 
 Hermes uses a simpler configuration model — env vars rendered directly into `~/.hermes/.env`. There are no SecretRef objects; tokens are written as plain values in the env file (mode 0600 on the agent host).
 
-### Env vars rendered by clm
+### Env vars rendered by clawctl
 
 | Variable | Required | Description |
 |----------|:--------:|-------------|
@@ -277,7 +277,7 @@ Hermes uses a simpler configuration model — env vars rendered directly into `~
 | `im:write` | **DMs** | **Slack won't allow users to message the bot** |
 | `users:read` | All | Bot cannot look up user info for allowlist checks |
 
-> **⚠️ Security note on `im:write`:** This scope also permits the bot to *initiate* unsolicited DMs to **any** workspace member — the `SLACK_ALLOWED_USERS` allowlist only gates inbound commands, not outbound messages. A compromised agent host or leaked bot token could DM-spam or phish the entire workspace. Keep the agent host hardened and the `xoxb-` bot token in `secrets.json` only. **On suspicion of leakage:** rotate via Slack API → **OAuth & Permissions** → **Rotate Tokens**, then re-run `clm agent configure <name> --stage channels` with the new bearer.
+> **⚠️ Security note on `im:write`:** This scope also permits the bot to *initiate* unsolicited DMs to **any** workspace member — the `SLACK_ALLOWED_USERS` allowlist only gates inbound commands, not outbound messages. A compromised agent host or leaked bot token could DM-spam or phish the entire workspace. Keep the agent host hardened and the `xoxb-` bot token in `secrets.json` only. **On suspicion of leakage:** rotate via Slack API → **OAuth & Permissions** → **Rotate Tokens**, then re-run `clawctl agent configure <name> --stage channels` with the new bearer.
 
 ### Required event subscriptions
 
@@ -302,7 +302,7 @@ Hermes uses **Socket Mode** — the bot maintains an outbound WebSocket to Slack
 ### Interactive setup (Hermes)
 
 ```bash
-clm agent configure <hermes-name> --stage channels
+clawctl agent configure <hermes-name> --stage channels
 ```
 
 The wizard offers `cli`, `discord`, and `slack`. Pick `slack` and the CLI prompts for:
@@ -315,7 +315,7 @@ The wizard offers `cli`, `discord`, and `slack`. Pick `slack` and the CLI prompt
 | Slack home channel ID | `hosts.json` `channels.slack.home_channel` | optional | Channel for cron/scheduled messages. Format: `C` + alphanumeric. |
 | Slack home channel name | `hosts.json` `channels.slack.home_channel_name` | optional | Display name for the home channel. |
 
-`clm` then runs the configure playbook which re-renders `~/.hermes/.env` with the `SLACK_*` block and restarts `hermes-<name>.service`.
+`clawctl` then runs the configure playbook which re-renders `~/.hermes/.env` with the `SLACK_*` block and restarts `hermes-<name>.service`.
 
 ### Resulting on-disk shape (Hermes)
 
@@ -346,7 +346,7 @@ The wizard offers `cli`, `discord`, and `slack`. Pick `slack` and the CLI prompt
 }
 ```
 
-Both tokens **never** land in `hosts.json` — the configure flow stores them exclusively in `secrets.json` (B3 invariant). Re-running `clm agent configure --stage channels` with the same tokens reuses them byte-identical.
+Both tokens **never** land in `hosts.json` — the configure flow stores them exclusively in `secrets.json` (B3 invariant). Re-running `clawctl agent configure --stage channels` with the same tokens reuses them byte-identical.
 
 ### Rendered `.env` (Slack block, Hermes)
 
@@ -363,14 +363,14 @@ SLACK_HOME_CHANNEL_NAME=general
 
 ### Removal (Hermes)
 
-`clm agent remove <name> --force` purges the entire instance entry from `secrets.json`, including both Slack tokens. There is no separate "rotate Slack token" command — re-run the channels stage with new tokens to overwrite.
+`clawctl agent delete <name> --force` purges the entire instance entry from `secrets.json`, including both Slack tokens. There is no separate "rotate Slack token" command — re-run the channels stage with new tokens to overwrite.
 
 ### Hermes-specific troubleshooting
 
 <details>
 <summary><strong>Bot connects but gets `missing_scope` errors</strong></summary>
 
-Hermes logs will show errors like `slack_bolt: missing_scope: channels:read`. Go to your Slack app's **OAuth & Permissions** > **Scopes** and add the missing scope. Then **reinstall the app** to your workspace (Slack requires reinstall after scope changes). You do NOT need to re-run `clm agent configure` — the tokens remain valid after reinstall.
+Hermes logs will show errors like `slack_bolt: missing_scope: channels:read`. Go to your Slack app's **OAuth & Permissions** > **Scopes** and add the missing scope. Then **reinstall the app** to your workspace (Slack requires reinstall after scope changes). You do NOT need to re-run `clawctl agent configure` — the tokens remain valid after reinstall.
 
 </details>
 
@@ -425,7 +425,7 @@ cat ~/.config/clawrium/hosts.json | jq --arg n "$AGENT" '.[] | select(.agents[$n
 
 **Find your Member ID:** Slack profile → ⋯ (three dots) → Copy Member ID
 
-**If your ID is missing:** Run `clm agent configure <name> --stage channels` and add your ID.
+**If your ID is missing:** Run `clawctl agent configure <name> --stage channels` and add your ID.
 
 ### 5. Check Agent Logs
 ```bash
@@ -465,7 +465,7 @@ Send a test DM and watch for errors. Common errors:
 
 | Policy | Behavior |
 |--------|----------|
-| `pairing` (default) | New DM users must approve via `clm pairing approve slack <code>` |
+| `pairing` (default) | New DM users must approve via `clawctl pairing approve slack <code>` |
 | `allowlist` | Only users in `allowFrom` can DM |
 | `open` | Anyone can DM (requires `allowFrom: ["*"]`) |
 | `disabled` | No DMs allowed |
@@ -491,7 +491,7 @@ Send a test DM and watch for errors. Common errors:
 ### Bot not responding to DMs
 
 - Check `dmPolicy` — default is `pairing`, new users must be approved first
-- Run `clm pairing list slack` to see pending approvals
+- Run `clawctl pairing list slack` to see pending approvals
 
 ### Socket Mode not connecting
 

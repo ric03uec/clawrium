@@ -46,7 +46,7 @@
 # ATX B2: explicitly accept 401 and 503 so the recovery path produces an
 # actionable operator message instead of a raw `Status code was 401`
 # Ansible error. The `Validate locked-branch initiate response` task below
-# then fails with explicit guidance to re-run `clm agent configure` (401)
+# then fails with explicit guidance to re-run `clawctl agent configure` (401)
 # or check daemon health (503).
 - name: Mint pairing code via /api/pairing/initiate (locked-pair branch)
   ansible.builtin.uri:
@@ -85,11 +85,11 @@
       {% if initiate_response.status == 401 %}POST /api/pairing/initiate
       returned 401: the bearer in hosts.json is stale (likely because
       devices.db was wiped or rebuilt on the host). Run
-      `clm agent configure {{ agent_name }}` to re-pair from scratch.
+      `clawctl agent configure {{ agent_name }}` to re-pair from scratch.
       {% elif initiate_response.status == 503 %}POST /api/pairing/initiate
       returned 503: zeroclaw daemon reports pairing disabled or unavailable.
       Check `journalctl --unit {{ agent_type }}-{{ agent_name }}` and restart
-      the daemon, then re-run `clm agent configure {{ agent_name }}`.
+      the daemon, then re-run `clawctl agent configure {{ agent_name }}`.
       {% else %}POST /api/pairing/initiate returned an unexpected status
       {{ initiate_response.status }} — see daemon logs.
       {% endif %}
@@ -120,7 +120,7 @@
       Neither GET /pair/code nor POST /api/pairing/initiate returned a usable
       pairing code. Check daemon logs:
       `journalctl --unit {{ agent_type }}-{{ agent_name }}`. If devices.db was
-      wiped externally, run `clm agent configure {{ agent_name }}` after
+      wiped externally, run `clawctl agent configure {{ agent_name }}` after
       restoring it.
   when:
     - resolved_pairing_code is not defined
@@ -160,7 +160,7 @@
     msg: >-
       /pair did not return a usable token. Daemon logs:
       `journalctl --unit {{ agent_type }}-{{ agent_name }}`. Re-run
-      `clm agent configure {{ agent_name }}` after fixing the daemon.
+      `clawctl agent configure {{ agent_name }}` after fixing the daemon.
   when:
     - pair_response.json is not defined
       or pair_response.json.token is not defined

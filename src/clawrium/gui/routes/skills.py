@@ -1,7 +1,7 @@
 """Skills catalog API routes.
 
 Read-only browse of the in-repo skills catalog, mirroring the Phase 1
-CLI surface (``clm skill list`` / ``clm skill show``). Backed by
+CLI surface (``clawctl skill registry get`` / ``clawctl skill registry describe``). Backed by
 ``clawrium.core.skills``; this module never writes to disk and never
 mutates agent state. Per-agent install/remove lives under
 ``/api/agents/{agent}/skills`` and is a later phase.
@@ -138,10 +138,8 @@ def _detail(skill_ref: SkillRef) -> dict[str, Any]:
         # Byte-bounded truncation. The marker line is plain text so a
         # naive consumer (e.g. curl piped to less) sees something
         # obvious instead of a silently shortened document.
-        body = body.encode("utf-8")[:_BODY_MAX_BYTES].decode(
-            "utf-8", errors="ignore"
-        )
-        body += "\n\n... [truncated by GUI — fetch via `clm skill show` for full]\n"
+        body = body.encode("utf-8")[:_BODY_MAX_BYTES].decode("utf-8", errors="ignore")
+        body += "\n\n... [truncated by GUI — fetch via `clawctl skill registry describe` for full]\n"
 
     compatibility = _compatibility_map(skill_ref, skill.metadata)
     return {
@@ -199,7 +197,7 @@ def _map_error(error: SkillError, ref_str: str) -> HTTPException:
             status_code=404,
             detail=(
                 f"Skill {ref_str!r} not found in catalog. "
-                "Run `clm skill list` to see available skills."
+                "Run `clawctl skill registry get` to see available skills."
             ),
         )
     if isinstance(
@@ -304,9 +302,7 @@ async def get_skill_route(
             # A filesystem permission or I/O glitch shouldn't reveal
             # the path layout in the 500 body. Log full server-side.
             logger.exception("filesystem error loading %s: %s", raw_ref, error)
-            raise HTTPException(
-                status_code=500, detail="Internal error."
-            ) from error
+            raise HTTPException(status_code=500, detail="Internal error.") from error
 
     # `HTTPException` propagates through FastAPI automatically; no wrap
     # needed. A bare `await` here keeps the call path clean and lets a

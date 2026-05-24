@@ -38,7 +38,7 @@ An agent uses:
 Channels are configured during agent onboarding:
 
 ```bash
-clm agent configure <agent-name>
+clawctl agent configure <agent-name>
 # Select channel during the channels stage
 ```
 
@@ -47,7 +47,7 @@ clm agent configure <agent-name>
 To change an agent's channel:
 
 ```bash
-clm agent configure <agent-name> --stage channels
+clawctl agent configure <agent-name> --stage channels
 ```
 
 Note: Some agents (like ZeroClaw) only support CLI and cannot switch channels.

@@ -25,7 +25,7 @@ export function GuiPreferencesCard({ port }: GuiPreferencesCardProps) {
       <p className="mt-4 text-xs text-muted">
         Configure via CLI flags:{" "}
         <code className="bg-surface px-1 py-0.5 rounded text-xs">
-          clm gui --port 36000 --no-open
+          clawctl gui --port 36000 --no-open
         </code>
       </p>
     </Card>

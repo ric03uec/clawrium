@@ -72,13 +72,13 @@ _CONTROL_AND_BIDI_RE = re.compile(
     # every editor.
     "["
     "\x00-\x1f\x7f-\x9f"
-    "\u061c"             # ARABIC LETTER MARK (UAX#9 bidi format char)
-    "\u200b-\u200f"      # ZWSP, ZWNJ, ZWJ, LRM, RLM
-    "\u2028-\u2029"      # LINE / PARAGRAPH SEPARATOR
-    "\u202a-\u202e"      # LRE, RLE, PDF, LRO, RLO
-    "\u2060"             # WORD JOINER
-    "\u2066-\u2069"      # LRI, RLI, FSI, PDI
-    "\ufeff"             # ZWNBSP / BOM
+    "\u061c"  # ARABIC LETTER MARK (UAX#9 bidi format char)
+    "\u200b-\u200f"  # ZWSP, ZWNJ, ZWJ, LRM, RLM
+    "\u2028-\u2029"  # LINE / PARAGRAPH SEPARATOR
+    "\u202a-\u202e"  # LRE, RLE, PDF, LRO, RLO
+    "\u2060"  # WORD JOINER
+    "\u2066-\u2069"  # LRI, RLI, FSI, PDI
+    "\ufeff"  # ZWNBSP / BOM
     "]"
 )
 
@@ -142,7 +142,7 @@ def chat(
 
     if not resolved:
         console.print(f"[red]Error:[/red] Agent '{rich_escape(agent_name)}' not found")
-        console.print("Run 'clm ps' to list installed agents.")
+        console.print("Run 'clawctl agent get' to list installed agents.")
         raise typer.Exit(code=1)
 
     host_record, agent_type, agent_record = resolved
@@ -259,9 +259,7 @@ def chat(
             if attempted_reconnect:
                 # ATX W7: only confirm success after the retry actually
                 # succeeded (no further auth error during the inner loop).
-                console.print(
-                    "[dim]Gateway token rotated; reconnected.[/dim]"
-                )
+                console.print("[dim]Gateway token rotated; reconnected.[/dim]")
             break
         except ChatAuthenticationError as exc:
             # Issue #437: zeroclaw lifecycle ops always rotate the bearer.
@@ -283,16 +281,14 @@ def chat(
                     # ATX W7: tentative — the second asyncio.run might
                     # also raise. Promote to the documented confirmation
                     # only after the retry actually breaks the loop.
-                    console.print(
-                        "[dim]Gateway token rotated — retrying...[/dim]"
-                    )
+                    console.print("[dim]Gateway token rotated — retrying...[/dim]")
                     continue
             console.print(
                 f"[red]Authentication failed:[/red] {rich_escape(_sanitize_exception_text(exc))}"
             )
             if chat_type in ("openai", "zeroclaw"):
                 console.print(
-                    f"Token mismatch. Re-run 'clm agent configure {rich_escape(str(canonical_name))}'."
+                    f"Token mismatch. Re-run 'clawctl agent configure {rich_escape(str(canonical_name))}'."
                 )
             raise typer.Exit(code=1)
         except ChatConnectionError as exc:
@@ -327,7 +323,7 @@ def chat(
                     ):
                         console.print(
                             f"Legacy bind detected (127.0.0.1). "
-                            f"Re-run 'clm agent configure {rich_escape(str(canonical_name))}' "
+                            f"Re-run 'clawctl agent configure {rich_escape(str(canonical_name))}' "
                             f"to bind a reachable interface."
                         )
             elif chat_type == "zeroclaw":
@@ -359,7 +355,7 @@ def chat(
                 else:
                     console.print(
                         f"Verify the agent host is reachable and re-run "
-                        f"'clm agent configure {rich_escape(str(canonical_name))}' "
+                        f"'clawctl agent configure {rich_escape(str(canonical_name))}' "
                         f"if the pairing token is stale."
                     )
             else:
@@ -494,7 +490,7 @@ async def _chat_loop(
                 if not backend.is_connected:
                     console.print(
                         "[dim]Chat session ended. Reconnect with "
-                        "`clm chat <name>` to start a new session.[/dim]"
+                        "`clawctl agent chat <name>` to start a new session.[/dim]"
                     )
                     break
                 console.print("[dim]Continuing chat session.[/dim]")
@@ -560,7 +556,7 @@ def _reset_prompt_session() -> None:
 async def _read_user_input(prompt: str, idle_timeout_seconds: float) -> str:
     # Non-TTY fallback: prompt_toolkit requires a real terminal and raises
     # if stdin is piped or otherwise not a TTY. Preserve the bare `input()`
-    # behavior so scripted callers (`echo hi | clm chat ...`) still work.
+    # behavior so scripted callers (`echo hi | clawctl agent chat ...`) still work.
     # `sys.stdin is None` covers detached embedders (Windows GUI hosts,
     # `subprocess.Popen(stdin=DEVNULL)`, sites that set `sys.stdin = None`):
     # without the explicit None check, `.isatty()` would raise
@@ -599,14 +595,10 @@ def _resolve_chat_type(agent_type: str) -> str:
     features = manifest.get("features") or {}
     chat = features.get("chat") if isinstance(features, dict) else None
     if not isinstance(chat, dict):
-        raise ValueError(
-            f"Chat is not supported for agent type '{agent_type}'."
-        )
+        raise ValueError(f"Chat is not supported for agent type '{agent_type}'.")
     chat_type = chat.get("type")
     if not isinstance(chat_type, str) or not chat_type:
-        raise ValueError(
-            f"Chat is not supported for agent type '{agent_type}'."
-        )
+        raise ValueError(f"Chat is not supported for agent type '{agent_type}'.")
     return chat_type
 
 
@@ -694,7 +686,7 @@ def _build_zeroclaw_backend(
 
     Reuses `_extract_gateway_config` for shape parity with openclaw — the
     bearer token and URL live under the same `config.gateway.{auth,url}`
-    keys, written by `clm agent configure` (issue #357).
+    keys, written by `clawctl agent configure` (issue #357).
 
     The path-suffix `/ws/chat` is appended if the persisted URL was only
     the gateway origin. ZeroClaw's chat endpoint is `GET /ws/chat`; older
@@ -731,17 +723,17 @@ def _build_hermes_backend(
     """
     config = agent_record.get("config")
     if not isinstance(config, dict):
-        raise ValueError("Agent config missing. Re-run 'clm agent configure'.")
+        raise ValueError("Agent config missing. Re-run 'clawctl agent configure'.")
     api_server = config.get("api_server")
     if not isinstance(api_server, dict):
         raise ValueError(
-            "Hermes api_server config missing. Re-run 'clm agent configure'."
+            "Hermes api_server config missing. Re-run 'clawctl agent configure'."
         )
 
     port = api_server.get("port")
     if not isinstance(port, int) or port <= 0:
         raise ValueError(
-            "Hermes api_server.port missing or invalid. Re-run 'clm agent configure'."
+            "Hermes api_server.port missing or invalid. Re-run 'clawctl agent configure'."
         )
 
     hostname = host_record.get("hostname")
@@ -757,7 +749,7 @@ def _build_hermes_backend(
     if not isinstance(raw_token, str) or not raw_token.strip():
         raise ValueError(
             "HERMES_API_SERVER_KEY missing from secrets.json. "
-            f"Re-run 'clm agent install --type {agent_type} --host {hostname}' "
+            f"Re-run 'clawctl agent create {agent_name} --type {agent_type} --host {hostname}' "
             "to regenerate the API key."
         )
 

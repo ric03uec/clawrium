@@ -46,7 +46,7 @@ See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
 As a workaround, you can use [OpenRouter](openrouter.md) which may provide Azure-hosted models:
 
 ```bash
-clm provider add my-router --type openrouter
+clawctl provider registry create my-router --type openrouter
 # Select Azure-hosted models if available
 ```
 

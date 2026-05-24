@@ -932,7 +932,6 @@ class TestRunChannelsStageDiscord:
         assert config_data["channels"] == {"discord": {"enabled": True}}
 
 
-
 class TestRunChannelsStageSlack:
     """Tests for Slack channel configuration (Socket Mode)."""
 
@@ -983,11 +982,15 @@ class TestRunChannelsStageSlack:
         stored_secrets = []
 
         def capture_secret(instance_key, key, value, description):
-            stored_secrets.append({"key": key, "value": value, "description": description})
+            stored_secrets.append(
+                {"key": key, "value": value, "description": description}
+            )
 
         with (
             patch("clawrium.cli.agent.typer.prompt") as mock_p,
-            patch("clawrium.core.secrets.set_instance_secret", side_effect=capture_secret),
+            patch(
+                "clawrium.core.secrets.set_instance_secret", side_effect=capture_secret
+            ),
             patch("clawrium.cli.agent._sync_channel_config"),
             patch("clawrium.cli.agent.complete_stage"),
         ):
@@ -1020,11 +1023,15 @@ class TestRunChannelsStageSlack:
         stored_secrets = []
 
         def capture_secret(instance_key, key, value, description):
-            stored_secrets.append({"key": key, "value": value, "description": description})
+            stored_secrets.append(
+                {"key": key, "value": value, "description": description}
+            )
 
         with (
             patch("clawrium.cli.agent.typer.prompt") as mock_p,
-            patch("clawrium.core.secrets.set_instance_secret", side_effect=capture_secret),
+            patch(
+                "clawrium.core.secrets.set_instance_secret", side_effect=capture_secret
+            ),
             patch("clawrium.cli.agent._sync_channel_config"),
             patch("clawrium.cli.agent.complete_stage"),
         ):
@@ -1053,13 +1060,22 @@ class TestRunChannelsStageSlack:
         # Empty bot token
         with patch("clawrium.cli.agent.typer.prompt") as mock_p:
             mock_p.side_effect = [3, "", self.VALID_APP_TOKEN, "U01ABC2DEF"]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
         assert result is False
 
         # Wrong prefix
         with patch("clawrium.cli.agent.typer.prompt") as mock_p:
-            mock_p.side_effect = [3, "invalid-token", self.VALID_APP_TOKEN, "U01ABC2DEF"]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            mock_p.side_effect = [
+                3,
+                "invalid-token",
+                self.VALID_APP_TOKEN,
+                "U01ABC2DEF",
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
         assert result is False
 
     def test_slack_app_token_validation(self, isolated_config: Path):
@@ -1072,13 +1088,22 @@ class TestRunChannelsStageSlack:
         # Empty app token
         with patch("clawrium.cli.agent.typer.prompt") as mock_p:
             mock_p.side_effect = [3, self.VALID_BOT_TOKEN, "", "U01ABC2DEF"]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
         assert result is False
 
         # Wrong prefix
         with patch("clawrium.cli.agent.typer.prompt") as mock_p:
-            mock_p.side_effect = [3, self.VALID_BOT_TOKEN, "invalid-token", "U01ABC2DEF"]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            mock_p.side_effect = [
+                3,
+                self.VALID_BOT_TOKEN,
+                "invalid-token",
+                "U01ABC2DEF",
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
         assert result is False
 
     def test_slack_user_id_validation(self, isolated_config: Path):
@@ -1090,14 +1115,23 @@ class TestRunChannelsStageSlack:
 
         # Wrong prefix
         with patch("clawrium.cli.agent.typer.prompt") as mock_p:
-            mock_p.side_effect = [3, self.VALID_BOT_TOKEN, self.VALID_APP_TOKEN, "V01ABC2DEF"]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            mock_p.side_effect = [
+                3,
+                self.VALID_BOT_TOKEN,
+                self.VALID_APP_TOKEN,
+                "V01ABC2DEF",
+            ]
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
         assert result is False
 
         # Too short
         with patch("clawrium.cli.agent.typer.prompt") as mock_p:
             mock_p.side_effect = [3, self.VALID_BOT_TOKEN, self.VALID_APP_TOKEN, "U01"]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
         assert result is False
 
     def test_slack_config_has_socket_mode(self, isolated_config: Path):
@@ -1123,9 +1157,14 @@ class TestRunChannelsStageSlack:
             patch("clawrium.cli.agent.complete_stage"),
         ):
             mock_p.side_effect = [
-                3, self.VALID_BOT_TOKEN, self.VALID_APP_TOKEN, "U01ABC2DEF",
+                3,
+                self.VALID_BOT_TOKEN,
+                self.VALID_APP_TOKEN,
+                "U01ABC2DEF",
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is True
         config = synced_configs[0]["slack"]
@@ -1156,9 +1195,14 @@ class TestRunChannelsStageSlack:
             patch("clawrium.cli.agent.complete_stage"),
         ):
             mock_p.side_effect = [
-                3, self.VALID_BOT_TOKEN, self.VALID_APP_TOKEN, "U01ABC2DEF",
+                3,
+                self.VALID_BOT_TOKEN,
+                self.VALID_APP_TOKEN,
+                "U01ABC2DEF",
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is True
         config = synced_configs[0]["slack"]
@@ -1187,9 +1231,14 @@ class TestRunChannelsStageSlack:
             ),
         ):
             mock_p.side_effect = [
-                3, self.VALID_BOT_TOKEN, self.VALID_APP_TOKEN, "U01ABC2DEF",
+                3,
+                self.VALID_BOT_TOKEN,
+                self.VALID_APP_TOKEN,
+                "U01ABC2DEF",
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is False
 
@@ -1218,9 +1267,14 @@ class TestSlackIntegration:
             patch("clawrium.cli.agent.complete_stage"),
         ):
             mock_p.side_effect = [
-                3, self.VALID_BOT_TOKEN, self.VALID_APP_TOKEN, "U01ABC2DEF",
+                3,
+                self.VALID_BOT_TOKEN,
+                self.VALID_APP_TOKEN,
+                "U01ABC2DEF",
             ]
-            result = _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
+            result = _run_channels_stage(
+                "192.168.1.100", "openclaw", False, "assistant"
+            )
 
         assert result is True
 
@@ -1250,7 +1304,10 @@ class TestSlackIntegration:
             patch("clawrium.cli.agent.complete_stage"),
         ):
             mock_p.side_effect = [
-                3, self.VALID_BOT_TOKEN, self.VALID_APP_TOKEN, "U01ABC2DEF",
+                3,
+                self.VALID_BOT_TOKEN,
+                self.VALID_APP_TOKEN,
+                "U01ABC2DEF",
             ]
             _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
 
@@ -1261,13 +1318,23 @@ class TestSlackIntegration:
 
     def test_slack_and_discord_coexist_in_secrets(self, isolated_config: Path):
         """Both Slack and Discord tokens can be stored for the same agent."""
-        from clawrium.core.secrets import set_instance_secret, get_instance_secrets, get_instance_key
+        from clawrium.core.secrets import (
+            set_instance_secret,
+            get_instance_secrets,
+            get_instance_key,
+        )
 
         instance_key = get_instance_key("192.168.1.100", "openclaw", "assistant")
 
-        set_instance_secret(instance_key, "DISCORD_BOT_TOKEN", "discord-token-value", "Discord token")
-        set_instance_secret(instance_key, "SLACK_BOT_TOKEN", self.VALID_BOT_TOKEN, "Slack bot token")
-        set_instance_secret(instance_key, "SLACK_APP_TOKEN", self.VALID_APP_TOKEN, "Slack app token")
+        set_instance_secret(
+            instance_key, "DISCORD_BOT_TOKEN", "discord-token-value", "Discord token"
+        )
+        set_instance_secret(
+            instance_key, "SLACK_BOT_TOKEN", self.VALID_BOT_TOKEN, "Slack bot token"
+        )
+        set_instance_secret(
+            instance_key, "SLACK_APP_TOKEN", self.VALID_APP_TOKEN, "Slack app token"
+        )
 
         secrets = get_instance_secrets(instance_key)
         assert "DISCORD_BOT_TOKEN" in secrets
@@ -1276,6 +1343,7 @@ class TestSlackIntegration:
         assert secrets["DISCORD_BOT_TOKEN"]["value"] == "discord-token-value"
         assert secrets["SLACK_BOT_TOKEN"]["value"] == self.VALID_BOT_TOKEN
         assert secrets["SLACK_APP_TOKEN"]["value"] == self.VALID_APP_TOKEN
+
 
 class TestRunValidateStage:
     """Direct tests for _run_validate_stage."""
@@ -2547,9 +2615,7 @@ class TestRunChannelsStageHermesDiscord:
                 "Home",  # Home channel name
                 "",  # Allowed channels (any)
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
 
         assert result is True
         assert len(stored_secrets) == 1
@@ -2594,14 +2660,10 @@ class TestRunChannelsStageHermesDiscord:
                 self._valid_token(),
                 "1234",  # Invalid user ID (too short)
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
         assert result is False
 
-    def test_hermes_discord_all_requires_confirmation(
-        self, isolated_config: Path
-    ):
+    def test_hermes_discord_all_requires_confirmation(self, isolated_config: Path):
         """Passing 'all' for allowed users triggers a second confirm prompt
         and only sets allow_all_users when the user confirms."""
         from clawrium.cli.agent import _run_channels_stage
@@ -2642,17 +2704,13 @@ class TestRunChannelsStageHermesDiscord:
             ]
             # First confirm = open-bot acceptance, second = require_mention default
             mock_c.side_effect = [True, True]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
 
         assert result is True
         assert synced[0]["discord"]["allow_all_users"] is True
         assert synced[0]["discord"]["allowed_users"] == []
 
-    def test_hermes_discord_all_aborts_when_not_confirmed(
-        self, isolated_config: Path
-    ):
+    def test_hermes_discord_all_aborts_when_not_confirmed(self, isolated_config: Path):
         from clawrium.cli.agent import _run_channels_stage
 
         create_test_keypair(isolated_config, "work")
@@ -2678,9 +2736,7 @@ class TestRunChannelsStageHermesDiscord:
                 self._valid_token(),
                 "all",
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
         assert result is False
 
     def test_hermes_discord_skip_home_channel(self, isolated_config: Path):
@@ -2722,18 +2778,14 @@ class TestRunChannelsStageHermesDiscord:
                 "",  # skip home channel
                 "",  # allowed channels any
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
 
         assert result is True
         d = synced[0]["discord"]
         assert "home_channel" not in d
         assert "home_channel_name" not in d
 
-    def test_hermes_discord_allowed_channels_validated(
-        self, isolated_config: Path
-    ):
+    def test_hermes_discord_allowed_channels_validated(self, isolated_config: Path):
         from clawrium.cli.agent import _run_channels_stage
 
         create_test_keypair(isolated_config, "work")
@@ -2760,9 +2812,7 @@ class TestRunChannelsStageHermesDiscord:
                 "Home",
                 "abc,123",  # invalid allowed channels
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
 
         assert result is False
 
@@ -2797,9 +2847,7 @@ class TestRunChannelsStageHermesDiscord:
                 "1503238729962356777",  # home channel
                 "Home\nMALICIOUS_VAR=pwned",  # injection attempt
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
         assert result is False
 
     def test_hermes_discord_rejects_too_long_home_channel_name(
@@ -2829,14 +2877,10 @@ class TestRunChannelsStageHermesDiscord:
                 "1503238729962356777",
                 "A" * 100,  # > 64 chars
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
         assert result is False
 
-    def test_hermes_discord_rejects_user_id_boundaries(
-        self, isolated_config: Path
-    ):
+    def test_hermes_discord_rejects_user_id_boundaries(self, isolated_config: Path):
         """User IDs outside the 17-19 digit range are rejected before any
         secret is stored. Tests both ends of the boundary plus a shell-meta
         injection attempt."""
@@ -2940,9 +2984,7 @@ class TestRunChannelsStageHermesDiscord:
                 # Mix of valid + invalid — the invalid entry must reject.
                 "1503238729962356777,not-a-channel",
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
         assert result is False
 
     def test_hermes_discord_rejects_comma_only_allowed_channels(
@@ -2989,16 +3031,14 @@ class TestRunChannelsStageHermesDiscord:
             patch("clawrium.cli.agent.console") as mock_console,
         ):
             mock_p.side_effect = [
-                2,                             # discord
-                self._valid_token(),           # bot token
-                "740723459344302120",          # valid user
-                "1503238729962356777",         # home channel
-                "Home",                        # home channel name
-                ", , ,",                       # comma-only allowed channels
+                2,  # discord
+                self._valid_token(),  # bot token
+                "740723459344302120",  # valid user
+                "1503238729962356777",  # home channel
+                "Home",  # home channel name
+                ", , ,",  # comma-only allowed channels
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
 
         assert result is False, (
             "Comma-only allowed_channels input silently passed — would have "
@@ -3081,16 +3121,14 @@ class TestRunChannelsStageHermesDiscord:
             patch("clawrium.cli.agent.console") as mock_console,
         ):
             mock_p.side_effect = [
-                2,                             # discord
-                self._valid_token(),           # bot token
-                "740723459344302120",          # valid user
-                "1503238729962356777",         # home channel
-                "Home",                        # home channel name
-                "",                            # empty allowed channels
+                2,  # discord
+                self._valid_token(),  # bot token
+                "740723459344302120",  # valid user
+                "1503238729962356777",  # home channel
+                "Home",  # home channel name
+                "",  # empty allowed channels
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
 
         assert result is True
         assert len(synced) == 1, (
@@ -3128,9 +3166,7 @@ class TestRunChannelsStageHermesDiscord:
             "the operator sees it as an advisory rather than a hard error."
         )
 
-    def test_hermes_discord_valid_allowed_channels_stored(
-        self, isolated_config: Path
-    ):
+    def test_hermes_discord_valid_allowed_channels_stored(self, isolated_config: Path):
         """Issue #424 happy-path coverage: valid IDs entered at the
         allowed_channels prompt must round-trip through to the synced
         config. Guards against a regression where IDs parse correctly but
@@ -3169,16 +3205,14 @@ class TestRunChannelsStageHermesDiscord:
             patch("clawrium.cli.agent.complete_stage") as mock_stage,
         ):
             mock_p.side_effect = [
-                2,                                            # discord
-                self._valid_token(),                          # bot token
-                "740723459344302120",                         # valid user
-                "1503238729962356777",                        # home channel
-                "Home",                                       # home channel name
-                "1503238729962356777,1503238729962356778",    # valid channels
+                2,  # discord
+                self._valid_token(),  # bot token
+                "740723459344302120",  # valid user
+                "1503238729962356777",  # home channel
+                "Home",  # home channel name
+                "1503238729962356777,1503238729962356778",  # valid channels
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
 
         assert result is True
         assert len(synced) == 1
@@ -3232,16 +3266,14 @@ class TestRunChannelsStageHermesDiscord:
             patch("clawrium.cli.agent.complete_stage") as mock_stage,
         ):
             mock_p.side_effect = [
-                2,                                            # discord
-                self._valid_token(),                          # bot token
-                "740723459344302120",                         # valid user
-                "1503238729962356777",                        # home channel
-                "Home",                                       # home channel name
-                "1503238729962356777,1503238729962356777",    # dup channels
+                2,  # discord
+                self._valid_token(),  # bot token
+                "740723459344302120",  # valid user
+                "1503238729962356777",  # home channel
+                "Home",  # home channel name
+                "1503238729962356777,1503238729962356777",  # dup channels
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
 
         assert result is True
         assert synced[0]["discord"]["allowed_channels"] == [
@@ -3250,9 +3282,7 @@ class TestRunChannelsStageHermesDiscord:
         ]
         mock_stage.assert_called_once()
 
-    def test_openclaw_discord_still_uses_guilds_shape(
-        self, isolated_config: Path
-    ):
+    def test_openclaw_discord_still_uses_guilds_shape(self, isolated_config: Path):
         """Regression guard: openclaw's existing guilds-{} shape is preserved
         — the hermes branch must not infect non-hermes claws."""
         from clawrium.cli.agent import _run_channels_stage
@@ -3355,9 +3385,7 @@ class TestRunChannelsStageHermesSlack:
                 "C01234567890",  # Home channel ID
                 "general",  # Home channel name
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
 
         assert result is True
         # Both tokens stored
@@ -3406,9 +3434,7 @@ class TestRunChannelsStageHermesSlack:
                 self._valid_app_token(),
                 "1234",  # Invalid user ID (not U-prefixed)
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
         assert result is False
 
     def test_hermes_slack_rejects_invalid_bot_token(self, isolated_config: Path):
@@ -3433,9 +3459,7 @@ class TestRunChannelsStageHermesSlack:
                 3,  # Select slack
                 "not-a-valid-token",  # Bad bot token
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
         assert result is False
 
     def test_hermes_slack_rejects_invalid_channel_id(self, isolated_config: Path):
@@ -3463,9 +3487,7 @@ class TestRunChannelsStageHermesSlack:
                 "U01ABC2DEF3",  # Valid user
                 "not-a-channel",  # Invalid channel ID
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
         assert result is False
 
     def test_hermes_slack_skips_home_channel(self, isolated_config: Path):
@@ -3506,9 +3528,7 @@ class TestRunChannelsStageHermesSlack:
                 "U01ABC2DEF3",  # Allowed user IDs
                 "",  # Skip home channel
             ]
-            result = _run_channels_stage(
-                "192.168.1.100", "hermes", False, "assistant"
-            )
+            result = _run_channels_stage("192.168.1.100", "hermes", False, "assistant")
 
         assert result is True
         slack_cfg = synced[0]["slack"]
@@ -3517,9 +3537,7 @@ class TestRunChannelsStageHermesSlack:
         assert "home_channel" not in slack_cfg
         assert "home_channel_name" not in slack_cfg
 
-    def test_openclaw_slack_still_uses_source_ref_shape(
-        self, isolated_config: Path
-    ):
+    def test_openclaw_slack_still_uses_source_ref_shape(self, isolated_config: Path):
         """Regression guard: openclaw's existing source-ref shape is preserved
         — the hermes branch must not infect non-hermes claws."""
         from clawrium.cli.agent import _run_channels_stage
@@ -3564,6 +3582,7 @@ class TestRunChannelsStageHermesSlack:
         assert "allowed_users" not in s
         assert "home_channel" not in s
 
+
 class TestRunChannelsStageZeroclaw:
     """#422 — zeroclaw-specific channel-stage behavior.
 
@@ -3596,8 +3615,7 @@ class TestRunChannelsStageZeroclaw:
         # ATX Round 3 W8: assert exit code so the test doesn't pass on a
         # crash that prints the menu and then dies after.
         assert result.exit_code == 0, (
-            f"configure exited non-zero ({result.exit_code}); output:\n"
-            f"{result.output}"
+            f"configure exited non-zero ({result.exit_code}); output:\n{result.output}"
         )
 
         out = result.output.lower()
@@ -3609,9 +3627,7 @@ class TestRunChannelsStageZeroclaw:
             "native Slack channel. See docs/agent-support/zeroclaw.md."
         )
 
-    def test_zeroclaw_discord_produces_flat_config_shape(
-        self, isolated_config: Path
-    ):
+    def test_zeroclaw_discord_produces_flat_config_shape(self, isolated_config: Path):
         """B_new2: the Discord branch for zeroclaw must produce the flat
         config shape (allowed_users, allowed_guilds, require_mention)
         consumed by config.toml.j2 — NOT the OpenClaw nested shape (guilds,
@@ -3639,11 +3655,11 @@ class TestRunChannelsStageZeroclaw:
             patch("clawrium.cli.agent.complete_stage"),
         ):
             mock_p.side_effect = [
-                2,                             # Pick discord (option 2 in cli/discord menu)
-                self._VALID_TOKEN,             # Bot token
-                "740723459344302120",          # Allowed user IDs
-                "987654321098765432",          # Allowed guild IDs
-                "partial",                     # Discord stream mode
+                2,  # Pick discord (option 2 in cli/discord menu)
+                self._VALID_TOKEN,  # Bot token
+                "740723459344302120",  # Allowed user IDs
+                "987654321098765432",  # Allowed guild IDs
+                "partial",  # Discord stream mode
             ]
             result = _run_channels_stage(
                 "192.168.1.100", "zeroclaw", False, "assistant"
@@ -3704,11 +3720,11 @@ class TestRunChannelsStageZeroclaw:
             patch("clawrium.cli.agent.complete_stage"),
         ):
             mock_p.side_effect = [
-                2,                             # discord
-                self._VALID_TOKEN,             # bot token
-                "",                            # empty allowed users
-                "",                            # empty allowed guilds
-                "partial",                     # stream mode
+                2,  # discord
+                self._VALID_TOKEN,  # bot token
+                "",  # empty allowed users
+                "",  # empty allowed guilds
+                "partial",  # stream mode
             ]
             result = _run_channels_stage(
                 "192.168.1.100", "zeroclaw", False, "assistant"
@@ -3722,9 +3738,7 @@ class TestRunChannelsStageZeroclaw:
         # could flip the mention-gating behavior without test failure.
         assert synced[0]["discord"]["require_mention"] is False
 
-    def test_zeroclaw_discord_rejects_malformed_user_id(
-        self, isolated_config: Path
-    ):
+    def test_zeroclaw_discord_rejects_malformed_user_id(self, isolated_config: Path):
         from clawrium.cli.agent import _run_channels_stage
 
         create_test_keypair(isolated_config, "work")
@@ -3743,9 +3757,9 @@ class TestRunChannelsStageZeroclaw:
             patch("clawrium.cli.agent.complete_stage"),
         ):
             mock_p.side_effect = [
-                2,                             # discord
-                self._VALID_TOKEN,             # bot token
-                "not-a-valid-id",              # malformed
+                2,  # discord
+                self._VALID_TOKEN,  # bot token
+                "not-a-valid-id",  # malformed
             ]
             result = _run_channels_stage(
                 "192.168.1.100", "zeroclaw", False, "assistant"
@@ -3777,9 +3791,9 @@ class TestRunChannelsStageZeroclaw:
             patch("clawrium.cli.agent.complete_stage"),
         ):
             mock_p.side_effect = [
-                2,                                            # discord
-                self._VALID_TOKEN,                            # bot token
-                "740723459344302120,not-a-valid-id",          # valid + invalid
+                2,  # discord
+                self._VALID_TOKEN,  # bot token
+                "740723459344302120,not-a-valid-id",  # valid + invalid
             ]
             result = _run_channels_stage(
                 "192.168.1.100", "zeroclaw", False, "assistant"
@@ -3812,9 +3826,9 @@ class TestRunChannelsStageZeroclaw:
             patch("clawrium.cli.agent.complete_stage"),
         ):
             mock_p.side_effect = [
-                2,                                            # discord
-                self._VALID_TOKEN,                            # bot token
-                ", , ,",                                      # comma-only
+                2,  # discord
+                self._VALID_TOKEN,  # bot token
+                ", , ,",  # comma-only
             ]
             result = _run_channels_stage(
                 "192.168.1.100", "zeroclaw", False, "assistant"
@@ -3850,10 +3864,10 @@ class TestRunChannelsStageZeroclaw:
             patch("clawrium.cli.agent.complete_stage"),
         ):
             mock_p.side_effect = [
-                2,                                            # discord
-                self._VALID_TOKEN,                            # bot token
-                "740723459344302120",                         # valid user
-                ", , ,",                                      # comma-only guild
+                2,  # discord
+                self._VALID_TOKEN,  # bot token
+                "740723459344302120",  # valid user
+                ", , ,",  # comma-only guild
             ]
             result = _run_channels_stage(
                 "192.168.1.100", "zeroclaw", False, "assistant"
@@ -3864,9 +3878,7 @@ class TestRunChannelsStageZeroclaw:
             "produced an any-guild bot with no operator feedback."
         )
 
-    def test_zeroclaw_discord_rejects_malformed_guild_id(
-        self, isolated_config: Path
-    ):
+    def test_zeroclaw_discord_rejects_malformed_guild_id(self, isolated_config: Path):
         """ATX Round 3 W7: guild-ID validation has its own loop — needs its
         own negative-path coverage."""
         from clawrium.cli.agent import _run_channels_stage
@@ -3887,10 +3899,10 @@ class TestRunChannelsStageZeroclaw:
             patch("clawrium.cli.agent.complete_stage"),
         ):
             mock_p.side_effect = [
-                2,                                            # discord
-                self._VALID_TOKEN,                            # bot token
-                "740723459344302120",                         # valid user
-                "abc-not-numeric",                            # malformed guild
+                2,  # discord
+                self._VALID_TOKEN,  # bot token
+                "740723459344302120",  # valid user
+                "abc-not-numeric",  # malformed guild
             ]
             result = _run_channels_stage(
                 "192.168.1.100", "zeroclaw", False, "assistant"
@@ -3930,9 +3942,7 @@ class TestRunChannelsStageZeroclaw:
         with (
             patch("clawrium.cli.agent.typer.prompt") as mock_p,
             patch("clawrium.cli.agent.typer.confirm", return_value=True),
-            patch(
-                "clawrium.cli.agent._sync_channel_config", side_effect=capture_sync
-            ),
+            patch("clawrium.cli.agent._sync_channel_config", side_effect=capture_sync),
             patch(
                 "clawrium.core.secrets.set_instance_secret",
                 side_effect=capture_secret,
@@ -3944,7 +3954,7 @@ class TestRunChannelsStageZeroclaw:
                 self._VALID_TOKEN,
                 "740723459344302120",
                 "",
-                "partial",                     # stream mode
+                "partial",  # stream mode
             ]
             result = _run_channels_stage(
                 "192.168.1.100", "zeroclaw", False, "assistant"
@@ -3958,9 +3968,7 @@ class TestRunChannelsStageZeroclaw:
             "hydration block can find it (ATX Round 3 B2 deadlock)."
         )
 
-    def test_zeroclaw_discord_stream_mode_invalid_rejected(
-        self, isolated_config: Path
-    ):
+    def test_zeroclaw_discord_stream_mode_invalid_rejected(self, isolated_config: Path):
         """#468: stream_mode is constrained to off/partial/multi_message.
         Any other string (case-insensitive match after strip+lower) must
         fail loudly so a typo doesn't silently fall back to upstream's
@@ -4122,9 +4130,7 @@ class TestRunChannelsStageZeroclaw:
 
         assert result is False
 
-    def test_zeroclaw_discord_stream_mode_case_insensitive(
-        self, isolated_config: Path
-    ):
+    def test_zeroclaw_discord_stream_mode_case_insensitive(self, isolated_config: Path):
         """The wizard lower-cases the stream_mode input before validating.
         "PARTIAL" must succeed and persist as "partial". Catches a
         regression where the .lower() is dropped."""
@@ -4163,4 +4169,3 @@ class TestRunChannelsStageZeroclaw:
 
         assert result is True
         assert synced[0]["discord"]["stream_mode"] == "partial"
-

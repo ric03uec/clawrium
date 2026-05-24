@@ -26,7 +26,7 @@ function makeData(
   hosts: Array<{ hostname: string; alias?: string; agents: TopologyAgent[] }>
 ): TopologyResponse {
   return {
-    control: { label: "Control", description: "clm CLI" },
+    control: { label: "Control", description: "clawctl CLI" },
     summary: {
       total_agents: hosts.reduce((n, h) => n + h.agents.length, 0),
       running: 0,
@@ -390,7 +390,7 @@ describe("computeTopology", () => {
 
   it("passes acceleratorVendor through to provider node data when set on the agent", () => {
     const data: TopologyResponse = {
-      control: { label: "Control", description: "clm CLI" },
+      control: { label: "Control", description: "clawctl CLI" },
       summary: { total_agents: 1, running: 1, total_hosts: 1 },
       connections: [],
       hosts: [
@@ -420,7 +420,7 @@ describe("computeTopology", () => {
 
   it("passes hostGpuVendor to provider node data for NVIDIA detection", () => {
     const data: TopologyResponse = {
-      control: { label: "Control", description: "clm CLI" },
+      control: { label: "Control", description: "clawctl CLI" },
       summary: { total_agents: 1, running: 1, total_hosts: 1 },
       connections: [],
       hosts: [

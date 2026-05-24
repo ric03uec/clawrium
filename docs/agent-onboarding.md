@@ -17,7 +17,7 @@ With onboarding:
 - ✅ Clear visibility into configuration progress
 - ✅ Agents can only start when fully configured
 - ✅ Consistent experience across all agent types
-- ✅ Guided configuration with `clm agent configure`
+- ✅ Guided configuration with `clawctl agent configure`
 
 ## Onboarding States
 
@@ -27,7 +27,7 @@ Every agent goes through the same six states:
 ┌──────────┐
 │ PENDING  │  After install, before onboarding starts
 └────┬─────┘
-     │  clm agent configure <name>
+     │  clawctl agent configure <name>
      ▼
 ┌──────────┐
 │ PROVIDERS│  Assign inference provider to this agent
@@ -74,12 +74,12 @@ Every agent goes through the same six states:
 **What it does:** Assigns an inference provider to the agent.
 
 **Requirements:**
-- At least one provider must be configured (use `clm provider list` to see available providers)
+- At least one provider must be configured (use `clawctl provider registry get` to see available providers)
 - Provider must be reachable and functional
 
 **Example:**
 ```bash
-$ clm agent configure opc-work
+$ clawctl agent configure opc-work
 Starting onboarding for 'opc-work'...
 
 [PROVIDERS] Select inference provider
@@ -128,7 +128,7 @@ Create IDENTITY.md? This defines your agent's role and context.
 
 **Requirements (varies by agent type):**
 - **OpenClaw**: Select from CLI, WhatsApp, Slack, Discord, web
-- **ZeroClaw**: CLI only (single confirm step; reachable via `clm chat` over the daemon's WebSocket gateway)
+- **ZeroClaw**: CLI only (single confirm step; reachable via `clawctl agent chat` over the daemon's WebSocket gateway)
 
 **Example:**
 ```bash
@@ -167,7 +167,7 @@ Select channel [1-5]: 1
 ✓ Onboarding complete! Agent is ready to start.
 ```
 
-## Using `clm agent configure`
+## Using `clawctl agent configure`
 
 The `configure` command provides an interactive wizard for onboarding.
 
@@ -176,7 +176,7 @@ The `configure` command provides an interactive wizard for onboarding.
 Run the full wizard to go through all stages:
 
 ```bash
-clm agent configure <agent-name>
+clawctl agent configure <agent-name>
 ```
 
 The wizard will:
@@ -191,9 +191,9 @@ The wizard will:
 If you need to reconfigure a specific stage:
 
 ```bash
-clm agent configure <agent-name> --stage providers
-clm agent configure <agent-name> --stage identity
-clm agent configure <agent-name> --stage channels
+clawctl agent configure <agent-name> --stage providers
+clawctl agent configure <agent-name> --stage identity
+clawctl agent configure <agent-name> --stage channels
 ```
 
 ### Skip Prompts
@@ -201,7 +201,7 @@ clm agent configure <agent-name> --stage channels
 Use `--yes` to accept defaults and skip confirmations:
 
 ```bash
-clm agent configure <agent-name> --yes
+clawctl agent configure <agent-name> --yes
 ```
 
 This is useful for:
@@ -214,7 +214,7 @@ This is useful for:
 ### View All Agents
 
 ```bash
-$ clm agent status
+$ clawctl agent describe
 
 Agent Status:
 ┌──────────┬──────┬───────┬─────────────┬──────────┐
@@ -237,7 +237,7 @@ Agent Status:
 Use `--verbose` to see stage-level details:
 
 ```bash
-$ clm agent status opc-work --verbose
+$ clawctl agent describe opc-work --verbose
 
 Agent: opc-work
 Host: lab1
@@ -257,20 +257,20 @@ Onboarding Progress:
 Agents can only be started when onboarding is complete (status: READY).
 
 ```bash
-$ clm agent start opc-work
+$ clawctl agent start opc-work
 ```
 
 If onboarding is incomplete, you'll get a clear error:
 
 ```bash
-$ clm agent start opc-work
+$ clawctl agent start opc-work
 Error: Cannot start 'opc-work' - onboarding incomplete
 
 Remaining stages:
   - channels
   - validate
 
-Run: clm agent configure opc-work
+Run: clawctl agent configure opc-work
 ```
 
 ## Troubleshooting
@@ -281,21 +281,21 @@ Run: clm agent configure opc-work
 
 **Solution:** Reinstall the agent or manually initialize onboarding:
 ```bash
-clm agent reinstall <name>
+clawctl agent reinstall <name>
 ```
 
 ### "Cannot transition from X to Y"
 
 **Problem:** Trying to configure a stage out of order.
 
-**Solution:** Use `clm agent configure <name>` (without --stage) to follow the proper workflow.
+**Solution:** Use `clawctl agent configure <name>` (without --stage) to follow the proper workflow.
 
 ### Provider Verification Failed
 
 **Problem:** The selected provider is unreachable or not responding.
 
 **Solution:**
-1. Check provider status: `clm provider status <provider-id>`
+1. Check provider status: `clawctl provider status <provider-id>`
 2. Verify network connectivity
 3. Check provider API keys/secrets
 4. Try a different provider
@@ -306,7 +306,7 @@ clm agent reinstall <name>
 
 **Solution:** Re-run the stage configuration:
 ```bash
-clm agent configure <name> --stage <stage-name>
+clawctl agent configure <name> --stage <stage-name>
 ```
 
 ## Agent-Specific Behavior

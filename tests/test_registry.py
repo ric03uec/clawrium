@@ -1312,7 +1312,9 @@ def test_load_manifest_rejects_web_ui_missing_field(monkeypatch, missing_field):
         "port/x",  # slash (path traversal)
     ],
 )
-def test_load_manifest_rejects_web_ui_invalid_port_field_shape(monkeypatch, bad_port_field):
+def test_load_manifest_rejects_web_ui_invalid_port_field_shape(
+    monkeypatch, bad_port_field
+):
     """`port_field` must be a dotted-identifier path; everything else rejected."""
     from clawrium.core import registry
 
@@ -1338,7 +1340,9 @@ def test_load_manifest_rejects_web_ui_invalid_port_field_shape(monkeypatch, bad_
         "secrets.api_key",  # valid identifier — semantic safety is a higher-layer concern
     ],
 )
-def test_load_manifest_accepts_web_ui_valid_port_field_shape(monkeypatch, good_port_field):
+def test_load_manifest_accepts_web_ui_valid_port_field_shape(
+    monkeypatch, good_port_field
+):
     """Dotted-identifier shapes pass validation regardless of segment names.
 
     `secrets.api_key` and `__proto__.x` are deliberately on the accept list

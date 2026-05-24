@@ -1,13 +1,13 @@
-"""`clm agent skill` — per-agent skill install/list/remove.
+"""`clawctl agent skill` — per-agent skill install/list/remove (legacy backend).
 
 Wired into the existing `agent` sub-app via
 `agent_app.add_typer(agent_skill_app, name="skill")` in
 `clawrium/cli/agent.py`. Verb-first surface matches the rest of
-`clm agent <verb> <agent-name>`:
+`clawctl agent <verb> <agent-name>`:
 
-  - `clm agent skill list    <agent>`
-  - `clm agent skill install <agent> <registry>/<name>`
-  - `clm agent skill remove  <agent> <registry>/<name>`
+  - `clawctl agent skill get    --agent <agent>`
+  - `clawctl agent skill attach <registry>/<name> --agent <agent>`
+  - `clawctl agent skill detach <registry>/<name> --agent <agent>`
 
 Install order is **preflight → mutate → apply**:
 
@@ -101,9 +101,7 @@ def _exit_with_error(error: SkillError) -> None:
     other bidi-format codepoints, or C0/C1 control bytes cannot spoof
     terminal output via the `[red]Error: ...[/red]` channel.
     """
-    err_console.print(
-        f"[red]Error:[/red] {escape(_sanitize_exception_text(error))}"
-    )
+    err_console.print(f"[red]Error:[/red] {escape(_sanitize_exception_text(error))}")
     raise typer.Exit(code=1)
 
 
@@ -120,9 +118,7 @@ def _resolve_agent_type(agent_name: str) -> str:
         # Ambiguous name across hosts (see core.hosts.get_agent_by_name).
         raise AgentNotFoundError(str(error)) from error
     if resolved is None:
-        raise AgentNotFoundError(
-            f"Agent {agent_name!r} not found. Run `clm agent ps`."
-        )
+        raise AgentNotFoundError(f"Agent {agent_name!r} not found. Run `clm agent ps`.")
     _host, agent_type, _agent_record = resolved
     return agent_type
 

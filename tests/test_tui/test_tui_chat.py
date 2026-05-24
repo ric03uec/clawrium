@@ -227,9 +227,7 @@ class TestScrubException:
         """
         from clawrium.cli.tui.widgets.chat_panel import _scrub_exception
 
-        exc = Exception(
-            "HTTP 401: Authorization: Bearer abc-very-secret-token-123"
-        )
+        exc = Exception("HTTP 401: Authorization: Bearer abc-very-secret-token-123")
         cleaned = _scrub_exception(exc)
         assert "abc-very-secret-token-123" not in cleaned
         assert "***" in cleaned

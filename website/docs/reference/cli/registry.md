@@ -3,30 +3,30 @@
 Browse available claw types in the Clawrium registry.
 
 ```bash
-clm registry <command> [options]
+clawctl agent registry <command> [options]
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| [`clm registry list`](#clm-registry-list) | List available claw types |
-| [`clm registry show`](#clm-registry-show) | Show detailed information about a claw type |
+| [`clawctl agent registry get`](#clawctl-agent-registry-get) | List available claw types |
+| [`clawctl agent registry describe`](#clawctl-agent-registry-describe) | Show detailed information about a claw type |
 
 ---
 
-## clm registry list
+## clawctl agent registry get
 
 List available claw types in the registry.
 
 ```bash
-clm registry list
+clawctl agent registry get
 ```
 
 ### Example
 
 ```bash
-$ clm registry list
+$ clawctl agent registry get
                Available Claws
 ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Name       ┃ Latest Version ┃ Description                    ┃
@@ -53,12 +53,12 @@ If a claw's manifest is corrupted or missing:
 
 ---
 
-## clm registry show
+## clawctl agent registry describe
 
 Show detailed information about a claw type.
 
 ```bash
-clm registry show <claw_name>
+clawctl agent registry describe <claw_name>
 ```
 
 ### Arguments
@@ -70,7 +70,7 @@ clm registry show <claw_name>
 ### Example
 
 ```bash
-$ clm registry show zeroclaw
+$ clawctl agent registry describe zeroclaw
 
 zeroclaw
 Zero-config Claude assistant for local development
@@ -102,13 +102,13 @@ Dependencies:
 Claw not found:
 
 ```bash
-$ clm registry show unknown
+$ clawctl agent registry describe unknown
 Error: Claw 'unknown' not found in registry
 ```
 
 Corrupted manifest:
 
 ```bash
-$ clm registry show badclaw
+$ clawctl agent registry describe badclaw
 Error: Registry manifest is corrupted: Invalid YAML syntax
 ```

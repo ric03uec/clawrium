@@ -61,7 +61,7 @@ sudo systemctl restart ollama
 ### 4. Add to Clawrium
 
 ```bash
-clm provider add local-ollama --type ollama --url http://192.168.1.50:11434
+clawctl provider registry create local-ollama --type ollama --url http://192.168.1.50:11434
 ```
 
 Clawrium will:
@@ -73,19 +73,19 @@ Clawrium will:
 
 ```bash
 # View provider details
-clm provider list
+clawctl provider registry get
 
 # Refresh model list (after pulling new models)
-clm provider refresh local-ollama
+clawctl provider registry refresh local-ollama
 
 # Change default model
-clm provider edit local-ollama --model llama3.2
+clawctl provider registry edit local-ollama --model llama3.2
 
 # Update server URL
-clm provider edit local-ollama --url http://new-server:11434
+clawctl provider registry edit local-ollama --url http://new-server:11434
 
 # Remove provider
-clm provider remove local-ollama
+clawctl provider registry delete local-ollama
 ```
 
 ## Hardware Requirements

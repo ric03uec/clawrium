@@ -36,7 +36,7 @@ OpenClaw supports all major LLM providers:
 
 **Quick Setup:**
 ```bash
-clm provider add <name> --type <provider-type>
+clawctl provider registry create <name> --type <provider-type>
 ```
 
 ---
@@ -55,7 +55,7 @@ Channels define how users interact with the agent:
 
 **During Onboarding:**
 ```bash
-clm agent configure <agent-name>
+clawctl agent configure <agent-name>
 # Select channel during the channels stage
 ```
 
@@ -95,13 +95,13 @@ Integrations allow the agent to interact with external tools and services:
 ### 1. Install OpenClaw
 
 ```bash
-clm agent install --type openclaw --host <host-alias> --name my-assistant
+clawctl agent create --type openclaw --host <host-alias> --name my-assistant
 ```
 
 ### 2. Configure the Agent
 
 ```bash
-clm agent configure my-assistant
+clawctl agent configure my-assistant
 ```
 
 The wizard will guide you through:
@@ -113,13 +113,13 @@ The wizard will guide you through:
 ### 3. Start the Agent
 
 ```bash
-clm agent start my-assistant
+clawctl agent start my-assistant
 ```
 
 ### 4. Chat with the Agent
 
 ```bash
-clm chat my-assistant
+clawctl agent chat my-assistant
 ```
 
 ---
@@ -130,15 +130,15 @@ clm chat my-assistant
 <summary><strong>"Discord bot token invalid"</strong></summary>
 
 1. Verify the bot token in Discord Developer Portal
-2. Re-run: `clm agent configure <name> --stage channels`
+2. Re-run: `clawctl agent configure <name> --stage channels`
 3. Ensure the bot has proper server permissions
 </details>
 
 <details>
 <summary><strong>"Provider connectivity failed"</strong></summary>
 
-1. Check provider status: `clm provider status <provider-name>`
-2. Verify API key is set: `clm provider list`
+1. Check provider status: `clawctl provider status <provider-name>`
+2. Verify API key is set: `clawctl provider registry get`
 3. Test network connectivity from the host
 </details>
 
@@ -147,12 +147,12 @@ clm chat my-assistant
 
 Run the full onboarding wizard:
 ```bash
-clm agent configure <agent-name>
+clawctl agent configure <agent-name>
 ```
 
 Or configure a specific stage:
 ```bash
-clm agent configure <agent-name> --stage <stage-name>
+clawctl agent configure <agent-name> --stage <stage-name>
 ```
 </details>
 

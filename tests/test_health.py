@@ -437,9 +437,7 @@ def test_check_claw_health_uses_type_not_key_for_secrets():
 
     with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
         with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner):
-            with patch(
-                "clawrium.core.health.get_instance_secrets", return_value={}
-            ):
+            with patch("clawrium.core.health.get_instance_secrets", return_value={}):
                 with patch(
                     "clawrium.core.health.get_required_secrets", return_value=[]
                 ) as mock_required:
@@ -1354,9 +1352,15 @@ class TestProcessNameByAgentType:
             {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner) as mock_run:
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ) as mock_run:
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     result = check_claw_health("hermes-test", host)
 
         # Same -f pattern is used; only the runner result differs.
@@ -1384,11 +1388,19 @@ class TestProcessNameByAgentType:
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
-        mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
+        ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner) as mock_run:
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ) as mock_run:
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     result = check_claw_health("hermes-test", host)
 
         assert len(mock_run.call_args_list) >= 1
@@ -1417,11 +1429,19 @@ class TestProcessNameByAgentType:
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
-        mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
+        ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner) as mock_run:
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ) as mock_run:
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     check_claw_health("my-openclaw", host)
 
         # Verify first call (pgrep) uses 'openclaw' process name
@@ -1458,9 +1478,15 @@ class TestProcessNameByAgentType:
             {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
         ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner) as mock_run:
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ) as mock_run:
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     result = check_claw_health("my-zeroclaw", host)
 
         module_args = mock_run.call_args_list[0].kwargs.get("module_args", "")
@@ -1490,11 +1516,19 @@ class TestProcessNameByAgentType:
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
-        mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
+        ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner) as mock_run:
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ) as mock_run:
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     check_claw_health("my-zeroclaw", host)
 
         # Verify first call (pgrep) uses -f "zeroclaw daemon"
@@ -1522,11 +1556,19 @@ class TestProcessNameByAgentType:
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
-        mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
+        ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner) as mock_run:
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ) as mock_run:
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     check_claw_health("legacy-agent", host)
 
         # Verify first call (pgrep) defaults to 'node' process name
@@ -1554,11 +1596,19 @@ class TestProcessNameByAgentType:
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
-        mock_runner.events = [{"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}]
+        mock_runner.events = [
+            {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
+        ]
 
-        with patch("clawrium.core.health.get_host_private_key", return_value="/fake/key"):
-            with patch("clawrium.core.health.ansible_runner.run", return_value=mock_runner) as mock_run:
-                with patch("clawrium.core.health.get_required_secrets", return_value=[]):
+        with patch(
+            "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run", return_value=mock_runner
+            ) as mock_run:
+                with patch(
+                    "clawrium.core.health.get_required_secrets", return_value=[]
+                ):
                     check_claw_health("empty-type-agent", host)
 
         # Verify first call (pgrep) defaults to 'node' process name

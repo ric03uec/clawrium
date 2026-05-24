@@ -27,9 +27,7 @@ import pytest
 # scripts/validate_skills.py is not a package — import it via importlib
 # so we can call validate_catalog() directly. The CI workflow exercises
 # the `__main__` path separately via `python scripts/validate_skills.py`.
-_SCRIPT_PATH = (
-    Path(__file__).resolve().parent.parent / "scripts" / "validate_skills.py"
-)
+_SCRIPT_PATH = Path(__file__).resolve().parent.parent / "scripts" / "validate_skills.py"
 _spec = importlib.util.spec_from_file_location("validate_skills", _SCRIPT_PATH)
 assert _spec is not None and _spec.loader is not None
 validate_skills_mod = importlib.util.module_from_spec(_spec)
@@ -50,9 +48,7 @@ def _write_schemas(root: Path) -> None:
     behavior depends on the actual schemas — re-defining them inline
     would let drift in the production schemas silently break this test
     suite."""
-    real_schema = (
-        Path(__file__).resolve().parent.parent / "skills" / "_schema"
-    )
+    real_schema = Path(__file__).resolve().parent.parent / "skills" / "_schema"
     schema_dir = root / "_schema"
     schema_dir.mkdir(parents=True, exist_ok=True)
     (schema_dir / "clawrium.schema.json").write_text(
@@ -172,9 +168,7 @@ def test_path_traversal_via_bad_dirname_rejected(tmp_path):
     (tmp_path / "clawrium" / ".hidden").mkdir()
 
     failures = validate_catalog(tmp_path)
-    assert _has_failure(
-        failures, ".hidden", "violates the slug rule"
-    ), failures
+    assert _has_failure(failures, ".hidden", "violates the slug rule"), failures
 
 
 def test_path_traversal_via_symlink_rejected(tmp_path):
@@ -401,9 +395,7 @@ def test_missing_frontmatter_in_native_rejected(tmp_path):
     (skill / "SKILL.md").write_text("# No frontmatter\n")
 
     failures = validate_catalog(tmp_path)
-    assert _has_failure(
-        failures, "SKILL.md", "YAML frontmatter block"
-    ), failures
+    assert _has_failure(failures, "SKILL.md", "YAML frontmatter block"), failures
 
 
 def test_native_frontmatter_as_list_rejected(tmp_path):
@@ -450,9 +442,7 @@ def test_meta_yaml_non_dict_rejected(tmp_path):
     (skill / "SKILL.md").write_text(_VALID_SKILL_MD)
 
     failures = validate_catalog(tmp_path)
-    assert _has_failure(
-        failures, "_meta.yaml", "must be a YAML mapping"
-    ), failures
+    assert _has_failure(failures, "_meta.yaml", "must be a YAML mapping"), failures
 
 
 def test_registry_level_symlink_rejected(tmp_path):
@@ -467,9 +457,9 @@ def test_registry_level_symlink_rejected(tmp_path):
     evil.symlink_to(target)
 
     failures = validate_catalog(tmp_path)
-    assert _has_failure(
-        failures, "evil", "registry-level symlinks are not allowed"
-    ), failures
+    assert _has_failure(failures, "evil", "registry-level symlinks are not allowed"), (
+        failures
+    )
 
 
 def test_registry_root_symlink_to_file_rejected(tmp_path):
@@ -505,9 +495,9 @@ def test_unexpected_file_at_registry_root_rejected(tmp_path):
     (tmp_path / "clawrium" / "stray.txt").write_text("oops")
 
     failures = validate_catalog(tmp_path)
-    assert _has_failure(
-        failures, "stray.txt", "unexpected file at registry root"
-    ), failures
+    assert _has_failure(failures, "stray.txt", "unexpected file at registry root"), (
+        failures
+    )
 
 
 def test_native_skill_schema_violation_rejected(tmp_path):
@@ -617,8 +607,10 @@ def test_main_exit_2_on_missing_schema_file(tmp_path, capsys):
             path = schema_dir / "native" / f"{registry}.schema.json"
         if not path.is_file():
             from clawrium.core.skills import SchemaValidationError as SVE
+
             raise SVE(f"Schema file for registry {registry!r} not found at {path}.")
         import json
+
         return json.loads(path.read_text())
 
     validate_skills_mod._load_schema = _fixture_load
@@ -636,9 +628,7 @@ def test_main_exit_2_on_missing_schema_file(tmp_path, capsys):
     assert "schema for registry" in captured.err
 
 
-def test_main_exit_2_on_permission_error_reading_schema(
-    tmp_path, monkeypatch, capsys
-):
+def test_main_exit_2_on_permission_error_reading_schema(tmp_path, monkeypatch, capsys):
     """A `PermissionError` (or any `OSError`) bubbling out of
     `_load_schema` during `schema_path.read_text()` is contractually
     an *internal* failure (exit 2), not a contributor-fixable skill
@@ -731,9 +721,7 @@ def test_native_skill_invalid_yaml_syntax_rejected(tmp_path):
 
 
 @pytest.mark.parametrize("clawrium_key", ["compatibility", "native"])
-def test_clawrium_only_keys_in_native_frontmatter_rejected_each(
-    tmp_path, clawrium_key
-):
+def test_clawrium_only_keys_in_native_frontmatter_rejected_each(tmp_path, clawrium_key):
     """Cover each entry in `_CLAWRIUM_ONLY_KEYS` independently — without
     the parametrized variant, dropping `native` (or any other key) from
     the frozenset would not break a single test."""
@@ -742,16 +730,9 @@ def test_clawrium_only_keys_in_native_frontmatter_rejected_each(
     skill.mkdir()
     block_lines = {
         "compatibility": (
-            "compatibility:\n"
-            "  openclaw: true\n"
-            "  hermes: true\n"
-            "  zeroclaw: true\n"
+            "compatibility:\n  openclaw: true\n  hermes: true\n  zeroclaw: true\n"
         ),
-        "native": (
-            "native:\n"
-            "  hermes:\n"
-            "    metadata: {}\n"
-        ),
+        "native": ("native:\n  hermes:\n    metadata: {}\n"),
     }[clawrium_key]
     (skill / "SKILL.md").write_text(
         "---\n"
@@ -765,9 +746,7 @@ def test_clawrium_only_keys_in_native_frontmatter_rejected_each(
     assert _has_failure(failures, "SKILL.md", "clawrium-only keys"), failures
     # Defence-in-depth: the specific key name must surface in the
     # message, not just the generic "clawrium-only" phrase.
-    assert any(
-        clawrium_key in failure.message for failure in failures
-    ), failures
+    assert any(clawrium_key in failure.message for failure in failures), failures
 
 
 # ---------------------------------------------------------------------------

@@ -28,6 +28,16 @@
         state: absent
       notify: Reload systemd
 
+    # Drop the systemd dropin directory wholesale — covers the active
+    # `10-zeroclaw-env.conf` (#422 + #510) as well as any legacy
+    # `10-clm-env.conf` left behind by a pre-rename install. Without
+    # this, GITHUB_TOKEN values persist on disk after `agent remove`.
+    - name: Remove systemd drop-in directory (recursive)
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service.d"
+        state: absent
+      notify: Reload systemd
+
     - name: Check if bin directory exists
       ansible.builtin.stat:
         path: "/home/{{ agent_name }}/bin"

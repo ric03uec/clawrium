@@ -17,7 +17,7 @@
 
     - name: Fail if agent not installed
       ansible.builtin.fail:
-        msg: "Agent user '{{ agent_name }}' not found. Run 'clm agent install --type zeroclaw ...' first."
+        msg: "Agent user '{{ agent_name }}' not found. Run 'clawctl agent create <name> --type zeroclaw --host <host>' first."
       when: user_check.msg is defined
 
     - name: Validate provider configuration is present
@@ -25,7 +25,7 @@
         msg: >-
           ZeroClaw configure requires config.provider.type to be one of
           anthropic|openai|ollama|openrouter. Re-run via
-          `clm agent configure {{ agent_name }} --stage providers`.
+          `clawctl agent configure {{ agent_name }} --stage providers`.
       when:
         - config.provider is not defined
           or config.provider.type is not defined
@@ -40,7 +40,7 @@
         mode: "0700"
 
     # Workspace personality files (issue #358). `force: no` means a
-    # subsequent `clm agent configure` run never clobbers user edits to
+    # subsequent `clawctl agent configure` run never clobbers user edits to
     # these MD files — they seed the daemon on first configure, then the
     # operator owns the content. BOOTSTRAP.md is intentionally NOT
     # rendered: the runtime generates it on first boot and self-deletes
@@ -76,7 +76,7 @@
     # only restarts the daemon when content changes — ATX S1 fix.
     - name: Render ~/.zeroclaw/config.toml from template
       ansible.builtin.template:
-        src: "{{ template_path }}/config.toml.j2"
+        src: "{{ template_path }}/zeroclaw-config.toml.j2"
         dest: "/home/{{ agent_name }}/.zeroclaw/config.toml"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -90,7 +90,7 @@
         enabled: yes
         daemon_reload: yes
 
-    # systemd drop-in directory (#422). Hosts the clm-managed Environment=
+    # systemd drop-in directory (#422). Hosts the clawctl-managed Environment=
     # overlay without touching the install.yaml-dropped unit file. Drop-ins
     # are the systemd-standard mechanism per `man systemd.unit` "Drop-In".
     - name: Ensure systemd drop-in directory exists for zeroclaw service
@@ -101,6 +101,20 @@
         group: root
         mode: "0755"
 
+    # Bundle 5 (#510) renamed the dropin from `10-clm-env.conf` to
+    # `10-zeroclaw-env.conf`. On a host that was last configured before
+    # the rename, the old file still exists in the dropin dir and systemd
+    # will load BOTH dropins — leaving stale GITHUB_TOKEN values readable
+    # under the old name. Drop the legacy file first so the dropin dir
+    # only ever contains the current managed file. Idempotent: state:
+    # absent is a no-op once the orphan is gone.
+    - name: Remove legacy clm dropin (Bundle 5 #510 rename migration)
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service.d/10-clm-env.conf"
+        state: absent
+      no_log: true
+      notify: Restart zeroclaw service
+
     # Render the GitHub-integration drop-in. The template emits an empty
     # [Service] block when no github integrations are assigned — systemd
     # treats that as a no-op overlay. Mode 0600 because the file contains
@@ -109,8 +123,8 @@
     # picked up before /health/providers is probed.
     - name: Render zeroclaw GitHub-integration systemd drop-in
       ansible.builtin.template:
-        src: "{{ template_path }}/clm-env.conf.j2"
-        dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service.d/10-clm-env.conf"
+        src: "{{ template_path }}/zeroclaw-env.conf.j2"
+        dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service.d/10-zeroclaw-env.conf"
         owner: root
         group: root
         mode: "0600"
@@ -248,13 +262,13 @@
           /health/providers returned 401 — gateway is reachable but
           provider credentials may be invalid. Verify the API key for
           provider '{{ config.provider.type }}' and re-run
-          `clm agent configure {{ agent_name }}` if needed.
+          `clawctl agent configure {{ agent_name }}` if needed.
       when: health_probe.status == 401
 
     # Always re-pair (issue #437). The daemon does not persist bearer
     # state across restarts, so the only way to make hosts.json
     # structurally agree with the daemon is to mint a fresh token on
-    # every configure run. The trade-off (in-flight `clm chat` sessions
+    # every configure run. The trade-off (in-flight `clawctl agent chat` sessions
     # on other machines need to reconnect) is accepted in exchange for
     # eliminating the silent divergence class entirely.
     - name: Run zeroclaw pair handshake

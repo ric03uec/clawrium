@@ -54,7 +54,9 @@ def test_provider_endpoint_attached_when_provider_has_endpoint(monkeypatch):
         {"name": "local-inx", "type": "ollama", "endpoint": "http://10.0.0.5:11434"}
     ]
 
-    monkeypatch.setattr(topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents))
+    monkeypatch.setattr(
+        topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)
+    )
     monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: hosts)
     monkeypatch.setattr(topology_mod, "load_providers", lambda: providers)
 
@@ -73,7 +75,9 @@ def test_provider_endpoint_is_none_for_provider_without_endpoint(monkeypatch):
     hosts = [_make_host()]
     providers = [{"name": "clm-bedrock", "type": "bedrock"}]
 
-    monkeypatch.setattr(topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents))
+    monkeypatch.setattr(
+        topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)
+    )
     monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: hosts)
     monkeypatch.setattr(topology_mod, "load_providers", lambda: providers)
 
@@ -88,7 +92,9 @@ def test_provider_endpoint_is_none_for_unconfigured_agent(monkeypatch):
     agents = [_make_agent("a1", provider=None, provider_type=None)]
     hosts = [_make_host()]
 
-    monkeypatch.setattr(topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents))
+    monkeypatch.setattr(
+        topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)
+    )
     monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: hosts)
     monkeypatch.setattr(topology_mod, "load_providers", lambda: [])
 
@@ -145,9 +151,7 @@ def test_get_topology_assigns_agents_to_correct_hosts(monkeypatch):
     monkeypatch.setattr(
         topology_mod,
         "get_fleet_data_local",
-        _stub_get_fleet_data(
-            agents, {"total": 2, "running": 2, "hosts": 2}
-        ),
+        _stub_get_fleet_data(agents, {"total": 2, "running": 2, "hosts": 2}),
     )
     monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: hosts)
     monkeypatch.setattr(topology_mod, "load_providers", lambda: [])
@@ -182,7 +186,9 @@ def test_host_includes_hardware_block_when_present(monkeypatch):
         "system_vendor": "nvidia",
     }
 
-    monkeypatch.setattr(topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents))
+    monkeypatch.setattr(
+        topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)
+    )
     monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: [host])
     monkeypatch.setattr(topology_mod, "load_providers", lambda: [])
 
@@ -202,7 +208,9 @@ def test_host_includes_hardware_block_when_present(monkeypatch):
 
 def test_host_hardware_is_null_when_absent(monkeypatch):
     agents = [_make_agent("a1")]
-    monkeypatch.setattr(topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents))
+    monkeypatch.setattr(
+        topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)
+    )
     monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: [_make_host()])
     monkeypatch.setattr(topology_mod, "load_providers", lambda: [])
 
@@ -218,7 +226,9 @@ def test_host_hardware_gpu_defaults_when_only_partial(monkeypatch):
     host = _make_host()
     host["hardware"] = {"architecture": "x86_64"}
 
-    monkeypatch.setattr(topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents))
+    monkeypatch.setattr(
+        topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)
+    )
     monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: [host])
     monkeypatch.setattr(topology_mod, "load_providers", lambda: [])
 
@@ -240,7 +250,9 @@ def test_provider_endpoint_is_none_when_provider_not_in_providers_file(monkeypat
         {"name": "local-inx", "type": "ollama", "endpoint": "http://10.0.0.5:11434"}
     ]
 
-    monkeypatch.setattr(topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents))
+    monkeypatch.setattr(
+        topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)
+    )
     monkeypatch.setattr(topology_mod, "load_hosts_safe", lambda: hosts)
     monkeypatch.setattr(topology_mod, "load_providers", lambda: providers)
 
@@ -271,9 +283,7 @@ def test_provider_accelerator_vendor_defaults_to_nvidia_for_ollama(monkeypatch):
 
     result = asyncio.run(topology_mod.get_topology())
 
-    assert (
-        result["hosts"][0]["agents"][0]["provider_accelerator_vendor"] == "nvidia"
-    )
+    assert result["hosts"][0]["agents"][0]["provider_accelerator_vendor"] == "nvidia"
 
 
 def test_provider_accelerator_vendor_respects_explicit_amd(monkeypatch):

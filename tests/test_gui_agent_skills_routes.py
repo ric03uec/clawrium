@@ -86,9 +86,7 @@ def _stub_apply(
             agent_name=agent_name,
             agent_type=agent_type,
             hostname="wolf-i",
-            applied_skills=applied
-            if applied is not None
-            else read_state(agent_name),
+            applied_skills=applied if applied is not None else read_state(agent_name),
             log_dir=Path("/tmp/fake-log"),
         )
 
@@ -165,9 +163,7 @@ def test_install_writes_state_and_calls_apply(monkeypatch):
     _stub_resolved(monkeypatch)
     calls = _stub_apply(monkeypatch, applied=["clawrium/tdd"])
 
-    result = _run(
-        agents_route.install_agent_skill("tdd-hermes", "clawrium", "tdd")
-    )
+    result = _run(agents_route.install_agent_skill("tdd-hermes", "clawrium", "tdd"))
 
     assert result["success"] is True
     assert result["ref"] == "clawrium/tdd"
@@ -184,9 +180,7 @@ def test_install_is_idempotent_but_still_applies(monkeypatch):
     write_state("tdd-hermes", ["clawrium/tdd"])
     calls = _stub_apply(monkeypatch, applied=["clawrium/tdd"])
 
-    result = _run(
-        agents_route.install_agent_skill("tdd-hermes", "clawrium", "tdd")
-    )
+    result = _run(agents_route.install_agent_skill("tdd-hermes", "clawrium", "tdd"))
 
     assert result["changed"] is False
     assert calls == ["tdd-hermes"], "apply_state must run on re-install"
@@ -215,9 +209,7 @@ def test_install_422_on_unknown_registry(monkeypatch):
     """
     _stub_resolved(monkeypatch)
     # apply_state must NOT be called — assert by raising if it is.
-    monkeypatch.setattr(
-        agents_route, "apply_state", _raises_if_called("apply_state")
-    )
+    monkeypatch.setattr(agents_route, "apply_state", _raises_if_called("apply_state"))
     with pytest.raises(HTTPException) as exc:
         _run(agents_route.install_agent_skill("tdd-hermes", "http:", "bad"))
     assert exc.value.status_code == 422
@@ -347,9 +339,7 @@ def test_remove_drops_state_and_calls_apply(monkeypatch):
     write_state("tdd-hermes", ["clawrium/tdd"])
     calls = _stub_apply(monkeypatch, applied=[])
 
-    result = _run(
-        agents_route.remove_agent_skill("tdd-hermes", "clawrium", "tdd")
-    )
+    result = _run(agents_route.remove_agent_skill("tdd-hermes", "clawrium", "tdd"))
 
     assert result["success"] is True
     assert result["changed"] is True
@@ -362,9 +352,7 @@ def test_remove_is_idempotent_on_missing_skill(monkeypatch):
     _stub_resolved(monkeypatch)
     calls = _stub_apply(monkeypatch, applied=[])
 
-    result = _run(
-        agents_route.remove_agent_skill("tdd-hermes", "clawrium", "tdd")
-    )
+    result = _run(agents_route.remove_agent_skill("tdd-hermes", "clawrium", "tdd"))
 
     assert result["changed"] is False
     assert calls == ["tdd-hermes"], "apply_state must run even on no-op remove"
@@ -379,9 +367,7 @@ def test_remove_404_when_agent_missing(monkeypatch):
 
 def test_remove_422_on_malformed_ref(monkeypatch):
     _stub_resolved(monkeypatch)
-    monkeypatch.setattr(
-        agents_route, "apply_state", _raises_if_called("apply_state")
-    )
+    monkeypatch.setattr(agents_route, "apply_state", _raises_if_called("apply_state"))
     with pytest.raises(HTTPException) as exc:
         _run(agents_route.remove_agent_skill("tdd-hermes", "bogus", "tdd"))
     assert exc.value.status_code == 422
@@ -411,7 +397,12 @@ def test_state_is_not_rolled_back_on_apply_failure(monkeypatch):
     "registry,name,agent_type,expected",
     [
         # Native registry, claw match: drop through to load+validate.
-        ("hermes", "ANY", "hermes", False),  # no real hermes/ANY skill → loader fails-closed
+        (
+            "hermes",
+            "ANY",
+            "hermes",
+            False,
+        ),  # no real hermes/ANY skill → loader fails-closed
         # Native registry, claw mismatch: short-circuit false without loading.
         ("hermes", "anything", "openclaw", False),
         ("openclaw", "anything", "zeroclaw", False),

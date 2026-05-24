@@ -414,7 +414,7 @@ async def list_agent_skills(agent_key: str):
     ```
 
     ``installed`` is the local desired-state file's view — the same view
-    ``clm agent skill list`` shows. The agent-detail Skills tab merges
+    ``clawctl agent skill get`` shows. The agent-detail Skills tab merges
     these in the UI, so the response keeps them separate to keep the
     payload close to the underlying data.
     """
@@ -429,9 +429,7 @@ async def list_agent_skills(agent_key: str):
         try:
             installed_refs = read_state(agent_name)
         except SkillError as error:
-            logger.warning(
-                "skills state unreadable for %s: %s", agent_name, error
-            )
+            logger.warning("skills state unreadable for %s: %s", agent_name, error)
             installed_refs = []
         installed: list[dict[str, object]] = []
         for raw_ref in installed_refs:
@@ -499,9 +497,7 @@ def _install_or_remove(
     """
     resolved = _resolve_agent(agent_key)
     if not resolved:
-        raise HTTPException(
-            status_code=404, detail=f"Agent '{agent_key}' not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
     _host_record, _agent_type, agent_record = resolved
     agent_name = agent_record.get("agent_name") or agent_key
 
@@ -714,9 +710,7 @@ async def _chat_openclaw(
     auth, private_key = _resolve_openclaw_credentials(instance_key, gateway)
 
     if not auth:
-        raise HTTPException(
-            status_code=500, detail="Gateway auth not found in secrets"
-        )
+        raise HTTPException(status_code=500, detail="Gateway auth not found in secrets")
 
     device = gateway.get("device") or {}
     backend = OpenClawChatClient(

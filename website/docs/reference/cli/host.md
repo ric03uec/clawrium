@@ -3,29 +3,29 @@
 Manage hosts in your Clawrium fleet.
 
 ```bash
-clm host <command> [options]
+clawctl host <command> [options]
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| [`clm host init`](#clm-host-init) | Initialize a host for Clawrium management |
-| [`clm host add`](#clm-host-add) | Add a new host to the fleet |
-| [`clm host list`](#clm-host-list) | List all registered hosts |
-| [`clm host remove`](#clm-host-remove) | Remove a host from the fleet |
-| [`clm host status`](#clm-host-status) | Check status of a host |
-| [`clm host reset`](#clm-host-reset) | Reset a host, removing all claws and users |
-| [`clm host address`](#address-subcommands) | Manage multiple addresses for a host |
+| [`clawctl host create --bootstrap`](#clawctl-host-create---bootstrap) | Initialize a host for Clawrium management |
+| [`clawctl host create`](#clawctl-host-create) | Add a new host to the fleet |
+| [`clawctl host get`](#clawctl-host-get) | List all registered hosts |
+| [`clawctl host delete`](#clawctl-host-delete) | Remove a host from the fleet |
+| [`clawctl host status`](#clawctl-host-describe) | Check status of a host |
+| [`clawctl host reset`](#clawctl-host-reset) | Reset a host, removing all claws and users |
+| [`clawctl host address`](#address-subcommands) | Manage multiple addresses for a host |
 
 ---
 
-## clm host init
+## clawctl host create --bootstrap
 
 Initialize a host for Clawrium management.
 
 ```bash
-clm host init <hostname> [--user USER]
+clawctl host create --bootstrap <hostname> [--user USER]
 ```
 
 Generates a per-host SSH keypair and attempts to configure the `xclm` management user on the remote host. If SSH access fails, displays manual setup commands.
@@ -45,7 +45,7 @@ Generates a per-host SSH keypair and attempts to configure the `xclm` management
 ### Example
 
 ```bash
-$ clm host init 192.168.1.100
+$ clawctl host create --bootstrap 192.168.1.100
 Generating SSH keypair for '192.168.1.100'...
 Keypair created: /home/user/.config/clawrium/keys/192.168.1.100.pub
 
@@ -56,7 +56,7 @@ Setting up xclm management user...
 Verifying xclm access...
 xclm user configured successfully!
 
-Next step: clm host add 192.168.1.100
+Next step: clawctl host create 192.168.1.100
 ```
 
 ### Manual Setup
@@ -88,15 +88,15 @@ sudo chown -R xclm:xclm /home/xclm/.ssh
 
 ---
 
-## clm host add
+## clawctl host create
 
 Add a new host to the fleet.
 
 ```bash
-clm host add <hostname> [options]
+clawctl host create <hostname> [options]
 ```
 
-Requires keypair to exist (run `clm host init` first). Tests SSH connection before saving and detects hardware capabilities automatically.
+Requires keypair to exist (run `clawctl host create --bootstrap` first). Tests SSH connection before saving and detects hardware capabilities automatically.
 
 ### Arguments
 
@@ -116,7 +116,7 @@ Requires keypair to exist (run `clm host init` first). Tests SSH connection befo
 ### Example
 
 ```bash
-$ clm host add 192.168.1.100 --alias pi-lab --tags production,arm
+$ clawctl host create 192.168.1.100 --alias pi-lab --tags production,arm
 Testing connection to 192.168.1.100:22 as xclm...
 Connection successful!
 Detecting hardware capabilities...
@@ -148,18 +148,18 @@ Accept this host key and continue? [y/N]:
 
 ---
 
-## clm host list
+## clawctl host get
 
 List all registered hosts.
 
 ```bash
-clm host list
+clawctl host get
 ```
 
 ### Example
 
 ```bash
-$ clm host list
+$ clawctl host get
                     Registered Hosts
 ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
 ┃ Alias   ┃ Host            ┃ Architecture ┃ Cores ┃ Memory (GB) ┃ Tags       ┃
@@ -172,12 +172,12 @@ $ clm host list
 
 ---
 
-## clm host remove
+## clawctl host delete
 
 Remove a host from the fleet.
 
 ```bash
-clm host remove <hostname> [--force]
+clawctl host delete <hostname> [--force]
 ```
 
 Prompts for confirmation unless `--force` is specified. Also deletes the host's SSH keypair.
@@ -197,7 +197,7 @@ Prompts for confirmation unless `--force` is specified. Also deletes the host's 
 ### Example
 
 ```bash
-$ clm host remove pi-lab
+$ clawctl host delete pi-lab
 Remove host 'pi-lab'? This cannot be undone. [y/N]: y
 Host 'pi-lab' removed successfully.
 Keypair for '192.168.1.100' deleted.
@@ -212,12 +212,12 @@ Keypair for '192.168.1.100' deleted.
 
 ---
 
-## clm host status
+## clawctl host status
 
 Check status of a host.
 
 ```bash
-clm host status <hostname> [--refresh]
+clawctl host status <hostname> [--refresh]
 ```
 
 Shows connection status, hardware information, and metadata. Use `--refresh` to update hardware information.
@@ -237,7 +237,7 @@ Shows connection status, hardware information, and metadata. Use `--refresh` to 
 ### Example
 
 ```bash
-$ clm host status pi-lab
+$ clawctl host status pi-lab
 Checking status of 'pi-lab'...
            Host Status: pi-lab
 ┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -260,7 +260,7 @@ Checking status of 'pi-lab'...
 Refresh hardware information:
 
 ```bash
-$ clm host status pi-lab --refresh
+$ clawctl host status pi-lab --refresh
 Checking status of 'pi-lab'...
 Refreshing hardware information...
 Hardware information updated.
@@ -275,12 +275,12 @@ Hardware information updated.
 
 ---
 
-## clm host reset
+## clawctl host reset
 
 Reset a host, removing all claws and users.
 
 ```bash
-clm host reset <hostname> [options]
+clawctl host reset <hostname> [options]
 ```
 
 This command will:
@@ -307,7 +307,7 @@ This command will:
 Dry run to preview changes:
 
 ```bash
-$ clm host reset pi-lab --dry-run
+$ clawctl host reset pi-lab --dry-run
 Scanning 'pi-lab' for targets...
 
 Users to remove (2):
@@ -327,7 +327,7 @@ Dry run - no changes made
 Execute reset:
 
 ```bash
-$ clm host reset pi-lab --yes
+$ clawctl host reset pi-lab --yes
 Scanning 'pi-lab' for targets...
 Resetting 'pi-lab'...
 Reset complete!
@@ -339,7 +339,7 @@ Reset complete!
 Reset and untrack:
 
 ```bash
-$ clm host reset pi-lab --yes --untrack
+$ clawctl host reset pi-lab --yes --untrack
 ...
 Reset complete!
 Untracking 'pi-lab'...
@@ -360,24 +360,24 @@ Host removed from tracking.
 Manage multiple network addresses for a single host. Useful when hosts are reachable via different addresses depending on network context (LAN, VPN, Tailscale, etc.).
 
 ```bash
-clm host address <command> [options]
+clawctl host address <command> [options]
 ```
 
 | Command | Description |
 |---------|-------------|
-| [`clm host address add`](#clm-host-address-add) | Add an address to a host |
-| [`clm host address remove`](#clm-host-address-remove) | Remove an address from a host |
-| [`clm host address list`](#clm-host-address-list) | List all addresses for a host |
-| [`clm host address set-primary`](#clm-host-address-set-primary) | Set a different address as primary |
+| [`clawctl host address add`](#clawctl-host-createress-add) | Add an address to a host |
+| [`clawctl host address remove`](#clawctl-host-createress-remove) | Remove an address from a host |
+| [`clawctl host address list`](#clawctl-host-createress-list) | List all addresses for a host |
+| [`clawctl host address set-primary`](#clawctl-host-createress-set-primary) | Set a different address as primary |
 
 ---
 
-## clm host address add
+## clawctl host address add
 
 Add an address to a host.
 
 ```bash
-clm host address add <host> <address> [--label LABEL]
+clawctl host address add <host> <address> [--label LABEL]
 ```
 
 The first address added to a host is automatically the primary. Additional addresses can be used to reach the host from different network contexts.
@@ -398,7 +398,7 @@ The first address added to a host is automatically the primary. Additional addre
 ### Example
 
 ```bash
-$ clm host address add pi-lab 100.64.0.50 --label tailscale
+$ clawctl host address add pi-lab 100.64.0.50 --label tailscale
 Address '100.64.0.50' (tailscale) added to host 'pi-lab'
 ```
 
@@ -411,12 +411,12 @@ Address '100.64.0.50' (tailscale) added to host 'pi-lab'
 
 ---
 
-## clm host address remove
+## clawctl host address remove
 
 Remove an address from a host.
 
 ```bash
-clm host address remove <host> <address>
+clawctl host address remove <host> <address>
 ```
 
 Cannot remove the primary address. Use `set-primary` to switch to a different address first.
@@ -431,7 +431,7 @@ Cannot remove the primary address. Use `set-primary` to switch to a different ad
 ### Example
 
 ```bash
-$ clm host address remove pi-lab 100.64.0.50
+$ clawctl host address remove pi-lab 100.64.0.50
 Address '100.64.0.50' removed from host 'pi-lab'
 ```
 
@@ -444,12 +444,12 @@ Address '100.64.0.50' removed from host 'pi-lab'
 
 ---
 
-## clm host address list
+## clawctl host address list
 
 List all addresses for a host.
 
 ```bash
-clm host address list <host>
+clawctl host address list <host>
 ```
 
 Shows the primary address (used for all downstream commands) and any secondary addresses for different network contexts.
@@ -463,7 +463,7 @@ Shows the primary address (used for all downstream commands) and any secondary a
 ### Example
 
 ```bash
-$ clm host address list pi-lab
+$ clawctl host address list pi-lab
            Addresses for pi-lab
 ┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
 ┃ Address         ┃ Primary ┃ Label     ┃ Added            ┃
@@ -482,12 +482,12 @@ $ clm host address list pi-lab
 
 ---
 
-## clm host address set-primary
+## clawctl host address set-primary
 
 Set a different address as the primary for a host.
 
 ```bash
-clm host address set-primary <host> <address>
+clawctl host address set-primary <host> <address>
 ```
 
 The primary address is used for all downstream commands (agent install, configure, status checks, etc.). Changing the primary updates the host's hostname field.
@@ -502,7 +502,7 @@ The primary address is used for all downstream commands (agent install, configur
 ### Example
 
 ```bash
-$ clm host address set-primary pi-lab 100.64.0.50
+$ clawctl host address set-primary pi-lab 100.64.0.50
 Primary address for 'pi-lab' set to '100.64.0.50'
 ```
 

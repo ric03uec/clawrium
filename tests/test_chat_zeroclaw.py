@@ -59,9 +59,7 @@ def _make_backend(monkeypatch, frames):
     async def fake_connect(*_args, **_kwargs):
         return fake_ws
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
     backend = ZeroClawChatBackend(
         gateway_url="ws://test-host:4080/ws/chat",
         auth_token=SecretStr("paired-bearer-token"),
@@ -84,9 +82,7 @@ def test_connect_success(monkeypatch):
         captured["headers"] = additional_headers
         return FakeWebSocket([])
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     backend = ZeroClawChatBackend(
         gateway_url="ws://test-host:4080/ws/chat",
@@ -108,9 +104,7 @@ def test_connect_failure(monkeypatch):
     async def fake_connect(*_args, **_kwargs):
         raise OSError("Connection refused")
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     backend = ZeroClawChatBackend(
         gateway_url="ws://nowhere:4080/ws/chat",
@@ -133,9 +127,7 @@ def test_auth_error(monkeypatch):
     async def fake_connect(*_args, **_kwargs):
         raise InvalidStatus(_FakeResponse())
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     backend = ZeroClawChatBackend(
         gateway_url="ws://test-host:4080/ws/chat",
@@ -346,9 +338,7 @@ def test_cleartext_warning_emitted_for_non_loopback_ws(monkeypatch, caplog):
     async def fake_connect(*_args, **_kwargs):
         return FakeWebSocket([])
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     backend = ZeroClawChatBackend(
         gateway_url="ws://pi-edge.lan:4080/ws/chat",
@@ -369,9 +359,7 @@ def test_cleartext_warning_suppressed_for_loopback(monkeypatch, caplog):
     async def fake_connect(*_args, **_kwargs):
         return FakeWebSocket([])
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     backend = ZeroClawChatBackend(
         gateway_url="ws://127.0.0.1:4080/ws/chat",
@@ -524,9 +512,7 @@ def test_connect_asyncio_timeout_raises_ChatConnectionError(monkeypatch):
     async def fake_connect(*_args, **_kwargs):
         raise asyncio.TimeoutError("simulated open_timeout")
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     backend = ZeroClawChatBackend(
         gateway_url="ws://test-host:4080/ws/chat",
@@ -572,9 +558,7 @@ def test_non_auth_http_error_raises_ChatConnectionError(monkeypatch):
     async def fake_connect(*_args, **_kwargs):
         raise InvalidStatus(_FakeResponse())
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     backend = ZeroClawChatBackend(
         gateway_url="ws://test-host:4080/ws/chat",
@@ -595,9 +579,7 @@ def test_cleartext_warning_suppressed_for_localhost_string(monkeypatch, caplog):
     async def fake_connect(*_args, **_kwargs):
         return FakeWebSocket([])
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     backend = ZeroClawChatBackend(
         gateway_url="ws://localhost:4080/ws/chat",
@@ -617,9 +599,7 @@ def test_cleartext_warning_suppressed_for_ipv6_loopback(monkeypatch, caplog):
     async def fake_connect(*_args, **_kwargs):
         return FakeWebSocket([])
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     backend = ZeroClawChatBackend(
         gateway_url="ws://[::1]:4080/ws/chat",
@@ -632,9 +612,7 @@ def test_cleartext_warning_suppressed_for_ipv6_loopback(monkeypatch, caplog):
     assert not any("cleartext" in rec.message for rec in caplog.records)
 
 
-def test_cleartext_warning_suppressed_for_etc_hosts_loopback(
-    monkeypatch, caplog
-):
+def test_cleartext_warning_suppressed_for_etc_hosts_loopback(monkeypatch, caplog):
     """ATX Round 4 W-C / Round 5 W-3: a hostname that resolves to a
     loopback address (e.g. `mydev.local` in /etc/hosts) must skip the
     cleartext warning. The negative assertion (no warning emitted) is
@@ -647,9 +625,7 @@ def test_cleartext_warning_suppressed_for_etc_hosts_loopback(
     async def fake_connect(*_args, **_kwargs):
         return FakeWebSocket([])
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     resolver_calls: list[str] = []
 
@@ -677,8 +653,7 @@ def test_cleartext_warning_suppressed_for_etc_hosts_loopback(
     # Resolver actually ran against the configured host — the negative
     # assertion above isn't a vacuous pass.
     assert "mydev.local" in resolver_calls, (
-        f"Expected getaddrinfo to be called with 'mydev.local'; "
-        f"saw {resolver_calls!r}"
+        f"Expected getaddrinfo to be called with 'mydev.local'; saw {resolver_calls!r}"
     )
 
 
@@ -693,9 +668,7 @@ def test_cleartext_warning_emitted_when_resolver_fails(monkeypatch, caplog):
     async def fake_connect(*_args, **_kwargs):
         return FakeWebSocket([])
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     def fake_getaddrinfo(*_args, **_kwargs):
         raise socket.gaierror("no resolver available")
@@ -738,9 +711,7 @@ def test_tool_call_frame_sanitizes_name_and_args(monkeypatch):
     asyncio.run(backend.connect())
 
     deltas: list[str] = []
-    asyncio.run(
-        backend.send_message("hi", on_delta=lambda d: deltas.append(d))
-    )
+    asyncio.run(backend.send_message("hi", on_delta=lambda d: deltas.append(d)))
 
     # NO RLO codepoint anywhere in any emitted delta — neither from the
     # name field nor from the argument values. A regression that drops
@@ -765,14 +736,11 @@ def test_tool_result_frame_delivered_via_on_delta(monkeypatch):
     asyncio.run(backend.connect())
 
     deltas: list[str] = []
-    asyncio.run(
-        backend.send_message("hi", on_delta=lambda d: deltas.append(d))
-    )
+    asyncio.run(backend.send_message("hi", on_delta=lambda d: deltas.append(d)))
 
-    assert any(
-        "[tool_result]" in d and "command output here" in d
-        for d in deltas
-    ), deltas
+    assert any("[tool_result]" in d and "command output here" in d for d in deltas), (
+        deltas
+    )
 
 
 def test_valid_utf8_bytes_frame_is_decoded(monkeypatch):
@@ -810,9 +778,7 @@ def test_cleartext_warning_suppressed_for_wss_non_loopback(monkeypatch, caplog):
     async def fake_connect(*_args, **_kwargs):
         return FakeWebSocket([])
 
-    monkeypatch.setattr(
-        "clawrium.core.chat_zeroclaw.websockets.connect", fake_connect
-    )
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
 
     backend = ZeroClawChatBackend(
         gateway_url="wss://pi-edge.lan:4080/ws/chat",

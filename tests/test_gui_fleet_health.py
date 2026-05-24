@@ -137,9 +137,7 @@ class TestGetFleetDataLocal:
         ]
         (isolated_config / "hosts.json").write_text(json.dumps(hosts))
 
-        with patch(
-            "clawrium.cli.tui.data.check_claw_health"
-        ) as mock_health:
+        with patch("clawrium.cli.tui.data.check_claw_health") as mock_health:
             get_fleet_data_local()
             mock_health.assert_not_called()
 

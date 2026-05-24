@@ -68,7 +68,12 @@ class TestGenerateModelTable:
         """Single lab should not include lab header."""
         models = [
             {"id": "gpt-4", "name": "GPT-4", "lab": "OpenAI", "context_window": 8000},
-            {"id": "gpt-4o", "name": "GPT-4o", "lab": "OpenAI", "context_window": 128000},
+            {
+                "id": "gpt-4o",
+                "name": "GPT-4o",
+                "lab": "OpenAI",
+                "context_window": 128000,
+            },
         ]
         result = generate_model_table(models, "openai")
         assert "### OpenAI" not in result
@@ -78,7 +83,12 @@ class TestGenerateModelTable:
     def test_multiple_labs_with_headers(self):
         """Multiple labs should include lab headers."""
         models = [
-            {"id": "claude-3", "name": "Claude 3", "lab": "Anthropic", "context_window": 200000},
+            {
+                "id": "claude-3",
+                "name": "Claude 3",
+                "lab": "Anthropic",
+                "context_window": 200000,
+            },
             {"id": "gpt-4", "name": "GPT-4", "lab": "OpenAI", "context_window": 8000},
         ]
         result = generate_model_table(models, "openrouter")
@@ -98,8 +108,18 @@ class TestGenerateModelTable:
     def test_context_window_formatting_in_table(self):
         """Context window should be formatted correctly in table."""
         models = [
-            {"id": "model-m", "name": "Model M", "lab": "Test", "context_window": 1_000_000},
-            {"id": "model-k", "name": "Model K", "lab": "Test", "context_window": 128_000},
+            {
+                "id": "model-m",
+                "name": "Model M",
+                "lab": "Test",
+                "context_window": 1_000_000,
+            },
+            {
+                "id": "model-k",
+                "name": "Model K",
+                "lab": "Test",
+                "context_window": 128_000,
+            },
         ]
         result = generate_model_table(models, "test")
         assert "| 1M |" in result
@@ -108,8 +128,18 @@ class TestGenerateModelTable:
     def test_models_sorted_by_name(self):
         """Models should be sorted by name within each lab."""
         models = [
-            {"id": "z-model", "name": "Zebra Model", "lab": "Test", "context_window": 1000},
-            {"id": "a-model", "name": "Alpha Model", "lab": "Test", "context_window": 1000},
+            {
+                "id": "z-model",
+                "name": "Zebra Model",
+                "lab": "Test",
+                "context_window": 1000,
+            },
+            {
+                "id": "a-model",
+                "name": "Alpha Model",
+                "lab": "Test",
+                "context_window": 1000,
+            },
         ]
         result = generate_model_table(models, "test")
         # Alpha should appear before Zebra
@@ -181,7 +211,14 @@ class TestProcessProvider:
             doc_file = docs_dir / "openai.md"
             doc_file.write_text(f"# OpenAI\n\n{START_MARKER}\n{END_MARKER}\n")
 
-            models = [{"id": "gpt-4", "name": "GPT-4", "lab": "OpenAI", "context_window": 8000}]
+            models = [
+                {
+                    "id": "gpt-4",
+                    "name": "GPT-4",
+                    "lab": "OpenAI",
+                    "context_window": 8000,
+                }
+            ]
             success, message = process_provider("openai", models, docs_dir)
 
             assert success is True
@@ -217,8 +254,17 @@ class TestProcessProvider:
             original_content = f"# OpenAI\n\n{START_MARKER}\nOriginal\n{END_MARKER}\n"
             doc_file.write_text(original_content)
 
-            models = [{"id": "gpt-4", "name": "GPT-4", "lab": "OpenAI", "context_window": 8000}]
-            success, message = process_provider("openai", models, docs_dir, dry_run=True)
+            models = [
+                {
+                    "id": "gpt-4",
+                    "name": "GPT-4",
+                    "lab": "OpenAI",
+                    "context_window": 8000,
+                }
+            ]
+            success, message = process_provider(
+                "openai", models, docs_dir, dry_run=True
+            )
 
             assert success is True
             assert "Would update" in message
@@ -230,7 +276,9 @@ class TestLoadCatalog:
 
     def test_load_catalog_missing_file(self):
         """Should exit with error if catalog file doesn't exist."""
-        with patch("generate_provider_docs.MODELS_JSON", Path("/nonexistent/models.json")):
+        with patch(
+            "generate_provider_docs.MODELS_JSON", Path("/nonexistent/models.json")
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 load_catalog()
             assert exc_info.value.code == 1

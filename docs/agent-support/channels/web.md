@@ -53,7 +53,7 @@ The web channel will consist of:
 ### Configuration
 
 ```bash
-clm agent configure my-agent
+clawctl agent configure my-agent
 # Select Web Interface when available
 ```
 
@@ -61,7 +61,7 @@ clm agent configure my-agent
 
 ```bash
 # Get web interface URL
-clm agent web-url my-agent
+clawctl agent web-url my-agent
 # Opens: https://agent-host:8443/chat/my-agent
 ```
 

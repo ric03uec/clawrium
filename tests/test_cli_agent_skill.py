@@ -107,9 +107,7 @@ def test_list_rejects_invalid_agent_name():
 
 def test_install_happy_path_adds_to_state_and_applies(monkeypatch):
     calls = _stub_apply(monkeypatch)
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 0, result.output
     assert calls == ["tdd-hermes"]
     assert read_state("tdd-hermes") == ["clawrium/tdd"]
@@ -119,9 +117,7 @@ def test_install_happy_path_adds_to_state_and_applies(monkeypatch):
 def test_install_already_present_still_reconciles(monkeypatch):
     write_state("tdd-hermes", ["clawrium/tdd"])
     calls = _stub_apply(monkeypatch)
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 0, result.output
     # apply_state was still invoked (drift recovery contract).
     assert calls == ["tdd-hermes"]
@@ -157,9 +153,7 @@ def test_install_renders_skill_not_found(monkeypatch):
         ),
     )
     monkeypatch.setattr(cli_agent_skill, "apply_state", lambda *a, **kw: None)
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 1
     assert "not found" in result.output
     # State must be untouched — preflight ran before add_skill.
@@ -174,15 +168,11 @@ def test_install_renders_incompatible_skill(monkeypatch):
         cli_agent_skill,
         "check_agent_compatibility",
         lambda _skill, _claw: (_ for _ in ()).throw(
-            IncompatibleSkillRegistry(
-                "Skill hermes/foo is a 'hermes'-native skill ..."
-            )
+            IncompatibleSkillRegistry("Skill hermes/foo is a 'hermes'-native skill ...")
         ),
     )
     monkeypatch.setattr(cli_agent_skill, "apply_state", lambda *a, **kw: None)
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-openclaw", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-openclaw", "clawrium/tdd"])
     assert result.exit_code == 1
     assert "hermes" in result.output and "native" in result.output
     # State must be untouched — preflight caught the mismatch.
@@ -194,14 +184,11 @@ def test_install_renders_apply_error(monkeypatch):
 
     def boom(name, **_kwargs):
         raise SkillApplyError(
-            "Skills apply failed (status=failed): Permission denied "
-            "(log: /tmp/log)."
+            "Skills apply failed (status=failed): Permission denied (log: /tmp/log)."
         )
 
     monkeypatch.setattr(cli_agent_skill, "apply_state", boom)
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 1
     assert "Permission denied" in result.output
 
@@ -220,20 +207,14 @@ def test_bidi_chars_in_skill_error_are_stripped(monkeypatch):
     must survive — sanitization is non-destructive for ordinary text.
     """
     # Mix every bidi class our regex covers: RTLO, ZWSP, ALM, LRI.
-    poisoned = (
-        "Skills apply failed: "
-        "‮Permission​ denied "
-        "(؜BUSY⁦hidden⁩ marker)"
-    )
+    poisoned = "Skills apply failed: ‮Permission​ denied (؜BUSY⁦hidden⁩ marker)"
 
     def boom(name, **_kwargs):
         raise SkillApplyError(poisoned)
 
     _stub_agent_resolution(monkeypatch)
     monkeypatch.setattr(cli_agent_skill, "apply_state", boom)
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 1
     # Every bidi codepoint must be absent from the rendered output.
     for codepoint in ("‮", "​", "؜", "⁦", "⁩"):
@@ -263,9 +244,7 @@ def test_apply_error_bidi_stripped_does_not_destroy_ordinary_diagnostics(monkeyp
 
     _stub_agent_resolution(monkeypatch)
     monkeypatch.setattr(cli_agent_skill, "apply_state", boom)
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 1
     # Every load-bearing token survives sanitization. Normalize Rich's
     # terminal-width line wrapping (newlines collapse to spaces) before
@@ -291,9 +270,7 @@ def test_install_renders_apply_not_supported(monkeypatch):
         )
 
     monkeypatch.setattr(cli_agent_skill, "apply_state", boom)
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-openclaw", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-openclaw", "clawrium/tdd"])
     assert result.exit_code == 1
     assert "not yet supported" in result.output
     # B6: no phase jargon in user-facing output.
@@ -305,9 +282,7 @@ def test_install_renders_agent_not_found(monkeypatch):
     `AgentNotFoundError` before any state mutation."""
     monkeypatch.setattr(cli_agent_skill, "get_agent_by_name", lambda _n: None)
     monkeypatch.setattr(cli_agent_skill, "apply_state", lambda *a, **kw: None)
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 1
     assert "not found" in result.output
     assert read_state("tdd-hermes") == []
@@ -316,12 +291,11 @@ def test_install_renders_agent_not_found(monkeypatch):
 def test_install_renders_ambiguous_agent_name(monkeypatch):
     """get_agent_by_name raising ValueError translates to
     AgentNotFoundError at the CLI surface."""
+
     def raise_ambiguous(_name):
         raise ValueError("Agent name 'tdd' is ambiguous across hosts: ...")
 
-    monkeypatch.setattr(
-        cli_agent_skill, "get_agent_by_name", raise_ambiguous
-    )
+    monkeypatch.setattr(cli_agent_skill, "get_agent_by_name", raise_ambiguous)
     monkeypatch.setattr(cli_agent_skill, "apply_state", lambda *a, **kw: None)
     result = runner.invoke(agent_skill_app, ["install", "tdd", "clawrium/tdd"])
     assert result.exit_code == 1
@@ -339,9 +313,7 @@ def test_install_renders_schema_validation_error(monkeypatch):
 
     monkeypatch.setattr(cli_agent_skill, "validate_skill", boom)
     monkeypatch.setattr(cli_agent_skill, "apply_state", lambda *a, **kw: None)
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 1
     assert "schema validation" in result.output
     assert read_state("tdd-hermes") == []
@@ -353,9 +325,7 @@ def test_install_renders_schema_validation_error(monkeypatch):
 def test_remove_happy_path(monkeypatch):
     write_state("tdd-hermes", ["clawrium/tdd"])
     calls = _stub_apply(monkeypatch, applied=[])
-    result = runner.invoke(
-        agent_skill_app, ["remove", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["remove", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 0, result.output
     assert calls == ["tdd-hermes"]
     assert read_state("tdd-hermes") == []
@@ -364,9 +334,7 @@ def test_remove_happy_path(monkeypatch):
 
 def test_remove_when_absent_still_reconciles(monkeypatch):
     calls = _stub_apply(monkeypatch, applied=[])
-    result = runner.invoke(
-        agent_skill_app, ["remove", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["remove", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 0, result.output
     assert calls == ["tdd-hermes"]
     assert "was not in desired state" in result.output
@@ -414,7 +382,8 @@ def test_install_rolls_back_state_on_apply_failure(monkeypatch):
     monkeypatch.setattr(cli_agent_skill, "load_skill", lambda ref: object())
     monkeypatch.setattr(cli_agent_skill, "validate_skill", lambda _skill: None)
     monkeypatch.setattr(
-        cli_agent_skill, "check_agent_compatibility",
+        cli_agent_skill,
+        "check_agent_compatibility",
         lambda _skill, _claw: None,
     )
     monkeypatch.setattr(
@@ -428,9 +397,7 @@ def test_install_rolls_back_state_on_apply_failure(monkeypatch):
     # Sanity: assert mutation happened, then was rolled back, by
     # spying on read_state mid-flight via a recorder.
     assert read_state("tdd-hermes") == []
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 1
     assert "ssh down" in result.output
     # Rollback contract: state file shows the skill is NOT installed.
@@ -447,7 +414,8 @@ def test_install_rollback_path_actually_runs(monkeypatch):
     monkeypatch.setattr(cli_agent_skill, "load_skill", lambda ref: object())
     monkeypatch.setattr(cli_agent_skill, "validate_skill", lambda _skill: None)
     monkeypatch.setattr(
-        cli_agent_skill, "check_agent_compatibility",
+        cli_agent_skill,
+        "check_agent_compatibility",
         lambda _skill, _claw: None,
     )
     monkeypatch.setattr(
@@ -474,10 +442,9 @@ def test_install_rollback_path_actually_runs(monkeypatch):
     # call here, the rollback. Asserting on the agent_name as well
     # would catch a hypothetical bug that rolled back the wrong
     # agent's state file.
-    assert any(
-        agent == "tdd-hermes" and refs == []
-        for agent, refs in write_calls
-    ), f"rollback write_state('tdd-hermes', []) never invoked: {write_calls}"
+    assert any(agent == "tdd-hermes" and refs == [] for agent, refs in write_calls), (
+        f"rollback write_state('tdd-hermes', []) never invoked: {write_calls}"
+    )
 
 
 def test_remove_rolls_back_state_on_apply_failure(monkeypatch):
@@ -493,9 +460,7 @@ def test_remove_rolls_back_state_on_apply_failure(monkeypatch):
             SkillApplyError("ssh down (log: /tmp/...)")
         ),
     )
-    result = runner.invoke(
-        agent_skill_app, ["remove", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["remove", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 1
     # Rollback contract: the entry is still there.
     assert read_state("tdd-hermes") == ["clawrium/tdd"]
@@ -522,7 +487,8 @@ def test_install_rollback_failure_surfaces_warning_to_user(monkeypatch):
     monkeypatch.setattr(cli_agent_skill, "load_skill", lambda ref: object())
     monkeypatch.setattr(cli_agent_skill, "validate_skill", lambda _skill: None)
     monkeypatch.setattr(
-        cli_agent_skill, "check_agent_compatibility",
+        cli_agent_skill,
+        "check_agent_compatibility",
         lambda _skill, _claw: None,
     )
     monkeypatch.setattr(
@@ -544,9 +510,7 @@ def test_install_rollback_failure_surfaces_warning_to_user(monkeypatch):
 
     monkeypatch.setattr(cli_agent_skill, "write_state", flaky_write)
 
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
 
     assert result.exit_code == 1
     assert "ssh down" in result.output
@@ -572,9 +536,7 @@ def test_remove_rollback_failure_surfaces_warning_to_user(monkeypatch):
 
     monkeypatch.setattr(cli_agent_skill, "write_state", flaky_write)
 
-    result = runner.invoke(
-        agent_skill_app, ["remove", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["remove", "tdd-hermes", "clawrium/tdd"])
 
     assert result.exit_code == 1
     assert "ssh down" in result.output
@@ -594,8 +556,6 @@ def test_exit_with_error_sanitizes_bidi_in_message(monkeypatch):
         lambda *a, **kw: (_ for _ in ()).throw(SkillApplyError(rtlo_msg)),
     )
     _stub_agent_resolution(monkeypatch)
-    result = runner.invoke(
-        agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"]
-    )
+    result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 1
     assert "‮" not in result.output

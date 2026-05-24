@@ -383,9 +383,7 @@ class TestAgentSync:
         assert result.exit_code == 1
         assert "No configuration found" in result.output
 
-    def test_sync_installed_agent_succeeds(
-        self, isolated_config: Path, tmp_path: Path
-    ):
+    def test_sync_installed_agent_succeeds(self, isolated_config: Path, tmp_path: Path):
         """Sync with installed and configured agent succeeds."""
         hosts_file = isolated_config / "hosts.json"
         isolated_config.mkdir(parents=True, exist_ok=True)
@@ -606,9 +604,7 @@ class TestAgentSync:
             "clawrium.core.lifecycle.configure_agent",
             return_value=(True, None),
         ) as mock_configure:
-            with patch(
-                "clawrium.core.lifecycle.restart_agent"
-            ) as mock_restart:
+            with patch("clawrium.core.lifecycle.restart_agent") as mock_restart:
                 result = runner.invoke(app, ["agent", "sync", "assistant"])
 
         assert result.exit_code == 0

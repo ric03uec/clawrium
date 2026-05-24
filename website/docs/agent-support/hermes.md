@@ -25,7 +25,7 @@ Hermes is the [Nous Research self-improving AI agent](https://github.com/NousRes
 
 Hermes supports cloud providers via API keys and any OpenAI-compatible local endpoint via its `custom` provider (alias `ollama`):
 
-| Provider | Status | clm `provider.type` | Notes |
+| Provider | Status | clawctl `provider.type` | Notes |
 |----------|:------:|---------------------|-------|
 | **[OpenRouter](providers/openrouter.md)** | ✅ | `openrouter` | Renders `OPENROUTER_API_KEY` + `model.base_url: https://openrouter.ai/api/v1` |
 | **[Anthropic](providers/anthropic.md)** | ✅ | `anthropic` | Renders `ANTHROPIC_API_KEY`; uses hermes default `base_url` |
@@ -42,14 +42,14 @@ The provider mapping is implemented in `src/clawrium/platform/registry/hermes/te
 
 ## Channel Support
 
-Hermes supports three channels managed by clm: a loopback OpenAI-compatible HTTP API (always on), Discord (opt-in), and Slack (opt-in via Socket Mode).
+Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible HTTP API (always on), Discord (opt-in), and Slack (opt-in via Socket Mode).
 
 | Channel | Status | Notes |
 |---------|:------:|-------|
 | **Local OpenAI-compatible HTTP API** (`POST /v1/chat/completions`, `GET /v1/models`, `GET /health`) | ✅ | Bound to loopback on the agent host. See [Use the local API](#3-use-the-local-openai-compatible-api). |
-| **[Discord](channels/discord.md)** | ✅ | clm-managed via `clm agent configure <name> --stage channels`. Token in `secrets.json` (B3 invariant); non-sensitive config in `hosts.json`. See [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration). |
-| **[Slack](channels/slack.md)** | ✅ | Socket Mode (no public endpoint). clm-managed via `clm agent configure <name> --stage channels`. Both tokens in `secrets.json`; non-sensitive config in `hosts.json`. See [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration). |
-| **clm `chat <hermes-name>`** | ✅ | Supported via the OpenAI-compatible HTTP backend (`HermesOpenAIBackend`). Connects to `http://<host>:8642/v1` using the bearer token from `secrets.json`. |
+| **[Discord](channels/discord.md)** | ✅ | clawctl-managed via `clawctl agent configure <name> --stage channels`. Token in `secrets.json` (B3 invariant); non-sensitive config in `hosts.json`. See [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration). |
+| **[Slack](channels/slack.md)** | ✅ | Socket Mode (no public endpoint). clawctl-managed via `clawctl agent configure <name> --stage channels`. Both tokens in `secrets.json`; non-sensitive config in `hosts.json`. See [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration). |
+| **`clawctl agent chat <hermes-name>`** | ✅ | Supported via the OpenAI-compatible HTTP backend (`HermesOpenAIBackend`). Connects to `http://<host>:8642/v1` using the bearer token from `secrets.json`. |
 | **Telegram / WhatsApp / Signal** | 📋 | Deferred |
 | **Email / Matrix / Mattermost / Teams / Google Chat** | 📋 | Deferred |
 
@@ -62,12 +62,12 @@ Hermes supports three channels managed by clm: a loopback OpenAI-compatible HTTP
 | **Local API server** | ✅ | `API_SERVER_ENABLED=1` + `API_SERVER_KEY` in `~/.hermes/.env`, bound to `127.0.0.1:8642` |
 | **Multi-provider** | ✅ | openrouter, anthropic, openai, ollama / custom |
 | **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). See [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md). |
-| **Pluggable memory backends** (Holographic / Honcho / Hindsight / Mem0 / Byterover / OpenViking) | 📋 | Deferred. clm's `memory` CLI sees only the default markdown backend in this iteration. |
+| **Pluggable memory backends** (Holographic / Honcho / Hindsight / Mem0 / Byterover / OpenViking) | 📋 | Deferred. clawctl's `memory` CLI sees only the default markdown backend in this iteration. |
 | **Secrets management** | ✅ | `HERMES_API_SERVER_KEY` persisted in `~/.config/clawrium/secrets.json` (NOT `hosts.json`) under the canonical instance key `<host>:hermes:<agent-name>` (single-colon, 3 components). `secrets.json` is chmod 0600 on creation. Per-agent secrets are isolated by instance key. |
 | **Auto-restart** | ✅ | Systemd unit `hermes-<agent_name>.service` with `Restart=on-failure`; systemd is the supervisor (no separate process). |
 | **Log streaming** | ✅ | `journalctl -u hermes-<agent_name>.service` on the agent host |
 | **Onboarding wizard** | ✅ | 4 stages: `providers` (required) → `identity` (auto-skipped) → `channels` (cli, discord, slack) → `validate` |
-| **Identity files (`SOUL.md` / `AGENTS.md`)** | ✅ | Hermes-managed inside `~/.hermes/`. The identity onboarding stage auto-skips (by design — hermes owns these). `SOUL.md` is reachable via `clm agent memory read/write/info` (routed to `~/.hermes/SOUL.md`). |
+| **Identity files (`SOUL.md` / `AGENTS.md`)** | ✅ | Hermes-managed inside `~/.hermes/`. The identity onboarding stage auto-skips (by design — hermes owns these). `SOUL.md` is reachable via `clawctl agent memory read/write/info` (routed to `~/.hermes/SOUL.md`). |
 | **MCP server registration** | ✅ | Supported for `atlassian` integrations — hermes launches `uvx --from mcp-atlassian==<pinned> mcp-atlassian` as a subprocess and exposes Jira + Confluence tools. See [Atlassian integration](integrations/atlassian.md). |
 | **`~/.hermes/state.db` (session/transcript history)** | 📋 | Out of scope for memory CLI |
 | **OAuth / webhook secrets** | 📋 | Deferred |
@@ -79,7 +79,7 @@ Hermes supports three channels managed by clm: a loopback OpenAI-compatible HTTP
 ### 1. Install Hermes
 
 ```bash
-clm agent install --type hermes --host <host> --name <agent-name>
+clawctl agent create --type hermes --host <host> --name <agent-name>
 ```
 
 What happens:
@@ -95,7 +95,7 @@ What happens:
      --dir /home/<agent-name>/.hermes/code
    ```
 
-5. `clm` creates `~/.hermes/` (mode 0700), `~/.hermes/.env` (mode 0600, empty), and `~/.hermes/memories/` (mode 0700) under the agent user.
+5. `clawctl` creates `~/.hermes/` (mode 0700), `~/.hermes/.env` (mode 0600, empty), and `~/.hermes/memories/` (mode 0700) under the agent user.
 6. A systemd unit `hermes-<agent-name>.service` is dropped, **disabled and not started**. Step 2 (configure) starts it.
 7. A 64-char lowercase-hex `HERMES_API_SERVER_KEY` is generated and persisted in `~/.config/clawrium/secrets.json` under the canonical instance key `<host>:hermes:<agent-name>` (single-colon, 3 components). Re-installing reuses the existing key. The 64-char-lowercase-hex format is validated on load; a hand-edit to an invalid format produces an error at next configure/start.
 
@@ -104,14 +104,14 @@ The full install takes about 10-12 minutes (uv venv, pip install, npm install, P
 ### 2. Configure the agent
 
 ```bash
-clm agent configure <agent-name>
+clawctl agent configure <agent-name>
 ```
 
 The wizard walks through:
 
 | Stage | Behavior |
 |-------|----------|
-| **providers** | Required. Pick from your registered clm providers; clm validates connectivity. |
+| **providers** | Required. Pick from your registered clawctl providers; clawctl validates connectivity. |
 | **identity** | Auto-skipped. Hermes manages `SOUL.md` / `AGENTS.md` internally inside `~/.hermes/`. |
 | **channels** | Required. Offers `cli`, `discord`, and `slack`. The api_server (CLI) is always enabled; Discord and Slack are opt-in. |
 | **validate** | Required. Runs `hermes --version`, checks `~/.hermes/.env`, and probes `GET /health`. |
@@ -140,7 +140,7 @@ Configure renders TWO files on the agent host:
 
 Hermes deep-merges `config.yaml` with its built-in defaults at load time, so only the `model:` block is rendered. Per-provider mapping:
 
-| clm `provider.type` | Rendered `model.provider` | Rendered `model.base_url` | Rendered `.env` key |
+| clawctl `provider.type` | Rendered `model.provider` | Rendered `model.base_url` | Rendered `.env` key |
 |---------------------|---------------------------|----------------------------|---------------------|
 | `openrouter` | `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
 | `anthropic` | `anthropic` | (omitted; hermes default) | `ANTHROPIC_API_KEY` |
@@ -155,7 +155,7 @@ After `.env` write, the restart handler enables and starts the systemd unit. The
 The api_server platform binds to `127.0.0.1:8642` on the agent host. From a shell on the same host:
 
 ```bash
-# Pull the bearer token from clm's secrets store on your control machine, OR
+# Pull the bearer token from clawctl's secrets store on your control machine, OR
 # read it from ~/.hermes/.env on the agent host. The two are byte-identical
 # (configure hydrates .env from secrets.json).
 #
@@ -194,23 +194,23 @@ Exposing hermes on a non-loopback interface is not supported in this iteration. 
 ### 4. Lifecycle
 
 ```bash
-clm agent start <agent-name>     # systemctl start; waits for ActiveState ∈ {active, activating}
-clm agent stop <agent-name>      # systemctl stop + disable; preserves ~/.hermes/
-clm agent remove <agent-name>    # stop, remove unit, rm ~/.hermes/, userdel
+clawctl agent start <agent-name>     # systemctl start; waits for ActiveState ∈ {active, activating}
+clawctl agent stop <agent-name>      # systemctl stop + disable; preserves ~/.hermes/
+clawctl agent delete <agent-name>    # stop, remove unit, rm ~/.hermes/, userdel
 ```
 
-`clm agent start` checks systemd's `ActiveState` after a 3-second settle window and fails loudly if the unit is not `active` or `activating`. The HTTP `/health` probe runs during the `validate` onboarding stage, NOT during `clm agent start`.
+`clawctl agent start` checks systemd's `ActiveState` after a 3-second settle window and fails loudly if the unit is not `active` or `activating`. The HTTP `/health` probe runs during the `validate` onboarding stage, NOT during `clawctl agent start`.
 
-`clm agent start` is gated by onboarding state — until `configure` completes and onboarding reaches READY, `start` is blocked with: _"Cannot start `<host:hermes:name>`: onboarding incomplete (state=`<current-state>`). Run 'clm agent configure `<agent-name>`' first."_ Use `--force` to override the gate (not recommended; bypasses provider/validate checks).
+`clawctl agent start` is gated by onboarding state — until `configure` completes and onboarding reaches READY, `start` is blocked with: _"Cannot start `<host:hermes:name>`: onboarding incomplete (state=`<current-state>`). Run 'clawctl agent configure `<agent-name>`' first."_ Use `--force` to override the gate (not recommended; bypasses provider/validate checks).
 
 ---
 
 ## Important caveats
 
-- **Discord and Slack are the clm-managed messaging gateways today.** Telegram, WhatsApp, Signal, email, Matrix, Mattermost, Teams, Google Chat are tracked as separate follow-ups. See [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration) and [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration).
-- **Identity is hermes-managed by design.** Hermes owns `SOUL.md` and `AGENTS.md` inside `~/.hermes/`; the onboarding `identity` stage auto-skips. `SOUL.md` is editable via `clm agent memory write <name> SOUL.md`, which routes to `~/.hermes/SOUL.md` (other memories live under `~/.hermes/memories/`).
+- **Discord and Slack are the clawctl-managed messaging gateways today.** Telegram, WhatsApp, Signal, email, Matrix, Mattermost, Teams, Google Chat are tracked as separate follow-ups. See [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration) and [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration).
+- **Identity is hermes-managed by design.** Hermes owns `SOUL.md` and `AGENTS.md` inside `~/.hermes/`; the onboarding `identity` stage auto-skips. `SOUL.md` is editable via `clawctl agent memory write <name> SOUL.md`, which routes to `~/.hermes/SOUL.md` (other memories live under `~/.hermes/memories/`).
 - **Bearer token lives in `secrets.json`, not `hosts.json`.** As of PR #318, the canonical store for `HERMES_API_SERVER_KEY` is `~/.config/clawrium/secrets.json` keyed by `<host>:hermes:<agent-name>` (single-colon, 3 components). Provider keys use a different schema (`provider:<provider-name>`) in the same file.
-- **Memory has hard size limits.** `MEMORY.md` ≤ 2200 chars, `USER.md` ≤ 1375 chars. Other filenames in `~/.hermes/memories/` are rejected by `clm agent memory edit`. See [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md).
+- **Memory has hard size limits.** `MEMORY.md` ≤ 2200 chars, `USER.md` ≤ 1375 chars. Other filenames in `~/.hermes/memories/` are rejected by `clawctl agent memory edit`. See [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md).
 - **Concurrent writes are visible-atomic.** Hermes' `memory_write.yaml` uses a stage-then-rename pattern (`rename(2)` within the same filesystem) so the running hermes daemon never observes a partial file. The pattern is visible-atomic, not crash-durable (no explicit `fsync`).
 
 ---
@@ -224,7 +224,7 @@ Hermes ships a two-file Markdown memory backend at `~/.hermes/memories/`:
 | `MEMORY.md` | 2200 chars | Agent notes / scratchpad |
 | `USER.md` | 1375 chars | User profile |
 
-Both are managed by `clm agent memory show|edit|delete <hermes-name>`. The dispatcher is driven by the agent's manifest (`workspace.memory_path` + `features.memory: true`), so the CLI surface is identical to openclaw. (Note: `read` and `write` are not separate CLI subcommands in this iteration — use `edit`.)
+Both are managed by `clawctl agent memory get --agent|edit|delete <hermes-name>`. The dispatcher is driven by the agent's manifest (`workspace.memory_path` + `features.memory: true`), so the CLI surface is identical to openclaw. (Note: `read` and `write` are not separate CLI subcommands in this iteration — use `edit`.)
 
 Full details: [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md).
 
@@ -233,7 +233,7 @@ Full details: [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob
 ## Troubleshooting
 
 <details>
-<summary><strong>Service won't start (`clm agent start` hangs or exits)</strong></summary>
+<summary><strong>Service won't start (`clawctl agent start` hangs or exits)</strong></summary>
 
 1. SSH to the agent host and inspect the journal:
 
@@ -247,7 +247,7 @@ Full details: [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob
    sudo cat /home/<agent-name>/.hermes/.env
    ```
 
-3. Confirm the unit's `ExecStart` references `hermes gateway run` (the foreground supervisor command — both `install.yaml` and `start.yaml` render this). If you see `gateway start` in the unit file, you're on a pre-PR #318 build; `clm agent remove` + reinstall to pick up the corrected unit.
+3. Confirm the unit's `ExecStart` references `hermes gateway run` (the foreground supervisor command — both `install.yaml` and `start.yaml` render this). If you see `gateway start` in the unit file, you're on a pre-PR #318 build; `clawctl agent delete` + reinstall to pick up the corrected unit.
 
 </details>
 
@@ -266,7 +266,7 @@ Full details: [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob
    curl -v http://127.0.0.1:8642/health
    ```
 
-3. If the service is active but the probe fails, the most likely cause is the api_server platform failing to register. That happens when `API_SERVER_KEY` is missing from `.env` (the configure stage should always write it). Re-run `clm agent configure <name> --stage providers`.
+3. If the service is active but the probe fails, the most likely cause is the api_server platform failing to register. That happens when `API_SERVER_KEY` is missing from `.env` (the configure stage should always write it). Re-run `clawctl agent configure <name> --stage providers`.
 
 4. From your control machine, you cannot reach `/health` directly — use SSH port-forwarding (see [Off-host access](#off-host-access-loopback-constraint)).
 
@@ -278,13 +278,13 @@ Full details: [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob
 1. Verify the provider is registered and has a key:
 
    ```bash
-   clm provider list
+   clawctl provider registry get
    ```
 
-2. Re-run the onboarding `providers` stage; clm runs `provider_test` connectivity validation as part of that stage:
+2. Re-run the onboarding `providers` stage; clawctl runs `provider_test` connectivity validation as part of that stage:
 
    ```bash
-   clm agent configure <agent-name> --stage providers
+   clawctl agent configure <agent-name> --stage providers
    ```
 
 3. For `ollama` / custom endpoints, ensure the **agent host** (not just your control machine) can reach the endpoint URL:
@@ -304,12 +304,12 @@ Full details: [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob
 <details>
 <summary><strong>`memory edit USER.md` rejects on save with character limit</strong></summary>
 
-`USER.md` is hard-capped at 1375 chars, `MEMORY.md` at 2200. The limit is enforced client-side in `clm` before any Ansible dispatch, so you get an immediate error after `$EDITOR` exits. Trim the content and retry. Other filenames are rejected with `"hermes memory accepts only MEMORY.md and USER.md"`.
+`USER.md` is hard-capped at 1375 chars, `MEMORY.md` at 2200. The limit is enforced client-side in `clawctl` before any Ansible dispatch, so you get an immediate error after `$EDITOR` exits. Trim the content and retry. Other filenames are rejected with `"hermes memory accepts only MEMORY.md and USER.md"`.
 
 </details>
 
 <details>
-<summary><strong>`userdel` fails on `clm agent remove`</strong></summary>
+<summary><strong>`userdel` fails on `clawctl agent delete`</strong></summary>
 
 Hermes runs `loginctl enable-linger` on first start, which keeps a per-user systemd manager + dbus running even after the system unit stops. `remove.yaml` runs `loginctl disable-linger` + `pkill -KILL -u <user>` before `userdel`, but if you hit a stuck state, do it manually:
 
@@ -319,7 +319,7 @@ sudo pkill -KILL -u <agent-name>
 sudo userdel -r <agent-name>
 ```
 
-Then re-run `clm agent remove <name> --force`.
+Then re-run `clawctl agent delete <name> --force`.
 
 </details>
 
@@ -330,8 +330,8 @@ Then re-run `clm agent remove <name> --force`.
 The following are explicitly out of scope for issue #68 and tracked as separate follow-ups (see `.itx/68/00_PLAN.md` → "Out of scope"):
 
 - Messaging gateway pairing: Telegram, WhatsApp, Signal, email, Teams, Google Chat, Matrix, Mattermost, QQBot, Feishu, DingTalk. (Discord and Slack shipped — see [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration) and [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration).)
-- Pluggable memory backends: Holographic, Honcho, Hindsight, Mem0, Byterover, OpenViking. clm's `memory` CLI only sees the default markdown backend.
-- `~/.hermes/state.db` (session / transcript history) inspection via clm.
+- Pluggable memory backends: Holographic, Honcho, Hindsight, Mem0, Byterover, OpenViking. clawctl's `memory` CLI only sees the default markdown backend.
+- `~/.hermes/state.db` (session / transcript history) inspection via clawctl.
 - OAuth file (`HERMES_OAUTH_FILE`) and webhook secrets.
 - Installer-checksum refresh helper (manifest must be re-pinned every version bump — currently manual).
 

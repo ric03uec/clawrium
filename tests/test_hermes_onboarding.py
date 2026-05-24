@@ -262,16 +262,16 @@ def test_validate_hermes_health_reports_missing_agent(hermes_host_record):
 @pytest.mark.parametrize(
     "payload",
     [
-        "hermes; rm -rf /",        # command chaining
-        "hermes$(whoami)",          # subshell substitution
-        "hermes`id`",               # backtick substitution
-        "1hermes",                  # leading digit
-        "Hermes",                   # uppercase
-        "a" * 33,                   # over 32 chars
-        "her mes",                  # whitespace
-        "",                          # empty
-        "hermes\n--version",       # newline injection
-        "hermes/../etc/passwd",     # path traversal
+        "hermes; rm -rf /",  # command chaining
+        "hermes$(whoami)",  # subshell substitution
+        "hermes`id`",  # backtick substitution
+        "1hermes",  # leading digit
+        "Hermes",  # uppercase
+        "a" * 33,  # over 32 chars
+        "her mes",  # whitespace
+        "",  # empty
+        "hermes\n--version",  # newline injection
+        "hermes/../etc/passwd",  # path traversal
     ],
 )
 def test_validate_hermes_health_rejects_injection_payload_in_claw_name(payload):

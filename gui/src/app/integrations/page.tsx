@@ -117,7 +117,7 @@ export default function IntegrationsPage() {
           <p className="text-xs text-muted">
             Use{" "}
             <code className="px-1 py-0.5 rounded bg-panel text-secondary">
-              clm integration add &lt;name&gt; --type &lt;type&gt;
+              clawctl integration registry create &lt;name&gt; --type &lt;type&gt;
             </code>{" "}
             or click <strong>Add Integration</strong> to connect GitHub,
             GitLab, Atlassian, Linear, or Notion.

@@ -282,6 +282,7 @@ async def update_provider_endpoint(name: str, body: ProviderUpdate):
         updates["accelerator_vendor"] = body.accelerator_vendor
 
     if updates:
+
         def _apply(existing: dict) -> dict:
             return {**existing, **updates}
 

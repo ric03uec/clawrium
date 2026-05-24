@@ -38,7 +38,15 @@ class TestLoadModelCatalog:
     def test_load_model_catalog_has_all_providers(self):
         """load_model_catalog includes all expected providers."""
         catalog = load_model_catalog()
-        expected_providers = ["openai", "anthropic", "openrouter", "bedrock", "vertex", "zai", "ollama"]
+        expected_providers = [
+            "openai",
+            "anthropic",
+            "openrouter",
+            "bedrock",
+            "vertex",
+            "zai",
+            "ollama",
+        ]
         for provider in expected_providers:
             assert provider in catalog["providers"]
 
@@ -52,7 +60,9 @@ class TestLoadModelCatalog:
 
     def test_load_model_catalog_file_not_found(self):
         """load_model_catalog raises CatalogLoadError when file missing."""
-        with patch("clawrium.core.providers.models.CATALOG_FILE", "/nonexistent/path.json"):
+        with patch(
+            "clawrium.core.providers.models.CATALOG_FILE", "/nonexistent/path.json"
+        ):
             load_model_catalog.cache_clear()
             with pytest.raises(CatalogLoadError) as exc_info:
                 load_model_catalog()
@@ -258,7 +268,15 @@ class TestGetCatalogProviders:
     def test_get_catalog_providers_includes_all(self):
         """get_catalog_providers includes all expected providers."""
         providers = get_catalog_providers()
-        expected = ["anthropic", "bedrock", "ollama", "openai", "openrouter", "vertex", "zai"]
+        expected = [
+            "anthropic",
+            "bedrock",
+            "ollama",
+            "openai",
+            "openrouter",
+            "vertex",
+            "zai",
+        ]
         assert providers == expected
 
 
@@ -299,7 +317,9 @@ class TestCatalogSchema:
         for provider, data in catalog["providers"].items():
             for model in data["models"]:
                 missing = required_fields - set(model.keys())
-                assert not missing, f"Model {model.get('id', 'unknown')} in {provider} missing: {missing}"
+                assert not missing, (
+                    f"Model {model.get('id', 'unknown')} in {provider} missing: {missing}"
+                )
 
     def test_all_context_windows_are_non_negative(self):
         """All context_window values are non-negative integers.
@@ -311,7 +331,9 @@ class TestCatalogSchema:
         for provider, data in catalog["providers"].items():
             for model in data["models"]:
                 assert isinstance(model["context_window"], int)
-                assert model["context_window"] >= 0, f"Invalid context_window for {model['id']}"
+                assert model["context_window"] >= 0, (
+                    f"Invalid context_window for {model['id']}"
+                )
 
     def test_all_tags_are_lists_of_strings(self):
         """All tags fields are lists of strings."""

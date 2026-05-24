@@ -227,9 +227,7 @@ def test_update_ollama_rejects_cloud_metadata_endpoint(monkeypatch):
     """PUT on an ollama provider must reject 169.254.x.x."""
     existing = {"name": "local", "type": "ollama"}
     monkeypatch.setattr(providers_mod, "get_provider", lambda name: existing)
-    monkeypatch.setattr(
-        providers_mod, "update_provider", lambda *a, **kw: True
-    )
+    monkeypatch.setattr(providers_mod, "update_provider", lambda *a, **kw: True)
 
     body = ProviderUpdate(endpoint="http://169.254.169.254/")
     with pytest.raises(HTTPException) as exc_info:

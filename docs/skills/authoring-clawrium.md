@@ -41,7 +41,7 @@ The normalized shape:
 # skills/clawrium/<name>/_meta.yaml
 name: <name>              # MUST equal the directory name
 description: >-
-  One-line elevator pitch. Surfaces in `clm skill list` and the GUI.
+  One-line elevator pitch. Surfaces in `clawctl skill registry get` and the GUI.
 version: 0.1.0            # semver (jsonschema-enforced)
 license: MIT              # optional, surfaces in hermes metadata
 author: clawrium          # optional
@@ -133,9 +133,9 @@ every claw it claims compatibility with. From a checkout pointing at
 your dev fleet:
 
 ```bash
-clm agent skill install <openclaw-agent> clawrium/<name>
-clm agent skill install <hermes-agent>   clawrium/<name>
-clm agent skill install <zeroclaw-agent> clawrium/<name>
+clawctl agent skill attach <openclaw-agent> clawrium/<name>
+clawctl agent skill attach <hermes-agent>   clawrium/<name>
+clawctl agent skill attach <zeroclaw-agent> clawrium/<name>
 ```
 
 Confirm each agent's native `skills list` shows the new skill.

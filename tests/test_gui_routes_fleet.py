@@ -145,7 +145,9 @@ def test_web_ui_reports_tunnel_failure_as_unavailable(isolated_config: Path):
 
     with (
         patch("clawrium.core.web_ui.resolve", return_value=resolved),
-        patch("clawrium.core.web_ui_tunnel.ensure", side_effect=TunnelError("ssh failed")),
+        patch(
+            "clawrium.core.web_ui_tunnel.ensure", side_effect=TunnelError("ssh failed")
+        ),
     ):
         with TestClient(app) as client:
             resp = client.get("/api/fleet/agents/demo/web-ui")
@@ -254,7 +256,7 @@ def test_pairing_code_409_when_bearer_missing(isolated_config: Path):
         with TestClient(app) as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
     assert resp.status_code == 409
-    assert "clm agent configure" in resp.json()["detail"]
+    assert "clawctl agent configure" in resp.json()["detail"]
 
 
 def test_pairing_code_409_when_bearer_blank(isolated_config: Path):
@@ -355,7 +357,7 @@ def test_pairing_code_409_on_daemon_401(isolated_config: Path):
             resp = client.post("/api/fleet/agents/demo/pairing-code")
 
     assert resp.status_code == 409
-    assert "clm agent configure" in resp.json()["detail"]
+    assert "clawctl agent configure" in resp.json()["detail"]
 
 
 def test_pairing_code_503_on_daemon_503(isolated_config: Path):
@@ -389,7 +391,7 @@ def test_pairing_code_503_on_daemon_503(isolated_config: Path):
             resp = client.post("/api/fleet/agents/demo/pairing-code")
 
     assert resp.status_code == 503
-    assert "clm agent restart" in resp.json()["detail"]
+    assert "clawctl agent restart" in resp.json()["detail"]
 
 
 def test_pairing_code_502_on_unexpected_daemon_status(isolated_config: Path):

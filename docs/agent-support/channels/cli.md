@@ -22,17 +22,17 @@ CLI is automatically configured for all agents. No additional setup required.
 
 ```bash
 # Start chatting
-clm chat <agent-name>
+clawctl agent chat <agent-name>
 
 # Example
-clm chat my-assistant
+clawctl agent chat my-assistant
 ```
 
 ### One-off Queries
 
 ```bash
 # Single query (if supported by agent)
-echo "What's the weather?" | clm chat my-assistant --stdin
+echo "What's the weather?" | clawctl agent chat my-assistant --stdin
 ```
 
 ### Scripting
@@ -41,7 +41,7 @@ echo "What's the weather?" | clm chat my-assistant --stdin
 #!/bin/bash
 # automated-task.sh
 
-RESPONSE=$(echo "Analyze this log file" | clm chat log-analyzer --stdin)
+RESPONSE=$(echo "Analyze this log file" | clawctl agent chat log-analyzer --stdin)
 echo "$RESPONSE"
 ```
 
@@ -85,18 +85,18 @@ CLI channel has minimal configuration:
 
 ```bash
 # Add to ~/.bashrc or ~/.zshrc
-alias ask='clm chat my-assistant'
+alias ask='clawctl agent chat my-assistant'
 ```
 
 ## Troubleshooting
 
 **"Connection refused"**
-- Ensure agent is running: `clm ps`
-- Start agent if needed: `clm agent start <name>`
+- Ensure agent is running: `clawctl agent get`
+- Start agent if needed: `clawctl agent start <name>`
 
 **"Agent not responding"**
-- Check agent logs: `clm agent logs <name>`
-- Verify provider connectivity: `clm provider status <provider>`
+- Check agent logs: `clawctl agent logs <name>`
+- Verify provider connectivity: `clawctl provider status <provider>`
 
 **"Slow responses"**
 - Normal for complex queries

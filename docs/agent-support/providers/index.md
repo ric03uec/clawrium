@@ -30,16 +30,16 @@ Add a provider in one command:
 
 ```bash
 # Cloud provider (OpenAI, Anthropic, etc.)
-clm provider add my-openai --type openai
+clawctl provider registry create my-openai --type openai
 
 # Self-hosted (Ollama)
-clm provider add local-llm --type ollama --url http://192.168.1.50:11434
+clawctl provider registry create local-llm --type ollama --url http://192.168.1.50:11434
 ```
 
 Then assign it to an agent during onboarding:
 
 ```bash
-clm agent configure <agent-name>
+clawctl agent configure <agent-name>
 # Select provider during the providers stage
 ```
 
@@ -47,19 +47,19 @@ clm agent configure <agent-name>
 
 ```bash
 # List all providers
-clm provider list
+clawctl provider registry get
 
 # List provider types
-clm provider types
+clawctl provider registry get --types
 
 # View available models for a provider type
-clm provider types <type> models
+clawctl provider registry get --types <type> models
 
 # Edit a provider
-clm provider edit <provider-name> --model <new-model>
+clawctl provider registry edit <provider-name> --model <new-model>
 
 # Remove a provider
-clm provider remove <provider-name>
+clawctl provider registry delete <provider-name>
 ```
 
 ## Security

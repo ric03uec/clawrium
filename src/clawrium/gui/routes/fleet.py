@@ -312,9 +312,7 @@ async def agent_web_ui(agent_key: str) -> dict[str, Any]:
         return {
             "available": False,
             "local_url": None,
-            "reason": (
-                f"Agent type '{agent_type}' does not expose a native web UI."
-            ),
+            "reason": (f"Agent type '{agent_type}' does not expose a native web UI."),
         }
 
     if _host_is_local(ui.host):
@@ -414,8 +412,7 @@ async def agent_pairing_code(agent_key: str) -> dict[str, Any]:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Agent '{agent_key}' does not declare a native web UI in "
-                "its manifest."
+                f"Agent '{agent_key}' does not declare a native web UI in its manifest."
             ),
         )
 
@@ -430,7 +427,7 @@ async def agent_pairing_code(agent_key: str) -> dict[str, Any]:
             status_code=409,
             detail=(
                 f"Agent '{agent_key}' has no gateway bearer persisted. Run "
-                f"`clm agent configure {agent_key}` first."
+                f"`clawctl agent configure {agent_key}` first."
             ),
         )
 
@@ -490,7 +487,7 @@ async def agent_pairing_code(agent_key: str) -> dict[str, Any]:
             status_code=409,
             detail=(
                 f"Agent daemon rejected the persisted bearer for "
-                f"'{agent_key}' (401). Re-run `clm agent configure "
+                f"'{agent_key}' (401). Re-run `clawctl agent configure "
                 f"{agent_key}` to re-pair from scratch."
             ),
         )
@@ -499,7 +496,7 @@ async def agent_pairing_code(agent_key: str) -> dict[str, Any]:
             status_code=503,
             detail=(
                 "Agent daemon reports pairing disabled or unavailable (503). "
-                f"Check the daemon and restart with `clm agent restart "
+                f"Check the daemon and restart with `clawctl agent restart "
                 f"{agent_key}`."
             ),
         )

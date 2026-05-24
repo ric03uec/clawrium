@@ -21,19 +21,19 @@ validator in CI.
 
 ```bash
 # Browse the catalog
-clm skill list
+clawctl skill registry get
 
 # Inspect a skill before installing
-clm skill show clawrium/tdd
+clawctl skill registry describe clawrium/tdd
 
 # Install onto an agent
-clm agent skill install my-agent clawrium/tdd
+clawctl agent skill attach my-agent clawrium/tdd
 
 # List skills installed on an agent
-clm agent skill list my-agent
+clawctl agent skill get --agent my-agent
 
 # Remove a skill
-clm agent skill remove my-agent clawrium/tdd
+clawctl agent skill detach my-agent clawrium/tdd
 ```
 
 The web dashboard mirrors the same surface under **Agents → `<agent>`
@@ -69,7 +69,7 @@ openclaw agent, hermes-shaped on a hermes agent, and zeroclaw-shaped
 
 Use a native registry when the skill needs that claw's specific
 frontmatter fields. Native skills are installable **only** on agents
-of the matching type — `clm agent skill install` fails fast if you try
+of the matching type — `clawctl agent skill attach` fails fast if you try
 to mix them.
 
 ## On-host install path
@@ -82,14 +82,14 @@ to mix them.
 
 :::note
 The `~` above is the **agent unix user's** home, not the operator's.
-Each agent installed via `clm agent install` runs as its own dedicated
+Each agent installed via `clawctl agent create` runs as its own dedicated
 user named after the agent (so an agent named `tdd-hermes` runs as
 user `tdd-hermes` with files under `/home/tdd-hermes/`). To SSH-verify
 after install, switch users on the remote host with
 `sudo -u <agent-name> ls /home/<agent-name>/...`.
 :::
 
-Re-running `clm agent skill install` is the drift recovery — the local
+Re-running `clawctl agent skill attach` is the drift recovery — the local
 desired-state file at
 `~/.config/clawrium/agents/<agent>/skills.json` is the source of truth,
 and every install/remove re-applies it end-to-end. There is no separate
@@ -110,10 +110,10 @@ ssh wolf-i 'ls ~/.hermes/skills/clawrium/tdd/'
 ssh wolf-i 'sudo -u tdd-hermes ls /home/tdd-hermes/.hermes/skills/clawrium/tdd/'
 ```
 
-### `clm agent remove` leaves the skill state file behind
+### `clawctl agent delete` leaves the skill state file behind
 
 Known limitation: `~/.config/clawrium/agents/<name>/skills.json` is
-left behind when you `clm agent remove <name>`. Harmless on re-install
+left behind when you `clawctl agent delete <name>`. Harmless on re-install
 (the file contains an empty array) but clean it explicitly if you want
 a clean slate:
 

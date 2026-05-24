@@ -50,10 +50,10 @@ def test_state_file_path_uses_xdg(tmp_path: Path):
     "bad",
     [
         "",
-        "Cap",            # uppercase
-        "1agent",         # starts with digit
-        "agent$name",     # special chars
-        "x" * 33,         # too long
+        "Cap",  # uppercase
+        "1agent",  # starts with digit
+        "agent$name",  # special chars
+        "x" * 33,  # too long
         "../escape",
     ],
 )

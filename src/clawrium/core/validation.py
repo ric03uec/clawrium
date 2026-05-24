@@ -992,7 +992,7 @@ def validate_hermes_health(
     shell_cmd = (
         f"sudo -u {claw_name} bash -c '"
         f"  export HOME={agent_home}; "
-        f'  export PATH={agent_home}/.local/bin:$PATH; '
+        f"  export PATH={agent_home}/.local/bin:$PATH; "
         f"  echo BINARY_CHECK; "
         f"  hermes --version 2>&1; "
         f"  echo BINARY_RC=$?; "
@@ -1030,9 +1030,7 @@ def validate_hermes_health(
         except Exception as e:
             return ValidationResult(
                 passed=False,
-                errors=[
-                    f"Failed to run hermes health checks on '{display_host}': {e}"
-                ],
+                errors=[f"Failed to run hermes health checks on '{display_host}': {e}"],
             )
 
         # Drain events while the runner dir is still on disk; the iterator
@@ -1077,9 +1075,7 @@ def validate_hermes_health(
                 binary_rc = None
             break
     if binary_rc != 0:
-        errors.append(
-            ERROR_MESSAGES["hermes_binary_missing"].format(host=display_host)
-        )
+        errors.append(ERROR_MESSAGES["hermes_binary_missing"].format(host=display_host))
 
     # Env check: literal token ENV_OK or ENV_MISSING.
     env_ok = "ENV_OK" in lines

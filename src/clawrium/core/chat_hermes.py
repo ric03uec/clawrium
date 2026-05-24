@@ -57,9 +57,7 @@ class HermesOpenAIBackend:
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._auth_token = (
-            auth_token
-            if isinstance(auth_token, SecretStr)
-            else SecretStr(auth_token)
+            auth_token if isinstance(auth_token, SecretStr) else SecretStr(auth_token)
         )
         self._model = model
         self._timeout_seconds = timeout_seconds
@@ -278,7 +276,7 @@ async def _consume_sse_stream(
             continue
         # Per spec, a single leading space after the colon is stripped;
         # we use lstrip() so common "data:foo" (no space) variants work too.
-        data_lines.append(line[len("data:"):].lstrip(" "))
+        data_lines.append(line[len("data:") :].lstrip(" "))
 
     # Servers that close the connection without a trailing blank line still
     # delivered a complete event — flush whatever sits in the buffer.
@@ -387,13 +385,13 @@ def _extract_delta_content(chunk: Any) -> str:
 _CONTROL_CHARS_RE = re.compile(
     "["
     "\x00-\x1f\x7f-\x9f"
-    "\u061c"             # ARABIC LETTER MARK (UAX#9 bidi format char)
-    "\u200b-\u200f"      # ZWSP, ZWNJ, ZWJ, LRM, RLM
-    "\u2028-\u2029"      # LINE / PARAGRAPH SEPARATOR
-    "\u202a-\u202e"      # LRE, RLE, PDF, LRO, RLO
-    "\u2060"             # WORD JOINER
-    "\u2066-\u2069"      # LRI, RLI, FSI, PDI
-    "\ufeff"             # ZWNBSP / BOM
+    "\u061c"  # ARABIC LETTER MARK (UAX#9 bidi format char)
+    "\u200b-\u200f"  # ZWSP, ZWNJ, ZWJ, LRM, RLM
+    "\u2028-\u2029"  # LINE / PARAGRAPH SEPARATOR
+    "\u202a-\u202e"  # LRE, RLE, PDF, LRO, RLO
+    "\u2060"  # WORD JOINER
+    "\u2066-\u2069"  # LRI, RLI, FSI, PDI
+    "\ufeff"  # ZWNBSP / BOM
     "]"
 )
 _WHITESPACE_RUN_RE = re.compile(r" +")
@@ -407,13 +405,13 @@ _WHITESPACE_RUN_RE = re.compile(r" +")
 _ASSISTANT_TEXT_STRIP_RE = re.compile(
     "["
     "\x00-\x08\x0b-\x1f\x7f-\x9f"
-    "\u061c"             # ARABIC LETTER MARK (UAX#9 bidi format char)
-    "\u200b-\u200f"      # ZWSP, ZWNJ, ZWJ, LRM, RLM
-    "\u2028-\u2029"      # LINE / PARAGRAPH SEPARATOR
-    "\u202a-\u202e"      # LRE, RLE, PDF, LRO, RLO
-    "\u2060"             # WORD JOINER
-    "\u2066-\u2069"      # LRI, RLI, FSI, PDI
-    "\ufeff"             # ZWNBSP / BOM
+    "\u061c"  # ARABIC LETTER MARK (UAX#9 bidi format char)
+    "\u200b-\u200f"  # ZWSP, ZWNJ, ZWJ, LRM, RLM
+    "\u2028-\u2029"  # LINE / PARAGRAPH SEPARATOR
+    "\u202a-\u202e"  # LRE, RLE, PDF, LRO, RLO
+    "\u2060"  # WORD JOINER
+    "\u2066-\u2069"  # LRI, RLI, FSI, PDI
+    "\ufeff"  # ZWNBSP / BOM
     "]"
 )
 

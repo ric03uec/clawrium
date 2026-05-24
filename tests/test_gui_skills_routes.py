@@ -205,7 +205,7 @@ def test_detail_404_body_has_no_filesystem_paths(monkeypatch, tmp_path):
     # Still mentions the ref so the message is actionable.
     assert "clawrium/ghost" in detail
     # And points the user at the CLI workflow rather than the path.
-    assert "clm skill list" in detail
+    assert "clawctl skill registry get" in detail
 
 
 def test_list_degrades_when_one_skill_fails(monkeypatch, tmp_path):
@@ -362,9 +362,7 @@ def test_compatibility_map_non_dict_coerces_to_all_false():
 
     # List form (e.g. `compatibility: [openclaw, hermes]`) — also
     # rejected by schema, but the runtime guard still fail-closes.
-    result_list = skills_route._compatibility_map(
-        ref, {"compatibility": ["openclaw"]}
-    )
+    result_list = skills_route._compatibility_map(ref, {"compatibility": ["openclaw"]})
     assert all(v is False for v in result_list.values()), result_list
 
 

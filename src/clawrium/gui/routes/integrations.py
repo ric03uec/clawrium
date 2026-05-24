@@ -171,9 +171,7 @@ async def get_integration_detail(name: str):
     """Get a single integration's details plus the agents that reference it."""
     record = await asyncio.to_thread(_get_integration_or_500, name)
     if not record:
-        raise HTTPException(
-            status_code=404, detail=f"Integration '{name}' not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Integration '{name}' not found")
 
     agents_using_raw = await asyncio.to_thread(find_agents_using_integration, name)
     agents_using = [
@@ -203,8 +201,7 @@ async def create_integration(body: IntegrationCreate):
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Unknown credential keys for type '{body.type}': "
-                f"{', '.join(unknown)}"
+                f"Unknown credential keys for type '{body.type}': {', '.join(unknown)}"
             ),
         )
 
@@ -224,9 +221,7 @@ async def create_integration(body: IntegrationCreate):
         if not value:
             continue
         try:
-            await asyncio.to_thread(
-                set_integration_credential, body.name, key, value
-            )
+            await asyncio.to_thread(set_integration_credential, body.name, key, value)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "failed to store credential %s for integration %s: %s",
@@ -245,9 +240,7 @@ async def create_integration(body: IntegrationCreate):
 
 
 @router.patch("/{name}/credentials")
-async def update_integration_credentials(
-    name: str, body: IntegrationCredentialsUpdate
-):
+async def update_integration_credentials(name: str, body: IntegrationCredentialsUpdate):
     """Update one or more credentials for an existing integration.
 
     Empty-string values are skipped (allows partial updates without
@@ -255,9 +248,7 @@ async def update_integration_credentials(
     """
     record = await asyncio.to_thread(_get_integration_or_500, name)
     if not record:
-        raise HTTPException(
-            status_code=404, detail=f"Integration '{name}' not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Integration '{name}' not found")
 
     integration_type = record.get("type")
     valid_keys = {c["key"] for c in _credential_keys_for(integration_type)}
@@ -299,16 +290,12 @@ async def delete_integration(name: str):
     """
     record = await asyncio.to_thread(_get_integration_or_500, name)
     if not record:
-        raise HTTPException(
-            status_code=404, detail=f"Integration '{name}' not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Integration '{name}' not found")
 
     try:
         removed = await asyncio.to_thread(remove_integration, name)
     except IntegrationInUseError as exc:
-        agents_using_raw = await asyncio.to_thread(
-            find_agents_using_integration, name
-        )
+        agents_using_raw = await asyncio.to_thread(find_agents_using_integration, name)
         agents_using = [
             {"hostname": hostname, "agent_key": agent_key}
             for hostname, agent_key in agents_using_raw
@@ -323,8 +310,6 @@ async def delete_integration(name: str):
 
     if not removed:
         # Race: someone deleted it between our get + remove. Treat as 404.
-        raise HTTPException(
-            status_code=404, detail=f"Integration '{name}' not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Integration '{name}' not found")
 
     return {"success": True, "name": name}

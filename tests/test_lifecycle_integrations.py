@@ -31,32 +31,34 @@ class TestConfigureAgentIntegrationLoading:
         mock_result.status = "successful"
         return mock_result
 
-    def test_configure_agent_loads_assigned_integrations(self, mock_host, mock_ansible_success, tmp_path):
+    def test_configure_agent_loads_assigned_integrations(
+        self, mock_host, mock_ansible_success, tmp_path
+    ):
         """configure_agent calls get_agent_integrations for assigned integrations."""
-        with patch(
-            "clawrium.core.lifecycle.get_host", return_value=mock_host
-        ), patch(
-            "clawrium.core.lifecycle._resolve_agent_record"
-        ) as mock_resolve, patch(
-            "clawrium.core.integrations.get_agent_integrations"
-        ) as mock_get_integrations, patch(
-            "clawrium.core.integrations.get_integration"
-        ) as mock_get_integration, patch(
-            "clawrium.core.integrations.get_integration_credentials"
-        ) as mock_get_credentials, patch(
-            "clawrium.core.lifecycle.ansible_runner.run"
-        ) as mock_run, patch(
-            "clawrium.core.lifecycle.update_host", return_value=True
-        ), patch(
-            "clawrium.core.lifecycle.get_host_private_key", return_value="ssh-key-content"
-        ), patch(
-            "clawrium.core.lifecycle._get_lifecycle_playbook_path"
-        ) as mock_playbook_path, patch(
-            "clawrium.core.lifecycle._resolve_agent_type", return_value="openclaw"
-        ), patch(
-            "clawrium.core.lifecycle.get_instance_secrets", return_value={}
-        ), patch(
-            "clawrium.core.lifecycle._cleanup_ansible_artifacts"
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=mock_host),
+            patch("clawrium.core.lifecycle._resolve_agent_record") as mock_resolve,
+            patch(
+                "clawrium.core.integrations.get_agent_integrations"
+            ) as mock_get_integrations,
+            patch("clawrium.core.integrations.get_integration") as mock_get_integration,
+            patch(
+                "clawrium.core.integrations.get_integration_credentials"
+            ) as mock_get_credentials,
+            patch("clawrium.core.lifecycle.ansible_runner.run") as mock_run,
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value="ssh-key-content",
+            ),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path"
+            ) as mock_playbook_path,
+            patch(
+                "clawrium.core.lifecycle._resolve_agent_type", return_value="openclaw"
+            ),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value={}),
+            patch("clawrium.core.lifecycle._cleanup_ansible_artifacts"),
         ):
             # Setup playbook path
             playbook = tmp_path / "configure.yaml"
@@ -68,7 +70,11 @@ class TestConfigureAgentIntegrationLoading:
             template_dir.mkdir()
             (template_dir / "config.toml.j2").write_text("# config")
 
-            mock_resolve.return_value = ("test-agent", "openclaw", mock_host["agents"]["test-agent"])
+            mock_resolve.return_value = (
+                "test-agent",
+                "openclaw",
+                mock_host["agents"]["test-agent"],
+            )
             mock_get_integrations.return_value = ["work-github", "company-atlassian"]
             mock_get_integration.side_effect = [
                 {"name": "work-github", "type": "github"},
@@ -76,7 +82,11 @@ class TestConfigureAgentIntegrationLoading:
             ]
             mock_get_credentials.side_effect = [
                 {"GITHUB_TOKEN": "ghp_test123"},
-                {"ATLASSIAN_URL": "https://company.atlassian.net", "ATLASSIAN_EMAIL": "test@example.com", "ATLASSIAN_API_TOKEN": "atlassian_token"},
+                {
+                    "ATLASSIAN_URL": "https://company.atlassian.net",
+                    "ATLASSIAN_EMAIL": "test@example.com",
+                    "ATLASSIAN_API_TOKEN": "atlassian_token",
+                },
             ]
             mock_run.return_value = mock_ansible_success
 
@@ -137,41 +147,47 @@ class TestConfigureAgentIntegrationLoading:
         # Both should exist
         assert len(integrations_data) == 2
         assert integrations_data["work-github"]["GITHUB_TOKEN"] == "ghp_work_token"
-        assert integrations_data["personal-github"]["GITHUB_TOKEN"] == "ghp_personal_token"
+        assert (
+            integrations_data["personal-github"]["GITHUB_TOKEN"] == "ghp_personal_token"
+        )
 
-    def test_missing_integration_skipped_gracefully(self, mock_host, mock_ansible_success, tmp_path, caplog):
+    def test_missing_integration_skipped_gracefully(
+        self, mock_host, mock_ansible_success, tmp_path, caplog
+    ):
         """configure_agent logs warning for missing integration and continues."""
-        with patch(
-            "clawrium.core.lifecycle.get_host", return_value=mock_host
-        ), patch(
-            "clawrium.core.lifecycle._resolve_agent_record"
-        ) as mock_resolve, patch(
-            "clawrium.core.integrations.get_agent_integrations"
-        ) as mock_get_integrations, patch(
-            "clawrium.core.integrations.get_integration"
-        ) as mock_get_integration, patch(
-            "clawrium.core.integrations.get_integration_credentials"
-        ), patch(
-            "clawrium.core.lifecycle.ansible_runner.run"
-        ) as mock_run, patch(
-            "clawrium.core.lifecycle.update_host", return_value=True
-        ), patch(
-            "clawrium.core.lifecycle.get_host_private_key", return_value="ssh-key-content"
-        ), patch(
-            "clawrium.core.lifecycle._get_lifecycle_playbook_path"
-        ) as mock_playbook_path, patch(
-            "clawrium.core.lifecycle._resolve_agent_type", return_value="openclaw"
-        ), patch(
-            "clawrium.core.lifecycle.get_instance_secrets", return_value={}
-        ), patch(
-            "clawrium.core.lifecycle._cleanup_ansible_artifacts"
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=mock_host),
+            patch("clawrium.core.lifecycle._resolve_agent_record") as mock_resolve,
+            patch(
+                "clawrium.core.integrations.get_agent_integrations"
+            ) as mock_get_integrations,
+            patch("clawrium.core.integrations.get_integration") as mock_get_integration,
+            patch("clawrium.core.integrations.get_integration_credentials"),
+            patch("clawrium.core.lifecycle.ansible_runner.run") as mock_run,
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value="ssh-key-content",
+            ),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path"
+            ) as mock_playbook_path,
+            patch(
+                "clawrium.core.lifecycle._resolve_agent_type", return_value="openclaw"
+            ),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value={}),
+            patch("clawrium.core.lifecycle._cleanup_ansible_artifacts"),
         ):
             # Setup playbook path
             playbook = tmp_path / "configure.yaml"
             playbook.write_text("---\n- hosts: all\n")
             mock_playbook_path.return_value = playbook
 
-            mock_resolve.return_value = ("test-agent", "openclaw", mock_host["agents"]["test-agent"])
+            mock_resolve.return_value = (
+                "test-agent",
+                "openclaw",
+                mock_host["agents"]["test-agent"],
+            )
             mock_get_integrations.return_value = ["missing-integration"]
             mock_get_integration.return_value = None  # Integration not found
             mock_run.return_value = mock_ansible_success
@@ -190,41 +206,50 @@ class TestConfigureAgentIntegrationLoading:
             # Should continue without failing - ansible_runner.run should be called
             mock_run.assert_called_once()
 
-    def test_integration_without_credentials_skipped(self, mock_host, mock_ansible_success, tmp_path, caplog):
+    def test_integration_without_credentials_skipped(
+        self, mock_host, mock_ansible_success, tmp_path, caplog
+    ):
         """configure_agent logs warning for integration without credentials."""
-        with patch(
-            "clawrium.core.lifecycle.get_host", return_value=mock_host
-        ), patch(
-            "clawrium.core.lifecycle._resolve_agent_record"
-        ) as mock_resolve, patch(
-            "clawrium.core.integrations.get_agent_integrations"
-        ) as mock_get_integrations, patch(
-            "clawrium.core.integrations.get_integration"
-        ) as mock_get_integration, patch(
-            "clawrium.core.integrations.get_integration_credentials"
-        ) as mock_get_credentials, patch(
-            "clawrium.core.lifecycle.ansible_runner.run"
-        ) as mock_run, patch(
-            "clawrium.core.lifecycle.update_host", return_value=True
-        ), patch(
-            "clawrium.core.lifecycle.get_host_private_key", return_value="ssh-key-content"
-        ), patch(
-            "clawrium.core.lifecycle._get_lifecycle_playbook_path"
-        ) as mock_playbook_path, patch(
-            "clawrium.core.lifecycle._resolve_agent_type", return_value="openclaw"
-        ), patch(
-            "clawrium.core.lifecycle.get_instance_secrets", return_value={}
-        ), patch(
-            "clawrium.core.lifecycle._cleanup_ansible_artifacts"
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=mock_host),
+            patch("clawrium.core.lifecycle._resolve_agent_record") as mock_resolve,
+            patch(
+                "clawrium.core.integrations.get_agent_integrations"
+            ) as mock_get_integrations,
+            patch("clawrium.core.integrations.get_integration") as mock_get_integration,
+            patch(
+                "clawrium.core.integrations.get_integration_credentials"
+            ) as mock_get_credentials,
+            patch("clawrium.core.lifecycle.ansible_runner.run") as mock_run,
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value="ssh-key-content",
+            ),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path"
+            ) as mock_playbook_path,
+            patch(
+                "clawrium.core.lifecycle._resolve_agent_type", return_value="openclaw"
+            ),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value={}),
+            patch("clawrium.core.lifecycle._cleanup_ansible_artifacts"),
         ):
             # Setup playbook path
             playbook = tmp_path / "configure.yaml"
             playbook.write_text("---\n- hosts: all\n")
             mock_playbook_path.return_value = playbook
 
-            mock_resolve.return_value = ("test-agent", "openclaw", mock_host["agents"]["test-agent"])
+            mock_resolve.return_value = (
+                "test-agent",
+                "openclaw",
+                mock_host["agents"]["test-agent"],
+            )
             mock_get_integrations.return_value = ["work-github"]
-            mock_get_integration.return_value = {"name": "work-github", "type": "github"}
+            mock_get_integration.return_value = {
+                "name": "work-github",
+                "type": "github",
+            }
             mock_get_credentials.return_value = {}  # No credentials
             mock_run.return_value = mock_ansible_success
 
@@ -251,32 +276,33 @@ class TestConfigureAgentIntegrationLoading:
         """
         events: list[tuple[str, str]] = []
 
-        with patch(
-            "clawrium.core.lifecycle.get_host", return_value=mock_host
-        ), patch(
-            "clawrium.core.lifecycle._resolve_agent_record"
-        ) as mock_resolve, patch(
-            "clawrium.core.integrations.get_agent_integrations"
-        ) as mock_get_integrations, patch(
-            "clawrium.core.integrations.get_integration"
-        ) as mock_get_integration, patch(
-            "clawrium.core.integrations.get_integration_credentials"
-        ) as mock_get_credentials, patch(
-            "clawrium.core.lifecycle.ansible_runner.run"
-        ) as mock_run, patch(
-            "clawrium.core.lifecycle.update_host", return_value=True
-        ), patch(
-            "clawrium.core.lifecycle.get_host_private_key", return_value="ssh-key-content"
-        ), patch(
-            "clawrium.core.lifecycle._get_lifecycle_playbook_path"
-        ) as mock_playbook_path, patch(
-            "clawrium.core.lifecycle._resolve_agent_type", return_value="openclaw"
-        ), patch(
-            "clawrium.core.lifecycle.get_instance_secrets", return_value={}
-        ), patch(
-            "clawrium.core.lifecycle._cleanup_ansible_artifacts"
-        ), patch(
-            "clawrium.core.lifecycle._get_logs_dir", return_value=tmp_path / "logs"
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=mock_host),
+            patch("clawrium.core.lifecycle._resolve_agent_record") as mock_resolve,
+            patch(
+                "clawrium.core.integrations.get_agent_integrations"
+            ) as mock_get_integrations,
+            patch("clawrium.core.integrations.get_integration") as mock_get_integration,
+            patch(
+                "clawrium.core.integrations.get_integration_credentials"
+            ) as mock_get_credentials,
+            patch("clawrium.core.lifecycle.ansible_runner.run") as mock_run,
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value="ssh-key-content",
+            ),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path"
+            ) as mock_playbook_path,
+            patch(
+                "clawrium.core.lifecycle._resolve_agent_type", return_value="openclaw"
+            ),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value={}),
+            patch("clawrium.core.lifecycle._cleanup_ansible_artifacts"),
+            patch(
+                "clawrium.core.lifecycle._get_logs_dir", return_value=tmp_path / "logs"
+            ),
         ):
             playbook = tmp_path / "configure.yaml"
             playbook.write_text("---\n- hosts: all\n")
@@ -292,6 +318,7 @@ class TestConfigureAgentIntegrationLoading:
                 {"name": "old-jira", "type": "jira"},
                 {"name": "work-github", "type": "github"},
             ]
+
             # Keyed-by-name side_effect: robust to ordering. If the guard
             # regresses and credentials are fetched for the stale record, the
             # `call_count` assertion below produces a clean failure rather

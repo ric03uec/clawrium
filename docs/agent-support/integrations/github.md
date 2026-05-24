@@ -82,7 +82,7 @@ Agent: Analyzing commits since v2.0.0...
 When configuring your agent:
 
 ```bash
-clm agent configure my-agent
+clawctl agent configure my-agent
 # Enter the fine-grained token when prompted for GitHub credentials
 ```
 
@@ -90,18 +90,18 @@ The key difference from classic tokens: fine-grained tokens let you scope to spe
 
 ---
 
-## How clm Wires GitHub to Each Agent Type
+## How clawctl Wires GitHub to Each Agent Type
 
 ### Hermes — env vars in `~/.hermes/.env`
 
-Hermes natively reads `GITHUB_TOKEN` from its environment. `clm agent integration add <hermes> <gh-name>` followed by `clm agent sync <hermes>` renders the following into `~/.hermes/.env` (mode 0600):
+Hermes natively reads `GITHUB_TOKEN` from its environment. `clawctl agent integration attach <hermes> <gh-name>` followed by `clawctl agent sync <hermes>` renders the following into `~/.hermes/.env` (mode 0600):
 
 ```env
 GITHUB_TOKEN_WORK_GH='ghp_...'
 GITHUB_TOKEN='ghp_...'      # tracks the alphabetically-last github integration
 ```
 
-`clm` then runs `gh auth login --with-token` as the agent user (soft dep — skipped if `gh` is not on the host). See [hermes/playbooks/configure.yaml](https://github.com/ric03uec/clawrium/blob/main/src/clawrium/platform/registry/hermes/playbooks/configure.yaml) lines 118–145.
+`clawctl` then runs `gh auth login --with-token` as the agent user (soft dep — skipped if `gh` is not on the host). See [hermes/playbooks/configure.yaml](https://github.com/ric03uec/clawrium/blob/main/src/clawrium/platform/registry/hermes/playbooks/configure.yaml) lines 118–145.
 
 ### ZeroClaw — two layers, both required
 
@@ -109,10 +109,10 @@ ZeroClaw's shell tool **auto-strips** any env var matching `_TOKEN` / `_SECRET` 
 
 | Layer | Where | What it enables |
 |---|---|---|
-| 1. systemd `Environment=` drop-in | `/etc/systemd/system/zeroclaw-<name>.service.d/10-clm-env.conf` | The daemon process and all child processes (including the shell tool) inherit `GITHUB_TOKEN` from systemd. |
+| 1. systemd `Environment=` drop-in | `/etc/systemd/system/zeroclaw-<name>.service.d/10-zeroclaw-env.conf` | The daemon process and all child processes (including the shell tool) inherit `GITHUB_TOKEN` from systemd. |
 | 2. `[autonomy] shell_env_passthrough` | `~/.zeroclaw/config.toml` | The agent's sandboxed shell tool sees the token. Without this, layer 1 alone is invisible to `gh`/`git push` inside chat. |
 
-Both layers are populated automatically by `clm agent sync <zeroclaw>` after `clm agent integration add`. The drop-in template is `src/clawrium/platform/registry/zeroclaw/templates/clm-env.conf.j2`; the autonomy block lives in `config.toml.j2`. Re-running `clm agent sync` re-renders both atomically and triggers a single service restart (daemon_reload + restart, handled by the configure playbook's restart handler).
+Both layers are populated automatically by `clawctl agent sync <zeroclaw>` after `clawctl agent integration attach`. The drop-in template is `src/clawrium/platform/registry/zeroclaw/templates/zeroclaw-env.conf.j2`; the autonomy block lives in `config.toml.j2`. Re-running `clawctl agent sync` re-renders both atomically and triggers a single service restart (daemon_reload + restart, handled by the configure playbook's restart handler).
 
 Like hermes, a `gh auth login --with-token` is run as the agent user when `gh` is present on the host — convenience only; the env-var path works without it.
 
@@ -129,7 +129,7 @@ shell_env_passthrough = ["PATH", "HOME", "USER", "LANG", "GITHUB_TOKEN_WORK_GH",
 ```
 
 ```ini
-# Rendered in /etc/systemd/system/zeroclaw-<name>.service.d/10-clm-env.conf:
+# Rendered in /etc/systemd/system/zeroclaw-<name>.service.d/10-zeroclaw-env.conf:
 [Service]
 Environment=GITHUB_TOKEN_WORK_GH="ghp_..."
 Environment=GITHUB_TOKEN="ghp_..."
@@ -141,8 +141,8 @@ Environment=GITHUB_TOKEN="ghp_..."
 # On the agent host:
 systemctl show -p Environment zeroclaw-<name>      # should list GITHUB_TOKEN
 grep -E '^shell_env_passthrough' ~/.zeroclaw/config.toml
-# From clm:
-clm chat <name>
+# From clawctl:
+clawctl agent chat <name>
 > Run: echo $GITHUB_TOKEN          # should print the token
 > Run: gh auth status              # should print "Logged in to github.com" if gh is installed
 ```
@@ -154,11 +154,11 @@ clm chat <name>
 Both hermes and zeroclaw support multiple github integrations on a single agent:
 
 ```bash
-clm integration add work-gh --type github
-clm integration add personal-gh --type github
-clm agent integration add my-agent work-gh
-clm agent integration add my-agent personal-gh
-clm agent sync my-agent
+clawctl integration registry create work-gh --type github
+clawctl integration registry create personal-gh --type github
+clawctl agent integration attach my-agent work-gh
+clawctl agent integration attach my-agent personal-gh
+clawctl agent sync my-agent
 ```
 
 The agent then has `GITHUB_TOKEN_WORK_GH` and `GITHUB_TOKEN_PERSONAL_GH` available, plus a bare `GITHUB_TOKEN` set to the alphabetically-last integration (deterministic — uses Jinja's `dictsort`).
@@ -171,7 +171,7 @@ OpenClaw does not yet consume GitHub credentials. Use a hermes or zeroclaw agent
 
 ## Workaround for OpenClaw
 
-1. **CLI Tools:** Manually `gh auth login` on the OpenClaw host outside of clm.
+1. **CLI Tools:** Manually `gh auth login` on the OpenClaw host outside of clawctl.
 2. **API via curl:** Make direct API calls inside chat using a hard-coded token (not recommended for production).
 
 ---

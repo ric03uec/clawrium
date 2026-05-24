@@ -66,9 +66,7 @@ def test_no_open_skips_browser_and_timer(monkeypatch):
         def start(self):
             called["timer"] += 1
 
-    monkeypatch.setattr(
-        gui_module, "threading", type("T", (), {"Timer": FakeTimer})
-    )
+    monkeypatch.setattr(gui_module, "threading", type("T", (), {"Timer": FakeTimer}))
     monkeypatch.setitem(sys.modules, "webbrowser", type("W", (), {"open": fake_open}))
 
     gui_module.gui(port=36000, no_open=True)
@@ -87,9 +85,7 @@ def test_runs_uvicorn_with_localhost_bind_and_configured_port(monkeypatch):
         def start(self):
             pass
 
-    monkeypatch.setattr(
-        gui_module, "threading", type("T", (), {"Timer": _NoopTimer})
-    )
+    monkeypatch.setattr(gui_module, "threading", type("T", (), {"Timer": _NoopTimer}))
     monkeypatch.setitem(
         sys.modules, "webbrowser", type("W", (), {"open": lambda *_: None})
     )
@@ -134,9 +130,7 @@ def test_browser_open_uses_timer_not_synchronous_call(monkeypatch):
     def fail_if_called_directly(*_):
         raise AssertionError("webbrowser.open must be deferred, not direct")
 
-    monkeypatch.setattr(
-        gui_module, "threading", type("T", (), {"Timer": FakeTimer})
-    )
+    monkeypatch.setattr(gui_module, "threading", type("T", (), {"Timer": FakeTimer}))
     monkeypatch.setitem(
         sys.modules,
         "webbrowser",

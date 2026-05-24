@@ -80,9 +80,7 @@ def _patch_runtime(
         "get_agent_by_name",
         lambda name: (host, agent_type, {"agent_name": name}),
     )
-    monkeypatch.setattr(
-        skills_apply, "get_host_private_key", lambda _key_id: ssh_key
-    )
+    monkeypatch.setattr(skills_apply, "get_host_private_key", lambda _key_id: ssh_key)
 
     runner_mock = MagicMock()
     runner_mock.run.return_value = runner_result
@@ -143,7 +141,7 @@ def test_apply_state_stages_materialized_skill_md(monkeypatch, tmp_path):
     text = captured["text"]
     assert text.startswith("---\n")
     frontmatter_block, body = text.split("\n---\n", 1)
-    frontmatter = yaml.safe_load(frontmatter_block[len("---\n"):])
+    frontmatter = yaml.safe_load(frontmatter_block[len("---\n") :])
     # The clawrium/* → hermes materializer must keep name/description
     # and lift the native.hermes.metadata.hermes.tags override into
     # the rendered frontmatter.
@@ -304,7 +302,11 @@ def test_materialize_for_claw_unknown_claw_raises():
 
 
 def test_check_agent_compatibility_clawrium_default_true():
-    from clawrium.core.skills import check_agent_compatibility, load_skill, parse_skill_ref
+    from clawrium.core.skills import (
+        check_agent_compatibility,
+        load_skill,
+        parse_skill_ref,
+    )
 
     skill = load_skill(parse_skill_ref("clawrium/tdd"))
     for claw in NATIVE_REGISTRIES:
@@ -452,7 +454,9 @@ def test_apply_state_failed_no_events_falls_back_to_status(monkeypatch):
     when ansible-runner emits no `runner_on_*` events. Without this
     branch, an empty `events` list would surface as the literal word
     'unknown' — verify the wrapper handles the no-events case."""
-    _patch_runtime(monkeypatch, runner_result=_runner_result(status="failed", events=[]))
+    _patch_runtime(
+        monkeypatch, runner_result=_runner_result(status="failed", events=[])
+    )
     with pytest.raises(SkillApplyError, match="failed"):
         apply_state("tdd-hermes")
 
@@ -567,9 +571,7 @@ def test_apply_state_staging_cleaned_when_log_dir_creation_fails(monkeypatch, tm
     staging_base = tmp_path / "clawrium" / "staging" / "skills"
     if staging_base.is_dir():
         leftovers = [p for p in staging_base.iterdir() if p.is_dir()]
-        assert leftovers == [], (
-            f"staging dir leaked on partial failure: {leftovers}"
-        )
+        assert leftovers == [], f"staging dir leaked on partial failure: {leftovers}"
 
 
 def test_apply_state_drift_recovery_reapplies_same_state(monkeypatch):
@@ -586,9 +588,7 @@ def test_apply_state_drift_recovery_reapplies_same_state(monkeypatch):
     assert runner.run.call_count == 2
     # Both invocations carry the same desired list.
     for call in runner.run.call_args_list:
-        assert call.kwargs["inventory"]["all"]["vars"]["desired_skill_names"] == [
-            "tdd"
-        ]
+        assert call.kwargs["inventory"]["all"]["vars"]["desired_skill_names"] == ["tdd"]
 
 
 # ---------------------------- openclaw dispatch (Phase 3) -------------------
@@ -652,7 +652,7 @@ def test_apply_state_openclaw_materialized_skill_md_has_no_hermes_overrides(
 
     text = captured["text"]
     frontmatter_block, _ = text.split("\n---\n", 1)
-    frontmatter = yaml.safe_load(frontmatter_block[len("---\n"):])
+    frontmatter = yaml.safe_load(frontmatter_block[len("---\n") :])
     assert frontmatter["name"] == "tdd"
     # Hermes-specific tags must not be present in the openclaw rendering.
     assert "metadata" not in frontmatter or "hermes" not in (
@@ -717,9 +717,7 @@ def test_apply_state_drift_recovery_zeroclaw(monkeypatch):
 
     assert runner.run.call_count == 2
     for call in runner.run.call_args_list:
-        assert call.kwargs["inventory"]["all"]["vars"]["desired_skill_names"] == [
-            "tdd"
-        ]
+        assert call.kwargs["inventory"]["all"]["vars"]["desired_skill_names"] == ["tdd"]
 
 
 def test_apply_state_drift_recovery_openclaw(monkeypatch):
@@ -735,9 +733,7 @@ def test_apply_state_drift_recovery_openclaw(monkeypatch):
 
     assert runner.run.call_count == 2
     for call in runner.run.call_args_list:
-        assert call.kwargs["inventory"]["all"]["vars"]["desired_skill_names"] == [
-            "tdd"
-        ]
+        assert call.kwargs["inventory"]["all"]["vars"]["desired_skill_names"] == ["tdd"]
         # Drift recovery means the SAME playbook is invoked again —
         # specifically the openclaw one, not a refactor that punts to
         # a different claw's apply.
@@ -780,11 +776,11 @@ def _write_raw_state(agent_name: str, skills: list[str]) -> None:
         # without a unit test, a future regex loosening could let them
         # through and reach RTLO-style output forgery in error messages
         # AND on-host CLI args (ATX #382 W14).
-        ("clawrium/tdd‮", InvalidSkillRef),       # RIGHT-TO-LEFT OVERRIDE
-        ("clawrium/​tdd", InvalidSkillRef),       # ZERO WIDTH SPACE
-        ("clawrium/؜tdd", InvalidSkillRef),       # ARABIC LETTER MARK
-        ("clawrium/tdd⁦inject", InvalidSkillRef), # LRI
-        ("clawrium/tdd⁩trailer", InvalidSkillRef), # PDI (W-new5)
+        ("clawrium/tdd‮", InvalidSkillRef),  # RIGHT-TO-LEFT OVERRIDE
+        ("clawrium/​tdd", InvalidSkillRef),  # ZERO WIDTH SPACE
+        ("clawrium/؜tdd", InvalidSkillRef),  # ARABIC LETTER MARK
+        ("clawrium/tdd⁦inject", InvalidSkillRef),  # LRI
+        ("clawrium/tdd⁩trailer", InvalidSkillRef),  # PDI (W-new5)
         # External-source URL forms
         ("https://evil.example/skill", ExternalSourceBlocked),
         ("file:///etc/passwd", ExternalSourceBlocked),
@@ -848,9 +844,7 @@ def test_apply_state_dispatch_table_miss_raises_not_supported(monkeypatch):
     # mismatch) and direct them at `clm agent ps`. After the iter 1
     # consolidation with base, the message form is "Skills install
     # is not yet supported for <claw> agents."
-    with pytest.raises(
-        SkillApplyNotSupported, match="not yet supported for hermes"
-    ):
+    with pytest.raises(SkillApplyNotSupported, match="not yet supported for hermes"):
         apply_state("tdd-hermes")
 
 
@@ -894,9 +888,7 @@ def _bypass_sanitize_for_path(monkeypatch):
     (the helper is also imported by `core/reset.py` callers we don't
     want to perturb).
     """
-    monkeypatch.setattr(
-        skills_apply, "_sanitize_for_path", lambda value: str(value)
-    )
+    monkeypatch.setattr(skills_apply, "_sanitize_for_path", lambda value: str(value))
 
 
 def test_make_log_dir_rejects_path_traversal_in_host_alias(monkeypatch):

@@ -3,7 +3,7 @@
 Manage external service integrations (GitHub, Atlassian, etc.) for agents.
 
 ```bash
-clm integration <command> [options]
+clawctl integration <command> [options]
 ```
 
 Integrations connect your agents to external services like GitHub and Atlassian (Jira + Confluence). Credentials are stored securely in `~/.config/clawrium/secrets.json` keyed by integration name, isolated from per-agent and provider secrets.
@@ -12,27 +12,27 @@ Integrations connect your agents to external services like GitHub and Atlassian 
 
 | Command | Description |
 |---------|-------------|
-| [`clm integration types`](#clm-integration-types) | List supported integration types |
-| [`clm integration list`](#clm-integration-list) | List all configured integrations |
-| [`clm integration add`](#clm-integration-add) | Add a new integration |
-| [`clm integration show`](#clm-integration-show) | Show details of a configured integration |
-| [`clm integration remove`](#clm-integration-remove) | Remove an integration |
-| [`clm integration credentials`](#clm-integration-credentials) | View or update credentials |
+| [`clawctl integration registry get --types`](#clawctl-integration-registry-get---types) | List supported integration types |
+| [`clawctl integration registry get`](#clawctl-integration-registry-get) | List all configured integrations |
+| [`clawctl integration registry create`](#clawctl-integration-registry-create) | Add a new integration |
+| [`clawctl integration registry describe`](#clawctl-integration-registry-describe) | Show details of a configured integration |
+| [`clawctl integration registry delete`](#clawctl-integration-registry-delete) | Remove an integration |
+| [`clawctl integration registry describe`](#clawctl-integration-registry-describe) | View or update credentials |
 
 ---
 
-## clm integration types
+## clawctl integration registry get --types
 
 List supported integration types.
 
 ```bash
-clm integration types
+clawctl integration registry get --types
 ```
 
 ### Example
 
 ```bash
-$ clm integration types
+$ clawctl integration registry get --types
 Supported integration types:
 
   atlassian   - Atlassian Cloud (Jira + Confluence) via API token
@@ -55,18 +55,18 @@ Supported integration types:
 
 ---
 
-## clm integration list
+## clawctl integration registry get
 
 List all configured integrations.
 
 ```bash
-clm integration list
+clawctl integration registry get
 ```
 
 ### Example
 
 ```bash
-$ clm integration list
+$ clawctl integration registry get
                        Configured Integrations
 ┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
 ┃ Name              ┃ Type       ┃ Credentials    ┃ Added      ┃
@@ -81,8 +81,8 @@ Stale records (e.g. a `jira` or `confluence` row left over from a previous relea
 No integrations configured:
 
 ```bash
-$ clm integration list
-No integrations configured. Use 'clm integration add' to add one.
+$ clawctl integration registry get
+No integrations configured. Use 'clawctl integration registry create' to add one.
 ```
 
 ### Exit Codes
@@ -94,12 +94,12 @@ No integrations configured. Use 'clm integration add' to add one.
 
 ---
 
-## clm integration add
+## clawctl integration registry create
 
 Add a new external service integration.
 
 ```bash
-clm integration add <name> --type <type>
+clawctl integration registry create <name> --type <type>
 ```
 
 Credentials are collected securely via interactive prompts.
@@ -121,7 +121,7 @@ Credentials are collected securely via interactive prompts.
 Add a GitHub integration:
 
 ```bash
-$ clm integration add my-github --type github
+$ clawctl integration registry create my-github --type github
 Enter GitHub personal access token: ********
 Integration 'my-github' added successfully!
 ```
@@ -129,7 +129,7 @@ Integration 'my-github' added successfully!
 Add an Atlassian integration (single record covers both Jira and Confluence):
 
 ```bash
-$ clm integration add work-atlassian --type atlassian
+$ clawctl integration registry create work-atlassian --type atlassian
 Atlassian instance URL (e.g., https://company.atlassian.net): https://mycompany.atlassian.net
 Account email for authentication: user@company.com
 API token (create at https://id.atlassian.com/manage-profile/security/api-tokens): ********
@@ -150,12 +150,12 @@ See [Atlassian integration](../../agent-support/integrations/atlassian.md) for t
 
 ---
 
-## clm integration show
+## clawctl integration registry describe
 
 Show details of a configured integration.
 
 ```bash
-clm integration show <name>
+clawctl integration registry describe <name>
 ```
 
 ### Arguments
@@ -167,7 +167,7 @@ clm integration show <name>
 ### Example
 
 ```bash
-$ clm integration show my-github
+$ clawctl integration registry describe my-github
 Integration: my-github
 Type: github
 Added: 2026-04-01T10:30:00Z
@@ -187,12 +187,12 @@ Used by agents:
 
 ---
 
-## clm integration remove
+## clawctl integration registry delete
 
 Remove an integration configuration.
 
 ```bash
-clm integration remove <name> [--force]
+clawctl integration registry delete <name> [--force]
 ```
 
 ### Arguments
@@ -210,7 +210,7 @@ clm integration remove <name> [--force]
 ### Examples
 
 ```bash
-$ clm integration remove old-github
+$ clawctl integration registry delete old-github
 Remove integration 'old-github'? This cannot be undone. [y/N]: y
 Integration 'old-github' removed successfully.
 ```
@@ -218,7 +218,7 @@ Integration 'old-github' removed successfully.
 Force removal:
 
 ```bash
-$ clm integration remove old-github --force
+$ clawctl integration registry delete old-github --force
 Integration 'old-github' removed successfully.
 ```
 
@@ -231,12 +231,12 @@ Integration 'old-github' removed successfully.
 
 ---
 
-## clm integration credentials
+## clawctl integration registry describe
 
 View or update credentials for an integration.
 
 ```bash
-clm integration credentials <name> [--update]
+clawctl integration registry describe <name> [--update]
 ```
 
 ### Arguments
@@ -256,7 +256,7 @@ clm integration credentials <name> [--update]
 View credentials (masked):
 
 ```bash
-$ clm integration credentials my-github
+$ clawctl integration registry describe my-github
 Integration: my-github
 Type: github
 Credential: ghp_...abc (masked)
@@ -266,7 +266,7 @@ Last updated: 2026-04-01T10:30:00Z
 Update credentials:
 
 ```bash
-$ clm integration credentials my-github --update
+$ clawctl integration registry describe my-github --update
 Enter new GitHub personal access token: ********
 Credentials updated for 'my-github'.
 ```

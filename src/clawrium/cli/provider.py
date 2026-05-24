@@ -112,7 +112,9 @@ def _display_models_with_metadata(
 
     if group_by_lab and len(labs) > 1:
         # Group by lab
-        console.print(f"[bold]{title} ({len(models)} models from {len(labs)} labs)[/bold]\n")
+        console.print(
+            f"[bold]{title} ({len(models)} models from {len(labs)} labs)[/bold]\n"
+        )
         models_by_lab: dict[str, list[dict]] = {}
         for m in models:
             lab = m.get("lab", "Unknown")
@@ -123,7 +125,9 @@ def _display_models_with_metadata(
         for lab in sorted(models_by_lab.keys()):
             lab_models = models_by_lab[lab]
             console.print(f"[cyan]{lab}[/cyan] ({len(lab_models)} models)")
-            table = Table(show_header=True, header_style="dim", box=None, padding=(0, 2))
+            table = Table(
+                show_header=True, header_style="dim", box=None, padding=(0, 2)
+            )
             table.add_column("ID", style="white")
             table.add_column("Name", style="yellow")
             table.add_column("Context", style="dim", justify="right")
@@ -187,7 +191,9 @@ def _interactive_model_selection(provider_type: str) -> str | None:
     search_index = {s[0]: s[1] for s in searchable}
 
     console.print(f"\n[bold]Select a model ({len(model_ids)} available)[/bold]")
-    console.print("[dim]Type to search by ID, name, or lab. Enter a number or model ID to select.[/dim]\n")
+    console.print(
+        "[dim]Type to search by ID, name, or lab. Enter a number or model ID to select.[/dim]\n"
+    )
 
     # Show first 10 models as preview
     preview_count = min(10, len(models_data))
@@ -223,7 +229,9 @@ def _interactive_model_selection(provider_type: str) -> str | None:
         # Try fuzzy search
         matches = list(fuzzyfinder(choice, search_index.keys()))
         if not matches:
-            console.print("[yellow]No matches found. Try a different search term.[/yellow]")
+            console.print(
+                "[yellow]No matches found. Try a different search term.[/yellow]"
+            )
             continue
 
         # Show top matches
@@ -436,11 +444,15 @@ def add(
                 )
             else:
                 suggestion = _get_model_suggestion(model, provider_type)
-                error_msg = f"Model '{rich_escape(model)}' not found for {provider_type}."
+                error_msg = (
+                    f"Model '{rich_escape(model)}' not found for {provider_type}."
+                )
                 if suggestion:
                     error_msg += f" Did you mean '{rich_escape(suggestion)}'?"
                 console.print(f"[red]Error:[/red] {error_msg}")
-                console.print("[dim]Use --force to bypass validation for custom models.[/dim]")
+                console.print(
+                    "[dim]Use --force to bypass validation for custom models.[/dim]"
+                )
                 raise typer.Exit(code=1)
 
         if not model:
@@ -496,11 +508,15 @@ def add(
                 )
             else:
                 suggestion = _get_model_suggestion(model, provider_type)
-                error_msg = f"Model '{rich_escape(model)}' not found for {provider_type}."
+                error_msg = (
+                    f"Model '{rich_escape(model)}' not found for {provider_type}."
+                )
                 if suggestion:
                     error_msg += f" Did you mean '{rich_escape(suggestion)}'?"
                 console.print(f"[red]Error:[/red] {error_msg}")
-                console.print("[dim]Use --force to bypass validation for custom models.[/dim]")
+                console.print(
+                    "[dim]Use --force to bypass validation for custom models.[/dim]"
+                )
                 raise typer.Exit(code=1)
 
         if not model:
@@ -537,7 +553,9 @@ def add(
     # Store credentials only after provider record is successfully persisted
     if credentials_to_store is not None:
         if credentials_to_store[0] == "aws":
-            set_provider_aws_credentials(name, credentials_to_store[1], credentials_to_store[2])
+            set_provider_aws_credentials(
+                name, credentials_to_store[1], credentials_to_store[2]
+            )
         elif credentials_to_store[0] == "api_key":
             set_provider_api_key(name, credentials_to_store[1])
 
@@ -873,7 +891,9 @@ def types(
             console.print(f"\nValid provider types: {', '.join(_get_provider_types())}")
             raise typer.Exit(code=1)
         console.print("Available actions:")
-        console.print(f"  clm provider types {provider_type} models  # List available models")
+        console.print(
+            f"  clm provider types {provider_type} models  # List available models"
+        )
         return
 
     if action == "models":

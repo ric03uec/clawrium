@@ -136,7 +136,9 @@ class ChatPanel(Widget):
 
     def _add_system_message(self, message: str, severity: str = "info") -> None:
         log = self.query_one("#chat-log", RichLog)
-        color = {"error": "red", "warning": "yellow", "info": "dim"}.get(severity, "dim")
+        color = {"error": "red", "warning": "yellow", "info": "dim"}.get(
+            severity, "dim"
+        )
         log.write(f"[{color}]{escape(message)}[/{color}]")
 
     @work(exclusive=True, group="chat-connect")
@@ -156,9 +158,7 @@ class ChatPanel(Widget):
             self._add_system_message("Authentication failed", "error")
             self.post_message(self.ChatError("Authentication failed"))
         except ChatConnectionError:
-            self._add_system_message(
-                "Connection failed - check agent status", "error"
-            )
+            self._add_system_message("Connection failed - check agent status", "error")
             self.post_message(self.ChatError("Connection failed"))
         except Exception:
             self._add_system_message("Connection error", "error")

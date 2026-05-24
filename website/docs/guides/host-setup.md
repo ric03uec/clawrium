@@ -11,17 +11,17 @@ Before adding a host to Clawrium, you must prepare it for management. This guide
 ## Prerequisites
 
 - SSH access to the target host (as any user with sudo privileges)
-- Clawrium installed (`clm` command available)
+- Clawrium installed (`clawctl` command available)
 - **On the target host:**
   - Python 3 (required for hardware detection)
   - pciutils (optional, for GPU detection via `lspci`)
 
 ## Option A: Automatic Setup (Recommended)
 
-The `clm host init` command generates a per-host SSH keypair and attempts to automatically configure the xclm management user:
+The `clawctl host create --bootstrap` command generates a per-host SSH keypair and attempts to automatically configure the xclm management user:
 
 ```bash
-clm host init 192.168.1.100 --user myuser
+clawctl host create --bootstrap 192.168.1.100 --user myuser
 ```
 
 If you have SSH access to the target host, Clawrium will:
@@ -36,7 +36,7 @@ If auto-setup succeeds, skip to [Add Host to Clawrium](#add-host-to-clawrium). I
 
 ## Option B: Manual Setup
 
-If `clm host init` couldn't connect automatically, it displays the public key and setup commands. Run these on the target host:
+If `clawctl host create --bootstrap` couldn't connect automatically, it displays the public key and setup commands. Run these on the target host:
 
 ```bash
 # SSH to host as your current user
@@ -53,7 +53,7 @@ sudo chmod 440 /etc/sudoers.d/xclm
 sudo mkdir -p /home/xclm/.ssh
 sudo chmod 700 /home/xclm/.ssh
 
-# Paste the public key displayed by 'clm host init'
+# Paste the public key displayed by 'clawctl host create --bootstrap'
 echo "ssh-ed25519 AAAA... clawrium" | sudo tee /home/xclm/.ssh/authorized_keys
 sudo chmod 600 /home/xclm/.ssh/authorized_keys
 sudo chown -R xclm:xclm /home/xclm/.ssh
@@ -72,17 +72,17 @@ Once the management user is configured, add the host:
 
 ```bash
 # Basic - uses per-host keypair from init
-clm host add 192.168.1.100
+clawctl host create 192.168.1.100
 
 # With alias for friendly display name
-clm host add 192.168.1.100 --alias myhost
+clawctl host create 192.168.1.100 --alias myhost
 
 # With custom port
-clm host add 192.168.1.100 --alias myhost --port 2222
+clawctl host create 192.168.1.100 --alias myhost --port 2222
 ```
 
 :::important
-You must run `clm host init` before `clm host add`. The add command requires a keypair to exist for the host.
+You must run `clawctl host create --bootstrap` before `clawctl host create`. The add command requires a keypair to exist for the host.
 :::
 
 Clawrium will:
@@ -102,7 +102,7 @@ Clawrium uses paramiko for SSH connections. ProxyJump, ProxyCommand, and other a
 The host's `authorized_keys` doesn't have the correct public key. Re-run:
 
 ```bash
-clm host init 192.168.1.100 --user myuser
+clawctl host create --bootstrap 192.168.1.100 --user myuser
 ```
 
 This will display the correct public key to add. If auto-setup fails, follow Option B to add it manually.
@@ -125,7 +125,7 @@ If the change is expected:
 ssh-keygen -R hostname
 ```
 
-Then retry `clm host add` and verify the new fingerprint.
+Then retry `clawctl host create` and verify the new fingerprint.
 
 ### Hardware not detected
 
@@ -150,7 +150,7 @@ ssh user@hostname "sudo apt-get install pciutils"
 Then refresh hardware info:
 
 ```bash
-clm host status myhost --refresh
+clawctl host status myhost --refresh
 ```
 
 ### Re-initialize a host
@@ -159,10 +159,10 @@ If you need to regenerate the keypair for a specific host:
 
 ```bash
 # Remove the host (also deletes its keypair)
-clm host remove hostname --force
+clawctl host delete hostname --force
 
 # Re-initialize with fresh keypair
-clm host init hostname --user myuser
+clawctl host create --bootstrap hostname --user myuser
 ```
 
 This only affects the specified host. Other hosts retain their keypairs.

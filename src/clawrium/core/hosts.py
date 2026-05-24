@@ -206,7 +206,7 @@ def _validate_address(address: str) -> None:
     address = address.strip()
 
     # Reject shell metacharacters and control characters
-    dangerous_chars = r'[|&;$`\'\"\\<>(){}!\n\r\t\x00-\x1f]'
+    dangerous_chars = r"[|&;$`\'\"\\<>(){}!\n\r\t\x00-\x1f]"
     if re.search(dangerous_chars, address):
         raise AddressError(
             "Address contains invalid characters. "
@@ -237,7 +237,7 @@ def _validate_address(address: str) -> None:
     if len(address) > 253:
         raise AddressError("Address is too long (max 253 characters)")
 
-    hostname_pattern = r'^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
+    hostname_pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
     if not re.match(hostname_pattern, address):
         raise AddressError(
             "Invalid address format. Must be a valid IP address or hostname. "
@@ -390,7 +390,9 @@ def get_host_by_key_id(key_id: str) -> dict | None:
     return None
 
 
-def alias_exists(alias: str, exclude_hostname: str | None = None) -> tuple[bool, str | None]:
+def alias_exists(
+    alias: str, exclude_hostname: str | None = None
+) -> tuple[bool, str | None]:
     """Check if alias is already in use by another host.
 
     Checks against both hostname and alias fields of all hosts.

@@ -3,7 +3,7 @@
 Manage secrets for claw instances.
 
 ```bash
-clm secret <command> [options]
+clawctl agent secret <command> [options]
 ```
 
 Secrets are stored locally in `~/.config/clawrium/secrets.yml` and are never transmitted to remote hosts in plain text. Each claw instance has its own isolated secret namespace.
@@ -12,18 +12,18 @@ Secrets are stored locally in `~/.config/clawrium/secrets.yml` and are never tra
 
 | Command | Description |
 |---------|-------------|
-| [`clm secret set`](#clm-secret-set) | Set a secret value for a claw instance |
-| [`clm secret list`](#clm-secret-list) | List secrets for a claw instance |
-| [`clm secret remove`](#clm-secret-remove) | Remove a secret from a claw instance |
+| [`clawctl agent secret create`](#clawctl-agent-secret-create) | Set a secret value for a claw instance |
+| [`clawctl agent secret get --agent`](#clawctl-agent-secret-get---agent) | List secrets for a claw instance |
+| [`clawctl agent secret delete`](#clawctl-agent-secret-delete) | Remove a secret from a claw instance |
 
 ---
 
-## clm secret set
+## clawctl agent secret create
 
 Set a secret value for a claw instance.
 
 ```bash
-clm secret set <claw_name> <key> [options]
+clawctl agent secret create <claw_name> <key> [options]
 ```
 
 Prompts for the value using masked input (not visible on screen).
@@ -45,7 +45,7 @@ Prompts for the value using masked input (not visible on screen).
 ### Example
 
 ```bash
-$ clm secret set zc-work ANTHROPIC_API_KEY -d "Claude API key for work"
+$ clawctl agent secret create zc-work ANTHROPIC_API_KEY -d "Claude API key for work"
 Enter value for ANTHROPIC_API_KEY: ********
 Secret 'ANTHROPIC_API_KEY' created for 'zc-work'.
 ```
@@ -53,7 +53,7 @@ Secret 'ANTHROPIC_API_KEY' created for 'zc-work'.
 Overwriting an existing secret:
 
 ```bash
-$ clm secret set zc-work ANTHROPIC_API_KEY
+$ clawctl agent secret create zc-work ANTHROPIC_API_KEY
 Secret 'ANTHROPIC_API_KEY' already exists for 'zc-work'
   Description: Claude API key for work
   Last updated: 2026-04-01T10:30:00Z
@@ -83,12 +83,12 @@ Invalid examples: `my-api-key`, `apiKey`, `123_KEY`
 
 ---
 
-## clm secret list
+## clawctl agent secret get --agent
 
 List secrets for a claw instance.
 
 ```bash
-clm secret list <claw_name>
+clawctl agent secret get --agent <claw_name>
 ```
 
 Shows secret keys and metadata. Values are never displayed. Also shows missing required secrets defined in the claw's manifest.
@@ -102,7 +102,7 @@ Shows secret keys and metadata. Values are never displayed. Also shows missing r
 ### Example
 
 ```bash
-$ clm secret list zc-work
+$ clawctl agent secret get --agent zc-work
 
 Claw: zc-work (192.168.1.100)
 ┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
@@ -116,7 +116,7 @@ Claw: zc-work (192.168.1.100)
 With missing required secrets:
 
 ```bash
-$ clm secret list zc-work
+$ clawctl agent secret get --agent zc-work
 
 Claw: zc-work (192.168.1.100)
 ┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
@@ -130,7 +130,7 @@ Claw: zc-work (192.168.1.100)
 No secrets configured:
 
 ```bash
-$ clm secret list zc-new
+$ clawctl agent secret get --agent zc-new
 
 Claw: zc-new (192.168.1.100)
   No secrets set
@@ -146,12 +146,12 @@ Claw: zc-new (192.168.1.100)
 
 ---
 
-## clm secret remove
+## clawctl agent secret delete
 
 Remove a secret from a claw instance.
 
 ```bash
-clm secret remove <claw_name> <key> [--force]
+clawctl agent secret delete <claw_name> <key> [--force]
 ```
 
 Prompts for confirmation unless `--force` is specified.
@@ -172,7 +172,7 @@ Prompts for confirmation unless `--force` is specified.
 ### Example
 
 ```bash
-$ clm secret remove zc-work GITHUB_TOKEN
+$ clawctl agent secret delete zc-work GITHUB_TOKEN
 Remove secret 'GITHUB_TOKEN' from 'zc-work'? This cannot be undone. [y/N]: y
 Secret 'GITHUB_TOKEN' removed from 'zc-work'.
 ```
@@ -180,7 +180,7 @@ Secret 'GITHUB_TOKEN' removed from 'zc-work'.
 Force removal without confirmation:
 
 ```bash
-$ clm secret remove zc-work GITHUB_TOKEN --force
+$ clawctl agent secret delete zc-work GITHUB_TOKEN --force
 Secret 'GITHUB_TOKEN' removed from 'zc-work'.
 ```
 

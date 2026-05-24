@@ -56,7 +56,9 @@ def test_resolve_hermes_uses_persisted_port(monkeypatch):
         "type": "hermes",
         "config": {"dashboard": {"port": 45123, "host": "127.0.0.1"}},
     }
-    _patch_agent(monkeypatch, host=_host(), agent_type="hermes", agent_record=agent_record)
+    _patch_agent(
+        monkeypatch, host=_host(), agent_type="hermes", agent_record=agent_record
+    )
 
     resolved = resolve("demo")
     assert resolved is not None
@@ -206,7 +208,9 @@ def test_resolve_uses_primary_address_when_distinct_from_hostname(monkeypatch):
     assert resolved.ssh_config.get("user") == "ops"
 
 
-def test_resolve_returns_none_for_invalid_persisted_when_no_default(monkeypatch, caplog):
+def test_resolve_returns_none_for_invalid_persisted_when_no_default(
+    monkeypatch, caplog
+):
     """A non-int (or out-of-range) persisted port with no `default_port`
     in the manifest → None (#491).
 
@@ -220,7 +224,9 @@ def test_resolve_returns_none_for_invalid_persisted_when_no_default(monkeypatch,
         "type": "hermes",
         "config": {"dashboard": {"port": "not-a-port"}},
     }
-    _patch_agent(monkeypatch, host=_host(), agent_type="hermes", agent_record=agent_record)
+    _patch_agent(
+        monkeypatch, host=_host(), agent_type="hermes", agent_record=agent_record
+    )
 
     with caplog.at_level("WARNING", logger="clawrium.core.web_ui"):
         assert resolve("demo") is None
@@ -433,9 +439,7 @@ def test_resolve_ssh_config_drops_identity_with_shell_metachars_in_resolved_path
     from pathlib import Path
 
     bad_path = Path(str(tmp_path) + "/key\nmalicious")
-    monkeypatch.setattr(
-        web_ui_module, "get_host_private_key", lambda _kid: bad_path
-    )
+    monkeypatch.setattr(web_ui_module, "get_host_private_key", lambda _kid: bad_path)
 
     host_record = {
         "hostname": "wolf.tailf7742d.ts.net",

@@ -21,9 +21,9 @@ export function DangerZoneCard() {
       </Button>
       <p className="mt-2 text-xs text-muted">
         Reset wiring isn&apos;t implemented yet. Use{" "}
-        <code className="font-mono">clm host</code> /{" "}
-        <code className="font-mono">clm agent</code> /{" "}
-        <code className="font-mono">clm provider</code> CLI commands to remove
+        <code className="font-mono">clawctl host</code> /{" "}
+        <code className="font-mono">clawctl agent</code> /{" "}
+        <code className="font-mono">clawctl provider</code> CLI commands to remove
         config in the meantime.
       </p>
     </Card>

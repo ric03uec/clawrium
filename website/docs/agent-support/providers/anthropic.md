@@ -46,7 +46,7 @@ Official Anthropic Claude API integration.
 ### 2. Add to Clawrium
 
 ```bash
-clm provider add my-claude --type anthropic
+clawctl provider registry create my-claude --type anthropic
 ```
 
 You will be prompted to enter your API key securely.
@@ -62,16 +62,16 @@ Choose a default model during setup:
 
 ```bash
 # View provider details
-clm provider list
+clawctl provider registry get
 
 # Change default model
-clm provider edit my-claude --model claude-sonnet-4-20250514
+clawctl provider registry edit my-claude --model claude-sonnet-4-20250514
 
 # Update API key
-clm provider edit my-claude --update-key
+clawctl provider registry edit my-claude --update-key
 
 # Remove provider
-clm provider remove my-claude
+clawctl provider registry delete my-claude
 ```
 
 ## Pricing Considerations
@@ -96,7 +96,7 @@ clm provider remove my-claude
 During agent onboarding:
 
 ```bash
-clm agent configure my-agent
+clawctl agent configure my-agent
 # Select my-claude when prompted for provider
 ```
 

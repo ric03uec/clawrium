@@ -256,8 +256,7 @@ def claw_supports_memory(claw_type: str) -> bool:
         # unsupported. The previous `except Exception` clause swallowed
         # these without a warning, which made debugging hard.
         logger.warning(
-            "Memory support check: unexpected error loading manifest for "
-            "'%s': %s",
+            "Memory support check: unexpected error loading manifest for '%s': %s",
             claw_type,
             e,
         )
@@ -331,9 +330,11 @@ def _resolve_agent_with_memory(
             agent_name,
             hostname,
         )
-        return None, (
-            f"memory-capable agent '{agent_name}' not found on '{hostname}'"
-        ), None
+        return (
+            None,
+            (f"memory-capable agent '{agent_name}' not found on '{hostname}'"),
+            None,
+        )
 
     if len({k for k, _ in matches}) > 1:
         keys = sorted({k for k, _ in matches})
@@ -343,10 +344,14 @@ def _resolve_agent_with_memory(
             hostname,
             keys,
         )
-        return None, (
-            f"multiple memory-capable agents match '{agent_name}' on '{hostname}': "
-            f"{', '.join(keys)}"
-        ), None
+        return (
+            None,
+            (
+                f"multiple memory-capable agents match '{agent_name}' on '{hostname}': "
+                f"{', '.join(keys)}"
+            ),
+            None,
+        )
 
     key, record = matches[0]
     claw_type = record.get("type")
@@ -364,10 +369,14 @@ def _resolve_agent_with_memory(
             hostname,
             status,
         )
-        return None, (
-            f"agent '{agent_name}' on '{hostname}' is not ready "
-            f"(status='{status}', expected 'installed')"
-        ), None
+        return (
+            None,
+            (
+                f"agent '{agent_name}' on '{hostname}' is not ready "
+                f"(status='{status}', expected 'installed')"
+            ),
+            None,
+        )
 
     unix_name = record.get("agent_name") or key
     return host, unix_name, claw_type
@@ -466,9 +475,7 @@ def _cleanup_artifacts(operation_log_dir: Path) -> None:
                 logger.warning("Failed to clean up %s: %s", target, e)
 
 
-def _build_inventory(
-    host: dict, ssh_key: Path, extra_vars: dict
-) -> dict:
+def _build_inventory(host: dict, ssh_key: Path, extra_vars: dict) -> dict:
     return {
         "all": {
             "hosts": {
@@ -505,9 +512,13 @@ def _run_memory_playbook(
     key_id = host.get("key_id") or host["hostname"]
     ssh_key = core_keys.get_host_private_key(key_id)
     if not ssh_key:
-        return None, None, (
-            f"SSH key for host '{key_id}' not found. "
-            f"Run 'clm host init {host['hostname']}' to provision it."
+        return (
+            None,
+            None,
+            (
+                f"SSH key for host '{key_id}' not found. "
+                f"Run 'clm host init {host['hostname']}' to provision it."
+            ),
         )
 
     # Pre-flight setup must also degrade gracefully: a malformed XDG_CONFIG_HOME
@@ -714,9 +725,7 @@ def get_memory_info(hostname: str, agent_name: str) -> MemoryStats | None:
             _cleanup_artifacts(log_dir)
 
 
-def read_memory_file(
-    hostname: str, agent_name: str, filename: str
-) -> str | None:
+def read_memory_file(hostname: str, agent_name: str, filename: str) -> str | None:
     """Read content of a single memory file. Returns None if unavailable."""
     try:
         _validate_memory_filename(filename)
@@ -829,9 +838,7 @@ def write_memory_file(
     extra_vars = {
         "agent_name": unix_name,
         "memory_filename": filename,
-        "memory_content_b64": base64.b64encode(
-            content.encode("utf-8")
-        ).decode("ascii"),
+        "memory_content_b64": base64.b64encode(content.encode("utf-8")).decode("ascii"),
     }
     result, log_dir, setup_error = _run_memory_playbook(
         host, claw_type, "memory_write", extra_vars, timeout=60

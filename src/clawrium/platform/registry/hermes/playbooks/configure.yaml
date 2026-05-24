@@ -106,7 +106,7 @@
     # template .env that hermes' upstream installer drops.
     - name: Render ~/.hermes/.env from template
       ansible.builtin.template:
-        src: "{{ template_path }}/.env.j2"
+        src: "{{ template_path }}/hermes.env.j2"
         dest: "/home/{{ agent_name }}/.hermes/.env"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -121,7 +121,7 @@
     # entries now contain the Atlassian API token verbatim.
     - name: Render ~/.hermes/config.yaml from template
       ansible.builtin.template:
-        src: "{{ template_path }}/config.yaml.j2"
+        src: "{{ template_path }}/hermes-config.yaml.j2"
         dest: "/home/{{ agent_name }}/.hermes/config.yaml"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -281,7 +281,7 @@
     # --user`. Standalone binary from astral-sh/uv releases avoids pip
     # entirely, respects PEP 668, and keeps the toolchain pinned and
     # checksum-verified. Both `uv` and `uvx` are extracted; the MCP server
-    # invocation in config.yaml.j2 uses `uvx`.
+    # invocation in hermes-config.yaml.j2 uses `uvx`.
     - name: Fail early if host architecture is unsupported by the uv arch map
       ansible.builtin.fail:
         msg: >-
@@ -350,7 +350,7 @@
         - atlassian_integration_assigned | bool
 
     # No `--wildcards` filter — both `uv` and `uvx` need to land, since
-    # config.yaml.j2's mcp_servers entry invokes uvx.
+    # hermes-config.yaml.j2's mcp_servers entry invokes uvx.
     - name: Extract uv and uvx binaries to ~/.local/bin/
       ansible.builtin.unarchive:
         src: "/home/{{ agent_name }}/.hermes/tmp/uv-{{ uv_version }}.tar.gz"

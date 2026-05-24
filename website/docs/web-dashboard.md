@@ -8,12 +8,12 @@ keywords: [gui, web dashboard, ui, fleet, topology, providers, integrations, cha
 Clawrium ships with a local web dashboard that mirrors most of the CLI but renders it visually. Launch it with one command, and use it instead of the CLI when you'd rather click than type.
 
 ```bash
-clm gui
+clawctl gui
 ```
 
 The server binds to `127.0.0.1:36000` only — it is **never reachable from the network**. Your browser opens to the dashboard automatically. Press <kbd>Ctrl+C</kbd> to stop.
 
-> Prefer the terminal? `clm tui` gives you the same fleet overview without leaving the shell.
+> Prefer the terminal? `clawctl tui` gives you the same fleet overview without leaving the shell.
 
 ## Dashboard
 
@@ -25,7 +25,7 @@ Click any agent name in the table to drop into [Agent Detail](#agent-detail).
 
 ## Topology
 
-The topology view renders the control plane (your machine running `clm`) and every fleet host as nodes, connected by SSH edges. Each host node lays its agents out as a row of column cards across the top, with a host strip at the bottom showing the alias, `user@hostname`, and hardware badges.
+The topology view renders the control plane (your machine running `clawctl`) and every fleet host as nodes, connected by SSH edges. Each host node lays its agents out as a row of column cards across the top, with a host strip at the bottom showing the alias, `user@hostname`, and hardware badges.
 
 ![Network topology with three hosts, agents-as-columns layout, hardware badges (NVIDIA + DGX Spark, AMD, aarch64) and provider nodes below](/img/gui/topology.png)
 
@@ -50,7 +50,7 @@ Use **+ Add Provider** to register a new provider; **Edit** to rotate API keys o
 
 ## Integrations
 
-The integrations page is the visual counterpart to [`clm integration`](./reference/cli/integration.md). It lists every configured integration with its type, the number of agents that reference it, and whether all required credentials are set.
+The integrations page is the visual counterpart to [`clawctl integration`](./reference/cli/integration.md). It lists every configured integration with its type, the number of agents that reference it, and whether all required credentials are set.
 
 ![Integrations page with three configured integrations and per-row agent counts](/img/gui/integrations.png)
 
@@ -60,7 +60,7 @@ The integrations page is the visual counterpart to [`clm integration`](./referen
 
 **Edit credentials** re-prompts only for credential values, marking each known key as `(set)` or `(not set)` and accepting blank inputs as "leave unchanged" — useful for rotating a single token without re-typing the others.
 
-**Remove** blocks deletion when the integration is assigned to any agent and lists the referencing agents in the confirmation modal. Use `clm integration` or the agent configuration UI to unassign first.
+**Remove** blocks deletion when the integration is assigned to any agent and lists the referencing agents in the confirmation modal. Use `clawctl integration` or the agent configuration UI to unassign first.
 
 Credential values are never sent to the browser — the API returns only the credential key names and a list of which keys are configured. The page reads `agent_count` from the list endpoint, computed in a single pass over `hosts.json`, so a row's "used by" count is accurate without N+1 requests.
 
@@ -71,7 +71,7 @@ Click any agent to land on its detail page. The header shows status, host, model
 ![Agent detail page with chat tab active and "Start a conversation" prompt](/img/gui/agent-detail.png)
 
 - **Chat** streams responses from the agent (OpenAI-compatible HTTP for hermes, WebSocket for openclaw — all proxied server-side; credentials never reach the browser).
-- **Configuration** mirrors `clm agent show <name>`: provider, gateway URL, device ID, onboarding state, version.
+- **Configuration** mirrors `clawctl agent show <name>`: provider, gateway URL, device ID, onboarding state, version.
 - **Memory** lets you read and edit the agent's memory files in place (saves over SSH).
 - **Logs** tails `journalctl --user -u <agent-type>-<agent-name>` from the host.
 
@@ -83,24 +83,24 @@ The settings page surfaces install paths, the token-tracking SQLite location, an
 
 - **Token Tracking** — Export usage as CSV or clear the usage DB.
 - **GUI Preferences** — Documents the CLI flags that drive GUI behavior (`--port`, `--no-open`).
-- **Danger Zone** — Reset is intentionally disabled in this release. Until the reset wiring lands, use `clm host` / `clm agent` / `clm provider` to remove config from the CLI.
+- **Danger Zone** — Reset is intentionally disabled in this release. Until the reset wiring lands, use `clawctl host` / `clawctl agent` / `clawctl provider` to remove config from the CLI.
 
 ## When to use the GUI vs. the CLI
 
 | Task | Best surface |
 |------|--------------|
-| Quick "what's running where?" | GUI dashboard or `clm ps` |
+| Quick "what's running where?" | GUI dashboard or `clawctl agent get` |
 | Visual topology, especially with many hosts | GUI topology |
 | Browsing the model catalog | GUI providers |
 | Adding an integration and pasting in credentials | GUI integrations |
 | Rotating a single integration credential | GUI integrations → Edit credentials |
 | Chatting with an agent without SSHing | GUI agent detail |
 | Bulk install / configure / start | CLI — automatable and scriptable |
-| Scripting integration creation in onboarding flows | CLI `clm integration add` |
+| Scripting integration creation in onboarding flows | CLI `clawctl integration registry create` |
 | CI, headless servers, SSH-only boxes | CLI — the GUI server is local-only by design |
 
 The GUI is a read-leaning convenience layer; the CLI remains the source of truth for lifecycle operations.
 
 ## Troubleshooting
 
-See the [`clm gui` CLI reference](./reference/cli/gui.md#troubleshooting) for symptom / fix pairs (port-in-use, missing extras, dev-vs-prod port confusion).
+See the [`clawctl gui` CLI reference](./reference/cli/gui.md#troubleshooting) for symptom / fix pairs (port-in-use, missing extras, dev-vs-prod port confusion).

@@ -264,9 +264,7 @@ class TestResolveOpenclawAgent:
 
     def test_accepts_record_without_status_field(self):
         # Legacy/test records without status are treated as installed.
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         with patch("clawrium.core.memory.get_host", return_value=host):
             result = _resolve_openclaw_agent("192.168.1.100", "opc-work")
         assert result[0] is not None
@@ -353,9 +351,7 @@ class TestExtractFailureMessage:
 
     def test_returns_default_when_failed_event_has_no_message(self):
         result = MagicMock()
-        result.events = [
-            {"event": "runner_on_failed", "event_data": {"res": {}}}
-        ]
+        result.events = [{"event": "runner_on_failed", "event_data": {"res": {}}}]
         assert _extract_failure_message(result, "fallback") == "fallback"
 
 
@@ -383,42 +379,44 @@ def _setup_playbook_env(tmp_path: Path, operation: str) -> tuple[Path, Path]:
 
 class TestGetMemoryInfo:
     def test_returns_none_when_agent_unresolved(self):
-        with patch("clawrium.core.memory._resolve_agent_with_memory", return_value=(None, "test-reason", None)):
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(None, "test-reason", None),
+        ):
             assert get_memory_info("192.168.1.100", "x") is None
 
     def test_returns_none_on_missing_playbook(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch(
-            "clawrium.core.memory._PLAYBOOK_DIR", tmp_path / "missing"
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", tmp_path / "missing"),
         ):
             assert get_memory_info("192.168.1.100", "opc-work") is None
 
     def test_returns_none_when_ssh_key_missing(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         # Point _PLAYBOOK_DIR at a tmp dir containing the playbook so the
         # missing-playbook check passes and we exercise the SSH key path.
         playbook_dir = tmp_path / "pb"
         playbook_dir.mkdir()
         (playbook_dir / "memory_info.yaml").write_text("---\n")
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=None
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key", return_value=None
+            ),
         ):
             assert get_memory_info("192.168.1.100", "opc-work") is None
 
     def test_extracts_stats_from_successful_run(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir = tmp_path / "pb"
         playbook_dir.mkdir()
         (playbook_dir / "memory_info.yaml").write_text("---\n")
@@ -437,18 +435,21 @@ class TestGetMemoryInfo:
             "DAILY 2026-05-09.md 40",
         ]
         events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"msg": m}}}
-            for m in msgs
+            {"event": "runner_on_ok", "event_data": {"res": {"msg": m}}} for m in msgs
         ]
         result = _runner_result("successful", events)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             stats = get_memory_info("192.168.1.100", "opc-work")
 
@@ -464,9 +465,7 @@ class TestGetMemoryInfo:
         assert daily["size_bytes"] == 40
 
     def test_returns_none_on_timeout(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir = tmp_path / "pb"
         playbook_dir.mkdir()
         (playbook_dir / "memory_info.yaml").write_text("---\n")
@@ -475,35 +474,43 @@ class TestGetMemoryInfo:
 
         result = _runner_result("timeout", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             assert get_memory_info("192.168.1.100", "opc-work") is None
 
     def test_returns_none_on_runner_exception_offline(self, tmp_path: Path):
         """Gap #1: offline / unreachable agent must degrade gracefully."""
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir = tmp_path / "pb"
         playbook_dir.mkdir()
         (playbook_dir / "memory_info.yaml").write_text("---\n")
         ssh_key = tmp_path / "id_rsa"
         ssh_key.write_text("key")
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run",
-            side_effect=ConnectionError("host unreachable"),
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch(
+                "clawrium.core.memory.ansible_runner.run",
+                side_effect=ConnectionError("host unreachable"),
+            ),
         ):
             assert get_memory_info("192.168.1.100", "opc-work") is None
 
@@ -516,13 +523,14 @@ class TestReadMemoryFile:
         assert read_memory_file("h", "a", "../bad") is None
 
     def test_returns_none_when_unresolved(self):
-        with patch("clawrium.core.memory._resolve_agent_with_memory", return_value=(None, "test-reason", None)):
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(None, "test-reason", None),
+        ):
             assert read_memory_file("h", "a", "SOUL.md") is None
 
     def test_returns_decoded_content_on_success(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir = tmp_path / "pb"
         playbook_dir.mkdir()
         (playbook_dir / "memory_read.yaml").write_text("---\n")
@@ -535,72 +543,82 @@ class TestReadMemoryFile:
         ]
         result = _runner_result("successful", events)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             assert read_memory_file("h", "opc-work", "SOUL.md") == "hello world"
 
     def test_returns_none_when_playbook_fails(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_read")
 
         result = _runner_result("failed", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             assert read_memory_file("h", "opc-work", "SOUL.md") is None
 
     def test_returns_none_on_runner_exception_offline(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_read")
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run",
-            side_effect=ConnectionError("host unreachable"),
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch(
+                "clawrium.core.memory.ansible_runner.run",
+                side_effect=ConnectionError("host unreachable"),
+            ),
         ):
             assert read_memory_file("h", "opc-work", "SOUL.md") is None
 
     def test_returns_none_on_timeout(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_read")
         result = _runner_result("timeout", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             assert read_memory_file("h", "opc-work", "SOUL.md") is None
 
     def test_returns_none_on_invalid_base64(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_read")
         events = [
             {
@@ -610,20 +628,22 @@ class TestReadMemoryFile:
         ]
         result = _runner_result("successful", events)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             assert read_memory_file("h", "opc-work", "SOUL.md") is None
 
     def test_returns_none_on_non_utf8_bytes(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_read")
         encoded = base64.b64encode(b"\xff\xfe\xfd").decode("ascii")
         events = [
@@ -634,13 +654,17 @@ class TestReadMemoryFile:
         ]
         result = _runner_result("successful", events)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             assert read_memory_file("h", "opc-work", "SOUL.md") is None
 
@@ -655,15 +679,16 @@ class TestWriteMemoryFile:
         assert err is not None and "Invalid" in err
 
     def test_returns_false_when_unresolved(self):
-        with patch("clawrium.core.memory._resolve_agent_with_memory", return_value=(None, "test-reason", None)):
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(None, "test-reason", None),
+        ):
             ok, err = write_memory_file("h", "a", "SOUL.md", "x")
         assert ok is False
         assert err is not None
 
     def test_returns_true_on_successful_run(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir = tmp_path / "pb"
         playbook_dir.mkdir()
         (playbook_dir / "memory_write.yaml").write_text("---\n")
@@ -672,22 +697,24 @@ class TestWriteMemoryFile:
 
         result = _runner_result("successful", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             ok, err = write_memory_file("h", "opc-work", "SOUL.md", "content")
         assert ok is True
         assert err is None
 
     def test_returns_failure_message_from_events(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_write")
 
         events = [
@@ -698,52 +725,62 @@ class TestWriteMemoryFile:
         ]
         result = _runner_result("failed", events)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             ok, err = write_memory_file("h", "opc-work", "SOUL.md", "content")
         assert ok is False
         assert err == "permission denied"
 
     def test_returns_false_on_timeout(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_write")
 
         result = _runner_result("timeout", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             ok, err = write_memory_file("h", "opc-work", "SOUL.md", "content")
         assert ok is False
         assert err is not None and "timed out" in err
 
     def test_returns_false_on_runner_exception_offline(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_write")
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run",
-            side_effect=ConnectionError("host unreachable"),
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch(
+                "clawrium.core.memory.ansible_runner.run",
+                side_effect=ConnectionError("host unreachable"),
+            ),
         ):
             ok, err = write_memory_file("h", "opc-work", "SOUL.md", "content")
         assert ok is False
@@ -759,42 +796,45 @@ class TestWriteMemoryFile:
     def test_accepts_content_at_size_limit(self, tmp_path: Path):
         # Exact-limit and one-byte-under should both pass the size check
         # (and proceed to the host resolution step which we mock).
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_write")
         result = _runner_result("successful", [])
 
         for size in (MAX_MEMORY_CONTENT_BYTES - 1, MAX_MEMORY_CONTENT_BYTES):
-            with patch(
-                "clawrium.core.memory._resolve_agent_with_memory",
-                return_value=(host, "opc-work", "openclaw"),
-            ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-                "clawrium.core.memory.core_keys.get_host_private_key",
-                return_value=ssh_key,
-            ), patch(
-                "clawrium.core.memory.ansible_runner.run", return_value=result
+            with (
+                patch(
+                    "clawrium.core.memory._resolve_agent_with_memory",
+                    return_value=(host, "opc-work", "openclaw"),
+                ),
+                patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+                patch(
+                    "clawrium.core.memory.core_keys.get_host_private_key",
+                    return_value=ssh_key,
+                ),
+                patch("clawrium.core.memory.ansible_runner.run", return_value=result),
             ):
-                ok, err = write_memory_file(
-                    "h", "opc-work", "SOUL.md", "a" * size
-                )
+                ok, err = write_memory_file("h", "opc-work", "SOUL.md", "a" * size)
             assert ok is True, f"size {size} should be accepted"
             assert err is None
 
     def test_returns_false_on_pre_flight_oserror(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_write")
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory._get_logs_dir",
-            side_effect=OSError("read-only filesystem"),
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch(
+                "clawrium.core.memory._get_logs_dir",
+                side_effect=OSError("read-only filesystem"),
+            ),
         ):
             ok, err = write_memory_file("h", "opc-work", "SOUL.md", "x")
         assert ok is False
@@ -816,26 +856,33 @@ class TestDeleteMemoryFiles:
         assert err is not None
 
     def test_returns_false_when_unresolved(self):
-        with patch("clawrium.core.memory._resolve_agent_with_memory", return_value=(None, "test-reason", None)):
+        with patch(
+            "clawrium.core.memory._resolve_agent_with_memory",
+            return_value=(None, "test-reason", None),
+        ):
             ok, err = delete_memory_files("h", "a", ["SOUL.md"])
         assert ok is False
 
     def test_passes_files_list_through_to_playbook(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_delete")
 
         result = _runner_result("successful", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
-        ) as mock_run:
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch(
+                "clawrium.core.memory.ansible_runner.run", return_value=result
+            ) as mock_run,
+        ):
             ok, err = delete_memory_files(
                 "h", "opc-work", ["SOUL.md", "memory/2026-05-09.md"]
             )
@@ -850,39 +897,45 @@ class TestDeleteMemoryFiles:
         ]
 
     def test_returns_false_on_timeout(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_delete")
 
         result = _runner_result("timeout", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             ok, err = delete_memory_files("h", "opc-work", ["SOUL.md"])
         assert ok is False
         assert err is not None and "timed out" in err
 
     def test_returns_false_on_runner_exception_offline(self, tmp_path: Path):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, "memory_delete")
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run",
-            side_effect=ConnectionError("host unreachable"),
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch(
+                "clawrium.core.memory.ansible_runner.run",
+                side_effect=ConnectionError("host unreachable"),
+            ),
         ):
             ok, err = delete_memory_files("h", "opc-work", ["SOUL.md"])
         assert ok is False
@@ -934,9 +987,7 @@ class TestCleanupArtifacts:
     def test_cleanup_called_on_success_for_all_operations(
         self, tmp_path: Path, operation: str, call
     ):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, operation)
         result = _runner_result(
             "successful",
@@ -948,16 +999,19 @@ class TestCleanupArtifacts:
             ],
         )
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
-        ), patch(
-            "clawrium.core.memory._cleanup_artifacts"
-        ) as cleanup:
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
+            patch("clawrium.core.memory._cleanup_artifacts") as cleanup,
+        ):
             call()
         # Success path cleans up exactly once via the caller's finally block.
         assert cleanup.call_count == 1
@@ -986,22 +1040,25 @@ class TestCleanupArtifacts:
     def test_cleanup_called_on_runner_exception_for_all_operations(
         self, tmp_path: Path, operation: str, call
     ):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, ssh_key = _setup_playbook_env(tmp_path, operation)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run",
-            side_effect=ConnectionError("offline"),
-        ), patch(
-            "clawrium.core.memory._cleanup_artifacts"
-        ) as cleanup:
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch(
+                "clawrium.core.memory.ansible_runner.run",
+                side_effect=ConnectionError("offline"),
+            ),
+            patch("clawrium.core.memory._cleanup_artifacts") as cleanup,
+        ):
             call()
         assert cleanup.call_count == 1
 
@@ -1033,16 +1090,18 @@ class TestCleanupArtifacts:
     def test_ssh_key_missing_degrades_for_all_operations(
         self, tmp_path: Path, operation: str, call, expect_falsy
     ):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, _ = _setup_playbook_env(tmp_path, operation)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=None
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key", return_value=None
+            ),
         ):
             assert expect_falsy(call())
 
@@ -1065,16 +1124,18 @@ class TestCleanupArtifacts:
         # write/delete surface the structured error string back to the user;
         # confirm the actionable 'clm host init' guidance is present so the
         # CLI/TUI message stays useful if someone refactors the error text.
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir, _ = _setup_playbook_env(tmp_path, operation)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=None
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch("clawrium.core.memory._PLAYBOOK_DIR", playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key", return_value=None
+            ),
         ):
             ok, err = call()
         assert ok is False
@@ -1095,8 +1156,6 @@ class TestCleanupArtifacts:
             side_effect=PermissionError("locked"),
         ):
             _cleanup_artifacts(tmp_path)  # must not raise
-
-
 
 
 # ----- Phase 3: cross-claw memory dispatch ---------------------------------
@@ -1263,21 +1322,24 @@ class TestGetMemoryInfoHermes:
             "TOP USER.md 80",
         ]
         events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"msg": m}}}
-            for m in msgs
+            {"event": "runner_on_ok", "event_data": {"res": {"msg": m}}} for m in msgs
         ]
         result = _runner_result("successful", events)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "hermes-test", "hermes"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "hermes-test", "hermes"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             stats = get_memory_info("192.168.1.36", "hermes-test")
 
@@ -1326,16 +1388,20 @@ class TestWriteMemoryFileHermesLimits:
         ssh_key.write_text("key")
         result = _runner_result("successful", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "hermes-test", "hermes"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "hermes-test", "hermes"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             ok, err = write_memory_file(
                 "192.168.1.36", "hermes-test", "USER.md", "a" * 1375
@@ -1348,9 +1414,7 @@ class TestWriteMemoryFileHermesLimits:
         with the documented error string."""
         host = _host_with_hermes()
         with patch("clawrium.core.memory.get_host", return_value=host):
-            ok, err = write_memory_file(
-                "192.168.1.36", "hermes-test", "FOO.md", "bar"
-            )
+            ok, err = write_memory_file("192.168.1.36", "hermes-test", "FOO.md", "bar")
         assert ok is False
         assert err is not None
         assert "hermes memory accepts only MEMORY.md and USER.md" in err
@@ -1477,16 +1541,20 @@ class TestHermesCharLimitBoundaries:
     ):
         playbook_dir, ssh_key = hermes_write_env
         result = _runner_result("successful", [])
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(hermes_host, "hermes-test", "hermes"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(hermes_host, "hermes-test", "hermes"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             ok, err = write_memory_file(
                 "192.168.1.36", "hermes-test", filename, "a" * length
@@ -1516,16 +1584,20 @@ class TestHermesCharLimitBoundaries:
         assert len(content) == 1375
         assert len(content.encode("utf-8")) == 2750
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(hermes_host, "hermes-test", "hermes"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(hermes_host, "hermes-test", "hermes"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             ok, err = write_memory_file(
                 "192.168.1.36", "hermes-test", "USER.md", content
@@ -1534,16 +1606,20 @@ class TestHermesCharLimitBoundaries:
         assert ok is True, err
 
         # 1376 codepoints — reject.
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(hermes_host, "hermes-test", "hermes"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(hermes_host, "hermes-test", "hermes"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             ok, err = write_memory_file(
                 "192.168.1.36", "hermes-test", "USER.md", "é" * 1376
@@ -1569,16 +1645,20 @@ class TestHermesReadAndDelete:
         ]
         result = _runner_result("successful", events)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "hermes-test", "hermes"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ) as get_dir, patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "hermes-test", "hermes"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ) as get_dir,
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             content = read_memory_file("192.168.1.36", "hermes-test", "USER.md")
         assert content == "hermes user profile"
@@ -1594,20 +1674,24 @@ class TestHermesReadAndDelete:
         ssh_key.write_text("key")
         result = _runner_result("successful", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "hermes-test", "hermes"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ) as get_dir, patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
-        ) as mock_run:
-            ok, err = delete_memory_files(
-                "192.168.1.36", "hermes-test", ["USER.md"]
-            )
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "hermes-test", "hermes"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ) as get_dir,
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch(
+                "clawrium.core.memory.ansible_runner.run", return_value=result
+            ) as mock_run,
+        ):
+            ok, err = delete_memory_files("192.168.1.36", "hermes-test", ["USER.md"])
         assert ok is True
         assert err is None
         get_dir.assert_called_with("hermes")
@@ -1643,9 +1727,7 @@ class TestHermesFilenameRejection:
     def test_openclaw_does_not_apply_hermes_allowlist(self, tmp_path: Path):
         """Regression guard: the per-claw allowlist must not bleed across
         types — openclaw still accepts SOUL.md, IDENTITY.md, daily files."""
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         playbook_dir = tmp_path / "openclaw-pb"
         playbook_dir.mkdir()
         (playbook_dir / "memory_write.yaml").write_text("---\n")
@@ -1653,16 +1735,20 @@ class TestHermesFilenameRejection:
         ssh_key.write_text("key")
         result = _runner_result("successful", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "opc-work", "openclaw"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key", return_value=ssh_key
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "opc-work", "openclaw"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             for filename in ("SOUL.md", "IDENTITY.md", "memory/2026-05-10.md"):
                 ok, err = write_memory_file(
@@ -1699,10 +1785,13 @@ class TestClawSupportsMemoryFallback:
         rather than silently masking all memory ops."""
         import logging
 
-        with patch(
-            "clawrium.core.memory.load_manifest",
-            side_effect=TypeError("internal bug"),
-        ), caplog.at_level(logging.WARNING, logger="clawrium.core.memory"):
+        with (
+            patch(
+                "clawrium.core.memory.load_manifest",
+                side_effect=TypeError("internal bug"),
+            ),
+            caplog.at_level(logging.WARNING, logger="clawrium.core.memory"),
+        ):
             result = claw_supports_memory("borked")
         assert result is False
         # Unexpected errors are logged at WARNING level; expected ones at DEBUG.
@@ -1743,22 +1832,24 @@ class TestZeroclawDispatch:
             "TOP HEARTBEAT.md 5",
         ]
         events = [
-            {"event": "runner_on_ok", "event_data": {"res": {"msg": m}}}
-            for m in msgs
+            {"event": "runner_on_ok", "event_data": {"res": {"msg": m}}} for m in msgs
         ]
         result = _runner_result("successful", events)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "zc-work", "zeroclaw"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ) as get_dir, patch(
-            "clawrium.core.memory.core_keys.get_host_private_key",
-            return_value=ssh_key,
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ) as get_dir,
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             stats = get_memory_info("192.168.1.36", "zc-work")
 
@@ -1793,17 +1884,20 @@ class TestZeroclawDispatch:
         ]
         result = _runner_result("successful", events)
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "zc-work", "zeroclaw"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ) as get_dir, patch(
-            "clawrium.core.memory.core_keys.get_host_private_key",
-            return_value=ssh_key,
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ) as get_dir,
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             content = read_memory_file("192.168.1.36", "zc-work", "SOUL.md")
         assert content == "zeroclaw soul content"
@@ -1818,18 +1912,23 @@ class TestZeroclawDispatch:
         ssh_key.write_text("key")
         result = _runner_result("successful", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "zc-work", "zeroclaw"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ) as get_dir, patch(
-            "clawrium.core.memory.core_keys.get_host_private_key",
-            return_value=ssh_key,
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
-        ) as mock_run:
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ) as get_dir,
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch(
+                "clawrium.core.memory.ansible_runner.run", return_value=result
+            ) as mock_run,
+        ):
             ok, err = write_memory_file(
                 "192.168.1.36", "zc-work", "SOUL.md", "new identity content"
             )
@@ -1851,21 +1950,24 @@ class TestZeroclawDispatch:
         ssh_key.write_text("key")
         result = _runner_result("successful", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "zc-work", "zeroclaw"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ) as get_dir, patch(
-            "clawrium.core.memory.core_keys.get_host_private_key",
-            return_value=ssh_key,
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
-        ) as mock_run:
-            ok, err = delete_memory_files(
-                "192.168.1.36", "zc-work", ["AGENTS.md"]
-            )
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ) as get_dir,
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch(
+                "clawrium.core.memory.ansible_runner.run", return_value=result
+            ) as mock_run,
+        ):
+            ok, err = delete_memory_files("192.168.1.36", "zc-work", ["AGENTS.md"])
         assert ok is True
         assert err is None
         get_dir.assert_called_with("zeroclaw")
@@ -1878,9 +1980,7 @@ class TestZeroclawDispatch:
         dispatch — symmetric with memory_info.yaml's exclusion."""
         host = _host_with_zeroclaw()
         with patch("clawrium.core.memory.get_host", return_value=host):
-            ok, err = write_memory_file(
-                "192.168.1.36", "zc-work", "BOOTSTRAP.md", "x"
-            )
+            ok, err = write_memory_file("192.168.1.36", "zc-work", "BOOTSTRAP.md", "x")
         assert ok is False
         assert err is not None
         # The rejection must come from the allowlist path specifically
@@ -1910,13 +2010,9 @@ class TestOpenclawWriteAllowlist:
         ["BOOTSTRAP.md", "CONFIG.md", "RANDOM.txt", "AGENTS.md"],
     )
     def test_openclaw_rejects_non_allowlisted_filename(self, bad_filename: str):
-        host = _host(
-            {"opc-work": {"type": "openclaw", "agent_name": "opc-work"}}
-        )
+        host = _host({"opc-work": {"type": "openclaw", "agent_name": "opc-work"}})
         with patch("clawrium.core.memory.get_host", return_value=host):
-            ok, err = write_memory_file(
-                "192.168.1.100", "opc-work", bad_filename, "x"
-            )
+            ok, err = write_memory_file("192.168.1.100", "opc-work", bad_filename, "x")
         assert ok is False
         assert err is not None
         assert "openclaw memory accepts only" in err
@@ -1944,17 +2040,20 @@ class TestZeroclawDailyNoteWrite:
         ssh_key.write_text("key")
         result = _runner_result("successful", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "zc-work", "zeroclaw"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir",
-            return_value=playbook_dir,
-        ), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key",
-            return_value=ssh_key,
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch(
+                "clawrium.core.memory._get_playbook_dir",
+                return_value=playbook_dir,
+            ),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
             ok, err = write_memory_file(
                 "192.168.1.36", "zc-work", "memory/2026-05-15.md", "todo"
@@ -2024,9 +2123,7 @@ class TestYamlPythonParity:
         from clawrium.core.memory import MEMORY_TOP_LEVEL_FILES
 
         pkg = files(f"clawrium.platform.registry.{claw_type}")
-        data = yamlmod.safe_load(
-            (pkg / "playbooks" / "memory_info.yaml").read_text()
-        )
+        data = yamlmod.safe_load((pkg / "playbooks" / "memory_info.yaml").read_text())
         yaml_vars = data[0]["vars"]["memory_top_level_files"]
         # Hermes uses dict-of-{name,path} entries; openclaw/zeroclaw use
         # plain strings. Normalize to filenames.
@@ -2056,9 +2153,7 @@ class TestHermesDeleteAsymmetry:
     def test_hermes_delete_rejects_soul_md(self):
         host = _host_with_hermes()
         with patch("clawrium.core.memory.get_host", return_value=host):
-            ok, err = delete_memory_files(
-                "192.168.1.36", "hermes-test", ["SOUL.md"]
-            )
+            ok, err = delete_memory_files("192.168.1.36", "hermes-test", ["SOUL.md"])
         assert ok is False
         assert err is not None
         assert "hermes memory delete rejects 'SOUL.md'" in err
@@ -2075,19 +2170,18 @@ class TestHermesDeleteAsymmetry:
         ssh_key.write_text("key")
         result = _runner_result("successful", [])
 
-        with patch(
-            "clawrium.core.memory._resolve_agent_with_memory",
-            return_value=(host, "hermes-test", "hermes"),
-        ), patch(
-            "clawrium.core.memory._get_playbook_dir", return_value=playbook_dir
-        ), patch(
-            "clawrium.core.memory.core_keys.get_host_private_key",
-            return_value=ssh_key,
-        ), patch(
-            "clawrium.core.memory.ansible_runner.run", return_value=result
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "hermes-test", "hermes"),
+            ),
+            patch("clawrium.core.memory._get_playbook_dir", return_value=playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
         ):
-            ok, err = delete_memory_files(
-                "192.168.1.36", "hermes-test", ["MEMORY.md"]
-            )
+            ok, err = delete_memory_files("192.168.1.36", "hermes-test", ["MEMORY.md"])
         assert ok is True
         assert err is None

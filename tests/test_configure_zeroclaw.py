@@ -70,7 +70,7 @@ def _render(
     # ansible env avoids a future opaque TemplateAssertionError. Mirrors
     # _render_with_channels_and_integrations() at line ~376.
     env.filters["regex_replace"] = _ansible_regex_replace_top
-    template = env.get_template("config.toml.j2")
+    template = env.get_template("zeroclaw-config.toml.j2")
     config = {"gateway": dict(_GATEWAY_DEFAULTS)}
     if provider is not None:
         config["provider"] = provider
@@ -103,7 +103,7 @@ class TestGatewayBlock:
         out."""
         env = Environment(loader=FileSystemLoader(str(ZEROCLAW_TEMPLATES)))
         env.filters["bool"] = _ansible_bool
-        template = env.get_template("config.toml.j2")
+        template = env.get_template("zeroclaw-config.toml.j2")
         # Build the config without require_pairing to force the default.
         config = {
             "gateway": {"host": "0.0.0.0", "port": 4080, "allow_public_bind": True},
@@ -142,7 +142,7 @@ class TestProviderRenderingAnthropic:
         """ATX Round 1 B1: an api_key containing CR/LF/TAB must NOT be
         able to break out of the TOML basic string and inject keys. The
         escape macro must encode \\r, \\n, \\t as TOML escape sequences."""
-        key = "leading\ninjected_key = \"evil\"\nokay"
+        key = 'leading\ninjected_key = "evil"\nokay'
         rendered = _render(
             provider={"type": "anthropic", "default_model": "claude-sonnet-4-5"},
             provider_api_key=key,
@@ -352,9 +352,7 @@ class TestPersonalityBlock:
         # through toml_escape. A regression that drops the macro from a
         # single field would otherwise slip past a name-only test (the
         # same shape of bug ATX flagged for `api_key` in earlier rounds).
-        payload = (
-            'evil"\n[providers.models.injected]\nkind = "anthropic'
-        )
+        payload = 'evil"\n[providers.models.injected]\nkind = "anthropic'
         personality = {
             "name": "ok-name",
             "timezone": "UTC",
@@ -406,7 +404,7 @@ def _render_with_channels_and_integrations(
     env = Environment(loader=FileSystemLoader(str(ZEROCLAW_TEMPLATES)))
     env.filters["bool"] = _ansible_bool
     env.filters["regex_replace"] = _ansible_regex_replace
-    template = env.get_template("config.toml.j2")
+    template = env.get_template("zeroclaw-config.toml.j2")
     config = {"gateway": dict(_GATEWAY_DEFAULTS)}
     if provider is not None:
         config["provider"] = provider
@@ -426,7 +424,7 @@ def _render_systemd_dropin(integrations: dict | None) -> str:
         keep_trailing_newline=True,
     )
     env.filters["regex_replace"] = _ansible_regex_replace
-    template = env.get_template("clm-env.conf.j2")
+    template = env.get_template("zeroclaw-env.conf.j2")
     return template.render(integrations=integrations or {}, agent_name="zc1")
 
 
@@ -556,14 +554,11 @@ class TestChannelsDiscordBlock:
         )
         # The encoded payload must appear inside the bot_token line, not
         # as a top-level injected TOML statement.
-        assert (
-            'bot_token = "tok\\ninjected_key = \\"evil\\"\\nok"' in rendered
-        )
+        assert 'bot_token = "tok\\ninjected_key = \\"evil\\"\\nok"' in rendered
         # No injected top-level key.
         for line in rendered.splitlines():
             assert not line.strip().startswith("injected_key"), (
-                f"TOML injection succeeded via bot_token newline payload: "
-                f"{line!r}"
+                f"TOML injection succeeded via bot_token newline payload: {line!r}"
             )
 
     def test_discord_allowed_users_array_elements_toml_escaped(self):
@@ -585,8 +580,7 @@ class TestChannelsDiscordBlock:
         # No raw injection landing outside the string.
         for line in rendered.splitlines():
             assert not line.strip().startswith("evil"), (
-                f"allowed_users element broke out of TOML basic string: "
-                f"{line!r}"
+                f"allowed_users element broke out of TOML basic string: {line!r}"
             )
 
     def test_discord_allowed_guilds_array_elements_toml_escaped(self):
@@ -604,8 +598,7 @@ class TestChannelsDiscordBlock:
         assert '"11111\\"evil"' in rendered
         for line in rendered.splitlines():
             assert not line.strip().startswith("evil"), (
-                f"allowed_guilds element broke out of TOML basic string: "
-                f"{line!r}"
+                f"allowed_guilds element broke out of TOML basic string: {line!r}"
             )
 
     def test_discord_draft_update_interval_zero_omitted(self):
@@ -842,9 +835,7 @@ class TestAutonomyBlock:
             "sessions_reset",
             "sessions_delete",
         }
-        sessions_in_auto_approve = set(
-            _re422.findall(r'"(sessions_[^"]+)"', rendered)
-        )
+        sessions_in_auto_approve = set(_re422.findall(r'"(sessions_[^"]+)"', rendered))
         assert sessions_in_auto_approve == expected_sessions_auto_approve, (
             f"sessions_* mismatch — "
             f"surplus: {sessions_in_auto_approve - expected_sessions_auto_approve} | "
@@ -856,9 +847,7 @@ class TestAutonomyBlock:
             provider={"type": "anthropic", "default_model": "m"},
         )
         # Without github integrations, only the 4 upstream-default vars.
-        assert (
-            'shell_env_passthrough = ["PATH", "HOME", "USER", "LANG"]' in rendered
-        )
+        assert 'shell_env_passthrough = ["PATH", "HOME", "USER", "LANG"]' in rendered
 
     def test_shell_env_passthrough_appends_github_token_names(self):
         rendered = _render_with_channels_and_integrations(
@@ -932,13 +921,17 @@ class TestPacingBlock:
         # Surgical exemption — repeats on these tools are normal coding
         # cadence (re-running tests, re-reading edited files, grep loops).
         import re
-        m = re.search(
-            r"loop_ignore_tools\s*=\s*\[(.*?)\]", rendered, re.DOTALL
-        )
+
+        m = re.search(r"loop_ignore_tools\s*=\s*\[(.*?)\]", rendered, re.DOTALL)
         assert m is not None, "loop_ignore_tools list not rendered"
         block = m.group(1)
-        for tool in ["shell", "file_read", "file_list",
-                     "content_search", "glob_search"]:
+        for tool in [
+            "shell",
+            "file_read",
+            "file_list",
+            "content_search",
+            "glob_search",
+        ]:
             assert f'"{tool}"' in block, f"{tool} missing from loop_ignore_tools"
         # Network + git ops stay detected — repeated identical results
         # there almost always indicate genuine pathology.
@@ -998,10 +991,7 @@ class TestSystemdDropIn:
                 },
             },
         )
-        assert (
-            'Environment=GITHUB_TOKEN="tok\\"with\\"quote\\\\and\\\\bs"'
-            in rendered
-        )
+        assert 'Environment=GITHUB_TOKEN="tok\\"with\\"quote\\\\and\\\\bs"' in rendered
 
     def test_dropin_skips_non_github_integrations(self):
         rendered = _render_systemd_dropin(

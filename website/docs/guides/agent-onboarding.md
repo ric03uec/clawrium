@@ -6,7 +6,7 @@ keywords: [onboarding, configuration, agent setup, configure, providers, identit
 
 # Agent Onboarding
 
-Every newly installed agent goes through a structured onboarding workflow before it can be started. This guide explains the onboarding process and how to use `clm agent configure` to set up your agents.
+Every newly installed agent goes through a structured onboarding workflow before it can be started. This guide explains the onboarding process and how to use `clawctl agent configure` to set up your agents.
 
 ## What is Onboarding?
 
@@ -47,13 +47,13 @@ Some stages can be auto-skipped depending on the agent type. For example, ZeroCl
 After installing an agent, run the onboarding wizard:
 
 ```bash
-clm agent configure <agent-name>
+clawctl agent configure <agent-name>
 ```
 
 The wizard will guide you through each required stage. Here's what a typical session looks like:
 
 ```bash
-$ clm agent configure opc-work
+$ clawctl agent configure opc-work
 Starting onboarding for 'opc-work' (openclaw)
 Current state: PENDING
 
@@ -107,7 +107,7 @@ Running verification checks...
 
 ✓ Onboarding complete! 'opc-work' is ready to start.
 
-Run: clm agent start opc-work
+Run: clawctl agent start opc-work
 ```
 
 ## Onboarding Stages in Detail
@@ -133,7 +133,7 @@ Select provider [1-2]: 2
 ```
 
 :::tip
-Use `clm provider list` to see all configured providers before starting onboarding.
+Use `clawctl provider registry get` to see all configured providers before starting onboarding.
 :::
 
 ### 2. Identity Stage
@@ -229,13 +229,13 @@ Reconfigure a specific stage without going through the full wizard:
 
 ```bash
 # Change the inference provider
-clm agent configure opc-work --stage providers
+clawctl agent configure opc-work --stage providers
 
 # Update identity files
-clm agent configure opc-work --stage identity
+clawctl agent configure opc-work --stage identity
 
 # Reconfigure communication channels
-clm agent configure opc-work --stage channels
+clawctl agent configure opc-work --stage channels
 ```
 
 ### Skip Confirmations
@@ -243,7 +243,7 @@ clm agent configure opc-work --stage channels
 Use `--yes` to accept defaults and skip interactive prompts:
 
 ```bash
-clm agent configure opc-work --yes
+clawctl agent configure opc-work --yes
 ```
 
 This is useful for:
@@ -257,10 +257,10 @@ For advanced users, edit the agent's config file directly:
 
 ```bash
 # Open in default editor (uses VISUAL, EDITOR, or vi)
-clm agent configure opc-work --edit-config
+clawctl agent configure opc-work --edit-config
 
 # Use a specific editor
-clm agent configure opc-work --edit-config --editor nano
+clawctl agent configure opc-work --edit-config --editor nano
 ```
 
 After saving, Clawrium validates the config and offers to restart the agent if it's running.
@@ -274,7 +274,7 @@ Direct editing bypasses the wizard's validation. Make sure you understand the co
 If onboarding was interrupted, just run configure again:
 
 ```bash
-clm agent configure opc-work
+clawctl agent configure opc-work
 ```
 
 It will resume from where you left off:
@@ -290,7 +290,7 @@ Resuming from IDENTITY stage...
 ### View All Agents
 
 ```bash
-$ clm agent status
+$ clawctl agent describe
 
 Agent Status:
 ┌──────────┬──────┬───────┬─────────────┬──────────┐
@@ -313,7 +313,7 @@ Agent Status:
 Use `--verbose` for stage-level details:
 
 ```bash
-$ clm agent status opc-work --verbose
+$ clawctl agent describe opc-work --verbose
 
 Agent: opc-work
 Host: lab1 (192.168.1.100)
@@ -331,7 +331,7 @@ Onboarding Progress:
 
   ⧗ VALIDATE   (pending)
 
-Next step: clm agent configure opc-work --stage channels
+Next step: clawctl agent configure opc-work --stage channels
 ```
 
 ## Starting an Agent
@@ -339,7 +339,7 @@ Next step: clm agent configure opc-work --stage channels
 Agents can only be started when status is **READY**:
 
 ```bash
-$ clm agent start opc-work
+$ clawctl agent start opc-work
 ✓ Starting 'opc-work' on lab1...
 ✓ Agent started successfully
 ```
@@ -347,7 +347,7 @@ $ clm agent start opc-work
 If onboarding is incomplete:
 
 ```bash
-$ clm agent start opc-work
+$ clawctl agent start opc-work
 ✗ Cannot start 'opc-work' - onboarding incomplete
 
 Status: ONBOARDING (2/4 stages)
@@ -356,7 +356,7 @@ Remaining stages:
   - channels
   - validate
 
-Complete onboarding: clm agent configure opc-work
+Complete onboarding: clawctl agent configure opc-work
 ```
 
 ## Troubleshooting
@@ -367,9 +367,9 @@ Complete onboarding: clm agent configure opc-work
 
 **Fix:** Reinstall the agent:
 ```bash
-clm agent remove opc-work
-clm agent install openclaw --host lab1 --name opc-work
-clm agent configure opc-work
+clawctl agent delete opc-work
+clawctl agent create openclaw --host lab1 --name opc-work
+clawctl agent configure opc-work
 ```
 
 ### Error: "Cannot transition from X to Y"
@@ -378,7 +378,7 @@ clm agent configure opc-work
 
 **Fix:** Use the full wizard:
 ```bash
-clm agent configure opc-work
+clawctl agent configure opc-work
 # (without --stage flag)
 ```
 
@@ -386,19 +386,19 @@ clm agent configure opc-work
 
 **Common causes:**
 1. **Provider unreachable:** Check network connectivity
-2. **Invalid API key:** Update secrets with `clm secret set`
+2. **Invalid API key:** Update secrets with `clawctl agent secret create`
 3. **Provider down:** Try a different provider
 
 **Fix:**
 ```bash
 # Check provider status
-clm provider status openai-prod
+clawctl provider status openai-prod
 
 # Update API key if needed
-clm secret set opc-work OPENAI_API_KEY
+clawctl agent secret create opc-work OPENAI_API_KEY
 
 # Retry provider configuration
-clm agent configure opc-work --stage providers
+clawctl agent configure opc-work --stage providers
 ```
 
 ### Stage Auto-Skipped When You Want to Configure It
@@ -407,7 +407,7 @@ clm agent configure opc-work --stage providers
 
 **Fix:** Explicitly configure the stage:
 ```bash
-clm agent configure opc-work --stage identity
+clawctl agent configure opc-work --stage identity
 ```
 
 The wizard will respect your intent even if the stage is normally skippable.

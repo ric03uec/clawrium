@@ -118,9 +118,7 @@ def _write_state(agent_key: str, info: TunnelInfo) -> None:
     # to write the same agent's state never trample each other. ATX W1: open
     # with mode 0o600 atomically via O_CREAT|O_EXCL — no chmod gap during
     # which the file is world-readable.
-    tmp = path.with_name(
-        f"{path.stem}.{os.getpid()}.{threading.get_ident()}.tmp"
-    )
+    tmp = path.with_name(f"{path.stem}.{os.getpid()}.{threading.get_ident()}.tmp")
     fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     fdopen_succeeded = False
     try:
@@ -374,9 +372,7 @@ def _build_ssh_for(resolved: ResolvedUI, local_port: int) -> list[str]:
     ssh = resolved.ssh_config or {}
     user = ssh.get("user")
     if not isinstance(user, str) or not user:
-        raise TunnelError(
-            "SSH user not configured for host; cannot establish tunnel."
-        )
+        raise TunnelError("SSH user not configured for host; cannot establish tunnel.")
     try:
         remote_bind_addr = BIND_ADDRESS_MAP[resolved.bind]
     except KeyError as e:

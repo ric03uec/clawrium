@@ -154,7 +154,9 @@ def init(
 
             if success:
                 console.print("[green]xclm user configured successfully![/green]")
-                console.print(f"\nNext step: [cyan]clm host add {hostname}[/cyan]")
+                console.print(
+                    f"\nNext step: [cyan]clawctl host create {hostname}[/cyan]"
+                )
                 auto_setup_success = True
             else:
                 console.print(
@@ -172,7 +174,9 @@ def init(
 
         if typer.confirm("\nAccept this host key and retry?"):
             accept_host_key(hostname, 22, expected_fingerprint=e.fingerprint)
-            console.print("Host key saved. Please run 'clm host init' again.")
+            console.print(
+                "Host key saved. Please run 'clawctl host create --bootstrap' again."
+            )
         else:
             console.print("Connection cancelled.")
         raise typer.Exit(code=1)
@@ -218,7 +222,7 @@ def init(
         console.print("sudo chmod 600 /home/xclm/.ssh/authorized_keys")
         console.print("sudo chown -R xclm:xclm /home/xclm/.ssh")
         console.print("")
-        console.print(f"Then run: [cyan]clm host add {hostname}[/cyan]")
+        console.print(f"Then run: [cyan]clawctl host create {hostname}[/cyan]")
         # Exit non-zero so scripts can detect failure (B2 fix)
         raise typer.Exit(code=1)
 
@@ -241,12 +245,12 @@ def add(
 ) -> None:
     """Add a new host to the fleet.
 
-    Requires keypair to exist (run 'clm host init' first).
+    Requires keypair to exist (run 'clawctl host create --bootstrap' first).
     Tests SSH connection before saving. Detects hardware capabilities
     automatically after successful connection.
     """
     # Determine key_id: Try hostname first, fall back to alias
-    # This ensures `clm host init 192.168.1.10` + `clm host add 192.168.1.10 --alias mybox` works
+    # This ensures `clawctl host create --bootstrap 192.168.1.10` + `clawctl host create 192.168.1.10 --alias mybox` works
     from clawrium.core.keys import validate_key_id
 
     # Try hostname first (most common case: init and add use same identifier)
@@ -270,7 +274,9 @@ def add(
         console.print(f"[red]Error:[/red] No keypair found for '{hostname}'")
         if alias:
             console.print(f"  Also checked alias '{alias}'")
-        console.print(f"Run 'clm host init {hostname}' first to generate keys")
+        console.print(
+            f"Run 'clawctl host create --bootstrap {hostname}' first to generate keys"
+        )
         raise typer.Exit(code=1)
 
     # Check for duplicate hostname, alias, or key_id
@@ -425,7 +431,7 @@ def list_hosts() -> None:
         raise typer.Exit(code=1)
 
     if not hosts:
-        console.print("No hosts registered. Use 'clm host add' to add a host.")
+        console.print("No hosts registered. Use 'clawctl host create' to add a host.")
         return
 
     table = Table(title="Registered Hosts")
@@ -575,7 +581,9 @@ def tag(
     """
     # Validate mutually exclusive options
     if set_tags is not None and (add or remove):
-        console.print("[red]Error:[/red] --set cannot be combined with --add or --remove")
+        console.print(
+            "[red]Error:[/red] --set cannot be combined with --add or --remove"
+        )
         raise typer.Exit(code=1)
 
     # Require at least one operation
@@ -630,7 +638,9 @@ def tag(
     if update_host(hostname, apply_tag_update):
         # Reload to show final state
         updated_host = get_host(hostname)
-        final_tags = updated_host.get("metadata", {}).get("tags", []) if updated_host else []
+        final_tags = (
+            updated_host.get("metadata", {}).get("tags", []) if updated_host else []
+        )
 
         if final_tags:
             console.print(f"Tags updated for '{display_name}': {', '.join(final_tags)}")
@@ -829,7 +839,9 @@ def ps(
     host_key = get_host_private_key(key_id)
     if host_key is None:
         console.print(f"[red]Error:[/red] No keypair found for '{key_id}'")
-        console.print(f"Run 'clm host init {key_id}' to regenerate keys")
+        console.print(
+            f"Run 'clawctl host create --bootstrap {key_id}' to regenerate keys"
+        )
         raise typer.Exit(code=1)
     ssh_key = str(host_key)
 
@@ -846,7 +858,7 @@ def ps(
         success = False
         message = "Host key verification required"
         console.print(
-            f"[yellow]Note:[/yellow] Run 'clm host remove {hostname} && clm host add {host['hostname']}' to re-verify the host key."
+            f"[yellow]Note:[/yellow] Run 'clawctl host delete {hostname} && clawctl host create {host['hostname']}' to re-verify the host key."
         )
 
     # Refresh hardware BEFORE building table if requested (per D-06)
@@ -930,7 +942,9 @@ def ps(
         for addr in addresses:
             primary_marker = "* " if addr.get("is_primary") else "  "
             label_str = f" ({rich_escape(addr['label'])})" if addr.get("label") else ""
-            console.print(f"  {primary_marker}{rich_escape(addr['address'])}{label_str}")
+            console.print(
+                f"  {primary_marker}{rich_escape(addr['address'])}{label_str}"
+            )
 
     # Exit 1 if host is disconnected (for scripting)
     if not success:
@@ -1084,7 +1098,9 @@ def address_add(
     try:
         add_address_to_host(host, address, label)
         label_str = f" ({label})" if label else ""
-        console.print(f"[green]Address '{rich_escape(address)}'{label_str} added to host '{rich_escape(host)}'[/green]")
+        console.print(
+            f"[green]Address '{rich_escape(address)}'{label_str} added to host '{rich_escape(host)}'[/green]"
+        )
     except AddressError as e:
         console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
         raise typer.Exit(code=1)
@@ -1094,7 +1110,7 @@ def address_add(
 def address_remove(
     host: str = typer.Argument(..., help="Host hostname or alias"),
     address: str = typer.Argument(
-        ..., help="Address to remove (use 'clm host address list' to see addresses)"
+        ..., help="Address to remove (use 'clawctl host address get' to see addresses)"
     ),
 ) -> None:
     """Remove an address from a host.
@@ -1104,10 +1120,14 @@ def address_remove(
     """
     try:
         remove_address_from_host(host, address)
-        console.print(f"[green]Address '{rich_escape(address)}' removed from host '{rich_escape(host)}'[/green]")
+        console.print(
+            f"[green]Address '{rich_escape(address)}' removed from host '{rich_escape(host)}'[/green]"
+        )
     except AddressError as e:
         console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
-        console.print(f"[dim]Use 'clm host address list {rich_escape(host)}' to see available addresses.[/dim]")
+        console.print(
+            f"[dim]Use 'clawctl host address get {rich_escape(host)}' to see available addresses.[/dim]"
+        )
         raise typer.Exit(code=1)
 
 
@@ -1172,8 +1192,12 @@ def address_set_primary(
     """
     try:
         set_primary_address(host, address)
-        console.print(f"[green]Primary address for '{rich_escape(host)}' set to '{rich_escape(address)}'[/green]")
+        console.print(
+            f"[green]Primary address for '{rich_escape(host)}' set to '{rich_escape(address)}'[/green]"
+        )
     except AddressError as e:
         console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
-        console.print(f"[dim]Use 'clm host address list {rich_escape(host)}' to see available addresses.[/dim]")
+        console.print(
+            f"[dim]Use 'clawctl host address get {rich_escape(host)}' to see available addresses.[/dim]"
+        )
         raise typer.Exit(code=1)

@@ -13,7 +13,7 @@ This guide covers managing multiple hosts and claws in your Clawrium fleet.
 ```mermaid
 graph LR
     subgraph "Clawrium CLI"
-        CLM[clm]
+        CLM[clawctl]
     end
 
     subgraph "Production"
@@ -43,12 +43,12 @@ Tags help organize and filter hosts in your fleet:
 
 ```bash
 # Add hosts with tags
-clm host add 192.168.1.100 --alias pi-lab --tags production,arm,edge
-clm host add 192.168.1.101 --alias nuc-01 --tags production,x86
-clm host add 192.168.1.102 --alias dev-server --tags dev,x86
+clawctl host create 192.168.1.100 --alias pi-lab --tags production,arm,edge
+clawctl host create 192.168.1.101 --alias nuc-01 --tags production,x86
+clawctl host create 192.168.1.102 --alias dev-server --tags dev,x86
 
 # List all hosts
-clm host list
+clawctl host get
 ```
 
 Tags can represent:
@@ -71,7 +71,7 @@ Clawrium automatically detects hardware capabilities:
 Use `--refresh` to update hardware info after changes:
 
 ```bash
-clm host status pi-lab --refresh
+clawctl host status pi-lab --refresh
 ```
 
 ## Multi-Host Operations
@@ -82,9 +82,9 @@ Monitor hosts in your fleet individually:
 
 ```bash
 # Check each host
-clm host status pi-lab
-clm host status nuc-01
-clm host status dev-server
+clawctl host status pi-lab
+clawctl host status nuc-01
+clawctl host status dev-server
 ```
 
 ### Deploying Across Fleet
@@ -93,9 +93,9 @@ Deploy the same claw to multiple hosts:
 
 ```bash
 # Install ZeroClaw on multiple hosts
-clm agent install --type zeroclaw --host pi-lab --yes
-clm agent install --type zeroclaw --host nuc-01 --yes
-clm agent install --type zeroclaw --host dev-server --yes
+clawctl agent create --type zeroclaw --host pi-lab --yes
+clawctl agent create --type zeroclaw --host nuc-01 --yes
+clawctl agent create --type zeroclaw --host dev-server --yes
 ```
 
 ### Managing Configuration
@@ -104,9 +104,9 @@ Keep configuration synchronized across hosts:
 
 ```bash
 # Set secrets on multiple hosts
-clm secret set OPENAI_API_KEY --host pi-lab
-clm secret set OPENAI_API_KEY --host nuc-01
-clm secret set OPENAI_API_KEY --host dev-server
+clawctl agent secret create OPENAI_API_KEY --host pi-lab
+clawctl agent secret create OPENAI_API_KEY --host nuc-01
+clawctl agent secret create OPENAI_API_KEY --host dev-server
 ```
 
 ## Reset Operations
@@ -117,12 +117,12 @@ Before resetting a host:
 
 1. **Check for running claws**
    ```bash
-   clm host status pi-lab
+   clawctl host status pi-lab
    ```
 
 2. **Review what will be removed**
    ```bash
-   clm host reset pi-lab --dry-run
+   clawctl host reset pi-lab --dry-run
    ```
 
 3. **Backup any custom configuration**
@@ -136,15 +136,15 @@ Before resetting a host:
 ```mermaid
 sequenceDiagram
     participant User
-    participant CLM as clm CLI
+    participant CLM as clawctl CLI
     participant Host
 
-    User->>CLM: clm host reset pi-lab --dry-run
+    User->>CLM: clawctl host reset pi-lab --dry-run
     CLM->>Host: Scan for users/services
     Host-->>CLM: List of targets
     CLM-->>User: Show what would be removed
 
-    User->>CLM: clm host reset pi-lab --yes
+    User->>CLM: clawctl host reset pi-lab --yes
     CLM->>Host: Stop services
     CLM->>Host: Remove users
     CLM->>Host: Clean paths
@@ -167,10 +167,10 @@ After reset, the host is still tracked:
 
 ```bash
 # Verify host is still in fleet
-clm host status pi-lab
+clawctl host status pi-lab
 
 # To remove tracking as well
-clm host reset pi-lab --yes --untrack
+clawctl host reset pi-lab --yes --untrack
 ```
 
 ## Multi-Host Architecture
@@ -268,7 +268,7 @@ Each host has an isolated SSH keypair:
 3. **Regular health checks**
    ```bash
    # Run periodic health checks manually
-   clm status
+   clawctl agent describe
    ```
 
 ### Change Management
@@ -276,10 +276,10 @@ Each host has an isolated SSH keypair:
 1. **Test on dev hosts first**
    ```bash
    # Deploy to dev
-   clm agent install --type zeroclaw --host dev-server --yes
+   clawctl agent create --type zeroclaw --host dev-server --yes
    # Verify
    # Then deploy to production
-   clm agent install --type zeroclaw --host pi-lab --yes
+   clawctl agent create --type zeroclaw --host pi-lab --yes
    ```
 
 2. **Document host configurations**

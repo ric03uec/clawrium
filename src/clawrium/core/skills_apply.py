@@ -133,8 +133,7 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
     """
     if not isinstance(agent_name, str) or not _AGENT_NAME_RE.match(agent_name):
         raise AgentNotFoundError(
-            f"Invalid agent name {agent_name!r}. Must match "
-            "^[a-z][a-z0-9_-]{0,31}$."
+            f"Invalid agent name {agent_name!r}. Must match ^[a-z][a-z0-9_-]{{0,31}}$."
         )
 
     try:
@@ -143,9 +142,7 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
         # ambiguous name across hosts
         raise AgentNotFoundError(str(error)) from error
     if resolved is None:
-        raise AgentNotFoundError(
-            f"Agent {agent_name!r} not found. Run `clm agent ps`."
-        )
+        raise AgentNotFoundError(f"Agent {agent_name!r} not found. Run `clm agent ps`.")
 
     host, agent_type, _agent_record = resolved
     if agent_type not in NATIVE_REGISTRIES:
@@ -255,9 +252,7 @@ def _stage_skills(agent_name: str, agent_type: str, skills: list[Skill]) -> Path
         pass
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    staging = Path(
-        tempfile.mkdtemp(prefix=f"{agent_name}-{timestamp}-", dir=str(base))
-    )
+    staging = Path(tempfile.mkdtemp(prefix=f"{agent_name}-{timestamp}-", dir=str(base)))
 
     # Wrap the per-skill write loop in try/except so a mid-loop failure
     # (disk full, permissions race) doesn't leak the partially-populated
@@ -318,10 +313,7 @@ def _make_log_dir(agent_name: str, agent_type: str, host: dict) -> Path:
     raw_host_display = host.get("alias") or host.get("hostname", "unknown")
     host_display = _sanitize_for_path(str(raw_host_display)) or "unknown"
     safe_agent_type = _sanitize_for_path(agent_type)
-    log_dir = (
-        logs_dir
-        / f"skills_apply-{safe_agent_type}-{host_display}-{timestamp}"
-    )
+    log_dir = logs_dir / f"skills_apply-{safe_agent_type}-{host_display}-{timestamp}"
     # Belt-and-suspenders: even after the allowlist sanitization above,
     # assert the resolved log_dir stays inside logs_dir. Catches future
     # regressions (e.g. if `_sanitize_for_path` is loosened) before they
@@ -426,9 +418,7 @@ def _run_apply_playbook(
             timeout=timeout,
         )
     except Exception as error:
-        raise SkillApplyError(
-            f"ansible-runner failed to start: {error}"
-        ) from error
+        raise SkillApplyError(f"ansible-runner failed to start: {error}") from error
 
     if result.status == "timeout":
         raise SkillApplyError(

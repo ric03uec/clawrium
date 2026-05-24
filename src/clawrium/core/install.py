@@ -484,9 +484,7 @@ def run_installation(
                 # not wipe the token.
                 if claw_name in ("openclaw", "zeroclaw"):
                     preserved_gateway[0] = (
-                        h["agents"][chosen_name[0]]
-                        .get("config", {})
-                        .get("gateway")
+                        h["agents"][chosen_name[0]].get("config", {}).get("gateway")
                     )
                 if claw_name == "hermes":
                     existing_port = (
@@ -592,9 +590,7 @@ def run_installation(
                 if other_key == agent_name or not isinstance(other_agent, dict):
                     continue
                 other_port = (
-                    other_agent.get("config", {})
-                    .get("dashboard", {})
-                    .get("port")
+                    other_agent.get("config", {}).get("dashboard", {}).get("port")
                 )
                 if isinstance(other_port, int) and not isinstance(other_port, bool):
                     used_ports.add(other_port)
@@ -651,9 +647,7 @@ def run_installation(
         # instance_key matches what lifecycle.configure_agent() will look up.
         canonical_hostname = host["hostname"]
         instance_key = get_instance_key(canonical_hostname, claw_name, agent_name)
-        existing_entry = get_instance_secrets(instance_key).get(
-            "HERMES_API_SERVER_KEY"
-        )
+        existing_entry = get_instance_secrets(instance_key).get("HERMES_API_SERVER_KEY")
         # `.get("value")` not `["value"]`: a truthy-but-malformed entry (no
         # "value" field, e.g. hand-edited secrets.json) would otherwise raise
         # KeyError straight out of the install flow.

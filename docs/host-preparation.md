@@ -12,11 +12,11 @@ Before adding a host to Clawrium, you must prepare it for management. This guide
 
 ## P0. Initialize Host (Recommended)
 
-The `clm host init` command generates a per-host SSH keypair and attempts to automatically configure the xclm management user:
+The `clawctl host create --bootstrap` command generates a per-host SSH keypair and attempts to automatically configure the xclm management user:
 
 ```bash
 # Auto-setup (requires SSH access with sudo privileges)
-clm host init 192.168.1.100 --user myuser
+clawctl host create --bootstrap 192.168.1.100 --user myuser
 ```
 
 If you have SSH access to the target host, Clawrium will:
@@ -31,7 +31,7 @@ If auto-setup succeeds, skip to P2. If it fails, follow P1 for manual setup.
 
 ## P1. Manual Setup (If Auto-Setup Failed)
 
-If `clm host init` couldn't connect automatically, it displays the public key and setup commands. Run these on the target host:
+If `clawctl host create --bootstrap` couldn't connect automatically, it displays the public key and setup commands. Run these on the target host:
 
 ```bash
 # SSH to host as your current user
@@ -48,7 +48,7 @@ sudo chmod 440 /etc/sudoers.d/xclm
 sudo mkdir -p /home/xclm/.ssh
 sudo chmod 700 /home/xclm/.ssh
 
-# Paste the public key displayed by 'clm host init'
+# Paste the public key displayed by 'clawctl host create --bootstrap'
 echo "ssh-ed25519 AAAA... clawrium" | sudo tee /home/xclm/.ssh/authorized_keys
 sudo chmod 600 /home/xclm/.ssh/authorized_keys
 sudo chown -R xclm:xclm /home/xclm/.ssh
@@ -65,21 +65,21 @@ Once the management user is configured (either via auto-setup or manual setup), 
 
 ```bash
 # Basic - uses per-host keypair from init
-clm host add 192.168.1.100
+clawctl host create 192.168.1.100
 
 # With alias for friendly display name
-clm host add 192.168.1.100 --alias myhost
+clawctl host create 192.168.1.100 --alias myhost
 
 # With custom port or user
-clm host add 192.168.1.100 --alias myhost --port 2222
+clawctl host create 192.168.1.100 --alias myhost --port 2222
 ```
 
-**Note:** You must run `clm host init` before `clm host add`. The add command requires a keypair to exist for the host.
+**Note:** You must run `clawctl host create --bootstrap` before `clawctl host create`. The add command requires a keypair to exist for the host.
 
 Clawrium will:
 1. Connect using the per-host keypair from `~/.config/clawrium/keys/<hostname>/`
 2. Prompt to accept the host key (first connection only, saved to `~/.ssh/known_hosts`)
-3. Attempt to detect hardware capabilities (may be skipped if detection fails - rerun with `clm host status --refresh`)
+3. Attempt to detect hardware capabilities (may be skipped if detection fails - rerun with `clawctl host status --refresh`)
 4. Save the host configuration to `~/.config/clawrium/hosts.json`
 
 **Note:** Clawrium uses paramiko for SSH connections. ProxyJump, ProxyCommand, and other advanced SSH config options are not supported in v1. Ensure direct network access to the host.
@@ -90,7 +90,7 @@ Clawrium will:
 
 The host's `authorized_keys` doesn't have the correct public key. Re-run:
 ```bash
-clm host init 192.168.1.100 --user myuser
+clawctl host create --bootstrap 192.168.1.100 --user myuser
 ```
 
 This will display the correct public key to add. If auto-setup fails, follow P1 to add it manually.
@@ -110,7 +110,7 @@ If the change is expected:
 ssh-keygen -R hostname
 ```
 
-Then retry `clm host add` and verify the new fingerprint.
+Then retry `clawctl host create` and verify the new fingerprint.
 
 ### Hardware not detected
 
@@ -131,7 +131,7 @@ ssh user@hostname "sudo apt-get install pciutils"
 
 Then refresh hardware info:
 ```bash
-clm host status myhost --refresh
+clawctl host status myhost --refresh
 ```
 
 ### Re-initialize a host
@@ -139,10 +139,10 @@ clm host status myhost --refresh
 If you need to regenerate the keypair for a specific host:
 ```bash
 # Remove the host (also deletes its keypair)
-clm host remove hostname --force
+clawctl host delete hostname --force
 
 # Re-initialize with fresh keypair
-clm host init hostname --user myuser
+clawctl host create --bootstrap hostname --user myuser
 ```
 
 This only affects the specified host. Other hosts retain their keypairs.

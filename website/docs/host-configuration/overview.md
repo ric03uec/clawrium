@@ -11,7 +11,7 @@ Configure how Clawrium connects to hosts in your fleet, including multi-address 
 ```
                     ┌─────────────────────┐
                     │   Control Machine   │
-                    │      (clm CLI)      │
+                    │      (clawctl CLI)      │
                     └──────────┬──────────┘
                                │
            ┌───────────────────┼───────────────────┐
@@ -37,7 +37,7 @@ Configure how Clawrium connects to hosts in your fleet, including multi-address 
                     └─────────────────────────────────────┘
 ```
 
-Your control machine (where you run `clm`) connects to hosts via SSH. Each host can have multiple addresses for different network contexts.
+Your control machine (where you run `clawctl`) connects to hosts via SSH. Each host can have multiple addresses for different network contexts.
 
 ## Primary Address
 
@@ -48,7 +48,7 @@ Every host has exactly one **primary address**. This is the address Clawrium use
 - Command execution
 - Secret delivery
 
-When you add a host with `clm host add`, the hostname becomes the primary address.
+When you add a host with `clawctl host create`, the hostname becomes the primary address.
 
 ## Multiple Addresses
 
@@ -62,17 +62,17 @@ Hosts often have multiple network paths depending on where you're connecting fro
 | WireGuard | Tunnel IP | `10.13.13.50` |
 | Public | Domain/IP | `myserver.example.com` |
 
-Add additional addresses with `clm host address add`:
+Add additional addresses with `clawctl host address add`:
 
 ```bash
 # Host already added with LAN address
-clm host add 192.168.1.50 --alias wolf
+clawctl host create 192.168.1.50 --alias wolf
 
 # Add Tailscale address for remote access
-clm host address add wolf wolf.tail12345.ts.net --label tailscale
+clawctl host address add wolf wolf.tail12345.ts.net --label tailscale
 
 # Add VPN address for corporate network
-clm host address add wolf 10.0.100.50 --label vpn
+clawctl host address add wolf 10.0.100.50 --label vpn
 ```
 
 ## Switching Primary Address
@@ -81,10 +81,10 @@ When your network context changes, switch the primary address:
 
 ```bash
 # Working from home - use Tailscale
-clm host address set-primary wolf wolf.tail12345.ts.net
+clawctl host address set-primary wolf wolf.tail12345.ts.net
 
 # Back in the office - use LAN
-clm host address set-primary wolf 192.168.1.50
+clawctl host address set-primary wolf 192.168.1.50
 ```
 
 All subsequent commands use the new primary address automatically.
@@ -94,7 +94,7 @@ All subsequent commands use the new primary address automatically.
 List all addresses for a host:
 
 ```bash
-$ clm host address list wolf
+$ clawctl host address list wolf
            Addresses for wolf
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
 ┃ Address                 ┃ Primary ┃ Label     ┃ Added            ┃
@@ -105,10 +105,10 @@ $ clm host address list wolf
 └─────────────────────────┴─────────┴───────────┴──────────────────┘
 ```
 
-The `clm host list` command shows a `[+N]` indicator for hosts with additional addresses:
+The `clawctl host get` command shows a `[+N]` indicator for hosts with additional addresses:
 
 ```bash
-$ clm host list
+$ clawctl host get
                     Registered Hosts
 ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━┓
 ┃ Alias   ┃ Host                  ┃ Architecture ┃ Cores ┃ Memory (GB) ┃

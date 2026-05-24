@@ -74,7 +74,7 @@ Official OpenAI API integration for GPT models.
 ### 2. Add to Clawrium
 
 ```bash
-clm provider add my-openai --type openai
+clawctl provider registry create my-openai --type openai
 ```
 
 You will be prompted to enter your API key securely.
@@ -90,16 +90,16 @@ Choose a default model during setup:
 
 ```bash
 # View provider details
-clm provider list
+clawctl provider registry get
 
 # Change default model
-clm provider edit my-openai --model gpt-4o-mini
+clawctl provider registry edit my-openai --model gpt-4o-mini
 
 # Update API key
-clm provider edit my-openai --update-key
+clawctl provider registry edit my-openai --update-key
 
 # Remove provider
-clm provider remove my-openai
+clawctl provider registry delete my-openai
 ```
 
 ## Pricing Considerations
@@ -118,14 +118,14 @@ clm provider remove my-openai
 During agent onboarding:
 
 ```bash
-clm agent configure my-agent
+clawctl agent configure my-agent
 # Select my-openai when prompted for provider
 ```
 
 Or change later:
 
 ```bash
-clm agent configure my-agent --stage providers
+clawctl agent configure my-agent --stage providers
 ```
 
 ## Troubleshooting

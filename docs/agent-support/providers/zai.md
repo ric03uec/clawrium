@@ -35,7 +35,7 @@ Zhipu AI (ZAI) BigModel platform provides access to GLM (General Language Model)
 ### 2. Add to Clawrium
 
 ```bash
-clm provider add my-zai --type zai
+clawctl provider registry create my-zai --type zai
 ```
 
 You will be prompted to enter your API key securely.
@@ -51,16 +51,16 @@ Choose a default model during setup:
 
 ```bash
 # View provider details
-clm provider list
+clawctl provider registry get
 
 # Change default model
-clm provider edit my-zai --model glm-4-plus
+clawctl provider registry edit my-zai --model glm-4-plus
 
 # Update API key
-clm provider edit my-zai --update-key
+clawctl provider registry edit my-zai --update-key
 
 # Remove provider
-clm provider remove my-zai
+clawctl provider registry delete my-zai
 ```
 
 ## Pricing
@@ -79,7 +79,7 @@ ZAI offers competitive pricing, especially for the China region. Check [BigModel
 During agent onboarding:
 
 ```bash
-clm agent configure my-agent
+clawctl agent configure my-agent
 # Select my-zai when prompted for provider
 ```
 

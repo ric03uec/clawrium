@@ -4,13 +4,13 @@ Plan §4 / §5:
 
 | Subcommand   | Status (this bundle) |
 |--------------|----------------------|
-| `init`       | Real — delegates to the same `init` implementation `clm init` used. |
+| `init`       | Real — delegates to the same `init` implementation the legacy `clm init` used. |
 | `start`      | Stub — prints `Not implemented: service start`, exits 0. |
 | `stop`       | Stub — prints `Not implemented: service stop`, exits 0. |
 | `snapshot`   | Stub — prints `Not implemented: service snapshot`, exits 0. |
 
 `status` lands in a later issue (out of scope for #435 per the plan
-table in §1). Stubs mirror today's `clm snapshot` behavior — informative
+table in §1). Stubs mirror today's `clawctl service snapshot` behavior — informative
 message, zero exit code — so scripts can probe for availability without
 crashing.
 """

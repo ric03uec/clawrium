@@ -105,9 +105,7 @@ def _emit_gateway_token_rotated(
     # 16-char minimum bearer secret and application logs may be shipped
     # to centralized aggregators or readable by accounts without
     # hosts.json access. Log only the audit-relevant fields.
-    logger.info(
-        "gateway_token_rotated agent=%s reason=%s", agent_key, reason
-    )
+    logger.info("gateway_token_rotated agent=%s reason=%s", agent_key, reason)
 
 
 def get_host_private_key(key_id: str) -> Path | None:
@@ -813,9 +811,7 @@ def _zeroclaw_repair_after_start(
     logs_dir = _get_logs_dir()
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     host_display = _safe_host_display(host, hostname)
-    operation_log_dir = (
-        logs_dir / f"restart-pair-zeroclaw-{host_display}-{timestamp}"
-    )
+    operation_log_dir = logs_dir / f"restart-pair-zeroclaw-{host_display}-{timestamp}"
     operation_log_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(operation_log_dir, 0o700)
 
@@ -892,9 +888,7 @@ def _zeroclaw_repair_after_start(
                 f"{agent_key} on {hostname}",
             )
 
-        _emit_gateway_token_rotated(
-            on_event, agent_key, old_token, new_token, reason
-        )
+        _emit_gateway_token_rotated(on_event, agent_key, old_token, new_token, reason)
         emit(reason, "Pairing token refreshed")
         return True, None
 
@@ -1032,7 +1026,10 @@ def configure_agent(
     Raises:
         LifecycleError: If host not found or agent not installed
     """
-    from clawrium.core.providers import get_provider_api_key, get_provider_aws_credentials
+    from clawrium.core.providers import (
+        get_provider_api_key,
+        get_provider_aws_credentials,
+    )
     from clawrium.core.integrations import (
         INTEGRATION_TYPES,
         get_agent_integrations,
@@ -1173,9 +1170,8 @@ def configure_agent(
                 if isinstance(slack_app_secret, dict)
                 else None
             )
-            if (
-                not isinstance(slack_bot_val, str)
-                or not slack_bot_val.startswith("xoxb-")
+            if not isinstance(slack_bot_val, str) or not slack_bot_val.startswith(
+                "xoxb-"
             ):
                 return (
                     False,
@@ -1183,9 +1179,8 @@ def configure_agent(
                     "missing or invalid in secrets.json. Re-run "
                     "'clm agent configure <name> --stage channels' to set it.",
                 )
-            if (
-                not isinstance(slack_app_val, str)
-                or not slack_app_val.startswith("xapp-")
+            if not isinstance(slack_app_val, str) or not slack_app_val.startswith(
+                "xapp-"
             ):
                 return (
                     False,
@@ -1249,10 +1244,7 @@ def configure_agent(
                     if isinstance(discord_secret, dict)
                     else None
                 )
-                if (
-                    not isinstance(discord_token, str)
-                    or len(discord_token) < 50
-                ):
+                if not isinstance(discord_token, str) or len(discord_token) < 50:
                     return (
                         False,
                         "Discord enabled for this agent but DISCORD_BOT_TOKEN "
@@ -1315,8 +1307,7 @@ def configure_agent(
         gw_block = config_data.setdefault("gateway", {})
         if not gw_block.get("auth"):
             record_auth = (
-                agent_record.get("config", {}).get("gateway", {}).get("auth")
-                or ""
+                agent_record.get("config", {}).get("gateway", {}).get("auth") or ""
             )
             gw_block["auth"] = record_auth
 
@@ -1620,9 +1611,7 @@ def configure_agent(
 
                         token_raw = parsed.get("zeroclaw_gateway_token")
                         url_raw = parsed.get("zeroclaw_gateway_url")
-                        health_warn_raw = parsed.get(
-                            "zeroclaw_provider_health_warning"
-                        )
+                        health_warn_raw = parsed.get("zeroclaw_provider_health_warning")
 
                         # Tolerate Ansible's occasional `{"value": "..."}`
                         # wrapping for cacheable string facts.
@@ -1664,8 +1653,10 @@ def configure_agent(
                             logger.warning(health_warning_msg)
 
                         if (
-                            isinstance(token_raw, str) and token_raw
-                            and isinstance(url_raw, str) and url_raw
+                            isinstance(token_raw, str)
+                            and token_raw
+                            and isinstance(url_raw, str)
+                            and url_raw
                         ):
                             zc_gateway_token = token_raw
                             zc_gateway_url = url_raw

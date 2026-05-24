@@ -77,6 +77,7 @@ def _collect_system_info(
 
     return cpu_count, memory_total_mb
 
+
 # Onboarding state to step mapping for display
 ONBOARDING_STEP_MAP: dict[str, str] = {
     "providers": "1/4",

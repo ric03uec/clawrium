@@ -74,13 +74,11 @@ def load_model_catalog() -> ModelCatalog:
             return json.load(f)
     except FileNotFoundError:
         raise CatalogLoadError(
-            f"Model catalog not found at {CATALOG_FILE}. "
-            "The package may be corrupted."
+            f"Model catalog not found at {CATALOG_FILE}. The package may be corrupted."
         )
     except json.JSONDecodeError as e:
         raise CatalogLoadError(
-            f"Model catalog is malformed: {e}. "
-            "The package may be corrupted."
+            f"Model catalog is malformed: {e}. The package may be corrupted."
         )
 
 
@@ -209,6 +207,4 @@ def get_model_count(provider_type: str | None = None) -> int:
         if provider_type not in catalog["providers"]:
             return 0
         return len(catalog["providers"][provider_type]["models"])
-    return sum(
-        len(p["models"]) for p in catalog["providers"].values()
-    )
+    return sum(len(p["models"]) for p in catalog["providers"].values())

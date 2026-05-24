@@ -118,9 +118,7 @@ async def get_topology():
     agents, summary = await asyncio.to_thread(get_fleet_data_local, None)
     hosts_raw = await asyncio.to_thread(load_hosts_safe)
     provider_endpoints = await asyncio.to_thread(_load_provider_endpoints)
-    provider_accelerators = await asyncio.to_thread(
-        _load_provider_accelerator_vendors
-    )
+    provider_accelerators = await asyncio.to_thread(_load_provider_accelerator_vendors)
 
     # Build host map with nested agents
     hosts: list[dict[str, Any]] = []
@@ -149,9 +147,7 @@ async def get_topology():
                         "uptime": agent["uptime"],
                         "provider": agent["provider"],
                         "provider_type": agent["provider_type"],
-                        "provider_endpoint": provider_endpoints.get(
-                            agent["provider"]
-                        )
+                        "provider_endpoint": provider_endpoints.get(agent["provider"])
                         if agent["provider"]
                         else None,
                         "provider_accelerator_vendor": (
@@ -178,10 +174,10 @@ async def get_topology():
             }
         )
 
-    # Control node represents the local machine running clm
+    # Control node represents the local machine running clawctl
     control = {
         "label": "Control Machine",
-        "description": "clm CLI",
+        "description": "clawctl CLI",
     }
 
     # Connections: one SSH link per host

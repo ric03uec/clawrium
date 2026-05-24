@@ -77,12 +77,18 @@ class TestConfigureClaw:
         artifacts_dir = tmp_path / "artifacts"
         fact_cache_dir = artifacts_dir / "fact_cache"
         fact_cache_dir.mkdir(parents=True)
-        (fact_cache_dir / "test-host").write_text(json.dumps({
-            "__payload__": json.dumps({
-                "zeroclaw_gateway_token": "paired-bearer-token",
-                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            }),
-        }))
+        (fact_cache_dir / "test-host").write_text(
+            json.dumps(
+                {
+                    "__payload__": json.dumps(
+                        {
+                            "zeroclaw_gateway_token": "paired-bearer-token",
+                            "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+                        }
+                    ),
+                }
+            )
+        )
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
@@ -112,7 +118,9 @@ class TestConfigureClaw:
         assert success is False
         assert "failed to update local state" in error
 
-    def test_no_rotation_event_emitted_when_update_host_fails_with_prior_token(self, tmp_path: Path):
+    def test_no_rotation_event_emitted_when_update_host_fails_with_prior_token(
+        self, tmp_path: Path
+    ):
         """ATX W-COV-3: when configure's hosts.json write fails AFTER
         the pair handshake minted a new token, the rotation event must
         NOT be emitted — that's the W2 ordering invariant. Without this
@@ -152,12 +160,18 @@ class TestConfigureClaw:
         artifacts_dir = tmp_path / "artifacts"
         fact_cache_dir = artifacts_dir / "fact_cache"
         fact_cache_dir.mkdir(parents=True)
-        (fact_cache_dir / "test-host").write_text(json.dumps({
-            "__payload__": json.dumps({
-                "zeroclaw_gateway_token": "freshly-minted-token-but-not-persisted",
-                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            }),
-        }))
+        (fact_cache_dir / "test-host").write_text(
+            json.dumps(
+                {
+                    "__payload__": json.dumps(
+                        {
+                            "zeroclaw_gateway_token": "freshly-minted-token-but-not-persisted",
+                            "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+                        }
+                    ),
+                }
+            )
+        )
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
@@ -191,7 +205,9 @@ class TestConfigureClaw:
                                 return_value="",
                             ):
                                 success, _ = configure_agent(
-                                    "test-host", "zeroclaw", config_data,
+                                    "test-host",
+                                    "zeroclaw",
+                                    config_data,
                                     on_event=on_event,
                                 )
 
@@ -410,12 +426,18 @@ class TestConfigureClaw:
         artifacts_dir = tmp_path / "artifacts"
         fact_cache_dir = artifacts_dir / "fact_cache"
         fact_cache_dir.mkdir(parents=True)
-        (fact_cache_dir / "test-host").write_text(json.dumps({
-            "__payload__": json.dumps({
-                "zeroclaw_gateway_token": "paired-bearer-token",
-                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            }),
-        }))
+        (fact_cache_dir / "test-host").write_text(
+            json.dumps(
+                {
+                    "__payload__": json.dumps(
+                        {
+                            "zeroclaw_gateway_token": "paired-bearer-token",
+                            "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+                        }
+                    ),
+                }
+            )
+        )
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
@@ -491,9 +513,13 @@ class TestConfigureZeroclawFactExtraction:
         fact_cache_dir = artifacts_dir / "fact_cache"
         fact_cache_dir.mkdir(parents=True)
         if payload is not None:
-            (fact_cache_dir / "test-host").write_text(json.dumps({
-                "__payload__": json.dumps(payload),
-            }))
+            (fact_cache_dir / "test-host").write_text(
+                json.dumps(
+                    {
+                        "__payload__": json.dumps(payload),
+                    }
+                )
+            )
         return artifacts_dir
 
     def _run_configure(self, tmp_path: Path, artifacts_dir: Path):
@@ -547,10 +573,13 @@ class TestConfigureZeroclawFactExtraction:
 
     def test_happy_path_persists_token_and_url_to_hosts_json(self, tmp_path: Path):
         """Fact present → success → hosts.json carries the gateway block."""
-        artifacts_dir = self._setup_artifacts(tmp_path, {
-            "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
-            "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-        })
+        artifacts_dir = self._setup_artifacts(
+            tmp_path,
+            {
+                "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
+                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+            },
+        )
 
         success, error, captured = self._run_configure(tmp_path, artifacts_dir)
 
@@ -594,10 +623,13 @@ class TestConfigureZeroclawFactExtraction:
         """Whitespace-only token must be rejected — the eventual chat
         client would fail with an empty Bearer header, which is a worse
         error than failing fast here."""
-        artifacts_dir = self._setup_artifacts(tmp_path, {
-            "zeroclaw_gateway_token": "   ",
-            "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-        })
+        artifacts_dir = self._setup_artifacts(
+            tmp_path,
+            {
+                "zeroclaw_gateway_token": "   ",
+                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+            },
+        )
 
         success, error, _ = self._run_configure(tmp_path, artifacts_dir)
 
@@ -608,10 +640,13 @@ class TestConfigureZeroclawFactExtraction:
     def test_returns_false_when_url_missing(self, tmp_path: Path):
         """Token present but URL missing → also fail-fast (the chat path
         needs both to construct a connection)."""
-        artifacts_dir = self._setup_artifacts(tmp_path, {
-            "zeroclaw_gateway_token": "paired-bearer-token-abc",
-            # zeroclaw_gateway_url intentionally omitted
-        })
+        artifacts_dir = self._setup_artifacts(
+            tmp_path,
+            {
+                "zeroclaw_gateway_token": "paired-bearer-token-abc",
+                # zeroclaw_gateway_url intentionally omitted
+            },
+        )
 
         success, error, _ = self._run_configure(tmp_path, artifacts_dir)
 
@@ -624,11 +659,14 @@ class TestConfigureZeroclawFactExtraction:
         zeroclaw_provider_health_warning (i.e. health 200), no warn
         event must fire. Without this negative test, code that
         unconditionally emits the warning would pass the suite."""
-        artifacts_dir = self._setup_artifacts(tmp_path, {
-            "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
-            "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            # zeroclaw_provider_health_warning intentionally absent
-        })
+        artifacts_dir = self._setup_artifacts(
+            tmp_path,
+            {
+                "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
+                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+                # zeroclaw_provider_health_warning intentionally absent
+            },
+        )
 
         events: list[tuple[str, str]] = []
 
@@ -645,8 +683,7 @@ class TestConfigureZeroclawFactExtraction:
         # pattern at lifecycle.py:1046). Pure stage="warn" events were
         # dropped at the terminal by `_print_configure_warnings`.
         warn_events = [
-            (s, m) for s, m in events
-            if s == "configure" and m.startswith("WARNING:")
+            (s, m) for s, m in events if s == "configure" and m.startswith("WARNING:")
         ]
         assert not warn_events, f"Unexpected warn events: {warn_events!r}"
 
@@ -656,11 +693,14 @@ class TestConfigureZeroclawFactExtraction:
         respected and the warn event MUST NOT fire. Pre-fix, the
         unconditional-True set_fact left stale `True` in the fact cache,
         causing a phantom warning on healthy reconfigures."""
-        artifacts_dir = self._setup_artifacts(tmp_path, {
-            "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
-            "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            "zeroclaw_provider_health_warning": False,
-        })
+        artifacts_dir = self._setup_artifacts(
+            tmp_path,
+            {
+                "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
+                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+                "zeroclaw_provider_health_warning": False,
+            },
+        )
 
         events: list[tuple[str, str]] = []
 
@@ -673,8 +713,7 @@ class TestConfigureZeroclawFactExtraction:
 
         assert success is True, error
         warn_events = [
-            (s, m) for s, m in events
-            if s == "configure" and m.startswith("WARNING:")
+            (s, m) for s, m in events if s == "configure" and m.startswith("WARNING:")
         ]
         assert not warn_events, f"Unexpected warn events: {warn_events!r}"
 
@@ -729,11 +768,14 @@ class TestConfigureZeroclawFactExtraction:
         on_event callback. Without this, the warning would be silently
         swallowed because `ansible_runner.run(quiet=True)` does not emit
         `runner_on_debug` events to the caller."""
-        artifacts_dir = self._setup_artifacts(tmp_path, {
-            "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
-            "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            "zeroclaw_provider_health_warning": True,
-        })
+        artifacts_dir = self._setup_artifacts(
+            tmp_path,
+            {
+                "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
+                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+                "zeroclaw_provider_health_warning": True,
+            },
+        )
 
         events: list[tuple[str, str]] = []
 
@@ -784,8 +826,7 @@ class TestConfigureZeroclawFactExtraction:
         # surfaces them to the user. A bare stage="warn" event would be
         # silently dropped at the terminal.
         warn_events = [
-            (s, m) for s, m in events
-            if s == "configure" and m.startswith("WARNING:")
+            (s, m) for s, m in events if s == "configure" and m.startswith("WARNING:")
         ]
         assert warn_events, f"Expected a WARNING: event; got {events!r}"
         warn_msg = warn_events[0][1]
@@ -801,10 +842,13 @@ class TestConfigureZeroclawFactExtraction:
         token, but the user got zero indication. Post-fix the same
         empty-token outcome holds AND the .get() guard makes the
         behavior intentional (not accidental)."""
-        artifacts_dir = self._setup_artifacts(tmp_path, {
-            "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
-            "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-        })
+        artifacts_dir = self._setup_artifacts(
+            tmp_path,
+            {
+                "zeroclaw_gateway_token": "freshly-paired-bearer-token-1234",
+                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+            },
+        )
 
         key_path = tmp_path / "key"
         key_path.write_text("key")
@@ -871,10 +915,13 @@ class TestConfigureZeroclawFactExtraction:
     def test_value_wrapped_facts_are_unwrapped(self, tmp_path: Path):
         """Ansible occasionally wraps cacheable string facts in
         {"value": ...}. The extraction must tolerate both shapes."""
-        artifacts_dir = self._setup_artifacts(tmp_path, {
-            "zeroclaw_gateway_token": {"value": "wrapped-bearer-token-xyz"},
-            "zeroclaw_gateway_url": {"value": "ws://test-host:40000/ws/chat"},
-        })
+        artifacts_dir = self._setup_artifacts(
+            tmp_path,
+            {
+                "zeroclaw_gateway_token": {"value": "wrapped-bearer-token-xyz"},
+                "zeroclaw_gateway_url": {"value": "ws://test-host:40000/ws/chat"},
+            },
+        )
 
         success, error, captured = self._run_configure(tmp_path, artifacts_dir)
 
@@ -917,9 +964,16 @@ class TestConfigureZeroclawAlwaysRepair:
             },
         }
 
-    def _run_configure(self, host: dict, config_data: dict, tmp_path: Path,
-                       *, fact_token: str = "freshly-minted-token-1234567890",
-                       on_event=None, extra_vars=None):
+    def _run_configure(
+        self,
+        host: dict,
+        config_data: dict,
+        tmp_path: Path,
+        *,
+        fact_token: str = "freshly-minted-token-1234567890",
+        on_event=None,
+        extra_vars=None,
+    ):
         key_path = tmp_path / "key"
         key_path.write_text("key")
         playbook = tmp_path / "configure.yaml"
@@ -928,12 +982,18 @@ class TestConfigureZeroclawAlwaysRepair:
         artifacts_dir = tmp_path / "artifacts"
         fact_cache_dir = artifacts_dir / "fact_cache"
         fact_cache_dir.mkdir(parents=True)
-        (fact_cache_dir / "test-host").write_text(json.dumps({
-            "__payload__": json.dumps({
-                "zeroclaw_gateway_token": fact_token,
-                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            }),
-        }))
+        (fact_cache_dir / "test-host").write_text(
+            json.dumps(
+                {
+                    "__payload__": json.dumps(
+                        {
+                            "zeroclaw_gateway_token": fact_token,
+                            "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+                        }
+                    ),
+                }
+            )
+        )
 
         mock_runner = MagicMock()
         mock_runner.status = "successful"
@@ -968,7 +1028,8 @@ class TestConfigureZeroclawAlwaysRepair:
                                 return_value="",
                             ):
                                 success, error = configure_agent(
-                                    "test-host", "zeroclaw",
+                                    "test-host",
+                                    "zeroclaw",
                                     config_data,
                                     on_event=on_event,
                                     extra_vars=extra_vars,
@@ -995,7 +1056,9 @@ class TestConfigureZeroclawAlwaysRepair:
         host = self._build_host_with_existing_token(token="old-token-" + "a" * 22)
         config_data = self._build_config()
         success, error, _ = self._run_configure(
-            host, config_data, tmp_path,
+            host,
+            config_data,
+            tmp_path,
             fact_token="brand-new-token-after-pair-zxy",
         )
         assert success is True, error
@@ -1012,7 +1075,9 @@ class TestConfigureZeroclawAlwaysRepair:
             events.append((stage, message))
 
         success, error, _ = self._run_configure(
-            host, self._build_config(), tmp_path,
+            host,
+            self._build_config(),
+            tmp_path,
             fact_token="brand-new-token-rotation-zxy",
             on_event=on_event,
         )
@@ -1039,11 +1104,13 @@ class TestConfigureZeroclawAlwaysRepair:
             events.append((stage, message))
 
         success, error, _ = self._run_configure(
-            host, self._build_config(), tmp_path, on_event=on_event,
+            host,
+            self._build_config(),
+            tmp_path,
+            on_event=on_event,
         )
         assert success is True, error
         assert not [e for e in events if e[0] == "gateway_token_rotated"]
-
 
 
 class TestOpenClawTemplate:
@@ -1437,7 +1504,9 @@ class TestOpenClawTemplate:
                         "clawrium.core.lifecycle.ansible_runner.run",
                         return_value=mock_runner,
                     ) as mock_ansible:
-                        with patch("clawrium.core.lifecycle.update_host") as mock_update:
+                        with patch(
+                            "clawrium.core.lifecycle.update_host"
+                        ) as mock_update:
                             with patch(
                                 "clawrium.core.providers.get_provider_aws_credentials",
                                 return_value=(None, None),
@@ -1502,7 +1571,9 @@ class TestOpenClawTemplate:
                         "clawrium.core.lifecycle.ansible_runner.run",
                         return_value=mock_runner,
                     ) as mock_ansible:
-                        with patch("clawrium.core.lifecycle.update_host") as mock_update:
+                        with patch(
+                            "clawrium.core.lifecycle.update_host"
+                        ) as mock_update:
                             with patch(
                                 "clawrium.core.providers.get_provider_aws_credentials",
                                 return_value=("", ""),
@@ -1564,7 +1635,9 @@ class TestOpenClawTemplate:
                         "clawrium.core.lifecycle.ansible_runner.run",
                         return_value=mock_runner,
                     ) as mock_ansible:
-                        with patch("clawrium.core.lifecycle.update_host") as mock_update:
+                        with patch(
+                            "clawrium.core.lifecycle.update_host"
+                        ) as mock_update:
                             with patch(
                                 "clawrium.core.providers.get_provider_api_key",
                                 return_value="sk-test-api-key",
@@ -1580,7 +1653,10 @@ class TestOpenClawTemplate:
                                 ansible_vars = inventory.get("all", {}).get("vars", {})
 
                                 # Non-bedrock should use provider_api_key
-                                assert ansible_vars["provider_api_key"] == "sk-test-api-key"
+                                assert (
+                                    ansible_vars["provider_api_key"]
+                                    == "sk-test-api-key"
+                                )
                                 # AWS credentials should be empty
                                 assert ansible_vars["aws_access_key"] == ""
                                 assert ansible_vars["aws_secret_key"] == ""
@@ -2505,15 +2581,20 @@ class TestConfigureTimeoutBudget:
         mock_runner = MagicMock()
         mock_runner.status = "failed"  # don't matter — we just want call_args
         mock_runner.events = []
-        with patch("clawrium.core.lifecycle.get_host", return_value=host), patch(
-            "clawrium.core.lifecycle._get_lifecycle_playbook_path",
-            return_value=playbook,
-        ), patch(
-            "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
-        ), patch(
-            "clawrium.core.lifecycle.ansible_runner.run",
-            return_value=mock_runner,
-        ) as mock_run:
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                return_value=mock_runner,
+            ) as mock_run,
+        ):
             configure_agent("test-host", claw_type, config_data)
         if not mock_run.call_args:
             return None
@@ -2601,12 +2682,18 @@ class TestZeroclawDiscordHydration:
         artifacts_dir = tmp_path / "artifacts"
         fact_cache_dir = artifacts_dir / "fact_cache"
         fact_cache_dir.mkdir(parents=True)
-        (fact_cache_dir / "test-host").write_text(json.dumps({
-            "__payload__": json.dumps({
-                "zeroclaw_gateway_token": "paired-bearer-token",
-                "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
-            }),
-        }))
+        (fact_cache_dir / "test-host").write_text(
+            json.dumps(
+                {
+                    "__payload__": json.dumps(
+                        {
+                            "zeroclaw_gateway_token": "paired-bearer-token",
+                            "zeroclaw_gateway_url": "ws://test-host:40000/ws/chat",
+                        }
+                    ),
+                }
+            )
+        )
         return artifacts_dir
 
     def _run_zeroclaw_configure(
@@ -2640,13 +2727,9 @@ class TestZeroclawDiscordHydration:
             patch(
                 "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
             ),
-            patch(
-                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
-            ),
+            patch("clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run),
             patch("clawrium.core.lifecycle.update_host", return_value=True),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host",
@@ -2691,17 +2774,13 @@ class TestZeroclawDiscordHydration:
         )
         secrets = self._discord_secrets_entry(token)
 
-        success, error, captured = self._run_zeroclaw_configure(
-            host, tmp_path, secrets
-        )
+        success, error, captured = self._run_zeroclaw_configure(host, tmp_path, secrets)
         assert success is True, error
         sent = captured["inventory"]["all"]["vars"]["config"]
         assert sent["channels"]["discord"]["bot_token"] == token
         # Persisted shape merged onto config_data even though the caller
         # only passed provider/gateway.
-        assert sent["channels"]["discord"]["allowed_users"] == [
-            "740723459344302120"
-        ]
+        assert sent["channels"]["discord"]["allowed_users"] == ["740723459344302120"]
         assert sent["channels"]["discord"]["allowed_guilds"] == ["123"]
 
     def test_discord_disabled_does_not_hydrate_zeroclaw(self, tmp_path: Path):
@@ -2710,14 +2789,14 @@ class TestZeroclawDiscordHydration:
         host = self._make_host(discord_persisted=None)
         secrets = self._discord_secrets_entry("B" * 64)
 
-        success, error, captured = self._run_zeroclaw_configure(
-            host, tmp_path, secrets
-        )
+        success, error, captured = self._run_zeroclaw_configure(host, tmp_path, secrets)
         assert success is True, error
         sent = captured["inventory"]["all"]["vars"]["config"]
-        assert "channels" not in sent or "discord" not in sent.get(
-            "channels", {}
-        ) or "bot_token" not in sent["channels"].get("discord", {})
+        assert (
+            "channels" not in sent
+            or "discord" not in sent.get("channels", {})
+            or "bot_token" not in sent["channels"].get("discord", {})
+        )
 
     def test_discord_enabled_without_token_rejected_zeroclaw(self, tmp_path: Path):
         """`enabled = true` with no DISCORD_BOT_TOKEN in secrets.json must
@@ -2739,9 +2818,7 @@ class TestZeroclawDiscordHydration:
         assert success is False
         assert "DISCORD_BOT_TOKEN" in (error or "")
 
-    def test_discord_bot_token_stripped_from_hosts_json_zeroclaw(
-        self, tmp_path: Path
-    ):
+    def test_discord_bot_token_stripped_from_hosts_json_zeroclaw(self, tmp_path: Path):
         """ATX Round 1 B1: zeroclaw must mirror hermes's strip-before-persist
         behavior so bot_token never lands in hosts.json. Without this, the
         token roundtrips: hydrated → persisted → read into existing_config →
@@ -2790,15 +2867,9 @@ class TestZeroclawDiscordHydration:
             patch(
                 "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
             ),
-            patch(
-                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
-            ),
-            patch(
-                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
-            ),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run),
+            patch("clawrium.core.lifecycle.update_host", side_effect=fake_update_host),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host",

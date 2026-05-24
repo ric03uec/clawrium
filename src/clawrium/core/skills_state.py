@@ -61,8 +61,7 @@ def _validate_agent_name(agent_name: str) -> None:
     project."""
     if not isinstance(agent_name, str) or not _AGENT_NAME_RE.match(agent_name):
         raise InvalidSkillRef(
-            f"Invalid agent name {agent_name!r}. Must match "
-            "^[a-z][a-z0-9_-]{0,31}$."
+            f"Invalid agent name {agent_name!r}. Must match ^[a-z][a-z0-9_-]{{0,31}}$."
         )
 
 
@@ -93,9 +92,7 @@ def read_state(agent_name: str) -> list[str]:
             f"Skills state file {path} is not valid JSON: {error}"
         ) from error
     if not isinstance(raw, dict):
-        raise InvalidSkillRef(
-            f"Skills state file {path} must be a JSON object."
-        )
+        raise InvalidSkillRef(f"Skills state file {path} must be a JSON object.")
     skills = raw.get("skills", [])
     if not isinstance(skills, list) or not all(isinstance(s, str) for s in skills):
         raise InvalidSkillRef(
@@ -220,9 +217,7 @@ def cleanup_agent_state(agent_name: str) -> bool:
         resolved_path = path.resolve()
         resolved_config = config_dir.resolve()
     except OSError as e:
-        raise ValueError(
-            f"Invalid agent state path for {agent_name!r}: {e}"
-        ) from e
+        raise ValueError(f"Invalid agent state path for {agent_name!r}: {e}") from e
 
     if not resolved_path.is_relative_to(resolved_config):
         raise ValueError(
@@ -234,9 +229,7 @@ def cleanup_agent_state(agent_name: str) -> bool:
     # and leave the broken symlink as orphan state (the exact bug #400 pattern).
     if path.is_symlink():
         # Defense-in-depth: refuse to follow symlinks with rmtree.
-        raise ValueError(
-            f"Agent state path {path} is a symlink, refusing to remove"
-        )
+        raise ValueError(f"Agent state path {path} is a symlink, refusing to remove")
 
     if not path.exists():
         return False

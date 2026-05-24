@@ -32,10 +32,10 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 |--------|:--------:|:------:|:--------:|
 | **Status** | ✅ Production Ready | 🚧 In Development | 🚧 In Development |
 | **Transport** | Native daemon | Local OpenAI-compatible HTTP API (`127.0.0.1:8642`) | CLI process |
-| **`clm chat <name>` support** | ✅ | ✅ (OpenAI-compatible HTTP backend) | 🚧 |
+| **`clawctl agent chat <name>` support** | ✅ | ✅ (OpenAI-compatible HTTP backend) | 🚧 |
 | **Multi-Provider** | ✅ (OpenAI, Anthropic, OpenRouter, Bedrock, Vertex, ZAI, Ollama) | ✅ (OpenRouter, Anthropic, OpenAI, Bedrock, Ollama / custom) | 🚧 (OpenAI, Anthropic, Ollama planned) |
 | **Memory model** | Daily files + identity files | Two fixed files: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars) | ❌ |
-| **Identity management** | clm-managed `SOUL.md` / `IDENTITY.md` | Hermes-managed `SOUL.md` / `AGENTS.md` inside `~/.hermes/` (accessible via `clm agent memory`) | ❌ |
+| **Identity management** | clawctl-managed `SOUL.md` / `IDENTITY.md` | Hermes-managed `SOUL.md` / `AGENTS.md` inside `~/.hermes/` (accessible via `clawctl agent memory`) | ❌ |
 | **Messaging gateways** | Discord ✅, Slack ✅, Web 🚧 | Discord ✅, Slack ✅, Telegram/WhatsApp/Signal/email/... 📋 deferred | ❌ |
 | **External integrations** | GitHub 🚧, Jira 🚧 | 📋 Deferred | ❌ |
 | **Onboarding wizard** | ✅ 4-stage | ✅ 4-stage (identity auto-skipped) | 🚧 2-stage |
@@ -46,7 +46,7 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 **Use OpenClaw when:**
 
 - You need Slack or multi-channel (Discord + Slack + Web) support
-- You want clm-managed customizable identity/personality
+- You want clawctl-managed customizable identity/personality
 - You need integrations with external tools
 - You want a fully production-ready experience today
 

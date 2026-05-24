@@ -28,6 +28,7 @@ def _ansible_regex_replace(value, pattern, replacement=""):
     """
     return re.sub(pattern, replacement, str(value))
 
+
 HERMES_TEMPLATES = (
     Path(__file__).resolve().parent.parent
     / "src"
@@ -60,7 +61,7 @@ def _render_env(
         keep_trailing_newline=True,
     )
     env.filters["regex_replace"] = _ansible_regex_replace
-    template = env.get_template(".env.j2")
+    template = env.get_template("hermes.env.j2")
     # `pass_integrations_raw=True` lets a test pass `None` or other unusual
     # values through the helper without the `or {}` coercion — used to assert
     # the template's `default({})` guard actually fires.
@@ -77,7 +78,7 @@ def _render_config_yaml(config: dict, agent_name: str = "h") -> str:
         loader=FileSystemLoader(str(HERMES_TEMPLATES)),
         keep_trailing_newline=True,
     )
-    template = env.get_template("config.yaml.j2")
+    template = env.get_template("hermes-config.yaml.j2")
     return template.render(config=config, agent_name=agent_name)
 
 
@@ -483,7 +484,13 @@ class TestConfigYamlTemplate:
         }
         for provider_type, expected_model in expected.items():
             rendered = _render_config_yaml(
-                {"provider": {"type": provider_type, "default_model": "m", "region": "us-east-1"}}
+                {
+                    "provider": {
+                        "type": provider_type,
+                        "default_model": "m",
+                        "region": "us-east-1",
+                    }
+                }
             )
             parsed = yaml.safe_load(rendered)
             aux = parsed.get("auxiliary", {}).get("title_generation", {}).get("model")
@@ -537,9 +544,7 @@ class TestConfigurePlaybookShape:
     def test_playbook_restart_handler_triggers_systemd(self):
         play = self._load_playbook()
         handlers = play.get("handlers", [])
-        restart = [
-            h for h in handlers if "Restart hermes service" in h.get("name", "")
-        ]
+        restart = [h for h in handlers if "Restart hermes service" in h.get("name", "")]
         assert restart, "configure.yaml must declare a Restart hermes service handler"
         sysd = restart[0]["ansible.builtin.systemd"]
         assert sysd["state"] == "restarted"
@@ -578,7 +583,9 @@ class TestConfigurePlaybookShape:
         )
 
         gh_block = next(
-            t for t in play["tasks"] if "GitHub CLI authentication block" in t.get("name", "")
+            t
+            for t in play["tasks"]
+            if "GitHub CLI authentication block" in t.get("name", "")
         )
         # The block must be gated on `integrations is defined` so it's a no-op
         # for agents without any integration assignments.
@@ -606,7 +613,11 @@ class TestConfigurePlaybookShape:
         # Must filter loop items to github type and presence of GITHUB_TOKEN
         # so a malformed integration record doesn't crash the play.
         when_conditions = auth_task.get("when", [])
-        joined = " ".join(when_conditions) if isinstance(when_conditions, list) else when_conditions
+        joined = (
+            " ".join(when_conditions)
+            if isinstance(when_conditions, list)
+            else when_conditions
+        )
         assert "type == 'github'" in joined
         assert "GITHUB_TOKEN is defined" in joined
         assert "gh_check.rc == 0" in joined
@@ -634,11 +645,17 @@ class TestConfigurePlaybookShape:
         """The Phase 2 unit MUST use `hermes gateway run` — `gateway start`
         delegates to a per-user systemd unit that does not exist in our setup."""
         content = (HERMES_PLAYBOOKS / "configure.yaml").read_text()
-        assert "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway run" in content
+        assert (
+            "ExecStart=/home/{{ agent_name }}/.local/bin/hermes gateway run" in content
+        )
         # Ensure the broken `gateway start` form is NOT what configure.yaml writes.
         # (Phase 1's install.yaml dropped a placeholder using `gateway start`;
         # configure.yaml owns the runtime ExecStart.)
-        configure_content = content.split("hermes systemd unit")[1] if "hermes systemd unit" in content else ""
+        configure_content = (
+            content.split("hermes systemd unit")[1]
+            if "hermes systemd unit" in content
+            else ""
+        )
         assert "gateway start" not in configure_content
 
     def test_uv_arch_and_sha256_map_match_and_are_well_formed(self):
@@ -659,14 +676,20 @@ class TestConfigurePlaybookShape:
         assert {"x86_64", "aarch64", "armv7l"} <= set(arch_map.keys())
         hex64 = re.compile(r"^[0-9a-f]{64}$")
         for arch, digest in sha_map.items():
-            assert hex64.match(digest), f"{arch}: not a 64-char lowercase hex sha256: {digest!r}"
+            assert hex64.match(digest), (
+                f"{arch}: not a 64-char lowercase hex sha256: {digest!r}"
+            )
 
     def test_uv_get_url_has_checksum_and_validate_certs(self):
         """Supply-chain guard: the get_url for the uv tarball must reference
         the sha256 map and explicitly validate TLS."""
         play = self._load_playbook()
         download = next(
-            (t for t in play["tasks"] if "Download pinned uv binary" in t.get("name", "")),
+            (
+                t
+                for t in play["tasks"]
+                if "Download pinned uv binary" in t.get("name", "")
+            ),
             None,
         )
         assert download is not None, "Missing 'Download pinned uv binary' task"
@@ -682,7 +705,11 @@ class TestConfigurePlaybookShape:
         play = self._load_playbook()
         task_names = [t.get("name", "") for t in play["tasks"]]
         guard_idx = next(
-            (i for i, n in enumerate(task_names) if "host architecture is unsupported" in n),
+            (
+                i
+                for i, n in enumerate(task_names)
+                if "host architecture is unsupported" in n
+            ),
             None,
         )
         download_idx = next(
@@ -805,9 +832,7 @@ class TestConfigureAgentApiServerKey:
         }
         # Truthy dict, no "value" key — the original `secret_entry["value"]`
         # access would raise KeyError before the validity check ran.
-        malformed_secrets = {
-            "HERMES_API_SERVER_KEY": {"key": "HERMES_API_SERVER_KEY"}
-        }
+        malformed_secrets = {"HERMES_API_SERVER_KEY": {"key": "HERMES_API_SERVER_KEY"}}
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
             with patch(
                 "clawrium.core.lifecycle.get_instance_secrets",
@@ -844,9 +869,7 @@ class TestConfigureAgentApiServerKey:
         with patch("clawrium.core.lifecycle.get_host", return_value=host):
             # Empty secrets.json for this instance — should trigger the
             # "missing HERMES_API_SERVER_KEY" branch.
-            with patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value={}
-            ):
+            with patch("clawrium.core.lifecycle.get_instance_secrets", return_value={}):
                 success, error = configure_agent(
                     "test-host", "hermes", config_data, agent_name="hermes-test"
                 )
@@ -963,7 +986,12 @@ class TestConfigureAgentApiServerKey:
         # hydrate the shape from hosts.json and the bearer token from secrets.json.
         config_data = {
             "gateway": {"host": "127.0.0.1", "port": 8642},
-            "provider": {"name": "p", "type": "ollama", "default_model": "x", "endpoint": "http://h:1/v1"},
+            "provider": {
+                "name": "p",
+                "type": "ollama",
+                "default_model": "x",
+                "endpoint": "http://h:1/v1",
+            },
         }
 
         key_path = tmp_path / "key"
@@ -1107,14 +1135,14 @@ class TestHermesApiServerKeySecretsHygiene:
                 "clawrium.core.lifecycle._get_lifecycle_playbook_path",
                 return_value=playbook,
             ),
-            patch("clawrium.core.lifecycle.get_host_private_key", return_value=key_path),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
             patch(
                 "clawrium.core.lifecycle.ansible_runner.run",
                 return_value=MagicMock(status="successful", events=[]),
             ),
-            patch(
-                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
-            ),
+            patch("clawrium.core.lifecycle.update_host", side_effect=fake_update_host),
             patch(
                 "clawrium.core.lifecycle.get_instance_secrets",
                 return_value=secrets_fixture,
@@ -1132,7 +1160,7 @@ class TestHermesApiServerKeySecretsHygiene:
         )
         # B3 invariant — the bearer token must not be persisted to hosts.json.
         assert "key" not in persisted_api_server, (
-            "hermes bearer token leaked into hosts.json: " f"{persisted_api_server}"
+            f"hermes bearer token leaked into hosts.json: {persisted_api_server}"
         )
         # Non-sensitive shape is preserved (with the host migration applied).
         assert persisted_api_server.get("enabled") is True
@@ -1149,7 +1177,13 @@ class TestHermesApiServerKeySecretsHygiene:
                 "hermes-test": {
                     "type": "hermes",
                     "agent_name": "hermes-test",
-                    "config": {"api_server": {"enabled": True, "host": "127.0.0.1", "port": 8642}},
+                    "config": {
+                        "api_server": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 8642,
+                        }
+                    },
                 }
             },
         }
@@ -1190,7 +1224,13 @@ class TestHermesApiServerKeySecretsHygiene:
                 "hermes-test": {
                     "type": "hermes",
                     "agent_name": "hermes-test",
-                    "config": {"api_server": {"enabled": True, "host": "127.0.0.1", "port": 8642}},
+                    "config": {
+                        "api_server": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 8642,
+                        }
+                    },
                 }
             },
         }
@@ -1215,7 +1255,9 @@ class TestHermesApiServerKeySecretsHygiene:
                 "clawrium.core.lifecycle._get_lifecycle_playbook_path",
                 return_value=playbook,
             ),
-            patch("clawrium.core.lifecycle.get_host_private_key", return_value=key_path),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
             patch(
                 "clawrium.core.lifecycle.ansible_runner.run",
                 return_value=MagicMock(status="successful", events=[]),
@@ -1256,9 +1298,7 @@ class TestConfigureYamlHandlerShape:
         play = data[0]
         handlers = play.get("handlers", [])
         # All handlers must be restarts (no daemon-only handlers).
-        restart_handlers = [
-            h for h in handlers if "Restart" in h.get("name", "")
-        ]
+        restart_handlers = [h for h in handlers if "Restart" in h.get("name", "")]
         assert len(handlers) == len(restart_handlers) == 1, (
             f"expected exactly 1 restart handler, got {len(handlers)} total / "
             f"{len(restart_handlers)} restart: "
@@ -1345,8 +1385,7 @@ class TestEnvTemplateDiscordBranch:
         rendered = _render_env(cfg, provider_api_key="sk-x")
         assert "DISCORD_BOT_TOKEN='BOT.TOKEN.VALUE'" in rendered
         assert (
-            "DISCORD_ALLOWED_USERS='111111111111111111,222222222222222222'"
-            in rendered
+            "DISCORD_ALLOWED_USERS='111111111111111111,222222222222222222'" in rendered
         )
         assert "DISCORD_HOME_CHANNEL='333333333333333333'" in rendered
         assert "DISCORD_HOME_CHANNEL_NAME='General'" in rendered
@@ -1468,13 +1507,9 @@ class TestHermesDiscordHydration:
             patch(
                 "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
             ),
-            patch(
-                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
-            ),
+            patch("clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run),
             patch("clawrium.core.lifecycle.update_host", return_value=True),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host",
@@ -1526,13 +1561,9 @@ class TestHermesDiscordHydration:
             patch(
                 "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
             ),
-            patch(
-                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
-            ),
+            patch("clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run),
             patch("clawrium.core.lifecycle.update_host", return_value=True),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host",
@@ -1565,9 +1596,7 @@ class TestHermesDiscordHydration:
 
         with (
             patch("clawrium.core.lifecycle.get_host", return_value=host),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host",
@@ -1723,12 +1752,8 @@ class TestHermesDiscordSecretsHygiene:
                 "clawrium.core.lifecycle.ansible_runner.run",
                 return_value=MagicMock(status="successful", events=[]),
             ),
-            patch(
-                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
-            ),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.update_host", side_effect=fake_update_host),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host",
@@ -1752,7 +1777,7 @@ class TestHermesDiscordSecretsHygiene:
         )
         # B3 invariant: bot_token must NOT be persisted.
         assert "bot_token" not in persisted_discord, (
-            "Discord bot token leaked into hosts.json: " f"{persisted_discord}"
+            f"Discord bot token leaked into hosts.json: {persisted_discord}"
         )
         # Non-sensitive shape preserved.
         assert persisted_discord.get("enabled") is True
@@ -1775,32 +1800,32 @@ class TestConfigureYamlDiscordVerifyTasks:
         play = self._playbook()
         tasks = play.get("tasks", [])
         names = [t.get("name", "") for t in tasks]
-        token_tasks = [
-            t for t in tasks if "DISCORD_BOT_TOKEN" in t.get("name", "")
-        ]
+        token_tasks = [t for t in tasks if "DISCORD_BOT_TOKEN" in t.get("name", "")]
         assert token_tasks, (
-            "expected a DISCORD_BOT_TOKEN verify task in configure.yaml: " f"{names}"
+            f"expected a DISCORD_BOT_TOKEN verify task in configure.yaml: {names}"
         )
         for task in token_tasks:
             when_clauses = task.get("when") or []
-            joined = " ".join(when_clauses) if isinstance(when_clauses, list) else str(
-                when_clauses
+            joined = (
+                " ".join(when_clauses)
+                if isinstance(when_clauses, list)
+                else str(when_clauses)
             )
-            assert "channels" in joined and "discord" in joined and "enabled" in joined, (
-                f"DISCORD_BOT_TOKEN task missing gating clause: {when_clauses}"
-            )
+            assert (
+                "channels" in joined and "discord" in joined and "enabled" in joined
+            ), f"DISCORD_BOT_TOKEN task missing gating clause: {when_clauses}"
 
     def test_discord_allowlist_verify_task_gated_on_enabled(self):
         play = self._playbook()
         tasks = play.get("tasks", [])
-        allowlist_tasks = [
-            t for t in tasks if "allowlist" in t.get("name", "").lower()
-        ]
+        allowlist_tasks = [t for t in tasks if "allowlist" in t.get("name", "").lower()]
         assert allowlist_tasks, "expected a Discord allowlist verify task"
         for task in allowlist_tasks:
             when_clauses = task.get("when") or []
-            joined = " ".join(when_clauses) if isinstance(when_clauses, list) else str(
-                when_clauses
+            joined = (
+                " ".join(when_clauses)
+                if isinstance(when_clauses, list)
+                else str(when_clauses)
             )
             assert "channels" in joined and "discord" in joined and "enabled" in joined
 
@@ -1897,12 +1922,8 @@ class TestHermesDiscordSecretsHygieneNegative:
                 "clawrium.core.lifecycle.ansible_runner.run",
                 return_value=MagicMock(status="successful", events=[]),
             ),
-            patch(
-                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
-            ),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.update_host", side_effect=fake_update_host),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host", "hermes", config_data, agent_name="hermes-test"
@@ -1987,7 +2008,7 @@ class TestHermesDiscordIdempotency:
                 loader=FileSystemLoader(str(HERMES_TEMPLATES)),
                 keep_trailing_newline=True,
             )
-            tpl = env_jinja.get_template(".env.j2")
+            tpl = env_jinja.get_template("hermes.env.j2")
             renders.append(
                 tpl.render(config=sent, provider_api_key="sk-x", agent_name="h")
             )
@@ -2144,9 +2165,7 @@ class TestHermesBindMigration:
                 "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
             ),
             patch("clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run),
-            patch(
-                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
-            ),
+            patch("clawrium.core.lifecycle.update_host", side_effect=fake_update_host),
             patch(
                 "clawrium.core.lifecycle.get_instance_secrets",
                 return_value=self._persisted_key_secret("a" * 64),
@@ -2444,13 +2463,9 @@ class TestHermesSlackHydration:
             patch(
                 "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
             ),
-            patch(
-                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
-            ),
+            patch("clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run),
             patch("clawrium.core.lifecycle.update_host", return_value=True),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host",
@@ -2505,13 +2520,9 @@ class TestHermesSlackHydration:
             patch(
                 "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
             ),
-            patch(
-                "clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run
-            ),
+            patch("clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run),
             patch("clawrium.core.lifecycle.update_host", return_value=True),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host",
@@ -2560,9 +2571,7 @@ class TestHermesSlackHydration:
                 "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
             ),
             patch("clawrium.core.lifecycle.update_host", return_value=True),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host",
@@ -2665,12 +2674,8 @@ class TestHermesSlackSecretsHygiene:
                 "clawrium.core.lifecycle.ansible_runner.run",
                 return_value=MagicMock(status="successful", events=[]),
             ),
-            patch(
-                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
-            ),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.update_host", side_effect=fake_update_host),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host",
@@ -2777,12 +2782,8 @@ class TestHermesSlackSecretsHygiene:
                 "clawrium.core.lifecycle.ansible_runner.run",
                 return_value=MagicMock(status="successful", events=[]),
             ),
-            patch(
-                "clawrium.core.lifecycle.update_host", side_effect=fake_update_host
-            ),
-            patch(
-                "clawrium.core.lifecycle.get_instance_secrets", return_value=secrets
-            ),
+            patch("clawrium.core.lifecycle.update_host", side_effect=fake_update_host),
+            patch("clawrium.core.lifecycle.get_instance_secrets", return_value=secrets),
         ):
             success, error = configure_agent(
                 "test-host",
@@ -2835,7 +2836,7 @@ def _render_config_yaml_with_integrations(
         loader=FileSystemLoader(str(HERMES_TEMPLATES)),
         keep_trailing_newline=True,
     )
-    template = env.get_template("config.yaml.j2")
+    template = env.get_template("hermes-config.yaml.j2")
     return template.render(
         config=config,
         integrations=integrations,
@@ -2849,7 +2850,11 @@ class TestConfigYamlMCPServers:
 
     def _base_config(self) -> dict:
         return {
-            "provider": {"type": "bedrock", "default_model": "anthropic.claude-sonnet-4-20250514-v1:0", "region": "us-east-1"},
+            "provider": {
+                "type": "bedrock",
+                "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
+                "region": "us-east-1",
+            },
         }
 
     def test_no_mcp_servers_when_no_integrations(self):
@@ -2870,7 +2875,9 @@ class TestConfigYamlMCPServers:
                 "GITHUB_TOKEN": "ghp_test123",
             }
         }
-        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        rendered = _render_config_yaml_with_integrations(
+            self._base_config(), integrations
+        )
         assert "mcp_servers" not in rendered
 
     def test_atlassian_integration_renders_mcp_server(self):
@@ -2883,7 +2890,9 @@ class TestConfigYamlMCPServers:
                 "ATLASSIAN_API_TOKEN": "secret_token_123",
             }
         }
-        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        rendered = _render_config_yaml_with_integrations(
+            self._base_config(), integrations
+        )
         parsed = yaml.safe_load(rendered)
 
         assert "mcp_servers" in parsed
@@ -2913,7 +2922,9 @@ class TestConfigYamlMCPServers:
                 "JIRA_PROJECTS_FILTER": "PROJ,OPS",
             }
         }
-        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        rendered = _render_config_yaml_with_integrations(
+            self._base_config(), integrations
+        )
         parsed = yaml.safe_load(rendered)
 
         server = parsed["mcp_servers"]["filtered_atlassian"]
@@ -2930,7 +2941,9 @@ class TestConfigYamlMCPServers:
                 "ATLASSIAN_API_TOKEN": "token",
             }
         }
-        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        rendered = _render_config_yaml_with_integrations(
+            self._base_config(), integrations
+        )
         parsed = yaml.safe_load(rendered)
 
         server = parsed["mcp_servers"]["plain_atlassian"]
@@ -2953,13 +2966,21 @@ class TestConfigYamlMCPServers:
                 "ATLASSIAN_API_TOKEN": "token_b",
             },
         }
-        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        rendered = _render_config_yaml_with_integrations(
+            self._base_config(), integrations
+        )
         parsed = yaml.safe_load(rendered)
 
         assert "team_a" in parsed["mcp_servers"]
         assert "team_b" in parsed["mcp_servers"]
-        assert parsed["mcp_servers"]["team_a"]["env"]["JIRA_URL"] == "https://teama.atlassian.net"
-        assert parsed["mcp_servers"]["team_b"]["env"]["JIRA_URL"] == "https://teamb.atlassian.net"
+        assert (
+            parsed["mcp_servers"]["team_a"]["env"]["JIRA_URL"]
+            == "https://teama.atlassian.net"
+        )
+        assert (
+            parsed["mcp_servers"]["team_b"]["env"]["JIRA_URL"]
+            == "https://teamb.atlassian.net"
+        )
 
     def test_mixed_integrations_only_atlassian_renders_mcp(self):
         """Only atlassian types produce mcp_servers entries; others ignored."""
@@ -2975,7 +2996,9 @@ class TestConfigYamlMCPServers:
                 "ATLASSIAN_API_TOKEN": "tok",
             },
         }
-        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        rendered = _render_config_yaml_with_integrations(
+            self._base_config(), integrations
+        )
         parsed = yaml.safe_load(rendered)
 
         assert "mcp_servers" in parsed
@@ -2992,7 +3015,9 @@ class TestConfigYamlMCPServers:
                 "ATLASSIAN_API_TOKEN": "tok",
             }
         }
-        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        rendered = _render_config_yaml_with_integrations(
+            self._base_config(), integrations
+        )
         parsed = yaml.safe_load(rendered)
 
         server = parsed["mcp_servers"]["trailing_slash"]
@@ -3014,7 +3039,9 @@ class TestConfigYamlMCPServers:
                 "ATLASSIAN_API_TOKEN": nasty_token,
             }
         }
-        rendered = _render_config_yaml_with_integrations(self._base_config(), integrations)
+        rendered = _render_config_yaml_with_integrations(
+            self._base_config(), integrations
+        )
         parsed = yaml.safe_load(rendered)
 
         env = parsed["mcp_servers"]["nasty"]["env"]
@@ -3039,4 +3066,3 @@ class TestConfigYamlMCPServers:
             "CONFLUENCE_USERNAME",
             "CONFLUENCE_API_TOKEN",
         }
-

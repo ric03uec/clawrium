@@ -31,7 +31,7 @@ On Hermes the surface is the full `mcp-atlassian` toolset (≈72 tools across Ji
 | Personal Access Token (server / Data Center) | Yes | 📋 Roadmap |
 | OAuth 2.0 | No (browser required) | ❌ Not supported |
 
-**One credential set drives both Jira and Confluence** — on Atlassian Cloud they share an account, instance URL, and API token. clm stores them as `ATLASSIAN_URL` / `ATLASSIAN_EMAIL` / `ATLASSIAN_API_TOKEN`; the per-agent template derives `JIRA_*` / `CONFLUENCE_*` from those at render time (Confluence URL is `<ATLASSIAN_URL>/wiki`).
+**One credential set drives both Jira and Confluence** — on Atlassian Cloud they share an account, instance URL, and API token. clawctl stores them as `ATLASSIAN_URL` / `ATLASSIAN_EMAIL` / `ATLASSIAN_API_TOKEN`; the per-agent template derives `JIRA_*` / `CONFLUENCE_*` from those at render time (Confluence URL is `<ATLASSIAN_URL>/wiki`).
 
 ---
 
@@ -43,10 +43,10 @@ On Hermes the surface is the full `mcp-atlassian` toolset (≈72 tools across Ji
 2. Click **Create API token**.
 3. Name it (e.g. `clawrium`) and copy the token immediately — Atlassian only shows it once.
 
-### 2. Register the integration in clm
+### 2. Register the integration in clawctl
 
 ```bash
-clm integration add work-atlassian --type atlassian
+clawctl integration registry create work-atlassian --type atlassian
 ```
 
 You will be prompted for:
@@ -64,13 +64,13 @@ The filter fields, when set, scope the MCP tool surface to specific Jira project
 ### 3. Assign the integration to an agent
 
 ```bash
-clm agent integration add my-hermes work-atlassian
+clawctl agent integration attach my-hermes work-atlassian
 ```
 
 ### 4. Configure the agent
 
 ```bash
-clm agent configure my-hermes
+clawctl agent configure my-hermes
 ```
 
 For **Hermes**, the configure playbook:
@@ -87,7 +87,7 @@ For **ZeroClaw**, the playbook renders the same credentials into the `[integrati
 ### 5. Verify
 
 ```bash
-clm agent chat my-hermes
+clawctl agent chat my-hermes
 > list my open jira tickets
 > search confluence for "onboarding docs"
 ```
@@ -128,26 +128,26 @@ If you enter `ATLASSIAN_URL = "https://company.atlassian.net/"` (with a trailing
 
 ## Migrating from the old `jira` / `confluence` types
 
-Earlier releases shipped separate `jira` and `confluence` integration types. These were collapsed into the unified `atlassian` type in [#348](https://github.com/ric03uec/clawrium/pull/351). **There is no automatic migration** — by design, clm keeps a single source of truth for Atlassian credentials and doesn't carry compatibility shims.
+Earlier releases shipped separate `jira` and `confluence` integration types. These were collapsed into the unified `atlassian` type in [#348](https://github.com/ric03uec/clawrium/pull/351). **There is no automatic migration** — by design, clawctl keeps a single source of truth for Atlassian credentials and doesn't carry compatibility shims.
 
 If you have a stale record from a previous version:
 
-- `clm integration list` will mark the row `<type> (unknown)` in yellow.
-- `clm integration show <name>` and `clm integration credentials <name>` exit non-zero with a remediation message.
-- `clm agent configure` emits a `WARNING: integration '<name>' has unknown type '<type>' — skipping` and continues without wiring MCP for that record.
+- `clawctl integration registry get` will mark the row `<type> (unknown)` in yellow.
+- `clawctl integration registry describe <name>` and `clawctl integration registry describe <name>` exit non-zero with a remediation message.
+- `clawctl agent configure` emits a `WARNING: integration '<name>' has unknown type '<type>' — skipping` and continues without wiring MCP for that record.
 
 To recover:
 
 ```bash
-clm integration remove old-jira
-clm integration remove old-confluence
+clawctl integration registry delete old-jira
+clawctl integration registry delete old-confluence
 
-clm integration add work-atlassian --type atlassian
+clawctl integration registry create work-atlassian --type atlassian
 # Re-enter the URL/email/token; the API token from the old jira/confluence
 # entry works as-is — Atlassian doesn't issue separate tokens per service.
 
-clm agent integration add my-hermes work-atlassian
-clm agent configure my-hermes
+clawctl agent integration attach my-hermes work-atlassian
+clawctl agent configure my-hermes
 ```
 
 ---
@@ -174,12 +174,12 @@ For least-privilege deployments, create a dedicated Atlassian service account, r
 You can attach more than one Atlassian integration to the same agent — e.g. a work tenant and a personal tenant. Each integration becomes its own MCP server entry, with isolated credentials:
 
 ```bash
-clm integration add work-atlassian     --type atlassian   # company.atlassian.net
-clm integration add personal-atlassian --type atlassian   # me.atlassian.net
+clawctl integration registry create work-atlassian     --type atlassian   # company.atlassian.net
+clawctl integration registry create personal-atlassian --type atlassian   # me.atlassian.net
 
-clm agent integration add my-hermes work-atlassian
-clm agent integration add my-hermes personal-atlassian
-clm agent configure my-hermes
+clawctl agent integration attach my-hermes work-atlassian
+clawctl agent integration attach my-hermes personal-atlassian
+clawctl agent configure my-hermes
 ```
 
 Hermes launches two `uvx mcp-atlassian` subprocesses; tools are namespaced as `mcp_work_atlassian_jira_search`, `mcp_personal_atlassian_confluence_get_page`, etc.
@@ -208,7 +208,7 @@ Hermes launches two `uvx mcp-atlassian` subprocesses; tools are namespaced as `m
    sudo -u my-hermes /home/my-hermes/.local/bin/uv tool list
    ```
 
-   You should see `mcp-atlassian v<pinned-version>`. If not, re-run `clm agent configure <agent-name>` — the configure playbook installs the package with `--force`.
+   You should see `mcp-atlassian v<pinned-version>`. If not, re-run `clawctl agent configure <agent-name>` — the configure playbook installs the package with `--force`.
 
 2. Inspect the rendered MCP block (the file is `mode: 0600` and owned by the agent user):
 
@@ -216,7 +216,7 @@ Hermes launches two `uvx mcp-atlassian` subprocesses; tools are namespaced as `m
    sudo -u my-hermes cat /home/my-hermes/.hermes/config.yaml
    ```
 
-   Verify the `mcp_servers.<integration-name>:` entry exists and `JIRA_URL` / `CONFLUENCE_URL` are populated. If `JIRA_URL` is empty, the credential is missing from `~/.config/clawrium/secrets.json` — re-run `clm integration credentials <name> --update`.
+   Verify the `mcp_servers.<integration-name>:` entry exists and `JIRA_URL` / `CONFLUENCE_URL` are populated. If `JIRA_URL` is empty, the credential is missing from `~/.config/clawrium/secrets.json` — re-run `clawctl integration registry describe <name> --update`.
 
 3. Check hermes's logs for MCP startup errors:
 
@@ -238,7 +238,7 @@ Hermes launches two `uvx mcp-atlassian` subprocesses; tools are namespaced as `m
 
    Expected: your account profile. Anything else (`401`, HTML login page) means the token / email / URL trio is wrong.
 
-2. If the curl succeeds but hermes still gets `401`, the rendered token may have been truncated by a stray shell character. Re-add the integration: `clm integration remove <name>` then `clm integration add <name> --type atlassian` and paste the token at the prompt (no quotes, no whitespace).
+2. If the curl succeeds but hermes still gets `401`, the rendered token may have been truncated by a stray shell character. Re-add the integration: `clawctl integration registry delete <name>` then `clawctl integration registry create <name> --type atlassian` and paste the token at the prompt (no quotes, no whitespace).
 
 </details>
 
@@ -264,7 +264,7 @@ The Atlassian-MCP install path is conditional on at least one Atlassian integrat
 1. Confirm the agent user has Python 3.11+ available (uv installs as a pip package under the agent user).
 2. Inspect the configure playbook's stat assertion for `~/.local/bin/uv` — if `pip install --user uv` succeeded but the binary isn't at that path, the agent host may have a non-standard home directory layout.
 
-Re-run `clm agent configure <agent-name>`; the install task is idempotent.
+Re-run `clawctl agent configure <agent-name>`; the install task is idempotent.
 
 </details>
 
@@ -275,7 +275,7 @@ Re-run `clm agent configure <agent-name>`; the install task is idempotent.
 - **Atlassian Server / Data Center** — different URL layout and auth (PAT). Roadmap item.
 - **OAuth 2.0** — requires browser-based approval; fundamentally incompatible with headless remote agents.
 - **Tool subsetting beyond `*_FILTER` env vars** — the `mcp-atlassian` server exposes ≈72 tools; the `JIRA_PROJECTS_FILTER` / `CONFLUENCE_SPACES_FILTER` env vars are the only built-in narrowing knobs. Per-tool enable/disable is a future iteration.
-- **HTTP / SSE transport for `mcp-atlassian`** — clm uses stdio because hermes manages the subprocess lifecycle directly; HTTP transport is unnecessary for the single-agent-per-process model.
+- **HTTP / SSE transport for `mcp-atlassian`** — clawctl uses stdio because hermes manages the subprocess lifecycle directly; HTTP transport is unnecessary for the single-agent-per-process model.
 
 ---
 
@@ -283,7 +283,7 @@ Re-run `clm agent configure <agent-name>`; the install task is idempotent.
 
 - [Hermes Agent Support](../hermes.md) — full hermes feature matrix
 - [OpenClaw Agent Support](../openclaw.md) — for context on env-var-based integrations
-- [`clm integration` CLI reference](../../reference/cli/integration.md) — full command reference
+- [`clawctl integration` CLI reference](../../reference/cli/integration.md) — full command reference
 - [PR #351](https://github.com/ric03uec/clawrium/pull/351) — the implementing PR for context / commit history
 
 [Back to Integrations](index.md)

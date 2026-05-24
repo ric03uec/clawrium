@@ -4,14 +4,14 @@ description: Command reference for managing agent lifecycle - install, configure
 keywords: [cli, agent, command reference, configure, install, start, stop]
 ---
 
-# clm agent
+# clawctl agent
 
 Manage agent lifecycle: install, configure, start, stop, and monitor agents.
 
 ## Synopsis
 
 ```bash
-clm agent <command> [options]
+clawctl agent <command> [options]
 ```
 
 ## Commands
@@ -21,7 +21,7 @@ clm agent <command> [options]
 Install an agent on a host.
 
 ```bash
-clm agent install <agent-type> --host <host> --name <agent-name> [options]
+clawctl agent create <agent-type> --host <host> --name <agent-name> [options]
 ```
 
 **Arguments:**
@@ -37,13 +37,13 @@ clm agent install <agent-type> --host <host> --name <agent-name> [options]
 
 ```bash
 # Install latest openclaw
-clm agent install openclaw --host lab1 --name opc-work
+clawctl agent create openclaw --host lab1 --name opc-work
 
 # Install specific version
-clm agent install zeroclaw --host pi4 --name zc-edge --version 2026.3.0
+clawctl agent create zeroclaw --host pi4 --name zc-edge --version 2026.3.0
 
 # Install with custom user
-clm agent install openclaw --host lab2 --name opc-dev --user alice
+clawctl agent create openclaw --host lab2 --name opc-dev --user alice
 ```
 
 **What happens:**
@@ -59,12 +59,12 @@ clm agent install openclaw --host lab2 --name opc-dev --user alice
 ✓ Agent: opc-work
 ✓ Status: PENDING (onboarding required)
 
-Next step: clm agent configure opc-work
+Next step: clawctl agent configure opc-work
 ```
 
 **Related:**
-- [clm registry show](#related-commands) - Check agent requirements before install
-- [clm agent configure](#configure) - Configure the installed agent
+- [clawctl agent registry describe](#related-commands) - Check agent requirements before install
+- [clawctl agent configure](#configure) - Configure the installed agent
 
 ---
 
@@ -73,7 +73,7 @@ Next step: clm agent configure opc-work
 Configure an agent through interactive onboarding wizard.
 
 ```bash
-clm agent configure <agent-name> [options]
+clawctl agent configure <agent-name> [options]
 ```
 
 **Arguments:**
@@ -91,23 +91,23 @@ clm agent configure <agent-name> [options]
 
 ```bash
 # Full interactive wizard
-clm agent configure opc-work
+clawctl agent configure opc-work
 
 # Configure specific stage
-clm agent configure opc-work --stage providers
-clm agent configure opc-work --stage identity
+clawctl agent configure opc-work --stage providers
+clawctl agent configure opc-work --stage identity
 
 # Non-interactive (use defaults)
-clm agent configure opc-work --yes
+clawctl agent configure opc-work --yes
 
 # Import identity file
-clm agent configure opc-work --stage identity --file ~/SOUL.md
+clawctl agent configure opc-work --stage identity --file ~/SOUL.md
 
 # Edit config directly in default editor
-clm agent configure opc-work --edit-config
+clawctl agent configure opc-work --edit-config
 
 # Edit config with specific editor
-clm agent configure opc-work --edit-config --editor nano
+clawctl agent configure opc-work --edit-config --editor nano
 ```
 
 **Stages:**
@@ -122,7 +122,7 @@ clm agent configure opc-work --edit-config --editor nano
 **Interactive wizard flow:**
 
 ```bash
-$ clm agent configure opc-work
+$ clawctl agent configure opc-work
 
 Starting onboarding for 'opc-work' (openclaw)
 Current state: PENDING
@@ -145,7 +145,7 @@ Select provider [1-2]: 1
 
 **Related:**
 - [Agent Onboarding Guide](../../guides/agent-onboarding.md) - Detailed onboarding walkthrough
-- [clm agent status](#status) - Check configuration progress
+- [clawctl agent describe](#status) - Check configuration progress
 
 ---
 
@@ -154,7 +154,7 @@ Select provider [1-2]: 1
 Start a configured agent.
 
 ```bash
-clm agent start <agent-name> [options]
+clawctl agent start <agent-name> [options]
 ```
 
 **Arguments:**
@@ -168,13 +168,13 @@ clm agent start <agent-name> [options]
 
 ```bash
 # Start agent
-clm agent start opc-work
+clawctl agent start opc-work
 
 # Start and wait for confirmation
-clm agent start opc-work --wait
+clawctl agent start opc-work --wait
 
 # Start with custom timeout
-clm agent start opc-work --wait --timeout 60
+clawctl agent start opc-work --wait --timeout 60
 ```
 
 **Requirements:**
@@ -198,12 +198,12 @@ Remaining stages:
   - channels
   - validate
 
-Complete onboarding: clm agent configure opc-work
+Complete onboarding: clawctl agent configure opc-work
 ```
 
 **Related:**
-- [clm agent stop](#stop) - Stop a running agent
-- [clm agent status](#status) - Check if agent is running
+- [clawctl agent stop](#stop) - Stop a running agent
+- [clawctl agent describe](#status) - Check if agent is running
 
 ---
 
@@ -212,7 +212,7 @@ Complete onboarding: clm agent configure opc-work
 Stop a running agent.
 
 ```bash
-clm agent stop <agent-name> [options]
+clawctl agent stop <agent-name> [options]
 ```
 
 **Arguments:**
@@ -226,13 +226,13 @@ clm agent stop <agent-name> [options]
 
 ```bash
 # Graceful stop
-clm agent stop opc-work
+clawctl agent stop opc-work
 
 # Force stop immediately
-clm agent stop opc-work --force
+clawctl agent stop opc-work --force
 
 # Graceful with custom timeout
-clm agent stop opc-work --timeout 30
+clawctl agent stop opc-work --timeout 30
 ```
 
 **Success output:**
@@ -242,8 +242,8 @@ clm agent stop opc-work --timeout 30
 ```
 
 **Related:**
-- [clm agent start](#start) - Start a stopped agent
-- [clm agent restart](#restart) - Restart a running agent
+- [clawctl agent start](#start) - Start a stopped agent
+- [clawctl agent restart](#restart) - Restart a running agent
 
 ---
 
@@ -252,7 +252,7 @@ clm agent stop opc-work --timeout 30
 Restart a running agent (stop + start).
 
 ```bash
-clm agent restart <agent-name> [options]
+clawctl agent restart <agent-name> [options]
 ```
 
 **Arguments:**
@@ -266,13 +266,13 @@ clm agent restart <agent-name> [options]
 
 ```bash
 # Restart agent
-clm agent restart opc-work
+clawctl agent restart opc-work
 
 # Force restart
-clm agent restart opc-work --force
+clawctl agent restart opc-work --force
 
 # Restart and wait for confirmation
-clm agent restart opc-work --wait
+clawctl agent restart opc-work --wait
 ```
 
 **Success output:**
@@ -290,7 +290,7 @@ clm agent restart opc-work --wait
 Display agent status and health information.
 
 ```bash
-clm agent status [agent-name] [options]
+clawctl agent describe [agent-name] [options]
 ```
 
 **Arguments:**
@@ -304,16 +304,16 @@ clm agent status [agent-name] [options]
 
 ```bash
 # Show all agents
-clm agent status
+clawctl agent describe
 
 # Show specific agent
-clm agent status opc-work
+clawctl agent describe opc-work
 
 # Detailed view with onboarding progress
-clm agent status opc-work --verbose
+clawctl agent describe opc-work --verbose
 
 # JSON output for scripting
-clm agent status --json
+clawctl agent describe --json
 ```
 
 **Output (all agents):**
@@ -333,7 +333,7 @@ Agent Status:
 **Output (verbose):**
 
 ```bash
-$ clm agent status opc-work --verbose
+$ clawctl agent describe opc-work --verbose
 
 Agent: opc-work
 Host: lab1 (192.168.1.100)
@@ -376,7 +376,7 @@ Health: HEALTHY
 | `ERROR` | Configuration or runtime error | ❌ No |
 
 **Related:**
-- [clm agent logs](#logs) - View agent logs
+- [clawctl agent logs](#logs) - View agent logs
 - [Agent Onboarding Guide](../../guides/agent-onboarding.md) - Understanding onboarding states
 
 ---
@@ -386,7 +386,7 @@ Health: HEALTHY
 View agent logs.
 
 ```bash
-clm agent logs <agent-name> [options]
+clawctl agent logs <agent-name> [options]
 ```
 
 **Arguments:**
@@ -402,19 +402,19 @@ clm agent logs <agent-name> [options]
 
 ```bash
 # Show last 50 lines
-clm agent logs opc-work
+clawctl agent logs opc-work
 
 # Show last 200 lines
-clm agent logs opc-work --lines 200
+clawctl agent logs opc-work --lines 200
 
 # Follow logs in real-time
-clm agent logs opc-work --follow
+clawctl agent logs opc-work --follow
 
 # Show logs from last 2 hours
-clm agent logs opc-work --since 2h
+clawctl agent logs opc-work --since 2h
 
 # Show only errors
-clm agent logs opc-work --level error
+clawctl agent logs opc-work --level error
 ```
 
 **Output:**
@@ -427,7 +427,7 @@ clm agent logs opc-work --level error
 ```
 
 **Related:**
-- [clm agent status](#status) - Check agent health
+- [clawctl agent describe](#status) - Check agent health
 - [Troubleshooting Guide](../../troubleshooting.md) - Debugging common issues
 
 ---
@@ -437,7 +437,7 @@ clm agent logs opc-work --level error
 Remove an agent from a host.
 
 ```bash
-clm agent remove <agent-name> [options]
+clawctl agent delete <agent-name> [options]
 ```
 
 **Arguments:**
@@ -451,13 +451,13 @@ clm agent remove <agent-name> [options]
 
 ```bash
 # Remove with confirmation
-clm agent remove opc-work
+clawctl agent delete opc-work
 
 # Force remove (no prompt)
-clm agent remove opc-work --force
+clawctl agent delete opc-work --force
 
 # Remove but keep data
-clm agent remove opc-work --keep-data
+clawctl agent delete opc-work --keep-data
 ```
 
 **Interactive prompt:**
@@ -492,7 +492,7 @@ Use `--keep-data` to preserve these files for later reinstallation.
 List all installed agents across the fleet.
 
 ```bash
-clm agent list [options]
+clawctl agent list [options]
 ```
 
 **Options:**
@@ -505,19 +505,19 @@ clm agent list [options]
 
 ```bash
 # List all agents
-clm agent list
+clawctl agent list
 
 # List agents on specific host
-clm agent list --host lab1
+clawctl agent list --host lab1
 
 # List all openclaw instances
-clm agent list --type openclaw
+clawctl agent list --type openclaw
 
 # List running agents only
-clm agent list --status running
+clawctl agent list --status running
 
 # JSON output
-clm agent list --json
+clawctl agent list --json
 ```
 
 **Output:**
@@ -541,7 +541,7 @@ Installed Agents (4):
 Upgrade an agent to a newer version.
 
 ```bash
-clm agent upgrade <agent-name> [options]
+clawctl agent upgrade <agent-name> [options]
 ```
 
 **Arguments:**
@@ -555,13 +555,13 @@ clm agent upgrade <agent-name> [options]
 
 ```bash
 # Upgrade to latest version
-clm agent upgrade opc-work
+clawctl agent upgrade opc-work
 
 # Upgrade to specific version
-clm agent upgrade opc-work --version 2026.5.0
+clawctl agent upgrade opc-work --version 2026.5.0
 
 # Upgrade and restart
-clm agent upgrade opc-work --restart
+clawctl agent upgrade opc-work --restart
 ```
 
 **Output:**
@@ -589,40 +589,40 @@ opc-work is now running v2026.5.1
 
 ## Related Commands
 
-### clm provider
+### clawctl provider
 
 Manage inference providers used by agents.
 
 ```bash
-clm provider list          # List configured providers
-clm provider add           # Add new provider
-clm provider remove        # Remove provider
+clawctl provider registry get          # List configured providers
+clawctl provider registry create           # Add new provider
+clawctl provider registry delete        # Remove provider
 ```
 
-See [clm provider](./provider.md) for full reference.
+See [clawctl provider](./provider.md) for full reference.
 
-### clm secret
+### clawctl agent secret
 
 Manage agent secrets and API keys.
 
 ```bash
-clm secret set <agent> <key>     # Set secret value
-clm secret list <agent>          # List required secrets
-clm secret remove <agent> <key>  # Remove secret
+clawctl agent secret create <agent> <key>     # Set secret value
+clawctl agent secret get --agent <agent>          # List required secrets
+clawctl agent secret delete <agent> <key>  # Remove secret
 ```
 
-See [clm secret](./secret.md) for full reference.
+See [clawctl agent secret](./secret.md) for full reference.
 
-### clm registry
+### clawctl agent registry
 
 Browse available agent types.
 
 ```bash
-clm registry list          # List available agents
-clm registry show <type>   # Show agent details
+clawctl agent registry get          # List available agents
+clawctl agent registry describe <type>   # Show agent details
 ```
 
-See [clm registry](./registry.md) for full reference.
+See [clawctl agent registry](./registry.md) for full reference.
 
 ---
 
@@ -641,11 +641,11 @@ See [clm registry](./registry.md) for full reference.
 **Example usage in scripts:**
 ```bash
 #!/bin/bash
-clm agent start opc-work
+clawctl agent start opc-work
 if [ $? -eq 5 ]; then
   echo "Onboarding required"
-  clm agent configure opc-work --yes
-  clm agent start opc-work
+  clawctl agent configure opc-work --yes
+  clawctl agent start opc-work
 fi
 ```
 

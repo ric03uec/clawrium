@@ -2063,9 +2063,7 @@ def test_install_hermes_malformed_existing_secret_entry(monkeypatch, tmp_path):
             }
         ],
     }
-    monkeypatch.setattr(
-        clawrium.core.install, "load_manifest", lambda x: mock_manifest
-    )
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
 
     compatible_host = {
         "hostname": "test-host",
@@ -2078,9 +2076,7 @@ def test_install_hermes_malformed_existing_secret_entry(monkeypatch, tmp_path):
             "memtotal_mb": 4096,
         },
     }
-    monkeypatch.setattr(
-        clawrium.core.install, "get_host", lambda x: compatible_host
-    )
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
     monkeypatch.setattr(
         clawrium.core.install,
         "check_compatibility",
@@ -2174,9 +2170,7 @@ def test_install_hermes_persists_zero_bind_in_hosts_json(monkeypatch, tmp_path):
             }
         ],
     }
-    monkeypatch.setattr(
-        clawrium.core.install, "load_manifest", lambda x: mock_manifest
-    )
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
 
     compatible_host = {
         "hostname": "test-host",
@@ -2189,9 +2183,7 @@ def test_install_hermes_persists_zero_bind_in_hosts_json(monkeypatch, tmp_path):
             "memtotal_mb": 4096,
         },
     }
-    monkeypatch.setattr(
-        clawrium.core.install, "get_host", lambda x: compatible_host
-    )
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
     monkeypatch.setattr(
         clawrium.core.install,
         "check_compatibility",
@@ -2223,9 +2215,7 @@ def test_install_hermes_persists_zero_bind_in_hosts_json(monkeypatch, tmp_path):
     monkeypatch.setattr(
         clawrium.core.install, "initialize_onboarding", lambda h, c: True
     )
-    monkeypatch.setattr(
-        clawrium.core.install, "get_instance_secrets", lambda _k: {}
-    )
+    monkeypatch.setattr(clawrium.core.install, "get_instance_secrets", lambda _k: {})
     set_calls: list = []
     monkeypatch.setattr(
         clawrium.core.install,
@@ -2291,9 +2281,7 @@ def _hermes_install_scaffold(monkeypatch, tmp_path, *, preexisting_agents=None):
             }
         ],
     }
-    monkeypatch.setattr(
-        clawrium.core.install, "load_manifest", lambda x: mock_manifest
-    )
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
 
     persistent_host = {
         "hostname": "test-host",
@@ -2309,9 +2297,7 @@ def _hermes_install_scaffold(monkeypatch, tmp_path, *, preexisting_agents=None):
     if preexisting_agents:
         persistent_host["agents"] = dict(preexisting_agents)
 
-    monkeypatch.setattr(
-        clawrium.core.install, "get_host", lambda _x: persistent_host
-    )
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda _x: persistent_host)
     monkeypatch.setattr(
         clawrium.core.install,
         "check_compatibility",
@@ -2342,9 +2328,7 @@ def _hermes_install_scaffold(monkeypatch, tmp_path, *, preexisting_agents=None):
     monkeypatch.setattr(
         clawrium.core.install, "initialize_onboarding", lambda *a, **k: True
     )
-    monkeypatch.setattr(
-        clawrium.core.install, "get_instance_secrets", lambda _k: {}
-    )
+    monkeypatch.setattr(clawrium.core.install, "get_instance_secrets", lambda _k: {})
     monkeypatch.setattr(
         clawrium.core.install, "set_instance_secret", lambda *a, **k: True
     )
@@ -2388,9 +2372,7 @@ def test_install_hermes_dashboard_port_deterministic(monkeypatch, tmp_path):
     result = run_installation("hermes", "test-host", name="hermes-portcheck")
     assert result["success"] is True
 
-    expected = 45000 + (
-        int(hashlib.md5(b"hermes-portcheck").hexdigest(), 16) % 2000
-    )
+    expected = 45000 + (int(hashlib.md5(b"hermes-portcheck").hexdigest(), 16) % 2000)
     dashboard = get_host()["agents"]["hermes-portcheck"]["config"]["dashboard"]
     assert dashboard["enabled"] is True
     assert dashboard["host"] == "127.0.0.1"
@@ -2398,9 +2380,7 @@ def test_install_hermes_dashboard_port_deterministic(monkeypatch, tmp_path):
     assert 45000 <= dashboard["port"] <= 46999
 
 
-def test_install_hermes_dashboard_port_persisted_to_hosts_json(
-    monkeypatch, tmp_path
-):
+def test_install_hermes_dashboard_port_persisted_to_hosts_json(monkeypatch, tmp_path):
     """The dashboard block must land in hosts.json under the agent's config
     (not just in the in-flight ansible inventory)."""
     run_installation, get_host, _calls, ansible_calls = _hermes_install_scaffold(
@@ -2427,9 +2407,7 @@ def test_install_hermes_dashboard_port_collision_bumps(monkeypatch, tmp_path):
     the new install must pick the next free port (not silently overlap)."""
     import hashlib
 
-    natural = 45000 + (
-        int(hashlib.md5(b"hermes-collide").hexdigest(), 16) % 2000
-    )
+    natural = 45000 + (int(hashlib.md5(b"hermes-collide").hexdigest(), 16) % 2000)
     preexisting = {
         "hermes-other": {
             "type": "hermes",

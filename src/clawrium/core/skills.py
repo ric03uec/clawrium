@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 REGISTRIES: tuple[str, ...] = ("clawrium", "openclaw", "hermes", "zeroclaw")
-"""Allowed registries. Order is preserved for `clm skill list` output."""
+"""Allowed registries. Order is preserved for `clawctl skill registry get` output."""
 
 NATIVE_REGISTRIES: frozenset[str] = frozenset({"openclaw", "hermes", "zeroclaw"})
 """Registries whose skills validate against the native (claw-specific) schema."""
@@ -309,17 +309,13 @@ def load_skill(ref: SkillRef | str) -> Skill:
 
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.is_file():
-        raise SkillNotFound(
-            f"Skill {ref} is missing SKILL.md at {skill_md}."
-        )
+        raise SkillNotFound(f"Skill {ref} is missing SKILL.md at {skill_md}.")
     body, frontmatter = _split_frontmatter(skill_md.read_text())
 
     if ref.registry == "clawrium":
         meta_path = skill_dir / "_meta.yaml"
         if not meta_path.is_file():
-            raise SkillNotFound(
-                f"Skill {ref} is missing _meta.yaml at {meta_path}."
-            )
+            raise SkillNotFound(f"Skill {ref} is missing _meta.yaml at {meta_path}.")
         try:
             metadata = yaml.safe_load(meta_path.read_text()) or {}
         except yaml.YAMLError as error:
@@ -500,9 +496,7 @@ def _split_frontmatter(text: str) -> tuple[str, dict[str, Any]]:
             f"SKILL.md frontmatter is not valid YAML: {error}"
         ) from error
     if not isinstance(parsed, dict):
-        raise SchemaValidationError(
-            "SKILL.md frontmatter must be a YAML mapping."
-        )
+        raise SchemaValidationError("SKILL.md frontmatter must be a YAML mapping.")
     return body, parsed
 
 

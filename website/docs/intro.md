@@ -37,12 +37,12 @@ Clawrium gives you `kubectl`-style fleet control for AI agents:
 - **Specialized agents.** Run a fleet of purpose-built agents - a research agent, a support agent, an internal assistant - each with its own context and configuration.
 - **Model flexibility.** Use any provider: OpenAI, Anthropic, local Ollama, or self-hosted inference.
 - **Lifecycle management.** Upgrades, rollbacks, secrets rotation - handled from one place.
-- **Local web dashboard.** `clm gui` opens a visual fleet view on `127.0.0.1` — chat with agents, browse topology, manage providers. See the [Web Dashboard guide](./web-dashboard.md).
+- **Local web dashboard.** `clawctl gui` opens a visual fleet view on `127.0.0.1` — chat with agents, browse topology, manage providers. See the [Web Dashboard guide](./web-dashboard.md).
 
 ## How It Works
 
 ```
-Your Machine (clm CLI)
+Your Machine (clawctl CLI)
     │
     ├── Host A ──> openclaw instance (Discord bot)
     ├── Host B ──> openclaw instance (internal assistant)
@@ -55,7 +55,7 @@ Clawrium runs from your control machine and uses SSH + Ansible to manage remote 
 
 ```bash
 # Initialize Clawrium (check dependencies)
-clm init
+clawctl service init
 ```
 ```
 ✓ Configuration directory created at ~/.config/clawrium/
@@ -64,7 +64,7 @@ clm init
 
 ```bash
 # Initialize a host (generates keypair, sets up management user)
-clm host init 192.168.1.100 --user myuser
+clawctl host create --bootstrap 192.168.1.100 --user myuser
 ```
 ```
 Generating SSH keypair for 192.168.1.100...
@@ -75,7 +75,7 @@ Configuring xclm user on remote host...
 
 ```bash
 # Add an initialized host to the fleet
-clm host add 192.168.1.100 --alias homelab
+clawctl host create 192.168.1.100 --alias homelab
 ```
 ```
 Connecting to 192.168.1.100 as xclm...
@@ -89,7 +89,7 @@ Detecting hardware capabilities...
 
 ```bash
 # See your fleet status
-clm ps
+clawctl agent get
 ```
 ```
 HOST        AGENT          TYPE       PROVIDER   STATUS    UPTIME
@@ -100,7 +100,7 @@ nuc-01      oc-work        openclaw   anthropic  running   12h
 
 ```bash
 # Install an agent on a host
-clm agent install --type openclaw --host homelab --name my-assistant
+clawctl agent create --type openclaw --host homelab --name my-assistant
 ```
 ```
 Installing openclaw on homelab...
@@ -112,7 +112,7 @@ Installing openclaw on homelab...
 
 ```bash
 # Open the local web dashboard
-clm gui
+clawctl gui
 ```
 ```
 Clawrium GUI starting on http://127.0.0.1:36000 — press Ctrl+C to stop

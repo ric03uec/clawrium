@@ -228,9 +228,7 @@ def test_validate_skill_native_rejects_missing_required(monkeypatch, tmp_path):
         validate_skill(skill)
 
 
-def test_validate_skill_clawrium_rejects_missing_compatibility(
-    monkeypatch, tmp_path
-):
+def test_validate_skill_clawrium_rejects_missing_compatibility(monkeypatch, tmp_path):
     # Clawrium schema declares `compatibility` as required; this is the
     # rejection-direction test that the affirmative tests above don't cover.
     # Without this, dropping `compatibility` from the schema's required
@@ -349,9 +347,7 @@ def _build_fake_native_skill(
         else {"name": name, "description": "fake native"}
     )
     lines = [f"{k}: {v}" for k, v in frontmatter.items()]
-    (skill_dir / "SKILL.md").write_text(
-        "---\n" + "\n".join(lines) + "\n---\nbody\n"
-    )
+    (skill_dir / "SKILL.md").write_text("---\n" + "\n".join(lines) + "\n---\nbody\n")
     _copy_schemas(root)
 
 
@@ -384,9 +380,7 @@ def test_load_skill_rejects_malformed_meta_yaml(monkeypatch, tmp_path):
     skill_dir = tmp_path / "clawrium" / "tdd"
     skill_dir.mkdir(parents=True)
     (skill_dir / "_meta.yaml").write_text("key: [unclosed\n")
-    (skill_dir / "SKILL.md").write_text(
-        "---\nname: tdd\ndescription: fake\n---\nbody"
-    )
+    (skill_dir / "SKILL.md").write_text("---\nname: tdd\ndescription: fake\n---\nbody")
     _copy_schemas(tmp_path)
     monkeypatch.setattr(skills, "_catalog_root", lambda: tmp_path)
 
@@ -401,9 +395,7 @@ def test_load_skill_rejects_non_mapping_meta_yaml(monkeypatch, tmp_path):
     skill_dir = tmp_path / "clawrium" / "tdd"
     skill_dir.mkdir(parents=True)
     (skill_dir / "_meta.yaml").write_text("- item1\n- item2\n")
-    (skill_dir / "SKILL.md").write_text(
-        "---\nname: tdd\ndescription: fake\n---\nbody"
-    )
+    (skill_dir / "SKILL.md").write_text("---\nname: tdd\ndescription: fake\n---\nbody")
     _copy_schemas(tmp_path)
     monkeypatch.setattr(skills, "_catalog_root", lambda: tmp_path)
 

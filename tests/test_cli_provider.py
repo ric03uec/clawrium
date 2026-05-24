@@ -214,7 +214,8 @@ class TestProviderAdd:
             mock_response.raise_for_status = MagicMock()
 
             with patch(
-                "clawrium.core.providers.storage.requests.get", return_value=mock_response
+                "clawrium.core.providers.storage.requests.get",
+                return_value=mock_response,
             ):
                 result = runner.invoke(
                     app,
@@ -244,7 +245,8 @@ class TestProviderAdd:
             mock_response.raise_for_status = MagicMock()
 
             with patch(
-                "clawrium.core.providers.storage.requests.get", return_value=mock_response
+                "clawrium.core.providers.storage.requests.get",
+                return_value=mock_response,
             ):
                 result = runner.invoke(
                     app,
@@ -359,7 +361,8 @@ class TestProviderEdit:
             mock_response.raise_for_status = MagicMock()
 
             with patch(
-                "clawrium.core.providers.storage.requests.get", return_value=mock_response
+                "clawrium.core.providers.storage.requests.get",
+                return_value=mock_response,
             ):
                 result = runner.invoke(
                     app,
@@ -511,7 +514,9 @@ class TestProviderRefresh:
         }
         mock_response.raise_for_status = MagicMock()
 
-        with patch("clawrium.core.providers.storage.requests.get", return_value=mock_response):
+        with patch(
+            "clawrium.core.providers.storage.requests.get", return_value=mock_response
+        ):
             result = runner.invoke(app, ["provider", "refresh", "local-llm"])
 
         assert result.exit_code == 0
@@ -837,7 +842,9 @@ class TestProviderBedrock:
         assert len(providers) == 1
         assert providers[0]["name"] == "regional-bedrock"
         assert providers[0]["type"] == "bedrock"
-        assert providers[0]["default_model"] == "us.anthropic.claude-opus-4-20250514-v1:0"
+        assert (
+            providers[0]["default_model"] == "us.anthropic.claude-opus-4-20250514-v1:0"
+        )
 
 
 class TestProviderTypesModelsMetadata:
@@ -1146,9 +1153,7 @@ class TestProviderCatalogLoadError:
         """'clm provider types <type> models' shows error when catalog unavailable."""
         from clawrium.core.providers import CatalogLoadError
 
-        with patch(
-            "clawrium.cli.provider.get_models_for_provider"
-        ) as mock_get_models:
+        with patch("clawrium.cli.provider.get_models_for_provider") as mock_get_models:
             mock_get_models.side_effect = CatalogLoadError("Test catalog load failure")
 
             result = runner.invoke(app, ["provider", "types", "bedrock", "models"])
@@ -1160,7 +1165,9 @@ class TestProviderCatalogLoadError:
 class TestGetModelSuggestion:
     """Tests for _get_model_suggestion() private function."""
 
-    def test_get_model_suggestion_catalog_load_error_returns_none(self, isolated_config):
+    def test_get_model_suggestion_catalog_load_error_returns_none(
+        self, isolated_config
+    ):
         """_get_model_suggestion returns None when CatalogLoadError is raised."""
         from clawrium.cli.provider import _get_model_suggestion
         from clawrium.core.providers import CatalogLoadError
@@ -1173,7 +1180,9 @@ class TestGetModelSuggestion:
             assert result is None
             mock_search.assert_called_once()
 
-    def test_get_model_suggestion_provider_not_found_returns_none(self, isolated_config):
+    def test_get_model_suggestion_provider_not_found_returns_none(
+        self, isolated_config
+    ):
         """_get_model_suggestion returns None when ProviderNotFoundError is raised."""
         from clawrium.cli.provider import _get_model_suggestion
         from clawrium.core.providers import ProviderNotFoundError
@@ -1196,7 +1205,9 @@ class TestGetModelSuggestion:
             result = _get_model_suggestion("gpt-4", "openai")
 
             assert result == "gpt-4o"
-            mock_search.assert_called_once_with("gpt-4", provider_type="openai", limit=1)
+            mock_search.assert_called_once_with(
+                "gpt-4", provider_type="openai", limit=1
+            )
 
     def test_get_model_suggestion_no_match_returns_none(self, isolated_config):
         """_get_model_suggestion returns None when no matches found."""
@@ -1281,7 +1292,9 @@ class TestInteractiveModelSelectionErrorPaths:
 
             assert result is None
 
-    def test_interactive_model_selection_empty_models_returns_none(self, isolated_config):
+    def test_interactive_model_selection_empty_models_returns_none(
+        self, isolated_config
+    ):
         """_interactive_model_selection returns None when models list is empty."""
         from clawrium.cli.provider import _interactive_model_selection
 
@@ -1292,7 +1305,9 @@ class TestInteractiveModelSelectionErrorPaths:
 
             assert result is None
 
-    def test_interactive_model_selection_none_response_returns_none(self, isolated_config):
+    def test_interactive_model_selection_none_response_returns_none(
+        self, isolated_config
+    ):
         """_interactive_model_selection returns None when get_models_for_provider returns None."""
         from clawrium.cli.provider import _interactive_model_selection
 
@@ -1303,7 +1318,9 @@ class TestInteractiveModelSelectionErrorPaths:
 
             assert result is None
 
-    def test_interactive_model_selection_exception_not_propagated(self, isolated_config):
+    def test_interactive_model_selection_exception_not_propagated(
+        self, isolated_config
+    ):
         """_interactive_model_selection catches exceptions without re-raising."""
         from clawrium.cli.provider import _interactive_model_selection
         from clawrium.core.providers import CatalogLoadError

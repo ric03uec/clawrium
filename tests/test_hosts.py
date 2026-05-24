@@ -589,8 +589,18 @@ def test_remove_address_success(isolated_config):
         "hostname": "192.168.1.10",
         "port": 22,
         "addresses": [
-            {"address": "192.168.1.10", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
-            {"address": "10.0.0.10", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+            {
+                "address": "192.168.1.10",
+                "is_primary": True,
+                "label": "lan",
+                "added_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "address": "10.0.0.10",
+                "is_primary": False,
+                "label": "vpn",
+                "added_at": "2024-01-02T00:00:00Z",
+            },
         ],
         "metadata": {"added_at": "2024-01-01T00:00:00Z"},
     }
@@ -610,8 +620,18 @@ def test_remove_address_primary_fails(isolated_config):
         "hostname": "192.168.1.10",
         "port": 22,
         "addresses": [
-            {"address": "192.168.1.10", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
-            {"address": "10.0.0.10", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+            {
+                "address": "192.168.1.10",
+                "is_primary": True,
+                "label": "lan",
+                "added_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "address": "10.0.0.10",
+                "is_primary": False,
+                "label": "vpn",
+                "added_at": "2024-01-02T00:00:00Z",
+            },
         ],
         "metadata": {"added_at": "2024-01-01T00:00:00Z"},
     }
@@ -646,8 +666,18 @@ def test_set_primary_success(isolated_config):
         "hostname": "192.168.1.10",
         "port": 22,
         "addresses": [
-            {"address": "192.168.1.10", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
-            {"address": "10.0.0.10", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+            {
+                "address": "192.168.1.10",
+                "is_primary": True,
+                "label": "lan",
+                "added_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "address": "10.0.0.10",
+                "is_primary": False,
+                "label": "vpn",
+                "added_at": "2024-01-02T00:00:00Z",
+            },
         ],
         "metadata": {"added_at": "2024-01-01T00:00:00Z"},
     }
@@ -689,8 +719,18 @@ def test_get_host_addresses(isolated_config):
         "hostname": "192.168.1.10",
         "port": 22,
         "addresses": [
-            {"address": "192.168.1.10", "is_primary": True, "label": "lan", "added_at": "2024-01-01T00:00:00Z"},
-            {"address": "10.0.0.10", "is_primary": False, "label": "vpn", "added_at": "2024-01-02T00:00:00Z"},
+            {
+                "address": "192.168.1.10",
+                "is_primary": True,
+                "label": "lan",
+                "added_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "address": "10.0.0.10",
+                "is_primary": False,
+                "label": "vpn",
+                "added_at": "2024-01-02T00:00:00Z",
+            },
         ],
         "metadata": {"added_at": "2024-01-01T00:00:00Z"},
     }
@@ -719,7 +759,11 @@ def test_get_host_addresses_not_found(isolated_config):
 def test_add_address_empty_string(isolated_config):
     """add_address_to_host rejects empty address."""
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_host = {"hostname": "192.168.1.10", "port": 22, "metadata": {"added_at": "2024-01-01T00:00:00Z"}}
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
     save_hosts([test_host])
 
     with pytest.raises(AddressError) as exc_info:
@@ -731,7 +775,11 @@ def test_add_address_empty_string(isolated_config):
 def test_add_address_whitespace_only(isolated_config):
     """add_address_to_host rejects whitespace-only address."""
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_host = {"hostname": "192.168.1.10", "port": 22, "metadata": {"added_at": "2024-01-01T00:00:00Z"}}
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
     save_hosts([test_host])
 
     with pytest.raises(AddressError) as exc_info:
@@ -743,7 +791,11 @@ def test_add_address_whitespace_only(isolated_config):
 def test_add_address_shell_injection(isolated_config):
     """add_address_to_host rejects addresses with shell metacharacters."""
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_host = {"hostname": "192.168.1.10", "port": 22, "metadata": {"added_at": "2024-01-01T00:00:00Z"}}
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
     save_hosts([test_host])
 
     dangerous_addresses = [
@@ -765,7 +817,11 @@ def test_add_address_shell_injection(isolated_config):
 def test_add_address_user_prefix(isolated_config):
     """add_address_to_host rejects addresses with @ symbol."""
     isolated_config.mkdir(parents=True, exist_ok=True)
-    test_host = {"hostname": "192.168.1.10", "port": 22, "metadata": {"added_at": "2024-01-01T00:00:00Z"}}
+    test_host = {
+        "hostname": "192.168.1.10",
+        "port": 22,
+        "metadata": {"added_at": "2024-01-01T00:00:00Z"},
+    }
     save_hosts([test_host])
 
     with pytest.raises(AddressError) as exc_info:

@@ -167,7 +167,9 @@ def test_install_restarts_service_on_execstart_change(
     assert sync is not None
     assert sync.get("register") == "openclaw_unit_file_result"
 
-    restart = _task_by_name(install_tasks, "Restart openclaw service on ExecStart change")
+    restart = _task_by_name(
+        install_tasks, "Restart openclaw service on ExecStart change"
+    )
     assert restart is not None
     systemd = restart.get("ansible.builtin.systemd") or restart.get("systemd")
     assert systemd is not None

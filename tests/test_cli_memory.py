@@ -478,9 +478,7 @@ def _running_agent():
     defaults to 'stopped' under the new pre-flight check. Tests that need
     to exercise the restart code path opt in via this helper.
     """
-    with patch(
-        "clawrium.cli.memory._agent_runtime_status", return_value="running"
-    ):
+    with patch("clawrium.cli.memory._agent_runtime_status", return_value="running"):
         yield
 
 
@@ -917,9 +915,7 @@ def test_edit_skips_restart_when_agent_not_running(hosts_with_installed_claw):
     would unintentionally start a stopped agent (since restart = stop +
     start, and stop is idempotent)."""
     with (
-        patch(
-            "clawrium.cli.memory._agent_runtime_status", return_value="stopped"
-        ),
+        patch("clawrium.cli.memory._agent_runtime_status", return_value="stopped"),
         patch("clawrium.cli.memory.read_memory_file", return_value="old\n"),
         patch(
             "clawrium.cli.memory._run_editor",

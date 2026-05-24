@@ -37,7 +37,7 @@ export default function SkillsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Skills"
-        description="Browse the clawrium-managed skills catalog. Install from the CLI: clm agent skill install <agent> <registry>/<name>."
+        description="Browse the clawrium-managed skills catalog. Install from the CLI: clawctl agent skill attach <registry>/<name> --agent <agent>."
       />
 
       {error ? (
