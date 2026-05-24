@@ -34,7 +34,7 @@ class Shell(str, Enum):
 
 
 def version_cmd() -> None:
-    """Print the clawctl version."""
+    """Show clawctl version and exit."""
     typer.echo(f"clawctl {__version__}")
 
 

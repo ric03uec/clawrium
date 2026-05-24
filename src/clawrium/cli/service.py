@@ -17,6 +17,7 @@ crashing.
 
 import typer
 
+from clawrium.cli.clawctl._stub import echo_not_implemented
 from clawrium.cli.init import init as _init_impl
 
 __all__ = ["service_app"]
@@ -39,16 +40,18 @@ def init() -> None:
 @service_app.command("start")
 def start() -> None:
     """Start the Clawrium daemon (placeholder)."""
-    typer.echo("Not implemented: service start")
+    # Delegate to the shared stub helper so the "Not implemented:"
+    # wording stays in one place (#507 ATX iter-2 W2).
+    echo_not_implemented("service", "start")
 
 
 @service_app.command("stop")
 def stop() -> None:
     """Stop the Clawrium daemon (placeholder)."""
-    typer.echo("Not implemented: service stop")
+    echo_not_implemented("service", "stop")
 
 
 @service_app.command("snapshot")
 def snapshot() -> None:
     """Snapshot fleet state (placeholder)."""
-    typer.echo("Not implemented: service snapshot")
+    echo_not_implemented("service", "snapshot")

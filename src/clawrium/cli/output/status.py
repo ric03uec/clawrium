@@ -30,6 +30,8 @@ import os
 import sys
 from typing import IO, Optional
 
+from clawrium.cli.output._sanitize import sanitize
+
 _COLORS = {
     "running": "32",  # green
     "degraded": "33",  # yellow
@@ -62,10 +64,16 @@ def format_status(
     stream: Optional[IO[str]] = None,
     force_color: bool = False,
 ) -> str:
-    """Return `token` wrapped in the matching ANSI color, or raw."""
+    """Return `token` wrapped in the matching ANSI color, or raw.
+
+    Unknown tokens pass through sanitize() before returning (#507 ATX
+    iter-2 W7): a compromised agent host writing a crafted `status`
+    field to hosts.json could otherwise smuggle bidi overrides into
+    the terminal via the "unknown token" fallthrough.
+    """
     code = _COLORS.get(token)
     if code is None:
-        return token
+        return sanitize(token)
     if not _color_enabled(stream, force_color=force_color):
         return token
     return f"\x1b[{code}m{token}\x1b[0m"

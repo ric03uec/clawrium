@@ -60,7 +60,14 @@ class NDJSONStreamer:
         }
         for key, value in extra.items():
             payload[key] = value
-        self._stream.write(json.dumps(payload, sort_keys=False) + "\n")
+        # `ensure_ascii=True` is the explicit safety boundary cited in
+        # `_sanitize.py` -- every non-ASCII codepoint becomes `\\uXXXX`
+        # in the output, so raw bidi/control chars never reach the
+        # terminal even though we don't call sanitize() here. Removing
+        # this kwarg would silently regress the contract.
+        self._stream.write(
+            json.dumps(payload, sort_keys=False, ensure_ascii=True) + "\n"
+        )
         self._stream.flush()
 
 
@@ -93,5 +100,7 @@ def emit_event(event: Mapping[str, Any], stream: Optional[IO[str]] = None) -> No
         if key not in event:
             raise KeyError(f"missing required key: {key}")
     target = stream if stream is not None else sys.stdout
-    target.write(json.dumps(dict(event), sort_keys=False) + "\n")
+    # `ensure_ascii=True` is the explicit safety boundary -- see the
+    # matching comment in `NDJSONStreamer.emit()`.
+    target.write(json.dumps(dict(event), sort_keys=False, ensure_ascii=True) + "\n")
     target.flush()

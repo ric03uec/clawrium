@@ -28,8 +28,13 @@ def dump_json(rows: Sequence[Mapping[str, Any]]) -> str:
     responsible for emitting snake_case keys and pre-formatted RFC3339
     UTC timestamps (the rule lives in the plan; this module just
     serializes).
+
+    `ensure_ascii=True` is explicit (Python default, but stated here
+    so the safety boundary is visible -- raw bidi/control chars in
+    string values become `\\uXXXX` escapes in the output, never
+    reaching the terminal in raw form).
     """
-    return json.dumps(list(rows), indent=2, sort_keys=False) + "\n"
+    return json.dumps(list(rows), indent=2, sort_keys=False, ensure_ascii=True) + "\n"
 
 
 def dump_yaml(rows: Sequence[Mapping[str, Any]]) -> str:
