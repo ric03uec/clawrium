@@ -17,7 +17,7 @@ from __future__ import annotations
 import typer
 
 from clawrium.cli.clawctl._common import OutputFormat
-from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
+from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import (
     dump_json,
     dump_name,
@@ -55,32 +55,6 @@ def _safe_get_provider(name: str) -> dict:
     return record  # type: ignore[return-value]
 
 
-def _get_agent_key(host: dict, agent_name: str) -> str:
-    """Return the dict key under `host.agents` that matches `agent_name`.
-
-    `safe_resolve_agent` returns the agent's *type* string (the second
-    tuple element from `core/hosts.py:get_agent_by_name`), which is not
-    necessarily the dict key. We re-scan the host's agents map to find
-    the key whose record's `agent_name` (or legacy `name`, or the key
-    itself) matches the user-provided argument.
-    """
-    agents = host.get("agents", {}) or {}
-    for key, record in agents.items():
-        if not isinstance(record, dict):
-            continue
-        candidates = (
-            key,
-            record.get("agent_name"),
-            record.get("name"),
-        )
-        if agent_name in candidates:
-            return key
-    emit_error(
-        f"agent {agent_name!r} not found on host {host.get('hostname', '?')}",
-        hint="clawctl agent get",
-    )
-
-
 def _get_attached_providers(host: dict, agent_key: str) -> list[str]:
     agent_data = (host.get("agents", {}) or {}).get(agent_key, {})
     if not isinstance(agent_data, dict):
@@ -116,7 +90,7 @@ def attach(
     _safe_get_provider(name)
     host, _agent_type, _claw = safe_resolve_agent(agent)
     hostname = host["hostname"]
-    agent_key = _get_agent_key(host, agent)
+    agent_key = resolve_agent_key(host, agent)
 
     current = _get_attached_providers(host, agent_key)
     if name in current:
@@ -136,7 +110,7 @@ def detach(
     """Detach a provider from an agent."""
     host, _agent_type, _claw = safe_resolve_agent(agent)
     hostname = host["hostname"]
-    agent_key = _get_agent_key(host, agent)
+    agent_key = resolve_agent_key(host, agent)
 
     current = _get_attached_providers(host, agent_key)
     if name not in current:
@@ -160,7 +134,7 @@ def get(
 ) -> None:
     """List providers attached to an agent."""
     host, _agent_type, _claw = safe_resolve_agent(agent)
-    agent_key = _get_agent_key(host, agent)
+    agent_key = resolve_agent_key(host, agent)
     names = _get_attached_providers(host, agent_key)
 
     rows = [{"kind": "provider", "name": n, "agent": agent} for n in names]

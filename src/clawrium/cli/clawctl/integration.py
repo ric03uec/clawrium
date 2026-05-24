@@ -26,7 +26,6 @@ from clawrium.cli.clawctl._common import (
     OutputFormat,
     confirm_destructive,
     now_seconds_since,
-    stdin_is_tty,
 )
 from clawrium.cli.output import (
     dump_json,
@@ -202,20 +201,17 @@ def create(
 
     creds = _resolve_credentials(credentials, credential_stdin)
 
-    if not creds and not stdin_is_tty():
-        emit_error(
-            "missing required credentials",
-            hint="pass --credential KEY=VALUE (repeatable) or --credential-stdin",
-        )
-
-    # Required-fields check against the integration-type registry.
+    # ATX iter-2 W5: required-credential enforcement now applies on
+    # both TTY and non-TTY paths. The previous gate was non-TTY-only,
+    # which let an interactive user create a github integration with
+    # zero credentials and exit 0 — leaving a broken record behind.
     required_keys = [
         c["key"]
         for c in get_credentials_for_type(integration_type)
         if c.get("required")
     ]
     missing = [k for k in required_keys if k not in creds]
-    if missing and not stdin_is_tty():
+    if missing:
         emit_error(
             f"missing required credential keys for {integration_type!r}: {', '.join(missing)}",
             hint="pass --credential KEY=VALUE for each missing key",

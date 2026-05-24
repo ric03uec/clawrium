@@ -55,11 +55,27 @@ def configure(
         None, "--personality", help="Personality preset (when --stage=identity)."
     ),
     channel: Optional[list[str]] = typer.Option(
-        None, "--channel", help="Channel name to attach. Repeatable."
+        None,
+        "--channel",
+        help=(
+            "DEPRECATED: channels are now managed via 'clawctl channel "
+            "registry create' + 'clawctl agent channel attach'."
+        ),
     ),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmations."),
 ) -> None:
     """Configure an agent (per-stage, non-interactive when flags supplied)."""
+    # ATX iter-2 B2: `--channel` was declared on this verb but silently
+    # dropped after R3 closure. Refusing the flag with a clear pointer
+    # to the replacement commands prevents a confused success exit.
+    if channel:
+        emit_error(
+            "--channel is no longer supported on 'clawctl agent configure'",
+            hint=(
+                "use 'clawctl channel registry create <name> ...' and "
+                f"'clawctl agent channel attach <name> --agent {name}'"
+            ),
+        )
+
     host, agent_key, claw_record = safe_resolve_agent(name)
     hostname = host["hostname"]
     agent_type = claw_record.get("type", agent_key)
@@ -69,14 +85,13 @@ def configure(
         if not stdin_is_tty():
             emit_error(
                 "missing required flag --stage",
-                hint="pass --stage providers|identity|channels|validate",
+                hint="pass --stage providers|identity|validate",
             )
+        # ATX iter-2 W2: stale hint pointed at the retired `clm` binary;
+        # the kubectl-style rewrite replaced it.
         emit_error(
             "interactive multi-stage configure not yet exposed via clawctl",
-            hint=(
-                "run a specific stage with --stage, or use legacy "
-                "'clm agent configure' until bundle 4"
-            ),
+            hint="run a specific stage with --stage providers|identity|validate",
         )
 
     # R3 closure: --stage channels is deprecated in favour of the
@@ -94,6 +109,19 @@ def configure(
     # Provider stage requires provider flag (or TTY for prompt fallback).
     if stage is Stage.providers:
         require_flag(provider, flag="--provider")
+
+    # ATX iter-2 B1: `--personality` flowed into the verb signature but
+    # nothing read it back out. Until `run_stage` accepts a personality
+    # override, refuse the flag with an explicit pointer rather than
+    # accept-and-drop.
+    if personality is not None:
+        emit_error(
+            "--personality is not wired into 'clawctl agent configure' yet",
+            hint=(
+                "follow up in a separate issue; for now set personality via "
+                "'clawctl agent edit " + name + "'"
+            ),
+        )
 
     stream_action(
         resource=f"agent/{name}", message=f"configure stage={stage.value} on {hostname}"

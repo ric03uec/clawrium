@@ -67,7 +67,6 @@ __all__ = [
     "remove_agent_channel",
     "remove_channel",
     "remove_channel_credentials",
-    "save_channels",
     "set_agent_channels",
     "set_channel_token",
     "update_channel",
@@ -87,9 +86,32 @@ CHANNEL_TYPES: tuple[str, ...] = ("discord", "slack")
 STREAM_MODES: tuple[str, ...] = ("replace", "append")
 
 # Discord/Slack ID format: numeric strings (snowflakes for Discord, ID
-# strings for Slack). We accept any non-empty string but reject control
-# characters so the value can be safely serialized later.
-_ID_FORBIDDEN = re.compile(r"[\x00-\x1f\x7f]")
+# strings for Slack). We accept any non-empty string but reject:
+#
+#   - ASCII control chars  (\x00-\x1f, \x7f-\x9f)
+#   - Bidi / zero-width / paragraph-separator codepoints (U+202A-202E,
+#     U+2066-2069, U+200E, U+200F, U+200B-200D, U+2028, U+2029,
+#     U+FEFF, U+061C, U+2060)
+#
+# ATX iter-2 W4: prior incidents (#341 v3 / #455 W2) showed that
+# allowing bidi-override codepoints into stored identifiers lets an
+# attacker reverse-print the terminal when the value is later echoed
+# (e.g. by `clawctl channel registry describe`). The pattern below is
+# explicit `\uXXXX` text escapes only — literal bidi / zero-width
+# codepoints MUST NOT appear in this source (see
+# `cli/output/_sanitize.py` for the matching contract).
+_ID_FORBIDDEN = re.compile(
+    "["
+    "\x00-\x1f\x7f-\x9f"
+    "\u061c"  # ARABIC LETTER MARK
+    "\u200b-\u200f"  # ZWSP, ZWNJ, ZWJ, LRM, RLM
+    "\u2028-\u2029"  # LINE / PARAGRAPH SEPARATOR
+    "\u202a-\u202e"  # LRE, RLE, PDF, LRO, RLO
+    "\u2060"  # WORD JOINER
+    "\u2066-\u2069"  # LRI, RLI, FSI, PDI
+    "\ufeff"  # ZWNBSP / BOM
+    "]"
+)
 
 
 class ChannelsFileCorruptedError(Exception):
@@ -259,8 +281,14 @@ def _save_channels_atomic(channels: list[dict], config_dir) -> None:
         raise
 
 
-def save_channels(channels: list[dict]) -> None:
-    """Atomically persist the full list of channel records."""
+def _save_channels(channels: list[dict]) -> None:
+    """Atomically persist the full list of channel records.
+
+    ATX iter-2 W9: private — exposing this externally lets a stale
+    snapshot clobber concurrent edits. Callers go through
+    `add_channel`, `update_channel`, or `remove_channel`, all of which
+    acquire the lock before reading + writing.
+    """
     config_dir = init_config_dir()
     with _channels_lock():
         _save_channels_atomic(channels, config_dir)
@@ -365,8 +393,24 @@ def remove_channel(name: str, force: bool = False) -> bool:
         # the two cannot leave orphan secrets for a same-name re-add.
         remove_channel_credentials(name)
 
-        config_dir = init_config_dir()
-        _save_channels_atomic(remaining, config_dir)
+        # ATX iter-2 W7: an OSError during the atomic write here leaves
+        # the channel record present but with credentials already
+        # cleared — silently non-functional on next start. Log a
+        # warning so operators see the half-removed state in their
+        # journal and can re-run with `--force`.
+        try:
+            config_dir = init_config_dir()
+            _save_channels_atomic(remaining, config_dir)
+        except OSError as exc:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "remove_channel: credentials for %r were cleared but "
+                "channels.json write failed: %s; re-run delete to retry.",
+                name,
+                exc,
+            )
+            raise
 
     return True
 
@@ -396,7 +440,14 @@ def get_agent_channels(host: str, agent_key: str) -> list[str]:
 
 
 def set_agent_channels(host: str, agent_key: str, channels: list[str]) -> bool:
-    """Replace the list of attached channels for an agent."""
+    """Replace the list of attached channels for an agent.
+
+    ATX iter-2 W8: `update_host` returns `True` whenever the host is
+    found, even if the updater did not actually mutate the agents map
+    (agent_key missing, record not a dict). Tracking the mutation via
+    a `nonlocal updated` flag prevents a false-positive success return
+    on a no-op write.
+    """
     from clawrium.core.hosts import get_host, update_host
 
     host_data = get_host(host)
@@ -404,8 +455,10 @@ def set_agent_channels(host: str, agent_key: str, channels: list[str]) -> bool:
         return False
 
     hostname = host_data["hostname"]
+    updated = False
 
     def updater(h: dict) -> dict:
+        nonlocal updated
         agents = h.get("agents", {})
         if agent_key not in agents:
             return h
@@ -413,9 +466,11 @@ def set_agent_channels(host: str, agent_key: str, channels: list[str]) -> bool:
         if not isinstance(record, dict):
             return h
         record["channels"] = list(channels)
+        updated = True
         return h
 
-    return update_host(hostname, updater)
+    update_host(hostname, updater)
+    return updated
 
 
 def add_agent_channel(host: str, agent_key: str, channel_name: str) -> bool:

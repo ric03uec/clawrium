@@ -169,3 +169,92 @@ def test_channels_file_wrong_shape_raises(tmp_path, monkeypatch) -> None:
     (tmp_path / "clawrium" / "channels.json").write_text('{"not": "a list"}')
     with pytest.raises(ch.ChannelsFileCorruptedError):
         ch.load_channels()
+
+
+def test_set_agent_channels_returns_false_on_unknown_agent(
+    tmp_path, monkeypatch
+) -> None:
+    """ATX iter-2 W8: set_agent_channels must not report success when
+    the agent_key is not present in the host's agents map."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    (tmp_path / "clawrium").mkdir()
+    (tmp_path / "clawrium" / "hosts.json").write_text(
+        json.dumps(
+            [
+                {
+                    "hostname": "h1",
+                    "agents": {
+                        "openclaw": {
+                            "type": "openclaw",
+                            "agent_name": "a1",
+                        }
+                    },
+                }
+            ]
+        )
+    )
+    assert ch.set_agent_channels("h1", "ghost-agent", ["c1"]) is False
+
+
+def test_set_agent_channels_returns_true_on_known_agent(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    (tmp_path / "clawrium").mkdir()
+    (tmp_path / "clawrium" / "hosts.json").write_text(
+        json.dumps(
+            [
+                {
+                    "hostname": "h1",
+                    "agents": {
+                        "a1": {
+                            "type": "openclaw",
+                            "agent_name": "a1",
+                        }
+                    },
+                }
+            ]
+        )
+    )
+    assert ch.set_agent_channels("h1", "a1", ["c1"]) is True
+
+
+def test_set_agent_channels_missing_host_returns_false(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    (tmp_path / "clawrium").mkdir()
+    assert ch.set_agent_channels("no-such-host", "agent", ["c"]) is False
+
+
+def test_update_channel_on_missing_record_returns_false(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    (tmp_path / "clawrium").mkdir()
+    assert ch.update_channel("never-existed", lambda c: c) is False
+
+
+def test_id_forbidden_rejects_bidi_codepoints() -> None:
+    """ATX iter-2 W4: bidi-override codepoints must be rejected.
+
+    Prior incidents (#341 v3 / #455 W2) — leaving these in stored IDs
+    lets an attacker reverse-print the terminal when the value is
+    later echoed.
+    """
+    # U+202E RIGHT-TO-LEFT OVERRIDE
+    assert ch._ID_FORBIDDEN.search("abc‮def") is not None
+    # U+200E LEFT-TO-RIGHT MARK
+    assert ch._ID_FORBIDDEN.search("plain‎id") is not None
+    # U+FEFF BOM
+    assert ch._ID_FORBIDDEN.search("﻿id") is not None
+    # U+2066 LEFT-TO-RIGHT ISOLATE
+    assert ch._ID_FORBIDDEN.search("a⁦b") is not None
+    # Plain ID stays clean.
+    assert ch._ID_FORBIDDEN.search("1234567890") is None
+
+
+def test_save_channels_is_not_exported() -> None:
+    """ATX iter-2 W9: the public save helper was removed."""
+    assert "save_channels" not in ch.__all__
+    assert "_save_channels" not in ch.__all__

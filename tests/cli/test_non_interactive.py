@@ -308,3 +308,134 @@ def test_agent_secret_create_get_noninteractive(fleet_dir, stdin_not_tty) -> Non
     assert result.exit_code == 0
     listed = runner.invoke(app, ["agent", "secret", "get", "--agent", "wise-hypatia"])
     assert listed.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Bundle 4 — detach verbs and remaining sub-resource paths (ATX iter-2 W1)
+# ---------------------------------------------------------------------------
+
+
+def test_agent_provider_detach_noninteractive(fleet_dir, stdin_not_tty) -> None:
+    _create_provider("dp")
+    runner.invoke(
+        app, ["agent", "provider", "attach", "dp", "--agent", "wise-hypatia"]
+    )
+    result = runner.invoke(
+        app, ["agent", "provider", "detach", "dp", "--agent", "wise-hypatia"]
+    )
+    assert result.exit_code == 0
+
+
+def test_agent_channel_detach_noninteractive(fleet_dir, stdin_not_tty) -> None:
+    _create_channel("dc")
+    runner.invoke(
+        app, ["agent", "channel", "attach", "dc", "--agent", "wise-hypatia"]
+    )
+    result = runner.invoke(
+        app, ["agent", "channel", "detach", "dc", "--agent", "wise-hypatia"]
+    )
+    assert result.exit_code == 0
+
+
+def test_agent_integration_detach_noninteractive(fleet_dir, stdin_not_tty) -> None:
+    _create_integration("di")
+    runner.invoke(
+        app, ["agent", "integration", "attach", "di", "--agent", "wise-hypatia"]
+    )
+    result = runner.invoke(
+        app, ["agent", "integration", "detach", "di", "--agent", "wise-hypatia"]
+    )
+    assert result.exit_code == 0
+
+
+def test_agent_secret_describe_delete_import_noninteractive(
+    fleet_dir, stdin_not_tty, tmp_path
+) -> None:
+    # describe
+    runner.invoke(
+        app,
+        [
+            "agent",
+            "secret",
+            "create",
+            "FOO",
+            "--agent",
+            "wise-hypatia",
+            "--value",
+            "v",
+        ],
+    )
+    r = runner.invoke(
+        app, ["agent", "secret", "describe", "FOO", "--agent", "wise-hypatia"]
+    )
+    assert r.exit_code == 0
+    # delete with --yes
+    r = runner.invoke(
+        app,
+        [
+            "agent",
+            "secret",
+            "delete",
+            "FOO",
+            "--agent",
+            "wise-hypatia",
+            "--yes",
+        ],
+    )
+    assert r.exit_code == 0
+    # import from --from-file
+    env = tmp_path / ".env"
+    env.write_text("A=1\nB=2\n")
+    r = runner.invoke(
+        app,
+        [
+            "agent",
+            "secret",
+            "import",
+            "--agent",
+            "wise-hypatia",
+            "--from-file",
+            str(env),
+        ],
+    )
+    assert r.exit_code == 0
+
+
+def test_provider_registry_refresh_requires_ollama_type(
+    fleet_dir, stdin_not_tty
+) -> None:
+    """`refresh` on a non-ollama provider exits non-zero with a clear error,
+    which still honors the non-interactive contract (no prompts)."""
+    _create_provider("rfp")
+    result = runner.invoke(app, ["provider", "registry", "refresh", "rfp"])
+    assert result.exit_code != 0
+
+
+def test_integration_registry_describe_delete_noninteractive(
+    fleet_dir, stdin_not_tty
+) -> None:
+    _create_integration("idd")
+    r = runner.invoke(app, ["integration", "registry", "describe", "idd"])
+    assert r.exit_code == 0
+    r = runner.invoke(
+        app, ["integration", "registry", "delete", "idd", "--yes"]
+    )
+    assert r.exit_code == 0
+
+
+def test_skill_registry_describe_noninteractive(fleet_dir, stdin_not_tty) -> None:
+    listing = runner.invoke(app, ["skill", "registry", "get", "-o", "name"])
+    refs = [
+        line.split("/", 1)[1]
+        for line in listing.output.strip().splitlines()
+        if "/" in line
+    ]
+    assert refs, "expected at least one skill in catalog"
+    r = runner.invoke(app, ["skill", "registry", "describe", refs[0]])
+    assert r.exit_code == 0
+
+
+def test_mcp_registry_describe_noninteractive(fleet_dir, stdin_not_tty) -> None:
+    result = runner.invoke(app, ["mcp", "registry", "describe", "foo"])
+    assert result.exit_code == 0
+    assert "Not implemented" in result.output

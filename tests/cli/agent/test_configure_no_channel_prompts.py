@@ -73,3 +73,61 @@ def test_configure_channels_stage_emits_deprecation_pointer(
     assert "deprecated" in result.output
     assert "clawctl channel registry create" in result.output
     assert "clawctl agent channel attach" in result.output
+
+
+def test_configure_channel_flag_emits_error(fleet_dir, stdin_not_tty) -> None:
+    """ATX iter-2 B2: `--channel` is no longer accepted on `configure`."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "configure",
+            "wise-hypatia",
+            "--stage",
+            "providers",
+            "--provider",
+            "anth",
+            "--channel",
+            "ignored",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--channel is no longer supported" in result.output
+    assert "clawctl agent channel attach" in result.output
+
+
+def test_configure_personality_flag_emits_error(fleet_dir, stdin_not_tty) -> None:
+    """ATX iter-2 B1: `--personality` was silently dropped — now refused."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "configure",
+            "wise-hypatia",
+            "--stage",
+            "identity",
+            "--personality",
+            "formal",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--personality is not wired" in result.output
+
+
+def test_configure_yes_flag_removed(fleet_dir, stdin_not_tty) -> None:
+    """ATX iter-2 B3: `--yes`/`-y` was dead — typer must reject it now."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "configure",
+            "wise-hypatia",
+            "--stage",
+            "providers",
+            "--provider",
+            "anth",
+            "--yes",
+        ],
+    )
+    # Typer surfaces an unrecognized option as exit code 2.
+    assert result.exit_code != 0

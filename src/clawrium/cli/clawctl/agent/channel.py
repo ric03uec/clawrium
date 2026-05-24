@@ -11,7 +11,7 @@ from __future__ import annotations
 import typer
 
 from clawrium.cli.clawctl._common import OutputFormat
-from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
+from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import (
     dump_json,
     dump_name,
@@ -51,19 +51,6 @@ def _safe_get_channel(name: str) -> dict:
     return record  # type: ignore[return-value]
 
 
-def _resolve_agent_key(host: dict, agent_name: str) -> str:
-    agents = host.get("agents", {}) or {}
-    for key, record in agents.items():
-        if not isinstance(record, dict):
-            continue
-        if agent_name in (key, record.get("agent_name"), record.get("name")):
-            return key
-    emit_error(
-        f"agent {agent_name!r} not found on host {host.get('hostname', '?')}",
-        hint="clawctl agent get",
-    )
-
-
 @channel_app.command("attach")
 def attach(
     name: str = typer.Argument(..., help="Channel name to attach."),
@@ -73,7 +60,7 @@ def attach(
     _safe_get_channel(name)
     host, _atype, _claw = safe_resolve_agent(agent)
     hostname = host["hostname"]
-    agent_key = _resolve_agent_key(host, agent)
+    agent_key = resolve_agent_key(host, agent)
 
     if add_agent_channel(hostname, agent_key, name):
         typer.echo(f"agent/{agent}: attached channel {name!r}")
@@ -89,7 +76,7 @@ def detach(
     """Detach a channel from an agent."""
     host, _atype, _claw = safe_resolve_agent(agent)
     hostname = host["hostname"]
-    agent_key = _resolve_agent_key(host, agent)
+    agent_key = resolve_agent_key(host, agent)
 
     if remove_agent_channel(hostname, agent_key, name):
         typer.echo(f"agent/{agent}: detached channel {name!r}")
@@ -111,7 +98,7 @@ def get(
     """List channels attached to an agent."""
     host, _atype, _claw = safe_resolve_agent(agent)
     hostname = host["hostname"]
-    agent_key = _resolve_agent_key(host, agent)
+    agent_key = resolve_agent_key(host, agent)
     names = get_agent_channels(hostname, agent_key)
 
     rows = [{"kind": "channel", "name": n, "agent": agent} for n in names]

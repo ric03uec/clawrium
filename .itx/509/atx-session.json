@@ -1,0 +1,15 @@
+{
+  "session_id": "bb01128a-b76e-4ab9-971d-1bec83ed4fec",
+  "transport": "cli",
+  "commit_sha": "3dbf0ceee878ce636bd4185a2b9cd8cf1f77d7ee",
+  "iteration": 1,
+  "last_rating": 2,
+  "last_blockers": ["B1", "B2", "B3"],
+  "last_warnings": ["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10", "W11"],
+  "started_at": "2026-05-24T16:23:35Z",
+  "updated_at": "2026-05-24T16:47:53Z",
+  "cost_usd": 3.4029,
+  "duration_seconds": 775,
+  "incomplete": true,
+  "incomplete_reason": "security-reviewer and test-coverage-reviewer specialists timed out (claude hit max-turns)"
+}
