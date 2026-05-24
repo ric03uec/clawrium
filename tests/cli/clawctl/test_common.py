@@ -40,6 +40,9 @@ def test_validate_hostname_accepts(good: str) -> None:
         "host\nnewline",
         "host‮rlo",  # bidi override
         ("a" * 64) + ".com",  # ATX iter-2 W1 — DNS label too long
+        "a..b",  # ATX iter-3 W1 — empty label between dots
+        ".",  # ATX iter-3 W1 — all-empty labels
+        "a.",  # ATX iter-3 W1 — trailing empty label
     ],
 )
 def test_validate_hostname_rejects(bad: str) -> None:

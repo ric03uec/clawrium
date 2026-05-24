@@ -264,6 +264,14 @@ def validate_hostname(value: str, *, field: str = "hostname") -> None:
     # have a different label model.
     if ":" not in value:
         for label in value.split("."):
+            # ATX iter-3 W1: empty label (`'a..b'`) is invalid DNS and
+            # was passing silently because `len('') > 63` is False. Reject
+            # both length-overflow AND empty labels.
+            if not label:
+                emit_error(
+                    f"invalid {field} {value!r}",
+                    hint="empty DNS label (consecutive dots not allowed)",
+                )
             if len(label) > _DNS_LABEL_MAX:
                 emit_error(
                     f"invalid {field} {value!r}",

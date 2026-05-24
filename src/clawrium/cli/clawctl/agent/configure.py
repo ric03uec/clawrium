@@ -111,6 +111,11 @@ def configure(
                 hint="rerun clawctl agent get to verify",
             )
 
+    # ATX iter-3 S7: pre-bind `success` for parity with delete.py/sync.py
+    # so a non-LifecycleError that escapes the try block cannot trigger
+    # an `UnboundLocalError`. Dormant today (emit_error is NoReturn);
+    # defensive bind future-proofs the contract.
+    success: bool = False
     try:
         success = run_stage(agent_type, hostname, agent_key, stage.value)
     except LifecycleError as exc:

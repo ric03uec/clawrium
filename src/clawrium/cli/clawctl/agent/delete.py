@@ -50,8 +50,11 @@ def delete(
     except LifecycleError as exc:
         # ATX iter-2 W5: idempotent delete — re-running on an
         # already-removed agent should not fail fleet automation.
-        message = str(exc)
-        if "not installed" in message.lower() or "not found" in message.lower():
+        # ATX iter-3 W5: narrow the match to "not installed" only.
+        # `"not found"` also matches `lifecycle.py`'s `"Host 'X' not
+        # found"` error, which is a genuine resolution failure and
+        # MUST not be silently treated as a no-op success.
+        if "not installed" in str(exc).lower():
             stream_action(resource=f"agent/{name}", message="already deleted (no-op)")
             return
         emit_error(f"remote cleanup failed: {exc}")

@@ -37,6 +37,26 @@ def test_delete_other_lifecycle_error_propagates(fleet_dir, monkeypatch) -> None
     assert "remote cleanup failed" in result.output
 
 
+def test_delete_host_not_found_propagates(fleet_dir, monkeypatch) -> None:
+    """ATX iter-3 W5: 'Host ... not found' MUST NOT be silently swallowed.
+
+    The iter-2 guard matched both `'Agent ... not installed'` AND
+    `'Host ... not found'`, so a genuine host-resolution failure would
+    have been treated as an idempotent no-op. iter-3 narrows the match
+    to `'not installed'` only.
+    """
+    from clawrium.core.lifecycle import LifecycleError
+
+    def host_unknown(**_kwargs):
+        raise LifecycleError("Host 'wolf-i' not found")
+
+    monkeypatch.setattr("clawrium.cli.clawctl.agent.delete.remove_agent", host_unknown)
+    result = runner.invoke(app, ["agent", "delete", "wise-hypatia", "--yes"])
+    assert result.exit_code != 0
+    assert "remote cleanup failed" in result.output
+    assert "already deleted" not in result.output
+
+
 def test_delete_success_false_errors(fleet_dir, monkeypatch) -> None:
     """B3 regression check: remove_agent returning {success: False} must fail."""
 

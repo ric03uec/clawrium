@@ -37,6 +37,45 @@ def test_create_stdin_closed_missing_host_fails(fleet_dir, stdin_not_tty) -> Non
     assert "Error: missing required flag --host" in result.output
 
 
+def test_create_rejects_shell_metachar_host(fleet_dir, stdin_not_tty) -> None:
+    """ATX iter-3 S1: `--host` flows through `validate_hostname`."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "create",
+            "x",
+            "--type",
+            "openclaw",
+            "--host",
+            "host;ls",
+            "--yes",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "invalid" in result.output
+
+
+def test_create_rejects_oversized_label_host(fleet_dir, stdin_not_tty) -> None:
+    """ATX iter-3 S1: hostname label > 63 chars rejected via `--host`."""
+    bad_host = ("a" * 64) + ".com"
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "create",
+            "x",
+            "--type",
+            "openclaw",
+            "--host",
+            bad_host,
+            "--yes",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "invalid" in result.output
+
+
 def test_delete_stdin_closed_without_yes_fails(fleet_dir, stdin_not_tty) -> None:
     result = runner.invoke(app, ["agent", "delete", "wise-hypatia"])
     assert result.exit_code != 0

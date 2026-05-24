@@ -1,20 +1,12 @@
 {
-  "session_id": "bpp36pu1g",
+  "session_id": "bbt8dwjzk",
   "transport": "cli",
-  "commit_sha": "64055ca",
-  "iteration": 2,
-  "last_rating": 2,
-  "last_blockers": [
-    "B1: bidi regression in describe paths (fixed)",
-    "B2: agent registry describe raw output (fixed)",
-    "B3: delete discards remove_agent return (fixed)",
-    "B4: configure unhandled OnboardingNotFoundError (fixed)",
-    "B5-B9: missing test files (fixed)",
-    "B10: hostname injection vector (fixed)",
-    "B11: vacuous assertion (fixed)"
-  ],
+  "commit_sha": "44dd0ea",
+  "iteration": 3,
+  "last_rating": 3,
+  "last_blockers": [],
   "started_at": "2026-05-24T08:00:00Z",
-  "updated_at": "2026-05-24T08:30:00Z",
+  "updated_at": "2026-05-24T09:00:00Z",
   "iterations": [
     {
       "n": 1,
@@ -25,7 +17,19 @@
       "duration_seconds": 684,
       "blockers": 11,
       "warnings": 11
+    },
+    {
+      "n": 2,
+      "session_id": "bpp36pu1g",
+      "commit_sha": "64055ca",
+      "rating": 3,
+      "cost_usd": 2.2455,
+      "duration_seconds": 502,
+      "blockers": 0,
+      "warnings": 7,
+      "note": "all 11 iter-1 blockers confirmed fixed; test-coverage agent hit max-turns"
     }
   ]
 }
+
 
