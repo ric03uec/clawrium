@@ -131,3 +131,76 @@ def test_configure_yes_flag_removed(fleet_dir, stdin_not_tty) -> None:
     )
     # Typer surfaces an unrecognized option as exit code 2.
     assert result.exit_code != 0
+
+
+def test_configure_channel_flag_fires_before_agent_resolution(
+    fleet_dir, stdin_not_tty
+) -> None:
+    """ATX iter-3 FU-3: `--channel` deprecation must fire before
+    `safe_resolve_agent`. Using a nonexistent agent confirms the
+    deprecation message wins the race."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "configure",
+            "no-such-agent-here",
+            "--stage",
+            "providers",
+            "--provider",
+            "anth",
+            "--channel",
+            "ignored",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--channel is no longer supported" in result.output
+    # The "agent not found" hint must NOT appear — that would mean
+    # the guard fired after `safe_resolve_agent`.
+    assert "agent 'no-such-agent-here' not found" not in result.output
+
+
+def test_configure_stage_channels_fires_before_agent_resolution(
+    fleet_dir, stdin_not_tty
+) -> None:
+    """ATX iter-3 FU-3: `--stage channels` deprecation must fire
+    before `safe_resolve_agent`."""
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "configure",
+            "no-such-agent-here",
+            "--stage",
+            "channels",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "deprecated" in result.output
+    assert "clawctl channel registry create" in result.output
+    assert "agent 'no-such-agent-here' not found" not in result.output
+
+
+def test_stage_help_text_omits_channels_from_valid_values(
+    fleet_dir, stdin_not_tty
+) -> None:
+    """ATX iter-3 FU-5: pin the help text so a contributor cannot
+    silently re-add `channels` to the valid-values hint.
+
+    Typer wraps long help text across lines and inserts box-drawing
+    chars at the gutters, so we collapse whitespace before matching.
+    """
+    import re
+
+    result = runner.invoke(app, ["agent", "configure", "--help"])
+    assert result.exit_code == 0
+    # Typer wraps help across lines with box-drawing chars at the
+    # column gutters; strip them and collapse whitespace so the
+    # phrase survives line-wrapping. The Stage enum still includes
+    # `channels` (Typer auto-generates the choices list from the
+    # enum), but the prose hint must point users at the supported
+    # set and explicitly mark `channels` as deprecated.
+    flat = re.sub(r"[│╭╰─╮╯]", " ", result.output)
+    flat = re.sub(r"\s+", " ", flat)
+    assert "providers, identity, validate" in flat
+    assert "deprecated" in flat.lower()

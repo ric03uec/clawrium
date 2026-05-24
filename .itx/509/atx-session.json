@@ -1,22 +1,34 @@
 {
-  "session_id": "iter1-bb01128a + iter2-pending",
+  "session_id": "iter1-bb01128a + iter2 + iter3",
   "transport": "cli",
-  "commit_sha": "31005d9",
-  "iteration": 2,
-  "last_rating": 3,
+  "commit_sha": "43a77c2",
+  "iteration": 3,
+  "last_rating": 3.5,
   "last_blockers": [],
-  "last_warnings": ["W-NEW-1", "W-NEW-2", "W-NEW-3", "W-NEW-4", "W-NEW-5", "W-NEW-6", "W-NEW-7", "W-NEW-8", "W-NEW-9"],
+  "last_warnings": ["FU-1", "FU-2", "FU-3", "FU-4", "FU-5", "FU-6", "FU-7"],
   "started_at": "2026-05-24T16:23:35Z",
-  "updated_at": "2026-05-24T17:00:00Z",
+  "updated_at": "2026-05-24T17:18:00Z",
+  "verdict": "CLEAR TO MERGE",
   "iter1": {
     "rating": 2,
-    "cost_usd": 3.40,
-    "duration_seconds": 775,
-    "blockers": ["B1", "B2", "B3"]
+    "blockers": ["B1", "B2", "B3"],
+    "outcome": "Three blockers in agent configure (silently-dropped flags) + 11 warnings"
   },
   "iter2": {
     "rating": 3,
     "blockers": [],
-    "actionable_warnings": ["W-NEW-1", "W-NEW-2", "W-NEW-3"]
+    "actionable_warnings": ["W-NEW-1", "W-NEW-2", "W-NEW-3"],
+    "outcome": "B1/B2/B3 closed; 3 new actionable warnings to clear the > 3 bar"
+  },
+  "iter3": {
+    "rating": 3.5,
+    "blockers": [],
+    "specialist_breakdown": {
+      "core-lifecycle": 4,
+      "security": 4,
+      "cli-ux": 3,
+      "test-coverage": 3
+    },
+    "outcome": "CLEAR TO MERGE; remaining warnings flagged as follow-up issues FU-1..FU-7"
   }
 }

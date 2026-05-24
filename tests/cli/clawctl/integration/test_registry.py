@@ -132,6 +132,50 @@ def test_create_credential_empty_key_does_not_leak_value(
     assert "key is empty" in result.output
 
 
+def test_create_credential_stdin_empty_key_does_not_leak_value(
+    fleet_dir, stdin_not_tty
+) -> None:
+    """ATX iter-3 FU-7: same redaction contract for the stdin path."""
+    result = runner.invoke(
+        app,
+        [
+            "integration",
+            "registry",
+            "create",
+            "leaky-stdin",
+            "--type",
+            "github",
+            "--credential-stdin",
+        ],
+        input="=ghp_stdin_secret_value\n",
+    )
+    assert result.exit_code != 0
+    assert "ghp_stdin_secret_value" not in result.output
+    assert "key is empty" in result.output
+
+
+def test_create_credential_whitespace_key_does_not_leak_value(
+    fleet_dir, stdin_not_tty
+) -> None:
+    """ATX iter-3 FU-7: a whitespace-only key (`' =VAL'`) strips to
+    empty and must not echo the value either."""
+    result = runner.invoke(
+        app,
+        [
+            "integration",
+            "registry",
+            "create",
+            "leaky-ws",
+            "--type",
+            "github",
+            "--credential",
+            "   =ghp_whitespace_secret_value",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "ghp_whitespace_secret_value" not in result.output
+
+
 def test_get_lists_integrations(fleet_dir, stdin_not_tty) -> None:
     runner.invoke(
         app,

@@ -267,17 +267,22 @@ def test_remove_channel_oserror_logs_warning_and_propagates(
 ) -> None:
     """ATX iter-2 W7 / W-NEW-3: a disk failure between credential
     cleanup and channels.json write leaves a zombie record. The
-    failure must (a) log a warning naming the channel as zombie, and
-    (b) re-raise OSError so the CLI layer can emit an actionable
-    error rather than silently swallowing the partial removal.
+    failure must (a) log a warning naming the *zombie state* (not
+    just the channel name), and (b) re-raise OSError so the CLI
+    layer can emit an actionable error rather than silently
+    swallowing the partial removal.
+
+    ATX iter-3 FU-6: use a channel name that doesn't collide with
+    the wording in the log format string so the test pins the
+    actual phrase 'zombie state'.
     """
     import logging
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     (tmp_path / "clawrium").mkdir()
 
-    ch.add_channel({"name": "zombie", "type": "discord", "config": {}})
-    ch.set_channel_token("zombie", "BOT_TOKEN", "tk")
+    ch.add_channel({"name": "removeme", "type": "discord", "config": {}})
+    ch.set_channel_token("removeme", "BOT_TOKEN", "tk")
 
     def boom(channels, config_dir):
         raise OSError("disk full")
@@ -286,12 +291,16 @@ def test_remove_channel_oserror_logs_warning_and_propagates(
 
     with caplog.at_level(logging.WARNING):
         with pytest.raises(OSError):
-            ch.remove_channel("zombie")
+            ch.remove_channel("removeme")
 
     # Credentials were already cleared by the time _save_channels_atomic
     # raised — that's the zombie state we are warning about.
-    assert ch.get_channel_token("zombie") is None
-    # Warning text must name the zombie state explicitly so it shows
-    # up in journal aggregators.
-    matching = [r for r in caplog.records if "zombie" in r.getMessage().lower()]
-    assert matching, "expected a warning mentioning 'zombie' state"
+    assert ch.get_channel_token("removeme") is None
+    # The record half of the zombie contract: channel.json record
+    # survives the failed write.
+    assert ch.get_channel("removeme") is not None
+    # The log message must say "zombie state" in plain text so it
+    # surfaces clearly in journal aggregators.
+    assert any("zombie state" in r.getMessage() for r in caplog.records), (
+        "expected the warning to explicitly say 'zombie state'"
+    )
