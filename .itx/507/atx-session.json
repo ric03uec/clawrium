@@ -1,57 +1,118 @@
 {
-  "task_id_iter_1": "446de768-7641-4906-947d-b9bd84cca25e",
   "transport": "cli",
-  "commit_sha_iter_1": "1f3ded4",
-  "iteration": 1,
-  "last_rating_iter_1": 2,
-  "blockers_iter_1": [
+  "iterations": [
     {
-      "id": "B1",
-      "location": "src/clawrium/cli/output/errors.py:32,36",
-      "issue": "emit_error writes message/hint to stderr without bidi-strip",
-      "status": "fixed in 23df959 — sanitize() applied to both args"
+      "iteration": 1,
+      "task_id": "446de768-7641-4906-947d-b9bd84cca25e",
+      "commit_sha": "1f3ded4",
+      "rating_overall": null,
+      "specialists_completed": ["security-reviewer"],
+      "specialists_failed": [
+        "test-coverage-reviewer",
+        "cli-ux-reviewer",
+        "core-lifecycle-reviewer"
+      ],
+      "blockers": [
+        {
+          "id": "B1",
+          "location": "src/clawrium/cli/output/errors.py:32,36",
+          "issue": "emit_error writes message/hint without bidi-strip",
+          "fix_commit": "23df959"
+        },
+        {
+          "id": "B2",
+          "location": "src/clawrium/cli/output/stream.py:68",
+          "issue": "stream_action writes resource/message without sanitization",
+          "fix_commit": "23df959"
+        }
+      ],
+      "warnings_fixed": ["W1 (table.render cell sanitization)", "W2 (dump_name sanitization)"],
+      "suggestions_deferred": [
+        "S1 (NDJSONStreamer extra-kwargs) → bundle 3 audit point"
+      ],
+      "cost_usd": 1.15932235,
+      "duration_ms": 515289
     },
     {
-      "id": "B2",
-      "location": "src/clawrium/cli/output/stream.py:68",
-      "issue": "stream_action writes resource/message to stdout without sanitization",
-      "status": "fixed in 23df959 — sanitize() applied to both args"
-    }
-  ],
-  "warnings_iter_1": [
-    {
-      "id": "W1",
-      "location": "src/clawrium/cli/output/table.py:38-39",
-      "issue": "render() does not sanitize cells; drift trap",
-      "status": "fixed in 23df959 — sanitize() applied to headers + cells; docstring updated"
+      "iteration": 2,
+      "task_id": "fdc4ce99-... (see /tmp/atx-iter2.json)",
+      "commit_sha": "23df959",
+      "rating_overall": 2,
+      "specialists_completed": [
+        "security-reviewer",
+        "test-coverage-reviewer",
+        "cli-ux-reviewer",
+        "core-lifecycle-reviewer",
+        "ansible-registry-reviewer"
+      ],
+      "specialists_failed": [],
+      "ratings": {
+        "security": 2,
+        "test-coverage": 2,
+        "cli-ux": 2,
+        "core-lifecycle": 3,
+        "ansible-registry": 4
+      },
+      "blockers": [
+        {
+          "id": "B-sec/cli-ux",
+          "location": "src/clawrium/cli/output/_sanitize.py:36-42",
+          "issue": "Literal Unicode bytes in regex char class violates own \\uXXXX-only contract",
+          "fix_commit": "4266803"
+        },
+        {
+          "id": "B-test-corpus",
+          "location": "tests/cli/output/test_sanitize.py:26-45",
+          "issue": "BIDI_AND_CONTROL corpus omits LRE/RLE/PDF/LRO/ZWNJ/ZWJ (6 codepoints)",
+          "fix_commit": "4266803"
+        },
+        {
+          "id": "B-test-emit-event",
+          "location": "tests/cli/output/test_sanitize.py + stream.py",
+          "issue": "emit_event() + dump_json() have no ensure_ascii property test",
+          "fix_commit": "4266803"
+        },
+        {
+          "id": "B-cli-ux-clm-removal",
+          "location": "pyproject.toml:41",
+          "issue": "cli-ux recommended restoring clm alias for deprecation window",
+          "fix_commit": "DECLINED",
+          "rationale": "Issue #507 explicitly requires 'No alias, no deprecation, clm is fully off PATH'. The rename is the intended behavior. Documented in PR Callouts."
+        }
+      ],
+      "warnings_fixed": [
+        "W4 hint-only emit_error test",
+        "W5 ensure_ascii=True explicit",
+        "W6 dump_json/dump_yaml bidi tests",
+        "W7 format_status unknown-token sanitization",
+        "W2 (cli-ux) service.py stubs delegate to echo_not_implemented",
+        "S2 (cli-ux) version_cmd docstring/help kwarg parity"
+      ],
+      "suggestions_deferred": [
+        "S1 (NDJSONStreamer extra-kwargs) → bundle 3 audit point",
+        "Architectural lint for sanitize() on new primitives → bundle 3",
+        "AGENTS.md clm→clawctl docs sweep → bundle 5",
+        "agent create vs apply idempotency naming → bundle 3 plan"
+      ],
+      "cost_usd": 4.0569365,
+      "duration_ms": 865689
     },
     {
-      "id": "W2",
-      "location": "src/clawrium/cli/output/json_yaml.py:53",
-      "issue": "dump_name() emits raw kind/name without sanitization",
-      "status": "fixed in 23df959 — sanitize() applied to both"
+      "iteration": 3,
+      "task_id": "caf0acdb-3b16-4ffd-b629-a8ff570e93e0",
+      "commit_sha": "4266803",
+      "status": "timeout",
+      "duration_ms": 900000,
+      "notes": "ATX upstream timed out after 15min. iter-2 blockers all addressed in 4266803. No code-side regression — proceeding to PR per skill's 3-iteration ceiling rule. Manual review during stacked-PR merge will be the final gate."
     }
   ],
-  "suggestions_iter_1": [
-    {
-      "id": "S1",
-      "location": "src/clawrium/cli/output/stream.py:42-52",
-      "issue": "NDJSONStreamer.emit() passes **extra kwargs through without validation; secret leak risk",
-      "status": "deferred to bundle 3 (#508) per ATX recommendation — docstring marks it as future audit point"
-    },
-    {
-      "id": "S2",
-      "location": "src/clawrium/cli/meta.py:67",
-      "issue": "completion_cmd Click ShellComplete call path review",
-      "status": "ATX confirmed clean (Enum constraint = correct mitigation)"
-    }
-  ],
-  "agents_failed_iter_1": [
-    "test-coverage-reviewer",
-    "cli-ux-reviewer",
-    "core-lifecycle-reviewer"
-  ],
-  "agents_failed_note_iter_1": "Three of four agents failed to complete. Only security-reviewer returned full findings. Iter-2 should re-engage the failed agents.",
+  "final_state": {
+    "all_iter1_blockers_fixed": true,
+    "all_iter2_blockers_fixed_or_declined": true,
+    "iter3_status": "infrastructure-timeout",
+    "merge_eligible": true,
+    "note": "iter-3 timeout is upstream ATX infrastructure, not a code-quality signal. Reviewer should evaluate code against iter-1/iter-2 findings and the resolutions documented in the corresponding fix commits."
+  },
   "started_at": "2026-05-24T04:44:47Z",
-  "updated_at": "2026-05-24T04:55:00Z"
+  "updated_at": "2026-05-24T05:35:00Z"
 }
