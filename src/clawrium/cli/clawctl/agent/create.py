@@ -18,7 +18,11 @@ from typing import Optional
 
 import typer
 
-from clawrium.cli.clawctl._common import confirm_destructive, require_flag
+from clawrium.cli.clawctl._common import (
+    confirm_destructive,
+    require_flag,
+    validate_hostname,
+)
 from clawrium.cli.output import emit_error, stream_action
 from clawrium.core.install import (
     IncompleteInstallationError,
@@ -59,6 +63,13 @@ def create(
             "missing required flags",
             hint="pass --type <type> and --host <host> on the command line",
         )
+
+    # ATX iter-2 S1: validate the --host value before run_installation
+    # passes it into Ansible. Bundle 4 wires real execution, so any
+    # injection vector here would fire on install. Aliases are allowed
+    # (positive-whitelist subset of hostnames), so reuse the hostname
+    # validator with a friendlier field name.
+    validate_hostname(host, field="--host value")
 
     try:
         get_claw_info(agent_type)

@@ -37,6 +37,9 @@ def delete(
     # silently deleting the local record. `remove_agent` also already
     # prunes the local record on success — the previous explicit second
     # call was redundant.
+    # ATX iter-2 S7: pre-bind to silence UnboundLocalError if the except
+    # falls through (currently safe because `emit_error` is NoReturn).
+    result: dict = {}
     try:
         result = remove_agent(
             hostname=hostname,
@@ -45,6 +48,12 @@ def delete(
             on_event=on_event,
         )
     except LifecycleError as exc:
+        # ATX iter-2 W5: idempotent delete — re-running on an
+        # already-removed agent should not fail fleet automation.
+        message = str(exc)
+        if "not installed" in message.lower() or "not found" in message.lower():
+            stream_action(resource=f"agent/{name}", message="already deleted (no-op)")
+            return
         emit_error(f"remote cleanup failed: {exc}")
 
     if not result.get("success"):

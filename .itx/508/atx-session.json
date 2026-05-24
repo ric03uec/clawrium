@@ -1,10 +1,31 @@
 {
-  "session_id": "bs6ip92x1",
+  "session_id": "bpp36pu1g",
   "transport": "cli",
-  "commit_sha": "bf22af3",
-  "iteration": 1,
-  "last_rating": null,
-  "last_blockers": [],
-  "started_at": "2026-05-24T00:00:00Z",
-  "updated_at": "2026-05-24T00:00:00Z"
+  "commit_sha": "64055ca",
+  "iteration": 2,
+  "last_rating": 2,
+  "last_blockers": [
+    "B1: bidi regression in describe paths (fixed)",
+    "B2: agent registry describe raw output (fixed)",
+    "B3: delete discards remove_agent return (fixed)",
+    "B4: configure unhandled OnboardingNotFoundError (fixed)",
+    "B5-B9: missing test files (fixed)",
+    "B10: hostname injection vector (fixed)",
+    "B11: vacuous assertion (fixed)"
+  ],
+  "started_at": "2026-05-24T08:00:00Z",
+  "updated_at": "2026-05-24T08:30:00Z",
+  "iterations": [
+    {
+      "n": 1,
+      "session_id": "bs6ip92x1",
+      "commit_sha": "bf22af3",
+      "rating": 2,
+      "cost_usd": 4.0019,
+      "duration_seconds": 684,
+      "blockers": 11,
+      "warnings": 11
+    }
+  ]
 }
+

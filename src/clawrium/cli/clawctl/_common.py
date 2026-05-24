@@ -55,6 +55,11 @@ __all__ = [
 # Max total length 253 = 1 first char + up to 252 trailing.
 _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9:][a-zA-Z0-9._:-]{0,252}$")
 
+# Max DNS label length: RFC 1035 §2.3.4. ATX iter-2 W1 — per-label
+# enforcement happens after the regex match so the IPv6 literal case
+# (`:` separators) stays exempt.
+_DNS_LABEL_MAX = 63
+
 # Aliases are simpler: positive whitelist mirroring `core/names.py:validate_agent_name`.
 _ALIAS_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -252,6 +257,18 @@ def validate_hostname(value: str, *, field: str = "hostname") -> None:
             f"invalid {field} {value!r}",
             hint="must match RFC 1123: alphanumeric, '.', '-', up to 253 chars",
         )
+    # Per-label ≤63 chars (RFC 1035 §2.3.4). ATX iter-2 W1 — a 64-char
+    # label like `'a'*64 + '.com'` passes the total-length regex but is
+    # invalid DNS; Ansible may reject it later, but we'd rather catch it
+    # at the CLI boundary. IPv6 literals (contain `:`) are exempt — they
+    # have a different label model.
+    if ":" not in value:
+        for label in value.split("."):
+            if len(label) > _DNS_LABEL_MAX:
+                emit_error(
+                    f"invalid {field} {value!r}",
+                    hint=f"DNS label longer than {_DNS_LABEL_MAX} chars: {label!r}",
+                )
 
 
 def validate_alias(value: str) -> None:

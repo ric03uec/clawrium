@@ -24,6 +24,8 @@ from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
 from clawrium.core.lifecycle import LifecycleError
 from clawrium.core.onboarding import (
+    AgentNotFoundError,
+    InvalidTransitionError,
     OnboardingNotFoundError,
     OnboardingState,
     get_onboarding_state,
@@ -97,12 +99,30 @@ def configure(
     if state == OnboardingState.PENDING:
         from clawrium.core.onboarding import initialize_onboarding
 
-        initialize_onboarding(hostname, agent_key)
+        # ATX iter-2 W4: `initialize_onboarding` raises
+        # `AgentNotFoundError` on race/concurrent edit (agent record
+        # deleted between resolve and initialize). Bound the
+        # exception inline rather than letting the traceback escape.
+        try:
+            initialize_onboarding(hostname, agent_key)
+        except AgentNotFoundError as exc:
+            emit_error(
+                f"agent record disappeared during configure: {exc}",
+                hint="rerun clawctl agent get to verify",
+            )
 
     try:
         success = run_stage(agent_type, hostname, agent_key, stage.value)
     except LifecycleError as exc:
         emit_error(f"configure stage failed: {exc}")
+    except InvalidTransitionError as exc:
+        # ATX iter-2 W6: surface state-machine rejection distinctly from
+        # opaque network/lifecycle errors so the operator knows the
+        # remediation is "fix the agent's onboarding state", not "retry".
+        emit_error(
+            f"configure stage rejected: {exc}",
+            hint=f"clawctl agent describe {name}",
+        )
     except Exception as exc:  # core.onboarding may raise misc errors
         emit_error(f"configure stage failed: {exc}")
 

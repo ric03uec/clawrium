@@ -23,8 +23,8 @@ import json
 import typer
 
 from clawrium.cli.clawctl._common import OutputFormat
+from clawrium.cli.clawctl._stub import echo_not_implemented
 from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
-from clawrium.cli.output import stream_action
 
 
 def logs(
@@ -37,30 +37,17 @@ def logs(
 ) -> None:
     """Stream logs from the agent's systemd unit (placeholder for #508)."""
     safe_resolve_agent(name)  # validates the agent exists
-    # The remote-journalctl-over-SSH plumbing lives in a future bundle.
-    # For #508 we emit one placeholder line so the surface is real and
-    # tests can assert the shape — without pretending to have shipped
-    # the full feature.
-    placeholder_event = {
-        "ts": "1970-01-01T00:00:00Z",
-        "level": "info",
-        "module": "clawctl",
-        "msg": (
-            f"logs streaming for agent {name!r} not yet implemented "
-            "(placeholder; tail/follow/-o flags accepted)"
-        ),
-    }
+    # ATX iter-2 W3: use the canonical `Not implemented:` line so scripts
+    # probing for the standard prefix match the same way they match
+    # `agent exec`. JSON mode still emits a plan-§6.11-shaped placeholder
+    # event so machine consumers can detect the placeholder state too.
     if output is OutputFormat.json:
-        # emit_event requires the streamer schema; logs use a different
-        # schema, so we json.dumps directly to honor plan §6.11 shape.
+        placeholder_event = {
+            "ts": "1970-01-01T00:00:00Z",
+            "level": "info",
+            "module": "clawctl",
+            "msg": f"Not implemented: agent logs (tail={tail}, follow={follow})",
+        }
         typer.echo(json.dumps(placeholder_event, ensure_ascii=True))
-    else:
-        stream_action(
-            resource=f"agent/{name}",
-            message=(
-                f"logs placeholder (tail={tail}, follow={follow}); "
-                "remote journalctl integration deferred"
-            ),
-        )
-    # Silence "unused" lint warnings for follow / tail.
-    _ = (follow, tail)
+        return
+    echo_not_implemented("agent", "logs")

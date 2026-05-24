@@ -36,14 +36,20 @@ def test_validate_hostname_accepts(good: str) -> None:
         "host with space",
         "-leading-dash",
         ".leading.dot",
-        "h" * 254,  # > 253 chars
+        "h" * 254,  # > 253 chars total
         "host\nnewline",
         "host‮rlo",  # bidi override
+        ("a" * 64) + ".com",  # ATX iter-2 W1 — DNS label too long
     ],
 )
 def test_validate_hostname_rejects(bad: str) -> None:
     with pytest.raises(typer.Exit):
         validate_hostname(bad)
+
+
+def test_validate_hostname_max_label_accepts_63() -> None:
+    """ATX iter-2 W1: exactly 63 chars per label is the RFC max."""
+    validate_hostname(("a" * 63) + ".com")
 
 
 # ---- validate_alias (W10) --------------------------------------------------

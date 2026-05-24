@@ -83,7 +83,15 @@ def sync(
         if use_json and streamer is not None:
             streamer.emit(resource=resource, phase=phase, state=state, **extra)
         else:
-            label = phase if state in ("complete", "queued") else f"{phase} ({state})"
+            # ATX iter-2 W2: visual distinction in text mode — `queued`
+            # uses an ellipsis suffix so a user watching `clawctl agent
+            # sync` doesn't confuse "ready to run" with "complete".
+            if state == "queued":
+                label = f"{phase} ..."
+            elif state == "complete":
+                label = phase
+            else:
+                label = f"{phase} ({state})"
             stream_action(resource=resource, message=label)
 
     started = time.monotonic()
@@ -134,6 +142,13 @@ def sync(
                 message=message,
             )
 
+    # ATX iter-2 S6/W7: pre-bind `result` so a non-LifecycleError that
+    # escapes the try does not cause `UnboundLocalError` at the
+    # `result.get('success')` check below. Combined with the queued →
+    # complete NDJSON contract gap (tracked for bundle 5 in this same
+    # file's docstring), this is the surface most likely to bite CI
+    # consumers; documenting both here keeps the trail visible.
+    result: dict = {}
     try:
         result = sync_agent(
             hostname=hostname,
