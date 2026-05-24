@@ -196,9 +196,7 @@ def test_set_agent_channels_returns_false_on_unknown_agent(
     assert ch.set_agent_channels("h1", "ghost-agent", ["c1"]) is False
 
 
-def test_set_agent_channels_returns_true_on_known_agent(
-    tmp_path, monkeypatch
-) -> None:
+def test_set_agent_channels_returns_true_on_known_agent(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     (tmp_path / "clawrium").mkdir()
     (tmp_path / "clawrium" / "hosts.json").write_text(
@@ -219,17 +217,13 @@ def test_set_agent_channels_returns_true_on_known_agent(
     assert ch.set_agent_channels("h1", "a1", ["c1"]) is True
 
 
-def test_set_agent_channels_missing_host_returns_false(
-    tmp_path, monkeypatch
-) -> None:
+def test_set_agent_channels_missing_host_returns_false(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     (tmp_path / "clawrium").mkdir()
     assert ch.set_agent_channels("no-such-host", "agent", ["c"]) is False
 
 
-def test_update_channel_on_missing_record_returns_false(
-    tmp_path, monkeypatch
-) -> None:
+def test_update_channel_on_missing_record_returns_false(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     (tmp_path / "clawrium").mkdir()
     assert ch.update_channel("never-existed", lambda c: c) is False
@@ -255,6 +249,49 @@ def test_id_forbidden_rejects_bidi_codepoints() -> None:
 
 
 def test_save_channels_is_not_exported() -> None:
-    """ATX iter-2 W9: the public save helper was removed."""
+    """ATX iter-2 W9: the public save helper was removed.
+
+    ATX iter-2 W-NEW-1: `_save_channels` was deleted entirely (not
+    just renamed) because the surviving body re-acquired the channels
+    lock with a fresh fd — a deadlock trap for any future caller that
+    forgot it was already inside `_channels_lock()`.
+    """
     assert "save_channels" not in ch.__all__
     assert "_save_channels" not in ch.__all__
+    assert not hasattr(ch, "save_channels")
+    assert not hasattr(ch, "_save_channels")
+
+
+def test_remove_channel_oserror_logs_warning_and_propagates(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    """ATX iter-2 W7 / W-NEW-3: a disk failure between credential
+    cleanup and channels.json write leaves a zombie record. The
+    failure must (a) log a warning naming the channel as zombie, and
+    (b) re-raise OSError so the CLI layer can emit an actionable
+    error rather than silently swallowing the partial removal.
+    """
+    import logging
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    (tmp_path / "clawrium").mkdir()
+
+    ch.add_channel({"name": "zombie", "type": "discord", "config": {}})
+    ch.set_channel_token("zombie", "BOT_TOKEN", "tk")
+
+    def boom(channels, config_dir):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ch, "_save_channels_atomic", boom)
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(OSError):
+            ch.remove_channel("zombie")
+
+    # Credentials were already cleared by the time _save_channels_atomic
+    # raised — that's the zombie state we are warning about.
+    assert ch.get_channel_token("zombie") is None
+    # Warning text must name the zombie state explicitly so it shows
+    # up in journal aggregators.
+    matching = [r for r in caplog.records if "zombie" in r.getMessage().lower()]
+    assert matching, "expected a warning mentioning 'zombie' state"

@@ -317,9 +317,7 @@ def test_agent_secret_create_get_noninteractive(fleet_dir, stdin_not_tty) -> Non
 
 def test_agent_provider_detach_noninteractive(fleet_dir, stdin_not_tty) -> None:
     _create_provider("dp")
-    runner.invoke(
-        app, ["agent", "provider", "attach", "dp", "--agent", "wise-hypatia"]
-    )
+    runner.invoke(app, ["agent", "provider", "attach", "dp", "--agent", "wise-hypatia"])
     result = runner.invoke(
         app, ["agent", "provider", "detach", "dp", "--agent", "wise-hypatia"]
     )
@@ -328,9 +326,7 @@ def test_agent_provider_detach_noninteractive(fleet_dir, stdin_not_tty) -> None:
 
 def test_agent_channel_detach_noninteractive(fleet_dir, stdin_not_tty) -> None:
     _create_channel("dc")
-    runner.invoke(
-        app, ["agent", "channel", "attach", "dc", "--agent", "wise-hypatia"]
-    )
+    runner.invoke(app, ["agent", "channel", "attach", "dc", "--agent", "wise-hypatia"])
     result = runner.invoke(
         app, ["agent", "channel", "detach", "dc", "--agent", "wise-hypatia"]
     )
@@ -417,9 +413,7 @@ def test_integration_registry_describe_delete_noninteractive(
     _create_integration("idd")
     r = runner.invoke(app, ["integration", "registry", "describe", "idd"])
     assert r.exit_code == 0
-    r = runner.invoke(
-        app, ["integration", "registry", "delete", "idd", "--yes"]
-    )
+    r = runner.invoke(app, ["integration", "registry", "delete", "idd", "--yes"])
     assert r.exit_code == 0
 
 

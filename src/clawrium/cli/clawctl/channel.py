@@ -435,6 +435,22 @@ def delete(
         removed = remove_channel(name, force=force)
     except ChannelInUseError as exc:
         emit_error(str(exc), hint="--force to delete anyway")
+    except OSError as exc:
+        # ATX iter-2 W-NEW-3: `remove_channel` clears credentials
+        # *before* the atomic channels.json write. An OSError there
+        # (disk full, EROFS, EACCES) leaves the channel record
+        # present but with credentials gone — a zombie record. Catch
+        # the OSError here so the user sees an actionable error
+        # rather than a raw Python traceback; the only safe recovery
+        # is `delete --force` which skips the in-use re-check.
+        emit_error(
+            (
+                f"failed to delete channel {name!r}: {exc}. The channel "
+                "is now in a zombie state (record present, credentials "
+                "gone) — re-run with --force to complete removal."
+            ),
+            hint=f"clawctl channel registry delete {name} --yes --force",
+        )
     if not removed:
         emit_error(f"failed to delete channel {name!r}")
     typer.echo(f"channel/{name}: deleted")

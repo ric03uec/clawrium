@@ -46,7 +46,10 @@ def configure(
     stage: Optional[Stage] = typer.Option(
         None,
         "--stage",
-        help="Specific stage to run (providers/identity/channels/validate).",
+        help=(
+            "Specific stage to run. Valid: providers, identity, validate. "
+            "'channels' is deprecated — use 'clawctl channel registry' instead."
+        ),
     ),
     provider: Optional[str] = typer.Option(
         None, "--provider", help="Provider name (when --stage=providers)."
@@ -64,15 +67,27 @@ def configure(
     ),
 ) -> None:
     """Configure an agent (per-stage, non-interactive when flags supplied)."""
-    # ATX iter-2 B2: `--channel` was declared on this verb but silently
-    # dropped after R3 closure. Refusing the flag with a clear pointer
-    # to the replacement commands prevents a confused success exit.
+    # ATX iter-2 B2 / W-NEW-5: argument-shape rejections fire before
+    # `safe_resolve_agent` so a typo'd agent name combined with a
+    # deprecated flag surfaces the actionable deprecation hint, not a
+    # misleading "agent not found" error.
     if channel:
         emit_error(
             "--channel is no longer supported on 'clawctl agent configure'",
             hint=(
                 "use 'clawctl channel registry create <name> ...' and "
                 f"'clawctl agent channel attach <name> --agent {name}'"
+            ),
+        )
+    if stage is Stage.channels:
+        # R3 closure: --stage channels is deprecated in favour of the
+        # dedicated channel surfaces. Exit with a clear pointer; no
+        # Discord/Slack prompts here.
+        emit_error(
+            "'clawctl agent configure --stage channels' is deprecated",
+            hint=(
+                "use 'clawctl channel registry create <name> --type ... ...' "
+                "and 'clawctl agent channel attach <name> --agent " + name + "'"
             ),
         )
 
@@ -92,18 +107,6 @@ def configure(
         emit_error(
             "interactive multi-stage configure not yet exposed via clawctl",
             hint="run a specific stage with --stage providers|identity|validate",
-        )
-
-    # R3 closure: --stage channels is deprecated in favour of the
-    # dedicated channel surfaces. Exit with a clear pointer; no Discord/
-    # Slack prompts here.
-    if stage is Stage.channels:
-        emit_error(
-            "'clawctl agent configure --stage channels' is deprecated",
-            hint=(
-                "use 'clawctl channel registry create <name> --type ... ...' "
-                "and 'clawctl agent channel attach <name> --agent " + name + "'"
-            ),
         )
 
     # Provider stage requires provider flag (or TTY for prompt fallback).

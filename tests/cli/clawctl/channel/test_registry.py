@@ -280,3 +280,37 @@ def test_delete_with_yes_succeeds(fleet_dir, stdin_not_tty) -> None:
     assert result.exit_code == 0
     desc = runner.invoke(app, ["channel", "registry", "describe", "dy"])
     assert desc.exit_code != 0
+
+
+def test_delete_oserror_surfaces_zombie_hint(
+    fleet_dir, stdin_not_tty, monkeypatch
+) -> None:
+    """ATX iter-2 W-NEW-3: when the atomic write fails after creds
+    are cleared, the CLI surface must catch OSError and emit a clear
+    error pointing the user at `--force`. A raw Python traceback is
+    not acceptable."""
+    from clawrium.core import channels as core_channels
+
+    runner.invoke(
+        app,
+        [
+            "channel",
+            "registry",
+            "create",
+            "zb",
+            "--type",
+            "discord",
+            "--token",
+            "t",
+        ],
+    )
+
+    def boom(channels, config_dir):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(core_channels, "_save_channels_atomic", boom)
+
+    result = runner.invoke(app, ["channel", "registry", "delete", "zb", "--yes"])
+    assert result.exit_code != 0
+    assert "zombie" in result.output
+    assert "--force" in result.output

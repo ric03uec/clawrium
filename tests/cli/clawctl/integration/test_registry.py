@@ -106,6 +106,32 @@ def test_create_credential_kv_must_have_equals(fleet_dir, stdin_not_tty) -> None
     assert result.exit_code != 0
 
 
+def test_create_credential_empty_key_does_not_leak_value(
+    fleet_dir, stdin_not_tty
+) -> None:
+    """ATX iter-2 W-NEW-2: `=secret-value` must not echo the value in
+    the error message. Empty-key entries are operator errors but the
+    half after `=` is sensitive."""
+    result = runner.invoke(
+        app,
+        [
+            "integration",
+            "registry",
+            "create",
+            "leaky",
+            "--type",
+            "github",
+            "--credential",
+            "=ghp_test_secret_value",
+        ],
+    )
+    assert result.exit_code != 0
+    # The raw value must NOT appear in stderr/stdout.
+    assert "ghp_test_secret_value" not in result.output
+    # The error must still name the failure reason.
+    assert "key is empty" in result.output
+
+
 def test_get_lists_integrations(fleet_dir, stdin_not_tty) -> None:
     runner.invoke(
         app,

@@ -97,19 +97,28 @@ def _safe_get_integration(name: str) -> dict:
 
 
 def _parse_credential_pairs(items: list[str], *, source: str) -> dict[str, str]:
+    """Parse KEY=VALUE entries from CLI flags or stdin.
+
+    ATX iter-2 W-NEW-2: error messages must never echo the raw entry
+    once it has been split, because the VALUE half is the credential.
+    Empty-key entries (`=VALUE`) previously surfaced `repr(raw)` to
+    stderr — which lands in shell logs, CI logs, and crash reporters
+    verbatim. We now report the malformed structure without
+    interpolating the secret.
+    """
     out: dict[str, str] = {}
     for raw in items:
         if "=" not in raw:
             emit_error(
-                f"invalid credential {raw!r} from {source}",
+                f"invalid credential from {source}: missing '='",
                 hint="expected KEY=VALUE",
             )
         key, _, value = raw.partition("=")
         key = key.strip()
         if not key:
             emit_error(
-                f"invalid credential {raw!r} from {source}",
-                hint="key cannot be empty",
+                f"invalid credential from {source}: key is empty",
+                hint="expected KEY=VALUE",
             )
         out[key] = value
     return out

@@ -1,15 +1,22 @@
 {
-  "session_id": "bb01128a-b76e-4ab9-971d-1bec83ed4fec",
+  "session_id": "iter1-bb01128a + iter2-pending",
   "transport": "cli",
-  "commit_sha": "3dbf0ceee878ce636bd4185a2b9cd8cf1f77d7ee",
-  "iteration": 1,
-  "last_rating": 2,
-  "last_blockers": ["B1", "B2", "B3"],
-  "last_warnings": ["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10", "W11"],
+  "commit_sha": "31005d9",
+  "iteration": 2,
+  "last_rating": 3,
+  "last_blockers": [],
+  "last_warnings": ["W-NEW-1", "W-NEW-2", "W-NEW-3", "W-NEW-4", "W-NEW-5", "W-NEW-6", "W-NEW-7", "W-NEW-8", "W-NEW-9"],
   "started_at": "2026-05-24T16:23:35Z",
-  "updated_at": "2026-05-24T16:47:53Z",
-  "cost_usd": 3.4029,
-  "duration_seconds": 775,
-  "incomplete": true,
-  "incomplete_reason": "security-reviewer and test-coverage-reviewer specialists timed out (claude hit max-turns)"
+  "updated_at": "2026-05-24T17:00:00Z",
+  "iter1": {
+    "rating": 2,
+    "cost_usd": 3.40,
+    "duration_seconds": 775,
+    "blockers": ["B1", "B2", "B3"]
+  },
+  "iter2": {
+    "rating": 3,
+    "blockers": [],
+    "actionable_warnings": ["W-NEW-1", "W-NEW-2", "W-NEW-3"]
+  }
 }

@@ -281,19 +281,6 @@ def _save_channels_atomic(channels: list[dict], config_dir) -> None:
         raise
 
 
-def _save_channels(channels: list[dict]) -> None:
-    """Atomically persist the full list of channel records.
-
-    ATX iter-2 W9: private — exposing this externally lets a stale
-    snapshot clobber concurrent edits. Callers go through
-    `add_channel`, `update_channel`, or `remove_channel`, all of which
-    acquire the lock before reading + writing.
-    """
-    config_dir = init_config_dir()
-    with _channels_lock():
-        _save_channels_atomic(channels, config_dir)
-
-
 def add_channel(channel: dict) -> None:
     """Add a channel to `channels.json` atomically.
 
@@ -393,11 +380,12 @@ def remove_channel(name: str, force: bool = False) -> bool:
         # the two cannot leave orphan secrets for a same-name re-add.
         remove_channel_credentials(name)
 
-        # ATX iter-2 W7: an OSError during the atomic write here leaves
-        # the channel record present but with credentials already
-        # cleared — silently non-functional on next start. Log a
-        # warning so operators see the half-removed state in their
-        # journal and can re-run with `--force`.
+        # ATX iter-2 W7 / W-NEW-3: an OSError during the atomic write
+        # here leaves the channel record present but with credentials
+        # already cleared — a zombie state. The CLI surface catches
+        # this and surfaces an actionable error, but we also log the
+        # state explicitly so it's visible in journals/aggregators
+        # even when the call is non-CLI.
         try:
             config_dir = init_config_dir()
             _save_channels_atomic(remaining, config_dir)
@@ -405,8 +393,9 @@ def remove_channel(name: str, force: bool = False) -> bool:
             import logging
 
             logging.getLogger(__name__).warning(
-                "remove_channel: credentials for %r were cleared but "
-                "channels.json write failed: %s; re-run delete to retry.",
+                "remove_channel: channel %r is now in a zombie state "
+                "(record present, credentials gone). channels.json "
+                "write failed: %s. Re-run delete --force to complete.",
                 name,
                 exc,
             )
