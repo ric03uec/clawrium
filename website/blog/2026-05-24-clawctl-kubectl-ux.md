@@ -1,197 +1,131 @@
 ---
-slug: clawctl-kubectl-ux
-title: "From clm to clawctl: a kubectl-style sweep across the whole CLI"
+slug: clm-to-clawctl-migration
+title: "Moving to a standardized CLI interface with clawctl"
 authors: [ric03uec]
 tags: [announcements, breaking-changes]
 ---
 
-If you've been using Clawrium since the early `clm` days, the next
-release is going to feel different the moment you type a command.
-
-```text
-$ clawctl agent get
-NAME           TYPE      PROVIDER     HOST      STATUS    AGE
-wolf-i         openclaw  bedrock      wolf-i    Running   17d
-espresso       hermes    ollama       wolf-i    Running   12d
-clawrium-d01   zeroclaw  openrouter   wolf-i    Running    9d
-```
-
-The binary is now `clawctl`. Every command has been re-rooted under a
-small, consistent verb grammar. There is no `clm` alias, no
-deprecation warning, no shim — just a clean cutover.
+If you've been using Clawrium with `clm`, the next install replaces it with **`clawctl`**. Same hosts, same agents, same `~/.config/clawrium/` state — a single, consistent, kubectl-style command surface across the entire fleet.
 
 <!-- truncate -->
 
-## Why this changed
+<p align="center">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 240" width="560" height="240" role="img" aria-label="clm to clawctl command mapping">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect x="10" y="10" width="220" height="220" rx="6" fill="none" stroke="#334155" stroke-width="1"/>
+  <rect x="330" y="10" width="220" height="220" rx="6" fill="none" stroke="#334155" stroke-width="1"/>
+  <text x="120" y="32" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#94a3b8">clm (before)</text>
+  <text x="440" y="32" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#94a3b8">clawctl (after)</text>
+  <text x="24" y="64" font-family="ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="500" fill="#ef4444">clm ps</text>
+  <text x="24" y="98" font-family="ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="500" fill="#ef4444">clm host list</text>
+  <text x="24" y="132" font-family="ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="500" fill="#ef4444">clm agent install</text>
+  <text x="24" y="166" font-family="ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="500" fill="#ef4444">clm agent remove</text>
+  <text x="24" y="200" font-family="ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="500" fill="#ef4444">clm agent show NAME</text>
+  <text x="344" y="64" font-family="ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="500" fill="#22c55e">clawctl agent get</text>
+  <text x="344" y="98" font-family="ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="500" fill="#22c55e">clawctl host get</text>
+  <text x="344" y="132" font-family="ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="500" fill="#22c55e">clawctl agent create</text>
+  <text x="344" y="166" font-family="ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="500" fill="#22c55e">clawctl agent delete</text>
+  <text x="344" y="200" font-family="ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="500" fill="#22c55e">clawctl agent describe NAME</text>
+  <path d="M230 60 L330 60" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+  <path d="M230 94 L330 94" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+  <path d="M230 128 L330 128" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+  <path d="M230 162 L330 162" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+  <path d="M230 196 L330 196" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+</svg>
+</p>
 
-The original `clm` surface grew organically. `clm ps` here, `clm host
-list` there, `clm agent install` somewhere else, with a handful of
-interactive prompts that you couldn't script around. The result was a
-CLI that worked, but didn't *teach* you what to type next.
+## Why this matters to you
 
-`kubectl` solved that problem for containers by enforcing a tiny verb
-vocabulary across a large noun space:
+- **One grammar, six resources.** `get`, `describe`, `create`, `delete`, `apply`-style verbs work the same way across `host`, `agent`, `provider`, `channel`, `integration`, `skill`. Learn it once.
+- **Pipe-friendly output.** Every `get` supports `-o yaml`, `-o json`, `-o name`, and `--no-headers`. Scripts compose; output is no longer a moving target.
+- **Tab completion that works.** `clawctl completion bash` (or `zsh`/`fish`) gives you completion across every group, verb, and flag.
+- **One place to see everything about an agent.** `clawctl agent describe <name>` shows attached providers, channels, skills, secrets, onboarding state, and host details in one block.
+- **`agent get` reads like `kubectl get pods`.** STATUS / AGE columns, predictable sort, scriptable.
+- **Channels are a real resource.** Register a Discord or Slack channel once with `clawctl channel registry create`, attach it to as many agents as you want with `clawctl agent channel attach`. No more per-agent re-entry.
+
+## What it looks like
+
+Three real outputs from the live fleet (no synthetic data — these are verbatim from the validation transcript).
+
+### List your fleet
 
 ```text
-kubectl <verb> <resource> [name] [flags]
+$ clawctl agent get
+NAME             TYPE       HOST     PROVIDER   STATUS   AGE
+wolf-i           openclaw   wolf-i   -          ready    42d
+espresso         hermes     wolf-i   -          ready    13d
+maurice          hermes     wolf-i   -          ready    2d
+clawrium-d01     zeroclaw   wolf-i   -          ready    5d
+nemotron-beta    zeroclaw   wolf-i   -          ready    4d
+nemotron-alpha   zeroclaw   wolf-i   -          ready    2d
 ```
 
-That's it. Once you've internalized `get` / `describe` / `create` /
-`delete` / `edit`, the whole tool unfolds — `kubectl get pods` and
-`kubectl get nodes` look the same because they *are* the same.
-
-Clawrium now does that for AI agents.
-
-## The new shape
+### Look at one agent
 
 ```text
-clawctl <group> <verb> [name] [flags]
+$ clawctl agent describe maurice
+Name:       maurice
+Kind:       agent
+Type:       hermes
+Version:    2026.5.7
+Host:       wolf-i (wolf.<redacted>.ts.net)
+Provider:   -
+Status:     ready
+Age:        2d
+Installed:  2026-05-22T20:39:02Z
+
+Channels (1):
+  discord
+
+Skills (0):
+Integrations (0):
 ```
 
-Where `<group>` is one of:
+### Machine-readable
 
-- `host` — machines in your fleet
-- `agent` — AI assistant instances running on hosts
-- `provider` — inference backends (OpenAI, Anthropic, Bedrock, Ollama, …)
-- `integration` — external service bindings (GitHub, Linear, Atlassian, …)
-- `channel` — chat surfaces (Discord, Slack)
-- `skill` — repo-bundled skills you can attach to agents
-- `service` — system-level lifecycle (init, snapshot)
-
-And `<verb>` is one of the kubectl-style five — `get`, `describe`,
-`create`, `delete`, `edit` — plus the lifecycle action verbs where
-they actually mean something (`start`, `stop`, `restart`, `sync`,
-`configure`, `logs`, `open`, `chat`, `attach`, `detach`).
-
-## A few examples
-
-**Yesterday.**
-
-```bash
-clm host init 192.168.1.10 --user me
-clm host add 192.168.1.10 --alias wolf
-clm agent install --type openclaw --host wolf --name claude
-clm agent configure claude  # prompts you through 4 stages
-clm ps
+```text
+$ clawctl host get -o yaml
+- kind: host
+  name: wolf-i
+  hostname: wolf.<redacted>.ts.net
+  user: xclm
+  status: ready
+  age_seconds: 3774446
+  aliases: [wolf-i]
+  addresses:
+    - address: 192.168.1.Y
+      is_primary: false
+    - address: wolf.<redacted>.ts.net
+      is_primary: true
+      label: tailscale
 ```
-
-**Today.**
-
-```bash
-clawctl host create 192.168.1.10 --user me --bootstrap
-clawctl host create 192.168.1.10 --alias wolf
-clawctl agent create claude --type openclaw --host wolf
-clawctl agent configure claude  # flag-driven, scriptable
-clawctl agent get
-```
-
-## What `channel` looks like now
-
-Discord and Slack used to live inside the interactive `clm agent
-configure` flow — you'd answer a prompt, paste a token, and Clawrium
-would write the channel config into the agent's hosts.json entry.
-
-That meant: no `--from-file`, no per-channel CRUD, no way to share a
-channel registration across multiple agents.
-
-Channels are now first-class attachables, sibling to `provider` and
-`integration`:
-
-```bash
-# Register a Discord channel once
-clawctl channel registry create eng-support \
-    --type discord \
-    --bot-token "$DISCORD_BOT_TOKEN"
-
-# Attach to as many agents as you want
-clawctl agent channel attach eng-support --agent claude
-clawctl agent channel attach eng-support --agent espresso
-```
-
-The interactive prompt is gone. `configure` runs to completion with
-flags alone — perfect for CI, Ansible playbooks, or just hitting
-**up-arrow → enter** without thinking about which stage you're in.
-
-## `sync` finally means something
-
-In the old surface, `clm agent sync` was a soft re-render — sometimes
-it picked up changes, sometimes you had to chase it with a manual
-restart. The semantics depended on which file you'd edited.
-
-`clawctl agent sync <name>` is now a **drift-to-zero flush**:
-
-1. Re-render every template the agent owns.
-2. If anything changed on disk, restart the daemon and wait for it to
-   converge.
-3. Time-out after 2 minutes (override with `--timeout`).
-4. Exit non-zero if the agent didn't reach a healthy state.
-
-Use it as the single command after any config edit. No more "did that
-take effect?"
-
-## Output you can pipe
-
-Every `get` now emits kubectl-style padded columns by default and
-supports `-o table | json | yaml | wide | name` plus `--no-headers`
-and `-l KEY=VALUE` label selectors:
-
-```bash
-$ clawctl agent get -o name
-agent/wolf-i
-agent/espresso
-agent/clawrium-d01
-
-$ clawctl agent get -l env=prod -o json | jq '.items[].status'
-"Running"
-"Running"
-```
-
-Action commands stream line-oriented progress events by default and
-NDJSON with `-o json`, so wrapping them in shell scripts or CI logs
-is straightforward.
 
 ## Migration
 
-There's no script. The expected path is:
+Install `clawctl` (it ships as the new binary in the same `clawrium` package). Existing agents on existing hosts keep running — `clawctl agent get` will list them immediately. The first `clawctl agent sync <agent>` you run picks up the new template names.
 
 ```bash
-# For each agent on each host
-clawctl agent sync <agent-name>
+uv tool uninstall clm 2>/dev/null || true
+uv tool install clawrium
+clawctl agent get          # confirm your fleet is intact
 ```
 
-That re-renders the new templates (the zeroclaw and hermes templates
-moved to agent-type prefixes) and rotates the zeroclaw gateway bearer
-so the GUI's WebSocket chat picks up the fresh token transparently.
+The full command-by-command mapping lives in the [CLI reference docs](/docs/reference/cli) — one page per resource (`agent`, `host`, `provider`, `channel`, `integration`, `skill`).
 
-Templates that drifted:
+## Breaking changes
 
-- `zeroclaw/clm-env.conf.j2` → `zeroclaw/zeroclaw-env.conf.j2`
-- `zeroclaw/config.toml.j2` → `zeroclaw/zeroclaw-config.toml.j2`
-- `hermes/config.yaml.j2` → `hermes/hermes-config.yaml.j2`
-- `hermes/.env.j2` → `hermes/hermes.env.j2`
-- Systemd drop-in destination: `10-clm-env.conf` → `10-zeroclaw-env.conf`
+- **No `clm` alias.** The old binary is gone; the verb grammar is different enough that an alias would mislead more than help.
+- **Channels moved out of `agent configure`.** Use `clawctl channel registry create` then `clawctl agent channel attach`. The old `--stage channels` flag prints a deprecation pointer.
+- **Some templates renamed** on disk (e.g. `clm-env.conf.j2` → `zeroclaw-env.conf.j2`). The first `clawctl agent sync` per agent cleans up the legacy dropin automatically.
 
-A guard test (`tests/platform/test_template_naming.py`) prevents the
-old `clm-` prefix from coming back by accident.
+Full migration recipe in `CHANGELOG.md` under `[Unreleased] BREAKING`.
 
-## The full BEFORE → AFTER mapping
+## Where to go from here
 
-The complete table is in
-[`.itx/435/00_PLAN.md` §5](https://github.com/ric03uec/clawrium/blob/main/.itx/435/00_PLAN.md);
-the [CHANGELOG](https://github.com/ric03uec/clawrium/blob/main/CHANGELOG.md)
-captures it on every release.
-
-If a command you used to type isn't listed there, please open an issue
-— the goal of this sweep is to leave no muscle-memory unsupported, and
-gaps in the map are bugs.
-
-## Why no alias?
-
-A `clm`→`clawctl` alias would have been one line. We deliberately chose
-not to ship it.
-
-Aliases age badly: tutorials get screenshots of the old name, blog
-posts paste the wrong help text, contributors copy the alias into new
-scripts. A hard cutover is louder for a week, and then it's done.
-
-The next two weeks are the loud part. We're happy to take that trade.
+- [CLI reference](/docs/reference/cli) — every verb, every flag
+- [Installation guide](/docs/installation) — fresh install + agent quickstart
+- [GitHub issues](https://github.com/ric03uec/clawrium/issues) — for migration snags
