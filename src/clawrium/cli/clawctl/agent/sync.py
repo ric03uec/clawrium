@@ -143,6 +143,14 @@ def sync(
                 state="event",
                 message=message,
             )
+            return
+        # ATX iter-5 W2-NEW carry-forward: surface warning-prefixed
+        # sync events (state-write failures, registry incoherence) in
+        # non-JSON mode so the operator sees them. stream_action's
+        # sanitize() handles non-printable chars; rich is not involved
+        # at this output path.
+        if stage == "sync" and message.startswith("warning:"):
+            stream_action(resource=resource, message=message)
 
     # ATX iter-2 S6/W7: pre-bind `result` so a non-LifecycleError that
     # escapes the try does not cause `UnboundLocalError` at the

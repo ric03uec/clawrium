@@ -1179,8 +1179,6 @@ def sync_agent(
     # the post-configure cosmetic step is skipped without failing
     # sync; state can be repaired by a subsequent sync after manual
     # configure of stuck stages).
-    from rich.markup import escape as _rich_escape
-
     from clawrium.core.onboarding import (
         AgentNotFoundError as _ANF_post,
         InvalidTransitionError as _ITE_post,
@@ -1191,30 +1189,40 @@ def sync_agent(
 
     try:
         _transition_post(hostname, agent_key, _OS_post.READY)
-    except (_ITE_post, _ANF_post, _ONF_post):
-        # ATX iter-3 W-NEW-1 + iter-4 W2-NEW: three exception types
-        # mean "state pointer cannot be advanced and re-sync will not
-        # fix it" — they share a no-recovery semantics. Swallow
-        # silently; the remote is configured, only the local state
-        # pointer is stale. (InvalidTransitionError: agent stuck
-        # mid-walk at PROVIDERS/IDENTITY/CHANNELS; AgentNotFoundError /
-        # OnboardingNotFoundError: registry incoherence between the
-        # configure_agent return and the transition_state call.)
+    except _ITE_post:
+        # Stuck mid-walk at PROVIDERS/IDENTITY/CHANNELS, or idempotent
+        # READY→READY. No recovery via re-sync; agent is configured
+        # remotely, only the local state pointer is stale. Silent is
+        # correct — start_agent will surface the non-READY state.
+        # ATX iter-3 W-NEW-1.
         pass
+    except (_ANF_post, _ONF_post) as exc:
+        # Registry incoherence: the agent or onboarding record vanished
+        # between configure_agent succeeding and the READY write. No
+        # recovery via re-sync (same error will fire) — distinct
+        # remediation from the IO-failure branch below. ATX iter-5
+        # W2-NEW carry-forward.
+        emit(
+            "sync",
+            f"warning: registry record missing for {agent_key} after "
+            f"configure: {exc!s}. Inspect hosts.json manually before "
+            f"running clawctl agent start.",
+        )
     except Exception as exc:
-        # Storage / IO failure writing the READY pointer. Don't fail
-        # the sync — configure_agent already succeeded so the agent IS
-        # configured — but surface the gap so the operator knows a
-        # re-sync is needed before `clawctl agent start` will pass.
-        # ATX iter-3 W-NEW-1 + iter-4 W1-NEW: rich-escape the exception
-        # string so an OSError like "[Errno 13] Permission denied:
-        # /path" cannot crash any downstream rich.console.print
-        # consumer.
+        # Storage / IO failure (PermissionError, etc.) writing the
+        # READY pointer. Don't fail the sync — configure_agent already
+        # succeeded — but surface the gap. Re-sync IS the right
+        # remediation here. ATX iter-3 W-NEW-1.
+        #
+        # Note: emit raw exception string. Rendering-library escaping
+        # is the consumer's job (see clawctl/agent/sync.py:on_event
+        # and cli/agent.py:on_event for the boundary). ATX iter-5
+        # B1-iter5 (rich.markup.escape moved out of core).
         emit(
             "sync",
             f"warning: could not write state=READY to hosts.json: "
-            f"{_rich_escape(str(exc))}. "
-            f"Agent is configured remotely; re-run sync to commit state.",
+            f"{exc!s}. Agent is configured remotely; re-run sync to "
+            f"commit state.",
         )
 
     emit("sync", f"Sync complete for {agent_key}")

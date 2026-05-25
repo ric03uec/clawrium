@@ -2650,7 +2650,11 @@ def sync(
                 # notice from the shared renderer, not raw JSON.
                 _print_configure_warnings(stage, message)
             else:
-                console.print(f"  {message}")
+                # ATX iter-5 W1-NEW: rich-escape so an emit containing
+                # `[Errno 13]`-style OSError text doesn't trigger
+                # MarkupError mid-stream. Producers in core/ emit raw
+                # strings; the rendering boundary is here.
+                console.print(f"  {rich_escape(message)}")
 
         try:
             result = sync_agent(
