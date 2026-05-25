@@ -14,7 +14,7 @@ clawctl host <command> [options]
 | [`clawctl host create`](#clawctl-host-create) | Add a new host to the fleet |
 | [`clawctl host get`](#clawctl-host-get) | List all registered hosts |
 | [`clawctl host delete`](#clawctl-host-delete) | Remove a host from the fleet |
-| [`clawctl host status`](#clawctl-host-describe) | Check status of a host |
+| [`clawctl host status`](#clawctl-host-status) | Check status of a host |
 | [`clawctl host reset`](#clawctl-host-reset) | Reset a host, removing all claws and users |
 | [`clawctl host address`](#address-subcommands) | Manage multiple addresses for a host |
 
@@ -365,10 +365,10 @@ clawctl host address <command> [options]
 
 | Command | Description |
 |---------|-------------|
-| [`clawctl host address add`](#clawctl-host-createress-add) | Add an address to a host |
-| [`clawctl host address remove`](#clawctl-host-createress-remove) | Remove an address from a host |
-| [`clawctl host address list`](#clawctl-host-createress-list) | List all addresses for a host |
-| [`clawctl host address set-primary`](#clawctl-host-createress-set-primary) | Set a different address as primary |
+| [`clawctl host address add`](#clawctl-host-address-add) | Add an address to a host |
+| [`clawctl host address remove`](#clawctl-host-address-remove) | Remove an address from a host |
+| [`clawctl host address list`](#clawctl-host-address-list) | List all addresses for a host |
+| [`clawctl host address set-primary`](#clawctl-host-address-set-primary) | Set a different address as primary |
 
 ---
 
