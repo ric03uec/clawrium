@@ -358,6 +358,123 @@ def test_sync_refuses_required_stage_without_declarative_surface():
     assert "clawctl agent configure" in msg  # Workaround named.
 
 
+def test_sync_hermes_real_manifest_configure_fail_does_not_persist_ready():
+    """ATX iter-2 B-ITER2-1 + B-ITER2-2: with the REAL hermes manifest
+    (no can_skip_stage patch), if configure_agent fails the state
+    pointer in hosts.json must NOT advance to ready. Channels and
+    validate stages are required+non-auto_skip on the real manifest;
+    the iter-1 code would have written ready before configure ran.
+    """
+    host = {
+        "hostname": "192.168.1.100",
+        "key_id": "test",
+        "agent_name": "xclm",
+        "port": 22,
+        "agents": {
+            "test-hermes": {
+                "type": "hermes",
+                "onboarding": {"state": "pending"},
+                "config": {"gateway": {"port": 45000}},
+                "providers": ["local-inx"],
+            }
+        },
+    }
+
+    transitions: list[str] = []
+    completes: list[tuple[str, str]] = []
+
+    def fake_transition(_host, _agent, target):
+        transitions.append(target.value)
+        return True
+
+    def fake_complete(_host, _agent, stage, status, _meta=None):
+        completes.append((stage, status.value))
+        return True
+
+    def fake_configure(*_args, **_kwargs):
+        return (False, "ansible exploded")
+
+    rec = _ollama_provider_record()
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch("clawrium.core.providers.storage.get_provider", return_value=rec),
+        # NOTE: can_skip_stage is NOT patched — uses real hermes manifest.
+        patch(
+            "clawrium.core.onboarding.transition_state", side_effect=fake_transition
+        ),
+        patch("clawrium.core.onboarding.complete_stage", side_effect=fake_complete),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        result = sync_agent("192.168.1.100", "hermes")
+
+    assert result["success"] is False
+    assert "ansible exploded" in result["error"]
+    # CRITICAL: state must never have been advanced to ready.
+    assert "ready" not in transitions, (
+        f"state must not advance to ready when configure_agent fails; "
+        f"observed transitions: {transitions}"
+    )
+    # The walk did proceed through earlier stages (visible cosmetic
+    # writes), but ready specifically was deferred — which is the
+    # safety boundary that gates clawctl agent start.
+    assert "providers" in transitions
+    # Hermes auto_skips identity per the real manifest.
+    assert ("identity", "skipped") in completes
+    # Channels and validate are required+non-auto_skip on the real
+    # manifest — the walk completes them as state-machine bookkeeping
+    # but the ready transition is still deferred.
+    assert ("channels", "complete") in completes
+    assert ("validate", "complete") in completes
+
+
+def test_sync_hermes_real_manifest_configure_success_writes_ready():
+    """Companion to the failure-path test: with the real hermes
+    manifest, configure_agent succeeding does advance state to ready.
+    """
+    host = {
+        "hostname": "192.168.1.100",
+        "key_id": "test",
+        "agent_name": "xclm",
+        "port": 22,
+        "agents": {
+            "test-hermes": {
+                "type": "hermes",
+                "onboarding": {"state": "pending"},
+                "config": {"gateway": {"port": 45000}},
+                "providers": ["local-inx"],
+            }
+        },
+    }
+
+    transitions: list[str] = []
+
+    def fake_transition(_host, _agent, target):
+        transitions.append(target.value)
+        return True
+
+    def fake_configure(*_args, **_kwargs):
+        return (True, None)
+
+    rec = _ollama_provider_record()
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch("clawrium.core.providers.storage.get_provider", return_value=rec),
+        # No can_skip_stage patch — real hermes manifest.
+        patch(
+            "clawrium.core.onboarding.transition_state", side_effect=fake_transition
+        ),
+        patch("clawrium.core.onboarding.complete_stage", return_value=True),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        result = sync_agent("192.168.1.100", "hermes")
+
+    assert result["success"] is True
+    # Now ready IS in transitions — and it comes LAST (post-configure).
+    assert transitions[-1] == "ready"
+
+
 def test_sync_optional_field_max_tokens_zero_preserved():
     """ATX iter-1 S1: max_tokens=0 / context_window=0 are meaningful
     no-limit signals on some provider APIs. The `is not None` checks

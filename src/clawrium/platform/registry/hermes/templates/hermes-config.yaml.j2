@@ -77,10 +77,13 @@ model:
 {# Hermes' custom provider expects an OpenAI-compatible /v1 root. Append /v1
    when the clm provider endpoint omits it (e.g. raw Ollama base URL). #}
 {% set endpoint_clean = endpoint.rstrip('/') %}
+{# yaml_quote on the URL so a hand-edited endpoint containing " or \
+   cannot break out of the scalar and DoS the Ansible parse step.
+   ATX iter-2 W-SEC-1. #}
 {% if endpoint_clean and endpoint_clean.endswith('/v1') %}
-  base_url: "{{ endpoint_clean }}"
+  base_url: {{ yaml_quote(endpoint_clean) }}
 {% elif endpoint_clean %}
-  base_url: "{{ endpoint_clean }}/v1"
+  base_url: {{ yaml_quote(endpoint_clean ~ '/v1') }}
 {% endif %}
 {% if model_id %}  default: "{{ model_id }}"
 {% endif %}

@@ -1011,7 +1011,13 @@ def sync_agent(
     # complete_stage on it, transition_state to the NEXT stage. The
     # difference: we never prompt — anything that would require user
     # input either has a Pattern A attachment behind it or raises.
-    if provider_name_for_state and state == OnboardingState.PENDING:
+    #
+    # Gate is `state != READY` (not just `== PENDING`) so a re-sync
+    # after a previous failed configure_agent (which leaves state at
+    # VALIDATE or earlier) can advance the agent the rest of the way.
+    # Idempotent operations inside the walk swallow InvalidTransitionError
+    # when state is already past a given stage. ATX iter-2 B-ITER2-1.
+    if provider_name_for_state and state != OnboardingState.READY:
         from clawrium.core.onboarding import (
             InvalidTransitionError,
             OnboardingState as _OS,
@@ -1104,11 +1110,19 @@ def sync_agent(
             except InvalidTransitionError:
                 pass
 
-        # --- final transition to READY ----------------------------
-        _safe_transition(_OS.READY)
-        state = _OS.READY
+        # NOTE: READY transition is deferred until AFTER configure_agent
+        # succeeds. Writing state=READY before the Ansible push lands
+        # would leave hosts.json showing READY for an agent whose
+        # systemd unit was never written if configure_agent then fails.
+        # `clawctl agent start` only gates on state==READY, so deferring
+        # is the safety boundary. ATX iter-2 B-ITER2-1.
+        walk_completed = True
+        state = _OS.VALIDATE  # furthest the pre-configure walk advances
 
-    if state == OnboardingState.PENDING:
+    else:
+        walk_completed = False
+
+    if state == OnboardingState.PENDING and not walk_completed:
         raise LifecycleError(
             f"Cannot sync {agent_key}: onboarding not started (state={state_value}). "
             f"Attach a provider first: 'clawctl agent provider attach <name> "
@@ -1126,11 +1140,13 @@ def sync_agent(
     if not existing_config:
         # install.py always writes config.gateway, so this branch
         # implies a corrupt agent record (hand-edited hosts.json) — the
-        # only honest remediation is re-create. ATX iter-1 W1.
+        # only honest remediation is re-create. ATX iter-1 W1 +
+        # iter-2 W1 (full --type/--host placeholders).
         raise LifecycleError(
             f"No configuration found for {agent_key}. Agent record is "
             f"incomplete (missing gateway config); re-create the agent: "
-            f"'clawctl agent delete {agent_key}' then 'clawctl agent create'."
+            f"'clawctl agent delete {agent_key}' then "
+            f"'clawctl agent create {agent_key} --type <type> --host <host>'."
         )
 
     emit("sync", f"Configuring {agent_key}...")
@@ -1153,6 +1169,24 @@ def sync_agent(
             "started_at": None,
             "error": f"Configure failed: {config_error}",
         }
+
+    # ATX iter-2 B-ITER2-1: only NOW commit READY to disk. Ansible
+    # succeeded, so the remote agent is actually configured and
+    # `clawctl agent start` is safe to gate on this. Try
+    # unconditionally — TRANSITIONS allows VALIDATE→READY and
+    # READY→READY (idempotent), the other states reject (in which case
+    # the post-configure cosmetic step is skipped without failing
+    # sync; state can be repaired by a subsequent sync after manual
+    # configure of stuck stages).
+    from clawrium.core.onboarding import (
+        OnboardingState as _OS_post,
+        transition_state as _transition_post,
+    )
+
+    try:
+        _transition_post(hostname, agent_key, _OS_post.READY)
+    except Exception:
+        pass
 
     emit("sync", f"Sync complete for {agent_key}")
 
