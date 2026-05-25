@@ -475,6 +475,151 @@ def test_sync_hermes_real_manifest_configure_success_writes_ready():
     assert transitions[-1] == "ready"
 
 
+def test_sync_resync_from_validate_state_reaches_ready_on_success():
+    """ATX iter-3 W-NEW-2: the gate-widening from `state == PENDING`
+    to `state != READY` is the documented behaviour that enables
+    re-sync recovery after a previous configure_agent failure. This
+    test exercises the re-entry path: state on disk = VALIDATE
+    (because a prior sync's walk completed but configure_agent then
+    failed), a fresh sync must walk no-ops through the already-past
+    stages and finish the READY transition once configure succeeds.
+    """
+    from clawrium.core.onboarding import InvalidTransitionError
+
+    host = {
+        "hostname": "192.168.1.100",
+        "key_id": "test",
+        "agent_name": "xclm",
+        "port": 22,
+        "agents": {
+            "test-hermes": {
+                "type": "hermes",
+                "onboarding": {"state": "validate"},
+                "config": {"gateway": {"port": 45000}},
+                "providers": ["local-inx"],
+            }
+        },
+    }
+
+    transitions: list[str] = []
+
+    def fake_transition(_host, _agent, target):
+        # Mirror the real transition_state behaviour: forward
+        # transitions from VALIDATE allow ['ready', 'channels'] only
+        # — earlier-state targets raise InvalidTransitionError. This
+        # ensures the test covers the actual swallowing path that the
+        # gate-widening relies on.
+        if target.value in ("ready", "channels"):
+            transitions.append(target.value)
+            return True
+        raise InvalidTransitionError(
+            f"cannot transition validate → {target.value}"
+        )
+
+    def fake_complete(_host, _agent, stage, status, _meta=None):
+        # complete_stage rejects from VALIDATE for stages other than
+        # 'validate'. This mirrors the real state_to_allowed_stages
+        # guard. The `_safe_*` wrappers in sync_agent must swallow the
+        # InvalidTransitionError.
+        if stage != "validate" and status.value != "skipped":
+            raise InvalidTransitionError(
+                f"cannot complete {stage} from validate"
+            )
+        return True
+
+    def fake_configure(*_args, **_kwargs):
+        return (True, None)
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch(
+            "clawrium.core.providers.storage.get_provider",
+            return_value=_ollama_provider_record(),
+        ),
+        patch(
+            "clawrium.core.onboarding.transition_state", side_effect=fake_transition
+        ),
+        patch("clawrium.core.onboarding.complete_stage", side_effect=fake_complete),
+        patch(
+            "clawrium.core.onboarding.update_stage_metadata", return_value=True
+        ),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        result = sync_agent("192.168.1.100", "hermes")
+
+    assert result["success"] is True
+    # Re-sync from VALIDATE must reach READY.
+    assert transitions[-1] == "ready", f"observed transitions: {transitions}"
+
+
+def test_sync_resync_from_validate_does_not_advance_on_configure_fail():
+    """ATX iter-3 W-NEW-2 companion: re-sync from VALIDATE must NOT
+    advance to READY if configure_agent fails again. The walk + state
+    re-entry path must preserve the deferred-READY safety boundary."""
+    from clawrium.core.onboarding import InvalidTransitionError
+
+    host = {
+        "hostname": "192.168.1.100",
+        "key_id": "test",
+        "agent_name": "xclm",
+        "port": 22,
+        "agents": {
+            "test-hermes": {
+                "type": "hermes",
+                "onboarding": {"state": "validate"},
+                "config": {"gateway": {"port": 45000}},
+                "providers": ["local-inx"],
+            }
+        },
+    }
+
+    transitions: list[str] = []
+
+    def fake_transition(_host, _agent, target):
+        if target.value in ("ready", "channels"):
+            transitions.append(target.value)
+            return True
+        raise InvalidTransitionError(
+            f"cannot transition validate → {target.value}"
+        )
+
+    def fake_complete(_host, _agent, stage, status, _meta=None):
+        if stage != "validate" and status.value != "skipped":
+            raise InvalidTransitionError(
+                f"cannot complete {stage} from validate"
+            )
+        return True
+
+    def fake_configure(*_args, **_kwargs):
+        return (False, "second attempt also failed")
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch(
+            "clawrium.core.providers.storage.get_provider",
+            return_value=_ollama_provider_record(),
+        ),
+        patch(
+            "clawrium.core.onboarding.transition_state", side_effect=fake_transition
+        ),
+        patch("clawrium.core.onboarding.complete_stage", side_effect=fake_complete),
+        patch(
+            "clawrium.core.onboarding.update_stage_metadata", return_value=True
+        ),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        result = sync_agent("192.168.1.100", "hermes")
+
+    assert result["success"] is False
+    assert "second attempt also failed" in result["error"]
+    # Critical: even on re-entry from VALIDATE, a failed configure
+    # must not commit READY.
+    assert "ready" not in transitions, (
+        f"READY must not be written when configure fails on re-sync; "
+        f"observed transitions: {transitions}"
+    )
+
+
 def test_sync_optional_field_max_tokens_zero_preserved():
     """ATX iter-1 S1: max_tokens=0 / context_window=0 are meaningful
     no-limit signals on some provider APIs. The `is not None` checks
