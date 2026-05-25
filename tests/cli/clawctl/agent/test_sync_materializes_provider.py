@@ -550,6 +550,18 @@ def test_sync_resync_from_validate_state_reaches_ready_on_success():
     assert result["success"] is True
     # Re-sync from VALIDATE must reach READY.
     assert transitions[-1] == "ready", f"observed transitions: {transitions}"
+    # ATX iter-4 B1: assert the walk actually ran (don't false-pass if
+    # the gate is reverted to `state == PENDING`). 'channels' is the
+    # one transition that can only be produced by the walk —
+    # _safe_transition(_OS.CHANNELS) at lifecycle.py:1092 from state=
+    # VALIDATE (TRANSITIONS['validate'] = ['ready', 'channels']). The
+    # post-configure _transition_post only emits 'ready'. If the gate
+    # is wrong and the walk is skipped entirely, 'channels' never
+    # appears, this assertion fails.
+    assert "channels" in transitions, (
+        f"walk must execute when state=VALIDATE and provider attached; "
+        f"observed transitions: {transitions}"
+    )
 
 
 def test_sync_resync_from_validate_does_not_advance_on_configure_fail():
@@ -617,6 +629,15 @@ def test_sync_resync_from_validate_does_not_advance_on_configure_fail():
     assert "ready" not in transitions, (
         f"READY must not be written when configure fails on re-sync; "
         f"observed transitions: {transitions}"
+    )
+    # ATX iter-4 B1: pin that the walk ran on re-sync, independent of
+    # the READY outcome. Without this, a regression that reverts the
+    # gate to `state == PENDING` would skip the walk entirely on
+    # VALIDATE re-entry but the test would still pass trivially
+    # because the configure-fail early-return fires before _transition_post.
+    assert "channels" in transitions, (
+        f"walk must execute on VALIDATE re-entry even when configure "
+        f"fails; observed transitions: {transitions}"
     )
 
 

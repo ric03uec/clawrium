@@ -1179,33 +1179,41 @@ def sync_agent(
     # the post-configure cosmetic step is skipped without failing
     # sync; state can be repaired by a subsequent sync after manual
     # configure of stuck stages).
+    from rich.markup import escape as _rich_escape
+
     from clawrium.core.onboarding import (
+        AgentNotFoundError as _ANF_post,
         InvalidTransitionError as _ITE_post,
+        OnboardingNotFoundError as _ONF_post,
         OnboardingState as _OS_post,
         transition_state as _transition_post,
     )
 
     try:
         _transition_post(hostname, agent_key, _OS_post.READY)
-    except _ITE_post:
-        # State was already past VALIDATE in an unexpected way (e.g., a
-        # concurrent sync raced us through the walk), or the agent was
-        # stuck mid-walk at PROVIDERS/IDENTITY/CHANNELS. The remote is
-        # configured (configure_agent succeeded); the local state
-        # pointer just couldn't be advanced. Operator will see the agent
-        # in a non-READY state and can re-sync. ATX iter-3 W-NEW-1:
-        # narrow catch so storage failures (below) surface as warnings
-        # instead of silent success.
+    except (_ITE_post, _ANF_post, _ONF_post):
+        # ATX iter-3 W-NEW-1 + iter-4 W2-NEW: three exception types
+        # mean "state pointer cannot be advanced and re-sync will not
+        # fix it" — they share a no-recovery semantics. Swallow
+        # silently; the remote is configured, only the local state
+        # pointer is stale. (InvalidTransitionError: agent stuck
+        # mid-walk at PROVIDERS/IDENTITY/CHANNELS; AgentNotFoundError /
+        # OnboardingNotFoundError: registry incoherence between the
+        # configure_agent return and the transition_state call.)
         pass
     except Exception as exc:
-        # Storage / IO failure writing the READY pointer. Don't fail the
-        # sync — configure_agent already succeeded so the agent IS
+        # Storage / IO failure writing the READY pointer. Don't fail
+        # the sync — configure_agent already succeeded so the agent IS
         # configured — but surface the gap so the operator knows a
         # re-sync is needed before `clawctl agent start` will pass.
-        # ATX iter-3 W-NEW-1.
+        # ATX iter-3 W-NEW-1 + iter-4 W1-NEW: rich-escape the exception
+        # string so an OSError like "[Errno 13] Permission denied:
+        # /path" cannot crash any downstream rich.console.print
+        # consumer.
         emit(
             "sync",
-            f"warning: could not write state=READY to hosts.json: {exc}. "
+            f"warning: could not write state=READY to hosts.json: "
+            f"{_rich_escape(str(exc))}. "
             f"Agent is configured remotely; re-run sync to commit state.",
         )
 
