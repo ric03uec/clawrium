@@ -982,9 +982,12 @@ def sync_agent(
             "endpoint": provider_record.get("endpoint", ""),
             "default_model": provider_record.get("default_model", ""),
         }
-        if provider_record.get("context_window"):
+        # `is not None` instead of truthy: max_tokens=0 / context_window=0
+        # are meaningful (no-limit signals on some APIs); a falsy check
+        # would silently drop them. ATX iter-1 S1.
+        if provider_record.get("context_window") is not None:
             provider_overlay["context_window"] = provider_record["context_window"]
-        if provider_record.get("max_tokens"):
+        if provider_record.get("max_tokens") is not None:
             provider_overlay["max_tokens"] = provider_record["max_tokens"]
         provider_name_for_state = provider_name
 
@@ -996,21 +999,56 @@ def sync_agent(
     except ValueError:
         state = OnboardingState.PENDING
 
-    # Issue #426: when a fresh agent (state=PENDING) has an attached
-    # provider, advance the state machine through the `providers` stage
-    # so the PENDING-rejection check below passes. This is what makes
-    # `create → attach → sync` work without an intermediate manual
-    # `configure --stage providers` step. Re-sync after attach swap
-    # routes through update_stage_metadata per legacy precedent
-    # (_run_providers_stage:498-509 in cli/agent.py).
+    # Issue #426 + #523: drive the onboarding state machine forward when
+    # a provider attachment is present. Option D semantics: advance as
+    # far as the per-agent manifest's `auto_skip` flags allow, completing
+    # stages that have no remaining declarative input to gather, and
+    # refusing loudly when a required stage has no clawctl declarative
+    # surface yet (today only `identity` for openclaw — tracked in #523).
+    #
+    # This mirrors the legacy `clm agent configure` driver loop
+    # (cli/agent.py:2110-2211): transition_state INTO each stage,
+    # complete_stage on it, transition_state to the NEXT stage. The
+    # difference: we never prompt — anything that would require user
+    # input either has a Pattern A attachment behind it or raises.
     if provider_name_for_state and state == OnboardingState.PENDING:
         from clawrium.core.onboarding import (
             InvalidTransitionError,
+            OnboardingState as _OS,
             StageStatus,
+            can_skip_stage,
             complete_stage,
+            transition_state,
             update_stage_metadata,
         )
 
+        def _safe_update_metadata(stage: str, meta: dict) -> None:
+            # ATX iter-1 W2: `update_stage_metadata` itself raises
+            # InvalidTransitionError if the stage record is not in
+            # `complete` status. Wrap so any failure here surfaces as a
+            # LifecycleError (operator-actionable) rather than escaping
+            # as a raw InvalidTransitionError.
+            try:
+                update_stage_metadata(hostname, agent_key, stage, meta)
+            except Exception as exc:
+                raise LifecycleError(
+                    f"could not update {stage!r} metadata for "
+                    f"{agent_key!r}: {exc}. "
+                    f"Onboarding state may be corrupt; "
+                    f"inspect with 'clawctl agent describe {agent_key}'."
+                ) from exc
+
+        def _safe_transition(target: _OS) -> None:
+            # InvalidTransitionError on a forward transition we expect
+            # to be permissible means state is already at-or-past the
+            # target (idempotent re-sync). Swallow; that's the legacy
+            # behaviour in cli/agent.py:2165-2168.
+            try:
+                transition_state(hostname, agent_key, target)
+            except InvalidTransitionError:
+                pass
+
+        # --- providers stage --------------------------------------
         try:
             complete_stage(
                 hostname,
@@ -1020,13 +1058,55 @@ def sync_agent(
                 {"provider_id": provider_name_for_state},
             )
         except InvalidTransitionError:
-            update_stage_metadata(
-                hostname,
-                agent_key,
-                "providers",
-                {"provider_id": provider_name_for_state},
+            _safe_update_metadata(
+                "providers", {"provider_id": provider_name_for_state}
             )
-        state = OnboardingState.PROVIDERS
+        _safe_transition(_OS.PROVIDERS)
+
+        # --- remaining stages (Option D walk) ---------------------
+        # Per #523 audit: today only `identity` for openclaw lacks a
+        # clawctl declarative surface. Hermes/zeroclaw mark identity
+        # `auto_skip: true`. Channels and validate are completed as
+        # state-machine bookkeeping — channels' actual content comes
+        # from the separate `clawctl agent channel attach` surface
+        # (#509), and validate's health check is implicit in
+        # configure_agent's Ansible exit code below.
+        _NO_DECLARATIVE_SURFACE_YET = {"identity"}
+        _STAGE_NEXT_STATE = {
+            "identity": _OS.IDENTITY,
+            "channels": _OS.CHANNELS,
+            "validate": _OS.VALIDATE,
+        }
+
+        for stage_name in ("identity", "channels", "validate"):
+            _safe_transition(_STAGE_NEXT_STATE[stage_name])
+            if can_skip_stage(agent_type, stage_name):
+                try:
+                    complete_stage(
+                        hostname, agent_key, stage_name, StageStatus.SKIPPED
+                    )
+                except InvalidTransitionError:
+                    pass
+                continue
+            if stage_name in _NO_DECLARATIVE_SURFACE_YET:
+                raise LifecycleError(
+                    f"agent '{agent_key}' (type={agent_type}) requires manual "
+                    f"{stage_name} configuration: no clawctl declarative "
+                    f"surface exists for the {stage_name} stage yet "
+                    f"(tracked in #523). Workaround: complete this stage via "
+                    f"'clawctl agent configure {agent_key} --stage {stage_name}', "
+                    f"then re-run sync."
+                )
+            try:
+                complete_stage(
+                    hostname, agent_key, stage_name, StageStatus.COMPLETE
+                )
+            except InvalidTransitionError:
+                pass
+
+        # --- final transition to READY ----------------------------
+        _safe_transition(_OS.READY)
+        state = _OS.READY
 
     if state == OnboardingState.PENDING:
         raise LifecycleError(
@@ -1035,22 +1115,23 @@ def sync_agent(
             f"--agent {agent_key}'."
         )
 
+    # Apply the overlay first so a freshly attached provider can rescue
+    # an otherwise-empty config (which would normally be a pathological
+    # state — install.py writes config.gateway). ATX iter-1 W5.
     existing_config = claw_record.get("config", {})
-    if not existing_config:
-        raise LifecycleError(
-            f"No configuration found for {agent_key}. "
-            f"Attach a provider first: 'clawctl agent provider attach <name> "
-            f"--agent {agent_key}'."
-        )
-
-    # Issue #426: overlay materialized provider onto existing config.
-    # configure_agent persists the merged dict into
-    # hosts.json.agents.<key>.config via its updater closure (line ~1709)
-    # after Ansible succeeds, satisfying the persistence-across-syncs
-    # contract.
     if provider_overlay is not None:
         existing_config = dict(existing_config)
         existing_config["provider"] = provider_overlay
+
+    if not existing_config:
+        # install.py always writes config.gateway, so this branch
+        # implies a corrupt agent record (hand-edited hosts.json) — the
+        # only honest remediation is re-create. ATX iter-1 W1.
+        raise LifecycleError(
+            f"No configuration found for {agent_key}. Agent record is "
+            f"incomplete (missing gateway config); re-create the agent: "
+            f"'clawctl agent delete {agent_key}' then 'clawctl agent create'."
+        )
 
     emit("sync", f"Configuring {agent_key}...")
     config_success, config_error = configure_agent(

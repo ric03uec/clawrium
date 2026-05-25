@@ -70,7 +70,11 @@ def test_same_name_reattach_is_idempotent(fleet_dir, stdin_not_tty) -> None:
 def test_attach_after_detach_succeeds(fleet_dir, stdin_not_tty) -> None:
     """Detach + re-attach (potentially a different provider) is the
     documented replacement workflow. Verify the guard doesn't leak
-    state across the detach boundary."""
+    state across the detach boundary AND that the on-disk attachment
+    list reflects the replacement.
+    """
+    import json
+
     _create_provider("anth")
     _create_provider("openrt")
 
@@ -88,3 +92,17 @@ def test_attach_after_detach_succeeds(fleet_dir, stdin_not_tty) -> None:
         app, ["agent", "provider", "attach", "openrt", "--agent", "wise-hypatia"]
     )
     assert attach2.exit_code == 0, attach2.output
+
+    # ATX iter-1 B3: assert the *final* attachment list, not just exit
+    # codes. A silent persistence-layer failure (or a regressed
+    # idempotent-check after detach) would leave the list as ['anth'],
+    # ['anth', 'openrt'], or [] — all of which would pass an exit-code
+    # check alone.
+    listed = runner.invoke(
+        app,
+        ["agent", "provider", "get", "--agent", "wise-hypatia", "-o", "json"],
+    )
+    assert listed.exit_code == 0
+    data = json.loads(listed.output)
+    names = sorted(p["name"] for p in data)
+    assert names == ["openrt"], f"expected ['openrt'], got {names}"

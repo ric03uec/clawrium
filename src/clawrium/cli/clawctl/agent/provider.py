@@ -86,7 +86,13 @@ def attach(
     name: str = typer.Argument(..., help="Provider name to attach."),
     agent: str = typer.Option(..., "--agent", help="Agent instance name."),
 ) -> None:
-    """Attach a registered provider to an agent."""
+    """Attach a registered provider to an agent.
+
+    The attachment is metadata only at this point — the provider config
+    is materialized onto the remote agent on the next `clawctl agent
+    sync`. Single-provider invariant: detach the current provider
+    before attaching a different one. See #426.
+    """
     _safe_get_provider(name)
     host, _agent_type, _claw = safe_resolve_agent(agent)
     hostname = host["hostname"]
@@ -120,7 +126,14 @@ def detach(
     name: str = typer.Argument(..., help="Provider name to detach."),
     agent: str = typer.Option(..., "--agent", help="Agent instance name."),
 ) -> None:
-    """Detach a provider from an agent."""
+    """Detach a provider from an agent.
+
+    Note: the provider config previously materialized into the agent's
+    `config.provider` block is preserved as last-known-good across
+    syncs. To switch providers, attach a replacement and run
+    `clawctl agent sync`; the new provider will overwrite the old.
+    See #426.
+    """
     host, _agent_type, _claw = safe_resolve_agent(agent)
     hostname = host["hostname"]
     agent_key = resolve_agent_key(host, agent)

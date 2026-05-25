@@ -69,7 +69,11 @@ def test_sync_materializes_attached_provider_into_config():
             "clawrium.core.providers.storage.get_provider",
             return_value=_ollama_provider_record(),
         ),
-        patch("clawrium.core.onboarding.complete_stage") as mock_complete,
+        patch(
+            "clawrium.core.onboarding.complete_stage", return_value=True
+        ) as mock_complete,
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
+        patch("clawrium.core.onboarding.can_skip_stage", return_value=True),
         patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
     ):
         result = sync_agent("192.168.1.100", "openclaw")
@@ -80,12 +84,14 @@ def test_sync_materializes_attached_provider_into_config():
     assert provider["type"] == "ollama"
     assert provider["endpoint"] == "http://192.168.1.17:11434"
     assert provider["default_model"] == "qwen3-coder:30b-128k"
-    # State must have been advanced through providers stage so the
-    # PENDING-rejection check downstream passes.
-    mock_complete.assert_called_once()
-    call_args = mock_complete.call_args
-    assert call_args.args[2] == "providers"
-    assert call_args.args[4] == {"provider_id": "local-inx"}
+    # The providers complete_stage call carries the provider_id metadata
+    # (other stages' complete_stage calls do not — they're auto-skip
+    # bookkeeping for the Option D walk).
+    providers_calls = [
+        c for c in mock_complete.call_args_list if c.args[2] == "providers"
+    ]
+    assert len(providers_calls) == 1
+    assert providers_calls[0].args[4] == {"provider_id": "local-inx"}
 
 
 def test_sync_carries_optional_provider_fields():
@@ -196,3 +202,189 @@ def test_sync_pending_without_attachment_keeps_legacy_error():
     assert "onboarding not started" in str(exc_info.value)
     # Error message now points at the new attach surface, not legacy clm.
     assert "clawctl agent provider attach" in str(exc_info.value)
+
+
+def test_sync_after_detach_preserves_last_known_good_provider():
+    """ATX iter-1 B2: agent.providers=[] (post-detach) is distinct from
+    `providers` key absent (legacy). The bridge must skip
+    re-materialization on an empty list and leave the pre-existing
+    `config.provider` (last-known-good) untouched — that is the user
+    decision documented on #426.
+    """
+    last_good = {
+        "name": "old-provider",
+        "type": "ollama",
+        "endpoint": "http://old:11434",
+        "default_model": "qwen3",
+    }
+    host = _host_with_agent(
+        state="ready",
+        providers_attached=[],
+        config={"gateway": {"port": 40000}, "provider": last_good},
+    )
+
+    captured: dict = {}
+
+    def fake_configure(hostname, claw_name, config_data, **kwargs):
+        captured["config_data"] = config_data
+        return (True, None)
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        result = sync_agent("192.168.1.100", "openclaw")
+
+    assert result["success"] is True
+    # Bridge did NOT overwrite config.provider when attach list is empty.
+    assert captured["config_data"]["provider"] == last_good
+
+
+def test_sync_invalid_transition_routes_to_update_metadata():
+    """ATX iter-1 W6: when complete_stage raises InvalidTransitionError
+    (re-sync after attach swap on an already-advanced agent),
+    sync_agent falls back to update_stage_metadata instead of crashing.
+    Verifies the re-sync code path that the original test set did not
+    cover."""
+    from clawrium.core.onboarding import InvalidTransitionError
+
+    host = _host_with_agent(state="pending", providers_attached=["local-inx"])
+
+    def fake_configure(hostname, claw_name, config_data, **kwargs):
+        return (True, None)
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch(
+            "clawrium.core.providers.storage.get_provider",
+            return_value=_ollama_provider_record(),
+        ),
+        patch(
+            "clawrium.core.onboarding.complete_stage",
+            side_effect=InvalidTransitionError("already past providers"),
+        ),
+        patch("clawrium.core.onboarding.update_stage_metadata") as mock_update,
+        patch("clawrium.core.onboarding.transition_state"),
+        patch("clawrium.core.onboarding.can_skip_stage", return_value=True),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        result = sync_agent("192.168.1.100", "openclaw")
+
+    assert result["success"] is True
+    # update_stage_metadata receives the same provider_id metadata.
+    mock_update.assert_any_call(
+        "192.168.1.100",
+        "opc-work",
+        "providers",
+        {"provider_id": "local-inx"},
+    )
+
+
+def test_sync_drives_state_to_ready_for_auto_skip_agent():
+    """B1 fix: when every non-providers stage is auto_skip-able for the
+    agent type (the hermes/zeroclaw pattern after manifest evaluation),
+    sync transitions state all the way to READY so a subsequent
+    `clawctl agent start` succeeds."""
+    host = _host_with_agent(state="pending", providers_attached=["local-inx"])
+
+    def fake_configure(hostname, claw_name, config_data, **kwargs):
+        return (True, None)
+
+    transitions: list[str] = []
+
+    def capture_transition(_host, _agent, target):
+        transitions.append(target.value)
+        return True
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch(
+            "clawrium.core.providers.storage.get_provider",
+            return_value=_ollama_provider_record(),
+        ),
+        patch("clawrium.core.onboarding.complete_stage", return_value=True),
+        patch(
+            "clawrium.core.onboarding.transition_state",
+            side_effect=capture_transition,
+        ),
+        patch("clawrium.core.onboarding.can_skip_stage", return_value=True),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        result = sync_agent("192.168.1.100", "openclaw")
+
+    assert result["success"] is True
+    # State machine walked all the way to READY.
+    assert transitions[-1] == "ready"
+    # The full progression hit each canonical state in order.
+    assert "providers" in transitions
+    assert "identity" in transitions
+    assert "channels" in transitions
+    assert "validate" in transitions
+    assert "ready" in transitions
+
+
+def test_sync_refuses_required_stage_without_declarative_surface():
+    """Option D (issue #523 tracking): when a non-auto_skip stage lacks
+    a clawctl declarative surface (today: identity for openclaw), sync
+    must refuse rather than silently mark COMPLETE and advance to READY
+    with no actual identity files pushed."""
+
+    def can_skip_only_validate(agent_type: str, stage: str) -> bool:
+        # Simulate openclaw: identity required, channels required,
+        # validate auto-skipped.
+        return stage == "validate"
+
+    host = _host_with_agent(state="pending", providers_attached=["local-inx"])
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch(
+            "clawrium.core.providers.storage.get_provider",
+            return_value=_ollama_provider_record(),
+        ),
+        patch("clawrium.core.onboarding.complete_stage", return_value=True),
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
+        patch(
+            "clawrium.core.onboarding.can_skip_stage",
+            side_effect=can_skip_only_validate,
+        ),
+    ):
+        with pytest.raises(LifecycleError) as exc_info:
+            sync_agent("192.168.1.100", "openclaw")
+
+    msg = str(exc_info.value)
+    assert "identity" in msg
+    assert "#523" in msg  # Points at the tracking issue.
+    assert "clawctl agent configure" in msg  # Workaround named.
+
+
+def test_sync_optional_field_max_tokens_zero_preserved():
+    """ATX iter-1 S1: max_tokens=0 / context_window=0 are meaningful
+    no-limit signals on some provider APIs. The `is not None` checks
+    must preserve zero values rather than dropping them on truthy."""
+    host = _host_with_agent(state="ready", providers_attached=["unlimited"])
+    rec = {
+        "name": "unlimited",
+        "type": "ollama",
+        "endpoint": "http://localhost:11434",
+        "default_model": "qwen3",
+        "max_tokens": 0,  # Explicit no-limit signal.
+    }
+
+    captured: dict = {}
+
+    def fake_configure(hostname, claw_name, config_data, **kwargs):
+        captured["config_data"] = config_data
+        return (True, None)
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch("clawrium.core.providers.storage.get_provider", return_value=rec),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        result = sync_agent("192.168.1.100", "openclaw")
+
+    assert result["success"] is True
+    provider = captured["config_data"]["provider"]
+    assert "max_tokens" in provider
+    assert provider["max_tokens"] == 0
