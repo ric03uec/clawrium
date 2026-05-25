@@ -9,7 +9,7 @@ from __future__ import annotations
 import typer
 
 from clawrium.cli.clawctl._common import confirm_destructive
-from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
+from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
 from clawrium.core.lifecycle import LifecycleError, remove_agent
 
@@ -19,14 +19,16 @@ def delete(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirm prompt."),
 ) -> None:
     """Delete an agent (remote cleanup + local record removal)."""
-    host, agent_key, claw_record = safe_resolve_agent(name)
+    # Bug #516: see configure.py for full rationale.
+    host, _agent_type, claw_record = safe_resolve_agent(name)
+    agent_key = resolve_agent_key(host, name)
     confirm_destructive(
         prompt=f"Delete agent '{name}'? Removes remote state and local record.",
         yes=yes,
     )
 
     hostname = host["hostname"]
-    agent_type = claw_record.get("type", agent_key)
+    agent_type = claw_record.get("type", _agent_type)
 
     def on_event(stage: str, message: str) -> None:
         stream_action(resource=f"agent/{name}", message=f"[{stage}] {message}")

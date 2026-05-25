@@ -21,7 +21,7 @@ from typing import Optional
 import typer
 
 from clawrium.cli.clawctl._common import require_flag, stdin_is_tty
-from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
+from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
 from clawrium.core.lifecycle import LifecycleError
 from clawrium.core.onboarding import (
@@ -91,9 +91,15 @@ def configure(
             ),
         )
 
-    host, agent_key, claw_record = safe_resolve_agent(name)
+    # Bug #516: `safe_resolve_agent` returns the *type string* as its
+    # second tuple element (per its own docstring). The dict key used
+    # to identify the agent on its host (and as `agent_name` in core
+    # lifecycle calls) requires a second-pass lookup. Without this,
+    # any host with >1 agent of the same type breaks lifecycle ops.
+    host, _agent_type, claw_record = safe_resolve_agent(name)
+    agent_key = resolve_agent_key(host, name)
     hostname = host["hostname"]
-    agent_type = claw_record.get("type", agent_key)
+    agent_type = claw_record.get("type", _agent_type)
 
     if stage is None:
         # Non-interactive contract: stdin closed + no stage = clean failure.

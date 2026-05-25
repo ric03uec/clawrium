@@ -34,7 +34,7 @@ import time
 import typer
 
 from clawrium.cli.clawctl._common import OutputFormat
-from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
+from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import (
     NDJSONStreamer,
     emit_error,
@@ -71,9 +71,11 @@ def sync(
     ),
 ) -> None:
     """Flush local control-plane state to the agent (drift-to-zero)."""
-    host, agent_key, claw_record = safe_resolve_agent(name)
+    # Bug #516: see configure.py for full rationale.
+    host, _agent_type, claw_record = safe_resolve_agent(name)
+    agent_key = resolve_agent_key(host, name)
     hostname = host["hostname"]
-    agent_type = claw_record.get("type", agent_key)
+    agent_type = claw_record.get("type", _agent_type)
 
     resource = f"agent/{name}"
     use_json = output is OutputFormat.json
