@@ -2,3 +2,8 @@ announcements:
   label: Announcements
   permalink: /announcements
   description: Project news and releases
+
+breaking-changes:
+  label: Breaking Changes
+  permalink: /breaking-changes
+  description: Releases with backward-incompatible CLI or API changes

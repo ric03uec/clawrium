@@ -62,6 +62,21 @@ jobs:
         # cover the newer interpreter separately.
         run: uv python install 3.10
 
+      # Hatchling force-includes `src/clawrium/gui/frontend/` in the wheel
+      # target, so `uv sync` (editable install) requires the Next.js export
+      # to be staged first. Without this step the install fails with
+      # `FileNotFoundError: Forced include not found`. Mirrors the
+      # equivalent step in test.yml.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: gui/package-lock.json
+
+      - name: Build GUI frontend
+        run: make build-ui
+
       - name: Install dependencies
         # --frozen rejects any lock-file drift in the PR — same locked
         # dependency set the contributor saw locally must be what CI

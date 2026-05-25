@@ -195,12 +195,13 @@ def test_stage_help_text_omits_channels_from_valid_values(
     result = runner.invoke(app, ["agent", "configure", "--help"])
     assert result.exit_code == 0
     # Typer wraps help across lines with box-drawing chars at the
-    # column gutters; strip them and collapse whitespace so the
-    # phrase survives line-wrapping. The Stage enum still includes
-    # `channels` (Typer auto-generates the choices list from the
-    # enum), but the prose hint must point users at the supported
-    # set and explicitly mark `channels` as deprecated.
-    flat = re.sub(r"[│╭╰─╮╯]", " ", result.output)
+    # column gutters and (under CI's color-enabled rendering) inserts
+    # ANSI escape sequences mid-text. Strip both, plus collapse
+    # whitespace, so the phrase survives line-wrapping AND coloring.
+    # Without ANSI stripping this assertion passes locally on a wide
+    # terminal but fails on CI's 80-col color-enabled output (#518 CI run).
+    flat = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", result.output)
+    flat = re.sub(r"[│╭╰─╮╯]", " ", flat)
     flat = re.sub(r"\s+", " ", flat)
     assert "providers, identity, validate" in flat
     assert "deprecated" in flat.lower()
