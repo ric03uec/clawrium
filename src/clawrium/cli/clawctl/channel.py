@@ -64,6 +64,7 @@ channel_app = typer.Typer(
     name="channel",
     help="Chat surfaces (Discord, Slack) (Pattern A attachable).",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 
@@ -71,6 +72,7 @@ channel_registry_app = typer.Typer(
     name="registry",
     help="CRUD entrypoint for the channel registry.",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

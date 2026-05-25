@@ -56,6 +56,7 @@ secret_app = typer.Typer(
     name="secret",
     help="Manage per-agent secrets.",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

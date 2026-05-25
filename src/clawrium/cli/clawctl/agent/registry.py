@@ -36,6 +36,7 @@ registry_app = typer.Typer(
     name="registry",
     help="Read-only catalog of supported agent types.",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

@@ -24,6 +24,7 @@ address_app = typer.Typer(
     name="address",
     help="Manage host addresses (multi-value).",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

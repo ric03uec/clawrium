@@ -186,22 +186,18 @@ def test_stage_help_text_omits_channels_from_valid_values(
 ) -> None:
     """ATX iter-3 FU-5: pin the help text so a contributor cannot
     silently re-add `channels` to the valid-values hint.
-
-    Typer wraps long help text across lines and inserts box-drawing
-    chars at the gutters, so we collapse whitespace before matching.
     """
     import re
 
     result = runner.invoke(app, ["agent", "configure", "--help"])
     assert result.exit_code == 0
-    # Typer wraps help across lines with box-drawing chars at the
-    # column gutters and (under CI's color-enabled rendering) inserts
-    # ANSI escape sequences mid-text. Strip both, plus collapse
-    # whitespace, so the phrase survives line-wrapping AND coloring.
-    # Without ANSI stripping this assertion passes locally on a wide
-    # terminal but fails on CI's 80-col color-enabled output (#518 CI run).
-    flat = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", result.output)
-    flat = re.sub(r"[│╭╰─╮╯]", " ", flat)
-    flat = re.sub(r"\s+", " ", flat)
+    # Issue #524 disabled Rich help panels (rich_markup_mode=None on
+    # every Typer instance), so box-drawing chars should never appear
+    # here. We still collapse whitespace because Click wraps long
+    # option help across lines on an 80-col terminal.
+    assert not any(c in result.output for c in "╭╰│─╮╯"), (
+        "Rich help panel chars leaked into agent configure --help"
+    )
+    flat = re.sub(r"\s+", " ", result.output)
     assert "providers, identity, validate" in flat
     assert "deprecated" in flat.lower()

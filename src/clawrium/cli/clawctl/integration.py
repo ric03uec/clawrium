@@ -61,6 +61,7 @@ integration_app = typer.Typer(
     name="integration",
     help="External service integrations (Pattern A attachable).",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 
@@ -68,6 +69,7 @@ integration_registry_app = typer.Typer(
     name="registry",
     help="CRUD entrypoint for the integration registry.",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

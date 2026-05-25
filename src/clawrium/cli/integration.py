@@ -33,6 +33,7 @@ integration_app = typer.Typer(
     name="integration",
     help="Manage external service integrations (GitHub, Atlassian, etc.)",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 

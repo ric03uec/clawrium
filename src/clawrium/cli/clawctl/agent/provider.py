@@ -38,6 +38,7 @@ provider_app = typer.Typer(
     name="provider",
     help="Manage provider attachments on an agent.",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

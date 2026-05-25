@@ -69,6 +69,7 @@ agent_app = typer.Typer(
     name="agent",
     help="Manage AI agents in your fleet",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 
@@ -2857,6 +2858,7 @@ secret_app = typer.Typer(
     name="secret",
     help="Manage secrets for agents",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 
@@ -2923,6 +2925,7 @@ memory_app = typer.Typer(
     name="memory",
     help="Inspect and manage memory for memory-capable agents",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 
@@ -3006,6 +3009,7 @@ integration_app = typer.Typer(
     name="integration",
     help="Manage integrations assigned to agents",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 
@@ -3174,6 +3178,7 @@ registry_app = typer.Typer(
     name="registry",
     help="Browse available agent types",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 

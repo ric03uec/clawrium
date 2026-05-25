@@ -41,6 +41,7 @@ skill_app = typer.Typer(
     name="skill",
     help="Skills catalog (Pattern A attachable, read-only).",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 
@@ -48,6 +49,7 @@ skill_registry_app = typer.Typer(
     name="registry",
     help="Read-only entrypoint for the skill registry.",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

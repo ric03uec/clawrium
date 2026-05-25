@@ -45,6 +45,7 @@ agent_app = typer.Typer(
     name="agent",
     help="Manage AI assistant instances (agents).",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

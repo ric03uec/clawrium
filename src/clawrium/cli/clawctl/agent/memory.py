@@ -50,6 +50,7 @@ memory_app = typer.Typer(
     name="memory",
     help="Manage per-agent memory files.",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

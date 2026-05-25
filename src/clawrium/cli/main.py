@@ -33,6 +33,7 @@ app = typer.Typer(
     name="clm",
     help="Clawrium - Manage your AI assistant fleet. Use 'clm agent' for agent management.",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

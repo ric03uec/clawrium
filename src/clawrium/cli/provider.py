@@ -46,6 +46,7 @@ provider_app = typer.Typer(
     name="provider",
     help="Manage inference providers (LLM APIs)",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 

@@ -30,6 +30,7 @@ secret_app = typer.Typer(
     name="secret",
     help="Manage secrets for agents",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 

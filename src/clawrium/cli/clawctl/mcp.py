@@ -19,6 +19,7 @@ mcp_app = typer.Typer(
     name="mcp",
     help="MCP servers (Pattern A attachable; placeholder).",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 
@@ -26,6 +27,7 @@ mcp_registry_app = typer.Typer(
     name="registry",
     help="Read-only entrypoint for the MCP registry (placeholder).",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

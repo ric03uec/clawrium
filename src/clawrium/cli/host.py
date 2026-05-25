@@ -51,12 +51,14 @@ host_app = typer.Typer(
     name="host",
     help="Manage hosts in your fleet (infrastructure management)",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 address_app = typer.Typer(
     name="address",
     help="Manage multiple addresses for a host",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 host_app.add_typer(address_app, name="address")
 

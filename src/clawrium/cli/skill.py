@@ -47,6 +47,7 @@ skill_app = typer.Typer(
     name="skill",
     help="Browse the clawrium-managed skills catalog.",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 

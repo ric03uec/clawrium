@@ -27,6 +27,7 @@ service_app = typer.Typer(
     name="service",
     help="System-level lifecycle ops (init, start, stop, snapshot).",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

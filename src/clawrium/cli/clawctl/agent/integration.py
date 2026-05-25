@@ -34,6 +34,7 @@ integration_app = typer.Typer(
     name="integration",
     help="Manage integration attachments on an agent.",
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 

@@ -89,6 +89,7 @@ agent_skill_app = typer.Typer(
     name="skill",
     help="Manage skills installed on an agent.",
     no_args_is_help=True,
+    rich_markup_mode=None,
 )
 
 

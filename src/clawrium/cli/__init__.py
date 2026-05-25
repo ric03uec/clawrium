@@ -34,6 +34,7 @@ app = typer.Typer(
         "Run 'clawctl <group> --help' for group-specific options."
     ),
     no_args_is_help=True,
+    rich_markup_mode=None,
     add_completion=False,
 )
 
