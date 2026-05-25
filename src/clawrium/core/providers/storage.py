@@ -278,11 +278,13 @@ def validate_ollama_url(url: str) -> str:
 
     # ATX iter-2 W-SEC-1: reject characters that could break out of a
     # YAML/TOML/shell scalar in downstream template rendering. The
-    # hermes config template renders this URL into a YAML double-quoted
-    # scalar; a `"` or `\` (which urlparse accepts) would produce
-    # malformed YAML and DoS the Ansible push step on every sync.
-    # Whitespace and control characters are not valid in URLs per
-    # RFC 3986 and are rejected here for defense in depth.
+    # hermes config template renders this URL via yaml_quote() into a
+    # single-quoted YAML scalar (the macro neutralizes the `'` escape
+    # internally). The blocklist here is defense-in-depth in case
+    # yaml_quote() is removed or bypassed in a future refactor — `"`
+    # and `\` would be the dangerous characters in a double-quoted
+    # scalar; whitespace and control characters are not valid in URLs
+    # per RFC 3986 regardless of scalar style. ATX iter-3 S3.
     if any(ch in url for ch in ('"', "\\", "\n", "\r", "\t")):
         raise InvalidOllamaUrlError(
             "URL must not contain quote, backslash, or whitespace characters"

@@ -1017,6 +1017,10 @@ def sync_agent(
     # VALIDATE or earlier) can advance the agent the rest of the way.
     # Idempotent operations inside the walk swallow InvalidTransitionError
     # when state is already past a given stage. ATX iter-2 B-ITER2-1.
+    # Pre-initialize `walk_completed` so a future refactor adding an
+    # early-return path can't cause a NameError at the PENDING gate.
+    # ATX iter-3 S2.
+    walk_completed = False
     if provider_name_for_state and state != OnboardingState.READY:
         from clawrium.core.onboarding import (
             InvalidTransitionError,
@@ -1119,9 +1123,6 @@ def sync_agent(
         walk_completed = True
         state = _OS.VALIDATE  # furthest the pre-configure walk advances
 
-    else:
-        walk_completed = False
-
     if state == OnboardingState.PENDING and not walk_completed:
         raise LifecycleError(
             f"Cannot sync {agent_key}: onboarding not started (state={state_value}). "
@@ -1179,14 +1180,34 @@ def sync_agent(
     # sync; state can be repaired by a subsequent sync after manual
     # configure of stuck stages).
     from clawrium.core.onboarding import (
+        InvalidTransitionError as _ITE_post,
         OnboardingState as _OS_post,
         transition_state as _transition_post,
     )
 
     try:
         _transition_post(hostname, agent_key, _OS_post.READY)
-    except Exception:
+    except _ITE_post:
+        # State was already past VALIDATE in an unexpected way (e.g., a
+        # concurrent sync raced us through the walk), or the agent was
+        # stuck mid-walk at PROVIDERS/IDENTITY/CHANNELS. The remote is
+        # configured (configure_agent succeeded); the local state
+        # pointer just couldn't be advanced. Operator will see the agent
+        # in a non-READY state and can re-sync. ATX iter-3 W-NEW-1:
+        # narrow catch so storage failures (below) surface as warnings
+        # instead of silent success.
         pass
+    except Exception as exc:
+        # Storage / IO failure writing the READY pointer. Don't fail the
+        # sync — configure_agent already succeeded so the agent IS
+        # configured — but surface the gap so the operator knows a
+        # re-sync is needed before `clawctl agent start` will pass.
+        # ATX iter-3 W-NEW-1.
+        emit(
+            "sync",
+            f"warning: could not write state=READY to hosts.json: {exc}. "
+            f"Agent is configured remotely; re-run sync to commit state.",
+        )
 
     emit("sync", f"Sync complete for {agent_key}")
 
