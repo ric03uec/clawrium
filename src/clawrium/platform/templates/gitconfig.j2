@@ -1,12 +1,15 @@
+{# Defense-in-depth: strip CR/LF from every interpolated value so a stored
+   value that bypassed the CLI's _sanitize_git_field cannot inject a new
+   gitconfig section (e.g. [credential] helper=/evil). #}
 [user]
-    name = {{ git.user_name }}
-    email = {{ git.user_email }}
+    name = {{ (git.user_name | default('', true) | string) | replace('\n', ' ') | replace('\r', '') }}
+    email = {{ (git.user_email | default('', true) | string) | replace('\n', ' ') | replace('\r', '') }}
 
 [init]
-    defaultBranch = {{ git.init_default_branch | default('main', true) }}
+    defaultBranch = {{ (git.init_default_branch | default('main', true) | string) | replace('\n', ' ') | replace('\r', '') }}
 
 [pull]
-    rebase = {{ git.pull_rebase | default('false', true) }}
+    rebase = {{ (git.pull_rebase | default('false', true) | string) | replace('\n', ' ') | replace('\r', '') }}
 
 [core]
-    editor = {{ git.core_editor | default('vim', true) }}
+    editor = {{ (git.core_editor | default('vim', true) | string) | replace('\n', ' ') | replace('\r', '') }}

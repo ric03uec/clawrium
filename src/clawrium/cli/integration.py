@@ -66,6 +66,18 @@ def _mask_credential(value: str | None) -> str:
     return f"{value[:4]}...{value[-4:]}"
 
 
+def _sanitize_git_field(value: str) -> str:
+    """Strip control characters that would inject gitconfig sections.
+
+    A value like `Alice\n[core]\n    hooksPath = /tmp/evil` rendered into
+    ~/.gitconfig opens a [core] section that git executes on every command.
+    Strip CR/LF/NUL at ingest so the stored secret can never carry an
+    injection payload — the template still defends-in-depth with a Jinja
+    replace filter, but ingest is the right place to make values safe.
+    """
+    return value.replace("\r", "").replace("\n", " ").replace("\x00", "")
+
+
 def _local_git_config(key: str) -> str:
     """Read a value from the operator's local --global git config.
 
@@ -82,7 +94,10 @@ def _local_git_config(key: str) -> str:
         return ""
     if result.returncode != 0:
         return ""
-    return result.stdout.strip()
+    # First line only — gitconfig values can technically be multi-line via
+    # include directives, but for identity fields we want exactly one line.
+    first_line = result.stdout.splitlines()[0] if result.stdout else ""
+    return first_line.strip()
 
 
 # Default values surfaced at prompt-time for the `git` integration.
@@ -280,6 +295,8 @@ def add(
             raise typer.Exit(code=1)
 
         if value:
+            if integration_type == "git":
+                value = _sanitize_git_field(value)
             credentials_to_store.append((key, value, description))
 
     # Build integration record
@@ -541,6 +558,8 @@ def credentials(
             raise typer.Exit(code=1)
 
         if value:
+            if integration_type == "git":
+                value = _sanitize_git_field(value)
             credentials_to_store.append((key, value, description))
 
     # Store updated credentials

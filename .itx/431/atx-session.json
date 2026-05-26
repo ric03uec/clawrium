@@ -1,0 +1,26 @@
+{
+  "transport": "cli",
+  "pr": 534,
+  "iterations": [
+    {
+      "iteration": 1,
+      "commit_sha": "f04bc1bab7fe8bb30ad1d7e820e54cb8e4842b4d",
+      "started_at": "2026-05-26T05:59:58Z",
+      "completed_at": "2026-05-26T06:09:21Z",
+      "review_cost_usd": 3.46,
+      "duration_ms": 563207,
+      "rating": 2,
+      "blockers": [
+        {"id": "B1", "domain": "security", "issue": "gitconfig section injection via unsanitized newline in any of the 5 git fields", "status": "fixed", "resolution": "CLI _sanitize_git_field strips CR/LF/NUL at ingest + template adds replace newline/cr defense-in-depth"},
+        {"id": "B2", "domain": "cli-ux", "issue": "multiple git integrations attached - silent last-wins overwrite of ~/.gitconfig", "status": "fixed", "resolution": "singleton guard in cli/agent.py integrations_add"},
+        {"id": "B3", "domain": "registry/playbooks", "issue": "duplicate of B1 newline injection", "status": "fixed", "resolution": "subsumed by B1 fixes"},
+        {"id": "B4", "domain": "core-lifecycle", "issue": "PR allegedly deletes provider_attachments.py and lifecycle.py multi-provider", "status": "false-positive", "resolution": "diff artifact from stale branch base — rebased onto current origin/main, clean diff confirms no such changes"}
+      ],
+      "warnings_addressed": [
+        "gitconfig mode 0644 to 0600 in all three playbooks",
+        "git added to test_types_lists_all_integrations",
+        "_local_git_config returns first line only"
+      ]
+    }
+  ]
+}

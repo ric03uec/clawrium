@@ -94,7 +94,7 @@
         dest: "/home/{{ agent_name }}/.gitconfig"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
-        mode: "0644"
+        mode: "0600"
       become: yes
       become_user: "{{ agent_name }}"
       when: integrations is defined

@@ -24,6 +24,7 @@ class TestIntegrationTypes:
         assert "atlassian" in result.output
         assert "linear" in result.output
         assert "notion" in result.output
+        assert "git" in result.output
 
 
 class TestIntegrationList:
@@ -240,6 +241,47 @@ class TestIntegrationAddGit:
         assert "main" in result.output
         assert "false" in result.output
         assert "vim" in result.output
+
+
+class TestIntegrationAddGitSanitization:
+    """Newlines in git fields must never reach storage (#534 ATX iter-1 B1)."""
+
+    def test_newline_in_user_name_is_flattened_at_storage(self, isolated_config):
+        isolated_config.mkdir(parents=True, exist_ok=True)
+
+        def fake_run(cmd, *args, **kwargs):
+            class R:
+                returncode = 0
+                stdout = ""
+            return R()
+
+        # typer.prompt reads a line via input(); the test runner supplies
+        # one credential per newline. We cannot inject a literal \n into a
+        # prompt response, but the sanitizer also strips \r — and bash-style
+        # paste exploits commonly use \r. Mock the prompt return directly.
+        with patch("clawrium.cli.integration.subprocess.run", side_effect=fake_run), \
+             patch(
+                 "clawrium.cli.integration.typer.prompt",
+                 side_effect=[
+                     "Alice\r[credential]\thelper=/evil",
+                     "alice@example.com",
+                     "main",
+                     "false",
+                     "vim",
+                 ],
+             ):
+            result = runner.invoke(
+                app, ["integration", "add", "g1", "--type", "git"], input=""
+            )
+
+        assert result.exit_code == 0, result.output
+        from clawrium.core.integrations import get_integration_credentials
+        stored = get_integration_credentials("g1")["GIT_USER_NAME"]
+        assert "\r" not in stored
+        assert "\n" not in stored
+        # The injection token is no longer a section header in the rendered
+        # template (because the literal newline is gone) — kept literal here.
+        assert stored.startswith("Alice")
 
 
 class TestIntegrationShow:

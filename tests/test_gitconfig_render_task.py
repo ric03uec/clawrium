@@ -67,7 +67,7 @@ def test_gitconfig_render_task_file_attrs(configure_tasks):
     block = task["ansible.builtin.template"]
     assert block["owner"] == "{{ agent_name }}", f"{claw}: owner mismatch"
     assert block["group"] == "{{ agent_name }}", f"{claw}: group mismatch"
-    assert block["mode"] == "0644", f"{claw}: mode mismatch"
+    assert block["mode"] == "0600", f"{claw}: mode mismatch (should be 0600 since `gh auth setup-git` later appends credential.helper)"
 
 
 def test_gitconfig_render_task_runs_as_agent_user(configure_tasks):
