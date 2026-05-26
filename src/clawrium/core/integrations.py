@@ -125,6 +125,36 @@ INTEGRATION_TYPES: dict[str, dict] = {
             },
         ],
     },
+    "git": {
+        "description": "Git commit identity and ~/.gitconfig defaults (forge-agnostic)",
+        "credentials": [
+            {
+                "key": "GIT_USER_NAME",
+                "description": "Commit author name (user.name)",
+                "required": True,
+            },
+            {
+                "key": "GIT_USER_EMAIL",
+                "description": "Commit author email (user.email)",
+                "required": True,
+            },
+            {
+                "key": "GIT_INIT_DEFAULT_BRANCH",
+                "description": "Default branch for new repos (init.defaultBranch)",
+                "required": False,
+            },
+            {
+                "key": "GIT_PULL_REBASE",
+                "description": "Whether `git pull` rebases (pull.rebase: true/false)",
+                "required": False,
+            },
+            {
+                "key": "GIT_CORE_EDITOR",
+                "description": "Editor for commit messages (core.editor)",
+                "required": False,
+            },
+        ],
+    },
 }
 
 

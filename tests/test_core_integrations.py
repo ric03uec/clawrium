@@ -115,7 +115,7 @@ class TestIntegrationTypes:
 
     def test_integration_types_has_expected_types(self):
         """INTEGRATION_TYPES contains expected integration types."""
-        expected_types = {"github", "gitlab", "atlassian", "linear", "notion"}
+        expected_types = {"github", "gitlab", "atlassian", "linear", "notion", "git"}
         assert set(INTEGRATION_TYPES.keys()) == expected_types
 
     def test_each_type_has_description_and_credentials(self):
@@ -130,6 +130,38 @@ class TestIntegrationTypes:
         github = INTEGRATION_TYPES["github"]
         keys = [c["key"] for c in github["credentials"]]
         assert "GITHUB_TOKEN" in keys
+
+    def test_git_integration_exposes_five_fields_with_required_flags(self):
+        """git integration declares the five fields specified in #531."""
+        git = INTEGRATION_TYPES["git"]
+        keys = [c["key"] for c in git["credentials"]]
+        assert keys == [
+            "GIT_USER_NAME",
+            "GIT_USER_EMAIL",
+            "GIT_INIT_DEFAULT_BRANCH",
+            "GIT_PULL_REBASE",
+            "GIT_CORE_EDITOR",
+        ]
+
+    def test_git_integration_required_fields_are_only_user_name_and_email(self):
+        """Only identity fields are required; the other three default at render time."""
+        git = INTEGRATION_TYPES["git"]
+        required_keys = {
+            c["key"] for c in git["credentials"] if c.get("required", False)
+        }
+        assert required_keys == {"GIT_USER_NAME", "GIT_USER_EMAIL"}
+
+    def test_other_integration_types_do_not_expose_git_fields(self):
+        """The five GIT_* keys live only on the git integration."""
+        git_keys = {"GIT_USER_NAME", "GIT_USER_EMAIL", "GIT_INIT_DEFAULT_BRANCH",
+                    "GIT_PULL_REBASE", "GIT_CORE_EDITOR"}
+        for type_name, config in INTEGRATION_TYPES.items():
+            if type_name == "git":
+                continue
+            other_keys = {c["key"] for c in config["credentials"]}
+            assert not (other_keys & git_keys), (
+                f"{type_name} unexpectedly carries git fields: {other_keys & git_keys}"
+            )
 
     def test_atlassian_has_required_credentials(self):
         """Atlassian integration requires URL, email, and token."""

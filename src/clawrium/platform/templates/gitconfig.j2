@@ -1,0 +1,12 @@
+[user]
+    name = {{ git.user_name }}
+    email = {{ git.user_email }}
+
+[init]
+    defaultBranch = {{ git.init_default_branch | default('main', true) }}
+
+[pull]
+    rebase = {{ git.pull_rebase | default('false', true) }}
+
+[core]
+    editor = {{ git.core_editor | default('vim', true) }}

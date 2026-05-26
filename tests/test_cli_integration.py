@@ -133,6 +133,115 @@ class TestIntegrationAdd:
         assert "already exists" in result.output.lower()
 
 
+class TestIntegrationAddGit:
+    """Tests for `clm integration add --type git` (#531)."""
+
+    def _run_git_add(self, name: str, input_text: str):
+        return runner.invoke(
+            app, ["integration", "add", name, "--type", "git"], input=input_text
+        )
+
+    def test_git_add_prefills_identity_from_local_git_config(self, isolated_config):
+        """Identity defaults shell out to `git config --global` and accept on Enter."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+
+        def fake_run(cmd, *args, **kwargs):
+            assert cmd[:3] == ["git", "config", "--global"]
+            stdout_map = {"user.name": "Alice Local\n", "user.email": "alice@local\n"}
+            class R:
+                returncode = 0
+                stdout = stdout_map.get(cmd[3], "")
+            return R()
+
+        with patch("clawrium.cli.integration.subprocess.run", side_effect=fake_run):
+            # Press Enter for all five prompts → accept defaults.
+            result = self._run_git_add("my-git", "\n\n\n\n\n")
+
+        assert result.exit_code == 0, result.output
+        from clawrium.core.integrations import get_integration_credentials
+        creds = get_integration_credentials("my-git")
+        assert creds["GIT_USER_NAME"] == "Alice Local"
+        assert creds["GIT_USER_EMAIL"] == "alice@local"
+        assert creds["GIT_INIT_DEFAULT_BRANCH"] == "main"
+        assert creds["GIT_PULL_REBASE"] == "false"
+        assert creds["GIT_CORE_EDITOR"] == "vim"
+
+    def test_git_add_handles_missing_local_git_config(self, isolated_config):
+        """Missing/erroring `git config` falls back to empty identity prompts.
+
+        The user types identity values; static defaults still apply when Enter
+        is pressed for optional fields.
+        """
+        isolated_config.mkdir(parents=True, exist_ok=True)
+
+        class FailR:
+            returncode = 1
+            stdout = ""
+
+        with patch(
+            "clawrium.cli.integration.subprocess.run",
+            side_effect=FileNotFoundError("git not installed"),
+        ):
+            # Provide identity then accept defaults for the three optionals.
+            result = self._run_git_add(
+                "my-git", "Bob\nbob@example.com\n\n\n\n"
+            )
+
+        assert result.exit_code == 0, result.output
+        from clawrium.core.integrations import get_integration_credentials
+        creds = get_integration_credentials("my-git")
+        assert creds["GIT_USER_NAME"] == "Bob"
+        assert creds["GIT_USER_EMAIL"] == "bob@example.com"
+        assert creds["GIT_INIT_DEFAULT_BRANCH"] == "main"
+        assert creds["GIT_PULL_REBASE"] == "false"
+        assert creds["GIT_CORE_EDITOR"] == "vim"
+        # Suppress unused-class warnings from linters.
+        _ = FailR
+
+    def test_git_add_operator_override_persists(self, isolated_config):
+        """Operator-supplied non-default values are stored verbatim."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+
+        def fake_run(cmd, *args, **kwargs):
+            class R:
+                returncode = 0
+                stdout = ""
+            return R()
+
+        with patch("clawrium.cli.integration.subprocess.run", side_effect=fake_run):
+            result = self._run_git_add(
+                "my-git", "Carol\ncarol@example.com\ntrunk\ntrue\nnano\n"
+            )
+
+        assert result.exit_code == 0, result.output
+        from clawrium.core.integrations import get_integration_credentials
+        creds = get_integration_credentials("my-git")
+        assert creds["GIT_USER_NAME"] == "Carol"
+        assert creds["GIT_USER_EMAIL"] == "carol@example.com"
+        assert creds["GIT_INIT_DEFAULT_BRANCH"] == "trunk"
+        assert creds["GIT_PULL_REBASE"] == "true"
+        assert creds["GIT_CORE_EDITOR"] == "nano"
+
+    def test_git_add_static_defaults_shown_in_prompt(self, isolated_config):
+        """Static defaults (`main`, `false`, `vim`) are surfaced in the prompt text."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+
+        def fake_run(cmd, *args, **kwargs):
+            class R:
+                returncode = 0
+                stdout = "Dora\n" if cmd[3] == "user.name" else "dora@example.com\n"
+            return R()
+
+        with patch("clawrium.cli.integration.subprocess.run", side_effect=fake_run):
+            result = self._run_git_add("my-git", "\n\n\n\n\n")
+
+        assert result.exit_code == 0, result.output
+        # typer renders defaults as `[default]` in the prompt.
+        assert "main" in result.output
+        assert "false" in result.output
+        assert "vim" in result.output
+
+
 class TestIntegrationShow:
     """Tests for 'clm integration show' command."""
 

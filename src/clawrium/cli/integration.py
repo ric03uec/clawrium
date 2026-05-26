@@ -1,5 +1,6 @@
 """Integration management commands for Clawrium."""
 
+import subprocess
 from datetime import datetime, timezone
 
 import typer
@@ -63,6 +64,55 @@ def _mask_credential(value: str | None) -> str:
     if len(value) <= 8:
         return "*" * len(value)
     return f"{value[:4]}...{value[-4:]}"
+
+
+def _local_git_config(key: str) -> str:
+    """Read a value from the operator's local --global git config.
+
+    Returns empty string if git is not installed or the key is unset.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", key],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+# Default values surfaced at prompt-time for the `git` integration.
+# Identity defaults shell out to the operator's local --global git config.
+# Static defaults match the template's Jinja default() fallbacks so that
+# accepting the prompt and skipping the prompt produce the same rendered file.
+_GIT_FIELD_DEFAULTS: dict[str, object] = {
+    "GIT_USER_NAME": lambda: _local_git_config("user.name"),
+    "GIT_USER_EMAIL": lambda: _local_git_config("user.email"),
+    "GIT_INIT_DEFAULT_BRANCH": "main",
+    "GIT_PULL_REBASE": "false",
+    "GIT_CORE_EDITOR": "vim",
+}
+
+
+def _resolve_default(integration_type: str, key: str) -> str:
+    """Resolve the prompt-time default for an integration credential.
+
+    Currently only the `git` type carries defaults. Returns empty string
+    when no default applies.
+    """
+    if integration_type != "git":
+        return ""
+    raw = _GIT_FIELD_DEFAULTS.get(key, "")
+    if callable(raw):
+        try:
+            return raw() or ""
+        except Exception:
+            return ""
+    return raw if isinstance(raw, str) else ""
 
 
 def _get_integration_types() -> list[str]:
@@ -212,11 +262,15 @@ def add(
         if not required:
             prompt_text += " (optional)"
 
+        default_value = _resolve_default(integration_type, key)
+
         try:
             if is_sensitive:
-                value = typer.prompt(prompt_text, hide_input=True, default="")
+                value = typer.prompt(
+                    prompt_text, hide_input=True, default=default_value
+                )
             else:
-                value = typer.prompt(prompt_text, default="")
+                value = typer.prompt(prompt_text, default=default_value)
         except (KeyboardInterrupt, EOFError):
             console.print("\nCancelled.")
             raise typer.Exit(code=1)
@@ -463,11 +517,17 @@ def credentials(
         elif not required:
             prompt_text += " (optional)"
 
+        default_value = (
+            "" if has_existing else _resolve_default(integration_type, key)
+        )
+
         try:
             if is_sensitive:
-                value = typer.prompt(prompt_text, hide_input=True, default="")
+                value = typer.prompt(
+                    prompt_text, hide_input=True, default=default_value
+                )
             else:
-                value = typer.prompt(prompt_text, default="")
+                value = typer.prompt(prompt_text, default=default_value)
         except (KeyboardInterrupt, EOFError):
             console.print("\nCancelled.")
             raise typer.Exit(code=1)
