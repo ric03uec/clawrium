@@ -284,6 +284,95 @@ class TestIntegrationAddGitSanitization:
         assert stored.startswith("Alice")
 
 
+class TestIntegrationCredentialsUpdateGitSanitization:
+    """The `credentials --update` path must also sanitize git fields (T1)."""
+
+    def test_update_strips_carriage_returns(self, isolated_config):
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        # Seed an existing git integration with clean values.
+        (isolated_config / INTEGRATIONS_FILE).write_text(
+            json.dumps([{"name": "g", "type": "git"}])
+        )
+        from clawrium.core.integrations import (
+            set_integration_credential,
+            get_integration_credentials,
+        )
+
+        set_integration_credential("g", "GIT_USER_NAME", "Alice")
+        set_integration_credential("g", "GIT_USER_EMAIL", "alice@example.com")
+
+        with patch(
+            "clawrium.cli.integration.typer.prompt",
+            side_effect=[
+                "Mallory\r[credential]\thelper=/evil",  # GIT_USER_NAME override
+                "",  # GIT_USER_EMAIL — keep existing
+                "",  # GIT_INIT_DEFAULT_BRANCH
+                "",  # GIT_PULL_REBASE
+                "",  # GIT_CORE_EDITOR
+            ],
+        ):
+            result = runner.invoke(
+                app, ["integration", "credentials", "g", "--update"]
+            )
+
+        assert result.exit_code == 0, result.output
+        stored = get_integration_credentials("g")["GIT_USER_NAME"]
+        assert "\r" not in stored
+        assert "\n" not in stored
+
+    def test_update_lf_newline_in_user_name(self, isolated_config):
+        """A literal \\n payload via mocked prompt is flattened (W4)."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        (isolated_config / INTEGRATIONS_FILE).write_text(
+            json.dumps([{"name": "g", "type": "git"}])
+        )
+        from clawrium.core.integrations import (
+            set_integration_credential,
+            get_integration_credentials,
+        )
+
+        set_integration_credential("g", "GIT_USER_NAME", "Alice")
+        set_integration_credential("g", "GIT_USER_EMAIL", "alice@example.com")
+
+        with patch(
+            "clawrium.cli.integration.typer.prompt",
+            side_effect=[
+                "Mallory\n[credential]\nhelper=/evil",
+                "",
+                "",
+                "",
+                "",
+            ],
+        ):
+            result = runner.invoke(
+                app, ["integration", "credentials", "g", "--update"]
+            )
+        assert result.exit_code == 0, result.output
+        stored = get_integration_credentials("g")["GIT_USER_NAME"]
+        assert "\n" not in stored
+
+
+def test_sanitize_git_field_strips_null_byte():
+    """Direct unit test for the NUL clause (T3)."""
+    from clawrium.cli.integration import _sanitize_git_field
+
+    assert _sanitize_git_field("Alice\x00[core]") == "Alice[core]"
+    assert _sanitize_git_field("\x00\x00\x00") == ""
+    # \r → "" (dropped), \n → " " (flattened), \x00 → "" (dropped)
+    assert _sanitize_git_field("Alice\rBob\nCarol\x00Dave") == "AliceBob CarolDave"
+
+
+def test_sanitize_git_field_strips_all_three():
+    """Comprehensive: CR removed, LF → space, NUL removed."""
+    from clawrium.cli.integration import _sanitize_git_field
+
+    out = _sanitize_git_field("a\rb\nc\x00d")
+    assert "\r" not in out
+    assert "\n" not in out
+    assert "\x00" not in out
+    assert "a" in out and "d" in out
+
+
 class TestIntegrationShow:
     """Tests for 'clm integration show' command."""
 

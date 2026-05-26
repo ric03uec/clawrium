@@ -144,6 +144,7 @@
         mode: "0600"
       become: yes
       become_user: "{{ agent_name }}"
+      no_log: true
       when: integrations is defined
       loop: "{{ integrations | dict2items | selectattr('value.type', 'equalto', 'git') | list }}"
       loop_control:

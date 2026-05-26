@@ -297,7 +297,12 @@ def add(
         if value:
             if integration_type == "git":
                 value = _sanitize_git_field(value)
-            credentials_to_store.append((key, value, description))
+            # Re-check truthiness post-sanitization: a NUL-only payload like
+            # '\\x00' is truthy before strip, empty after. Storing '' as a
+            # credential value would silently land an empty identity field
+            # in ~/.gitconfig (e.g. `name = `), which breaks every commit.
+            if value:
+                credentials_to_store.append((key, value, description))
 
     # Build integration record
     now = datetime.now(timezone.utc).isoformat()
@@ -560,7 +565,8 @@ def credentials(
         if value:
             if integration_type == "git":
                 value = _sanitize_git_field(value)
-            credentials_to_store.append((key, value, description))
+            if value:
+                credentials_to_store.append((key, value, description))
 
     # Store updated credentials
     for key, value, description in credentials_to_store:

@@ -70,6 +70,16 @@ def test_gitconfig_render_task_file_attrs(configure_tasks):
     assert block["mode"] == "0600", f"{claw}: mode mismatch (should be 0600 since `gh auth setup-git` later appends credential.helper)"
 
 
+def test_gitconfig_render_task_no_log(configure_tasks):
+    """PII (GIT_USER_NAME, GIT_USER_EMAIL) must not leak into ansible-runner logs."""
+    claw, tasks = configure_tasks
+    task = _find_gitconfig_task(tasks)
+    assert task.get("no_log") is True, (
+        f"{claw}: gitconfig render task must set `no_log: true` so the "
+        f"per-instance run log directory does not retain identity PII."
+    )
+
+
 def test_gitconfig_render_task_runs_as_agent_user(configure_tasks):
     claw, tasks = configure_tasks
     task = _find_gitconfig_task(tasks)

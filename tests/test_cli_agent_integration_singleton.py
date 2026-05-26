@@ -64,6 +64,10 @@ def test_second_git_attach_is_rejected(isolated_config):
     assert second.exit_code == 1, second.output
     assert "already has a git integration" in second.output.lower()
     assert "git-personal" in second.output
+    # The remediation hint must reference the actual command path the
+    # operator should run; a regression that drops the hint line must fail
+    # this assertion (W5).
+    assert "agent integration remove" in second.output
 
 
 def test_git_attach_does_not_block_non_git_types(isolated_config):
@@ -80,6 +84,37 @@ def test_git_attach_does_not_block_non_git_types(isolated_config):
 
     second = runner.invoke(app, ["agent", "integration", "add", "work", "gh"])
     assert second.exit_code == 0, second.output
+
+
+def test_singleton_enforced_at_core_layer_not_just_cli(isolated_config):
+    """Direct call to `add_agent_integration` (no CLI guard in path) must
+    still reject a second git attach. Iter-2 NB-1: enforcement moved into
+    the update_host closure inside core/integrations.py.
+    """
+    _seed(
+        isolated_config,
+        [
+            {"name": "g1", "type": "git"},
+            {"name": "g2", "type": "git"},
+        ],
+    )
+
+    from clawrium.core.integrations import (
+        add_agent_integration,
+        IntegrationSingletonViolation,
+    )
+
+    assert add_agent_integration("192.168.1.100", "opc-work", "g1") is True
+
+    try:
+        add_agent_integration("192.168.1.100", "opc-work", "g2")
+    except IntegrationSingletonViolation as e:
+        assert e.existing_name == "g1"
+    else:
+        raise AssertionError(
+            "core add_agent_integration must raise IntegrationSingletonViolation "
+            "on a second git-type attach (iter-2 NB-1)."
+        )
 
 
 def test_re_attaching_same_git_integration_is_idempotent(isolated_config):

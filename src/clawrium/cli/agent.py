@@ -3087,9 +3087,9 @@ def integrations_add(
     """
     from clawrium.core.integrations import (
         add_agent_integration,
-        get_agent_integrations,
         get_integration,
         IntegrationsFileCorruptedError,
+        IntegrationSingletonViolation,
     )
     from clawrium.core.secrets import AgentNotFoundError, get_installed_claw
 
@@ -3113,27 +3113,21 @@ def integrations_add(
         console.print("Use 'clm integration list' to see available integrations")
         raise typer.Exit(code=1)
 
-    # Singleton invariant for `git` integrations: the configure playbook
-    # writes ~/.gitconfig once per assigned git integration, last-write-wins.
-    # Reject the second attach with a clear remediation rather than letting
-    # the operator land in a silent overwrite.
-    if integration.get("type") == "git":
-        existing = get_agent_integrations(hostname, name)
-        for other_name in existing:
-            other = get_integration(other_name)
-            if other and other.get("type") == "git" and other_name != integration_name:
-                console.print(
-                    f"[red]Error:[/red] Agent '{rich_escape(name)}' already has a "
-                    f"git integration assigned ('{rich_escape(other_name)}'). "
-                    "Only one git integration per agent is supported."
-                )
-                console.print(
-                    "[dim]Hint: detach the existing one first with "
-                    f"'clm agent integration remove {rich_escape(name)} {rich_escape(other_name)}'.[/dim]"
-                )
-                raise typer.Exit(code=1)
+    # Singleton enforcement happens atomically inside `add_agent_integration`'s
+    # update_host closure (#534 iter-2 NB-1). The CLI just catches and renders
+    # the exception. This closes both the TOCTOU window a CLI pre-check would
+    # leave open AND the direct-API bypass path (e.g. hosts.json edits).
+    try:
+        added = add_agent_integration(hostname, name, integration_name)
+    except IntegrationSingletonViolation as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print(
+            "[dim]Hint: detach the existing one first with "
+            f"'clm agent integration remove {rich_escape(claw_name)} {rich_escape(e.existing_name)}'.[/dim]"
+        )
+        raise typer.Exit(code=1)
 
-    if add_agent_integration(hostname, name, integration_name):
+    if added:
         console.print(
             f"[green]Integration '{rich_escape(integration_name)}' assigned to '{rich_escape(name)}'[/green]"
         )

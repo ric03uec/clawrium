@@ -41,7 +41,13 @@ __all__ = [
     "InvalidIntegrationTypeError",
     "InvalidIntegrationNameError",
     "IntegrationInUseError",
+    "IntegrationSingletonViolation",
+    "SINGLETON_INTEGRATION_TYPES",
 ]
+
+# Integration types that cannot be attached more than once per agent.
+# Enforced atomically inside `add_agent_integration`'s update_host closure.
+SINGLETON_INTEGRATION_TYPES = frozenset({"git"})
 
 INTEGRATIONS_FILE = "integrations.json"
 
@@ -186,6 +192,16 @@ class IntegrationInUseError(Exception):
     """Raised when trying to remove an integration that is assigned to agents."""
 
     pass
+
+
+class IntegrationSingletonViolation(Exception):
+    """Raised when a singleton-typed integration (e.g. `git`) would be attached
+    a second time to the same agent. Caught by the CLI to surface a remediation
+    hint pointing at the existing integration."""
+
+    def __init__(self, message: str, existing_name: str):
+        super().__init__(message)
+        self.existing_name = existing_name
 
 
 def validate_integration_name(name: str | None) -> None:
@@ -694,6 +710,18 @@ def add_agent_integration(host: str, claw_name: str, integration_name: str) -> b
 
     hostname = host_data["hostname"]
     added = False
+    singleton_conflict: list[str] = []  # list-as-cell so closure can write
+
+    # Cache the integration map once outside the closure — repeated
+    # load_integrations() inside the closure would hit disk under lock for
+    # every assigned integration on the agent.
+    target_type = None
+    if integration_name:
+        target = next(
+            (i for i in load_integrations() if i.get("name") == integration_name),
+            None,
+        )
+        target_type = (target or {}).get("type")
 
     def updater(h: dict) -> dict:
         nonlocal added
@@ -711,7 +739,19 @@ def add_agent_integration(host: str, claw_name: str, integration_name: str) -> b
             current = []
 
         if integration_name in current:
-            return h  # Already exists
+            return h  # Already exists — idempotent, not a singleton conflict
+
+        # Singleton enforcement: types in SINGLETON_INTEGRATION_TYPES may not be
+        # attached more than once per agent. Executed inside the update_host
+        # closure so the check shares the `_hosts_lock` acquisition with the
+        # write — closes the TOCTOU window a CLI-layer guard could not.
+        if target_type in SINGLETON_INTEGRATION_TYPES:
+            integ_map = {i.get("name"): i for i in load_integrations()}
+            for other_name in current:
+                other = integ_map.get(other_name) or {}
+                if other.get("type") == target_type:
+                    singleton_conflict.append(other_name)
+                    return h  # No-op; caller raises IntegrationSingletonViolation
 
         current.append(integration_name)
         agent_data["integrations"] = current
@@ -719,6 +759,14 @@ def add_agent_integration(host: str, claw_name: str, integration_name: str) -> b
         return h
 
     update_host(hostname, updater)
+
+    if singleton_conflict:
+        raise IntegrationSingletonViolation(
+            f"Agent '{claw_name}' already has a {target_type} integration assigned "
+            f"('{singleton_conflict[0]}'). Only one {target_type} integration per agent is supported.",
+            existing_name=singleton_conflict[0],
+        )
+
     return added
 
 
