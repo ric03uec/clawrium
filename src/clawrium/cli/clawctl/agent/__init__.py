@@ -72,7 +72,9 @@ agent_app.command(name="port-forward", help="Forward a local port to the agent."
     _port_forward.port_forward
 )
 agent_app.command(
-    name="exec", help="Execute a command against the agent's native CLI on its host."
+    name="exec",
+    help="Execute a command against the agent's native CLI on its host.",
+    context_settings=_exec.EXEC_CONTEXT_SETTINGS,
 )(_exec.exec_cmd)
 
 

@@ -23,7 +23,9 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import re
 import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -44,6 +46,17 @@ _REGISTRY_DIR = Path(__file__).parent.parent / "platform" / "registry"
 # subcommands (e.g. an openclaw config dump) but short enough that a
 # hung remote can't pin the local CLI indefinitely.
 _DEFAULT_TIMEOUT = 120
+
+# Same shape playbooks enforce server-side; the Python-side check is
+# defense-in-depth so non-CLI callers (or a future playbook edit that
+# drops the regex task) cannot smuggle an arbitrary string into Ansible
+# extravars (ATX iter-1 W3).
+_AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+# `log_dir` directory-name component must contain only filename-safe
+# characters. A tampered hosts.json alias of `../tmp/evil` would otherwise
+# escape the logs root (ATX iter-1 W4).
+_LOG_DIR_SAFE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 class AgentExecError(Exception):
@@ -68,6 +81,11 @@ def _cleanup_artifacts(log_dir: Path) -> None:
                 shutil.rmtree(target)
             except OSError as e:
                 logger.warning("Failed to clean up %s: %s", target, e)
+    # Drop the now-empty per-run directory (ATX iter-1 W8).
+    try:
+        log_dir.rmdir()
+    except OSError:
+        pass
 
 
 def _build_inventory(host: dict, ssh_key: Path, extra_vars: dict) -> dict:
@@ -91,7 +109,7 @@ def _parse_events(result) -> tuple[str, str, int | None]:
     stderr = ""
     rc: int | None = None
     for event in result.events:
-        if event.get("event") not in {"runner_on_ok", "runner_item_on_ok"}:
+        if event.get("event") != "runner_on_ok":
             continue
         msg = event.get("event_data", {}).get("res", {}).get("msg")
         if not isinstance(msg, str):
@@ -153,6 +171,8 @@ def run_agent_exec(
         )
     if not isinstance(cmd_argv, list) or not cmd_argv:
         raise AgentExecError("cmd_argv must be a non-empty list")
+    if not _AGENT_NAME_RE.match(agent_name):
+        raise AgentExecError(f"invalid agent_name: {agent_name!r}")
 
     playbook = _playbook_path(claw_type)
     if not playbook.exists():
@@ -179,8 +199,19 @@ def run_agent_exec(
     try:
         inventory = _build_inventory(host, ssh_key, extra_vars)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        host_display = host.get("alias") or host.get("key_id") or host["hostname"]
-        log_dir = _logs_dir() / f"exec-{claw_type}-{host_display}-{timestamp}"
+        raw_display = host.get("alias") or host.get("key_id") or host["hostname"]
+        # Defense-in-depth: drop anything that's not filename-safe before
+        # interpolating into the directory name (ATX iter-1 W4).
+        host_display = (
+            raw_display if _LOG_DIR_SAFE_RE.match(raw_display or "") else "host"
+        )
+        # Collision suffix: timestamp resolution is 1s; two concurrent
+        # calls would otherwise share private_data_dir and `rmtree`
+        # nukes both (ATX iter-1 W1).
+        suffix = uuid.uuid4().hex[:8]
+        log_dir = (
+            _logs_dir() / f"exec-{claw_type}-{host_display}-{timestamp}-{suffix}"
+        )
         log_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(log_dir, 0o700)
     except OSError as e:

@@ -88,7 +88,7 @@ def fleet_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                         "providers": {"anthropic": {"model": "claude-opus"}},
                         "skills": ["clawrium/tdd"],
                     },
-                }
+                },
             },
         },
         {

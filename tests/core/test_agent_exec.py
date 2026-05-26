@@ -163,6 +163,89 @@ def test_missing_host(monkeypatch, patched_env):
     assert "not found" in stderr
 
 
+def test_invalid_agent_name_raises(patched_env):
+    with pytest.raises(agent_exec.AgentExecError):
+        agent_exec.run_agent_exec("10.0.0.1", "Bad Name!", "openclaw", ["x"])
+
+
+@pytest.mark.parametrize("claw_type", ["hermes", "zeroclaw"])
+def test_run_agent_exec_per_type_success(monkeypatch, patched_env, claw_type):
+    captured = {}
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return _make_result(
+            [
+                _ok_event(
+                    "EXEC_STDOUT=" + base64.b64encode(b"v1.0").decode()
+                ),
+                _ok_event("EXEC_STDERR=" + base64.b64encode(b"").decode()),
+                _ok_event("EXEC_RC=0"),
+            ]
+        )
+
+    monkeypatch.setattr(agent_exec.ansible_runner, "run", fake_run)
+    stdout, stderr, rc = agent_exec.run_agent_exec(
+        "10.0.0.1", "agent", claw_type, ["--version"]
+    )
+    assert (stdout, rc) == ("v1.0", 0)
+    assert claw_type in captured["playbook"]
+
+
+def test_runner_on_failed_with_msg(monkeypatch, patched_env):
+    failed = {
+        "event": "runner_on_failed",
+        "event_data": {"res": {"msg": "binary not found"}},
+    }
+    monkeypatch.setattr(
+        agent_exec.ansible_runner,
+        "run",
+        lambda **kw: _make_result([failed], status="failed"),
+    )
+    stdout, stderr, rc = agent_exec.run_agent_exec(
+        "10.0.0.1", "wolf-i", "openclaw", ["x"]
+    )
+    assert rc == 255
+    assert "binary not found" in stderr
+
+
+def test_runner_on_failed_with_stderr(monkeypatch, patched_env):
+    failed = {
+        "event": "runner_on_failed",
+        "event_data": {"res": {"stderr": "permission denied"}},
+    }
+    monkeypatch.setattr(
+        agent_exec.ansible_runner,
+        "run",
+        lambda **kw: _make_result([failed], status="failed"),
+    )
+    stdout, stderr, rc = agent_exec.run_agent_exec(
+        "10.0.0.1", "wolf-i", "openclaw", ["x"]
+    )
+    assert rc == 255
+    assert "permission denied" in stderr
+
+
+def test_log_dir_uses_uuid_suffix(monkeypatch, patched_env):
+    captured = {}
+
+    def fake_run(**kw):
+        captured["pd"] = kw["private_data_dir"]
+        return _make_result(
+            [
+                _ok_event("EXEC_STDOUT=" + base64.b64encode(b"").decode()),
+                _ok_event("EXEC_STDERR=" + base64.b64encode(b"").decode()),
+                _ok_event("EXEC_RC=0"),
+            ]
+        )
+
+    monkeypatch.setattr(agent_exec.ansible_runner, "run", fake_run)
+    agent_exec.run_agent_exec("10.0.0.1", "wolf-i", "openclaw", ["x"])
+    # Path ends in `-<8 hex chars>`
+    suffix = captured["pd"].rsplit("-", 1)[-1]
+    assert len(suffix) == 8 and all(c in "0123456789abcdef" for c in suffix)
+
+
 def test_missing_rc_marker(monkeypatch, patched_env):
     monkeypatch.setattr(
         agent_exec.ansible_runner,

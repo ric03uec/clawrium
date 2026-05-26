@@ -28,7 +28,11 @@ import pytest
 import typer
 import yaml
 
-from clawrium.cli.output._sanitize import _CONTROL_AND_BIDI_RE, sanitize
+from clawrium.cli.output._sanitize import (
+    _CONTROL_AND_BIDI_RE,
+    sanitize,
+    sanitize_passthrough,
+)
 from clawrium.cli.output.errors import emit_error
 from clawrium.cli.output.json_yaml import dump_json, dump_name, dump_yaml
 from clawrium.cli.output.status import format_status
@@ -97,6 +101,31 @@ def test_sanitize_mixed_vector() -> None:
     assert "\x1b" not in cleaned
     assert RLO not in cleaned
     assert "red text" in cleaned
+
+
+BIDI_ONLY = [
+    chr(0x202E), chr(0x2066), chr(0x2067), chr(0x2068), chr(0x2069),
+    chr(0x200E), chr(0x200F), chr(0x200B), chr(0x200C), chr(0x200D),
+    chr(0x2028), chr(0x2029), chr(0x2060), chr(0xFEFF), chr(0x061C),
+    chr(0x202A), chr(0x202B), chr(0x202C), chr(0x202D),
+]
+
+
+@pytest.mark.parametrize("dangerous", BIDI_ONLY)
+def test_sanitize_passthrough_strips_bidi(dangerous: str) -> None:
+    cleaned = sanitize_passthrough(f"alpha{dangerous}omega")
+    assert dangerous not in cleaned
+    assert "alpha" in cleaned and "omega" in cleaned
+
+
+def test_sanitize_passthrough_preserves_whitespace() -> None:
+    s = "line1\nline2\tcol\rend"
+    assert sanitize_passthrough(s) == s
+
+
+def test_sanitize_passthrough_passes_through_safe_strings() -> None:
+    safe = "OpenClaw 2026.3.13 (61d171a)\n"
+    assert sanitize_passthrough(safe) is safe
 
 
 def test_source_is_pure_ascii() -> None:
