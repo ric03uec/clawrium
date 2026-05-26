@@ -42,6 +42,9 @@ clawctl agent create <agent-name> --type openclaw --host mybox
 clawctl agent configure <agent-name>
 clawctl agent start <agent-name>
 
+# Run a command against the agent's native CLI on its host
+clawctl agent exec <agent-name> -- --version
+
 # Install a skill onto the agent (catalog: skills/)
 clawctl skill registry get
 clawctl skill registry describe clawrium/tdd       # Inspect a skill before installing

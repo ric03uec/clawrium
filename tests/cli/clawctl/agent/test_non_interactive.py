@@ -82,12 +82,6 @@ def test_delete_stdin_closed_without_yes_fails(fleet_dir, stdin_not_tty) -> None
     assert "--yes" in result.output
 
 
-def test_exec_is_placeholder(fleet_dir) -> None:
-    result = runner.invoke(app, ["agent", "exec", "wise-hypatia", "echo", "hi"])
-    assert result.exit_code == 0
-    assert "Not implemented: agent exec" in result.output
-
-
 def test_registry_get_lists_supported_types(fleet_dir) -> None:
     result = runner.invoke(app, ["agent", "registry", "get"])
     assert result.exit_code == 0

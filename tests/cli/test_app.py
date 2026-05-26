@@ -61,18 +61,13 @@ def test_group_help_exits_zero(group: str) -> None:
     "argv,expected",
     [
         # `mcp registry` remains a placeholder per plan §4 (no MCP
-        # implementation yet); `agent exec` is intentionally a
-        # placeholder. The Pattern A registries (provider, channel,
-        # integration, skill) were stubs in bundle 3 (#508) and were
-        # replaced with real implementations in bundle 4 (#509) —
-        # those tests live alongside the per-noun modules under
-        # `tests/cli/clawctl/<noun>/`.
+        # implementation yet). `agent exec` was implemented in #413;
+        # its tests live in `tests/cli/clawctl/agent/test_exec.py`.
         (["mcp", "registry", "get"], "Not implemented: mcp registry get"),
         (
             ["mcp", "registry", "describe", "foo"],
             "Not implemented: mcp registry describe",
         ),
-        (["agent", "exec", "any-name", "echo", "hi"], "Not implemented: agent exec"),
     ],
 )
 def test_stub_verb_emits_canonical_line(argv: list[str], expected: str) -> None:

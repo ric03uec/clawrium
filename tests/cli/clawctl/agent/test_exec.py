@@ -1,0 +1,95 @@
+"""Tests for `clawctl agent exec`.
+
+Mocks `core.agent_exec.run_agent_exec` to keep the suite hermetic.
+"""
+
+from __future__ import annotations
+
+import pytest
+from typer.testing import CliRunner
+
+from clawrium.cli import app
+from clawrium.cli.clawctl.agent import exec as exec_module
+
+runner = CliRunner()
+
+
+@pytest.fixture
+def stub_exec(monkeypatch: pytest.MonkeyPatch):
+    calls: dict = {}
+
+    def fake(hostname, agent_name, claw_type, cmd_argv, timeout=120):
+        calls.update(
+            {
+                "hostname": hostname,
+                "agent_name": agent_name,
+                "claw_type": claw_type,
+                "cmd_argv": cmd_argv,
+            }
+        )
+        return calls.get("_stdout", "ok\n"), calls.get("_stderr", ""), calls.get(
+            "_rc", 0
+        )
+
+    monkeypatch.setattr(exec_module, "run_agent_exec", fake)
+    return calls
+
+
+def test_exec_success(fleet_dir, stdin_not_tty, stub_exec):
+    result = runner.invoke(
+        app, ["agent", "exec", "wise-hypatia", "--", "--version"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "ok" in result.output
+    assert stub_exec["claw_type"] == "openclaw"
+    assert stub_exec["cmd_argv"] == ["--version"]
+
+
+def test_exec_nonzero_exit_propagation(fleet_dir, stdin_not_tty, stub_exec):
+    stub_exec["_rc"] = 7
+    stub_exec["_stderr"] = "boom\n"
+    result = runner.invoke(
+        app, ["agent", "exec", "wise-hypatia", "--", "bogus"]
+    )
+    assert result.exit_code == 7
+    assert "boom" in result.output
+
+
+def test_exec_unknown_agent(fleet_dir, stdin_not_tty, stub_exec):
+    result = runner.invoke(
+        app, ["agent", "exec", "does-not-exist", "--", "echo", "hi"]
+    )
+    assert result.exit_code != 0
+    assert "not found" in result.output
+
+
+def test_exec_unreachable_host(fleet_dir, stdin_not_tty, stub_exec):
+    stub_exec["_rc"] = 255
+    stub_exec["_stderr"] = "Host unreachable: ssh failed"
+    result = runner.invoke(
+        app, ["agent", "exec", "wise-hypatia", "--", "x"]
+    )
+    assert result.exit_code == 255
+    assert "unreachable" in result.output.lower()
+
+
+def test_exec_requires_command(fleet_dir, stdin_not_tty, stub_exec):
+    result = runner.invoke(app, ["agent", "exec", "wise-hypatia"])
+    assert result.exit_code != 0
+
+
+def test_exec_help_documents_double_dash(fleet_dir):
+    result = runner.invoke(app, ["agent", "exec", "--help"])
+    assert result.exit_code == 0
+    assert "--" in result.output
+
+
+def test_exec_stdout_and_stderr_both_emitted(fleet_dir, stdin_not_tty, stub_exec):
+    stub_exec["_stdout"] = "out line\n"
+    stub_exec["_stderr"] = "err line\n"
+    result = runner.invoke(
+        app, ["agent", "exec", "wise-hypatia", "--", "x"]
+    )
+    assert result.exit_code == 0
+    assert "out line" in result.output
+    assert "err line" in result.output

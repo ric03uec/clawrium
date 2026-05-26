@@ -1,0 +1,35 @@
+---
+# Passthrough: run the hermes native CLI on the agent host.
+- hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    binary: "/home/{{ agent_name }}/.local/bin/hermes"
+    workdir: "/home/{{ agent_name }}/.hermes"
+  tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Run agent exec command
+      ansible.builtin.command:
+        argv: "{{ [binary] + cmd_argv }}"
+        chdir: "{{ workdir }}"
+      become_user: "{{ agent_name }}"
+      register: exec_result
+      failed_when: false
+      changed_when: false
+
+    - name: Emit stdout
+      ansible.builtin.debug:
+        msg: "EXEC_STDOUT={{ exec_result.stdout | default('') | b64encode }}"
+
+    - name: Emit stderr
+      ansible.builtin.debug:
+        msg: "EXEC_STDERR={{ exec_result.stderr | default('') | b64encode }}"
+
+    - name: Emit rc
+      ansible.builtin.debug:
+        msg: "EXEC_RC={{ exec_result.rc | default(255) }}"

@@ -1,0 +1,79 @@
+---
+# Passthrough: run the openclaw native CLI on the agent host.
+# Binary discovery mirrors install.yaml: prefer the per-agent install
+# under /home/<agent>/.openclaw/bin/openclaw, fall back to whatever
+# `which openclaw` resolves on PATH. The discovered binary is restricted
+# to the /usr/local/bin, /usr/bin, /home allowlist for defense-in-depth.
+- hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    per_agent_binary: "/home/{{ agent_name }}/.openclaw/bin/openclaw"
+    workdir: "/home/{{ agent_name }}/.openclaw/workspace"
+  tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Stat per-agent openclaw binary
+      ansible.builtin.stat:
+        path: "{{ per_agent_binary }}"
+      register: per_agent_stat
+
+    - name: Discover openclaw in PATH (fallback)
+      ansible.builtin.command: which openclaw
+      register: which_result
+      changed_when: false
+      failed_when: false
+
+    - name: Resolve openclaw binary
+      ansible.builtin.set_fact:
+        resolved_binary: >-
+          {{ per_agent_binary
+             if (per_agent_stat.stat.exists
+                 and per_agent_stat.stat.executable | default(false)
+                 and (per_agent_stat.stat.size | default(0)) > 0)
+             else (which_result.stdout
+                   if (which_result.rc | default(1)) == 0
+                   else '') }}
+
+    - name: Fail if openclaw not found
+      ansible.builtin.fail:
+        msg: "openclaw binary not found on host (checked {{ per_agent_binary }} and PATH)"
+      when: (resolved_binary | length) == 0
+
+    - name: Validate resolved binary path
+      ansible.builtin.fail:
+        msg: "Resolved openclaw binary at unsafe path: {{ resolved_binary }}"
+      when: not (resolved_binary.startswith('/usr/local/bin/')
+                 or resolved_binary.startswith('/usr/bin/')
+                 or resolved_binary.startswith('/home/'))
+
+    - name: Ensure workspace directory exists
+      ansible.builtin.file:
+        path: "{{ workdir }}"
+        state: directory
+      become_user: "{{ agent_name }}"
+
+    - name: Run agent exec command
+      ansible.builtin.command:
+        argv: "{{ [resolved_binary] + cmd_argv }}"
+        chdir: "{{ workdir }}"
+      become_user: "{{ agent_name }}"
+      register: exec_result
+      failed_when: false
+      changed_when: false
+
+    - name: Emit stdout
+      ansible.builtin.debug:
+        msg: "EXEC_STDOUT={{ exec_result.stdout | default('') | b64encode }}"
+
+    - name: Emit stderr
+      ansible.builtin.debug:
+        msg: "EXEC_STDERR={{ exec_result.stderr | default('') | b64encode }}"
+
+    - name: Emit rc
+      ansible.builtin.debug:
+        msg: "EXEC_RC={{ exec_result.rc | default(255) }}"
