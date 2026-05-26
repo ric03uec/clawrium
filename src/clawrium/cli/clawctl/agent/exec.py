@@ -51,6 +51,11 @@ def exec_cmd(
         clawctl agent exec my-agent --version
         clawctl agent exec my-agent -- --some-flag
 
+    Exception: `--help` is intercepted by clawctl and shows this help
+    page. To forward `--help` to the remote agent's binary, use:
+
+        clawctl agent exec my-agent -- --help
+
     Non-interactive only: no TTY is allocated, so commands that prompt
     for input or render TTY-only UI (progress bars, colors) will not
     work. stdout and stderr are returned to the local terminal when the

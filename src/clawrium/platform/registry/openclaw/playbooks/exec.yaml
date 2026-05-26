@@ -56,17 +56,19 @@
       # path containing a `..` segment outright; symlinks are still
       # honored at exec time because `command:` follows them.
       ansible.builtin.fail:
-        msg: "Resolved openclaw binary contains '..' path segment: {{ resolved_binary }}"
+        msg: "Resolved openclaw binary contains '..' path segment"
       when: ('/../' in resolved_binary)
             or resolved_binary.endswith('/..')
             or resolved_binary.startswith('../')
+      no_log: true
 
     - name: Validate resolved binary path (allowlist)
       ansible.builtin.fail:
-        msg: "Resolved openclaw binary at unsafe path: {{ resolved_binary }}"
+        msg: "Resolved openclaw binary at unsafe path"
       when: not (resolved_binary == per_agent_binary
                  or resolved_binary.startswith('/usr/local/bin/')
                  or resolved_binary.startswith('/usr/bin/'))
+      no_log: true
 
     - name: Ensure workspace directory exists
       ansible.builtin.file:

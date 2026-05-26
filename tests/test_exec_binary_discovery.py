@@ -51,14 +51,17 @@ def test_allowlist_validation_task_present(exec_tasks: list[dict]) -> None:
 
 
 def test_allowlist_rejects_dotdot_segments(exec_tasks: list[dict]) -> None:
-    """ATX iter-2 NW1: paths with `..` segments must be rejected before
-    the prefix allowlist runs (`/usr/local/bin/../../etc/...` would
-    otherwise pass startswith()).
+    """ATX iter-2 NW1 / iter-3 NB2: paths with `..` segments must be
+    rejected before the prefix allowlist runs. Each sub-pattern is
+    asserted independently so a refactor that drops one branch fails
+    here.
     """
     reject = _by_name(exec_tasks, "Reject `..` segments in resolved binary path")
     assert reject is not None
     when = reject["when"]
-    assert "/../" in when
+    assert "'/../' in resolved_binary" in when
+    assert "endswith('/..')" in when
+    assert "startswith('../')" in when
 
 
 def test_allowlist_allowed_paths(exec_tasks: list[dict]) -> None:
@@ -125,3 +128,34 @@ def test_per_type_playbooks_use_no_log(claw_type: str) -> None:
     assert run is not None
     assert run.get("no_log") is True
     assert run.get("become_user") == "{{ agent_name }}"
+
+
+@pytest.mark.parametrize("claw_type", ["openclaw", "hermes", "zeroclaw"])
+def test_per_type_playbooks_validate_agent_name(claw_type: str) -> None:
+    """ATX iter-3 NB3: every exec playbook must guard agent_name
+    against shell-special / path-traversal characters, since
+    `agent_name` is interpolated into paths and become_user. For
+    hermes/zeroclaw this is the only injection guard (no realpath/
+    discovery layer).
+    """
+    path = (
+        EXEC_PLAYBOOK.parent.parent.parent
+        / claw_type
+        / "playbooks"
+        / "exec.yaml"
+    )
+    play = yaml.safe_load(path.read_text())
+    tasks = play[0]["tasks"]
+    validate = _by_name(tasks, "Validate agent_name (defense-in-depth)")
+    assert validate is not None, f"{claw_type}: agent_name validate task missing"
+    fail = validate.get("ansible.builtin.fail") or validate.get("fail")
+    assert fail is not None, f"{claw_type}: validate must use ansible.builtin.fail"
+    when = validate["when"]
+    when_str = " ".join(when) if isinstance(when, list) else str(when)
+    assert "^[a-z][a-z0-9_-]{0,31}$" in when_str, (
+        f"{claw_type}: agent_name regex missing or weakened"
+    )
+    # The validate task must run first (before any task that touches paths).
+    assert tasks.index(validate) == 0, (
+        f"{claw_type}: validate task must be first in tasks list"
+    )
