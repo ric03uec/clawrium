@@ -3,6 +3,10 @@
 Plan §"Specific Outcomes": only for agents whose manifest declares
 `features.web_ui`. Delegates to `core/web_ui.py:resolve` and, for
 remote hosts, opens an SSH tunnel via `core/web_ui_tunnel.py`.
+
+The CLI spawns tunnels with ``owned=False`` so the SSH process outlives
+the CLI invocation. The tunnel stays alive until the SSH connection
+drops, the remote service stops, or the GUI idle-reaper cleans it up.
 """
 
 from __future__ import annotations
@@ -26,7 +30,10 @@ def open(  # noqa: A001 — `open` matches plan §4 verb name
     """Open the agent's web UI in the default browser."""
     host, agent_key, _claw_record = safe_resolve_agent(name)
 
-    resolved = resolve_web_ui(agent_key)
+    # resolve_web_ui expects the user-facing instance name (the key in
+    # hosts.json.agents), not the agent_type returned by get_agent_by_name.
+    # Use `name` (the CLI argument) which is the instance name the user typed.
+    resolved = resolve_web_ui(name)
     if resolved is None:
         emit_error(
             f"agent {name!r} has no web UI (manifest lacks features.web_ui)",
@@ -36,18 +43,35 @@ def open(  # noqa: A001 — `open` matches plan §4 verb name
     remote_port = resolved.remote_port  # type: ignore[union-attr]
     host_addr = resolved.host  # type: ignore[union-attr]
 
-    if is_local_host(host_addr):
+    needs_tunnel = not is_local_host(host_addr)
+
+    if not needs_tunnel:
         url = f"http://127.0.0.1:{remote_port}"
     else:
+        from clawrium.core.web_ui_tunnel import TunnelError
         from clawrium.core.web_ui_tunnel import ensure as ensure_tunnel
 
-        local_port = ensure_tunnel(agent_key)
+        try:
+            # owned=False: tunnel subprocess outlives CLI — no atexit cleanup.
+            local_port = ensure_tunnel(name, owned=False)
+        except TunnelError as exc:
+            emit_error(
+                f"tunnel setup failed for agent {name!r}: {exc}",
+                hint=(
+                    "check SSH config with 'clawctl host describe <host>'; "
+                    "use --print-url to get the URL for manual SSH forwarding"
+                ),
+            )
         url = f"http://127.0.0.1:{local_port}"
 
     if print_url:
         typer.echo(url)
         return
+
     stream_action(resource=f"agent/{name}", message=f"opening {url}")
-    webbrowser.open(url)
-    # Hint host_addr is acknowledged (silences unused warnings).
-    _ = host_addr
+    if not webbrowser.open(url):
+        typer.echo(f"Could not open browser. URL: {url}", err=True)
+        typer.echo(
+            "Hint:  re-run with --print-url to get the URL for manual use.",
+            err=True,
+        )

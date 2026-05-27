@@ -107,6 +107,25 @@ def test_build_ssh_for_wildcard_resolves_to_remote_loopback():
     assert forward == "39211:127.0.0.1:40123"
 
 
+def test_build_ssh_for_enforces_strict_host_key_checking():
+    """ATX B5: SSH command MUST set `StrictHostKeyChecking=yes` — never `accept-new`.
+
+    `accept-new` allows TOFU on first connect, which silently undermines
+    the SSH-as-auth-boundary contract documented in AGENTS.md (a LAN MITM
+    on the first tunnel session would harvest the zeroclaw pairing bearer).
+    Regression-guards a code-only revert to `accept-new`.
+    """
+    resolved = ResolvedUI(
+        host="hermes.local",
+        remote_port=45123,
+        bind="loopback",
+        ssh_config={"user": "xclm"},
+    )
+    cmd = _build_ssh_for(resolved, local_port=39211)
+    assert "StrictHostKeyChecking=yes" in cmd
+    assert not any("accept-new" in arg for arg in cmd)
+
+
 def test_build_ssh_for_consults_bind_address_map_wildcard(monkeypatch):
     """The builder MUST go through `BIND_ADDRESS_MAP['wildcard']`.
 
@@ -269,6 +288,63 @@ def test_cmdline_guard_refuses_kill_for_mismatched_pid(
     # State file is removed even when we refused to kill — the entry is stale
     # from our perspective; another process owns that PID now.
     assert not state_path.exists()
+
+
+def test_terminate_sends_sigterm_when_cmdline_matches(monkeypatch: pytest.MonkeyPatch):
+    """ATX iter-3 B1: _terminate MUST send SIGTERM (signal 15) to a PID whose
+    cmdline still matches the recorded signature. Locks in the happy path
+    that test_cmdline_guard_refuses_kill_for_mismatched_pid omits.
+    """
+    signature = "ssh -N -L 1234:127.0.0.1:9119 xclm@hermes.local"
+    monkeypatch.setattr(web_ui_tunnel, "_read_cmdline", lambda pid: signature)
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    sent: list[tuple[int, int]] = []
+    monkeypatch.setattr("os.kill", lambda pid, sig: sent.append((pid, sig)))
+
+    web_ui_tunnel._terminate(4242, signature)
+
+    assert sent == [(4242, 15)]
+
+
+def test_terminate_escalates_to_sigkill_when_process_survives(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """ATX iter-3 B1: if the process is still alive after SIGTERM AND the
+    cmdline still matches, _terminate MUST escalate to SIGKILL (signal 9).
+    """
+    signature = "ssh -N -L 1234:127.0.0.1:9119 xclm@hermes.local"
+    monkeypatch.setattr(web_ui_tunnel, "_read_cmdline", lambda pid: signature)
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: True)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    sent: list[tuple[int, int]] = []
+    monkeypatch.setattr("os.kill", lambda pid, sig: sent.append((pid, sig)))
+
+    web_ui_tunnel._terminate(4242, signature)
+
+    # SIGTERM first, then SIGKILL after the alive-poll loop expires.
+    assert sent == [(4242, 15), (4242, 9)]
+
+
+def test_terminate_skips_sigkill_when_cmdline_changes_after_sigterm(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """ATX iter-3 B1: the post-SIGTERM cmdline re-check closes the PID-recycle
+    window. If the cmdline no longer matches (process exited and PID was
+    reused), _terminate MUST NOT send SIGKILL.
+    """
+    signature = "ssh -N -L 1234:127.0.0.1:9119 xclm@hermes.local"
+    # First read (pre-SIGTERM): matches. Second read (pre-SIGKILL): different.
+    reads = iter([signature, "init"])
+    monkeypatch.setattr(web_ui_tunnel, "_read_cmdline", lambda pid: next(reads))
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: True)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    sent: list[tuple[int, int]] = []
+    monkeypatch.setattr("os.kill", lambda pid, sig: sent.append((pid, sig)))
+
+    web_ui_tunnel._terminate(4242, signature)
+
+    # Only SIGTERM was sent; SIGKILL suppressed by the cmdline-change recheck.
+    assert sent == [(4242, 15)]
 
 
 def test_ensure_raises_when_ssh_fails_to_bind(
