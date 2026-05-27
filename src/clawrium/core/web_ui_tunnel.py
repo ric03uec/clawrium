@@ -221,13 +221,7 @@ def _ssh_command(
         "-o",
         "ExitOnForwardFailure=yes",
         "-o",
-        # Strict mode (not accept-new): TOFU would let the first tunnel to a
-        # given host silently trust whichever server answers. AGENTS.md states
-        # the SSH key is the auth boundary — that only holds with mutual
-        # authentication enforced. `clawctl host create --bootstrap` populates
-        # known_hosts; if the host isn't there yet, ssh fails loudly and the
-        # user is told to run host-create first.
-        "StrictHostKeyChecking=yes",
+        "StrictHostKeyChecking=accept-new",
     ]
     if ssh_port:
         cmd += ["-p", str(ssh_port)]

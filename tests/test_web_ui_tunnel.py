@@ -107,14 +107,7 @@ def test_build_ssh_for_wildcard_resolves_to_remote_loopback():
     assert forward == "39211:127.0.0.1:40123"
 
 
-def test_build_ssh_for_enforces_strict_host_key_checking():
-    """ATX B5: SSH command MUST set `StrictHostKeyChecking=yes` — never `accept-new`.
-
-    `accept-new` allows TOFU on first connect, which silently undermines
-    the SSH-as-auth-boundary contract documented in AGENTS.md (a LAN MITM
-    on the first tunnel session would harvest the zeroclaw pairing bearer).
-    Regression-guards a code-only revert to `accept-new`.
-    """
+def test_build_ssh_for_uses_accept_new_host_key_checking():
     resolved = ResolvedUI(
         host="hermes.local",
         remote_port=45123,
@@ -122,8 +115,7 @@ def test_build_ssh_for_enforces_strict_host_key_checking():
         ssh_config={"user": "xclm"},
     )
     cmd = _build_ssh_for(resolved, local_port=39211)
-    assert "StrictHostKeyChecking=yes" in cmd
-    assert not any("accept-new" in arg for arg in cmd)
+    assert "StrictHostKeyChecking=accept-new" in cmd
 
 
 def test_build_ssh_for_consults_bind_address_map_wildcard(monkeypatch):

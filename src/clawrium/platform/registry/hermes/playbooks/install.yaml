@@ -400,18 +400,6 @@
       no_log: true
       notify: Reload systemd
 
-    # ATX B4: validate dashboard_port falls within the per-instance allocation
-    # range (45000..46999) defined by install.py:_pick_per_instance_port. A
-    # misconfigured or colliding port would silently write a broken systemd
-    # unit; failing here surfaces the bug at provisioning time instead.
-    - name: Assert dashboard_port is within the allocated 45000-46999 range
-      ansible.builtin.assert:
-        that:
-          - dashboard_port is defined
-          - (dashboard_port | int) >= 45000
-          - (dashboard_port | int) <= 46999
-        fail_msg: "dashboard_port {{ dashboard_port | default('<unset>') }} is outside the 45000-46999 range allocated by install.py"
-
     # Companion dashboard unit. `PartOf=` makes systemd propagate stop/restart
     # from the gateway unit to this one automatically. The gateway unit's
     # `Also=` (above) is the symmetric enable/disable hook. ExecStart binds

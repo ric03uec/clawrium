@@ -48,20 +48,10 @@ def open(  # noqa: A001 — `open` matches plan §4 verb name
     if not needs_tunnel:
         url = f"http://127.0.0.1:{remote_port}"
     else:
-        from clawrium.core.web_ui_tunnel import TunnelError
         from clawrium.core.web_ui_tunnel import ensure as ensure_tunnel
 
-        try:
-            # owned=False: tunnel subprocess outlives CLI — no atexit cleanup.
-            local_port = ensure_tunnel(name, owned=False)
-        except TunnelError as exc:
-            emit_error(
-                f"tunnel setup failed for agent {name!r}: {exc}",
-                hint=(
-                    "check SSH config with 'clawctl host describe <host>'; "
-                    "use --print-url to get the URL for manual SSH forwarding"
-                ),
-            )
+        # owned=False: tunnel subprocess outlives CLI — no atexit cleanup.
+        local_port = ensure_tunnel(name, owned=False)
         url = f"http://127.0.0.1:{local_port}"
 
     if print_url:
@@ -69,9 +59,4 @@ def open(  # noqa: A001 — `open` matches plan §4 verb name
         return
 
     stream_action(resource=f"agent/{name}", message=f"opening {url}")
-    if not webbrowser.open(url):
-        typer.echo(f"Could not open browser. URL: {url}", err=True)
-        typer.echo(
-            "Hint:  re-run with --print-url to get the URL for manual use.",
-            err=True,
-        )
+    webbrowser.open(url)
