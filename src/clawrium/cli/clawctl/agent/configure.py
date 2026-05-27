@@ -20,10 +20,11 @@ from typing import Optional
 
 import typer
 
-from clawrium.cli.clawctl._common import require_flag, stdin_is_tty
+from clawrium.cli.clawctl._common import stdin_is_tty
 from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
-from clawrium.core.lifecycle import LifecycleError
+from clawrium.core.hosts import HostsFileCorruptedError, update_host
+from clawrium.core.lifecycle import LifecycleError, sync_agent
 from clawrium.core.onboarding import (
     AgentNotFoundError,
     InvalidTransitionError,
@@ -32,6 +33,96 @@ from clawrium.core.onboarding import (
     get_onboarding_state,
     run_stage,
 )
+from clawrium.core.providers.storage import (
+    ProvidersFileCorruptedError,
+    get_provider,
+)
+
+
+def _attach_provider_for_configure(
+    agent_name: str, hostname: str, agent_key: str, provider_name: str
+) -> None:
+    """Write `agents.<key>.providers = [provider_name]` for issue #541.
+
+    Differs from `clawctl agent provider attach` in one critical way:
+    the verb is *replace*, not *append*. The customer outcome on #541
+    requires that `clawctl agent configure --stage providers --provider X`
+    can be called any number of times — including to switch the
+    attached provider — without manually detaching first. The
+    Pattern A `attach` surface refuses to replace by design (#426
+    single-provider invariant), so the configure path performs the
+    replacement inline.
+    """
+    # ATX iter-2 B3 / iter-3 W1+W4: broaden the catch so a missing,
+    # unreadable, or structurally malformed `providers.json` surfaces a
+    # clean message instead of a raw traceback. `str(OSError)` formats
+    # as `[Errno 2] ... '/home/<user>/.config/clawrium/providers.json'`
+    # — the full path including the username leaks. For OS-level
+    # exceptions, surface the type only and steer the operator to the
+    # canonical config path in the hint.
+    record: dict | None = None
+    try:
+        record = get_provider(provider_name)
+    except ProvidersFileCorruptedError as exc:
+        emit_error(
+            str(exc),
+            hint="check ~/.config/clawrium/providers.json (clawctl provider registry get)",
+        )
+    except (FileNotFoundError, PermissionError, OSError) as exc:
+        emit_error(
+            f"could not read providers file: {type(exc).__name__}",
+            hint="check ~/.config/clawrium/providers.json (clawctl provider registry get)",
+        )
+    except (KeyError, ValueError, TypeError) as exc:
+        emit_error(
+            f"providers file structurally invalid: {type(exc).__name__}",
+            hint="check ~/.config/clawrium/providers.json",
+        )
+    if not record:
+        emit_error(
+            f"provider {provider_name!r} not registered",
+            hint="clawctl provider registry get",
+        )
+
+    # ATX iter-2 B3: persist the canonical name from the registry record,
+    # not the raw CLI argument. `get_provider` is case- and shape-
+    # tolerant; downstream lifecycle code reads `agents.<n>.providers`
+    # and looks up the provider by *that* exact string.
+    canonical_name = record.get("name", provider_name)
+
+    def updater(h: dict) -> dict:
+        agents = h.get("agents", {})
+        if agent_key not in agents or not isinstance(agents[agent_key], dict):
+            raise LifecycleError(
+                f"agent record for {agent_name!r} missing from host {hostname!r}"
+            )
+        agents[agent_key]["providers"] = [canonical_name]
+        return h
+
+    # ATX iter-3 W1: `update_host` can raise `HostsFileCorruptedError`
+    # (malformed hosts.json) or `OSError` (atomic-write fs failure) in
+    # addition to `LifecycleError`. Catch the lot so a fs/IO failure
+    # surfaces a clean message rather than a raw traceback leaking
+    # `~/.config/clawrium/hosts.json` path internals.
+    try:
+        update_host(hostname, updater)
+    except LifecycleError as exc:
+        emit_error(
+            str(exc),
+            hint="clawctl agent get to verify state, then retry",
+        )
+    except HostsFileCorruptedError as exc:
+        emit_error(
+            str(exc),
+            hint="inspect ~/.config/clawrium/hosts.json before retrying",
+        )
+    except OSError as exc:
+        # ATX iter-3 W4: do not leak the absolute hosts.json path via
+        # `str(OSError)`. Surface the error type only.
+        emit_error(
+            f"could not write hosts.json: {type(exc).__name__}",
+            hint="inspect ~/.config/clawrium/hosts.json before retrying",
+        )
 
 
 class Stage(str, Enum):
@@ -115,9 +206,18 @@ def configure(
             hint="run a specific stage with --stage providers|identity|validate",
         )
 
-    # Provider stage requires provider flag (or TTY for prompt fallback).
+    # ATX iter-2 B1: `--provider` is unconditionally required when the
+    # providers stage is selected. `require_flag` defers on a TTY so
+    # without this guard a `--stage providers` invocation on an
+    # interactive terminal would fall through to the placeholder
+    # `run_stage` path, silently corrupting the onboarding record
+    # (exactly the bug #541 exists to fix).
     if stage is Stage.providers:
-        require_flag(provider, flag="--provider")
+        if not provider:
+            emit_error(
+                "missing required flag --provider",
+                hint="pass --provider <name> (see 'clawctl provider registry get')",
+            )
 
     # ATX iter-2 B1: `--personality` flowed into the verb signature but
     # nothing read it back out. Until `run_stage` accepts a personality
@@ -135,6 +235,100 @@ def configure(
     stream_action(
         resource=f"agent/{name}", message=f"configure stage={stage.value} on {hostname}"
     )
+
+    # Issue #541: the providers stage was previously routed through
+    # `run_stage`, which is a placeholder that only flips the per-stage
+    # status flag — it never pushes config to the host and never advances
+    # the onboarding state machine. That left the agent stuck at
+    # `state=pending` and blocked every subsequent stage (`identity`,
+    # `validate`) and `agent start`.
+    #
+    # Route `--stage providers --provider X` through the real reconcile
+    # path: write the attachment into `agents.<name>.providers` (Pattern A
+    # from #426/#509), then call `sync_agent`. `sync_agent` builds the
+    # provider overlay, walks the state machine (PENDING → PROVIDERS →
+    # ... → READY, honoring per-manifest `auto_skip`), and pushes the
+    # configuration via Ansible. This makes the verb idempotent on a
+    # `ready` agent (re-attaching the same or a different provider stays
+    # in `ready`) and unblocks the remaining stages.
+    if stage is Stage.providers and provider is not None:
+        # Ensure the onboarding record exists so `sync_agent`'s
+        # state-machine walk has something to transition. Mirrors the
+        # PENDING-recovery branch below for the non-providers path.
+        try:
+            get_onboarding_state(hostname, agent_key)
+        except OnboardingNotFoundError:
+            from clawrium.core.onboarding import initialize_onboarding
+
+            try:
+                initialize_onboarding(hostname, agent_key)
+            except AgentNotFoundError as exc:
+                emit_error(
+                    f"agent record disappeared during configure: {exc}",
+                    hint="rerun clawctl agent get to verify",
+                )
+
+        # ATX iter-3 W3: wrap the attach call so any unexpected
+        # exception (TypeError/ValueError/etc.) from registry handling
+        # surfaces as a clean CLI error rather than a raw traceback
+        # leaking config paths.
+        try:
+            _attach_provider_for_configure(name, hostname, agent_key, provider)
+        except (typer.Exit, SystemExit):
+            raise
+        except Exception as exc:
+            emit_error(
+                f"configure stage failed: {exc}",
+                hint=f"clawctl agent describe {name}",
+            )
+
+        def on_event(stage_evt: str, message: str) -> None:
+            # ATX iter-2 W1: forward all sync progress events (ansible
+            # phases take 30–60s; previously the operator saw a frozen
+            # cursor). Mirrors how `clawctl agent sync` surfaces events.
+            stream_action(resource=f"agent/{name}", message=f"[{stage_evt}] {message}")
+
+        # ATX iter-2 S6/W7 parity with the non-providers path: pre-bind
+        # `result` so a non-LifecycleError that escapes the try block
+        # does not raise `UnboundLocalError` at the `result.get(...)`
+        # check below.
+        result: dict = {}
+        try:
+            result = sync_agent(
+                hostname=hostname,
+                claw_name=agent_type,
+                agent_name=agent_key,
+                on_event=on_event,
+            )
+        except LifecycleError as exc:
+            emit_error(
+                f"configure stage failed: {exc}",
+                hint=f"clawctl agent describe {name}",
+            )
+        except (typer.Exit, SystemExit):
+            # ATX iter-3 W2: `emit_error` raises `typer.Exit`. If
+            # `sync_agent` (or any helper it calls) ever invokes
+            # `emit_error` internally, the bare `except Exception`
+            # below would re-wrap the exit into a vacuous "configure
+            # stage failed" message that masks the real cause. Let the
+            # exit propagate unmodified.
+            raise
+        except Exception as exc:  # ATX iter-2 B2: parity with non-providers path
+            emit_error(
+                f"configure stage failed: {exc}",
+                hint=f"clawctl agent describe {name}",
+            )
+
+        if not result.get("success"):
+            emit_error(
+                f"configure stage failed: {result.get('error') or 'unknown error'}",
+                hint=f"clawctl agent describe {name}",
+            )
+
+        stream_action(
+            resource=f"agent/{name}", message=f"stage {stage.value} complete"
+        )
+        return
 
     # ATX iter-1 B4: `get_onboarding_state` raises `OnboardingNotFoundError`
     # for any pre-onboarding-schema agent (or when install.py's Step 11
@@ -167,7 +361,10 @@ def configure(
     try:
         success = run_stage(agent_type, hostname, agent_key, stage.value)
     except LifecycleError as exc:
-        emit_error(f"configure stage failed: {exc}")
+        emit_error(
+            f"configure stage failed: {exc}",
+            hint=f"clawctl agent describe {name}",
+        )
     except InvalidTransitionError as exc:
         # ATX iter-2 W6: surface state-machine rejection distinctly from
         # opaque network/lifecycle errors so the operator knows the
@@ -176,8 +373,15 @@ def configure(
             f"configure stage rejected: {exc}",
             hint=f"clawctl agent describe {name}",
         )
+    except (typer.Exit, SystemExit):
+        # ATX iter-3 W2: do not re-wrap propagating CLI exits. See the
+        # matching branch in the providers path above.
+        raise
     except Exception as exc:  # core.onboarding may raise misc errors
-        emit_error(f"configure stage failed: {exc}")
+        emit_error(
+            f"configure stage failed: {exc}",
+            hint=f"clawctl agent describe {name}",
+        )
 
     if not success:
         emit_error(
