@@ -221,7 +221,13 @@ def _ssh_command(
         "-o",
         "ExitOnForwardFailure=yes",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        # Strict mode (not accept-new): TOFU would let the first tunnel to a
+        # given host silently trust whichever server answers. AGENTS.md states
+        # the SSH key is the auth boundary — that only holds with mutual
+        # authentication enforced. `clawctl host create --bootstrap` populates
+        # known_hosts; if the host isn't there yet, ssh fails loudly and the
+        # user is told to run host-create first.
+        "StrictHostKeyChecking=yes",
     ]
     if ssh_port:
         cmd += ["-p", str(ssh_port)]
@@ -406,7 +412,7 @@ def _get_ensure_lock(agent_key: str) -> threading.Lock:
         return lock
 
 
-def ensure(agent_key: str) -> int:
+def ensure(agent_key: str, *, owned: bool = True) -> int:
     """Idempotently establish (or reuse) an SSH tunnel for ``agent_key``.
 
     Returns the local port on 127.0.0.1 that forwards to the agent's
@@ -414,6 +420,12 @@ def ensure(agent_key: str) -> int:
     SSH config is incomplete, or the SSH process fails to bind the
     forward in time. Concurrent callers for the same key are serialised
     by a per-key lock so they never spawn duplicate ssh processes.
+
+    When *owned* is True (default, used by the GUI), the tunnel is
+    registered with the process-wide atexit handler and will be killed
+    when this Python process exits. When False (used by the CLI), the
+    tunnel subprocess outlives the caller — it stays alive until the
+    SSH connection drops, or another caller explicitly closes it.
     """
     resolved = resolve(agent_key)
     if resolved is None:
@@ -424,8 +436,9 @@ def ensure(agent_key: str) -> int:
     with _get_ensure_lock(agent_key):
         existing = _existing_healthy_tunnel(agent_key)
         if existing is not None:
-            _OWNED_TUNNELS.add(agent_key)
-            _register_atexit()
+            if owned:
+                _OWNED_TUNNELS.add(agent_key)
+                _register_atexit()
             return existing.local_port
 
         _evict_stale(agent_key)
@@ -463,8 +476,9 @@ def ensure(agent_key: str) -> int:
             ssh_cmdline_signature=signature,
         )
         _write_state(agent_key, info)
-        _OWNED_TUNNELS.add(agent_key)
-        _register_atexit()
+        if owned:
+            _OWNED_TUNNELS.add(agent_key)
+            _register_atexit()
         return local_port
 
 
