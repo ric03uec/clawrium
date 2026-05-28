@@ -72,7 +72,13 @@ def init_macos(hostname: str, user: Optional[str] = None) -> None:
         raise typer.Exit(code=1)
 
     connection_user = user or getpass.getuser()
-    console.print(f"\nConnecting to {hostname} as {connection_user}...")
+    # `connection_user` originates from the CLI flag (user-controlled);
+    # `hostname` likewise. Escape both so rich does not parse stray
+    # `[brackets]` as markup tags. Mirrors cli/host.py pattern.
+    console.print(
+        f"\nConnecting to {rich_escape(hostname)} as "
+        f"{rich_escape(connection_user)}..."
+    )
 
     client = paramiko.SSHClient()
     client.load_system_host_keys()
@@ -176,16 +182,21 @@ def init_macos(hostname: str, user: Optional[str] = None) -> None:
             console.print(f"\nNext step: [cyan]clawctl host create {hostname}[/cyan]")
             auto_setup_success = True
         else:
+            # `message` originates from test_ssh_connection (paramiko
+            # error strings) — may contain remote-controlled content.
             console.print(
-                f"[yellow]Warning:[/yellow] xclm verification failed: {message}"
+                f"[yellow]Warning:[/yellow] xclm verification failed: "
+                f"{rich_escape(str(message))}"
             )
 
     except paramiko.AuthenticationException as e:
-        console.print(f"[yellow]Authentication failed:[/yellow] {e}")
+        console.print(
+            f"[yellow]Authentication failed:[/yellow] {rich_escape(str(e))}"
+        )
     except paramiko.SSHException as e:
-        console.print(f"[yellow]SSH error:[/yellow] {e}")
+        console.print(f"[yellow]SSH error:[/yellow] {rich_escape(str(e))}")
     except Exception as e:
-        console.print(f"[yellow]Could not connect:[/yellow] {e}")
+        console.print(f"[yellow]Could not connect:[/yellow] {rich_escape(str(e))}")
     finally:
         client.close()
 

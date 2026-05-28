@@ -175,11 +175,40 @@ def is_ip_address(value: str) -> bool:
         return False
 
 
+# Reserved Unix account names. The agent's name becomes a real account
+# on the host (created via `useradd` on Linux and `dscl . -create
+# /Users/<name>` on macOS, plus an `xclm` management-user collision on
+# both). Allowing these names would silently overwrite or merge with a
+# pre-existing system account — at best confusing, at worst a privilege
+# escalation vector. ATX iteration 1 B4: surface this at name-validation
+# time with a clear collision message instead of letting it explode
+# inside the playbook.
+#
+# Set chosen to cover (a) cross-Unix builtins that exist on both Linux
+# and macOS (root/daemon/nobody), (b) the management user clawrium
+# itself creates (xclm), and (c) Apple-specific privileged groups that
+# act as users in some Apple frameworks (admin/wheel/staff/guest).
+RESERVED_UNIX_NAMES: frozenset[str] = frozenset(
+    {
+        "admin",
+        "daemon",
+        "guest",
+        "nobody",
+        "root",
+        "staff",
+        "wheel",
+        "xclm",
+    }
+)
+
+
 def validate_agent_name(name: str) -> tuple[bool, str]:
-    """Validate an agent name for format and length.
+    """Validate an agent name for format, length, and reserved collisions.
 
     Names must be valid Unix usernames: start with a lowercase letter,
-    followed by up to 31 lowercase letters, digits, hyphens, or underscores.
+    followed by up to 31 lowercase letters, digits, hyphens, or
+    underscores. Names listed in `RESERVED_UNIX_NAMES` are also
+    rejected to prevent collisions with pre-existing system accounts.
 
     Args:
         name: Name to validate
@@ -197,6 +226,13 @@ def validate_agent_name(name: str) -> tuple[bool, str]:
         return (
             False,
             "Name must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores",
+        )
+
+    if name in RESERVED_UNIX_NAMES:
+        return (
+            False,
+            f"Name '{name}' collides with a reserved Unix/Darwin account "
+            f"({', '.join(sorted(RESERVED_UNIX_NAMES))}); choose a different name",
         )
 
     return (True, "")

@@ -30,14 +30,14 @@
       ansible.builtin.fail:
         msg: >-
           Agent user '{{ agent_name }}' not found. Run
-          `clm agent install --type hermes ...` first.
+          `clawctl agent create <name> --type hermes --host <host>` first.
       when: agent_user_check.rc != 0
 
     - name: Verify API_SERVER_KEY is present in config
       ansible.builtin.fail:
         msg: |
           api_server.key is missing for agent '{{ agent_name }}'.
-          Re-run `clm agent install --type hermes ...` to regenerate.
+          Re-run `clawctl agent create <name> --type hermes --host <host>` to regenerate.
       when: config.api_server is not defined or not config.api_server.key
 
     - name: Ensure ~/.hermes config directory exists
@@ -140,4 +140,4 @@
       ansible.builtin.debug:
         msg: |
           Configuration written to /Users/{{ agent_name }}/.hermes/.
-          Next: `clm agent start {{ agent_name }}` (or restart).
+          Next: `clawctl agent start {{ agent_name }}` (or restart).

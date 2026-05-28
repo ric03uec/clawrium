@@ -290,4 +290,4 @@
         msg: |
           Hermes {{ hermes_target_version }} installed for agent '{{ agent_name }}' at
           /Users/{{ agent_name }}/.hermes. No launchd plist installed yet — that is
-          handled by `clm agent start` (issue #469 step 7).
+          handled by `clawctl agent start` (issue #469 step 7).

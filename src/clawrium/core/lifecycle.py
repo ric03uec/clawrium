@@ -123,18 +123,15 @@ def _resolve_agent_type(agent_type: str) -> str:
     return ALIAS_TO_CANONICAL.get(agent_type, agent_type)
 
 
-def _get_lifecycle_playbook_path(
-    claw_name: str, operation: str, os_family: str = "linux"
-) -> Path:
+def _get_lifecycle_playbook_path(claw_name: str, operation: str) -> Path:
     canonical_name = _resolve_agent_type(claw_name)
-    suffix = "" if os_family == "linux" else "_macos"
     return (
         Path(__file__).parent.parent
         / "platform"
         / "registry"
         / canonical_name
         / "playbooks"
-        / f"{operation}{suffix}.yaml"
+        / f"{operation}.yaml"
     )
 
 
@@ -475,17 +472,9 @@ def start_agent(
 
     emit("start", f"Starting {agent_key} on {hostname}...")
 
-    # macOS dispatcher: hand off to lifecycle_macos (launchctl-based)
-    # instead of running a systemd-style playbook. The macOS backend
-    # only needs the host record + agent name; signature differs.
-    if host.get("os_family") == "darwin":
-        from clawrium.core.lifecycle_macos import start_agent_macos
-
-        success, error = start_agent_macos(host, agent_key, on_event=on_event)
-    else:
-        success, error = _run_lifecycle_playbook(
-            agent_type, agent_key, host["hostname"], "start", host
-        )
+    success, error = _run_lifecycle_playbook(
+        agent_type, agent_key, host["hostname"], "start", host
+    )
 
     if not success:
         return {
@@ -591,14 +580,9 @@ def stop_agent(
 
     emit("stop", f"Stopping {agent_key} on {hostname}...")
 
-    if host.get("os_family") == "darwin":
-        from clawrium.core.lifecycle_macos import stop_agent_macos
-
-        success, error = stop_agent_macos(host, agent_key, on_event=on_event)
-    else:
-        success, error = _run_lifecycle_playbook(
-            agent_type, agent_key, host["hostname"], "stop", host, timeout=timeout + 30
-        )
+    success, error = _run_lifecycle_playbook(
+        agent_type, agent_key, host["hostname"], "stop", host, timeout=timeout + 30
+    )
 
     if not success:
         return {
@@ -922,6 +906,7 @@ def sync_agent(
     agent_name: str | None = None,
     workspace_only: bool = False,
     on_event: Callable[[str, str], None] | None = None,
+    playbook_path_override: Path | None = None,
 ) -> LifecycleResult:
     """Sync configuration to an agent instance.
 
@@ -1238,6 +1223,7 @@ def sync_agent(
         agent_name=agent_key,
         on_event=on_event,
         reason="sync",
+        playbook_path_override=playbook_path_override,
     )
 
     if not config_success:
@@ -1326,6 +1312,7 @@ def configure_agent(
     extra_vars: dict | None = None,
     on_event: Callable[[str, str], None] | None = None,
     reason: str = "configure",
+    playbook_path_override: Path | None = None,
 ) -> tuple[bool, str | None]:
     """Configure an agent instance on a remote host.
 
@@ -1842,10 +1829,13 @@ def configure_agent(
     # Referenced from per-claw playbooks via `{{ shared_template_path }}`.
     shared_template_path = Path(__file__).parent.parent / "platform" / "templates"
 
-    # Get playbook path (OS-aware: darwin -> configure_macos.yaml)
-    playbook_path = _get_lifecycle_playbook_path(
-        resolved_type, "configure", host.get("os_family", "linux")
-    )
+    # Get playbook path. The `playbook_path_override` hook lets the
+    # caller (e.g. `lifecycle_macos.configure_agent`) supply a different
+    # playbook without core/lifecycle.py needing to know which OS it is.
+    if playbook_path_override is not None:
+        playbook_path = playbook_path_override
+    else:
+        playbook_path = _get_lifecycle_playbook_path(resolved_type, "configure")
     if not playbook_path.exists():
         return False, f"Configure playbook not found: {playbook_path}"
 

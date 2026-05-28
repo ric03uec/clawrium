@@ -138,3 +138,126 @@ def test_stop_reports_real_error():
 
     assert ok is False
     assert "permission denied" in (err or "")
+
+
+# ===== B7: restart_agent_macos coverage =====
+# happy path (kickstart succeeds) + cold-host fallback path
+# (kickstart fails with "could not find service" → install + bootstrap).
+
+
+def test_restart_macos_kickstart_when_loaded(monkeypatch):
+    """Happy path: both labels are loaded, kickstart -k for each succeeds."""
+    # Responses are consumed in order for every _run / exec_command.
+    # restart_agent_macos with dashboard_port iterates ("dashboard",
+    # "gateway") — exactly two kickstart -k calls. Both rc=0.
+    client = _FakeClient(responses=[(0, "", ""), (0, "", "")])
+    monkeypatch.setattr(lifecycle_macos, "_ssh", lambda host: client)
+
+    host = {
+        "hostname": "x",
+        "agents": {"h1": {"config": {"dashboard": {"port": 45112}}}},
+    }
+    ok, err = lifecycle_macos.restart_agent_macos(host, "h1")
+    assert ok is True
+    assert err is None
+    # Exactly two kickstart -k commands; no install_service path.
+    assert len(client.commands) == 2
+    assert all("kickstart -k" in c for c in client.commands)
+    assert "system/ai.clawrium.hermes.h1.dashboard" in client.commands[0]
+    assert "system/ai.clawrium.hermes.h1" in client.commands[1]
+
+
+def test_restart_macos_falls_back_to_bootstrap_when_not_loaded(monkeypatch):
+    """Cold host (kickstart fails with 'could not find service') → fallback
+    re-installs both plists and bootstraps both labels."""
+    # First kickstart -k (dashboard) returns "not loaded" → trigger fallback.
+    # Then: install_service writes both plists (2 exec_commands: sudo
+    #   install gateway, sudo install dashboard, plus the logs mkdir),
+    #   then bootstrap dashboard (rc=0), kickstart dashboard (rc=0),
+    #   bootstrap gateway (rc=0), kickstart gateway (rc=0).
+    # SFTP path is exercised by install_service via the real write_plist;
+    # mock that path off so the test stays unit-level.
+    client = _FakeClient(
+        responses=[
+            (113, "", "Could not find service\n"),  # kickstart -k dashboard
+            # install_service body: sudo install gateway, then sudo install
+            # dashboard, then sudo mkdir + chown logs dir → 3 _run calls.
+            (0, "", ""),
+            (0, "", ""),
+            (0, "", ""),
+            (0, "", ""),  # bootstrap dashboard
+            (0, "", ""),  # kickstart dashboard
+            (0, "", ""),  # bootstrap gateway
+            (0, "", ""),  # kickstart gateway
+        ]
+    )
+
+    # Patch write_plist (SFTP) and render_plist (jinja2) so the test
+    # focuses on the launchctl command sequence shape.
+    monkeypatch.setattr(lifecycle_macos, "_ssh", lambda host: client)
+    monkeypatch.setattr(
+        lifecycle_macos, "write_plist", lambda c, n, contents, **kw: "/tmp/dummy"
+    )
+    monkeypatch.setattr(
+        lifecycle_macos, "render_plist", lambda *a, **kw: "<plist/>"
+    )
+
+    host = {
+        "hostname": "x",
+        "agents": {"h1": {"config": {"dashboard": {"port": 45112}}}},
+    }
+    ok, err = lifecycle_macos.restart_agent_macos(host, "h1")
+    assert ok is True, err
+
+    cmd_log = "\n".join(client.commands)
+    # The fallback must touch both labels' bootstrap path.
+    assert "launchctl bootstrap system" in cmd_log
+    assert "ai.clawrium.hermes.h1.dashboard" in cmd_log
+    # And a kickstart for the gateway too.
+    assert "system/ai.clawrium.hermes.h1" in cmd_log
+
+
+# ===== B8: stop iterates dashboard before gateway =====
+
+
+def test_stop_agent_macos_boots_out_dashboard_then_gateway(monkeypatch):
+    """When a dashboard is configured, stop must bootout dashboard FIRST,
+    then gateway. Confirms the explicit iteration order in
+    stop_agent_macos so launchd lifecycle isn't reversed."""
+    client = _FakeClient(responses=[(0, "", ""), (0, "", "")])
+    monkeypatch.setattr(lifecycle_macos, "_ssh", lambda host: client)
+
+    host = {
+        "hostname": "x",
+        "agents": {"h1": {"config": {"dashboard": {"port": 45112}}}},
+    }
+    ok, err = lifecycle_macos.stop_agent_macos(host, "h1")
+    assert ok is True
+    assert err is None
+    assert len(client.commands) == 2
+    # Order is invariant: dashboard then gateway.
+    assert "ai.clawrium.hermes.h1.dashboard" in client.commands[0]
+    assert client.commands[1].endswith("system/ai.clawrium.hermes.h1")
+
+
+# ===== B9: _bootstrap_with_tolerance variants =====
+
+
+@pytest.mark.parametrize(
+    ("rc", "stderr", "expected_ok", "error_marker"),
+    [
+        (37, "Service already loaded\n", True, None),
+        (5, "Bootstrap failed: 5: Input/output error\n", True, None),
+        (2, "Bootstrap failed: permission denied\n", False, "permission denied"),
+    ],
+)
+def test_bootstrap_with_tolerance_variants(monkeypatch, rc, stderr, expected_ok, error_marker):
+    client = _FakeClient(responses=[(rc, "", stderr)])
+    monkeypatch.setattr(lifecycle_macos, "_ssh", lambda host: client)
+
+    ok, err = lifecycle_macos._bootstrap_with_tolerance(client, "h1", kind="gateway")
+    assert ok is expected_ok
+    if expected_ok:
+        assert err is None
+    else:
+        assert error_marker in (err or "")

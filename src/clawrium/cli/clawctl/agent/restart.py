@@ -7,6 +7,7 @@ import typer
 from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
 from clawrium.core.lifecycle import LifecycleError, restart_agent
+from clawrium.core.playbook_resolver import resolve_lifecycle_backend
 
 
 def restart(
@@ -22,8 +23,15 @@ def restart(
     def on_event(stage: str, message: str) -> None:
         stream_action(resource=f"agent/{name}", message=f"[{stage}] {message}")
 
+    # OS-family dispatch (CLI layer). #469 step 1 invariant.
+    os_family = host.get("os_family", "linux")
+    if os_family == "linux":
+        restart_fn = restart_agent
+    else:
+        restart_fn = resolve_lifecycle_backend(os_family).restart_agent
+
     try:
-        result = restart_agent(
+        result = restart_fn(
             hostname=hostname,
             claw_name=agent_type,
             agent_name=agent_key,
