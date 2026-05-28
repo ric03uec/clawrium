@@ -16,11 +16,11 @@ class TestResolveBasePlaybook:
         assert path.name == "base.yaml"
         assert path.exists()
 
-    def test_darwin_raises_until_macos_playbook_lands(self):
-        with pytest.raises(FileNotFoundError) as exc:
-            resolve_base_playbook("darwin")
-        assert "base_macos.yaml" in str(exc.value)
-        assert "not yet supported" in str(exc.value)
+    def test_darwin_returns_existing_base_macos(self):
+        """Step 4 of #469 landed base_macos.yaml; resolver returns it."""
+        path = resolve_base_playbook("darwin")
+        assert path.name == "base_macos.yaml"
+        assert path.exists()
 
     def test_unknown_os_family_raises_value_error(self):
         with pytest.raises(ValueError, match="unsupported os_family"):
