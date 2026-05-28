@@ -105,7 +105,49 @@ That comment specifies, for each of the 12 steps:
   mismatch to playbook not found" DoD bullet becomes observable
   during Step 3's Mac E2E — recorded here for that validation.
 
-### Steps 3–12 — TODO
+### Steps 3–12 — COMPLETED ✓
+
+All twelve steps landed sequentially on `issue-469-macos-support`. One
+commit per step. Final commit list (since `main`):
+
+| # | Commit  | Description                                                  |
+|---|---------|--------------------------------------------------------------|
+| 1 | 8845880 | dispatcher — remote OS detection + playbook resolver         |
+| 2 | 8abcd2a | manifest matcher — range/min os_version + macOS entry        |
+| 3 | 98bd9f7 | host_macos.py — dscl bootstrap + SSH ACL group               |
+| 4 | fe790d8 | base_macos.yaml — CLT, Homebrew, brew prereqs                |
+| 5 | e0e7604 | install_macos.yaml — hermes install on macOS                 |
+| 6 | 77cce0b | launchd plist templating (gateway)                           |
+| 7 | 27da26a | lifecycle_macos.py — launchctl backend + dispatcher          |
+| 8 | 3e3cde1 | configure_macos.yaml — provider/env wiring on Darwin         |
+| 9 | 1fb1767 | docs: hermes upstream quirks we route around                 |
+|10 | db0a6a3 | dashboard launchd plist + dual-label lifecycle               |
+|11 | d4480b3 | macOS CI matrix + integration tests                          |
+|12 | a3a5f3f | docs: macOS targets section in installation.md (+ mirror)    |
+
+Mac E2E confirmed end-to-end (`100.120.88.97`, macOS 26.5 arm64):
+- `clawctl host create --bootstrap` → xclm user, NOPASSWD sudo, SSH key.
+- `clawctl agent create h1 --type hermes` → hermes installed at
+  `/Users/h1/.hermes/`.
+- `clawctl agent provider attach clm-openrouter --agent h1` + configure
+  → `.env` + `config.yaml` written.
+- `clawctl agent start h1` → gateway + dashboard plists loaded; gateway
+  listens on `0.0.0.0:8612`, dashboard on `127.0.0.1:45112`.
+- HTTP POST to `/v1/chat/completions` returned `ok-mac-e2e` from
+  openai/gpt-4o through OpenRouter.
+- `clawctl agent open h1` tunnel → HTTP 200 from dashboard.
+- `clawctl agent stop h1` → both labels bootout cleanly.
+
+Test counts:
+- Step 1 baseline: 3348.
+- Final: 3405 + 1 skipped (real-Mac slow test, env-gated).
+
+Linux regression bar: no existing Linux playbook/.py was modified
+beyond the dispatcher hooks. `git diff main -- ':!*_macos*'` shows
+only dispatcher integration points and the matcher (back-compat
+through exact-equality fallback).
+
+Next action: open PR to main.
 
 Execute in order, **one commit per step**, validate before moving on.
 Use the issue comment as the spec; the bullet list below is just a
