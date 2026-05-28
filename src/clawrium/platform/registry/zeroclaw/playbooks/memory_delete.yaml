@@ -3,7 +3,7 @@
 #
 # Allowlist mirrors `_MEMORY_WRITE_ALLOWED_FILES['zeroclaw']` in
 # core/memory.py: the 7 personality files plus `memory/<file>` daily notes.
-# BOOTSTRAP.md is intentionally NOT deletable from clm — the ZeroClaw
+# BOOTSTRAP.md is intentionally NOT deletable from clawctl — the ZeroClaw
 # runtime owns its lifecycle. Defense-in-depth: the Python dispatcher
 # performs the same pattern + traversal checks; this guard catches a
 # tampered Ansible inventory.

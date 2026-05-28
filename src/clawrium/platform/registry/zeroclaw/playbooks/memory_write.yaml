@@ -6,7 +6,7 @@
 #
 # Structural allowlist mirrors _MEMORY_WRITE_ALLOWED_FILES['zeroclaw']
 # (7 personality files) plus memory/<file> daily notes. BOOTSTRAP.md is
-# intentionally NOT writable from clm — the runtime owns its lifecycle.
+# intentionally NOT writable from clawctl — the runtime owns its lifecycle.
 - hosts: all
   become: yes
   gather_facts: false

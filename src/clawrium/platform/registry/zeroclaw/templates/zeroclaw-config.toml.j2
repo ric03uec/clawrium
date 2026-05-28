@@ -1,4 +1,4 @@
-{# Managed by clawrium (clm). Do not edit by hand — re-render with
+{# Managed by clawrium (clawctl). Do not edit by hand — re-render with
    `clawctl agent configure {{ agent_name | default('<name>') }}`.
 
    v0.7.5 schema:
@@ -86,7 +86,7 @@ api_key = "{{ toml_escape(provider_api_key) }}"
    so a fresh `clawctl agent configure` lands the agent with sensible voice
    defaults instead of an empty section. Operators can override via
    `config.personality.{name,timezone,communication_style}` passed through
-   from clm; the workspace MD files own the deeper personality content. #}
+   from clawctl; the workspace MD files own the deeper personality content. #}
 [personality]
 name = "{{ toml_escape(personality_name) }}"
 timezone = "{{ toml_escape(personality_timezone) }}"

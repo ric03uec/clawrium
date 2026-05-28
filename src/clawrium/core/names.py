@@ -224,10 +224,16 @@ RESERVED_UNIX_NAMES: frozenset[str] = frozenset(
         "sshd",
         "messagebus",
         "proxy",
-        # systemd accounts (Ubuntu 22.04 / 24.04 default install)
+        # systemd accounts (Ubuntu 22.04 / 24.04 / 26.04 default install).
+        # `systemd-oom` and `systemd-coredump` are real service accounts
+        # (uid 986, 999 respectively); shadowing them via an agent name
+        # was flagged by ATX iter-4 B3/B4 as a privilege-escalation
+        # vector the blocklist is supposed to prevent.
         "systemd-network",
         "systemd-resolve",
         "systemd-timesync",
+        "systemd-oom",
+        "systemd-coredump",
         # macOS / Apple privileged groups (acting as users)
         "admin",
         "wheel",
