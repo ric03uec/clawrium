@@ -6,9 +6,9 @@ internally; this file documents the operator-visible expectations.
 ## Cadence
 
 - The daemon emits a heartbeat each interval cycle.
-- A missed cycle is surfaced via `clm ps` and `systemctl status`.
+- A missed cycle is surfaced via `clawctl ps` and `systemctl status`.
 
 ## Recovery
 
 - If the daemon is unresponsive, restart via
-  `clm agent restart {{ agent_name | default('<name>') }}`.
+  `clawctl agent restart {{ agent_name | default('<name>') }}`.

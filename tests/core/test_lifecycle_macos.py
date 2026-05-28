@@ -261,3 +261,193 @@ def test_bootstrap_with_tolerance_variants(monkeypatch, rc, stderr, expected_ok,
         assert err is None
     else:
         assert error_marker in (err or "")
+
+
+# ===== Iteration 3 B5: configure_agent / sync_agent restart wiring =====
+
+
+def test_configure_agent_injects_macos_playbook_and_restarts(monkeypatch):
+    """`lifecycle_macos.configure_agent` MUST (a) inject the macOS configure
+    playbook via `playbook_path_override` and (b) call
+    `restart_agent_macos` exactly once after a successful core configure."""
+    called: dict = {}
+
+    def fake_core_configure(**kwargs):
+        called["playbook"] = kwargs.get("playbook_path_override")
+        called["claw_name"] = kwargs.get("claw_name")
+        return True, None
+
+    fake_host = {
+        "hostname": "x",
+        "os_family": "darwin",
+        "agents": {"h1": {"type": "hermes", "agent_name": "h1", "config": {}}},
+    }
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle.configure_agent", fake_core_configure
+    )
+    monkeypatch.setattr("clawrium.core.hosts.get_host", lambda _h: fake_host)
+
+    restart_calls: list = []
+
+    def fake_restart(host, agent_name, on_event=None):
+        restart_calls.append((host["hostname"], agent_name))
+        return True, None
+
+    monkeypatch.setattr(lifecycle_macos, "restart_agent_macos", fake_restart)
+
+    ok, err = lifecycle_macos.configure_agent(
+        hostname="x", claw_name="hermes", config_data={}, agent_name="h1"
+    )
+    assert ok is True
+    assert err is None
+    # macOS playbook injected (configure_macos.yaml path).
+    assert called["playbook"] is not None
+    assert "configure_macos.yaml" in str(called["playbook"])
+    # restart_agent_macos called exactly once.
+    assert restart_calls == [("x", "h1")]
+
+
+def test_configure_agent_propagates_core_failure(monkeypatch):
+    """A core configure failure must surface and NOT trigger restart."""
+
+    def fake_core_configure(**_):
+        return False, "ansible exit 2"
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle.configure_agent", fake_core_configure
+    )
+
+    restart_calls: list = []
+    monkeypatch.setattr(
+        lifecycle_macos,
+        "restart_agent_macos",
+        lambda *a, **kw: restart_calls.append("called") or (True, None),
+    )
+
+    ok, err = lifecycle_macos.configure_agent(
+        hostname="x", claw_name="hermes", config_data={}, agent_name="h1"
+    )
+    assert ok is False
+    assert "ansible exit 2" in (err or "")
+    assert restart_calls == []  # restart NOT attempted on configure failure
+
+
+def test_configure_agent_surfaces_restart_failure(monkeypatch):
+    """If restart_agent_macos fails after a clean configure, that error
+    must bubble up — silent success is unacceptable."""
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle.configure_agent",
+        lambda **_kw: (True, None),
+    )
+    fake_host = {
+        "hostname": "x",
+        "os_family": "darwin",
+        "agents": {"h1": {"type": "hermes", "agent_name": "h1", "config": {}}},
+    }
+    monkeypatch.setattr("clawrium.core.hosts.get_host", lambda _h: fake_host)
+    monkeypatch.setattr(
+        lifecycle_macos,
+        "restart_agent_macos",
+        lambda *a, **kw: (False, "launchctl bootout (gateway) failed"),
+    )
+
+    ok, err = lifecycle_macos.configure_agent(
+        hostname="x", claw_name="hermes", config_data={}, agent_name="h1"
+    )
+    assert ok is False
+    assert "Post-configure restart failed" in (err or "")
+    assert "launchctl bootout" in (err or "")
+
+
+def test_sync_agent_injects_macos_playbook_and_restarts(monkeypatch):
+    """`lifecycle_macos.sync_agent` mirrors configure_agent's contract:
+    inject the macOS playbook, then restart on success."""
+    sync_called: dict = {}
+
+    def fake_core_sync(**kwargs):
+        sync_called["playbook"] = kwargs.get("playbook_path_override")
+        return {
+            "success": True,
+            "agent": "h1",
+            "host": kwargs.get("hostname"),
+            "operation": "sync",
+            "error": None,
+        }
+
+    fake_host = {
+        "hostname": "x",
+        "os_family": "darwin",
+        "agents": {"h1": {"type": "hermes", "agent_name": "h1", "config": {}}},
+    }
+    monkeypatch.setattr("clawrium.core.lifecycle.sync_agent", fake_core_sync)
+    monkeypatch.setattr("clawrium.core.hosts.get_host", lambda _h: fake_host)
+
+    restart_calls: list = []
+    monkeypatch.setattr(
+        lifecycle_macos,
+        "restart_agent_macos",
+        lambda host, agent, on_event=None: restart_calls.append((host["hostname"], agent)) or (True, None),
+    )
+
+    result = lifecycle_macos.sync_agent(
+        hostname="x", claw_name="hermes", agent_name="h1"
+    )
+    assert result["success"] is True
+    assert "configure_macos.yaml" in str(sync_called["playbook"])
+    assert restart_calls == [("x", "h1")]
+
+
+def test_sync_agent_skips_restart_on_core_failure(monkeypatch):
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle.sync_agent",
+        lambda **kw: {
+            "success": False,
+            "agent": "h1",
+            "host": kw.get("hostname"),
+            "operation": "sync",
+            "error": "Configure failed: ansible exit 2",
+        },
+    )
+    restart_calls: list = []
+    monkeypatch.setattr(
+        lifecycle_macos,
+        "restart_agent_macos",
+        lambda *a, **kw: restart_calls.append("called") or (True, None),
+    )
+
+    result = lifecycle_macos.sync_agent(
+        hostname="x", claw_name="hermes", agent_name="h1"
+    )
+    assert result["success"] is False
+    assert restart_calls == []
+
+
+# ===== Iteration 3 B4 (warning): static-grep invariant =====
+
+
+def test_lifecycle_module_has_no_darwin_branches():
+    """ATX iter-2: regression guard for the dispatcher-only OS fork rule
+    (.itx/469/01_EXECUTION.md §Decisions item 2). No `if Darwin`-style
+    branch may live in core/lifecycle.py."""
+    import re
+    from pathlib import Path
+
+    from clawrium.core import lifecycle as _lifecycle
+
+    source = Path(_lifecycle.__file__).read_text()
+    # Strip docstring / comment mentions — they are descriptive, not
+    # branching. The invariant targets executable code: `if .*darwin`
+    # in an `if`/`elif` statement.
+    code_lines = [
+        line
+        for line in source.splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+    code = "\n".join(code_lines)
+    pattern = re.compile(r"^\s*(?:if|elif)\b.*\bdarwin\b", re.IGNORECASE | re.MULTILINE)
+    matches = pattern.findall(code)
+    assert matches == [], (
+        f"core/lifecycle.py must not branch on Darwin (found {matches}). "
+        "Move OS-family dispatch to the CLI layer via "
+        "resolve_lifecycle_backend(os_family)."
+    )

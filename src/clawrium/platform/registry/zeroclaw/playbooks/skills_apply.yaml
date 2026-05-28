@@ -83,7 +83,7 @@
       ansible.builtin.fail:
         msg: >
           zeroclaw binary not found at {{ zeroclaw_bin }}. Run
-          `clm agent install --type zeroclaw --host <host>` first.
+          `clawctl agent install --type zeroclaw --host <host>` first.
       when:
         - not zeroclaw_bin_stat.stat.exists or not (zeroclaw_bin_stat.stat.executable | default(false))
 

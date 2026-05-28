@@ -9,7 +9,7 @@
 
     - name: Fail if service not installed
       ansible.builtin.fail:
-        msg: "Hermes service not installed. Run 'clm agent install --type hermes ...' first."
+        msg: "Hermes service not installed. Run 'clawctl agent install --type hermes ...' first."
       when: not service_file.stat.exists
 
     # Re-render the unit (idempotent) so changes to ExecStart / WorkingDirectory
@@ -147,5 +147,5 @@
           Inspect logs with:
             sudo journalctl -u {{ agent_type }}-{{ agent_name }} -n 100 --no-pager
           Common cause: ~/.hermes/.env is missing required provider credentials.
-          Run `clm agent configure {{ agent_name }}` to provision a provider.
+          Run `clawctl agent configure {{ agent_name }}` to provision a provider.
       when: service_status.status.ActiveState not in ['active', 'activating']

@@ -323,7 +323,7 @@
         openclaw_gateway_token: "{{ gateway_token_result_stdout }}"
         # ATX iter-1 W4: scheme is hardcoded `ws://`. Operators fronting the
         # gateway with TLS need `wss://` here; today they get a confusing
-        # connection error from `clm chat <openclaw>`. Tracked as a known
+        # connection error from `clawctl chat <openclaw>`. Tracked as a known
         # limitation; safe to address in a follow-up since openclaw deploys
         # are LAN-only today (no TLS termination in the documented topology).
         openclaw_gateway_url: "ws://{{ ansible_host }}:{{ openclaw_port }}"

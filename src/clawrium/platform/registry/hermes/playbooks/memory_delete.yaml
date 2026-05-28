@@ -7,7 +7,7 @@
 # only enumerates files under memories/, so SOUL.md is deliberately not in
 # the delete allowlist — deleting an agent's SOUL.md is treated as
 # destructive enough to require manual SSH intervention rather than
-# routing through `clm agent memory delete`.
+# routing through `clawctl agent memory delete`.
 - hosts: all
   become: yes
   gather_facts: false

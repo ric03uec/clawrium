@@ -138,7 +138,7 @@
         group: "{{ agent_name }}"
         mode: "0700"
 
-    # Service is dropped DISABLED and NOT started. `clm agent configure` renders
+    # Service is dropped DISABLED and NOT started. `clawctl agent configure` renders
     # config.toml with provider credentials and turns the unit on. Inline config
     # rendering used to live here; it now belongs to configure.yaml so install
     # remains a pure "binary present, unit dropped" step.
@@ -171,4 +171,4 @@
         msg: |
           ZeroClaw {{ zeroclaw_target_version }} installed for agent '{{ agent_name }}'.
           Service unit {{ agent_type }}-{{ agent_name }}.service dropped (disabled, stopped).
-          Run 'clm agent configure {{ agent_name }}' to render config.toml and start the daemon.
+          Run 'clawctl agent configure {{ agent_name }}' to render config.toml and start the daemon.

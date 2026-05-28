@@ -53,6 +53,7 @@ test-macos:
 	  tests/core/test_lifecycle_macos.py \
 	  tests/cli/test_host_macos.py \
 	  tests/integration/test_macos_e2e_mocked.py \
+	  tests/test_names.py::TestReservedUnixNames \
 	  -v
 
 lint: lint-py lint-ui

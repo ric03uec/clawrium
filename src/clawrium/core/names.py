@@ -180,23 +180,50 @@ def is_ip_address(value: str) -> bool:
 # /Users/<name>` on macOS, plus an `xclm` management-user collision on
 # both). Allowing these names would silently overwrite or merge with a
 # pre-existing system account — at best confusing, at worst a privilege
-# escalation vector. ATX iteration 1 B4: surface this at name-validation
-# time with a clear collision message instead of letting it explode
-# inside the playbook.
+# escalation vector (mail/www-data/etc. typically have queue-write
+# access or run privileged daemons).
 #
-# Set chosen to cover (a) cross-Unix builtins that exist on both Linux
-# and macOS (root/daemon/nobody), (b) the management user clawrium
-# itself creates (xclm), and (c) Apple-specific privileged groups that
-# act as users in some Apple frameworks (admin/wheel/staff/guest).
+# Coverage:
+#   * Cross-Unix builtins (root, daemon, nobody, bin, sys, sync, games,
+#     man, lp, mail, news, uucp, backup, list, irc, gnats, nogroup).
+#   * Linux distro service accounts (www-data, syslog, postfix, sshd,
+#     systemd-*, messagebus, _apt).
+#   * macOS / Apple privileged groups (admin, wheel, staff, guest,
+#     _appserver, _appstore).
+#   * The management user clawrium itself creates (xclm).
 RESERVED_UNIX_NAMES: frozenset[str] = frozenset(
     {
-        "admin",
-        "daemon",
-        "guest",
-        "nobody",
+        # Universal POSIX accounts
         "root",
-        "staff",
+        "daemon",
+        "nobody",
+        "bin",
+        "sys",
+        "sync",
+        "games",
+        "man",
+        "lp",
+        "mail",
+        "news",
+        "uucp",
+        "backup",
+        "list",
+        "irc",
+        "gnats",
+        "nogroup",
+        # Linux service / distro accounts
+        "www-data",
+        "syslog",
+        "postfix",
+        "sshd",
+        "messagebus",
+        "_apt",
+        # macOS / Apple privileged groups (acting as users)
+        "admin",
         "wheel",
+        "staff",
+        "guest",
+        # Clawrium management user
         "xclm",
     }
 )

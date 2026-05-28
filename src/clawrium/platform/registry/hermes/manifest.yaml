@@ -40,15 +40,15 @@ secrets:
     - key: OPENAI_API_KEY
       description: "OpenAI API key"
     # Atlassian credentials are NOT listed here: they live in the per-integration
-    # credential store (managed via `clm integration credentials`) and a single
+    # credential store (managed via `clawctl integration credentials`) and a single
     # hermes agent may have multiple atlassian integrations (team-a, team-b)
     # with distinct tokens — a single manifest key would be ambiguous.
 
 # Onboarding workflow configuration.
 #
 # Phase 4 replaces the Phase 1 placeholder (where every stage was auto-skipped
-# to short-circuit to READY) with a real onboarding pipeline. `clm agent start`
-# now requires the user to walk through `clm agent configure` first, mirroring
+# to short-circuit to READY) with a real onboarding pipeline. `clawctl agent start`
+# now requires the user to walk through `clawctl agent configure` first, mirroring
 # the openclaw flow.
 #
 # Stage notes:
@@ -62,7 +62,7 @@ secrets:
 #   channels   default `cli`. The api_server platform exposes an
 #              OpenAI-compatible HTTP API on 0.0.0.0:<api_server_port> (all
 #              interfaces, bearer-token protected via HERMES_API_SERVER_KEY)
-#              so `clm chat <hermes>` can reach it at
+#              so `clawctl chat <hermes>` can reach it at
 #              http://<host-ip>:<api_server_port>/v1 from any clm machine on
 #              the LAN. The port is per-instance, picked at install time
 #              from 8600..8699 (issue #533). External messaging gateways
@@ -95,7 +95,7 @@ onboarding:
         - id: confirm_cli
           name: "Confirm CLI channel"
           type: confirm
-          message: "Hermes will expose its OpenAI-compatible API on all interfaces, bearer-token protected, reachable at http://<host-ip>:<api_server_port>/v1 from any clm machine on the LAN. The port is per-instance (8600..8699); see `clm agent describe`."
+          message: "Hermes will expose its OpenAI-compatible API on all interfaces, bearer-token protected, reachable at http://<host-ip>:<api_server_port>/v1 from any clm machine on the LAN. The port is per-instance (8600..8699); see `clawctl agent describe`."
           default: true
         - id: select_discord
           name: "Enable Discord channel (optional)"

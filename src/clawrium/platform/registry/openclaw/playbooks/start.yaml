@@ -16,7 +16,7 @@
 
     - name: Fail if service not installed
       ansible.builtin.fail:
-        msg: "OpenClaw service not installed. Run 'clm agent install' first."
+        msg: "OpenClaw service not installed. Run 'clawctl agent install' first."
       when: not service_file.stat.exists
 
     - name: Check per-agent openclaw binary

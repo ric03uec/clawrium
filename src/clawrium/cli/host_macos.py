@@ -59,16 +59,18 @@ def init_macos(hostname: str, user: Optional[str] = None) -> None:
     # Step 1: keypair (shared identity store with the Linux path)
     private_key = get_host_private_key(hostname)
     if private_key:
-        console.print(f"Using existing keypair for '{hostname}'")
+        console.print(f"Using existing keypair for '{rich_escape(hostname)}'")
     else:
-        console.print(f"Generating SSH keypair for '{hostname}'...")
+        console.print(f"Generating SSH keypair for '{rich_escape(hostname)}'...")
         private_key_path, public_key_path = generate_host_keypair(hostname)
         console.print(f"[green]Keypair created:[/green] {public_key_path}")
         private_key = private_key_path
 
     public_key_content = read_public_key(hostname)
     if not public_key_content:
-        console.print(f"[red]Could not read public key for {hostname}[/red]")
+        console.print(
+            f"[red]Could not read public key for {rich_escape(hostname)}[/red]"
+        )
         raise typer.Exit(code=1)
 
     connection_user = user or getpass.getuser()
@@ -179,7 +181,10 @@ def init_macos(hostname: str, user: Optional[str] = None) -> None:
         )
         if success:
             console.print("[green]xclm user configured successfully![/green]")
-            console.print(f"\nNext step: [cyan]clawctl host create {hostname}[/cyan]")
+            console.print(
+                f"\nNext step: [cyan]clawctl host create "
+                f"{rich_escape(hostname)}[/cyan]"
+            )
             auto_setup_success = True
         else:
             # `message` originates from test_ssh_connection (paramiko
@@ -237,7 +242,9 @@ def init_macos(hostname: str, user: Optional[str] = None) -> None:
             "sudo dseditgroup -o edit -a xclm -t user com.apple.access_ssh"
         )
         console.print("")
-        console.print(f"Then run: [cyan]clawctl host create {hostname}[/cyan]")
+        console.print(
+            f"Then run: [cyan]clawctl host create {rich_escape(hostname)}[/cyan]"
+        )
         raise typer.Exit(code=1)
 
 

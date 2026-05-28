@@ -1,6 +1,9 @@
 """Tests for clawrium.core.names module."""
 
+import pytest
+
 from clawrium.core.names import (
+    RESERVED_UNIX_NAMES,
     generate_random_name,
     is_ip_address,
     validate_agent_name,
@@ -200,3 +203,56 @@ class TestIsNameAvailableOnHost:
         """is_name_available_on_host handles host without claws field."""
         host = {}
         assert is_name_available_on_host("clever-einstein", host) is True
+
+
+class TestReservedUnixNames:
+    """ATX iter-2 B4: RESERVED_UNIX_NAMES blocklist must reject system accounts.
+
+    The agent's name becomes a real account on the remote host. Allowing a
+    reserved name silently overwrites or merges with the pre-existing
+    system account — at best confusing, at worst a privilege escalation
+    (mail, www-data, etc. typically have queue-write access or run
+    privileged daemons).
+    """
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "root",
+            "xclm",
+            "nobody",
+            "daemon",
+            "wheel",
+            "admin",
+            "guest",
+            "staff",
+            "mail",
+            "www-data",
+            "syslog",
+            "postfix",
+            "sshd",
+            "bin",
+            "sys",
+        ],
+    )
+    def test_reserved_name_is_rejected(self, name):
+        ok, msg = validate_agent_name(name)
+        assert ok is False
+        # Error message must mention the name verbatim AND the
+        # "reserved" reason (not just a format complaint).
+        assert name in msg
+        assert "reserved" in msg.lower()
+
+    def test_non_reserved_lookalikes_pass(self):
+        """Names that *contain* a reserved substring but don't match must pass."""
+        for ok_name in ("notadmin", "xclm2", "rootbeer", "mailman2", "wwwdata2"):
+            ok, msg = validate_agent_name(ok_name)
+            assert ok is True, f"{ok_name!r} unexpectedly rejected: {msg}"
+
+    def test_blocklist_covers_apple_and_linux_set(self):
+        """Coverage smoke: both macOS-only and Linux-only accounts present."""
+        assert "wheel" in RESERVED_UNIX_NAMES  # macOS
+        assert "staff" in RESERVED_UNIX_NAMES  # macOS
+        assert "www-data" in RESERVED_UNIX_NAMES  # Linux
+        assert "syslog" in RESERVED_UNIX_NAMES  # Linux
+        assert "xclm" in RESERVED_UNIX_NAMES  # clawrium management user
