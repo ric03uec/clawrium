@@ -236,3 +236,7 @@ src/clawrium/gui/frontend/
 
 # Scheduled-task internal state (ScheduleWakeup runtime lock)
 .claude/scheduled_tasks.lock
+
+# VHS demo recordings (uploaded to YouTube; tape + storyboard committed instead)
+docs/demos/recordings/*
+!docs/demos/recordings/.gitkeep

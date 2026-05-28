@@ -1,0 +1,123 @@
+# <DEMO TITLE> — Long-Form Storyboarded Demo
+# Records: title card -> scenario checklist -> N scenes (each headline + body + progress update) -> outro card.
+# Output : MP4 in docs/demos/recordings/ (gitignored; uploaded to YouTube).
+# Storyboard : docs/demos/<NAME>.storyboard.md
+# Helper     : docs/demos/_<NAME>_helpers.sh
+# Captures   : docs/demos/<NAME>/outputs/NN-<slug>.txt   (committed; replay-mode scenes cat these)
+# Requires   : <list real prerequisites — hosts, providers, agents — that must exist before record>
+#
+# SECURITY: <Title> placeholders inside `Type `...`` backtick blocks are passed to bash
+# at record time. Keep titles to plain alphanumerics, spaces, ':', and '-'. Never use
+# titles containing `$(`, backticks, or unbalanced quotes — they execute shell.
+
+Require vhs
+Require clawctl
+
+Output docs/demos/recordings/<NAME>.mp4
+
+Set Shell "bash"
+Set FontSize 18
+Set Width 1400
+Set Height 900
+Set Theme "Catppuccin Mocha"
+Set WindowBar Colorful
+Set Padding 20
+Set Margin 20
+Set MarginFill "#1e1e2e"
+Set BorderRadius 8
+Set TypingSpeed 50ms
+Set Framerate 30
+
+# --- Setup (hidden) ---
+Hide
+Type `source "$(git rev-parse --show-toplevel)/.venv/bin/activate"`
+Enter
+Sleep 500ms
+Type `source "$(git rev-parse --show-toplevel)/docs/demos/_<NAME>_helpers.sh"`
+Enter
+Sleep 500ms
+Type "clear"
+Enter
+Sleep 300ms
+Show
+
+# Pre-roll so the first visible frame is not mid-action
+Sleep 1s
+
+# === TITLE CARD ===
+Type "titlecard"
+Enter
+Sleep 4s
+
+# === SCENARIO CHECKLIST (all pending) ===
+Type "progress 0"
+Enter
+Sleep 5s
+
+# ============================================================
+# SCENE 1 — <Title>
+# Mode: replay
+# ============================================================
+Type `headline 1 "<Title>"`
+Enter
+Sleep 2500ms
+Hide
+Type "clear"
+Enter
+Show
+Type "cat docs/demos/<NAME>/outputs/01-<slug>.txt"
+Sleep 300ms
+Enter
+Sleep 6s
+Type "progress 1"
+Enter
+Sleep 2500ms
+
+# ============================================================
+# SCENE 2 — <Title>
+# Mode: replay
+# ============================================================
+Type `headline 2 "<Title>"`
+Enter
+Sleep 2500ms
+Hide
+Type "clear"
+Enter
+Show
+Type "cat docs/demos/<NAME>/outputs/02-<slug>.txt"
+Sleep 300ms
+Enter
+Sleep 6s
+Type "progress 2"
+Enter
+Sleep 2500ms
+
+# ============================================================
+# SCENE N — <Title>
+# Mode: LIVE — interactive scene, runs real command
+# ============================================================
+Type `headline N "<Title>"`
+Enter
+Sleep 2500ms
+Hide
+Type "clear"
+Enter
+Show
+Type "clawctl agent chat <agent-name>"
+Sleep 300ms
+Enter
+Sleep 8s
+Type "hello! what model are you running?"
+Sleep 300ms
+Enter
+Sleep 30s
+Ctrl+D
+Sleep 2s
+Type "progress N"
+Enter
+Sleep 2500ms
+
+# === OUTRO CARD ===
+Type "outrocard"
+Enter
+Sleep 5s

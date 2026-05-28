@@ -1,0 +1,42 @@
+# <DEMO TITLE> — Storyboard
+
+**Output**: `docs/demos/recordings/<name>.mp4` (gitignored; uploaded to YouTube)
+**Style**: Long-form storyboarded demo
+**Execution**: Replay-first (mark scenes `# LIVE` to run for real)
+
+## Pre-flight checklist
+
+- [ ] Every command below has been run manually at least once on a real host.
+- [ ] Captured outputs committed under `docs/demos/<name>/outputs/NN-<scene-slug>.txt`.
+- [ ] Non-deterministic values masked in captured files (timestamps, UUIDs, IPs, private hostnames).
+- [ ] `_SCENES=(...)` in `_<name>_helpers.sh` matches the scene table below (titles + order).
+- [ ] User has approved this storyboard before recording.
+
+## Scenes
+
+| # | Title                       | Command                                       | Mode    | Capture file              | Notes                          |
+|---|-----------------------------|-----------------------------------------------|---------|---------------------------|--------------------------------|
+| 1 | Meet the Fleet              | `clawctl agent get`                           | replay  | `01-fleet.txt`            |                                |
+| 2 | …                           | …                                             | replay  | `02-….txt`                |                                |
+| N | Chatting With the Agent     | `clawctl agent chat <agent-name>`             | LIVE    | —                         | Interactive TUI; cannot replay |
+
+**Mode legend**
+
+- `replay` — tape executes `cat docs/demos/<name>/outputs/NN-<slug>.txt`. Deterministic; no infra needed at record time.
+- `LIVE`   — tape runs the real command. Use only when the scene depends on a live process (TUIs, chat, long-running spinners that *are* the point).
+
+## Narration (optional, for YouTube voiceover)
+
+Per-scene script. Keep each beat to one or two sentences so timing matches the on-screen `Sleep`.
+
+- Scene 1: …
+- Scene 2: …
+- Scene N: …
+
+## Re-capture cadence
+
+Captured outputs drift from the real CLI when output format or columns change. Re-run the capture script:
+
+- Before each release tag.
+- After any change touching CLI output formatting (Rich tables, column order, status strings).
+- When the demo is reshot for a major version.
