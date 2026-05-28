@@ -422,6 +422,44 @@ def test_sync_agent_skips_restart_on_core_failure(monkeypatch):
     assert restart_calls == []
 
 
+def test_sync_agent_surfaces_restart_failure(monkeypatch):
+    """ATX iter-3 B6: mirror of `test_configure_agent_surfaces_restart_failure`.
+    If `restart_agent_macos` fails after a clean core sync, the sync
+    result MUST flip to success=False with an error mentioning the
+    restart failure — silent success would let a stale daemon
+    masquerade as a successful sync."""
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle.sync_agent",
+        lambda **kw: {
+            "success": True,
+            "agent": "h1",
+            "host": kw.get("hostname"),
+            "operation": "sync",
+            "pid": None,
+            "started_at": None,
+            "error": None,
+        },
+    )
+    fake_host = {
+        "hostname": "x",
+        "os_family": "darwin",
+        "agents": {"h1": {"type": "hermes", "agent_name": "h1", "config": {}}},
+    }
+    monkeypatch.setattr("clawrium.core.hosts.get_host", lambda _h: fake_host)
+    monkeypatch.setattr(
+        lifecycle_macos,
+        "restart_agent_macos",
+        lambda *a, **kw: (False, "launchctl bootout (gateway) failed"),
+    )
+
+    result = lifecycle_macos.sync_agent(
+        hostname="x", claw_name="hermes", agent_name="h1"
+    )
+    assert result["success"] is False
+    assert "Post-sync restart failed" in (result.get("error") or "")
+    assert "launchctl bootout" in (result.get("error") or "")
+
+
 # ===== Iteration 3 B4 (warning): static-grep invariant =====
 
 

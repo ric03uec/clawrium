@@ -195,17 +195,24 @@ def test_init_macos_escapes_markup_in_hostname_on_keypair_load(monkeypatch, caps
         host_macos.init_macos(malicious, user="op")
 
     out = capsys.readouterr().out
-    # The literal markup string must appear escaped — Rich's markup
-    # parser would otherwise consume `[red blink]` and produce a tag.
-    # rich.markup.escape doubles open brackets to `\[`, so the literal
-    # `[red blink]` substring is present in the output.
-    assert "[red blink]" in out or r"\[red blink]" in out, (
-        f"hostname markup leaked: {out!r}"
+    # ATX iter-3 W8: the test cares about TWO independent invariants,
+    # both must hold simultaneously:
+    #   (a) the literal tag string survives to the output (proves the
+    #       text was treated as data, not markup);
+    #   (b) Rich did NOT emit ANSI escape sequences for that tag.
+    # The previous `[red blink] in out OR \[red blink] in out`
+    # disjunction trivially passed if escaping failed and Rich
+    # rendered the tag (because Rich strips the brackets but emits
+    # ANSI). Asserting (a) AND (b) is unambiguous.
+    assert "[red blink]" in out, (
+        f"literal injected tag string missing — rich either rendered "
+        f"it as markup or dropped it entirely: {out!r}"
     )
-    # AND no rendered red-blink ANSI code in the output (Rich would
-    # emit ESC[ sequences if it parsed the tag).
-    assert "\x1b[31" not in out  # red foreground
-    assert "blink" not in out.lower() or "[red blink]" in out  # blink intact
+    assert "\x1b[31" not in out, (
+        f"red ANSI escape leaked — rich_escape failed: {out!r}"
+    )
+    # And no blink ANSI sequence (\x1b[5m) emitted either.
+    assert "\x1b[5m" not in out
 
 
 def test_init_macos_escapes_markup_in_auth_exception(monkeypatch, capsys):
@@ -242,7 +249,13 @@ def test_init_macos_escapes_markup_in_auth_exception(monkeypatch, capsys):
         host_macos.init_macos("host.example.com", user="op")
 
     out = capsys.readouterr().out
-    # Literal `[bold]` must appear (escape doubles open bracket).
-    assert "[bold]" in out or r"\[bold]" in out, (
-        f"paramiko exception markup leaked: {out!r}"
+    # ATX iter-3 W8: literal `[bold]` MUST appear AND no bold ANSI
+    # sequence may be emitted. Together these prove rich_escape's
+    # double-bracket-to-literal-bracket round trip worked end-to-end.
+    assert "[bold]" in out, (
+        f"literal injected tag string missing — rich either rendered "
+        f"it as markup or dropped it entirely: {out!r}"
+    )
+    assert "\x1b[1m" not in out, (
+        f"bold ANSI escape leaked — rich_escape failed: {out!r}"
     )

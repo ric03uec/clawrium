@@ -191,6 +191,12 @@ def is_ip_address(value: str) -> bool:
 #   * macOS / Apple privileged groups (admin, wheel, staff, guest,
 #     _appserver, _appstore).
 #   * The management user clawrium itself creates (xclm).
+#
+# NOTE on underscore-prefixed accounts (`_apt`, `_www`, `_appserver`, …):
+# the format check (^[a-z][a-z0-9_-]{0,31}$) already rejects any name
+# starting with `_`, so those identifiers never reach this blocklist.
+# They are deliberately NOT listed here to avoid the dead-code defect
+# ATX iter-3 B4 flagged.
 RESERVED_UNIX_NAMES: frozenset[str] = frozenset(
     {
         # Universal POSIX accounts
@@ -211,13 +217,17 @@ RESERVED_UNIX_NAMES: frozenset[str] = frozenset(
         "irc",
         "gnats",
         "nogroup",
-        # Linux service / distro accounts
+        # Linux service / distro accounts (must pass format check first)
         "www-data",
         "syslog",
         "postfix",
         "sshd",
         "messagebus",
-        "_apt",
+        "proxy",
+        # systemd accounts (Ubuntu 22.04 / 24.04 default install)
+        "systemd-network",
+        "systemd-resolve",
+        "systemd-timesync",
         # macOS / Apple privileged groups (acting as users)
         "admin",
         "wheel",

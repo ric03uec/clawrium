@@ -14,7 +14,7 @@ features:
   chat:
     type: openai
   # Native browser dashboard shipped by hermes upstream. Bound to loopback
-  # on the agent host; clm tunnels through SSH (see issue #478). `port_field`
+  # on the agent host; clawctl tunnels through SSH (see issue #478). `port_field`
   # is the dotted path inside `hosts.json.agents.<name>.config` where the
   # per-instance dashboard port is persisted at install time. No
   # `default_port`: install.py computes a per-instance port in 45000..46999
@@ -56,14 +56,14 @@ secrets:
 #              to openclaw. Selecting a provider writes ~/.hermes/.env and
 #              ~/.hermes/config.yaml on the agent host (Phase 2 logic).
 #   identity   auto_skip. Hermes manages its own identity files (SOUL.md,
-#              AGENTS.md) inside ~/.hermes/ on the agent host; clm does not
+#              AGENTS.md) inside ~/.hermes/ on the agent host; clawctl does not
 #              push identity files in this iteration. The wizard records this
 #              stage as SKIPPED and advances.
 #   channels   default `cli`. The api_server platform exposes an
 #              OpenAI-compatible HTTP API on 0.0.0.0:<api_server_port> (all
 #              interfaces, bearer-token protected via HERMES_API_SERVER_KEY)
 #              so `clawctl chat <hermes>` can reach it at
-#              http://<host-ip>:<api_server_port>/v1 from any clm machine on
+#              http://<host-ip>:<api_server_port>/v1 from any clawctl machine on
 #              the LAN. The port is per-instance, picked at install time
 #              from 8600..8699 (issue #533). External messaging gateways
 #              (Discord/Slack/Telegram/etc.) are out of scope and tracked as a
@@ -86,7 +86,7 @@ onboarding:
     identity:
       required: false
       auto_skip: true
-      description: "Hermes manages SOUL.md/AGENTS.md inside ~/.hermes/; clm does not push identity files in this iteration"
+      description: "Hermes manages SOUL.md/AGENTS.md inside ~/.hermes/; clawctl does not push identity files in this iteration"
 
     channels:
       required: true
@@ -95,7 +95,7 @@ onboarding:
         - id: confirm_cli
           name: "Confirm CLI channel"
           type: confirm
-          message: "Hermes will expose its OpenAI-compatible API on all interfaces, bearer-token protected, reachable at http://<host-ip>:<api_server_port>/v1 from any clm machine on the LAN. The port is per-instance (8600..8699); see `clawctl agent describe`."
+          message: "Hermes will expose its OpenAI-compatible API on all interfaces, bearer-token protected, reachable at http://<host-ip>:<api_server_port>/v1 from any clawctl machine on the LAN. The port is per-instance (8600..8699); see `clawctl agent describe`."
           default: true
         - id: select_discord
           name: "Enable Discord channel (optional)"

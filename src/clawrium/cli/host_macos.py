@@ -63,7 +63,9 @@ def init_macos(hostname: str, user: Optional[str] = None) -> None:
     else:
         console.print(f"Generating SSH keypair for '{rich_escape(hostname)}'...")
         private_key_path, public_key_path = generate_host_keypair(hostname)
-        console.print(f"[green]Keypair created:[/green] {public_key_path}")
+        console.print(
+            f"[green]Keypair created:[/green] {rich_escape(str(public_key_path))}"
+        )
         private_key = private_key_path
 
     public_key_content = read_public_key(hostname)
