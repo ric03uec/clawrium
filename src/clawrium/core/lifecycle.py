@@ -472,9 +472,17 @@ def start_agent(
 
     emit("start", f"Starting {agent_key} on {hostname}...")
 
-    success, error = _run_lifecycle_playbook(
-        agent_type, agent_key, host["hostname"], "start", host
-    )
+    # macOS dispatcher: hand off to lifecycle_macos (launchctl-based)
+    # instead of running a systemd-style playbook. The macOS backend
+    # only needs the host record + agent name; signature differs.
+    if host.get("os_family") == "darwin":
+        from clawrium.core.lifecycle_macos import start_agent_macos
+
+        success, error = start_agent_macos(host, agent_key, on_event=on_event)
+    else:
+        success, error = _run_lifecycle_playbook(
+            agent_type, agent_key, host["hostname"], "start", host
+        )
 
     if not success:
         return {
@@ -580,9 +588,14 @@ def stop_agent(
 
     emit("stop", f"Stopping {agent_key} on {hostname}...")
 
-    success, error = _run_lifecycle_playbook(
-        agent_type, agent_key, host["hostname"], "stop", host, timeout=timeout + 30
-    )
+    if host.get("os_family") == "darwin":
+        from clawrium.core.lifecycle_macos import stop_agent_macos
+
+        success, error = stop_agent_macos(host, agent_key, on_event=on_event)
+    else:
+        success, error = _run_lifecycle_playbook(
+            agent_type, agent_key, host["hostname"], "stop", host, timeout=timeout + 30
+        )
 
     if not success:
         return {

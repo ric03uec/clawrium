@@ -66,3 +66,26 @@ def resolve_agent_playbook(agent_type: str, op: str, os_family: str) -> Path:
             f"expected playbook at {path}"
         )
     return path
+
+
+def resolve_lifecycle_backend(os_family: str):
+    """Return the lifecycle module appropriate for this OS family.
+
+    Linux returns `core.lifecycle` (systemd-based). Darwin returns
+    `core.lifecycle_macos` (launchctl-based). All lifecycle entry
+    points in core.lifecycle delegate to the macOS module when the
+    host record's os_family is "darwin", so callers usually don't need
+    this helper directly — but it's exposed for tests and for any
+    future caller that wants to dispatch explicitly.
+    """
+    if os_family not in SUPPORTED_OS:
+        raise ValueError(
+            f"unsupported os_family: {os_family!r} (expected one of {sorted(SUPPORTED_OS)})"
+        )
+    if os_family == "darwin":
+        from clawrium.core import lifecycle_macos
+
+        return lifecycle_macos
+    from clawrium.core import lifecycle
+
+    return lifecycle
