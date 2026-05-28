@@ -1,0 +1,143 @@
+---
+# macOS counterpart to configure.yaml. Renders the same templates
+# (hermes.env.j2 + hermes-config.yaml.j2) into /Users/<agent>/.hermes/
+# instead of /home/<agent>/.hermes/, and DOES NOT touch systemd —
+# launchctl lifecycle is owned by core/lifecycle_macos.py.
+#
+# Intentional differences from configure.yaml beyond paths:
+#   - No re-render of a service unit. The launchd plist (step 6) is
+#     written by core/launchd.py at start time; configure does not
+#     manage it.
+#   - The atlassian MCP toolchain bootstrap (uv tarball install, MCP
+#     atlassian package install) is omitted from this initial cut.
+#     atlassian integration is tracked as a follow-up after the
+#     core E2E ships.
+- hosts: all
+  become: yes
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: configure_macos.yaml invoked against non-Darwin host
+      when: ansible_os_family != "Darwin"
+
+    - name: Check that agent user exists via dscl
+      ansible.builtin.command: "dscl . -read /Users/{{ agent_name | quote }} UniqueID"
+      register: agent_user_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if hermes agent user is missing
+      ansible.builtin.fail:
+        msg: >-
+          Agent user '{{ agent_name }}' not found. Run
+          `clm agent install --type hermes ...` first.
+      when: agent_user_check.rc != 0
+
+    - name: Verify API_SERVER_KEY is present in config
+      ansible.builtin.fail:
+        msg: |
+          api_server.key is missing for agent '{{ agent_name }}'.
+          Re-run `clm agent install --type hermes ...` to regenerate.
+      when: config.api_server is not defined or not config.api_server.key
+
+    - name: Ensure ~/.hermes config directory exists
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.hermes"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+
+    # Render ~/.hermes/.env (provider API key + API_SERVER_*)
+    - name: Render ~/.hermes/.env from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/hermes.env.j2"
+        dest: "/Users/{{ agent_name }}/.hermes/.env"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+        force: yes
+      no_log: true
+
+    # Render ~/.hermes/config.yaml (model.provider, model.default,
+    # model.base_url). Hermes deep-merges with DEFAULT_CONFIG.
+    - name: Render ~/.hermes/config.yaml from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/hermes-config.yaml.j2"
+        dest: "/Users/{{ agent_name }}/.hermes/config.yaml"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+        force: yes
+      no_log: true
+
+    # Render ~/.gitconfig for each `git` integration (#531).
+    - name: Render ~/.gitconfig for each git integration
+      ansible.builtin.template:
+        src: "{{ shared_template_path }}/gitconfig.j2"
+        dest: "/Users/{{ agent_name }}/.gitconfig"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+      become: yes
+      become_user: "{{ agent_name }}"
+      no_log: true
+      when: integrations is defined
+      loop: "{{ integrations | dict2items | selectattr('value.type', 'equalto', 'git') | list }}"
+      loop_control:
+        label: "{{ item.key }}"
+      vars:
+        git:
+          user_name:            "{{ item.value.GIT_USER_NAME | default('') }}"
+          user_email:           "{{ item.value.GIT_USER_EMAIL | default('') }}"
+          init_default_branch:  "{{ item.value.GIT_INIT_DEFAULT_BRANCH | default('main') }}"
+          pull_rebase:          "{{ item.value.GIT_PULL_REBASE | default('false') }}"
+          core_editor:          "{{ item.value.GIT_CORE_EDITOR | default('vim') }}"
+
+    # Per-provider credential verification (mirrors configure.yaml shape)
+    - name: Verify .env credentials for OpenRouter provider
+      ansible.builtin.command:
+        cmd: grep -q '^OPENROUTER_API_KEY=' "/Users/{{ agent_name }}/.hermes/.env"
+      register: openrouter_check
+      changed_when: false
+      failed_when: openrouter_check.rc != 0
+      no_log: true
+      when:
+        - config.provider is defined
+        - config.provider.type == 'openrouter'
+        - provider_api_key | default('') | length > 0
+
+    - name: Verify .env credentials for Anthropic provider
+      ansible.builtin.command:
+        cmd: grep -q '^ANTHROPIC_API_KEY=' "/Users/{{ agent_name }}/.hermes/.env"
+      register: anthropic_check
+      changed_when: false
+      failed_when: anthropic_check.rc != 0
+      no_log: true
+      when:
+        - config.provider is defined
+        - config.provider.type == 'anthropic'
+        - provider_api_key | default('') | length > 0
+
+    - name: Verify .env credentials for OpenAI provider
+      ansible.builtin.command:
+        cmd: grep -q '^OPENAI_API_KEY=' "/Users/{{ agent_name }}/.hermes/.env"
+      register: openai_check
+      changed_when: false
+      failed_when: openai_check.rc != 0
+      no_log: true
+      when:
+        - config.provider is defined
+        - config.provider.type == 'openai'
+        - provider_api_key | default('') | length > 0
+
+    # launchd restart is NOT triggered from inside this playbook. The
+    # orchestrator (core/lifecycle.configure_agent followed by
+    # restart_agent) calls into core/lifecycle_macos.restart_agent_macos
+    # after this playbook returns. Keeping the restart out of the
+    # playbook avoids duplicating the dispatcher logic in YAML.
+    - name: Display configure success
+      ansible.builtin.debug:
+        msg: |
+          Configuration written to /Users/{{ agent_name }}/.hermes/.
+          Next: `clm agent start {{ agent_name }}` (or restart).

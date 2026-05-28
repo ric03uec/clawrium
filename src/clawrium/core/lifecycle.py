@@ -123,15 +123,18 @@ def _resolve_agent_type(agent_type: str) -> str:
     return ALIAS_TO_CANONICAL.get(agent_type, agent_type)
 
 
-def _get_lifecycle_playbook_path(claw_name: str, operation: str) -> Path:
+def _get_lifecycle_playbook_path(
+    claw_name: str, operation: str, os_family: str = "linux"
+) -> Path:
     canonical_name = _resolve_agent_type(claw_name)
+    suffix = "" if os_family == "linux" else "_macos"
     return (
         Path(__file__).parent.parent
         / "platform"
         / "registry"
         / canonical_name
         / "playbooks"
-        / f"{operation}.yaml"
+        / f"{operation}{suffix}.yaml"
     )
 
 
@@ -1839,8 +1842,10 @@ def configure_agent(
     # Referenced from per-claw playbooks via `{{ shared_template_path }}`.
     shared_template_path = Path(__file__).parent.parent / "platform" / "templates"
 
-    # Get playbook path
-    playbook_path = _get_lifecycle_playbook_path(resolved_type, "configure")
+    # Get playbook path (OS-aware: darwin -> configure_macos.yaml)
+    playbook_path = _get_lifecycle_playbook_path(
+        resolved_type, "configure", host.get("os_family", "linux")
+    )
     if not playbook_path.exists():
         return False, f"Configure playbook not found: {playbook_path}"
 
