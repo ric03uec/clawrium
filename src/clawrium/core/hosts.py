@@ -77,7 +77,7 @@ def load_hosts() -> list[dict]:
                     )
 
             # Migrate hosts to addresses format if needed
-            return [_ensure_addresses(host) for host in data]
+            return [_apply_legacy_defaults(_ensure_addresses(host)) for host in data]
     except json.JSONDecodeError as e:
         raise HostsFileCorruptedError(
             f"hosts.json is corrupted: {e}. "
@@ -272,6 +272,17 @@ def _ensure_addresses(host: dict) -> dict:
             ]
         else:
             host["addresses"] = []
+    return host
+
+
+def _apply_legacy_defaults(host: dict) -> dict:
+    """Backfill fields that may be missing on hosts registered before they existed.
+
+    Currently this is just `os_family`: every host registered before macOS
+    support landed is assumed to be Linux. Bootstrap re-runs (or
+    `clawctl host edit`) overwrite this with the detected value.
+    """
+    host.setdefault("os_family", "linux")
     return host
 
 

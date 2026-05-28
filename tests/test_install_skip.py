@@ -652,10 +652,13 @@ def test_install_failure_sets_failed_status_without_installed_timestamp(
 
     import clawrium.core.install
 
+    def _missing(os_family: str = "linux"):
+        raise FileNotFoundError(f"{tmp_path / 'missing-base.yaml'}")
+
     monkeypatch.setattr(
         clawrium.core.install,
         "_get_base_playbook_path",
-        lambda: tmp_path / "missing-base.yaml",
+        _missing,
     )
 
     with pytest.raises(InstallationError, match="Base playbook not found"):
