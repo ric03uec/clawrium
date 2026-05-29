@@ -100,12 +100,11 @@ sudo chown -R xclm:staff /Users/xclm/.ssh
 sudo dseditgroup -o edit -a xclm -t user com.apple.access_ssh
 ```
 
-:::note Security
-`xclm` has full root via `sudo` and no password is set — key-auth only. The
-private key is stored under `~/.config/clawrium/keys/<hostname>/` with `0600`
-permissions. Agent processes run as separate unprivileged users that
-Clawrium creates as part of agent installation.
-:::
+**Security note:** `xclm` has full root via `sudo` and no password is set —
+key-auth only. The private key is stored under
+`~/.config/clawrium/keys/<hostname>/` with `0600` permissions. Agent processes
+run as separate unprivileged users that Clawrium creates as part of agent
+installation.
 
 ## Step 3 — Register the host
 
@@ -119,11 +118,9 @@ This time the keypair already exists, SSH as `xclm` succeeds, and the host
 record is persisted to `~/.config/clawrium/hosts.json`. The command is
 idempotent — running it a third time is a no-op.
 
-:::note SSH support
 Clawrium uses paramiko for SSH connections. `ProxyJump`, `ProxyCommand`, and
 other advanced SSH config options are not supported. Ensure direct network
 access to the host.
-:::
 
 ## Troubleshooting
 

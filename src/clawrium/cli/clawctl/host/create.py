@@ -20,9 +20,11 @@ silently failed on hosts that actually needed bootstrapping.
 
 from __future__ import annotations
 
+import shlex
 from datetime import datetime, timezone
 from typing import Optional
 
+import paramiko
 import typer
 from rich.console import Console
 from rich.markup import escape as rich_escape
@@ -97,7 +99,8 @@ def create(
         )
 
     private_key = _ensure_host_keypair(hostname)
-    if not _verify_xclm_access(hostname, port, private_key):
+    verified, os_family = _verify_xclm_access(hostname, port, private_key)
+    if not verified:
         _print_manual_setup(hostname)
         raise typer.Exit(code=1)
 
@@ -108,6 +111,7 @@ def create(
         "port": port,
         "user": user,
         "auth_method": "key",
+        "os_family": os_family,
         "hardware": {},
         "metadata": {"added_at": now, "last_seen": None, "labels": {}},
         "addresses": [
@@ -147,8 +151,17 @@ def _ensure_host_keypair(hostname: str) -> str:
     return str(private_key_path)
 
 
-def _verify_xclm_access(hostname: str, port: int, private_key: str) -> bool:
-    """True when SSH as xclm using the per-host key succeeds."""
+def _verify_xclm_access(
+    hostname: str, port: int, private_key: str
+) -> tuple[bool, str]:
+    """Verify SSH as xclm and detect the host's OS family.
+
+    Returns (verified, os_family). On failure the caller should treat
+    `os_family` as undefined — it is only meaningful when verified is True.
+    The returned value is one of `linux` or `darwin`; anything else from
+    `uname -s` (BSDs, exotic platforms) is reported with a clear message
+    and treated as unsupported.
+    """
     try:
         success, message = test_ssh_connection(
             hostname=hostname, port=port, user="xclm", key_filename=private_key
@@ -164,18 +177,72 @@ def _verify_xclm_access(hostname: str, port: int, private_key: str) -> bool:
             f"{port} xclm@{rich_escape(hostname)}[/cyan] once to record the host key, "
             "then re-run this command."
         )
-        return False
+        return False, ""
     if not success:
         console.print(
             f"[yellow]xclm SSH verification failed:[/yellow] {rich_escape(message)}"
         )
-    return success
+        return False, ""
+
+    os_family = _detect_os_family(hostname, port, private_key)
+    if os_family is None:
+        return False, ""
+    return True, os_family
+
+
+def _detect_os_family(hostname: str, port: int, private_key: str) -> str | None:
+    """Run `uname -s` as xclm and map the result to a supported family.
+
+    Persisting this here (rather than inferring later) keeps the macOS
+    lifecycle dispatcher in #469 working — every reader of `os_family`
+    treats a missing value as `linux`, so a fresh Mac registered without
+    this step would silently take the Linux path.
+    """
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    try:
+        client.connect(
+            hostname=hostname,
+            port=port,
+            username="xclm",
+            key_filename=private_key,
+            timeout=10,
+        )
+        _, stdout, _ = client.exec_command("uname -s", timeout=10)
+        raw = stdout.read().decode().strip()
+    except Exception as exc:
+        console.print(
+            f"[yellow]OS detection failed:[/yellow] {rich_escape(str(exc))}"
+        )
+        return None
+    finally:
+        client.close()
+
+    if raw == "Linux":
+        return "linux"
+    if raw == "Darwin":
+        return "darwin"
+    console.print(
+        f"[yellow]Unsupported remote OS:[/yellow] uname -s returned "
+        f"{rich_escape(raw)!r}. Clawrium supports Linux and macOS targets."
+    )
+    return None
 
 
 def _print_manual_setup(hostname: str) -> None:
     """Print Linux + macOS manual setup blocks with the public key inlined."""
-    pubkey = read_public_key(hostname) or ""
-    safe_pubkey = pubkey.strip().replace('"', '\\"')
+    pubkey = read_public_key(hostname)
+    if not pubkey:
+        console.print(
+            f"[red]Could not read public key for "
+            f"{rich_escape(hostname)}.[/red] Re-run after deleting "
+            f"~/.config/clawrium/keys/{rich_escape(hostname)}/ to regenerate."
+        )
+        return
+    # shlex.quote handles quotes, backticks, $(), and other shell
+    # metacharacters in the pubkey (the comment portion is operator-
+    # controlled when keys are imported, so harden the printed echo).
+    quoted_pubkey = shlex.quote(pubkey.strip())
 
     console.print(
         "\n[bold]Manual setup required.[/bold] "
@@ -194,7 +261,7 @@ def _print_manual_setup(hostname: str) -> None:
     console.print("[dim]# Authorized key[/dim]")
     console.print("sudo mkdir -p /home/xclm/.ssh && sudo chmod 700 /home/xclm/.ssh")
     console.print(
-        f'echo "{rich_escape(safe_pubkey)}" | sudo tee /home/xclm/.ssh/authorized_keys',
+        f"echo {rich_escape(quoted_pubkey)} | sudo tee /home/xclm/.ssh/authorized_keys",
         soft_wrap=False,
     )
     console.print("sudo chmod 600 /home/xclm/.ssh/authorized_keys")
@@ -219,7 +286,7 @@ def _print_manual_setup(hostname: str) -> None:
         "sudo mkdir -p /Users/xclm/.ssh && sudo chmod 700 /Users/xclm/.ssh"
     )
     console.print(
-        f'echo "{rich_escape(safe_pubkey)}" | sudo tee /Users/xclm/.ssh/authorized_keys',
+        f"echo {rich_escape(quoted_pubkey)} | sudo tee /Users/xclm/.ssh/authorized_keys",
         soft_wrap=False,
     )
     console.print("sudo chmod 600 /Users/xclm/.ssh/authorized_keys")
