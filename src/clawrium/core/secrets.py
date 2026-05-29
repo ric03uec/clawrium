@@ -280,13 +280,19 @@ def get_installed_claw(claw_name: str) -> tuple[str, str, str]:
         # `key_id` was minted.
         host_key = host.get("key_id") or host.get("hostname", "")
         agents = host.get("agents", {})
-        for claw_type, claw_data in agents.items():
-            # Check agent_name field, name field (legacy), or claw_type
+        for dict_key, claw_data in agents.items():
+            # The agents dict may be keyed by either claw type (legacy
+            # single-instance-per-type schema) or agent name (current
+            # multi-instance schema where the per-agent `type` field is
+            # the source of truth). Trust `claw_data["type"]` when
+            # present so the instance key gets the correct claw_type
+            # segment; fall back to the dict key for legacy records.
+            claw_type = claw_data.get("type") or dict_key
             agent_name = claw_data.get("agent_name")
             name = claw_data.get("name")
-            if claw_name in (agent_name, name, claw_type):
-                # Return the canonical name (agent_name > name > claw_type)
-                canonical_name = agent_name or name or claw_type
+            if claw_name in (agent_name, name, dict_key):
+                # Return the canonical name (agent_name > name > dict_key)
+                canonical_name = agent_name or name or dict_key
                 return (host_key, claw_type, canonical_name)
 
     raise AgentNotFoundError(
