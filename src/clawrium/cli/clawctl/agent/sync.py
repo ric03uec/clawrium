@@ -23,6 +23,9 @@ Flags:
   parameter today, captured as a Callout).
 - `--workspace` — workspace files only, no restart.
 - `--dry-run` — validate + show intent, no push.
+- `--diff` — (F8, parent #555) host-vs-rendered unified diff per file.
+  Implies `--dry-run`. Reads on-host files via SSH so you can verify
+  what `sync` is about to overwrite *before* it runs.
 - `--skip-validate` — bypass step 1.
 - `-o json` — NDJSON per phase instead of text lines.
 """
@@ -53,6 +56,118 @@ _PHASES = (
 )
 
 
+_RENDERERS = {
+    "hermes": "render_hermes",
+    "zeroclaw": "render_zeroclaw",
+    "openclaw": "render_openclaw",
+}
+
+
+def _emit_diff(
+    *,
+    host: dict,
+    agent_name: str,
+    agent_type: str,
+    resource: str,
+    use_json: bool,
+    streamer,
+) -> None:
+    """Render the host-vs-rendered diff for `--dry-run --diff`.
+
+    Failures are reported as a single error line (not raised) so the
+    dry-run path stays non-throwing — an operator running this to
+    verify before a real sync should never have the diagnostic crash
+    the session.
+    """
+    # Deferred imports keep `clawctl agent sync` import-cheap when the
+    # diff path is not exercised (the common case).
+    from clawrium.core import render as _render_mod
+    from clawrium.core.render import AgentConfigError, build_render_inputs
+    from clawrium.core.render_diff import diff_files
+
+    renderer_name = _RENDERERS.get(agent_type)
+    if renderer_name is None:
+        _emit_diff_error(
+            f"no renderer for agent type {agent_type!r}",
+            resource=resource,
+            use_json=use_json,
+            streamer=streamer,
+        )
+        return
+    renderer = getattr(_render_mod, renderer_name)
+
+    try:
+        inputs = build_render_inputs(agent_name)
+        rendered = renderer(inputs)
+    except AgentConfigError as exc:
+        _emit_diff_error(
+            f"cannot render: {exc}",
+            resource=resource,
+            use_json=use_json,
+            streamer=streamer,
+        )
+        return
+
+    try:
+        results = diff_files(
+            host=host, agent_name=agent_name, rendered_files=rendered.files
+        )
+    except Exception as exc:  # paramiko / key lookup / SSH errors
+        _emit_diff_error(
+            f"diff read failed: {exc}",
+            resource=resource,
+            use_json=use_json,
+            streamer=streamer,
+        )
+        return
+
+    if use_json and streamer is not None:
+        for d in results:
+            streamer.emit(
+                resource=resource,
+                phase="diff",
+                state="result",
+                path=d.path,
+                remote_path=d.remote_path,
+                remote_present=d.remote_present,
+                changed=bool(d.unified_diff),
+                diff=d.unified_diff,
+            )
+        return
+
+    # Text mode: print a human-readable header + unified diff per file.
+    for d in results:
+        if not d.unified_diff:
+            stream_action(
+                resource=resource,
+                message=f"diff {d.path}: no changes",
+            )
+            continue
+        marker = "would create" if not d.remote_present else "would change"
+        stream_action(
+            resource=resource,
+            message=f"diff {d.path}: {marker}",
+        )
+        # Emit the diff body verbatim. `stream_action` adds the
+        # resource prefix and sanitization which would mangle a
+        # multi-line patch; write directly instead.
+        typer.echo(d.unified_diff, nl=False)
+
+
+def _emit_diff_error(
+    message: str, *, resource: str, use_json: bool, streamer
+) -> None:
+    if use_json and streamer is not None:
+        streamer.emit(
+            resource=resource,
+            phase="diff",
+            state="error",
+            message=message,
+        )
+    else:
+        stream_action(resource=resource, message=f"diff error: {message}")
+
+
 def sync(
     name: str = typer.Argument(..., help="Agent name."),
     workspace: bool = typer.Option(
@@ -60,6 +175,14 @@ def sync(
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Validate + show intent; no push."
+    ),
+    diff: bool = typer.Option(
+        False,
+        "--diff",
+        help=(
+            "Show host-vs-rendered unified diff per file. Implies --dry-run. "
+            "Reads on-host files via SSH; no host writes."
+        ),
     ),
     timeout: int = typer.Option(
         120, "--timeout", min=1, help="Sync timeout in seconds (default 2 min)."
@@ -77,6 +200,12 @@ def sync(
     agent_key = resolve_agent_key(host, name)
     hostname = host["hostname"]
     agent_type = claw_record.get("type", _agent_type)
+
+    # F8 (parent #555): `--diff` implies `--dry-run`. Promote here so
+    # the phase-emission and short-circuit logic below sees the
+    # effective intent without callers having to remember to pass both.
+    if diff:
+        dry_run = True
 
     resource = f"agent/{name}"
     use_json = output is OutputFormat.json
@@ -117,6 +246,20 @@ def sync(
         emit_phase(label, "queued")
 
     if dry_run:
+        if diff:
+            # The on-host POSIX user (and home dir) is the agent's
+            # `agent_name`, not the host-record dict key. Legacy
+            # installs key by type ("openclaw") while modern installs
+            # key by name; the home dir is always `<name>`.
+            on_host_name = claw_record.get("agent_name") or agent_key
+            _emit_diff(
+                host=host,
+                agent_name=on_host_name,
+                agent_type=agent_type,
+                resource=resource,
+                use_json=use_json,
+                streamer=streamer,
+            )
         if use_json and streamer is not None:
             streamer.emit(
                 resource=resource,

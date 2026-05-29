@@ -1,0 +1,89 @@
+{
+  "_meta": {
+    "source": "github issue #555 live audit table (2026-05-29)",
+    "purpose": "Reference baseline for `clawctl agent doctor` per #555 F4. Each row captures the expected doctor verdict ('ok' or 'broken') for an agent whose underlying records match the shape described in the audit. Used by tests/cli/clawctl/agent/test_doctor_audit.py to assert the doctor's broken-vs-ok classification stays stable as build_render_inputs evolves.",
+    "shape_legend": {
+      "config_provider_null": "hosts.json.agents.<name>.config.provider is null (the wipe shape from #555)",
+      "old_openclaw_channels": "hosts.json.agents.<name>.config.channels still holds the legacy allowFrom/groupPolicy/guilds dict",
+      "new_attachment_lists": "agent.channels[] / agent.integrations[] populated via the new `agent channel attach` flow"
+    }
+  },
+  "agents": [
+    {
+      "name": "wolf-i",
+      "type": "openclaw",
+      "provider_type": "bedrock",
+      "shape": ["old_openclaw_channels", "new_attachment_lists"],
+      "expected_status": "broken",
+      "expected_error_contains": "channel",
+      "notes": "Drift bomb: both old (config.channels) and new (agent.channels[]) populated. F5 migration must consolidate before doctor can return ok."
+    },
+    {
+      "name": "clawrium-d01",
+      "type": "zeroclaw",
+      "provider_type": "openrouter",
+      "shape": ["new_attachment_lists"],
+      "expected_status": "ok",
+      "notes": "Reference baseline — only audited agent currently in the canonical shape."
+    },
+    {
+      "name": "espresso",
+      "type": "hermes",
+      "provider_type": "ollama",
+      "shape": [],
+      "expected_status": "ok",
+      "notes": "OK today; silently breaks on first channel/integration attach under the old conditional render path. doctor must still return ok against the new pipeline."
+    },
+    {
+      "name": "nemotron-alpha",
+      "type": "zeroclaw",
+      "provider_type": "ollama",
+      "shape": [],
+      "expected_status": "ok"
+    },
+    {
+      "name": "nemotron-beta",
+      "type": "zeroclaw",
+      "provider_type": "ollama",
+      "shape": [],
+      "expected_status": "ok"
+    },
+    {
+      "name": "clawctl-demo",
+      "type": "hermes",
+      "provider_type": "openrouter",
+      "shape": [],
+      "expected_status": "ok"
+    },
+    {
+      "name": "h1",
+      "type": "hermes",
+      "provider_type": "openrouter",
+      "shape": [],
+      "expected_status": "ok"
+    },
+    {
+      "name": "h2",
+      "type": "hermes",
+      "provider_type": "bedrock",
+      "shape": [],
+      "expected_status": "ok"
+    },
+    {
+      "name": "clawctl-mac-demo",
+      "type": "hermes",
+      "provider_type": "openrouter",
+      "shape": [],
+      "expected_status": "ok"
+    },
+    {
+      "name": "maurice",
+      "type": "hermes",
+      "provider_type": null,
+      "shape": ["config_provider_null"],
+      "expected_status": "broken",
+      "expected_error_contains": "provider",
+      "notes": "Fully wiped; only onboarding.providers.provider_id (clawrium-glm51) survived. doctor must surface a provider-missing error so the operator knows to run F5 migration."
+    }
+  ]
+}
