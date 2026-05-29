@@ -458,6 +458,17 @@ def _hermes_env_token_matches_secrets(
 
         client = paramiko.SSHClient()
         client.load_system_host_keys()
+        # ATX W1: after an IP→DNS migration the new hostname is unlikely
+        # to be in `known_hosts` yet, so the default RejectPolicy would
+        # raise and the outer except would silently return matches=True
+        # — defeating the entire reconcile invariant this helper exists
+        # for. WarningPolicy connects on unknown keys while logging,
+        # which is appropriate here because this is a *probe* whose
+        # only output is a string comparison against a value we already
+        # hold locally (no command execution, no payload). We do NOT
+        # use AutoAddPolicy — that would persist the new key without
+        # an MITM check.
+        client.set_missing_host_key_policy(paramiko.WarningPolicy())
         try:
             client.connect(
                 hostname=host.get("hostname"),
