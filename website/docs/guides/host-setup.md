@@ -24,8 +24,7 @@ setup anyway. The flag was removed; the only supported path is below.
   is fine — you will run the commands interactively).
 - `clawctl` installed on your management machine — see
   [Installation](installation.md).
-- On the target host: Python 3 (used for hardware detection by
-  `clawctl host status --refresh`).
+- On the target host: Python 3 (used for hardware detection).
 
 ## Step 1 — Generate the keypair and surface the setup commands
 
@@ -177,11 +176,9 @@ ssh xclm@<hostname> "sudo apt-get install python3"   # Linux
 ```
 
 macOS ships Python 3 by default at `/usr/bin/python3` (Command Line Tools).
-For GPU detection on Linux, also install `pciutils`. Then refresh:
-
-```bash
-clawctl host status <alias-or-host> --refresh
-```
+For GPU detection on Linux, also install `pciutils`. After installing
+missing prerequisites, re-register the host (`clawctl host delete <name>
+--force` then `clawctl host create <ip> --user xclm --alias <name>`).
 
 ### Regenerate keypair for a host
 
