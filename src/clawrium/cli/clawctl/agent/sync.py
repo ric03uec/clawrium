@@ -284,8 +284,8 @@ def sync(
         if key == "restart" and workspace:
             continue
         # ATX iter-1 W3: in dry-run mode every phase short-circuits
-        # before sync_agent runs (the early return at the dry_run
-        # branch below). Emit `skipped (dry-run)` for ALL phases —
+        # before the canonical pipeline runs (the early return at the
+        # dry_run branch below). Emit `skipped (dry-run)` for ALL phases —
         # including `validate` — so NDJSON consumers don't see a
         # `queued` event that never resolves.
         if dry_run:
