@@ -62,6 +62,29 @@ def _present(value: str) -> str:
     return "present" if value else "missing"
 
 
+def _safe_endpoint(value: str) -> str:
+    """Redact an endpoint that embeds URL credentials.
+
+    ATX iter-1 W1: enterprise / corporate-proxy providers commonly
+    point at endpoints like `https://user:key@llm-proxy.corp/v1`.
+    Doctor's whole purpose is producing output that's safe to paste
+    into a bug report, so a URL-embedded credential must be masked
+    even though it's technically a "config" field.
+    """
+    if not value:
+        return ""
+    # Match `<scheme>://<userinfo>@<host>...` where userinfo contains
+    # a `:`. Anything simpler (no userinfo, or no password) passes
+    # through unmodified.
+    import re
+
+    return re.sub(
+        r"^(\w+://)([^/@]+):([^/@]+)@",
+        r"\1\2:***@",
+        value,
+    )
+
+
 def _render_for(inputs: RenderInputs) -> RenderedFiles | None:
     """Dispatch to the per-agent-type renderer; return None on unknown type."""
     name = _RENDERER_NAMES.get(inputs.agent_type)
@@ -97,7 +120,7 @@ def _inputs_block(inputs: RenderInputs) -> dict:
     provider = {
         "name": inputs.provider.name,
         "type": inputs.provider.type,
-        "endpoint": inputs.provider.endpoint,
+        "endpoint": _safe_endpoint(inputs.provider.endpoint),
         "default_model": inputs.provider.default_model,
         "region": inputs.provider.region,
         "api_key": _present(inputs.provider.api_key),

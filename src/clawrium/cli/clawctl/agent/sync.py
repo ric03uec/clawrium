@@ -96,12 +96,27 @@ def _emit_diff(
         return
     renderer = getattr(_render_mod, renderer_name)
 
+    # ATX iter-1 W4: catch broadly. The diagnostic contract is
+    # "diff cannot crash the dry-run" — any data-layer surprise
+    # (KeyError on a misshapen provider record, AttributeError on an
+    # unmapped channel type, JSONDecodeError from a corrupt store)
+    # must reach the user as a `diff error:` line, not a stack
+    # trace. AgentConfigError is the *expected* shape but we cannot
+    # rely on every callee in the assembly chain to normalize to it.
     try:
         inputs = build_render_inputs(agent_name)
         rendered = renderer(inputs)
     except AgentConfigError as exc:
         _emit_diff_error(
             f"cannot render: {exc}",
+            resource=resource,
+            use_json=use_json,
+            streamer=streamer,
+        )
+        return
+    except Exception as exc:
+        _emit_diff_error(
+            f"cannot render: {type(exc).__name__}: {exc}",
             resource=resource,
             use_json=use_json,
             streamer=streamer,
@@ -122,6 +137,15 @@ def _emit_diff(
         return
 
     if use_json and streamer is not None:
+        # ATX iter-1 B1: NEVER emit the unified diff body in NDJSON
+        # mode. The diff text contains every secret line that differs
+        # (`+OPENROUTER_API_KEY=...`, `+DISCORD_BOT_TOKEN=...`) and
+        # NDJSON output is the format consumed by log aggregators, CI
+        # logs, and monitoring sinks — surfaces that have no business
+        # holding plaintext credentials. Text mode is the only path
+        # that prints the patch; that is documented in
+        # `docs/operations/sync.md`. The `contains_secret_values`
+        # flag lets downstream consumers gate on this explicitly.
         for d in results:
             streamer.emit(
                 resource=resource,
@@ -131,11 +155,17 @@ def _emit_diff(
                 remote_path=d.remote_path,
                 remote_present=d.remote_present,
                 changed=bool(d.unified_diff),
-                diff=d.unified_diff,
+                contains_secret_values=bool(d.unified_diff),
+                hint=(
+                    "diff body suppressed in JSON mode; "
+                    "re-run without -o json to see the patch"
+                ),
             )
         return
 
     # Text mode: print a human-readable header + unified diff per file.
+    from clawrium.cli.output._sanitize import sanitize_passthrough
+
     for d in results:
         if not d.unified_diff:
             stream_action(
@@ -148,10 +178,17 @@ def _emit_diff(
             resource=resource,
             message=f"diff {d.path}: {marker}",
         )
-        # Emit the diff body verbatim. `stream_action` adds the
-        # resource prefix and sanitization which would mangle a
-        # multi-line patch; write directly instead.
-        typer.echo(d.unified_diff, nl=False)
+        # ATX iter-1 B2: sanitize each line at the terminal output
+        # boundary. The diff body originates from on-host file
+        # contents which may contain bidi-override / zero-width /
+        # control codepoints — exactly the class of bug #507
+        # mandated guarding. `sanitize_passthrough` preserves
+        # newlines / tabs (without which the unified-diff structure
+        # would collapse) while stripping bidi + zero-width chars.
+        # Line-by-line iteration preserves the per-line structure
+        # that consumers rely on (e.g. paging the patch).
+        for line in d.unified_diff.splitlines(keepends=True):
+            typer.echo(sanitize_passthrough(line), nl=False)
 
 
 def _emit_diff_error(
@@ -240,7 +277,12 @@ def sync(
             continue
         if key == "restart" and workspace:
             continue
-        if dry_run and key in ("push", "restart", "repair", "verify"):
+        # ATX iter-1 W3: in dry-run mode every phase short-circuits
+        # before sync_agent runs (the early return at the dry_run
+        # branch below). Emit `skipped (dry-run)` for ALL phases —
+        # including `validate` — so NDJSON consumers don't see a
+        # `queued` event that never resolves.
+        if dry_run:
             emit_phase(label, "skipped (dry-run)")
             continue
         emit_phase(label, "queued")

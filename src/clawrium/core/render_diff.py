@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import difflib
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import paramiko
 
@@ -23,10 +23,24 @@ from clawrium.core.keys import get_host_private_key
 
 __all__ = [
     "FileDiff",
+    "RemoteReadError",
     "read_remote_file",
     "remote_path_for",
     "diff_files",
 ]
+
+
+class RemoteReadError(Exception):
+    """Raised when a remote probe fails for an operator-actionable reason.
+
+    Distinct from "file is genuinely absent" — that is reported by
+    `read_remote_file` as `(False, "")` so the caller can render a
+    "would create" diff. `RemoteReadError` covers the cases where the
+    diff cannot be trusted (sudo unavailable, SSH transport dead,
+    permission denied on the file itself) and the caller must
+    surface a warning rather than silently emit a misleading patch.
+    Fixes ATX iter-1 B4 (sudo-fail indistinguishable from absent file).
+    """
 
 
 @dataclass(frozen=True)
@@ -37,14 +51,23 @@ class FileDiff:
     "would change" (file exists but differs). Operators care: the
     former is expected on a freshly-installed agent; the latter on a
     healthy agent likely means someone hand-edited the host.
+
+    ATX iter-1 W5: `remote_body` and `rendered_body` carry plaintext
+    secrets. `repr=False` on both fields prevents accidental
+    plaintext leakage through `repr()` in pytest tracebacks, debug
+    logs, or `print(diff)`. Diff structure (path / present / unified)
+    is still visible.
     """
 
     path: str  # relative path under agent home, e.g. ".hermes/.env"
     remote_path: str  # absolute path on the host
     remote_present: bool
-    remote_body: str
-    rendered_body: str
-    unified_diff: str  # empty string when bodies are byte-identical
+    remote_body: str = field(repr=False)
+    rendered_body: str = field(repr=False)
+    # The unified diff is *also* secret-carrying (it contains the
+    # secret lines that differ) — but operators need to see it in
+    # text mode. Keep it repr=False; the CLI layer prints it directly.
+    unified_diff: str = field(repr=False)
 
 
 def remote_path_for(os_family: str, agent_name: str, relative: str) -> str:
@@ -73,12 +96,20 @@ def read_remote_file(
     Uses `sudo -n cat` because agent home directories are typically
     `0700` and xclm (the management user) cannot read them directly
     but does have passwordless sudo per `clawctl host create`. `-n`
-    avoids any password prompt — if sudo is not available we surface
-    a non-zero exit code as "not present" rather than blocking.
+    avoids any password prompt.
 
-    A non-existent file is reported as `(False, "")` not an exception
-    so the caller can render a "would create" diff against an empty
-    body without special-casing.
+    File-existence is probed with a dedicated `sudo -n test -e` call
+    whose exit status is read via `recv_exit_status()`:
+
+    - exit 0 → file exists; second call `sudo -n cat` retrieves body
+    - exit 1 → file does not exist; return `(False, "")`
+    - any other exit → sudo unavailable or transport issue; raise
+      `RemoteReadError` so the operator sees a real warning rather
+      than a misleading "would create" diff (ATX iter-1 B4).
+
+    A non-existent file is reported as `(False, "")` so the caller
+    can render a "would create" diff against an empty body without
+    special-casing.
     """
     client = paramiko.SSHClient()
     client.load_system_host_keys()
@@ -95,21 +126,47 @@ def read_remote_file(
             timeout=timeout,
         )
         quoted = shlex.quote(remote_path)
-        # `test -r`: returns 0 only if file exists and is readable
-        # by *root* (we run via sudo). The cat is guarded so a missing
-        # file produces `(False, "")` rather than stderr noise.
-        cmd = (
-            f"if sudo -n test -e {quoted}; then "
-            f"sudo -n cat {quoted}; else echo __CLAWRIUM_MISSING__; fi"
+        # Probe existence first via a separate command whose exit
+        # status disambiguates "missing" (exit 1 from `test -e`) from
+        # "sudo unavailable" (exit 1 from sudo itself — `-n` returns
+        # exit 1 on auth failure, but the stderr message reveals
+        # which it is). We use exec_command twice rather than one
+        # compound script so the structured exit code is preserved.
+        _, probe_stdout, probe_stderr = client.exec_command(
+            f"sudo -n test -e {quoted}", timeout=timeout
         )
-        _, stdout, _ = client.exec_command(cmd, timeout=timeout)
-        raw = stdout.read().decode("utf-8", errors="replace")
+        probe_exit = probe_stdout.channel.recv_exit_status()
+        if probe_exit == 0:
+            _, stdout, _ = client.exec_command(
+                f"sudo -n cat {quoted}", timeout=timeout
+            )
+            cat_exit = stdout.channel.recv_exit_status()
+            raw = stdout.read().decode("utf-8", errors="replace")
+            if cat_exit != 0:
+                raise RemoteReadError(
+                    f"sudo cat {remote_path!r} failed with exit {cat_exit}"
+                )
+            return True, raw
+        if probe_exit == 1:
+            # Distinguish "file truly absent" (sudo ran fine) from
+            # "sudo refused to run" by checking stderr. A sudoers
+            # misconfiguration produces text like
+            # "sudo: a password is required". The actual `test -e`
+            # exit-1 path emits no stderr.
+            stderr_text = probe_stderr.read().decode("utf-8", errors="replace")
+            if "sudo" in stderr_text and "password" in stderr_text.lower():
+                raise RemoteReadError(
+                    f"sudo -n unavailable on {hostname}: "
+                    "host needs passwordless sudo (re-run `clawctl host create`)"
+                )
+            return False, ""
+        # Any other exit code is a transport / auth surprise. Surface
+        # it loudly rather than silently presenting a "would create".
+        raise RemoteReadError(
+            f"sudo -n test -e {remote_path!r} exited {probe_exit} on {hostname}"
+        )
     finally:
         client.close()
-
-    if raw.strip() == "__CLAWRIUM_MISSING__":
-        return False, ""
-    return True, raw
 
 
 def diff_files(
@@ -148,13 +205,19 @@ def diff_files(
     diffs: list[FileDiff] = []
     for rel_path, rendered_body in rendered_files.items():
         remote_path = remote_path_for(os_family, agent_name, rel_path)
-        present, remote_body = reader(
-            hostname=hostname,
-            port=port,
-            user=user,
-            key_filename=str(private_key),
-            remote_path=remote_path,
-        )
+        try:
+            present, remote_body = reader(
+                hostname=hostname,
+                port=port,
+                user=user,
+                key_filename=str(private_key),
+                remote_path=remote_path,
+            )
+        except RemoteReadError:
+            # Propagate verbatim — the CLI layer renders this as a
+            # `diff error:` line so the operator is not handed a
+            # misleading "would create" diff (ATX iter-1 B4).
+            raise
         unified = (
             ""
             if remote_body == rendered_body

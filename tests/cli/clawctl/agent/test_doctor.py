@@ -121,6 +121,63 @@ def test_doctor_broken_surfaces_error(fleet_dir, monkeypatch) -> None:
     assert "provider 'foo'" in result.output
 
 
+def test_doctor_unknown_renderer_type(fleet_dir, monkeypatch) -> None:
+    """ATX iter-1 B5 — `_RENDERER_NAMES` miss must be surfaced as broken."""
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    nemoclaw_inputs = RenderInputs(
+        agent_name="wise-hypatia",
+        agent_type="nemoclaw",  # Not in _RENDERER_NAMES.
+        provider=ProviderInputs(name="x", type="anthropic", api_key="k"),
+    )
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda n: nemoclaw_inputs)
+
+    result = runner.invoke(app, ["agent", "doctor", "wise-hypatia"])
+    assert result.exit_code != 0
+    assert "Status:  broken" in result.output
+    assert "no renderer registered" in result.output
+
+
+def test_doctor_endpoint_credentials_redacted(fleet_dir, monkeypatch) -> None:
+    """ATX iter-1 W1 — URL-embedded credentials in endpoint must be masked."""
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    inputs = RenderInputs(
+        agent_name="wise-hypatia",
+        agent_type="openclaw",
+        provider=ProviderInputs(
+            name="proxy",
+            type="anthropic",
+            endpoint="https://alice:supersecret@llm-proxy.corp/v1",
+            api_key="k",
+        ),
+    )
+    files = RenderedFiles(files={".openclaw/.env": "x\n"})
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda n: inputs)
+    monkeypatch.setattr(doctor_mod, "render_openclaw", lambda i: files)
+
+    result = runner.invoke(app, ["agent", "doctor", "wise-hypatia", "-o", "json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    endpoint = payload[0]["inputs"]["provider"]["endpoint"]
+    assert "supersecret" not in endpoint
+    assert "***" in endpoint
+    assert "alice" in endpoint  # username is not a secret on its own
+
+
+def test_doctor_yaml_output(fleet_dir, monkeypatch) -> None:
+    """ATX iter-1 W12 — `-o yaml` path was untested."""
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda name: _OK_INPUTS)
+    monkeypatch.setattr(doctor_mod, "render_openclaw", lambda inputs: _OK_FILES)
+
+    result = runner.invoke(app, ["agent", "doctor", "wise-hypatia", "-o", "yaml"])
+    assert result.exit_code == 0, result.output
+    assert "name: wise-hypatia" in result.output
+    assert "status: ok" in result.output
+
+
 def test_doctor_broken_json_includes_error(fleet_dir, monkeypatch) -> None:
     from clawrium.cli.clawctl.agent import doctor as doctor_mod
 

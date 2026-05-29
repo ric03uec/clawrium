@@ -135,7 +135,118 @@ def test_diff_json_output(fleet_dir, monkeypatch) -> None:
     assert result_event["path"] == ".openclaw/.env"
     assert result_event["changed"] is True
     assert result_event["remote_present"] is True
-    assert "ANTHROPIC_API_KEY" in result_event["diff"]
+    # ATX iter-1 B1: the diff body MUST NOT be emitted in NDJSON
+    # mode. Plaintext secrets in log streams is the regression this
+    # test guards against.
+    assert "diff" not in result_event
+    assert "ANTHROPIC_API_KEY" not in json.dumps(result_event)
+    assert "sk-xxx" not in json.dumps(result_event)
+    assert "old-key" not in json.dumps(result_event)
+    assert result_event["contains_secret_values"] is True
+    assert "JSON" in result_event["hint"] or "json" in result_event["hint"]
+
+
+def test_diff_json_no_changes_marks_secret_flag_false(fleet_dir, monkeypatch) -> None:
+    _patch_render(monkeypatch)
+    _patch_reader(monkeypatch, body=_RENDERED.files[".openclaw/.env"])
+
+    result = runner.invoke(
+        app,
+        ["agent", "sync", "wise-hypatia", "--dry-run", "--diff", "-o", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    events = [json.loads(line) for line in result.output.strip().splitlines() if line]
+    result_event = next(
+        e for e in events if e.get("phase") == "diff" and e.get("state") == "result"
+    )
+    # Unchanged files carry no secret-bearing patch.
+    assert result_event["changed"] is False
+    assert result_event["contains_secret_values"] is False
+
+
+def test_diff_json_error_event(fleet_dir, monkeypatch) -> None:
+    """ATX iter-1 W10 — JSON-mode error path was untested."""
+    from clawrium.cli.clawctl.agent import sync as sync_mod
+    from clawrium.core import render as render_mod
+    from clawrium.core.render import AgentConfigError
+
+    monkeypatch.setattr(sync_mod, "_RENDERERS", {"openclaw": "render_openclaw"})
+
+    def _raise(name):
+        raise AgentConfigError("provider 'foo' not registered")
+
+    monkeypatch.setattr(render_mod, "build_render_inputs", _raise)
+
+    result = runner.invoke(
+        app,
+        ["agent", "sync", "wise-hypatia", "--dry-run", "--diff", "-o", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    events = [json.loads(line) for line in result.output.strip().splitlines() if line]
+    error_events = [
+        e for e in events if e.get("phase") == "diff" and e.get("state") == "error"
+    ]
+    assert error_events, "expected a diff-error event"
+    assert "provider 'foo'" in error_events[0]["message"]
+
+
+def test_diff_text_sanitizes_bidi_in_patch(fleet_dir, monkeypatch) -> None:
+    """ATX iter-1 B2 — bidi codepoints in host file must be stripped."""
+    _patch_render(monkeypatch)
+    # Inject a Right-to-Left Override (U+202E) into the on-host body.
+    _patch_reader(
+        monkeypatch,
+        body=(
+            "ANTHROPIC_API_KEY='old‮key'\n"
+            "OPENCLAW_DEFAULT_MODEL='claude-opus'\n"
+        ),
+    )
+
+    result = runner.invoke(
+        app, ["agent", "sync", "wise-hypatia", "--dry-run", "--diff"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "‮" not in result.output
+
+
+def test_diff_text_does_not_invoke_real_sync(fleet_dir, monkeypatch) -> None:
+    """ATX iter-1 W9 — dry-run invariant: sync_agent must not be called."""
+    _patch_render(monkeypatch)
+    _patch_reader(monkeypatch, body=_RENDERED.files[".openclaw/.env"])
+
+    from clawrium.cli.clawctl.agent import sync as sync_mod
+
+    called = {"yes": False}
+
+    def _boom(**kwargs):
+        called["yes"] = True
+        raise AssertionError("sync_agent must not run under --diff")
+
+    monkeypatch.setattr(sync_mod, "sync_agent", _boom)
+
+    result = runner.invoke(app, ["agent", "sync", "wise-hypatia", "--diff"])
+    assert result.exit_code == 0, result.output
+    assert called["yes"] is False
+
+
+def test_diff_uncaught_render_exception_does_not_crash(fleet_dir, monkeypatch) -> None:
+    """ATX iter-1 W4 — non-AgentConfigError must still be handled."""
+    from clawrium.cli.clawctl.agent import sync as sync_mod
+    from clawrium.core import render as render_mod
+
+    monkeypatch.setattr(sync_mod, "_RENDERERS", {"openclaw": "render_openclaw"})
+
+    def _raise(name):
+        raise KeyError("missing 'providers' key in hosts.json")
+
+    monkeypatch.setattr(render_mod, "build_render_inputs", _raise)
+
+    result = runner.invoke(
+        app, ["agent", "sync", "wise-hypatia", "--dry-run", "--diff"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "diff error" in result.output
+    assert "KeyError" in result.output
 
 
 def test_diff_render_error_surfaces_cleanly(fleet_dir, monkeypatch) -> None:
