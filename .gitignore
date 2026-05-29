@@ -240,3 +240,4 @@ src/clawrium/gui/frontend/
 # VHS demo recordings (uploaded to YouTube; tape + storyboard committed instead)
 docs/demos/recordings/*
 !docs/demos/recordings/.gitkeep
+/gtm/
