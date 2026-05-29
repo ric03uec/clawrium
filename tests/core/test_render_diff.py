@@ -115,6 +115,155 @@ def test_diff_files_propagates_remote_read_error(monkeypatch) -> None:
         )
 
 
+class _FakeChannel:
+    def __init__(self, exit_status: int) -> None:
+        self._exit = exit_status
+
+    def recv_exit_status(self) -> int:
+        return self._exit
+
+
+class _FakeStream:
+    def __init__(self, body: bytes, exit_status: int) -> None:
+        self._body = body
+        self.channel = _FakeChannel(exit_status)
+
+    def read(self) -> bytes:
+        return self._body
+
+
+class _FakeSSHClient:
+    """Minimal paramiko stand-in for `read_remote_file` tests.
+
+    Each test configures `_responses` as a list of `(stdout_body,
+    stderr_body, exit_status)` triples returned in order by
+    `exec_command`. Matches the production code's two-call probe.
+    """
+
+    def __init__(self, responses: list[tuple[bytes, bytes, int]]) -> None:
+        self._responses = responses
+        self._idx = 0
+        self.connect_kwargs: dict | None = None
+
+    def load_system_host_keys(self) -> None:
+        pass
+
+    def set_missing_host_key_policy(self, *_a, **_kw) -> None:
+        pass
+
+    def connect(self, **kwargs) -> None:
+        self.connect_kwargs = kwargs
+
+    def exec_command(self, cmd, timeout=None):
+        body, err, code = self._responses[self._idx]
+        self._idx += 1
+        return None, _FakeStream(body, code), _FakeStream(err, code)
+
+    def close(self) -> None:
+        pass
+
+
+def test_read_remote_file_missing_returns_false_empty(monkeypatch) -> None:
+    """File absent: `test -e` exits 1 with no stderr → `(False, '')`."""
+    from clawrium.core import render_diff
+
+    fake = _FakeSSHClient(responses=[(b"", b"", 1)])
+    monkeypatch.setattr(render_diff.paramiko, "SSHClient", lambda: fake)
+
+    present, body = render_diff.read_remote_file(
+        hostname="h",
+        port=22,
+        user="xclm",
+        key_filename="/dev/null",
+        remote_path="/home/x/.env",
+    )
+    assert present is False
+    assert body == ""
+
+
+def test_read_remote_file_password_sudo_raises(monkeypatch) -> None:
+    """ATX iter-1 B4 — sudo password prompt surfaces as RemoteReadError."""
+    from clawrium.core import render_diff
+
+    stderr = b"sudo: a password is required\n"
+    fake = _FakeSSHClient(responses=[(b"", stderr, 1)])
+    monkeypatch.setattr(render_diff.paramiko, "SSHClient", lambda: fake)
+
+    with pytest.raises(render_diff.RemoteReadError, match="sudo -n unavailable"):
+        render_diff.read_remote_file(
+            hostname="h",
+            port=22,
+            user="xclm",
+            key_filename="/dev/null",
+            remote_path="/home/x/.env",
+        )
+
+
+def test_read_remote_file_non_password_sudo_failure_raises(monkeypatch) -> None:
+    """ATX iter-2 W14 — non-password sudo refusals (NOPASSWD missing,
+    no-tty, locale-translated) must also raise, not silently return
+    '(False, '')'. Anchoring on 'password' was the iter-1 gap."""
+    from clawrium.core import render_diff
+
+    stderr = b"Sorry, user xclm is not allowed to execute '/bin/cat /home/x/.env' as root\n"
+    fake = _FakeSSHClient(responses=[(b"", stderr, 1)])
+    monkeypatch.setattr(render_diff.paramiko, "SSHClient", lambda: fake)
+
+    with pytest.raises(render_diff.RemoteReadError, match="not allowed"):
+        render_diff.read_remote_file(
+            hostname="h",
+            port=22,
+            user="xclm",
+            key_filename="/dev/null",
+            remote_path="/home/x/.env",
+        )
+
+
+def test_read_remote_file_present_returns_body(monkeypatch) -> None:
+    """File present: probe exits 0 → second `cat` call returns body."""
+    from clawrium.core import render_diff
+
+    fake = _FakeSSHClient(
+        responses=[
+            (b"", b"", 0),  # test -e
+            (b"hello\n", b"", 0),  # cat
+        ]
+    )
+    monkeypatch.setattr(render_diff.paramiko, "SSHClient", lambda: fake)
+
+    present, body = render_diff.read_remote_file(
+        hostname="h",
+        port=22,
+        user="xclm",
+        key_filename="/dev/null",
+        remote_path="/home/x/.env",
+    )
+    assert present is True
+    assert body == "hello\n"
+
+
+def test_read_remote_file_cat_exit_nonzero_raises(monkeypatch) -> None:
+    """`test -e` succeeds but `cat` fails (e.g. permission flip mid-read)."""
+    from clawrium.core import render_diff
+
+    fake = _FakeSSHClient(
+        responses=[
+            (b"", b"", 0),
+            (b"", b"cat: permission denied\n", 13),
+        ]
+    )
+    monkeypatch.setattr(render_diff.paramiko, "SSHClient", lambda: fake)
+
+    with pytest.raises(render_diff.RemoteReadError, match="sudo cat"):
+        render_diff.read_remote_file(
+            hostname="h",
+            port=22,
+            user="xclm",
+            key_filename="/dev/null",
+            remote_path="/home/x/.env",
+        )
+
+
 def test_file_diff_repr_hides_secret_bodies() -> None:
     """ATX iter-1 W5: repr() must not leak plaintext secrets."""
     d = FileDiff(

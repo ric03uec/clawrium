@@ -165,6 +165,33 @@ def test_doctor_endpoint_credentials_redacted(fleet_dir, monkeypatch) -> None:
     assert "alice" in endpoint  # username is not a secret on its own
 
 
+def test_doctor_endpoint_bare_token_redacted(fleet_dir, monkeypatch) -> None:
+    """ATX iter-2 B7 — bare-token userinfo (no `:`) must also be masked."""
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    inputs = RenderInputs(
+        agent_name="wise-hypatia",
+        agent_type="openclaw",
+        provider=ProviderInputs(
+            name="proxy",
+            type="anthropic",
+            endpoint="https://sk-supersecret-token@llm-proxy.corp/v1",
+            api_key="k",
+        ),
+    )
+    files = RenderedFiles(files={".openclaw/.env": "x\n"})
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda n: inputs)
+    monkeypatch.setattr(doctor_mod, "render_openclaw", lambda i: files)
+
+    result = runner.invoke(app, ["agent", "doctor", "wise-hypatia", "-o", "json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    endpoint = payload[0]["inputs"]["provider"]["endpoint"]
+    assert "sk-supersecret-token" not in endpoint
+    assert "***" in endpoint
+    assert endpoint.startswith("https://***@llm-proxy.corp")
+
+
 def test_doctor_yaml_output(fleet_dir, monkeypatch) -> None:
     """ATX iter-1 W12 — `-o yaml` path was untested."""
     from clawrium.cli.clawctl.agent import doctor as doctor_mod
