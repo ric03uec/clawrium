@@ -20,6 +20,7 @@ from clawrium.cli.clawctl.agent import (
     create as _create,
     delete as _delete,
     describe as _describe,
+    doctor as _doctor,
     edit as _edit,
     exec as _exec,
     get as _get,
@@ -65,6 +66,10 @@ agent_app.command(name="restart", help="Restart an agent.")(_restart.restart)
 agent_app.command(name="sync", help="Flush local control-plane state to the agent.")(
     _sync.sync
 )
+agent_app.command(
+    name="doctor",
+    help="Diagnose an agent's render bundle (attachments, secrets, files).",
+)(_doctor.doctor)
 agent_app.command(name="logs", help="Stream agent logs.")(_logs.logs)
 agent_app.command(name="chat", help="Chat with an agent.")(_chat.chat)
 agent_app.command(name="open", help="Open the agent's web UI in a browser.")(_open.open)
