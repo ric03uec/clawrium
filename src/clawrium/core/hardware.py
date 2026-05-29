@@ -62,13 +62,23 @@ def extract_hardware_from_facts(facts: dict) -> dict:
     else:
         system_vendor = None
 
+    # Ansible reports macOS as "MacOSX" with the marketing version in
+    # ansible_distribution_version (e.g. "14.5", "26.5"). Normalize to a
+    # single lowercase token ("macos") so manifest entries can use the same
+    # spelling regardless of how Ansible labels the distribution.
+    distribution_raw = facts.get("ansible_distribution") or "unknown"
+    distribution_lower = (
+        distribution_raw.lower() if isinstance(distribution_raw, str) else "unknown"
+    )
+    os_normalized = "macos" if distribution_lower == "macosx" else distribution_lower
+
     hardware = {
         "architecture": facts.get("ansible_architecture", "unknown"),
         "processor_cores": facts.get("ansible_processor_cores", 0),
         "processor_count": facts.get("ansible_processor_count", 0),
         "memtotal_mb": facts.get("ansible_memtotal_mb", 0),
         "mounts": [],
-        "os": (facts.get("ansible_distribution") or "unknown").lower(),
+        "os": os_normalized,
         "os_version": str(facts.get("ansible_distribution_version", "unknown")),
         "product_name": product_name,
         "system_vendor": system_vendor,

@@ -1,6 +1,9 @@
 """Tests for clawrium.core.names module."""
 
+import pytest
+
 from clawrium.core.names import (
+    RESERVED_UNIX_NAMES,
     generate_random_name,
     is_ip_address,
     validate_agent_name,
@@ -200,3 +203,65 @@ class TestIsNameAvailableOnHost:
         """is_name_available_on_host handles host without claws field."""
         host = {}
         assert is_name_available_on_host("clever-einstein", host) is True
+
+
+class TestReservedUnixNames:
+    """ATX iter-2 B4: RESERVED_UNIX_NAMES blocklist must reject system accounts.
+
+    The agent's name becomes a real account on the remote host. Allowing a
+    reserved name silently overwrites or merges with the pre-existing
+    system account — at best confusing, at worst a privilege escalation
+    (mail, www-data, etc. typically have queue-write access or run
+    privileged daemons).
+    """
+
+    # ATX iter-3 B5: parametrize over the FULL set (sorted so the test ID
+    # is stable across pytest runs). Every entry in RESERVED_UNIX_NAMES
+    # must trigger the reserved-name rejection path; if the set shrinks,
+    # pytest auto-collects fewer cases and the regression is visible.
+    @pytest.mark.parametrize("name", sorted(RESERVED_UNIX_NAMES))
+    def test_reserved_name_is_rejected(self, name):
+        ok, msg = validate_agent_name(name)
+        assert ok is False, f"reserved name {name!r} unexpectedly accepted"
+        # Error message must mention the name verbatim AND the
+        # "reserved" reason (not just a format complaint).
+        assert name in msg
+        assert "reserved" in msg.lower()
+
+    def test_non_reserved_lookalikes_pass(self):
+        """Names that *contain* a reserved substring but don't match must pass."""
+        for ok_name in (
+            "notadmin",
+            "xclm2",
+            "rootbeer",
+            "mailman2",
+            "wwwdata2",
+            "myadmin",
+            "backup2",
+        ):
+            ok, msg = validate_agent_name(ok_name)
+            assert ok is True, f"{ok_name!r} unexpectedly rejected: {msg}"
+
+    def test_blocklist_smoke_calls_validate_agent_name(self):
+        """ATX iter-3 B4: the original smoke test only checked set
+        membership, which would have masked a dead-code defect. This
+        replacement calls `validate_agent_name` for one representative
+        from each category so a regression that bypassed the reserved
+        check (e.g. by re-ordering validate_agent_name's body) would
+        surface here as well as in the parametrized test above."""
+        for name in ("wheel", "staff", "www-data", "syslog", "xclm"):
+            ok, msg = validate_agent_name(name)
+            assert ok is False, f"reserved name {name!r} unexpectedly accepted"
+            assert "reserved" in msg.lower()
+
+    def test_blocklist_has_no_unreachable_underscore_entries(self):
+        """ATX iter-3 B4: any `_<name>` entry in RESERVED_UNIX_NAMES is
+        dead code because the format regex rejects underscore-prefix
+        names before the reserved check runs. Lock this invariant down
+        so a future contributor cannot quietly reintroduce dead set
+        entries."""
+        underscore_entries = [n for n in RESERVED_UNIX_NAMES if n.startswith("_")]
+        assert underscore_entries == [], (
+            f"Underscore-prefixed entries are unreachable (format regex "
+            f"rejects them before the reserved check): {underscore_entries}"
+        )

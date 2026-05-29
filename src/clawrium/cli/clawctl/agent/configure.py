@@ -25,6 +25,7 @@ from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_a
 from clawrium.cli.output import emit_error, stream_action
 from clawrium.core.hosts import HostsFileCorruptedError, update_host
 from clawrium.core.lifecycle import LifecycleError, sync_agent
+from clawrium.core.playbook_resolver import resolve_lifecycle_backend
 from clawrium.core.onboarding import (
     AgentNotFoundError,
     InvalidTransitionError,
@@ -294,7 +295,20 @@ def configure(
         # check below.
         result: dict = {}
         try:
-            result = sync_agent(
+            # OS-family dispatch (CLI layer). #469 step 1 invariant:
+            # core/lifecycle.py must NOT branch on Darwin. lifecycle_macos
+            # wraps sync_agent so the post-configure launchctl restart
+            # fires after the macOS configure playbook completes (B2).
+            # For Linux we keep the existing `sync_agent` symbol so
+            # downstream tests that monkeypatch
+            # `clawrium.cli.clawctl.agent.configure.sync_agent` keep
+            # working unchanged.
+            os_family = host.get("os_family", "linux")
+            if os_family == "linux":
+                sync_fn = sync_agent
+            else:
+                sync_fn = resolve_lifecycle_backend(os_family).sync_agent
+            result = sync_fn(
                 hostname=hostname,
                 claw_name=agent_type,
                 agent_name=agent_key,

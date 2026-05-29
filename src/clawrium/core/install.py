@@ -197,23 +197,18 @@ def _get_incomplete_installation_details(host: dict, claw_name: str) -> list[dic
     return incomplete
 
 
-def _get_base_playbook_path() -> Path:
-    """Get path to base system playbook."""
-    # Base playbook is at src/clawrium/platform/playbooks/base.yaml
-    # From src/clawrium/core/install.py: parent.parent gets to src/clawrium
-    return Path(__file__).parent.parent / "platform" / "playbooks" / "base.yaml"
+def _get_base_playbook_path(os_family: str = "linux") -> Path:
+    """Get path to base system playbook for the given OS family."""
+    from clawrium.core.playbook_resolver import resolve_base_playbook
+
+    return resolve_base_playbook(os_family)
 
 
-def _get_agent_playbook_path(agent_type: str) -> Path:
-    """Get path to agent-specific install playbook."""
-    return (
-        Path(__file__).parent.parent
-        / "platform"
-        / "registry"
-        / agent_type
-        / "playbooks"
-        / "install.yaml"
-    )
+def _get_agent_playbook_path(agent_type: str, os_family: str = "linux") -> Path:
+    """Get path to agent-specific install playbook for the given OS family."""
+    from clawrium.core.playbook_resolver import resolve_agent_playbook
+
+    return resolve_agent_playbook(agent_type, "install", os_family)
 
 
 def _get_logs_dir() -> Path:
@@ -851,9 +846,11 @@ def run_installation(
 
     try:
         # Step 8: Run base playbook
-        base_playbook = _get_base_playbook_path()
-        if not base_playbook.exists():
-            raise InstallationError(f"Base playbook not found: {base_playbook}")
+        host_os_family = host.get("os_family", "linux")
+        try:
+            base_playbook = _get_base_playbook_path(host_os_family)
+        except FileNotFoundError as exc:
+            raise InstallationError(f"Base playbook not found: {exc}") from exc
 
         emit("base", "Installing system dependencies...")
         playbooks_run = []
@@ -879,9 +876,10 @@ def run_installation(
         emit("base", "System dependencies installed")
 
         # Step 9: Run agent playbook
-        claw_playbook = _get_agent_playbook_path(claw_name)
-        if not claw_playbook.exists():
-            raise InstallationError(f"Agent playbook not found: {claw_playbook}")
+        try:
+            claw_playbook = _get_agent_playbook_path(claw_name, host_os_family)
+        except FileNotFoundError as exc:
+            raise InstallationError(f"Agent playbook not found: {exc}") from exc
 
         emit("claw", f"Installing {claw_name}...")
 

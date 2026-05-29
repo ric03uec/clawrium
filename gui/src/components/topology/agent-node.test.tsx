@@ -66,6 +66,7 @@ function renderNode(overrides: Partial<AgentNodeData> = {}) {
     hostname: "wolf-i",
     hostAlias: "wolf-i",
     hardware: null,
+    hostOsFamily: null,
     hostColor: "#0D9488",
     ...overrides,
   };

@@ -1,0 +1,293 @@
+---
+# macOS counterpart to install.yaml. Mirrors the Linux flow with these
+# OS-specific differences:
+#   - Agent user is created via `dscl` instead of `useradd`.
+#   - HOME at /Users/<agent_name> (not /home/<agent_name>).
+#   - No systemd service file. launchd plist drop is step 6 of issue #469
+#     (handled by core/lifecycle_macos.py + plist templates), not here.
+#   - System dependencies (rg, ffmpeg, node, uv) come from base_macos.yaml
+#     (Homebrew), not apt.
+#
+# The hermes upstream installer is the SAME shell script for Linux and
+# Mac; the script branches internally on `uname`. We reuse the same URL
+# and the same sha256 pin.
+- hosts: all
+  become: yes
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: >
+          install_macos.yaml invoked against a non-Darwin host
+          (ansible_os_family={{ ansible_os_family }}). This indicates a
+          dispatcher bug.
+      when: ansible_os_family != "Darwin"
+
+    - name: Normalize target Hermes version (strip leading 'v')
+      ansible.builtin.set_fact:
+        hermes_target_version: "{{ (claw_version | default('v2026.5.7')) | regex_replace('^v', '') }}"
+
+    - name: Resolve Hermes git tag for installer (always 'v'-prefixed)
+      ansible.builtin.set_fact:
+        hermes_target_branch: "v{{ hermes_target_version }}"
+
+    # ----- Agent user creation via dscl -----
+    # Mirrors cli/host_macos.py:_pick_free_uid. We do NOT reuse the xclm
+    # UID logic exactly — agent users are independent service-style
+    # accounts, each with its own UID.
+    - name: Discover existing UID for agent user
+      ansible.builtin.shell: |
+        dscl . -read /Users/{{ agent_name | quote }} UniqueID 2>/dev/null \
+          | awk '/UniqueID:/{print $2}'
+      args:
+        executable: /bin/bash
+      register: agent_uid_existing
+      changed_when: false
+      failed_when: false
+
+    - name: Discover free UID >= 700 for new agent user
+      ansible.builtin.shell: |
+        set -euo pipefail
+        used=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | uniq)
+        candidate=700
+        while echo "$used" | grep -qx "$candidate"; do
+          candidate=$((candidate + 1))
+        done
+        echo "$candidate"
+      args:
+        executable: /bin/bash
+      register: agent_uid_new
+      changed_when: false
+      when: (agent_uid_existing.stdout | trim) == ""
+
+    - name: Resolve effective UID for agent user
+      ansible.builtin.set_fact:
+        agent_uid: "{{ (agent_uid_existing.stdout | trim) if (agent_uid_existing.stdout | trim) != '' else (agent_uid_new.stdout | trim) }}"
+
+    - name: Create agent user record via dscl
+      ansible.builtin.command: "dscl . -create /Users/{{ agent_name }} {{ item.key }} {{ item.value }}"
+      loop:
+        - { key: "UserShell", value: "/bin/bash" }
+        - { key: "RealName", value: "Hermes Agent ({{ agent_name }})" }
+        - { key: "UniqueID", value: "{{ agent_uid }}" }
+        - { key: "PrimaryGroupID", value: "20" }
+        - { key: "NFSHomeDirectory", value: "/Users/{{ agent_name }}" }
+      changed_when: false  # dscl -create is idempotent and silent
+
+    - name: Ensure /Users/<agent> home directory exists with correct ownership
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0755"
+
+    # ----- Version-aware skip -----
+    - name: Discover hermes binary at agent's user-local install path
+      ansible.builtin.stat:
+        path: "/Users/{{ agent_name }}/.local/bin/hermes"
+      register: hermes_binary_stat
+
+    - name: Get installed hermes version
+      ansible.builtin.command: "/Users/{{ agent_name }}/.local/bin/hermes --version"
+      register: hermes_version_check
+      changed_when: false
+      failed_when: false
+      become_user: "{{ agent_name }}"
+      when: hermes_binary_stat.stat.exists
+
+    - name: Parse installed hermes version
+      ansible.builtin.set_fact:
+        hermes_installed_version: "{{ ((hermes_version_check.stdout | default('')) | regex_search('\\(([0-9]+\\.[0-9]+\\.[0-9]+)\\)', '\\1') | default([''], true) | first) | default('', true) }}"
+      when:
+        - hermes_version_check is defined
+        - (hermes_version_check.rc | default(1)) == 0
+
+    - name: Set install skip condition
+      ansible.builtin.set_fact:
+        hermes_already_installed: >-
+          {{ hermes_binary_stat.stat.exists
+             and (hermes_installed_version | default('')) == hermes_target_version
+             and not (force_install | default(false) | bool) }}
+
+    - name: Note already-installed
+      ansible.builtin.debug:
+        msg: "Hermes v{{ hermes_installed_version | default('unknown') }} already installed for {{ agent_name }}. Skipping binary install."
+      when: hermes_already_installed
+
+    - name: Remove existing Hermes binary symlink (forced reinstall)
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.local/bin/hermes"
+        state: absent
+      when:
+        - force_install | default(false) | bool
+        - hermes_binary_stat.stat.exists
+
+    # ----- Install -----
+    - name: Download Hermes installer script
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/NousResearch/hermes-agent/{{ hermes_target_branch }}/scripts/install.sh"
+        dest: "/Users/{{ agent_name }}/hermes-install.sh"
+        mode: "0700"
+        owner: "{{ agent_name }}"
+        group: staff
+        force: yes
+        timeout: 30
+        checksum: "sha256:{{ claw_sha256 }}"
+      when: not hermes_already_installed
+
+    - name: Install Hermes runtime (non-interactive)
+      ansible.builtin.command:
+        argv:
+          - /bin/bash
+          - "/Users/{{ agent_name }}/hermes-install.sh"
+          - --skip-setup
+          - --branch
+          - "{{ hermes_target_branch }}"
+          - --hermes-home
+          - "/Users/{{ agent_name }}/.hermes"
+          - --dir
+          - "/Users/{{ agent_name }}/.hermes/code"
+        creates: "/Users/{{ agent_name }}/.local/bin/hermes"
+      become_user: "{{ agent_name }}"
+      environment:
+        # Upstream installer expects HERMES_HOME for path resolution. On
+        # macOS it would otherwise default to the invoker's HOME (xclm
+        # via become), pointing into the wrong tree. See
+        # docs/operations/hermes-macos-upstream-quirks.md (step 9).
+        HERMES_HOME: "/Users/{{ agent_name }}/.hermes"
+        HOME: "/Users/{{ agent_name }}"
+        PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+      async: 1800
+      poll: 30
+      when: not hermes_already_installed
+
+    - name: Clean up installer script
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/hermes-install.sh"
+        state: absent
+      when: not hermes_already_installed
+
+    - name: Create Hermes config directory
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.hermes"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+
+    - name: Create empty Hermes environment file (preserved across re-installs)
+      ansible.builtin.copy:
+        dest: "/Users/{{ agent_name }}/.hermes/.env"
+        content: ""
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+        force: no
+
+    - name: Enforce 0600 permissions on Hermes environment file
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.hermes/.env"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+        state: file
+
+    - name: Create Hermes memories directory
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.hermes/memories"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+
+    # ----- Dashboard prerequisites + upstream workarounds (parity with Linux) -----
+    - name: Resolve hermes venv python interpreter
+      ansible.builtin.set_fact:
+        hermes_interpreter: "/Users/{{ agent_name }}/.hermes/code/venv/bin/python3"
+
+    - name: Verify hermes venv interpreter exists
+      ansible.builtin.stat:
+        path: "{{ hermes_interpreter }}"
+      register: hermes_interpreter_stat
+
+    - name: Fail if hermes venv interpreter missing
+      ansible.builtin.fail:
+        msg: >-
+          Hermes venv python not found at {{ hermes_interpreter }}.
+          The upstream installer should have created it.
+      when: not hermes_interpreter_stat.stat.exists
+
+    - name: Install hermes-agent[web,pty] extras (editable from source)
+      ansible.builtin.command:
+        argv:
+          - /opt/homebrew/bin/uv
+          - pip
+          - install
+          - --python
+          - "{{ hermes_interpreter }}"
+          - --editable
+          - "/Users/{{ agent_name }}/.hermes/code[web,pty]"
+      become_user: "{{ agent_name }}"
+      environment:
+        PATH: "/opt/homebrew/bin:/Users/{{ agent_name }}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+      register: hermes_extras_install
+      changed_when: "'Successfully installed' in (hermes_extras_install.stdout | default(''))"
+
+    - name: Install ui-tui Node dependencies
+      ansible.builtin.command:
+        cmd: /opt/homebrew/bin/npm install --silent --no-fund --no-audit --no-progress
+        chdir: "/Users/{{ agent_name }}/.hermes/code/ui-tui"
+      become_user: "{{ agent_name }}"
+      environment:
+        CI: "1"
+        PATH: "/opt/homebrew/bin:/usr/bin:/bin"
+      register: hermes_ui_tui_npm_install
+      changed_when: false
+      failed_when: hermes_ui_tui_npm_install.rc != 0
+
+    - name: Pre-build ui-tui bundle (avoid lazy build in /api/pty handler)
+      ansible.builtin.command:
+        cmd: /opt/homebrew/bin/npm run build
+        chdir: "/Users/{{ agent_name }}/.hermes/code/ui-tui"
+      become_user: "{{ agent_name }}"
+      environment:
+        PATH: "/opt/homebrew/bin:/usr/bin:/bin"
+      register: hermes_ui_tui_build
+      changed_when: "'esbuild' in (hermes_ui_tui_build.stdout | default(''))"
+      failed_when: hermes_ui_tui_build.rc != 0
+
+    - name: Alias entry-exports.js to ink-bundle.js (upstream filename drift workaround)
+      ansible.builtin.copy:
+        src: "/Users/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/entry-exports.js"
+        dest: "/Users/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/ink-bundle.js"
+        remote_src: true
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0644"
+
+    - name: Touch ink-bundle.js so _hermes_ink_bundle_stale sees a fresh mtime
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/ink-bundle.js"
+        state: touch
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0644"
+      changed_when: false
+
+    - name: Touch ui-tui/dist/entry.js so _tui_build_needed sees a fresh mtime
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.hermes/code/ui-tui/dist/entry.js"
+        state: touch
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0755"
+      changed_when: false
+
+    # Service file: NOT created here. launchd plist drop is step 6
+    # (core/lifecycle_macos.py + gateway.plist.j2).
+    - name: Display install success
+      ansible.builtin.debug:
+        msg: |
+          Hermes {{ hermes_target_version }} installed for agent '{{ agent_name }}' at
+          /Users/{{ agent_name }}/.hermes. No launchd plist installed yet — that is
+          handled by `clawctl agent start` (issue #469 step 7).

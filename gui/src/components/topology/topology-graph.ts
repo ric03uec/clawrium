@@ -86,6 +86,7 @@ export function computeTopology(
     hostname: string;
     alias: string;
     hardware: TopologyResponse["hosts"][0]["hardware"];
+    osFamily: TopologyResponse["hosts"][0]["os_family"];
   }> = [];
 
   data.hosts.forEach((host) => {
@@ -95,6 +96,7 @@ export function computeTopology(
         hostname: host.hostname,
         alias: host.alias,
         hardware: host.hardware,
+        osFamily: host.os_family ?? null,
       });
     });
   });
@@ -104,7 +106,7 @@ export function computeTopology(
     Math.max(allAgents.length - 1, 0) * AGENT_GAP;
   let agentCursorX = -totalAgentWidth / 2;
 
-  allAgents.forEach(({ agent, hostname, alias, hardware }) => {
+  allAgents.forEach(({ agent, hostname, alias, hardware, osFamily }) => {
     const nodeId = `agent-${agent.agent_key}`;
     nodes.push({
       id: nodeId,
@@ -115,6 +117,7 @@ export function computeTopology(
         hostname,
         hostAlias: alias,
         hardware: hardware ?? null,
+        hostOsFamily: osFamily ?? null,
         hostColor: getHostColor(hostColorMap, hostname),
         onAgentClick: opts.onAgentClick,
         onHostClick: opts.onHostClick,

@@ -9,11 +9,11 @@
 
     - name: Fail if service not installed
       ansible.builtin.fail:
-        msg: "Hermes service not installed. Run 'clm agent install --type hermes ...' first."
+        msg: "Hermes service not installed. Run 'clawctl agent install --type hermes ...' first."
       when: not service_file.stat.exists
 
     # Re-render the unit (idempotent) so changes to ExecStart / WorkingDirectory
-    # via a clm upgrade are picked up without forcing a full reinstall. The
+    # via a clawctl upgrade are picked up without forcing a full reinstall. The
     # `Also=` directive on this unit (not the dashboard unit) is intentional
     # — see install.yaml comments / ATX W1.
     - name: Sync systemd service file
@@ -53,7 +53,7 @@
 
     # Re-render the dashboard unit (issue #478 phase 2). `dashboard_port` is
     # passed from lifecycle.py via hosts.json.agents.<name>.config.dashboard.
-    # Re-rendering here keeps the unit in sync if a future clm upgrade
+    # Re-rendering here keeps the unit in sync if a future clawctl upgrade
     # changes the ExecStart shape without forcing a full re-install. The
     # `when:` guard lets agents installed before this change continue to
     # start (the dashboard unit just stays absent).
@@ -147,5 +147,5 @@
           Inspect logs with:
             sudo journalctl -u {{ agent_type }}-{{ agent_name }} -n 100 --no-pager
           Common cause: ~/.hermes/.env is missing required provider credentials.
-          Run `clm agent configure {{ agent_name }}` to provision a provider.
+          Run `clawctl agent configure {{ agent_name }}` to provision a provider.
       when: service_status.status.ActiveState not in ['active', 'activating']

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AgentDetail } from "@/lib/types";
 import { StatusDot } from "@/components/ui/status-dot";
+import { OSIcon } from "@/components/ui/os-icon";
 import { Button } from "@/components/ui/button";
 import {
   PAIRING_AGENT_TYPES,
@@ -44,9 +45,17 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
             <h1 className="text-xl font-semibold text-primary-text">
               {agent.agent_name}
             </h1>
-            <p className="text-sm text-muted">
-              {agent.agent_type} v{agent.version} &middot; Host: {agent.host_alias || agent.host}
-              {agent.model && ` · Model: ${agent.model}`}
+            <p className="text-sm text-muted flex items-center gap-1.5 flex-wrap">
+              <span>{agent.agent_type} v{agent.version}</span>
+              <span aria-hidden="true">·</span>
+              <span>Host: {agent.host_alias || agent.host}</span>
+              <OSIcon os={agent.host_os_family} variant="chip" />
+              {agent.model && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>Model: {agent.model}</span>
+                </>
+              )}
             </p>
           </div>
         </div>

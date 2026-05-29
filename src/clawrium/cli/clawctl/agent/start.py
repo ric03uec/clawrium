@@ -7,6 +7,7 @@ import typer
 from clawrium.cli.clawctl.agent._shared import resolve_agent_key, safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
 from clawrium.core.lifecycle import LifecycleError, start_agent
+from clawrium.core.playbook_resolver import resolve_lifecycle_backend
 
 
 def start(
@@ -25,8 +26,19 @@ def start(
     def on_event(stage: str, message: str) -> None:
         stream_action(resource=f"agent/{name}", message=f"[{stage}] {message}")
 
+    # OS-family dispatch (CLI layer). #469 step 1 invariant:
+    # core/lifecycle.py must NOT branch on Darwin. We keep the
+    # `start_agent` symbol importable so existing monkeypatch-based
+    # tests (`clawrium.cli.clawctl.agent.start.start_agent`) keep
+    # working; only the Darwin path goes through the resolver.
+    os_family = host.get("os_family", "linux")
+    if os_family == "linux":
+        start_fn = start_agent
+    else:
+        start_fn = resolve_lifecycle_backend(os_family).start_agent
+
     try:
-        result = start_agent(
+        result = start_fn(
             hostname=hostname,
             claw_name=agent_type,
             agent_name=agent_key,

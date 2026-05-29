@@ -14,7 +14,7 @@ features:
   chat:
     type: openai
   # Native browser dashboard shipped by hermes upstream. Bound to loopback
-  # on the agent host; clm tunnels through SSH (see issue #478). `port_field`
+  # on the agent host; clawctl tunnels through SSH (see issue #478). `port_field`
   # is the dotted path inside `hosts.json.agents.<name>.config` where the
   # per-instance dashboard port is persisted at install time. No
   # `default_port`: install.py computes a per-instance port in 45000..46999
@@ -40,15 +40,15 @@ secrets:
     - key: OPENAI_API_KEY
       description: "OpenAI API key"
     # Atlassian credentials are NOT listed here: they live in the per-integration
-    # credential store (managed via `clm integration credentials`) and a single
+    # credential store (managed via `clawctl integration credentials`) and a single
     # hermes agent may have multiple atlassian integrations (team-a, team-b)
     # with distinct tokens — a single manifest key would be ambiguous.
 
 # Onboarding workflow configuration.
 #
 # Phase 4 replaces the Phase 1 placeholder (where every stage was auto-skipped
-# to short-circuit to READY) with a real onboarding pipeline. `clm agent start`
-# now requires the user to walk through `clm agent configure` first, mirroring
+# to short-circuit to READY) with a real onboarding pipeline. `clawctl agent start`
+# now requires the user to walk through `clawctl agent configure` first, mirroring
 # the openclaw flow.
 #
 # Stage notes:
@@ -56,14 +56,14 @@ secrets:
 #              to openclaw. Selecting a provider writes ~/.hermes/.env and
 #              ~/.hermes/config.yaml on the agent host (Phase 2 logic).
 #   identity   auto_skip. Hermes manages its own identity files (SOUL.md,
-#              AGENTS.md) inside ~/.hermes/ on the agent host; clm does not
+#              AGENTS.md) inside ~/.hermes/ on the agent host; clawctl does not
 #              push identity files in this iteration. The wizard records this
 #              stage as SKIPPED and advances.
 #   channels   default `cli`. The api_server platform exposes an
 #              OpenAI-compatible HTTP API on 0.0.0.0:<api_server_port> (all
 #              interfaces, bearer-token protected via HERMES_API_SERVER_KEY)
-#              so `clm chat <hermes>` can reach it at
-#              http://<host-ip>:<api_server_port>/v1 from any clm machine on
+#              so `clawctl chat <hermes>` can reach it at
+#              http://<host-ip>:<api_server_port>/v1 from any clawctl machine on
 #              the LAN. The port is per-instance, picked at install time
 #              from 8600..8699 (issue #533). External messaging gateways
 #              (Discord/Slack/Telegram/etc.) are out of scope and tracked as a
@@ -86,7 +86,7 @@ onboarding:
     identity:
       required: false
       auto_skip: true
-      description: "Hermes manages SOUL.md/AGENTS.md inside ~/.hermes/; clm does not push identity files in this iteration"
+      description: "Hermes manages SOUL.md/AGENTS.md inside ~/.hermes/; clawctl does not push identity files in this iteration"
 
     channels:
       required: true
@@ -95,7 +95,7 @@ onboarding:
         - id: confirm_cli
           name: "Confirm CLI channel"
           type: confirm
-          message: "Hermes will expose its OpenAI-compatible API on all interfaces, bearer-token protected, reachable at http://<host-ip>:<api_server_port>/v1 from any clm machine on the LAN. The port is per-instance (8600..8699); see `clm agent describe`."
+          message: "Hermes will expose its OpenAI-compatible API on all interfaces, bearer-token protected, reachable at http://<host-ip>:<api_server_port>/v1 from any clawctl machine on the LAN. The port is per-instance (8600..8699); see `clawctl agent describe`."
           default: true
         - id: select_discord
           name: "Enable Discord channel (optional)"
@@ -168,6 +168,23 @@ platforms:
       gpu_required: false
       dependencies:
         python: ">=3.11"
+        ripgrep: "*"
+        ffmpeg: "*"
+        uv: "*"
+  # macOS entry — uses ">=14" so the same line tracks new macOS releases
+  # without manifest churn. The sha256 mirrors the Linux entries because the
+  # upstream `install.sh` URL is identical across platforms (the script
+  # itself dispatches on OS internally). Step 5 of issue #469 may revise this
+  # if the install path forks to a separate upstream URL.
+  - version: "2026.5.7"
+    os: macos
+    os_version: ">=14"
+    arch: arm64
+    sha256: "b34368cb0628d5acbdc48fe6f4160fb6f51bb33377e8f5a7415fd790a57456e5"
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
         ripgrep: "*"
         ffmpeg: "*"
         uv: "*"

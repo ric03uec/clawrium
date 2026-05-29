@@ -38,6 +38,24 @@ test-ui: $(GUI_INSTALL_STAMP)
 test-cov:
 	uv run pytest --cov=src/clawrium --cov-report=term-missing
 
+# Mac-touching test set. Runs only the new tests added by #469 (resolver,
+# version matcher, hardware normalization, host_macos, launchd plist,
+# lifecycle_macos, mocked Mac E2E). The rest of the suite pre-dates Mac
+# support and assumes a Linux runtime — exercising it on macOS surfaces
+# unrelated, pre-existing failures with no signal about the Mac change set.
+test-macos:
+	uv run pytest \
+	  tests/core/test_playbook_resolver.py \
+	  tests/core/test_hosts_os_family.py \
+	  tests/core/test_version_matches.py \
+	  tests/core/test_hardware_macos_normalization.py \
+	  tests/core/test_launchd.py \
+	  tests/core/test_lifecycle_macos.py \
+	  tests/cli/test_host_macos.py \
+	  tests/integration/test_macos_e2e_mocked.py \
+	  tests/test_names.py::TestReservedUnixNames \
+	  -v
+
 lint: lint-py lint-ui
 
 lint-py:

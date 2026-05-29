@@ -171,6 +171,7 @@ async def get_topology():
                 "agent_count": len(host_agents),
                 "agents": host_agents,
                 "hardware": hardware,
+                "os_family": h.get("os_family"),
             }
         )
 

@@ -4,7 +4,7 @@ agent:
 
 # Workspace metadata consumed by cross-claw subsystems (memory CLI, etc.).
 # Path α (chosen for #358): the workspace dir holds the 7 personality MD
-# files surfaced as "memory" through `clm agent memory show|edit|delete`.
+# files surfaced as "memory" through `clawctl agent memory show|edit|delete`.
 # See .itx/358/01_EXECUTION.md for the (α vs β) rationale.
 workspace:
   memory_path: "~/.zeroclaw/workspace"
@@ -28,7 +28,7 @@ features:
   # (`40000 + hash % 2000`) and `configure.yaml` always persists it under
   # `gateway.port` — a manifest-wide default would silently collide on a
   # host running multiple zeroclaw instances.
-  # Mirrors hermes #478 for `clm agent open`.
+  # Mirrors hermes #478 for `clawctl agent open`.
   web_ui:
     enabled: true
     bind: wildcard

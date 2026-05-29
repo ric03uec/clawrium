@@ -1,0 +1,169 @@
+---
+# macOS counterpart to base.yaml. Installs the prerequisites Linux gets
+# from apt: Xcode Command Line Tools, Homebrew, and the four binaries
+# hermes needs (node, ripgrep, ffmpeg, uv).
+#
+# Dispatcher contract (issue #469): this file is resolved by
+# core/playbook_resolver.resolve_base_playbook() when the host's
+# os_family is "darwin". It is NEVER selected for Linux hosts.
+#
+# Required variables:
+#   admin_user — the SSH user that owns /opt/homebrew. Typically the
+#                Mac's admin user, NOT xclm (Homebrew refuses to run
+#                under root and xclm is a service-style account).
+- hosts: all
+  gather_facts: yes
+  tasks:
+    # Defensive precondition: this playbook MUST NOT run against Linux.
+    # If we're here on Linux, the dispatcher is broken; fail loudly with
+    # a clear message rather than producing apt errors mid-task.
+    - name: Refuse to run on non-Darwin hosts
+      ansible.builtin.fail:
+        msg: >
+          base_macos.yaml was invoked against a non-Darwin host
+          (ansible_os_family={{ ansible_os_family }}). This indicates a
+          dispatcher bug in core/playbook_resolver.py; the macOS base
+          playbook should only run when os_family=darwin.
+      when: ansible_os_family != "Darwin"
+
+    # Resolve admin_user: explicit extra var wins; otherwise infer from the
+    # current owner of /opt/homebrew (existing install) or fall back to the
+    # SSH ansible_user. Homebrew refuses to run under root, so this account
+    # must be a human admin (member of the `admin` group / gid 80).
+    - name: Detect existing Homebrew prefix owner (if brew is already installed)
+      ansible.builtin.stat:
+        path: /opt/homebrew
+      register: brew_prefix_stat
+
+    - name: Get current owner of /opt/homebrew
+      ansible.builtin.command: stat -f %Su /opt/homebrew
+      register: brew_prefix_owner
+      changed_when: false
+      failed_when: false
+      when: brew_prefix_stat.stat.exists
+
+    - name: Resolve effective admin_user
+      ansible.builtin.set_fact:
+        admin_user: >-
+          {{ admin_user
+             | default(
+                 (brew_prefix_owner.stdout | default('') | trim)
+                 if (brew_prefix_owner.stdout | default('') | trim) not in ['', 'root']
+                 else ansible_user,
+                 true
+               )
+          }}
+
+    - name: Fail if admin_user resolved to root
+      ansible.builtin.fail:
+        msg: >-
+          admin_user resolved to 'root', but Homebrew refuses to run under
+          root. Pass `-e admin_user=<human-admin-account>` explicitly, or
+          ensure /opt/homebrew is owned by a non-root admin user.
+      when: admin_user == "root"
+
+    # ----- Block 1: Xcode Command Line Tools -----
+    - name: Check whether Xcode CLT is already installed
+      ansible.builtin.stat:
+        path: /Library/Developer/CommandLineTools/usr/bin/git
+      register: clt_stat
+
+    - name: Install Xcode CLT headlessly
+      when: not clt_stat.stat.exists
+      block:
+        - name: Mark CLT install as on-demand (allows softwareupdate to list it)
+          ansible.builtin.file:
+            path: /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+            state: touch
+            mode: "0644"
+          become: yes
+
+        - name: Discover CLT label from softwareupdate catalog
+          ansible.builtin.shell: |
+            set -o pipefail
+            softwareupdate -l 2>/dev/null \
+              | awk -F'*' '/Label: Command Line Tools/{print $2}' \
+              | sed 's/^ *Label: //' \
+              | sort -V \
+              | tail -1
+          args:
+            executable: /bin/bash
+          register: clt_label
+          changed_when: false
+
+        - name: Fail with remediation hint if no CLT label found
+          ansible.builtin.fail:
+            msg: |
+              No Command Line Tools label found in the softwareupdate catalog.
+              Common causes:
+                - Mac is offline or behind a proxy blocking swdist.apple.com
+                - The macOS version is too new and CLT hasn't published yet
+              Remediation: SSH in interactively and run `xcode-select --install`.
+          when: (clt_label.stdout | trim) == ""
+
+        - name: Install Xcode CLT (5–15 min)
+          ansible.builtin.command: softwareupdate -i "{{ clt_label.stdout | trim }}" --verbose
+          async: 1800
+          poll: 30
+          become: yes
+
+        - name: Remove on-demand marker
+          ansible.builtin.file:
+            path: /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+            state: absent
+          become: yes
+
+    # ----- Block 2: Homebrew -----
+    # The official Homebrew installer requires interactive sudo even with
+    # NONINTERACTIVE=1 AND refuses to run under root — there is no headless
+    # path through it. Bootstrap directly from the tarball, which is what
+    # the official installer ultimately does internally.
+    - name: Check whether Homebrew is installed
+      ansible.builtin.stat:
+        path: /opt/homebrew/bin/brew
+      register: brew_stat
+
+    - name: Bootstrap Homebrew at /opt/homebrew
+      when: not brew_stat.stat.exists
+      block:
+        - name: Create /opt/homebrew owned by the admin user
+          ansible.builtin.file:
+            path: /opt/homebrew
+            state: directory
+            owner: "{{ admin_user }}"
+            group: admin
+            mode: "0755"
+          become: yes
+
+        # ansible.builtin.unarchive against the GitHub tarball URL fails on
+        # macOS: the response is content-negotiated, BSD tar disagrees with
+        # what Ansible expects, and unzip can't handle it either. Drop to a
+        # plain shell pipeline (curl | tar -x) which is what the official
+        # Homebrew installer does internally too.
+        - name: Fetch and extract Homebrew tarball into /opt/homebrew
+          ansible.builtin.shell: |
+            set -euo pipefail
+            curl -L https://github.com/Homebrew/brew/tarball/master \
+              | tar -xz --strip-components=1 -C /opt/homebrew
+          args:
+            executable: /bin/bash
+            creates: /opt/homebrew/bin/brew
+          become: yes
+          become_user: "{{ admin_user }}"
+
+    # ----- Block 3: Brew packages -----
+    - name: Install hermes prerequisites via Homebrew
+      community.general.homebrew:
+        name:
+          - node
+          - ripgrep
+          - ffmpeg
+          - uv
+        state: present
+        update_homebrew: no
+      become: yes
+      become_user: "{{ admin_user }}"
+      environment:
+        PATH: "/opt/homebrew/bin:{{ ansible_env.PATH }}"
+        HOMEBREW_NO_ANALYTICS: "1"
+        HOMEBREW_NO_AUTO_UPDATE: "1"

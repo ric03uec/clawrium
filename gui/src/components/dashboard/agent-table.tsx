@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { StatusDot } from "@/components/ui/status-dot";
+import { OSIcon } from "@/components/ui/os-icon";
 import { useFleet, useFleetHealth } from "@/hooks";
 
 export function AgentTable() {
@@ -61,7 +62,10 @@ export function AgentTable() {
                     {agent.agent_type}
                   </td>
                   <td className="py-3 pr-4 text-secondary">
-                    {agent.host_alias || agent.host}
+                    <span className="inline-flex items-center gap-1.5">
+                      <OSIcon os={agent.host_os_family} variant="dot" />
+                      {agent.host_alias || agent.host}
+                    </span>
                   </td>
                   <td className="py-3 pr-4 text-secondary font-mono text-xs">
                     {agent.model || "—"}

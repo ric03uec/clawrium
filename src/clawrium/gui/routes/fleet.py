@@ -95,6 +95,7 @@ def _agent_to_dict(agent: AgentViewModel) -> dict[str, Any]:
         "agent_type": agent["agent_type"],
         "host": agent["host"],
         "host_alias": agent["host_alias"],
+        "host_os_family": agent.get("host_os_family"),
         "version": agent["version"],
         "status": agent["status"].value
         if isinstance(agent["status"], ClawStatus)

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd unit for the hermes gateway. Counterpart to the systemd unit
+  rendered inline in install.yaml.
+
+  Why `system` domain (vs `gui`): the unit must persist across user
+  logout and survive reboot. `system` units are owned by launchd at
+  PID 1; `gui/<uid>` units die when the GUI session ends, which is
+  unacceptable for an always-on agent. Upstream NousResearch/hermes
+  defaults to `gui` — that is one of the documented quirks we avoid
+  (docs/operations/hermes-macos-upstream-quirks.md, step 9).
+
+  Label uses the reverse-DNS convention launchd recommends. The
+  GATEWAY must run as the agent user (`{{ agent_name }}`), NOT the
+  management account that installed it. A regression that mixed the
+  two would silently cause hermes to read the wrong $HOME and start
+  with the wrong .env. tests/core/test_launchd.py enforces this by
+  asserting the management-user name never appears in the rendered
+  output.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.clawrium.hermes.{{ agent_name }}</string>
+
+    <key>UserName</key>
+    <string>{{ agent_name }}</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/{{ agent_name }}/.hermes</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HERMES_HOME</key>
+        <string>/Users/{{ agent_name }}/.hermes</string>
+        <key>HOME</key>
+        <string>/Users/{{ agent_name }}</string>
+        <key>PATH</key>
+        <string>/Users/{{ agent_name }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/{{ agent_name }}/.local/bin/hermes</string>
+        <string>gateway</string>
+        <string>run</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/{{ agent_name }}/.hermes/logs/gateway.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/{{ agent_name }}/.hermes/logs/gateway.stderr.log</string>
+</dict>
+</plist>

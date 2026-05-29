@@ -878,6 +878,58 @@ def _parse_version_safe(version_text: str) -> Version:
         return Version("0.0.0")
 
 
+_VERSION_SPEC_RE = re.compile(r"^\s*(>=|<=|>|<|==|!=)\s*(.+?)\s*$")
+
+
+def _version_matches(spec: str, actual: str) -> bool:
+    """Check whether `actual` satisfies the `spec` os_version constraint.
+
+    Accepts:
+      - exact string equality (back-compat: "24.04" == "24.04")
+      - operator-prefixed specs: ">=14", ">14", "<=15", "<15", "==14", "!=14"
+
+    A malformed spec raises ValueError. Missing/empty actual is never a match
+    for an operator spec, but still allowed as an exact match against an empty
+    spec (defensive — callers normalize to empty string for unknown facts).
+    """
+    if spec is None:
+        raise ValueError("os_version spec must not be None")
+    if actual is None:
+        actual = ""
+
+    match = _VERSION_SPEC_RE.match(spec)
+    if not match:
+        # Treat as exact-equality back-compat path.
+        return spec == actual
+
+    op, rhs = match.group(1), match.group(2)
+    try:
+        rhs_v = Version(rhs)
+    except InvalidVersion as exc:
+        raise ValueError(f"invalid version in spec {spec!r}: {exc}") from exc
+
+    if not actual:
+        return False
+    try:
+        actual_v = Version(actual)
+    except InvalidVersion:
+        return False
+
+    if op == ">=":
+        return actual_v >= rhs_v
+    if op == "<=":
+        return actual_v <= rhs_v
+    if op == ">":
+        return actual_v > rhs_v
+    if op == "<":
+        return actual_v < rhs_v
+    if op == "==":
+        return actual_v == rhs_v
+    if op == "!=":
+        return actual_v != rhs_v
+    raise ValueError(f"unsupported operator in spec {spec!r}: {op}")
+
+
 def check_compatibility(
     claw_name: str,
     hardware: dict,
@@ -932,7 +984,10 @@ def check_compatibility(
         reasons: list[str] = []
 
         os_match = platform["os"] == hardware.get("os")
-        os_version_match = platform["os_version"] == hardware.get("os_version")
+        os_version_match = _version_matches(
+            spec=platform["os_version"],
+            actual=hardware.get("os_version", ""),
+        )
         arch_match = platform["arch"] == hardware.get("architecture")
 
         if not os_match or not os_version_match:

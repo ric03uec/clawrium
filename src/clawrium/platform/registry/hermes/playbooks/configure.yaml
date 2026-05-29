@@ -4,7 +4,7 @@
   vars:
     # Pinned versions for the Atlassian MCP integration toolchain.
     # Bump these deliberately after verifying the new release's env-var
-    # interface; both are exercised on every `clm agent configure`.
+    # interface; both are exercised on every `clawctl agent configure`.
     mcp_atlassian_version: "0.21.1"
     uv_version: "0.5.20"
     # Per-arch uv release assets + sha256 sums. Pinned together with
@@ -40,14 +40,14 @@
 
     - name: Fail if hermes not installed
       ansible.builtin.fail:
-        msg: "Agent user '{{ agent_name }}' not found. Run 'clm agent install --type hermes ...' first."
+        msg: "Agent user '{{ agent_name }}' not found. Run 'clawctl agent install --type hermes ...' first."
       when: user_check.msg is defined
 
     - name: Verify API_SERVER_KEY is present in config
       ansible.builtin.fail:
         msg: |
           api_server.key is missing for agent '{{ agent_name }}'.
-          Re-run 'clm agent install --type hermes --host <h> --name {{ agent_name }}' to regenerate.
+          Re-run 'clawctl agent install --type hermes --host <h> --name {{ agent_name }}' to regenerate.
       when: config.api_server is not defined or not config.api_server.key
 
     - name: Ensure ~/.hermes config directory exists
@@ -64,7 +64,7 @@
     # there — see `hermes gateway --help`). Phase 1's install.yaml dropped the
     # initial unit; configure.yaml owns the runtime ExecStart.
     # ATX iter-2 blocker fix: re-rendering the gateway unit here MUST also
-    # carry `Also=<dashboard>` so a `clm agent configure` after install
+    # carry `Also=<dashboard>` so a `clawctl agent configure` after install
     # does not silently drop the directive set by install.yaml. Without
     # this, `systemctl enable hermes-<name>` stops pulling the dashboard
     # companion on every reconfigure.
@@ -420,7 +420,7 @@
           /home/{{ agent_name }}/.local/bin/uv and /uvx to exist after
           extracting the uv {{ uv_version }} standalone binary from GitHub
           releases. Verify outbound access to github.com from the agent host
-          and re-run `clm agent configure {{ agent_name }}`.
+          and re-run `clawctl agent configure {{ agent_name }}`.
       when:
         - atlassian_integration_assigned | bool
         - uv_binary_stat.results is defined
@@ -466,7 +466,7 @@
         msg: |
           Hermes agent '{{ agent_name }}' configured for provider '{{ config.provider.type | default('auto') }}'.
           OpenAI-compatible API exposed on all interfaces (0.0.0.0:{{ config.api_server.port | default(8642) | int }}), bearer-token protected (HERMES_API_SERVER_KEY).
-          Reachable at http://<host-ip>:{{ config.api_server.port | default(8642) | int }}/v1 from any clm machine on the LAN.
+          Reachable at http://<host-ip>:{{ config.api_server.port | default(8642) | int }}/v1 from any clawctl machine on the LAN.
           Service: hermes-{{ agent_name }}.service (active)
 
   handlers:

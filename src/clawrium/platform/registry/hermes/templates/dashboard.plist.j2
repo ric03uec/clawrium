@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd unit for the hermes dashboard SPA. Companion to gateway.plist.j2.
+  Binds to 127.0.0.1 only ({{ dashboard_port }}); the SSH tunnel manager
+  (core/web_ui_tunnel.py) is the only thing that ever reaches it.
+
+  Same domain rationale as the gateway plist: system-domain so it
+  survives logout / reboot. The dashboard is reaped together with the
+  gateway via `bootout` in core/lifecycle_macos.remove_service_macos
+  and via stop_agent_macos when both labels are present — there is no
+  systemd `PartOf=` equivalent in launchd, so the lifecycle helpers
+  enumerate both labels explicitly.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.clawrium.hermes.{{ agent_name }}.dashboard</string>
+
+    <key>UserName</key>
+    <string>{{ agent_name }}</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/{{ agent_name }}/.hermes</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HERMES_HOME</key>
+        <string>/Users/{{ agent_name }}/.hermes</string>
+        <key>HOME</key>
+        <string>/Users/{{ agent_name }}</string>
+        <key>HERMES_DASHBOARD_TUI</key>
+        <string>1</string>
+        <key>PATH</key>
+        <string>/Users/{{ agent_name }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/{{ agent_name }}/.local/bin/hermes</string>
+        <string>dashboard</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>{{ dashboard_port }}</string>
+        <string>--no-open</string>
+        <string>--tui</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/{{ agent_name }}/.hermes/logs/dashboard.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/{{ agent_name }}/.hermes/logs/dashboard.stderr.log</string>
+</dict>
+</plist>

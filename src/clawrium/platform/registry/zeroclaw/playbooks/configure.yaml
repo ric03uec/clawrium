@@ -108,7 +108,7 @@
     # under the old name. Drop the legacy file first so the dropin dir
     # only ever contains the current managed file. Idempotent: state:
     # absent is a no-op once the orphan is gone.
-    - name: Remove legacy clm dropin (Bundle 5 #510 rename migration)
+    - name: Remove legacy clawctl dropin (Bundle 5 #510 rename migration)
       ansible.builtin.file:
         path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service.d/10-clm-env.conf"
         state: absent

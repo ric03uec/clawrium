@@ -26,12 +26,16 @@ export interface FleetHealthResponse {
   agents: AgentHealth[];
 }
 
+export type OSFamily = "linux" | "darwin";
+
 export interface AgentSummary {
   agent_key: string;
   agent_name: string;
   agent_type: string;
   host: string;
   host_alias: string;
+  /** Host OS family from hosts.json, surfaced for OS icon rendering (#469). */
+  host_os_family: OSFamily | null;
   status: AgentStatus;
   model: string;
   uptime: string;
@@ -118,6 +122,9 @@ export interface TopologyHost {
   agent_count: number;
   agents: TopologyAgent[];
   hardware?: HostHardware | null;
+  /** OS family for the host; null on hosts created before the field
+   * was added. Used by the topology agent node to render an OS icon. */
+  os_family?: OSFamily | null;
 }
 
 export interface HostHardwareGpu {

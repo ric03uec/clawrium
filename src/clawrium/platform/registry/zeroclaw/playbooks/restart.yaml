@@ -8,7 +8,7 @@
 # cacheable host fact so lifecycle.restart_agent can persist it to
 # hosts.json under agents.<n>.config.gateway.auth.
 #
-# Without this step, a `clm agent restart zeroclaw-…` would silently
+# Without this step, a `clawctl agent restart zeroclaw-…` would silently
 # invalidate hosts.json's bearer (the daemon mints a fresh token on
 # startup, so the old token in hosts.json no longer matches whatever the
 # daemon will enforce).

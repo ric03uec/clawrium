@@ -1,9 +1,9 @@
-{# Managed by clawrium (clm). Do not edit by hand — re-render with
-   `clm agent configure {{ agent_name | default('<name>') }}`.
+{# Managed by clawrium (clawctl). Do not edit by hand — re-render with
+   `clawctl agent configure {{ agent_name | default('<name>') }}`.
 
    v0.7.5 schema:
    - [gateway] binds 0.0.0.0 with require_pairing = true so cross-LAN
-     `clm chat` works and the bearer token captured in configure is the
+     `clawctl chat` works and the bearer token captured in configure is the
      auth boundary. See .itx/357/01_EXECUTION.md "Security Considerations".
    - [providers.models.<name>] sub-table per provider with a `kind`
      discriminator. Only the four providers in scope for #112 are emitted:
@@ -83,10 +83,10 @@ api_key = "{{ toml_escape(provider_api_key) }}"
 {% endif %}
 
 {# Personality block (#358). Mirrors the runtime's onboarding question set
-   so a fresh `clm agent configure` lands the agent with sensible voice
+   so a fresh `clawctl agent configure` lands the agent with sensible voice
    defaults instead of an empty section. Operators can override via
    `config.personality.{name,timezone,communication_style}` passed through
-   from clm; the workspace MD files own the deeper personality content. #}
+   from clawctl; the workspace MD files own the deeper personality content. #}
 [personality]
 name = "{{ toml_escape(personality_name) }}"
 timezone = "{{ toml_escape(personality_timezone) }}"

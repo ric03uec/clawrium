@@ -70,7 +70,7 @@
 
     # ATX W7: dashboard runs as a separate `hermes dashboard ...` command
     # (with its own node child process). The gateway pgrep above does not
-    # catch a stuck dashboard, so an operator who relies on `clm agent stop`
+    # catch a stuck dashboard, so an operator who relies on `clawctl agent stop`
     # could be left with the dashboard still bound to its loopback port.
     # Only enforce when the dashboard unit is actually installed.
     - name: Verify hermes dashboard process is stopped

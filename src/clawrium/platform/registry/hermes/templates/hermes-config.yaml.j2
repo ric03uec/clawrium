@@ -1,5 +1,5 @@
-# Managed by clawrium (clm). Do not edit by hand — re-render with
-# `clm agent configure {{ agent_name }}`.
+# Managed by clawrium (clawctl). Do not edit by hand — re-render with
+# `clawctl agent configure {{ agent_name }}`.
 #
 # Hermes deep-merges this file with its DEFAULT_CONFIG at load time, so any
 # top-level keys not listed here retain their hermes defaults.
@@ -75,7 +75,7 @@ auxiliary:
 model:
   provider: "custom"
 {# Hermes' custom provider expects an OpenAI-compatible /v1 root. Append /v1
-   when the clm provider endpoint omits it (e.g. raw Ollama base URL). #}
+   when the clawctl provider endpoint omits it (e.g. raw Ollama base URL). #}
 {% set endpoint_clean = endpoint.rstrip('/') %}
 {# yaml_quote on the URL so a hand-edited endpoint containing " or \
    cannot break out of the scalar and DoS the Ansible parse step.

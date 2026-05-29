@@ -41,6 +41,7 @@ from clawrium.cli.output import (
     stream_action,
 )
 from clawrium.core.lifecycle import LifecycleError, sync_agent
+from clawrium.core.playbook_resolver import resolve_lifecycle_backend
 
 
 _PHASES = (
@@ -160,7 +161,13 @@ def sync(
     # consumers; documenting both here keeps the trail visible.
     result: dict = {}
     try:
-        result = sync_agent(
+        # OS-family dispatch (CLI layer). #469 step 1 invariant.
+        os_family = host.get("os_family", "linux")
+        if os_family == "linux":
+            sync_fn = sync_agent
+        else:
+            sync_fn = resolve_lifecycle_backend(os_family).sync_agent
+        result = sync_fn(
             hostname=hostname,
             claw_name=agent_type,
             agent_name=agent_key,

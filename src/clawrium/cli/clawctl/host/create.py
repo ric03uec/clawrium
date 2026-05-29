@@ -119,19 +119,61 @@ def create(
 
 
 def _run_bootstrap(hostname: str, user: str) -> None:
-    """Delegate bootstrap to the legacy implementation.
+    """Detect remote OS family, then dispatch to the per-OS bootstrap.
 
-    The legacy `clm host init` flow handles keypair generation, SSH
-    host-key acceptance, and remote xclm user setup. Re-implementing
-    that in this bundle is unnecessary: bundle 5 (#510) collapses the
-    legacy module after the audit-after sweep.
+    Linux bootstrap is delegated to the legacy `cli/host.py:init` helper.
+    Darwin bootstrap dispatches to `cli/host_macos.py:init_macos` once
+    that module lands (issue #469, step 3). Until then, attempting a
+    Mac bootstrap fails with a clear, actionable error.
     """
+    from clawrium.cli.host_bootstrap import (
+        OSDetectionError,
+        detect_remote_os_family,
+    )
+    from clawrium.core.hosts import update_host
+
     try:
-        from clawrium.cli.host import init as _legacy_init
-    except ImportError as exc:
+        os_family = detect_remote_os_family(hostname, user)
+    except OSDetectionError as exc:
+        emit_error(str(exc))
+    except Exception as exc:  # paramiko / socket errors
         emit_error(
-            f"bootstrap unavailable: {exc}",
-            hint="re-run without --bootstrap and bootstrap manually",
+            f"could not reach {hostname} to detect OS family: {exc}",
+            hint="verify SSH connectivity as the user passed to --user",
         )
-    stream_action(resource=f"host/{hostname}", message="bootstrapping (legacy path)")
-    _legacy_init(hostname=hostname, user=user)
+
+    update_host(hostname, lambda h: {**h, "os_family": os_family})
+    stream_action(
+        resource=f"host/{hostname}",
+        message=f"detected os_family={os_family}",
+    )
+
+    if os_family == "linux":
+        try:
+            from clawrium.cli.host import init as _legacy_init
+        except ImportError as exc:
+            emit_error(
+                f"bootstrap unavailable: {exc}",
+                hint="re-run without --bootstrap and bootstrap manually",
+            )
+        stream_action(resource=f"host/{hostname}", message="bootstrapping (linux)")
+        _legacy_init(hostname=hostname, user=user)
+        return
+
+    if os_family == "darwin":
+        try:
+            from clawrium.cli.host_macos import init_macos as _mac_init
+        except ImportError:
+            emit_error(
+                "macOS host bootstrap is not available in this build",
+                hint=(
+                    "this clawrium version was built without cli/host_macos.py; "
+                    "upgrade to a release that includes issue #469 step 3"
+                ),
+            )
+        stream_action(resource=f"host/{hostname}", message="bootstrapping (macos)")
+        _mac_init(hostname=hostname, user=user)
+        return
+
+    # Unreachable: detect_remote_os_family raises on anything else.
+    emit_error(f"unexpected os_family={os_family!r}")

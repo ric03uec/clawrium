@@ -906,6 +906,7 @@ def sync_agent(
     agent_name: str | None = None,
     workspace_only: bool = False,
     on_event: Callable[[str, str], None] | None = None,
+    playbook_path_override: Path | None = None,
 ) -> LifecycleResult:
     """Sync configuration to an agent instance.
 
@@ -1222,6 +1223,7 @@ def sync_agent(
         agent_name=agent_key,
         on_event=on_event,
         reason="sync",
+        playbook_path_override=playbook_path_override,
     )
 
     if not config_success:
@@ -1310,6 +1312,7 @@ def configure_agent(
     extra_vars: dict | None = None,
     on_event: Callable[[str, str], None] | None = None,
     reason: str = "configure",
+    playbook_path_override: Path | None = None,
 ) -> tuple[bool, str | None]:
     """Configure an agent instance on a remote host.
 
@@ -1826,8 +1829,13 @@ def configure_agent(
     # Referenced from per-claw playbooks via `{{ shared_template_path }}`.
     shared_template_path = Path(__file__).parent.parent / "platform" / "templates"
 
-    # Get playbook path
-    playbook_path = _get_lifecycle_playbook_path(resolved_type, "configure")
+    # Get playbook path. The `playbook_path_override` hook lets the
+    # caller (e.g. `lifecycle_macos.configure_agent`) supply a different
+    # playbook without core/lifecycle.py needing to know which OS it is.
+    if playbook_path_override is not None:
+        playbook_path = playbook_path_override
+    else:
+        playbook_path = _get_lifecycle_playbook_path(resolved_type, "configure")
     if not playbook_path.exists():
         return False, f"Configure playbook not found: {playbook_path}"
 

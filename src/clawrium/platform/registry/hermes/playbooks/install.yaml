@@ -359,7 +359,7 @@
 
     # Service is dropped DISABLED and NOT started. Phase 2 (configure) writes
     # provider credentials to .env and turns the unit on. Calling
-    # `clm agent start` before configure will start the unit, but hermes will
+    # `clawctl agent start` before configure will start the unit, but hermes will
     # exit immediately because no provider is configured — documented in the
     # plan as expected behavior.
     #
@@ -453,7 +453,7 @@
         msg: |
           Hermes {{ hermes_target_version }} installed for agent '{{ agent_name }}'.
           Service unit hermes-{{ agent_name }}.service dropped (disabled, stopped).
-          Run `clm agent configure {{ agent_name }}` to provision a provider and start the gateway.
+          Run `clawctl agent configure {{ agent_name }}` to provision a provider and start the gateway.
 
   handlers:
     - name: Reload systemd

@@ -27,6 +27,10 @@ class AgentViewModel(TypedDict):
     agent_type: str
     host: str
     host_alias: str
+    # The host's OS family ("linux" | "darwin"). Surfaced to the GUI so
+    # agent cards can show an OS indicator (issue #469 follow-up).
+    # Backed by hosts.json `os_family` (set at bootstrap, never re-detected).
+    host_os_family: str | None
     version: str
     status: ClawStatus
     model: str
@@ -195,6 +199,7 @@ def get_fleet_data_local(
                     agent_type=agent_type,
                     host=hostname,
                     host_alias=host_alias,
+                    host_os_family=h.get("os_family"),
                     version=version,
                     status=status,
                     model=model,
@@ -315,6 +320,7 @@ def get_fleet_data(
                     agent_type=agent_type,
                     host=hostname,
                     host_alias=host_alias,
+                    host_os_family=h.get("os_family"),
                     version=version,
                     status=status,
                     model=model,
@@ -456,6 +462,7 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
             agent_type=agent_type,
             host=hostname,
             host_alias=h.get("alias") or hostname,
+            host_os_family=h.get("os_family"),
             version=version,
             status=status,
             model=model,
