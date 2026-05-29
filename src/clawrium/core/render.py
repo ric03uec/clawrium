@@ -423,7 +423,11 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
         api_server_input = APIServerInputs(
             host=str(api_server_blob.get("host", "")),
             port=int(api_server_blob.get("port", 0) or 0),
-            key=str(api_server_blob.get("key", "")),
+            # `key` is the bearer the gateway enforces; a NUL byte would
+            # silently truncate the systemd EnvironmentFile after
+            # API_SERVER_KEY=, dropping every var below it. Sanitize at
+            # assembly time, same as provider/channel/integration secrets.
+            key=_clean_secret(api_server_blob.get("key")),
         )
 
     gateway_input: GatewayInputs | None = None
@@ -432,7 +436,8 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
         gateway_input = GatewayInputs(
             host=str(gateway_blob.get("host", "")),
             port=int(gateway_blob.get("port", 0) or 0),
-            auth=str(gateway_blob.get("auth", "")),
+            # Same systemd-truncation hazard as api_server.key above.
+            auth=_clean_secret(gateway_blob.get("auth")),
             bind=str(gateway_blob.get("bind", "")),
             allow_public_bind=bool(gateway_blob.get("allow_public_bind", True)),
         )
@@ -573,9 +578,18 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
             env_lines.append(
                 f"DISCORD_REQUIRE_MENTION={_shell_quote(str(channel.require_mention).lower())}"
             )
-            env_lines.append(
-                f"DISCORD_ALLOW_ALL_USERS={_shell_quote(str(channel.allow_all_users).lower())}"
-            )
+            # CRITICAL: only emit `DISCORD_ALLOW_ALL_USERS` when the
+            # operator explicitly set it. The hermes daemon parses this
+            # var as a presence flag (Python `bool(os.environ.get(...))`
+            # treats any non-empty string — including `'false'` — as
+            # truthy), so unconditionally emitting `'false'` would
+            # silently open public Discord access on every agent on
+            # first configure. Mirrors the j2 template's
+            # `{% if discord.get('allow_all_users') %}` guard at
+            # hermes.env.j2:58. This is a real-world regression we
+            # cannot risk.
+            if channel.allow_all_users:
+                env_lines.append("DISCORD_ALLOW_ALL_USERS=true")
             env_lines.append(f"DISCORD_HOME_CHANNEL={_shell_quote(channel.home_channel)}")
             env_lines.append(
                 f"DISCORD_HOME_CHANNEL_NAME={_shell_quote(channel.home_channel_name)}"
@@ -682,6 +696,7 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
     atlassian = [i for i in inputs.integrations if i.type == "atlassian"]
     if atlassian:
         yaml_lines.append("mcp_servers:")
+        seen_slugs: set[str] = set()
         for integration in atlassian:
             creds = dict(integration.credentials)
             url = creds.get("ATLASSIAN_URL", "").rstrip("/")
@@ -699,6 +714,17 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
                     f"render_hermes: integration name {integration.name!r} "
                     f"slugifies to empty — refusing to emit an unnamed YAML key"
                 )
+            # Distinct integration names can slugify to the same YAML
+            # key (e.g. `my-atlassian` and `my_atlassian` both produce
+            # `my_atlassian`). PyYAML's last-wins semantics would
+            # silently drop one set of credentials. Fail loud instead.
+            if slug in seen_slugs:
+                raise AgentConfigError(
+                    f"render_hermes: atlassian integration names collide on "
+                    f"YAML key {slug!r}; rename one of the integrations to "
+                    f"differentiate after slugification"
+                )
+            seen_slugs.add(slug)
             yaml_lines.append(f"  {slug}:")
             yaml_lines.append("    env:")
             yaml_lines.append(f"      JIRA_URL: {_yaml_quote(url)}")

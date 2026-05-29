@@ -724,9 +724,65 @@ def test_hermes_discord_emits_allow_all_users_and_home_channel_fields():
         api_server=base.api_server,
     )
     env = render_hermes(inputs).files[".hermes/.env"]
-    assert "DISCORD_ALLOW_ALL_USERS='true'" in env
+    # `DISCORD_ALLOW_ALL_USERS` is emitted as the unquoted token `true`
+    # (presence-flag semantics matching the j2 template) only when the
+    # operator explicitly opted in. See render.py comment.
+    assert "DISCORD_ALLOW_ALL_USERS=true" in env
     assert "DISCORD_HOME_CHANNEL_NAME='general'" in env
     assert "DISCORD_HOME_CHANNEL_THREAD_ID='T9'" in env
+
+
+def test_hermes_discord_omits_allow_all_users_when_false():
+    """B4 regression: never emit DISCORD_ALLOW_ALL_USERS=false; daemon
+    parses presence, not value, so `'false'` would silently open access."""
+    base = _baseline_inputs(ptype="openrouter")
+    env = render_hermes(base).files[".hermes/.env"]
+    assert "DISCORD_ALLOW_ALL_USERS" not in env
+
+
+def test_hermes_atlassian_slug_collision_raises():
+    """B3 regression: distinct integration names that slug-collide must
+    raise rather than silently last-wins-drop one set of credentials."""
+    base = _baseline_inputs(ptype="openrouter")
+    creds = (
+        ("ATLASSIAN_API_TOKEN", "t"),
+        ("ATLASSIAN_EMAIL", "e"),
+        ("ATLASSIAN_URL", "https://x"),
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        integrations=(
+            IntegrationInputs(name="my-atlassian", type="atlassian", credentials=creds),
+            IntegrationInputs(name="my_atlassian", type="atlassian", credentials=creds),
+        ),
+        api_server=base.api_server,
+    )
+    with pytest.raises(AgentConfigError, match="collide on YAML key"):
+        render_hermes(inputs)
+
+
+def test_clean_secret_applied_to_gateway_auth_and_api_server_key(stores):
+    """W1: NUL/CR/LF in gateway.auth or api_server.key must be stripped
+    before they hit the systemd EnvironmentFile."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "hermes",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "api_server": {"host": "0.0.0.0", "port": 8642, "key": "k\x00ey\r"},
+                "gateway": {"host": "0.0.0.0", "port": 40000, "auth": "tok\nen"},
+            },
+        },
+    )
+    stores.providers["or"] = {"name": "or", "type": "openrouter", "default_model": "m"}
+    stores.provider_api_keys["or"] = "sk-1"
+    inputs = build_render_inputs("alpha")
+    assert inputs.api_server is not None and inputs.api_server.key == "key"
+    assert inputs.gateway is not None and inputs.gateway.auth == "token"
 
 
 def test_hermes_file_keys_are_exact_set():
@@ -769,9 +825,10 @@ def test_yaml_quote_strips_nul_and_cr():
     )
     yaml = render_hermes(inputs).files[".hermes/config.yaml"]
     assert "\x00" not in yaml
-    # The CR should have been stripped from the rendered scalar.
-    assert "'token\\r'" not in yaml
-    assert "JIRA_API_TOKEN: 'token'" in yaml or "JIRA_API_TOKEN: 'tokenen'" in yaml or "JIRA_API_TOKEN: 'token en'" in yaml or True  # value is sanitized
+    assert "\r" not in yaml
+    # Concrete sanitized scalar: NUL + CR stripped, no other mangling.
+    # Input token "tok\x00en\r" → "token" after _yaml_quote's strip.
+    assert "JIRA_API_TOKEN: 'token'" in yaml
     # And the mcp_servers key uses the slug, not raw name.
     assert "  jira_a:" in yaml
 
