@@ -140,8 +140,15 @@ def read_remote_file(
             _, stdout, _ = client.exec_command(
                 f"sudo -n cat {quoted}", timeout=timeout
             )
-            cat_exit = stdout.channel.recv_exit_status()
+            # ATX iter-2 W13: read body BEFORE polling exit status.
+            # paramiko's `recv_exit_status()` can block until EOF on
+            # large outputs but only after the channel's stdout
+            # buffer is drained — reading first ensures the channel
+            # closes cleanly. Calling exit-status first then read()
+            # has caused deadlocks under load in other paramiko
+            # users (see paramiko #1617).
             raw = stdout.read().decode("utf-8", errors="replace")
+            cat_exit = stdout.channel.recv_exit_status()
             if cat_exit != 0:
                 raise RemoteReadError(
                     f"sudo cat {remote_path!r} failed with exit {cat_exit}"
@@ -149,15 +156,21 @@ def read_remote_file(
             return True, raw
         if probe_exit == 1:
             # Distinguish "file truly absent" (sudo ran fine) from
-            # "sudo refused to run" by checking stderr. A sudoers
-            # misconfiguration produces text like
-            # "sudo: a password is required". The actual `test -e`
-            # exit-1 path emits no stderr.
+            # "sudo refused to run" by inspecting stderr. A clean
+            # `test -e` miss emits no stderr at all; ANY stderr text
+            # on the probe channel means sudo itself spoke up — most
+            # likely a sudoers misconfiguration. ATX iter-2 W14:
+            # don't anchor on the word "password" — sudo's NOPASSWD
+            # failure modes also produce "Sorry, user X is not
+            # allowed to execute ...", "sudo: no tty present", and
+            # locale-translated variants. Any non-empty stderr on
+            # exit-1 is operator-actionable.
             stderr_text = probe_stderr.read().decode("utf-8", errors="replace")
-            if "sudo" in stderr_text and "password" in stderr_text.lower():
+            if stderr_text.strip():
                 raise RemoteReadError(
                     f"sudo -n unavailable on {hostname}: "
-                    "host needs passwordless sudo (re-run `clawctl host create`)"
+                    f"{stderr_text.strip()} "
+                    "(re-run `clawctl host create` to fix sudoers)"
                 )
             return False, ""
         # Any other exit code is a transport / auth surprise. Surface

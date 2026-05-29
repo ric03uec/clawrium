@@ -70,17 +70,31 @@ def _safe_endpoint(value: str) -> str:
     Doctor's whole purpose is producing output that's safe to paste
     into a bug report, so a URL-embedded credential must be masked
     even though it's technically a "config" field.
+
+    ATX iter-2 B7: bare-token userinfo (no `:` before `@`, e.g.
+    `https://sk-token@host/v1`) is also a credential — the whole
+    userinfo segment is the token. Mask it too.
     """
     if not value:
         return ""
-    # Match `<scheme>://<userinfo>@<host>...` where userinfo contains
-    # a `:`. Anything simpler (no userinfo, or no password) passes
-    # through unmodified.
     import re
 
-    return re.sub(
-        r"^(\w+://)([^/@]+):([^/@]+)@",
+    # `user:password@` form → preserve the user, mask the password.
+    masked = re.sub(
+        r"^(\w+://)([^/@:]+):([^/@]+)@",
         r"\1\2:***@",
+        value,
+    )
+    if masked != value:
+        return masked
+    # `token@` form (no colon in userinfo) → mask the whole userinfo.
+    # `[^/@:]+` excludes `:` so we don't accidentally re-match the
+    # `user:password@` form whose colon happens to follow a non-mask
+    # branch (handled above already, but explicit is cheaper than
+    # debugging an ordering bug later).
+    return re.sub(
+        r"^(\w+://)([^/@:]+)@",
+        r"\1***@",
         value,
     )
 
