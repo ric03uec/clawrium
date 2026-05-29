@@ -1,32 +1,33 @@
 """`clawctl agent sync <name>` — drift-to-zero flush (plan §9).
 
-The redefined sync emits one streaming line per phase (plan §6.10):
+Routes through the F3 canonical pipeline (`sync_agent_canonical`) —
+the only sync path since #560 dropped the `--canonical` opt-in flag.
+
+Phase lines (plan §6.10, post-#560):
 
     1. validating local state
     2. pushing config (provider, skills, channels, env)
     3. restarting unit
-    4. re-pairing gateway
-    5. verifying health
+    4. verifying health
     + final `synced (drift=0, took Xs)`
 
-Implementation note: `core/lifecycle.py:sync_agent` already does the
-heavy lifting (validate + configure-with-restart-via-notify + re-pair
-per issue #437). For #508 we wrap it and translate its internal
-`on_event(stage, message)` callbacks into the plan-§6.10 five-line
-canonical sequence. The full mid-step decomposition (separate "push",
-"restart", "re-pair", "verify" core APIs) is out of scope for #508
-and tracked as a follow-up.
+Note: the legacy 5-phase sequence included `re-pairing gateway`. The
+canonical pipeline does not yet re-pair the zeroclaw gateway bearer;
+that gap is tracked separately (see PR #566 Callouts).
 
 Flags:
-- `--timeout 120` — 2-minute default; passed through to the underlying
-  call (currently advisory: core/lifecycle does not honor a timeout
-  parameter today, captured as a Callout).
+- `--timeout 120` — 2-minute default; advisory (canonical pipeline
+  does not honor a timeout parameter today).
 - `--workspace` — workspace files only, no restart.
 - `--dry-run` — validate + show intent, no push.
 - `--diff` — (F8, parent #555) host-vs-rendered unified diff per file.
   Implies `--dry-run`. Reads on-host files via SSH so you can verify
   what `sync` is about to overwrite *before* it runs.
 - `--skip-validate` — bypass step 1.
+- `--force` — allow writes that remove a host-side secret line.
+  Required after `clawctl agent channel detach` or any other
+  intentional secret-removal op; otherwise sync refuses with
+  `SecretRemovalRefused`.
 - `-o json` — NDJSON per phase instead of text lines.
 """
 
@@ -49,7 +50,6 @@ _PHASES = (
     "validating local state",
     "pushing config (provider, skills, channels, env)",
     "restarting unit",
-    "re-pairing gateway",
     "verifying health",
 )
 
@@ -225,6 +225,15 @@ def sync(
     skip_validate: bool = typer.Option(
         False, "--skip-validate", help="Bypass step 1 (validate)."
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help=(
+            "Allow writes that remove a host-side secret line. Required "
+            "after `clawctl agent channel detach` or any other "
+            "intentional secret-removal op; otherwise sync refuses."
+        ),
+    ),
     output: OutputFormat = typer.Option(
         OutputFormat.table, "--output", "-o", help="Output format (table or json)."
     ),
@@ -268,7 +277,7 @@ def sync(
     # NDJSON consumers can distinguish from the post-call `complete`
     # summary. Bundle 5 will refactor `core/lifecycle.sync_agent` to
     # emit per-phase events directly, removing the need for pre-emission.
-    phase_keys = ("validate", "push", "restart", "repair", "verify")
+    phase_keys = ("validate", "push", "restart", "verify")
     for key, label in zip(phase_keys, _PHASES):
         if key == "validate" and skip_validate:
             continue
@@ -336,7 +345,7 @@ def sync(
     try:
         canonical_result = sync_agent_canonical(
             on_host_name,
-            force=False,
+            force=force,
             restart=not workspace,
             verify=not workspace,
             on_event=canonical_event,

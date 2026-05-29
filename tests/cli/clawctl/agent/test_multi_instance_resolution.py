@@ -179,6 +179,13 @@ def test_sync_passes_instance_name_not_type(
 
     assert result.exit_code == 0, f"sync {instance} failed: {result.output}"
     assert captured.get("name") == instance
+    # Regression guard against the type/instance conflation the legacy
+    # test asserted: the on-host name MUST NOT be the agent type.
+    assert captured.get("name") != "zeroclaw"
+    # Default kwargs: no force, restart + verify on, no workspace.
+    assert captured.get("force") is False
+    assert captured.get("restart") is True
+    assert captured.get("verify") is True
 
 
 @pytest.mark.parametrize("instance", ["audit-1", "audit-2", "audit-3"])

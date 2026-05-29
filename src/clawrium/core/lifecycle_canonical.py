@@ -17,11 +17,11 @@ This module replaces that path with the canonical pipeline:
     restart  = systemctl restart <atype>-<name>.service
     verify   = light health check (unit active)
 
-The function is opt-in via `clawctl agent sync --canonical` while the
-test matrix in `tests/integration/test_render_matrix.py` proves parity
-against the legacy path. Once green in CI on a disposable container
-host, a follow-up PR flips the default and drops the legacy
-extravar-based sync.
+Since #560, this is the only sync path — the `--canonical` opt-in flag
+was dropped and the legacy ansible extravar fork was removed from
+`clawctl agent sync`. The test matrix in
+`tests/integration/test_render_matrix.py` continues to prove parity
+against the legacy renderer outputs.
 
 Scope guard: this module deliberately does NOT touch `configure_agent`
 or `restart_agent`. Those paths still drive the onboarding state
