@@ -227,6 +227,25 @@ def sync(
     skip_validate: bool = typer.Option(
         False, "--skip-validate", help="Bypass step 1 (validate)."
     ),
+    canonical: bool = typer.Option(
+        False,
+        "--canonical",
+        help=(
+            "Use the F3 canonical pipeline (build_render_inputs → "
+            "render → host-diff → atomic write → restart). Refuses to "
+            "remove host-side secrets without --force. Bypasses the "
+            "legacy ansible extravar path. Parent #555."
+        ),
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help=(
+            "With --canonical, allow writes that remove a host-side "
+            "secret line. Required after `clawctl agent channel detach` "
+            "or any other intentional secret-removal op."
+        ),
+    ),
     output: OutputFormat = typer.Option(
         OutputFormat.table, "--output", "-o", help="Output format (table or json)."
     ),
@@ -311,6 +330,67 @@ def sync(
         else:
             stream_action(
                 resource=resource, message="dry-run complete; no changes pushed"
+            )
+        return
+
+    # F3 (parent #555) canonical pipeline opt-in. Bypasses the legacy
+    # ansible extravar path entirely; routes through the pure render →
+    # diff → secret-removal-guard → atomic-write → restart sequence.
+    # Validated against the 15-cell matrix in
+    # tests/integration/test_render_matrix.py before flipping default.
+    if canonical:
+        from clawrium.core.lifecycle_canonical import (
+            CanonicalSyncError,
+            SecretRemovalRefused,
+            sync_agent_canonical,
+        )
+        from clawrium.core.render import AgentConfigError
+        from clawrium.core.render_diff import RemoteReadError
+
+        on_host_name = claw_record.get("agent_name") or agent_key
+
+        def canonical_event(stage: str, message: str) -> None:
+            if use_json and streamer is not None:
+                streamer.emit(
+                    resource=resource, phase=stage, state="event", message=message
+                )
+            else:
+                stream_action(resource=resource, message=f"{stage}: {message}")
+
+        try:
+            canonical_result = sync_agent_canonical(
+                on_host_name,
+                force=force,
+                restart=not workspace,
+                verify=not workspace,
+                on_event=canonical_event,
+            )
+        except SecretRemovalRefused as exc:
+            emit_error(str(exc))
+            return
+        except (AgentConfigError, CanonicalSyncError, RemoteReadError) as exc:
+            emit_error(f"sync failed: {exc}")
+            return
+
+        elapsed = int(time.monotonic() - started)
+        if use_json and streamer is not None:
+            streamer.emit(
+                resource=resource,
+                phase="sync",
+                state="complete",
+                drift=0,
+                took_seconds=elapsed,
+                files_written=list(canonical_result.files_written),
+                files_unchanged=list(canonical_result.files_unchanged),
+            )
+        else:
+            stream_action(
+                resource=resource,
+                message=(
+                    f"synced  (drift=0, took {elapsed}s, "
+                    f"{len(canonical_result.files_written)} written, "
+                    f"{len(canonical_result.files_unchanged)} unchanged)"
+                ),
             )
         return
 
