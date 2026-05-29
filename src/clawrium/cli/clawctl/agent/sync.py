@@ -24,10 +24,6 @@ Flags:
   Implies `--dry-run`. Reads on-host files via SSH so you can verify
   what `sync` is about to overwrite *before* it runs.
 - `--skip-validate` — bypass step 1.
-- `--force` — allow writes that remove a host-side secret line.
-  Required after `clawctl agent channel detach` or any other
-  intentional secret-removal op; otherwise sync refuses with
-  `SecretRemovalRefused`.
 - `-o json` — NDJSON per phase instead of text lines.
 """
 
@@ -225,15 +221,6 @@ def sync(
     skip_validate: bool = typer.Option(
         False, "--skip-validate", help="Bypass step 1 (validate)."
     ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        help=(
-            "Allow writes that remove a host-side secret line. Required "
-            "after `clawctl agent channel detach` or any other "
-            "intentional secret-removal op; otherwise sync refuses."
-        ),
-    ),
     output: OutputFormat = typer.Option(
         OutputFormat.table, "--output", "-o", help="Output format (table or json)."
     ),
@@ -345,7 +332,7 @@ def sync(
     try:
         canonical_result = sync_agent_canonical(
             on_host_name,
-            force=force,
+            force=False,
             restart=not workspace,
             verify=not workspace,
             on_event=canonical_event,

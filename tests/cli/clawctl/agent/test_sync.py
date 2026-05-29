@@ -6,6 +6,7 @@ SSH target). Bundle 5 wires the live wolf-i integration test.
 from __future__ import annotations
 
 import json
+from unittest.mock import MagicMock
 
 from typer.testing import CliRunner
 
@@ -109,11 +110,12 @@ def _patch_canonical_capture(monkeypatch) -> dict:
     return captured
 
 
-def test_sync_force_flag_forwarded_to_canonical(fleet_dir, monkeypatch) -> None:
-    captured = _patch_canonical_capture(monkeypatch)
+def test_sync_rejects_removed_force_flag(fleet_dir) -> None:
+    """#560 Phase 1: `--force` was dropped alongside `--canonical`.
+    Recovery from `channel detach` is via re-attach, not a flag."""
     result = runner.invoke(app, ["agent", "sync", "wise-hypatia", "--force"])
-    assert result.exit_code == 0, result.output
-    assert captured.get("force") is True
+    assert result.exit_code != 0
+    assert "--force" in result.output
 
 
 def test_sync_workspace_flag_disables_restart_and_verify(
@@ -171,3 +173,249 @@ def test_sync_surfaces_agent_config_error(fleet_dir, monkeypatch) -> None:
     assert result.exit_code != 0
     assert "sync failed" in result.output
     assert "no provider attached" in result.output
+
+
+# ---------------------------------------------------------------------------
+# #560 ATX round 3: B1+B2 unit tests on `sync_agent_canonical` directly.
+# ---------------------------------------------------------------------------
+
+
+def test_canonical_sync_advances_state_to_ready(monkeypatch, fleet_dir) -> None:
+    """B2: a successful canonical sync must call transition_state(READY)."""
+    from clawrium.core import lifecycle_canonical
+    from clawrium.core.render import RenderInputs, ProviderInputs
+    from clawrium.core.render_diff import FileDiff
+
+    captured: dict = {}
+
+    def fake_build(name):
+        return RenderInputs(
+            agent_type="openclaw",
+            agent_name=name,
+            provider=ProviderInputs(
+                name="p", type="ollama", endpoint="", default_model="x"
+            ),
+        )
+
+    def fake_render(inputs):
+        from clawrium.core.render import RenderedFiles
+
+        return RenderedFiles(files={".openclaw/.env": "OPENROUTER_API_KEY=k\n"})
+
+    monkeypatch.setattr(lifecycle_canonical, "build_render_inputs", fake_build)
+    monkeypatch.setattr(
+        lifecycle_canonical, "_RENDERERS", {"openclaw": fake_render}
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "get_agent_by_name",
+        lambda n: ({"hostname": "test-host"}, n, {"type": "openclaw"}),
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "diff_files",
+        lambda **kw: [
+            FileDiff(
+                path=".openclaw/.env",
+                remote_path="/home/x/.openclaw/.env",
+                rendered_body="OPENROUTER_API_KEY=k\n",
+                remote_body="",
+                remote_present=False,
+                unified_diff="+OPENROUTER_API_KEY=k\n",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical, "_open_ssh", lambda host, timeout=15: MagicMock()
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "_atomic_write",
+        lambda *a, **kw: None,
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical, "_restart_unit", lambda *a, **kw: None
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical, "_verify_health", lambda *a, **kw: None
+    )
+
+    def fake_transition(host, agent_key, to_state):
+        captured["host"] = host
+        captured["agent_key"] = agent_key
+        captured["to_state"] = to_state
+        return True
+
+    from clawrium.core import onboarding as onboarding_mod
+
+    monkeypatch.setattr(onboarding_mod, "transition_state", fake_transition)
+
+    lifecycle_canonical.sync_agent_canonical("test-agent")
+    assert captured.get("to_state") is not None
+    assert captured["to_state"].value == "ready"
+
+
+def test_canonical_sync_repairs_zeroclaw_gateway(monkeypatch, fleet_dir) -> None:
+    """B1: a successful canonical sync of a zeroclaw must re-pair the
+    gateway bearer (#437) via _zeroclaw_repair_after_start."""
+    from clawrium.core import lifecycle_canonical
+    from clawrium.core.render import RenderInputs, ProviderInputs
+    from clawrium.core.render_diff import FileDiff
+
+    captured: dict = {}
+
+    def fake_build(name):
+        return RenderInputs(
+            agent_type="zeroclaw",
+            agent_name=name,
+            provider=ProviderInputs(
+                name="p", type="anthropic", endpoint="", default_model="x"
+            ),
+        )
+
+    def fake_render(inputs):
+        from clawrium.core.render import RenderedFiles
+
+        return RenderedFiles(files={".zeroclaw/config.toml": "[gateway]\n"})
+
+    monkeypatch.setattr(lifecycle_canonical, "build_render_inputs", fake_build)
+    monkeypatch.setattr(
+        lifecycle_canonical, "_RENDERERS", {"zeroclaw": fake_render}
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "get_agent_by_name",
+        lambda n: ({"hostname": "test-host"}, n, {"type": "zeroclaw"}),
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "diff_files",
+        lambda **kw: [
+            FileDiff(
+                path=".zeroclaw/config.toml",
+                remote_path="/home/x/.zeroclaw/config.toml",
+                rendered_body="[gateway]\n",
+                remote_body="",
+                remote_present=False,
+                unified_diff="+[gateway]\n",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical, "_open_ssh", lambda host, timeout=15: MagicMock()
+    )
+    monkeypatch.setattr(lifecycle_canonical, "_atomic_write", lambda *a, **kw: None)
+    monkeypatch.setattr(lifecycle_canonical, "_restart_unit", lambda *a, **kw: None)
+    monkeypatch.setattr(lifecycle_canonical, "_verify_health", lambda *a, **kw: None)
+
+    def fake_repair(hostname, *, agent_name, on_event, reason):
+        captured["repair_hostname"] = hostname
+        captured["repair_agent"] = agent_name
+        captured["repair_reason"] = reason
+        return True, None
+
+    from clawrium.core import lifecycle as lifecycle_mod
+
+    monkeypatch.setattr(
+        lifecycle_mod, "_zeroclaw_repair_after_start", fake_repair
+    )
+    from clawrium.core import onboarding as onboarding_mod
+
+    monkeypatch.setattr(onboarding_mod, "transition_state", lambda *a, **kw: True)
+
+    lifecycle_canonical.sync_agent_canonical("test-agent")
+    assert captured.get("repair_reason") == "sync"
+    assert captured.get("repair_agent") == "test-agent"
+
+
+def test_canonical_sync_propagates_repair_failure(monkeypatch, fleet_dir) -> None:
+    """B1: if `_zeroclaw_repair_after_start` returns failure, the canonical
+    sync must raise CanonicalSyncError (no silent write of stale bearer)."""
+    from clawrium.core import lifecycle_canonical
+    from clawrium.core.render import RenderInputs, ProviderInputs
+    from clawrium.core.render_diff import FileDiff
+    import pytest as _pytest
+
+    def fake_build(name):
+        return RenderInputs(
+            agent_type="zeroclaw",
+            agent_name=name,
+            provider=ProviderInputs(
+                name="p", type="anthropic", endpoint="", default_model="x"
+            ),
+        )
+
+    def fake_render(inputs):
+        from clawrium.core.render import RenderedFiles
+
+        return RenderedFiles(files={".zeroclaw/config.toml": "[gateway]\n"})
+
+    monkeypatch.setattr(lifecycle_canonical, "build_render_inputs", fake_build)
+    monkeypatch.setattr(
+        lifecycle_canonical, "_RENDERERS", {"zeroclaw": fake_render}
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "get_agent_by_name",
+        lambda n: ({"hostname": "test-host"}, n, {"type": "zeroclaw"}),
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "diff_files",
+        lambda **kw: [
+            FileDiff(
+                path=".zeroclaw/config.toml",
+                remote_path="/home/x/.zeroclaw/config.toml",
+                rendered_body="[gateway]\n",
+                remote_body="",
+                remote_present=False,
+                unified_diff="+[gateway]\n",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical, "_open_ssh", lambda host, timeout=15: MagicMock()
+    )
+    monkeypatch.setattr(lifecycle_canonical, "_atomic_write", lambda *a, **kw: None)
+    monkeypatch.setattr(lifecycle_canonical, "_restart_unit", lambda *a, **kw: None)
+    monkeypatch.setattr(lifecycle_canonical, "_verify_health", lambda *a, **kw: None)
+
+    from clawrium.core import lifecycle as lifecycle_mod
+
+    monkeypatch.setattr(
+        lifecycle_mod,
+        "_zeroclaw_repair_after_start",
+        lambda hostname, *, agent_name, on_event, reason: (False, "pair playbook failed"),
+    )
+
+    with _pytest.raises(lifecycle_canonical.CanonicalSyncError) as excinfo:
+        lifecycle_canonical.sync_agent_canonical("test-agent")
+    assert "re-pair failed" in str(excinfo.value)
+
+
+def test_open_ssh_translates_bad_host_key_to_canonical_error(monkeypatch) -> None:
+    """B3: paramiko's BadHostKeyException (MITM signal) is translated into
+    a CanonicalSyncError with a remediation message — NOT swallowed."""
+    import paramiko
+    from clawrium.core import lifecycle_canonical
+    import pytest as _pytest
+
+    def boom(*args, **kwargs):
+        raise paramiko.BadHostKeyException(
+            "wolf-i", paramiko.RSAKey.generate(1024), paramiko.RSAKey.generate(1024)
+        )
+
+    fake_client = MagicMock()
+    fake_client.connect.side_effect = boom
+    monkeypatch.setattr(paramiko, "SSHClient", lambda: fake_client)
+    monkeypatch.setattr(
+        lifecycle_canonical, "get_host_private_key", lambda key_id: "/tmp/k"
+    )
+
+    with _pytest.raises(lifecycle_canonical.CanonicalSyncError) as excinfo:
+        lifecycle_canonical._open_ssh(
+            {"hostname": "wolf-i", "key_id": "wolf-i", "user": "xclm"}
+        )
+    msg = str(excinfo.value)
+    assert "host key" in msg
+    assert "MITM" in msg or "clawctl host create" in msg

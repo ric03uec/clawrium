@@ -1442,18 +1442,21 @@ class TestHermesDiscordHydration:
                 "default_model": "x",
             },
         }
+        agent_record: dict = {
+            "type": "hermes",
+            "agent_name": "hermes-test",
+            "config": agent_config,
+        }
+        # #560: channels are declared via the canonical `channels` list
+        # on the agent record (canonical channels.json is mocked via the
+        # `canonical_channels` fixture). The legacy
+        # `agent_config["channels"]["<type>"]` shape was removed.
         if discord_persisted is not None:
-            agent_config["channels"] = {"discord": discord_persisted}
+            agent_record["channels"] = ["my-discord"]
         return {
             "hostname": "test-host",
             "key_id": "test",
-            "agents": {
-                "hermes-test": {
-                    "type": "hermes",
-                    "agent_name": "hermes-test",
-                    "config": agent_config,
-                }
-            },
+            "agents": {"hermes-test": agent_record},
         }
 
     def _secrets_with(self, api_key: str, discord_token: str | None) -> dict:
@@ -1476,17 +1479,18 @@ class TestHermesDiscordHydration:
             }
         return s
 
-    def test_discord_token_hydrated_into_ansible_config(self, tmp_path: Path):
+    def test_discord_token_hydrated_into_ansible_config(
+        self, tmp_path: Path, canonical_channels
+    ):
         token = "B" * 64
-        host = self._make_host(
-            discord_persisted={
-                "enabled": True,
-                "allowed_users": ["740723459344302120"],
-                "home_channel": "1503238729962356777",
-                "home_channel_name": "Home",
-                "require_mention": True,
-            }
-        )
+        cfg = {
+            "allowed_users": ["740723459344302120"],
+            "home_channel": "1503238729962356777",
+            "home_channel_name": "Home",
+            "require_mention": True,
+        }
+        canonical_channels(discord={"my-discord": (cfg, token)})
+        host = self._make_host(discord_persisted=cfg)
         key_path = tmp_path / "key"
         key_path.write_text("k")
         playbook = tmp_path / "configure.yaml"
@@ -1588,14 +1592,13 @@ class TestHermesDiscordHydration:
         discord = sent.get("channels", {}).get("discord", {})
         assert "bot_token" not in discord
 
-    def test_discord_enabled_without_token_rejected(self, tmp_path: Path):
-        host = self._make_host(
-            discord_persisted={
-                "enabled": True,
-                "allowed_users": ["740723459344302120"],
-            }
-        )
-        # secrets.json has only api_server key, no DISCORD_BOT_TOKEN
+    def test_discord_enabled_without_token_rejected(
+        self, tmp_path: Path, canonical_channels
+    ):
+        cfg = {"allowed_users": ["740723459344302120"]}
+        # Channel attached but no token in secrets → reject.
+        canonical_channels(discord={"my-discord": (cfg, None)})
+        host = self._make_host(discord_persisted=cfg)
         secrets = self._secrets_with("a" * 64, None)
 
         with (
@@ -1615,19 +1618,18 @@ class TestHermesDiscordHydration:
                 agent_name="hermes-test",
             )
         assert success is False
-        assert "DISCORD_BOT_TOKEN" in error
+        assert "BOT_TOKEN" in error
         assert "secrets.json" in error or "configure" in error.lower()
 
-    def test_discord_reconfigure_does_not_rotate_token(self, tmp_path: Path):
+    def test_discord_reconfigure_does_not_rotate_token(
+        self, tmp_path: Path, canonical_channels
+    ):
         """Two configure calls must hydrate the byte-identical token from
         secrets.json (idempotency)."""
         token = "C" * 64
-        host = self._make_host(
-            discord_persisted={
-                "enabled": True,
-                "allowed_users": ["740723459344302120"],
-            }
-        )
+        cfg = {"allowed_users": ["740723459344302120"]}
+        canonical_channels(discord={"my-discord": (cfg, token)})
+        host = self._make_host(discord_persisted=cfg)
         key_path = tmp_path / "key"
         key_path.write_text("k")
         playbook = tmp_path / "configure.yaml"
@@ -1687,9 +1689,14 @@ class TestHermesDiscordSecretsHygiene:
     after configure (mirror of the api_server.key strip)."""
 
     def test_configure_strips_discord_bot_token_from_persisted_hosts_json(
-        self, tmp_path: Path
+        self, tmp_path: Path, canonical_channels
     ):
         token = "D" * 64
+        cfg = {
+            "allowed_users": ["740723459344302120"],
+            "home_channel": "1503238729962356777",
+        }
+        canonical_channels(discord={"my-discord": (cfg, token)})
         host = {
             "hostname": "test-host",
             "key_id": "test",
@@ -1697,18 +1704,12 @@ class TestHermesDiscordSecretsHygiene:
                 "hermes-test": {
                     "type": "hermes",
                     "agent_name": "hermes-test",
+                    "channels": ["my-discord"],
                     "config": {
                         "api_server": {
                             "enabled": True,
                             "host": "127.0.0.1",
                             "port": 8642,
-                        },
-                        "channels": {
-                            "discord": {
-                                "enabled": True,
-                                "allowed_users": ["740723459344302120"],
-                                "home_channel": "1503238729962356777",
-                            }
                         },
                     },
                 }
@@ -1950,11 +1951,20 @@ class TestHermesDiscordIdempotency:
     """Re-running channels configure with the same inputs must produce
     byte-identical .env output and same DISCORD_BOT_TOKEN value."""
 
-    def test_reconfigure_renders_byte_identical_env(self, tmp_path: Path):
+    def test_reconfigure_renders_byte_identical_env(
+        self, tmp_path: Path, canonical_channels
+    ):
         """Two configure calls hydrate the same DISCORD_BOT_TOKEN value and
         the same channels.discord shape; .env.j2 against both produces
         byte-identical output (no field reordering, no whitespace drift)."""
         token = "F" * 64
+        cfg = {
+            "allowed_users": ["111111111111111111"],
+            "home_channel": "222222222222222222",
+            "home_channel_name": "Home",
+            "require_mention": True,
+        }
+        canonical_channels(discord={"my-discord": (cfg, token)})
         host = {
             "hostname": "test-host",
             "key_id": "test",
@@ -1962,20 +1972,12 @@ class TestHermesDiscordIdempotency:
                 "hermes-test": {
                     "type": "hermes",
                     "agent_name": "hermes-test",
+                    "channels": ["my-discord"],
                     "config": {
                         "api_server": {
                             "enabled": True,
                             "host": "127.0.0.1",
                             "port": 8642,
-                        },
-                        "channels": {
-                            "discord": {
-                                "enabled": True,
-                                "allowed_users": ["111111111111111111"],
-                                "home_channel": "222222222222222222",
-                                "home_channel_name": "Home",
-                                "require_mention": True,
-                            }
                         },
                     },
                 }
@@ -2549,18 +2551,17 @@ class TestHermesSlackHydration:
                 "default_model": "x",
             },
         }
+        agent_record: dict = {
+            "type": "hermes",
+            "agent_name": "hermes-test",
+            "config": agent_config,
+        }
         if slack_persisted is not None:
-            agent_config["channels"] = {"slack": slack_persisted}
+            agent_record["channels"] = ["my-slack"]
         return {
             "hostname": "test-host",
             "key_id": "test",
-            "agents": {
-                "hermes-test": {
-                    "type": "hermes",
-                    "agent_name": "hermes-test",
-                    "config": agent_config,
-                }
-            },
+            "agents": {"hermes-test": agent_record},
         }
 
     def _secrets_with(
@@ -2593,17 +2594,18 @@ class TestHermesSlackHydration:
             }
         return s
 
-    def test_slack_tokens_hydrated_into_ansible_config(self, tmp_path: Path):
+    def test_slack_tokens_hydrated_into_ansible_config(
+        self, tmp_path: Path, canonical_channels
+    ):
         bot_token = "xoxb-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
         app_token = "xapp-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
-        host = self._make_host(
-            slack_persisted={
-                "enabled": True,
-                "allowed_users": ["U01ABC2DEF3"],
-                "home_channel": "C01234567890",
-                "home_channel_name": "general",
-            }
-        )
+        cfg = {
+            "allowed_users": ["U01ABC2DEF3"],
+            "home_channel": "C01234567890",
+            "home_channel_name": "general",
+        }
+        canonical_channels(slack={"my-slack": (cfg, bot_token, app_token)})
+        host = self._make_host(slack_persisted=cfg)
         key_path = tmp_path / "key"
         key_path.write_text("k")
         playbook = tmp_path / "configure.yaml"
@@ -2709,15 +2711,15 @@ class TestHermesSlackHydration:
         assert "bot_token" not in slack_cfg
         assert "app_token" not in slack_cfg
 
-    def test_slack_enabled_without_bot_token_rejected(self, tmp_path: Path):
-        """Slack enabled but token missing from secrets must fail with a clear
-        error message pointing to re-configure."""
-        host = self._make_host(
-            slack_persisted={
-                "enabled": True,
-                "allowed_users": ["U01ABC2DEF3"],
-            }
-        )
+    def test_slack_enabled_without_bot_token_rejected(
+        self, tmp_path: Path, canonical_channels
+    ):
+        """Slack channel attached but tokens missing from secrets must fail
+        with a clear error message."""
+        cfg = {"allowed_users": ["U01ABC2DEF3"]}
+        # Channel attached, no tokens.
+        canonical_channels(slack={"my-slack": (cfg, None, None)})
+        host = self._make_host(slack_persisted=cfg)
         key_path = tmp_path / "key"
         key_path.write_text("k")
         playbook = tmp_path / "configure.yaml"
@@ -2753,7 +2755,6 @@ class TestHermesSlackHydration:
 
         assert success is False
         assert "SLACK_BOT_TOKEN" in error
-        assert "secrets.json" in error
 
 
 class TestHermesSlackSecretsHygiene:
@@ -2761,10 +2762,16 @@ class TestHermesSlackSecretsHygiene:
     hosts.json after configure (mirror of the Discord strip)."""
 
     def test_configure_strips_slack_tokens_from_persisted_hosts_json(
-        self, tmp_path: Path
+        self, tmp_path: Path, canonical_channels
     ):
         bot_token = "xoxb-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
         app_token = "xapp-NOT-A-REAL-TOKEN-FIXTURE-FOR-TESTS"
+        cfg = {
+            "allowed_users": ["U01ABC2DEF3"],
+            "home_channel": "C01234567890",
+            "home_channel_name": "general",
+        }
+        canonical_channels(slack={"my-slack": (cfg, bot_token, app_token)})
         host = {
             "hostname": "test-host",
             "key_id": "test",
@@ -2772,19 +2779,12 @@ class TestHermesSlackSecretsHygiene:
                 "hermes-test": {
                     "type": "hermes",
                     "agent_name": "hermes-test",
+                    "channels": ["my-slack"],
                     "config": {
                         "api_server": {
                             "enabled": True,
                             "host": "127.0.0.1",
                             "port": 8642,
-                        },
-                        "channels": {
-                            "slack": {
-                                "enabled": True,
-                                "allowed_users": ["U01ABC2DEF3"],
-                                "home_channel": "C01234567890",
-                                "home_channel_name": "general",
-                            }
                         },
                     },
                 }

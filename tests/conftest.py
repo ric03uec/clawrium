@@ -5,6 +5,50 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 
+@pytest.fixture
+def canonical_channels(monkeypatch: pytest.MonkeyPatch):
+    """Wire `clawrium.core.channels.get_channel` + `get_channel_token`
+    for tests that exercise the post-#560 canonical-sourced Discord/Slack
+    hydration in `configure_agent`. The legacy hosts.json shape
+    (`agent_record.config.channels.<type>`) was removed; tests must now
+    declare channels via the canonical model.
+
+    Usage:
+        def test_x(canonical_channels):
+            canonical_channels(
+                discord={"my-discord": ({"allowed_users": [...]}, "B"*64)},
+                slack={"my-slack": ({"home_channel": "C..."}, "xoxb-...", "xapp-...")},
+            )
+    """
+    records: dict[str, dict] = {}
+    tokens: dict[tuple[str, str], str | None] = {}
+
+    def _setup(*, discord: dict | None = None, slack: dict | None = None) -> None:
+        if discord:
+            for name, payload in discord.items():
+                cfg, bot_token = payload
+                records[name] = {"name": name, "type": "discord", "config": cfg}
+                tokens[(name, "BOT_TOKEN")] = bot_token
+        if slack:
+            for name, payload in slack.items():
+                cfg, bot_token, app_token = payload
+                records[name] = {"name": name, "type": "slack", "config": cfg}
+                tokens[(name, "BOT_TOKEN")] = bot_token
+                tokens[(name, "APP_TOKEN")] = app_token
+
+    def _get_channel(name: str):
+        return records.get(name)
+
+    def _get_channel_token(name: str, key: str = "BOT_TOKEN"):
+        return tokens.get((name, key))
+
+    monkeypatch.setattr("clawrium.core.channels.get_channel", _get_channel)
+    monkeypatch.setattr(
+        "clawrium.core.channels.get_channel_token", _get_channel_token
+    )
+    return _setup
+
+
 @pytest.fixture(autouse=True)
 def _isolate_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent tests from reading or writing to ~/.config/clawrium/."""
