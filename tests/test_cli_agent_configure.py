@@ -1278,7 +1278,9 @@ class TestSlackIntegration:
 
         assert result is True
 
-        instance_key = get_instance_key("192.168.1.100", "openclaw", "assistant")
+        # Issue #448: secrets are keyed by host["key_id"] (immutable),
+        # not host["hostname"]. The fixture sets key_id="work".
+        instance_key = get_instance_key("work", "openclaw", "assistant")
         secrets = load_secrets()
         assert instance_key in secrets
         assert "SLACK_BOT_TOKEN" in secrets[instance_key]
@@ -1311,7 +1313,7 @@ class TestSlackIntegration:
             ]
             _run_channels_stage("192.168.1.100", "openclaw", False, "assistant")
 
-        instance_key = get_instance_key("192.168.1.100", "openclaw", "assistant")
+        instance_key = get_instance_key("work", "openclaw", "assistant")
         instance_secrets = get_instance_secrets(instance_key)
         assert instance_secrets["SLACK_BOT_TOKEN"]["value"] == self.VALID_BOT_TOKEN
         assert instance_secrets["SLACK_APP_TOKEN"]["value"] == self.VALID_APP_TOKEN

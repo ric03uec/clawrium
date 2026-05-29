@@ -579,7 +579,8 @@ async def _chat_hermes(
     hostname = host_record.get("hostname", "")
     agent_name = agent_record.get("agent_name") or agent_key
 
-    instance_key = get_instance_key(hostname, agent_type, agent_name)
+    host_key = host_record.get("key_id") or hostname
+    instance_key = get_instance_key(host_key, agent_type, agent_name)
     secret_entry = get_instance_secrets(instance_key).get("HERMES_API_SERVER_KEY")
     raw_token = secret_entry.get("value") if secret_entry else None
 
@@ -706,7 +707,8 @@ async def _chat_openclaw(
 
     hostname = host_record.get("hostname", "")
     agent_name = agent_record.get("agent_name") or agent_record.get("name") or ""
-    instance_key = get_instance_key(hostname, agent_type, agent_name)
+    host_key = host_record.get("key_id") or hostname
+    instance_key = get_instance_key(host_key, agent_type, agent_name)
     auth, private_key = _resolve_openclaw_credentials(instance_key, gateway)
 
     if not auth:

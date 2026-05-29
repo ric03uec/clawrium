@@ -226,7 +226,12 @@ def get_instance_key(host: str, claw_type: str, claw_name: str) -> str:
     """Generate instance key from host, claw type, and claw name.
 
     Args:
-        host: Hostname where claw is installed.
+        host: Stable host identifier — pass `host_record["key_id"]`, NOT
+            `host_record["hostname"]`. `hostname` is the network address
+            (IP/DNS) and is mutable; if it changes, every per-agent
+            secret stored under the old hostname becomes unreachable
+            (issue #448). `key_id` is minted at `clawctl host create`
+            time and never rotates while the host record exists.
         claw_type: Type of claw (openclaw, zeroclaw, etc.).
         claw_name: Name of the claw instance.
 
@@ -254,7 +259,12 @@ def get_installed_claw(claw_name: str) -> tuple[str, str, str]:
         claw_name: Name of the claw instance (generated or user-provided).
 
     Returns:
-        Tuple of (hostname, claw_type, claw_name).
+        Tuple of (host_key, claw_type, claw_name). `host_key` is the
+        host's stable `key_id` (issue #448), with a fallback to
+        `hostname` for legacy records. Suitable for passing as the
+        first argument of `get_instance_key`. To resolve the host
+        record, pass `host_key` to `clawrium.core.hosts.get_host`
+        (which now matches `key_id` as well as `hostname`/`alias`).
 
     Raises:
         ClawNotFoundError: If claw with this name is not found in any host.
@@ -263,7 +273,12 @@ def get_installed_claw(claw_name: str) -> tuple[str, str, str]:
 
     hosts = load_hosts()
     for host in hosts:
-        hostname = host.get("hostname", "")
+        # Return the stable host identifier (`key_id`) — not `hostname` —
+        # so callers that build the secrets instance key (#448) stay
+        # bound to the host across `hostname` mutations (IP/DNS rename).
+        # Fall back to `hostname` for legacy records written before
+        # `key_id` was minted.
+        host_key = host.get("key_id") or host.get("hostname", "")
         agents = host.get("agents", {})
         for claw_type, claw_data in agents.items():
             # Check agent_name field, name field (legacy), or claw_type
@@ -272,7 +287,7 @@ def get_installed_claw(claw_name: str) -> tuple[str, str, str]:
             if claw_name in (agent_name, name, claw_type):
                 # Return the canonical name (agent_name > name > claw_type)
                 canonical_name = agent_name or name or claw_type
-                return (hostname, claw_type, canonical_name)
+                return (host_key, claw_type, canonical_name)
 
     raise AgentNotFoundError(
         f"Claw '{claw_name}' not found. Only installed claws can have secrets."

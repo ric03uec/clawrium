@@ -1214,8 +1214,11 @@ class TestHermesApiServerKeySecretsHygiene:
         assert "HERMES_API_SERVER_KEY" in error
 
     def test_configure_uses_canonical_hostname_for_instance_key(self, tmp_path: Path):
-        """Regression guard for commit 27d1ea8 + W1 from ATX iter 2: instance_key
-        must derive from host['hostname'], not the alias passed by the CLI."""
+        """Issue #448: instance_key derives from host['key_id'] (immutable),
+        with fallback to host['hostname'] for legacy records. This guards
+        both the original ATX-iter-2 W1 (must not key by the CLI alias)
+        and the #448 fix (must not key by the mutable hostname).
+        Fixture key_id="test", so the canonical key is `test:hermes:<name>`."""
         persisted_key = "e" * 64
         host = {
             "hostname": "192.168.1.100",  # canonical
@@ -1280,8 +1283,9 @@ class TestHermesApiServerKeySecretsHygiene:
         # instance_key passed to get_instance_secrets must be the canonical form.
         # Ignore additional calls (lifecycle queries secrets for other purposes).
         called_keys = [args[0] for args, _ in get_secrets_mock.call_args_list]
-        assert "192.168.1.100:hermes:hermes-test" in called_keys, called_keys
+        assert "test:hermes:hermes-test" in called_keys, called_keys
         assert "wolf-i:hermes:hermes-test" not in called_keys, called_keys
+        assert "192.168.1.100:hermes:hermes-test" not in called_keys, called_keys
 
 
 class TestConfigureYamlHandlerShape:

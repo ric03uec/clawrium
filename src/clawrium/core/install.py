@@ -362,7 +362,9 @@ def run_installation(
                 agent_name = item.get("agent_name")
                 if agent_name:
                     instance_key = get_instance_key(
-                        host["hostname"], claw_name, agent_name
+                        host.get("key_id") or host["hostname"],
+                        claw_name,
+                        agent_name,
                     )
                     if instance_key in secrets:
                         del secrets[instance_key]
@@ -709,8 +711,12 @@ def run_installation(
     matched_entry = compat["matched_entry"]
     claw_sha256 = matched_entry.get("sha256", "")
 
-    # Load secrets for this agent instance
-    instance_key = get_instance_key(host["hostname"], claw_name, agent_name)
+    # Load secrets for this agent instance. Key by `host["key_id"]`
+    # (immutable identifier, issue #448) so the lookup survives any
+    # later mutation of `host["hostname"]` (IP → DNS, renumbering).
+    instance_key = get_instance_key(
+        host.get("key_id") or host["hostname"], claw_name, agent_name
+    )
     instance_secrets = get_instance_secrets(instance_key)
 
     # Map secret keys to ansible vars (uppercase SECRET_KEY -> lowercase secret_key)
@@ -769,10 +775,12 @@ def run_installation(
     # (enabled / host / port).
     hermes_api_server_key = None
     if claw_name == "hermes":
-        # Use canonical hostname (not the alias passed by the CLI) so the
-        # instance_key matches what lifecycle.configure_agent() will look up.
-        canonical_hostname = host["hostname"]
-        instance_key = get_instance_key(canonical_hostname, claw_name, agent_name)
+        # Key by host["key_id"] (immutable, #448) — not host["hostname"]
+        # (mutable network address) — so the bearer stored here remains
+        # reachable after IP/DNS renumbering. lifecycle.configure_agent()
+        # uses the same derivation when it looks the value back up.
+        host_key = host.get("key_id") or host["hostname"]
+        instance_key = get_instance_key(host_key, claw_name, agent_name)
         existing_entry = get_instance_secrets(instance_key).get("HERMES_API_SERVER_KEY")
         # `.get("value")` not `["value"]`: a truthy-but-malformed entry (no
         # "value" field, e.g. hand-edited secrets.json) would otherwise raise

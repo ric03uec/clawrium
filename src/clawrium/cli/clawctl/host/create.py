@@ -40,6 +40,7 @@ from clawrium.core.hosts import (
     HostsFileCorruptedError,
     add_host,
     get_host,
+    update_host,
 )
 from clawrium.core.keys import (
     generate_host_keypair,
@@ -91,6 +92,85 @@ def create(
             stream_action(
                 resource=f"host/{alias or hostname}",
                 message=f"already exists on {hostname}",
+            )
+            return
+        # Re-record path (issue #448): the alias resolves to an existing
+        # host whose `hostname` is being updated (IP → DNS, renumber,
+        # Tailscale migration). Preserve `key_id` so every per-agent
+        # secret stored under `<key_id>:<type>:<name>` stays reachable;
+        # mutate only the network coordinates. Reject re-records that
+        # also try to change `user`, since that's an identity change
+        # and not the case #448 is solving.
+        existing_alias = existing.get("alias")
+        if alias and existing_alias == alias:
+            if existing.get("user") != user:
+                emit_error(
+                    f"host alias {alias!r} already registered with a "
+                    f"different user ({existing.get('user')!r}); refusing "
+                    "to mutate identity on re-record",
+                    hint="clawctl host delete first if you really want to "
+                    "rotate the management user",
+                )
+            old_hostname = existing.get("hostname")
+            preserved_key_id = existing.get("key_id") or old_hostname
+            private_key = _ensure_host_keypair(preserved_key_id)
+            verified, os_family = _verify_xclm_access(hostname, port, private_key)
+            if not verified:
+                _print_manual_setup(hostname)
+                raise typer.Exit(code=1)
+
+            now = datetime.now(timezone.utc).isoformat()
+
+            def _rewrite(host: dict) -> dict:
+                host["hostname"] = hostname
+                host["port"] = port
+                host["os_family"] = os_family
+                host["key_id"] = preserved_key_id
+                addresses = host.get("addresses") or []
+                # De-primary existing entries and append the new dial
+                # target as primary. Duplicate-by-`address` is collapsed
+                # so re-recording the same value doesn't grow the list.
+                rebuilt = []
+                seen = False
+                for entry in addresses:
+                    if not isinstance(entry, dict):
+                        continue
+                    if entry.get("address") == hostname:
+                        seen = True
+                        entry["is_primary"] = True
+                        entry["added_at"] = entry.get("added_at") or now
+                    else:
+                        entry["is_primary"] = False
+                    rebuilt.append(entry)
+                if not seen:
+                    rebuilt.append(
+                        {
+                            "address": hostname,
+                            "is_primary": True,
+                            "label": None,
+                            "added_at": now,
+                        }
+                    )
+                host["addresses"] = rebuilt
+                metadata = host.get("metadata") or {}
+                metadata["last_seen"] = None
+                host["metadata"] = metadata
+                return host
+
+            # `update_host` looks up by the *current* hostname value in
+            # hosts.json; pass the old one, not the new one.
+            updated = update_host(old_hostname, _rewrite)
+            if not updated:
+                emit_error(
+                    f"failed to rewrite host record for alias {alias!r}",
+                    hint="check ~/.config/clawrium/hosts.json",
+                )
+            stream_action(
+                resource=f"host/{alias}",
+                message=(
+                    f"hostname {old_hostname} → {hostname} "
+                    f"(key_id preserved: {preserved_key_id})"
+                ),
             )
             return
         emit_error(

@@ -207,7 +207,9 @@ def get_missing_secrets(claw_type: str, host: dict, claw_record: dict) -> list[s
         return []
 
     try:
-        instance_key = get_instance_key(host["hostname"], claw_type, claw_name)
+        instance_key = get_instance_key(
+            host.get("key_id") or host["hostname"], claw_type, claw_name
+        )
     except InvalidInstanceKeyComponentError:
         logger.warning(
             "Invalid instance key component for %s/%s/%s - skipping secret check",

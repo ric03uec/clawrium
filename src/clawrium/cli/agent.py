@@ -1149,9 +1149,12 @@ def _run_channels_stage(
         if not host_data:
             console.print(f"[red]Error:[/red] Host '{host}' not found")
             return False
-        canonical_hostname = host_data["hostname"]
+        # Key by host_data["key_id"] (immutable, #448) so the secret lands
+        # in the same slot lifecycle.configure_agent will look up — even
+        # after the operator mutates the host's hostname (IP → DNS).
+        host_key = host_data.get("key_id") or host_data["hostname"]
         instance_key = get_instance_key(
-            canonical_hostname, claw_type, installed_name or claw_type
+            host_key, claw_type, installed_name or claw_type
         )
 
         # For hermes AND zeroclaw, configure_agent's hydration block reads
@@ -1328,9 +1331,12 @@ def _run_channels_stage(
         if not host_data:
             console.print(f"[red]Error:[/red] Host '{host}' not found")
             return False
-        canonical_hostname = host_data["hostname"]
+        # Key by host_data["key_id"] (immutable, #448) so the secret lands
+        # in the same slot lifecycle.configure_agent will look up — even
+        # after the operator mutates the host's hostname (IP → DNS).
+        host_key = host_data.get("key_id") or host_data["hostname"]
         instance_key = get_instance_key(
-            canonical_hostname, claw_type, installed_name or claw_type
+            host_key, claw_type, installed_name or claw_type
         )
 
         # For hermes, configure_agent's hydration block reads Slack tokens

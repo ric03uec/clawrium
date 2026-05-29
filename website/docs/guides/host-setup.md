@@ -45,6 +45,16 @@ On first run for that hostname, `clawctl` will:
    `authorized_keys` line.
 4. Exit non-zero with a "re-run after manual setup" message.
 
+:::note `key_id` is immutable (issue #448)
+The first successful `clawctl host create` for an alias mints a stable
+`key_id` that per-agent secrets (Discord tokens, provider API keys,
+hermes `HERMES_API_SERVER_KEY`) are stored under. Re-running
+`clawctl host create <new-ip-or-dns> --alias <existing-alias>` updates
+the host's `hostname`, port, and address list **without** rotating the
+`key_id` — every secret stays reachable. Renaming the alias is a
+deliberate identity change and does invalidate secrets.
+:::
+
 ## Step 2 — Run the setup commands on the host
 
 SSH to the host as your existing sudo-capable user and paste the block that

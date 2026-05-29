@@ -321,12 +321,14 @@ def test_create_rejects_invalid_alias(
     assert "Error:" in result.output
 
 
-def test_create_alias_collision_with_different_hostname_fails(
+def test_create_alias_collision_with_different_hostname_re_records(
     fleet_dir, stdin_not_tty, mock_ssh_ok_linux
 ) -> None:
-    """Re-using an alias that already points at a different hostname must
-    fail loudly rather than overwriting the original record. (`--user` is
-    locked to `xclm` so this is the only path to the conflict branch.)"""
+    """Issue #448 changed the semantics here: re-using an alias that
+    already points at a different hostname is the canonical
+    IP→DNS/renumber path. The record is rewritten in place — `hostname`
+    and primary `addresses` entry move to the new value while `key_id`
+    is preserved so per-agent secrets remain reachable."""
     runner.invoke(
         app, ["host", "create", "192.168.1.100", "--user", "xclm", "--alias", "shared"]
     )
@@ -334,17 +336,19 @@ def test_create_alias_collision_with_different_hostname_fails(
     result = runner.invoke(
         app, ["host", "create", "10.0.0.99", "--user", "xclm", "--alias", "shared"]
     )
-    assert result.exit_code != 0
-    assert "already registered with different settings" in result.output
+    assert result.exit_code == 0, result.output
+    assert "key_id preserved" in result.output
 
-    # Original record is intact.
     from clawrium.core.hosts import get_host
 
-    record = get_host("192.168.1.100")
+    # Old hostname no longer resolves; alias points to new hostname; the
+    # original key_id (192.168.1.100) is still the secrets-keying
+    # anchor and resolves the same record via get_host's key_id branch.
+    assert get_host("192.168.1.100") is not None  # via key_id match
+    record = get_host("shared")
     assert record is not None
-    assert record.get("alias") == "shared"
-    # And the second IP was NOT persisted.
-    assert get_host("10.0.0.99") is None
+    assert record["hostname"] == "10.0.0.99"
+    assert record["key_id"] == "192.168.1.100"
 
 
 def test_create_idempotent_does_not_grow_hosts_json(

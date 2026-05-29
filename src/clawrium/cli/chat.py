@@ -740,7 +740,10 @@ def _build_hermes_backend(
     if not isinstance(hostname, str) or not hostname.strip():
         raise ValueError("Host primary address not found.")
 
-    instance_key = get_instance_key(hostname, agent_type, agent_name)
+    # Key secrets by host_record["key_id"] (immutable, #448) — `hostname`
+    # is the network dial target and may have mutated since install.
+    host_key = host_record.get("key_id") or hostname
+    instance_key = get_instance_key(host_key, agent_type, agent_name)
     secret_entry = get_instance_secrets(instance_key).get("HERMES_API_SERVER_KEY")
     # `.get("value")` not `["value"]`: a truthy-but-malformed entry (no
     # "value" field) would otherwise raise KeyError and escape the outer

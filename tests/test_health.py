@@ -622,7 +622,9 @@ def test_degraded_status_verifies_instance_key_argument(mock_host):
     # mock_host has hostname 192.168.1.100 and claw user opc-testhost
     mock_get_secrets.assert_called_once()
     call_args = mock_get_secrets.call_args[0][0]
-    assert call_args == "192.168.1.100:openclaw:opc-testhost"
+    # Issue #448: secrets are keyed by host["key_id"] ("testhost"),
+    # not host["hostname"], so renumbering the host doesn't orphan them.
+    assert call_args == "testhost:openclaw:opc-testhost"
     assert result["status"] == ClawStatus.DEGRADED
 
 

@@ -369,10 +369,15 @@ def remove_host(hostname: str) -> bool:
 
 
 def get_host(identifier: str) -> dict | None:
-    """Get a host by hostname or alias.
+    """Get a host by hostname, alias, or key_id.
+
+    `key_id` is the immutable host identifier (issue #448); matching it
+    here lets callers that hold a stable key (e.g. the value returned by
+    `get_installed_claw`) resolve back to the host record even after the
+    operator has mutated `hostname` (IP → DNS, renumbering, etc.).
 
     Args:
-        identifier: Hostname or alias to search for.
+        identifier: Hostname, alias, or key_id to search for.
 
     Returns:
         Host dictionary if found, None otherwise.
@@ -382,6 +387,8 @@ def get_host(identifier: str) -> dict | None:
         if host.get("hostname") == identifier:
             return host
         if host.get("alias") == identifier:
+            return host
+        if host.get("key_id") == identifier:
             return host
     return None
 

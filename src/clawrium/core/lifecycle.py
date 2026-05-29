@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable, TypedDict
 
 import ansible_runner
+import paramiko
 
 from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import get_host, update_host, remove_agent_from_host
@@ -309,7 +310,12 @@ def _run_lifecycle_playbook(
     instance_key = None
     secret_vars = {}
     try:
-        instance_key = get_instance_key(hostname, agent_type, agent_name)
+        # Key by host["key_id"] (immutable, #448), falling back to the
+        # `hostname` parameter for hand-edited legacy records where
+        # `key_id` is absent. This guarantees secret lookups still
+        # resolve after operators mutate `hostname` (IP → DNS).
+        instance_host_key = host.get("key_id") or hostname
+        instance_key = get_instance_key(instance_host_key, agent_type, agent_name)
         instance_secrets = get_instance_secrets(instance_key)
         for key, entry in instance_secrets.items():
             secret_vars[key.lower()] = entry.get("value", "")
@@ -418,6 +424,77 @@ def _run_lifecycle_playbook(
         _cleanup_ansible_artifacts(operation_log_dir)
 
 
+def _hermes_env_token_matches_secrets(
+    host: dict, agent_name: str
+) -> tuple[bool, str | None]:
+    """Check on-host hermes .env API_SERVER_KEY against secrets.json.
+
+    Issue #448: ``secrets.json`` is the authoritative source for the
+    hermes bearer. If an operator (or a prior install on a different
+    machine) wrote the on-host ``.env`` from a different key, every
+    ``clawctl agent chat`` will 401 because the daemon enforces the
+    on-host value while the client reads the secrets.json value.
+
+    Returns:
+        (matches, error). ``matches`` is True when the on-host token
+        equals secrets.json. On any probe failure (host unreachable,
+        file missing, malformed line) returns ``(True, error)`` so the
+        caller does NOT redundantly reconfigure on transient issues —
+        the start playbook will surface the real error.
+    """
+    try:
+        import shlex
+
+        key_id = host.get("key_id") or host.get("hostname")
+        if not key_id:
+            return True, "host record missing key_id/hostname"
+        private_key = get_host_private_key(key_id)
+        if not private_key:
+            return True, "no SSH key for host"
+
+        os_family = host.get("os_family") or "linux"
+        home_root = "/Users" if os_family == "darwin" else "/home"
+        env_path = f"{home_root}/{agent_name}/.hermes/.env"
+
+        client = paramiko.SSHClient()
+        client.load_system_host_keys()
+        try:
+            client.connect(
+                hostname=host.get("hostname"),
+                port=int(host.get("port", 22)),
+                username=host.get("user", "xclm"),
+                key_filename=str(private_key),
+                timeout=10,
+            )
+            cmd = f"grep -E '^API_SERVER_KEY=' {shlex.quote(env_path)} || true"
+            _, stdout, _ = client.exec_command(cmd, timeout=10)
+            raw = stdout.read().decode().strip()
+        finally:
+            client.close()
+
+        if not raw:
+            return True, "API_SERVER_KEY not present in .env (will be rendered on configure)"
+
+        # Format: API_SERVER_KEY='<value>'  (rendered via shell_quote)
+        # Strip the leading key= and any surrounding single/double quotes.
+        value = raw.split("=", 1)[1].strip()
+        if (len(value) >= 2) and value[0] in ("'", '"') and value[-1] == value[0]:
+            value = value[1:-1]
+
+        host_key = host.get("key_id") or host.get("hostname", "")
+        instance_key = get_instance_key(host_key, "hermes", agent_name)
+        secret_entry = get_instance_secrets(instance_key).get("HERMES_API_SERVER_KEY")
+        expected = secret_entry.get("value") if isinstance(secret_entry, dict) else None
+        if not expected:
+            return True, "no HERMES_API_SERVER_KEY in secrets.json"
+
+        return value == expected, None
+    except Exception as exc:
+        # Probe failures are non-fatal: let the start playbook surface
+        # the real error rather than synthesizing a configure loop.
+        return True, str(exc)
+
+
 def start_agent(
     hostname: str,
     claw_name: str,
@@ -469,6 +546,55 @@ def start_agent(
             f"Cannot start {agent_key}: onboarding incomplete (state={state_value}). "
             f"Run 'clm agent configure {agent_display_name}' first."
         )
+
+    # Issue #448: env-file consistency invariant. For hermes, the
+    # daemon enforces the API_SERVER_KEY written into ~/.hermes/.env at
+    # configure time, while `clawctl agent chat` reads the bearer from
+    # secrets.json. If those drifted (e.g. the host's `hostname` was
+    # mutated after install and an older write left a stale .env), the
+    # next chat request returns 401 with no clear remediation.
+    # secrets.json is authoritative — reconcile by running configure
+    # before the start playbook.
+    if _resolve_agent_type(claw_name) == "hermes":
+        matches, probe_error = _hermes_env_token_matches_secrets(host, agent_key)
+        if not matches:
+            emit(
+                "start",
+                "API_SERVER_KEY drift detected between .env and "
+                "secrets.json; reconfiguring before start",
+            )
+            # Reuse the agent's persisted config so reconfigure
+            # re-renders .env with the canonical secrets.json bearer
+            # without altering any other field the operator set.
+            persisted_config = (
+                claw_record.get("config", {})
+                if isinstance(claw_record, dict)
+                else {}
+            )
+            cfg_success, cfg_error = configure_agent(
+                hostname,
+                claw_name,
+                persisted_config if isinstance(persisted_config, dict) else {},
+                agent_name=agent_key,
+                on_event=on_event,
+                reason="start-precheck",
+            )
+            if not cfg_success:
+                return {
+                    "success": False,
+                    "agent": agent_key,
+                    "host": hostname,
+                    "operation": "start",
+                    "pid": None,
+                    "started_at": None,
+                    "error": f"Pre-start reconfigure failed: {cfg_error}",
+                }
+        elif probe_error:
+            logger.debug(
+                "Hermes env-token probe inconclusive for %s: %s",
+                agent_key,
+                probe_error,
+            )
 
     emit("start", f"Starting {agent_key} on {hostname}...")
 
@@ -1378,7 +1504,9 @@ def configure_agent(
         # callers pass an alias. CLI paths today always resolve canonical, but
         # programmatic callers may not.
         instance_key = get_instance_key(
-            host["hostname"], resolved_type, unix_agent_name
+            host.get("key_id") or host["hostname"],
+            resolved_type,
+            unix_agent_name,
         )
         secret_entry = get_instance_secrets(instance_key).get("HERMES_API_SERVER_KEY")
         # `.get("value")` not `["value"]`: a truthy-but-malformed entry (no
@@ -1609,7 +1737,9 @@ def configure_agent(
 
             if discord_merged.get("enabled"):
                 discord_instance_key = get_instance_key(
-                    host["hostname"], resolved_type, unix_agent_name
+                    host.get("key_id") or host["hostname"],
+                    resolved_type,
+                    unix_agent_name,
                 )
                 discord_secret = get_instance_secrets(discord_instance_key).get(
                     "DISCORD_BOT_TOKEN"
@@ -1720,7 +1850,9 @@ def configure_agent(
     discord_bot_token = ""
     try:
         instance_key = get_instance_key(
-            host["hostname"], resolved_type, unix_agent_name
+            host.get("key_id") or host["hostname"],
+            resolved_type,
+            unix_agent_name,
         )
         instance_secrets = get_instance_secrets(instance_key)
         # ATX Round 2 W4: match the safe `.get("value")` pattern used
@@ -1743,7 +1875,9 @@ def configure_agent(
     slack_app_token = ""
     try:
         instance_key = get_instance_key(
-            host["hostname"], resolved_type, unix_agent_name
+            host.get("key_id") or host["hostname"],
+            resolved_type,
+            unix_agent_name,
         )
         instance_secrets = get_instance_secrets(instance_key)
         # ATX Round 2 W4: same safe-indexing pattern as Discord above.
@@ -2281,7 +2415,9 @@ def remove_agent(
 
     # Clean up per-instance secrets (Discord bot token, etc.)
     try:
-        instance_key = get_instance_key(host["hostname"], agent_type, unix_agent_name)
+        instance_key = get_instance_key(
+            host.get("key_id") or host["hostname"], agent_type, unix_agent_name
+        )
         remove_instance_secrets(instance_key)
         emit("remove", "Cleaned up instance secrets")
     except Exception as e:
