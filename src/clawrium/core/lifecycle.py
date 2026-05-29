@@ -477,7 +477,16 @@ def _hermes_env_token_matches_secrets(
                 key_filename=str(private_key),
                 timeout=10,
             )
-            cmd = f"grep -E '^API_SERVER_KEY=' {shlex.quote(env_path)} || true"
+            # xclm cannot read `/home/<agent>/.hermes/.env` directly
+            # (the agent home is typically 0700). xclm has passwordless
+            # sudo from `clawctl host create`, so `sudo -n` succeeds in
+            # the non-TTY paramiko exec channel; `-n` ensures we never
+            # block waiting for a password and surface a clean failure
+            # the outer except will swallow non-fatally.
+            cmd = (
+                "sudo -n grep -E '^API_SERVER_KEY=' "
+                f"{shlex.quote(env_path)} 2>/dev/null || true"
+            )
             _, stdout, _ = client.exec_command(cmd, timeout=10)
             raw = stdout.read().decode().strip()
         finally:
