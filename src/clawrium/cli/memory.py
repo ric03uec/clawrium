@@ -72,14 +72,16 @@ def _resolve_agent_for_memory_cli(claw_name: str) -> tuple[str, str, str]:
     a friendly error before any Ansible dispatch.
     """
     try:
-        hostname, agent_key, name = get_installed_claw(claw_name)
+        hostname, claw_type, name = get_installed_claw(claw_name)
     except AgentNotFoundError as e:
         console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
         raise typer.Exit(code=1)
 
-    # get_installed_claw returns the agents-dict key as the second element,
-    # which under the current schema is the agent name rather than the claw
-    # type. Read the inner type field from the host record to validate.
+    # `get_installed_claw` now returns the canonical claw type as the
+    # second element (sourced from `claw_data["type"]` when present, or
+    # the legacy dict key otherwise). `name` is the canonical agent
+    # name, which equals the agents-dict key in both legacy and current
+    # schemas — use it to look up the record.
     host = get_host(hostname)
     if host is None:
         console.print(
@@ -88,8 +90,22 @@ def _resolve_agent_for_memory_cli(claw_name: str) -> tuple[str, str, str]:
         )
         raise typer.Exit(code=1)
 
-    record = host.get("agents", {}).get(agent_key, {})
-    actual_type = record.get("type") if isinstance(record, dict) else None
+    # Try both schemas: current (dict keyed by agent name) and legacy
+    # (dict keyed by claw type with a single instance per type). Use
+    # `is None` guards rather than `or` chains so an explicit empty
+    # dict on the current-schema key doesn't silently fall through to
+    # an unrelated legacy entry that shares its claw_type (ATX W3).
+    agents_dict = host.get("agents", {})
+    record = agents_dict.get(name)
+    if record is None:
+        record = agents_dict.get(claw_type) or {}
+    if not isinstance(record, dict):
+        record = {}
+    # Legacy records may omit the inner `type` field — fall back to the
+    # claw_type the resolver already determined (ATX B1: prior version
+    # had a dead `else` branch behind an `isinstance` guard that was
+    # always true, so legacy agents always exited with "no recorded type").
+    actual_type = record.get("type") or claw_type
 
     if not isinstance(actual_type, str) or not actual_type:
         console.print(
