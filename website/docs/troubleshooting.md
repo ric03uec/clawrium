@@ -52,15 +52,18 @@ Permission denied (publickey)
 **Causes & Solutions:**
 
 1. **Keypair not initialized**
-   
-   Run `clawctl host create --bootstrap` first to generate the keypair:
+
+   Run `clawctl host create` once — it generates the per-host keypair
+   and prints the manual setup commands you need to paste on the host
+   (see [Host Preparation](guides/host-setup.md)):
    ```bash
-   clawctl host create --bootstrap 192.168.1.100 --user myuser
+   clawctl host create 192.168.1.100 --user xclm --alias <name>
    ```
 
 2. **xclm user not configured**
-   
-   If automatic setup failed, manually configure the xclm user:
+
+   Configure the xclm user using the commands `clawctl` printed (or
+   the reference block below):
    ```bash
    # Create xclm user
    sudo useradd -m -s /bin/bash xclm
@@ -122,8 +125,8 @@ Error: Host '192.168.1.100' already exists in fleet
 
 Remove the existing host entry first:
 ```bash
-clawctl host delete 192.168.1.100
-clawctl host create --bootstrap 192.168.1.100
+clawctl host delete 192.168.1.100 --force
+clawctl host create 192.168.1.100 --user xclm --alias <name>
 ```
 
 Or use the alias to differentiate:
@@ -135,14 +138,14 @@ clawctl host create 192.168.1.100 --alias new-name
 
 **Symptoms:**
 ```
-Error: No keypair found for '192.168.1.100'. Run 'clawctl host create --bootstrap' first.
+Error: No keypair found for '192.168.1.100'. Run 'clawctl host create 192.168.1.100 --user xclm' first.
 ```
 
 **Solution:**
 
-Initialize the host first to generate the keypair:
+Generate the keypair (and surface the manual setup commands) by running:
 ```bash
-clawctl host create --bootstrap 192.168.1.100
+clawctl host create 192.168.1.100 --user xclm --alias <name>
 ```
 
 ### Hardware Detection Fails
@@ -255,7 +258,7 @@ Enable verbose output for troubleshooting:
 ```bash
 # Enable Ansible verbose mode
 export ANSIBLE_VERBOSITY=3
-clawctl host create --bootstrap 192.168.1.100
+clawctl host create 192.168.1.100 --user xclm --alias <name>
 ```
 
 ## Getting Help

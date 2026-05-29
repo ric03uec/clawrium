@@ -246,7 +246,7 @@ State for each tunnel is persisted at `~/.config/clawrium/tunnels/<agent_key>.js
 If the dashboard is unreachable, the most common causes are:
 
 - `hermes-dashboard-<agent-name>.service` is not running — `clawctl agent start <name>` re-enables both gateway and dashboard units.
-- The host's SSH key has rotated and `ssh -i <key>` can no longer authenticate — re-run `clawctl host create --bootstrap <host>` to refresh.
+- The host's SSH key has rotated and `ssh -i <key>` can no longer authenticate — delete and re-create the host (`clawctl host delete <host> --force && clawctl host create <host> --user xclm --alias <name>`) and re-apply the manual setup commands `clawctl` prints.
 - Local-port conflict — the tunnel manager picks an ephemeral free port each time, so this should be rare; check `~/.config/clawrium/tunnels/<agent>.json` and remove it if stale.
 
 ---

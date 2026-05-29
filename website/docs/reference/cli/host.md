@@ -10,8 +10,7 @@ clawctl host <command> [options]
 
 | Command | Description |
 |---------|-------------|
-| [`clawctl host create --bootstrap`](#clawctl-host-create---bootstrap) | Initialize a host for Clawrium management |
-| [`clawctl host create`](#clawctl-host-create) | Add a new host to the fleet |
+| [`clawctl host create`](#clawctl-host-create) | Register a new host with the fleet |
 | [`clawctl host get`](#clawctl-host-get) | List all registered hosts |
 | [`clawctl host delete`](#clawctl-host-delete) | Remove a host from the fleet |
 | [`clawctl host status`](#clawctl-host-status) | Check status of a host |
@@ -20,83 +19,26 @@ clawctl host <command> [options]
 
 ---
 
-## clawctl host create --bootstrap
-
-Initialize a host for Clawrium management.
-
-```bash
-clawctl host create --bootstrap <hostname> [--user USER]
-```
-
-Generates a per-host SSH keypair and attempts to configure the `xclm` management user on the remote host. If SSH access fails, displays manual setup commands.
-
-### Arguments
-
-| Argument | Description |
-|----------|-------------|
-| `hostname` | Host IP or hostname to initialize |
-
-### Options
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--user` | `-u` | SSH user for initial connection (default: current user) |
-
-### Example
-
-```bash
-$ clawctl host create --bootstrap 192.168.1.100
-Generating SSH keypair for '192.168.1.100'...
-Keypair created: /home/user/.config/clawrium/keys/192.168.1.100.pub
-
-Attempting connection to 192.168.1.100 as user...
-Connection successful!
-Setting up xclm management user...
-
-Verifying xclm access...
-xclm user configured successfully!
-
-Next step: clawctl host create 192.168.1.100
-```
-
-### Manual Setup
-
-If automatic setup fails, the command displays manual instructions:
-
-```bash
-# Create xclm user
-sudo useradd -m -s /bin/bash xclm
-
-# Grant passwordless sudo
-echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm
-sudo chmod 440 /etc/sudoers.d/xclm
-
-# Setup SSH access
-sudo mkdir -p /home/xclm/.ssh
-sudo chmod 700 /home/xclm/.ssh
-echo 'ssh-ed25519 AAAA...' | sudo tee /home/xclm/.ssh/authorized_keys
-sudo chmod 600 /home/xclm/.ssh/authorized_keys
-sudo chown -R xclm:xclm /home/xclm/.ssh
-```
-
-### Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Host initialized successfully |
-| 1 | Initialization failed or requires manual setup |
-
----
-
 ## clawctl host create
 
-Add a new host to the fleet.
+Register a host with the fleet.
 
 ```bash
-clawctl host create <hostname> [options]
+clawctl host create <hostname> --user xclm [--alias NAME] [--port PORT]
 ```
 
-Requires keypair to exist (run `clawctl host create --bootstrap` first). Tests SSH connection before saving and detects hardware capabilities automatically.
+On first run for a hostname, this command generates a per-host SSH keypair
+under `~/.config/clawrium/keys/<hostname>/` and tries to verify SSH access
+as `xclm`. If that fails (typical on a fresh host where `xclm` does not
+yet exist), it prints the Linux and macOS manual setup commands — with
+your freshly-generated public key embedded inline — and exits non-zero.
+
+Run those commands on the host (see [Host Preparation](../../guides/host-setup.md)),
+then re-run `clawctl host create` to actually register the host.
+
+The `--bootstrap` flag was removed in #547. It promised automatic xclm
+setup but required the bootstrap user to already have passwordless sudo,
+which was the same precondition manual setup ends with.
 
 ### Arguments
 
@@ -109,42 +51,49 @@ Requires keypair to exist (run `clawctl host create --bootstrap` first). Tests S
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--port` | `-p` | SSH port (default: 22) |
-| `--user` | `-u` | SSH user (default: xclm) |
+| `--user` | `-u` | Management user on the host (must be `xclm`) |
 | `--alias` | `-a` | Friendly name for this host |
-| `--tags` | `-t` | Comma-separated tags |
 
-### Example
+### Example — first run (xclm not yet set up)
 
 ```bash
-$ clawctl host create 192.168.1.100 --alias pi-lab --tags production,arm
-Testing connection to 192.168.1.100:22 as xclm...
-Connection successful!
-Detecting hardware capabilities...
-Hardware detected: aarch64, 4 cores, 4096MB RAM
+$ clawctl host create 192.168.1.100 --user xclm --alias pi-lab
+Generating SSH keypair for '192.168.1.100'...
+Keypair created: /home/user/.config/clawrium/keys/192.168.1.100/xclm_ed25519.pub
+xclm SSH verification failed: Authentication failed - check SSH keys
 
-Host 'pi-lab' added successfully!
+Manual setup required. Log into the host with a sudo-capable user and
+run the block that matches its OS:
+
+## Linux
+sudo useradd -m -s /bin/bash xclm
+…
+
+## macOS
+sudo dscl . -create /Users/xclm
+…
+sudo dseditgroup -o edit -a xclm -t user com.apple.access_ssh
+
+Then re-run: clawctl host create 192.168.1.100 --user xclm
+```
+
+### Example — re-run (xclm configured)
+
+```bash
+$ clawctl host create 192.168.1.100 --user xclm --alias pi-lab
+host/pi-lab created on 192.168.1.100:22
 ```
 
 ### Host Key Verification
 
-On first connection to a new host, Clawrium prompts for host key verification:
-
-```bash
-Unknown host key for 192.168.1.100
-  Key type: ssh-ed25519
-  Fingerprint: SHA256:abc123...
-
-Warning: Verify this fingerprint matches the host's actual key.
-
-Accept this host key and continue? [y/N]:
-```
+If the host key is unknown, the command surfaces a prompt and exits non-zero. Run `ssh -p <port> xclm@<hostname>` once to record the key, then re-run `clawctl host create`.
 
 ### Exit Codes
 
 | Code | Meaning |
 |------|---------|
-| 0 | Host added successfully |
-| 1 | Connection failed, host already exists, or keypair missing |
+| 0 | Host registered (or already exists with matching settings) |
+| 1 | xclm SSH verification failed (manual setup needed), or host already exists with different settings |
 
 ---
 

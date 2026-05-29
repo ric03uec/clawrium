@@ -6,8 +6,8 @@ Skipped by default. To run:
     uv run pytest tests/integration/test_macos_e2e_real.py -v
 
 These tests assume:
-  - The Mac has already been bootstrapped via `clawctl host create
-    --bootstrap` (xclm exists, NOPASSWD sudo, SSH key auth).
+  - The Mac has the `xclm` management user pre-configured per
+    docs/host-preparation.md (xclm exists, NOPASSWD sudo, SSH key auth).
   - Homebrew, node, ripgrep, ffmpeg, uv are present (base_macos.yaml
     ran at least once).
 

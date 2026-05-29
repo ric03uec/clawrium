@@ -45,7 +45,7 @@ host_app = typer.Typer(
 
 # Verb registration. Order matches plan §4.
 host_app.command(
-    name="create", help="Create a host record (optionally bootstrap remote)."
+    name="create", help="Register a host after verifying SSH access to the xclm management user."
 )(_create.create)
 host_app.command(name="get", help="List hosts.")(_get.get)
 host_app.command(name="describe", help="Describe a host.")(_describe.describe)

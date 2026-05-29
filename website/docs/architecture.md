@@ -72,26 +72,22 @@ sequenceDiagram
     participant Host as Target Host
     participant Config as ~/.config/clawrium/
 
-    User->>CLM: clawctl host create --bootstrap hostname --user myuser
-    CLM->>Config: Generate SSH keypair
-    CLM->>Host: SSH as myuser (sudo)
-    Host->>Host: Create xclm user
-    Host->>Host: Configure passwordless sudo
-    Host->>Host: Add public key
+    User->>CLM: clawctl host create hostname --user xclm --alias name
+    CLM->>Config: Generate per-host keypair (if missing)
+    CLM->>Host: SSH as xclm (fails on first run)
+    CLM-->>User: Print Linux + macOS manual setup commands (pubkey inlined)
+    User->>Host: Paste setup commands (creates xclm, sudoers, authorized_keys)
+    User->>CLM: clawctl host create hostname --user xclm --alias name (re-run)
+    CLM->>Host: SSH as xclm (succeeds)
     CLM->>Config: Save host entry
-
-    User->>CLM: clawctl host create hostname
-    CLM->>Config: Read keypair
-    CLM->>Host: SSH as xclm
-    Host-->>CLM: Hardware capabilities
-    CLM->>Config: Update hosts.json
 ```
 
 **Steps:**
 
-1. **Initialize** (`clawctl host create --bootstrap`): Generates per-host keypair, configures xclm user
-2. **Add** (`clawctl host create`): Verifies connectivity, detects hardware, saves to config
-3. **Manage**: List, check status, or remove hosts as needed
+1. **First run** (`clawctl host create … --user xclm`): generates the per-host keypair and prints the OS-split manual setup commands with the public key embedded.
+2. **Operator runs the printed commands on the host** to create `xclm`, grant passwordless sudo, and drop the authorized key.
+3. **Re-run** (`clawctl host create …`): verifies SSH as `xclm`, persists the host record.
+4. **Manage**: list, check status, or remove hosts as needed.
 
 ## Claw Installation Flow
 

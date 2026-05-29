@@ -1,148 +1,186 @@
 # Host Preparation
 
-Before adding a host to Clawrium, you must prepare it for management. This guide walks through setting up the management user and SSH access.
+Before a host can be registered with Clawrium, it must have a dedicated `xclm`
+management user with passwordless `sudo` and the Clawrium-managed public key
+in `authorized_keys`. This guide walks through that setup.
+
+The flow is **manual on purpose** (issue #547). An earlier version offered
+`--bootstrap` for automatic setup, but it could not succeed without the
+bootstrap user already having passwordless `sudo` over a non-interactive SSH
+channel — which is the same precondition you would have at the end of manual
+setup anyway. The flag was removed; the only supported path is below.
 
 ## Prerequisites
 
-- SSH access to the target host (as any user with sudo privileges)
-- Clawrium installed — see [Installation](installation.md)
-- **On the target host:**
-  - Python 3 (required for hardware detection)
-  - pciutils (optional, for GPU detection via `lspci`)
+- SSH access to the target host as a user that can run `sudo` (password sudo
+  is fine — you will run the commands interactively).
+- `clawctl` installed on your management machine — see
+  [Installation](installation.md).
+- On the target host: Python 3 (used for hardware detection).
 
-## P0. Initialize Host (Recommended)
+## Step 1 — Generate the keypair and surface the setup commands
 
-The `clawctl host create --bootstrap` command generates a per-host SSH keypair and attempts to automatically configure the xclm management user:
+From your management machine, run:
 
 ```bash
-# Auto-setup (requires SSH access with sudo privileges)
-clawctl host create --bootstrap 192.168.1.100 --user myuser
+clawctl host create <hostname-or-ip> --user xclm --alias <friendly-name>
 ```
 
-If you have SSH access to the target host, Clawrium will:
-1. Generate a unique keypair for this host in `~/.config/clawrium/keys/<hostname>/`
-2. Connect as the specified user
-3. Create the `xclm` management user
-4. Configure passwordless sudo
-5. Add the public key to `authorized_keys`
-6. Verify xclm access works
+On first run for that hostname, `clawctl` will:
 
-If auto-setup succeeds, skip to P2. If it fails, follow P1 for manual setup.
+1. Generate a per-host ed25519 keypair at
+   `~/.config/clawrium/keys/<hostname>/`.
+2. Try to verify SSH access as `xclm@<hostname>` using that key. On a fresh
+   host this will fail because `xclm` does not exist yet — that is expected.
+3. Print the manual setup commands for both Linux and macOS, with your
+   freshly-generated public key already embedded in the
+   `authorized_keys` line.
+4. Exit non-zero with a "re-run after manual setup" message.
 
-## P1. Manual Setup (If Auto-Setup Failed)
+## Step 2 — Run the setup commands on the host
 
-If `clawctl host create --bootstrap` couldn't connect automatically, it displays the public key and setup commands. Run these on the target host:
+SSH to the host as your existing sudo-capable user and paste the block that
+matches its OS. Copy the exact commands that `clawctl` printed (the public
+key is unique per host) — the blocks below are reference material.
+
+### Linux
 
 ```bash
-# SSH to host as your current user
-ssh user@hostname
-
 # Create xclm user
 sudo useradd -m -s /bin/bash xclm
 
-# Grant passwordless sudo (required for agent installation)
+# Passwordless sudo (required for agent installation)
 echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm
 sudo chmod 440 /etc/sudoers.d/xclm
 
-# Setup .ssh directory
-sudo mkdir -p /home/xclm/.ssh
-sudo chmod 700 /home/xclm/.ssh
-
-# Paste the public key displayed by 'clawctl host create --bootstrap'
-echo "ssh-ed25519 AAAA... clawrium" | sudo tee /home/xclm/.ssh/authorized_keys
+# Authorized key (use the line clawctl printed; pubkey shown is a placeholder)
+sudo mkdir -p /home/xclm/.ssh && sudo chmod 700 /home/xclm/.ssh
+echo "ssh-ed25519 AAAA...your-pubkey... clawrium" | sudo tee /home/xclm/.ssh/authorized_keys
 sudo chmod 600 /home/xclm/.ssh/authorized_keys
 sudo chown -R xclm:xclm /home/xclm/.ssh
-
-# Exit back to your machine
-exit
 ```
 
-**Security note:** xclm has full root access via sudo but no password is set (key-auth only). The private key is stored in `~/.config/clawrium/keys/<hostname>/` with 0600 permissions. Agent instances run as separate unprivileged users created by Clawrium.
+### macOS
 
-## P2. Add Host to Clawrium
-
-Once the management user is configured (either via auto-setup or manual setup), add the host:
+macOS user creation uses `dscl` rather than `useradd`, and there is one
+non-obvious Mac-only step: adding `xclm` to the `com.apple.access_ssh` group.
+Without it, `sshd` silently rejects connections from `xclm` with no useful
+log entry — easy to misdiagnose as a key or firewall problem.
 
 ```bash
-# Basic - uses per-host keypair from init
-clawctl host create 192.168.1.100
+# Create xclm user via dscl
+sudo dscl . -create /Users/xclm
+sudo dscl . -create /Users/xclm UserShell /bin/bash
+sudo dscl . -create /Users/xclm RealName "Clawrium Mgmt"
+sudo dscl . -create /Users/xclm UniqueID 600
+sudo dscl . -create /Users/xclm PrimaryGroupID 20
+sudo dscl . -create /Users/xclm NFSHomeDirectory /Users/xclm
+sudo mkdir -p /Users/xclm && sudo chown xclm:staff /Users/xclm
 
-# With alias for friendly display name
-clawctl host create 192.168.1.100 --alias myhost
+# Passwordless sudo
+echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm
+sudo chmod 440 /etc/sudoers.d/xclm
 
-# With custom port or user
-clawctl host create 192.168.1.100 --alias myhost --port 2222
+# Authorized key (use the line clawctl printed; pubkey shown is a placeholder)
+sudo mkdir -p /Users/xclm/.ssh && sudo chmod 700 /Users/xclm/.ssh
+echo "ssh-ed25519 AAAA...your-pubkey... clawrium" | sudo tee /Users/xclm/.ssh/authorized_keys
+sudo chmod 600 /Users/xclm/.ssh/authorized_keys
+sudo chown -R xclm:staff /Users/xclm/.ssh
+
+# Critical Mac-only step: SSH ACL group
+sudo dseditgroup -o edit -a xclm -t user com.apple.access_ssh
 ```
 
-**Note:** You must run `clawctl host create --bootstrap` before `clawctl host create`. The add command requires a keypair to exist for the host.
+**Security note:** `xclm` has full root via `sudo` and no password is set —
+key-auth only. The private key is stored under
+`~/.config/clawrium/keys/<hostname>/` with `0600` permissions. Agent processes
+run as separate unprivileged users that Clawrium creates as part of agent
+installation.
 
-Clawrium will:
-1. Connect using the per-host keypair from `~/.config/clawrium/keys/<hostname>/`
-2. Prompt to accept the host key (first connection only, saved to `~/.ssh/known_hosts`)
-3. Attempt to detect hardware capabilities (may be skipped if detection fails - rerun with `clawctl host status --refresh`)
-4. Save the host configuration to `~/.config/clawrium/hosts.json`
+## Step 3 — Register the host
 
-**Note:** Clawrium uses paramiko for SSH connections. ProxyJump, ProxyCommand, and other advanced SSH config options are not supported in v1. Ensure direct network access to the host.
+Run the same `clawctl host create` command again:
+
+```bash
+clawctl host create <hostname-or-ip> --user xclm --alias <friendly-name>
+```
+
+This time the keypair already exists, SSH as `xclm` succeeds, and the host
+record is persisted to `~/.config/clawrium/hosts.json`. The command is
+idempotent — running it a third time is a no-op.
+
+Clawrium uses paramiko for SSH connections. `ProxyJump`, `ProxyCommand`, and
+other advanced SSH config options are not supported. Ensure direct network
+access to the host.
 
 ## Troubleshooting
 
 ### Permission denied (publickey)
 
-The host's `authorized_keys` doesn't have the correct public key. Re-run:
+`xclm`'s `authorized_keys` does not contain the public key Clawrium expects.
+Re-print the manual commands by re-running `clawctl host create` — it will
+print the same pubkey it generated previously (the per-host keypair is
+deterministic across re-runs).
+
+Required permissions on the host:
+
+- `/home/xclm/.ssh` (Linux) or `/Users/xclm/.ssh` (macOS) — `700`
+- `authorized_keys` — `600`
+- `/etc/sudoers.d/xclm` — `440`
+
+On macOS, also confirm `xclm` is in `com.apple.access_ssh`:
+
 ```bash
-clawctl host create --bootstrap 192.168.1.100 --user myuser
+dseditgroup -o checkmember -m xclm com.apple.access_ssh
 ```
-
-This will display the correct public key to add. If auto-setup fails, follow P1 to add it manually.
-
-Required permissions on host:
-- `/home/xclm/.ssh` - 700
-- `/home/xclm/.ssh/authorized_keys` - 600
 
 ### Host key verification failed
 
 The host's SSH key has changed since you last connected.
 
-**Warning:** Before removing the old key, verify the change is expected (OS reinstall, hardware replacement). If unexpected, this could indicate a man-in-the-middle attack. Verify the new fingerprint out-of-band (e.g., via console access) before proceeding.
+> **Warning:** Before removing the old key, verify the change is expected
+> (OS reinstall, hardware replacement). If unexpected, this could indicate a
+> man-in-the-middle attack. Verify the new fingerprint out-of-band (e.g.,
+> via console access) before proceeding.
 
 If the change is expected:
+
 ```bash
-ssh-keygen -R hostname
+ssh-keygen -R <hostname>
 ```
 
 Then retry `clawctl host create` and verify the new fingerprint.
 
 ### Hardware not detected
 
-Hardware detection requires Python 3 on the remote host. Verify:
+Hardware detection requires Python 3 on the remote host:
+
 ```bash
-ssh user@hostname "python3 --version"
+ssh xclm@<hostname> "python3 --version"
 ```
 
 If Python is missing, install it:
+
 ```bash
-ssh user@hostname "sudo apt-get install python3"
+ssh xclm@<hostname> "sudo apt-get install python3"   # Linux
 ```
 
-For GPU detection, install pciutils:
+macOS ships Python 3 by default at `/usr/bin/python3` (Command Line Tools).
+For GPU detection on Linux, also install `pciutils`. After installing
+missing prerequisites, re-register the host (`clawctl host delete <name>
+--force` then `clawctl host create <ip> --user xclm --alias <name>`).
+
+### Regenerate keypair for a host
+
+If you need a fresh keypair for a specific host (e.g., compromised key,
+rotating credentials):
+
 ```bash
-ssh user@hostname "sudo apt-get install pciutils"
+clawctl host delete <hostname-or-alias> --force
+clawctl host create <hostname-or-ip> --user xclm --alias <friendly-name>
 ```
 
-Then refresh hardware info:
-```bash
-clawctl host status myhost --refresh
-```
-
-### Re-initialize a host
-
-If you need to regenerate the keypair for a specific host:
-```bash
-# Remove the host (also deletes its keypair)
-clawctl host delete hostname --force
-
-# Re-initialize with fresh keypair
-clawctl host create --bootstrap hostname --user myuser
-```
-
-This only affects the specified host. Other hosts retain their keypairs.
+The delete removes the host record and its keypair. The subsequent
+`host create` generates a new keypair and prints fresh manual commands —
+you will need to paste them on the host to install the new public key.
+This affects only the specified host; other hosts retain their keypairs.

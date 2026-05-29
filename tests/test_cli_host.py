@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 from typer.testing import CliRunner
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from clawrium.cli.main import app
 
@@ -108,14 +108,14 @@ def test_host_add_duplicate(isolated_config: Path, sample_host_data: dict):
 
 
 def test_host_add_requires_keypair(isolated_config: Path):
-    """clm host add without keypair shows error and suggests init."""
+    """clm host add without keypair shows error and points at clawctl host create."""
     isolated_config.mkdir(parents=True, exist_ok=True)
 
     result = runner.invoke(app, ["host", "add", "192.168.1.100"], env=os.environ)
 
     assert result.exit_code == 1
     assert "no keypair" in result.output.lower()
-    assert "host create --bootstrap" in result.output.lower()
+    assert "clawctl host create" in result.output.lower()
 
 
 def test_host_list_empty(isolated_config: Path):
@@ -412,125 +412,10 @@ def test_host_ps_refresh(
             )
 
 
-# Tests for clm host init command
-
-
-def test_host_init_generates_keypair(isolated_config: Path):
-    """clm host init generates keypair for host when none exists."""
-    # Setup: ensure no keys exist
-    isolated_config.mkdir(parents=True, exist_ok=True)
-
-    # Mock SSH to fail (manual setup path)
-    mock_client = MagicMock()
-    mock_client.connect = MagicMock(side_effect=Exception("Connection failed"))
-    mock_client.close = MagicMock()
-    mock_client.load_system_host_keys = MagicMock()
-    mock_client.set_missing_host_key_policy = MagicMock()
-
-    with patch("clawrium.cli.host.paramiko.SSHClient", return_value=mock_client):
-        result = runner.invoke(app, ["host", "init", "192.168.1.100"], env=os.environ)
-
-        # Should exit 1 (manual setup required = failure for scripting, B2 fix)
-        assert result.exit_code == 1, (
-            f"Unexpected exit code: {result.exit_code}, output: {result.output}"
-        )
-
-        # Should generate keypair (even though setup failed)
-        key_dir = isolated_config / "keys" / "192.168.1.100"
-        assert (key_dir / "xclm_ed25519").exists()
-        assert (key_dir / "xclm_ed25519.pub").exists()
-
-        # Should display public key path
-        assert "192.168.1.100" in result.output
-
-
-def test_host_init_auto_setup_success(isolated_config: Path, mock_ssh_client):
-    """clm host init with successful connection creates xclm user."""
-    isolated_config.mkdir(parents=True, exist_ok=True)
-
-    # Mock exec_command for setup commands
-    mock_stdout = MagicMock()
-    mock_stdout.read.return_value = b"OK"
-    mock_stdout.channel.recv_exit_status.return_value = 0
-    mock_stderr = MagicMock()
-    mock_stderr.read.return_value = b""
-    mock_ssh_client.exec_command = MagicMock(
-        return_value=(MagicMock(), mock_stdout, mock_stderr)
-    )
-
-    # Create mock for transport
-    mock_transport = MagicMock()
-    mock_transport.is_active.return_value = True
-    mock_ssh_client.get_transport.return_value = mock_transport
-
-    with patch(
-        "clawrium.core.ssh_connection.paramiko.SSHClient", return_value=mock_ssh_client
-    ):
-        with patch(
-            "clawrium.cli.host.paramiko.SSHClient", return_value=mock_ssh_client
-        ):
-            result = runner.invoke(
-                app,
-                ["host", "init", "192.168.1.100", "--user", "admin"],
-                env=os.environ,
-            )
-
-            # Should succeed and show success message
-            assert result.exit_code == 0, f"Failed with: {result.output}"
-            assert "192.168.1.100" in result.output
-
-
-def test_host_init_manual_fallback(isolated_config: Path):
-    """clm host init shows manual commands when connection fails."""
-    isolated_config.mkdir(parents=True, exist_ok=True)
-
-    # Mock SSH to fail completely
-    mock_client = MagicMock()
-    mock_client.connect = MagicMock(side_effect=Exception("Connection refused"))
-    mock_client.close = MagicMock()
-    mock_client.load_system_host_keys = MagicMock()
-    mock_client.set_missing_host_key_policy = MagicMock()
-
-    with patch("clawrium.cli.host.paramiko.SSHClient", return_value=mock_client):
-        result = runner.invoke(
-            app, ["host", "init", "192.168.1.100", "--user", "admin"], env=os.environ
-        )
-
-        # Should exit 1 (manual setup required = failure for scripting, B2 fix)
-        assert result.exit_code == 1, (
-            f"Unexpected exit code: {result.exit_code}, output: {result.output}"
-        )
-
-        # Should show manual setup commands
-        assert "useradd" in result.output.lower() or "manual" in result.output.lower()
-        # Should show public key
-        assert "ssh-ed25519" in result.output
-
-
-def test_host_init_existing_keypair_not_regenerated(isolated_config: Path):
-    """clm host init does not regenerate existing keypair."""
-    # Setup: create existing keypair
-    key_dir = isolated_config / "keys" / "192.168.1.100"
-    key_dir.mkdir(parents=True)
-    private_key = key_dir / "xclm_ed25519"
-    private_key.write_text("existing-key-content")
-    (key_dir / "xclm_ed25519.pub").write_text("ssh-ed25519 EXISTING clawrium")
-
-    # Mock SSH to fail
-    mock_client = MagicMock()
-    mock_client.connect = MagicMock(side_effect=Exception("Connection failed"))
-    mock_client.close = MagicMock()
-    mock_client.load_system_host_keys = MagicMock()
-    mock_client.set_missing_host_key_policy = MagicMock()
-
-    with patch(
-        "clawrium.core.ssh_connection.paramiko.SSHClient", return_value=mock_client
-    ):
-        with patch("clawrium.cli.host.paramiko.SSHClient", return_value=mock_client):
-            runner.invoke(app, ["host", "init", "192.168.1.100"], env=os.environ)
-
-            # Key should not be regenerated
-            assert private_key.read_text() == "existing-key-content"
+# `clm host init` and `--bootstrap` were removed in #547.
+# `clawctl host create` now handles keypair generation and prints the
+# manual setup commands itself. See tests/cli/clawctl/host/test_create.py
+# for tests of the new flow.
 
 
 # Tests for clm host alias command

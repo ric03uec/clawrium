@@ -279,8 +279,9 @@ def _apply_legacy_defaults(host: dict) -> dict:
     """Backfill fields that may be missing on hosts registered before they existed.
 
     Currently this is just `os_family`: every host registered before macOS
-    support landed is assumed to be Linux. Bootstrap re-runs (or
-    `clawctl host edit`) overwrite this with the detected value.
+    support landed is assumed to be Linux. New hosts get the value detected
+    inside `clawctl host create` via `uname -s`; this backfill only kicks
+    in for legacy records.
     """
     host.setdefault("os_family", "linux")
     return host

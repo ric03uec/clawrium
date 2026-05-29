@@ -125,7 +125,7 @@ clawctl service init
 ✓ SSH client found: OpenSSH_9.0p1
 ✓ Dependencies validated
 
-Clawrium is ready! Next: clawctl host create <hostname> --user <user> --bootstrap
+Clawrium is ready! Next: clawctl host create <hostname> --user xclm --alias <name>
 ```
 
 This creates:
@@ -142,38 +142,29 @@ Linux or macOS.
 
 On the macOS host you want to manage:
 
-1. **Admin user with passwordless sudo.** clawrium's bootstrap runs `dscl`,
-   `dseditgroup`, and writes to `/etc/sudoers.d` and
-   `/Library/LaunchDaemons`. The user passed to `clawctl host create
-   --user <admin>` must be able to sudo without a TTY-bound password
-   prompt. Add it to `/etc/sudoers.d/<admin>` once interactively before
-   running clawrium:
-
-   ```bash
-   ssh <admin>@<mac>
-   echo "<admin> ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/<admin>
-   sudo chmod 440 /etc/sudoers.d/<admin>
-   ```
-
+1. **A user with `sudo` access** for the manual `xclm` setup. See
+   [Host Preparation](guides/host-setup.md) for the exact commands — macOS
+   uses `dscl`, `dseditgroup` (including the critical
+   `com.apple.access_ssh` group membership), and `sudoers.d`. Password
+   sudo is fine; you only run the commands once, interactively.
 2. **Xcode Command Line Tools.** The base playbook installs them
    automatically if missing, but the first install takes 5–15 minutes
    and downloads ~700MB. Pre-installing with `xcode-select --install`
    beforehand is faster if you're rebuilding hosts often.
 
-### Bootstrap
+### Register the host
+
+Follow [Host Preparation](guides/host-setup.md) — the same flow works for
+Linux and macOS hosts. In short:
 
 ```bash
-clawctl host create <mac-ip> --user <admin> --alias <name> --bootstrap
+clawctl host create <mac-ip> --user xclm --alias <name>
 ```
 
-Bootstrap detects `os_family=darwin` over SSH, then creates an `xclm`
-management user via `dscl`, adds it to `com.apple.access_ssh`, and
-drops a key-based authorized_keys entry. After bootstrap, point
-clawrium at the xclm user:
-
-```bash
-clawctl host edit <name> --user xclm
-```
+The first invocation generates a per-host keypair and prints the
+macOS-specific manual commands (with the public key inlined). Paste those
+on the Mac, then re-run the same `clawctl host create` command to register
+the host.
 
 ### Install an agent
 

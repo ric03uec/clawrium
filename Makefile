@@ -51,7 +51,6 @@ test-macos:
 	  tests/core/test_hardware_macos_normalization.py \
 	  tests/core/test_launchd.py \
 	  tests/core/test_lifecycle_macos.py \
-	  tests/cli/test_host_macos.py \
 	  tests/integration/test_macos_e2e_mocked.py \
 	  tests/test_names.py::TestReservedUnixNames \
 	  -v

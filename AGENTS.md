@@ -31,9 +31,8 @@ Your Machine (clawctl CLI)
 # Install
 uv tool install clawrium
 
-# Add a host
-clawctl host create 192.168.1.100 --user myuser --bootstrap
-clawctl host create 192.168.1.100 --alias mybox
+# Add a host (see docs/host-preparation.md for the xclm setup commands)
+clawctl host create 192.168.1.100 --user xclm --alias mybox
 
 # Install an agent
 clawctl agent create <agent-name> --type openclaw --host mybox
@@ -63,6 +62,15 @@ Install instructions live in [`docs/installation.md`](docs/installation.md). Thi
 3. The README's install section is intentionally brief (just the two `uv tool install` / `uvx` commands). Only update it if those commands change.
 
 The website docs MUST follow `docs/installation.md` exactly. Do not edit `website/docs/installation.md` directly.
+
+## Host Setup Source of Truth
+
+Host preparation instructions live in [`docs/host-preparation.md`](docs/host-preparation.md). This is the canonical source — when updating host-setup steps:
+
+1. Edit `docs/host-preparation.md` first.
+2. Mirror the body verbatim to `website/docs/guides/host-setup.md`. Keep the Docusaurus frontmatter and the mirror-warning HTML comment at the top of that file; everything below them must match `docs/host-preparation.md` exactly (modulo Docusaurus `:::note` / `:::warning` admonitions where the engineering docs use `>` blockquotes).
+
+The website docs MUST follow `docs/host-preparation.md` exactly. Do not edit `website/docs/guides/host-setup.md` directly.
 
 ## Key Concepts
 

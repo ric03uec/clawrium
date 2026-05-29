@@ -88,11 +88,17 @@ For full installation instructions including how to install `uv`, see [docs/inst
 clawctl service init
 # → Created /home/user/.config/clawrium/config.yaml
 
-# Set up SSH to your host (one step — bootstrap key + add)
-clawctl host create 192.168.1.100 --user myuser --alias worker-1 --bootstrap
-# → Checking SSH connectivity...
-# → SSH key copied to 192.168.1.100
-# → Host 'worker-1' added
+# Register your host. First run generates a per-host SSH keypair and
+# prints the manual xclm setup commands (Linux + macOS) you need to
+# run on the host — see docs/host-preparation.md.
+clawctl host create 192.168.1.100 --user xclm --alias worker-1
+# → Generating SSH keypair for '192.168.1.100'...
+# → xclm SSH verification failed: Authentication failed - check SSH keys
+# → Manual setup required. (paste printed block on the host, then re-run)
+
+# Re-run after running the printed setup commands on the host:
+clawctl host create 192.168.1.100 --user xclm --alias worker-1
+# → host/worker-1 created on 192.168.1.100:22
 
 # Register an inference provider
 clawctl provider registry create anthropic --type anthropic --api-key-stdin

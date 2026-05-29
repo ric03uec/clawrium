@@ -63,14 +63,18 @@ clawctl service init
 ```
 
 ```bash
-# Initialize a host (generates keypair, sets up management user)
-clawctl host create --bootstrap 192.168.1.100 --user myuser
+# Register a host. First run generates the keypair and prints the
+# manual xclm setup commands you need to run on the host (see the
+# Host Setup guide). Re-run after pasting them to register the host.
+clawctl host create 192.168.1.100 --user xclm --alias mybox
 ```
 ```
 Generating SSH keypair for 192.168.1.100...
 ✓ Keypair created: ~/.config/clawrium/keys/192.168.1.100/
-Configuring xclm user on remote host...
-✓ Host initialized successfully
+xclm SSH verification failed: Authentication failed - check SSH keys
+
+Manual setup required. Log into the host with a sudo-capable user and
+run the printed Linux or macOS block, then re-run this command.
 ```
 
 ```bash

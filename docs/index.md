@@ -16,11 +16,10 @@ Clawrium is a CLI tool for managing AI agent fleets on local networks.
 # Initialize config
 clawctl service init
 
-# Initialize a host (generates keypair, attempts auto-setup of xclm user)
-clawctl host create --bootstrap <hostname> --user <your-ssh-user>
-
-# Add an initialized host to the fleet
-clawctl host create <hostname> --alias <host-alias>
+# Register a host (first run generates keypair and prints the manual
+# xclm setup commands you need to run on the host; re-run after pasting
+# them to actually register it). See docs/host-preparation.md.
+clawctl host create <hostname> --user xclm --alias <host-alias>
 
 # List all hosts
 clawctl host get

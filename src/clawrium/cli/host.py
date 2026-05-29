@@ -1,11 +1,8 @@
 """Host management commands for Clawrium."""
 
-import getpass
-import shlex
 from datetime import datetime, timezone
 from typing import Optional
 
-import paramiko
 import typer
 from rich.console import Console
 from rich.markup import escape as rich_escape
@@ -28,9 +25,7 @@ from clawrium.core.hosts import (
     AddressError,
 )
 from clawrium.core.keys import (
-    generate_host_keypair,
     get_host_private_key,
-    read_public_key,
     delete_host_keys,
     InvalidKeyIdError,
 )
@@ -63,170 +58,9 @@ address_app = typer.Typer(
 host_app.add_typer(address_app, name="address")
 
 
-@host_app.command()
-def init(
-    hostname: str = typer.Argument(..., help="Host IP or hostname to initialize"),
-    user: Optional[str] = typer.Option(
-        None,
-        "--user",
-        "-u",
-        help="SSH user for initial connection (default: current user)",
-    ),
-) -> None:
-    """Initialize a host for Clawrium management.
-
-    Generates a per-host SSH keypair and attempts to configure the xclm
-    management user on the remote host. If SSH access fails, displays
-    manual setup commands.
-    """
-    # Step 1: Generate keypair if not exists
-    private_key = get_host_private_key(hostname)
-    if private_key:
-        console.print(f"Using existing keypair for '{hostname}'")
-    else:
-        console.print(f"Generating SSH keypair for '{hostname}'...")
-        private_key_path, public_key_path = generate_host_keypair(hostname)
-        console.print(f"[green]Keypair created:[/green] {public_key_path}")
-        private_key = private_key_path
-
-    # Read the public key for display/setup
-    public_key_content = read_public_key(hostname)
-
-    # Step 2: Determine connection user
-    connection_user = user or getpass.getuser()
-
-    # Step 3: Try to connect to host
-    console.print(f"\nAttempting connection to {hostname} as {connection_user}...")
-
-    client = paramiko.SSHClient()
-    client.load_system_host_keys()
-    # Use RejectPolicy - we'll handle unknown hosts via HostKeyVerificationRequired
-    client.set_missing_host_key_policy(paramiko.RejectPolicy())
-
-    auto_setup_success = False
-    try:
-        # Try to connect with current user's default keys
-        client.connect(hostname=hostname, username=connection_user, timeout=10)
-
-        transport = client.get_transport()
-        if transport and transport.is_active():
-            console.print("[green]Connection successful![/green]")
-            console.print("Setting up xclm management user...")
-
-            # Execute setup commands (no shell injection - public key written via stdin)
-            setup_commands = [
-                ("sudo useradd -m -s /bin/bash xclm 2>/dev/null || true", None),
-                (
-                    'echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm',
-                    None,
-                ),
-                ("sudo chmod 440 /etc/sudoers.d/xclm", None),
-                ("sudo mkdir -p /home/xclm/.ssh", None),
-                ("sudo chmod 700 /home/xclm/.ssh", None),
-                (
-                    "sudo tee /home/xclm/.ssh/authorized_keys",
-                    public_key_content,
-                ),  # Write via stdin
-                ("sudo chmod 600 /home/xclm/.ssh/authorized_keys", None),
-                ("sudo chown -R xclm:xclm /home/xclm/.ssh", None),
-            ]
-
-            for cmd, stdin_data in setup_commands:
-                stdin, stdout, stderr = client.exec_command(cmd)
-                if stdin_data:
-                    stdin.write(stdin_data + "\n")
-                    stdin.channel.shutdown_write()
-                # Drain both stdout and stderr before checking exit status to prevent buffer hangs (W4 fix)
-                stdout.read()
-                stderr_output = stderr.read().decode().strip()
-                exit_status = stdout.channel.recv_exit_status()
-                if exit_status != 0 and "useradd" not in cmd:
-                    console.print(
-                        f"[yellow]Warning:[/yellow] Setup step failed (exit {exit_status})"
-                    )
-                    if stderr_output:
-                        # Escape stderr to prevent Rich markup injection (W2 fix)
-                        console.print(f"  {rich_escape(stderr_output)}")
-
-            # Verify xclm connection works
-            console.print("\nVerifying xclm access...")
-            success, message = test_ssh_connection(
-                hostname=hostname, port=22, user="xclm", key_filename=str(private_key)
-            )
-
-            if success:
-                console.print("[green]xclm user configured successfully![/green]")
-                console.print(
-                    f"\nNext step: [cyan]clawctl host create {hostname}[/cyan]"
-                )
-                auto_setup_success = True
-            else:
-                console.print(
-                    f"[yellow]Warning:[/yellow] xclm verification failed: {message}"
-                )
-                console.print("You may need to complete setup manually.")
-
-    except HostKeyVerificationRequired as e:
-        console.print(f"\n[yellow]Unknown host key for {e.hostname}[/yellow]")
-        console.print(f"  Key type: {e.key_type}")
-        console.print(f"  Fingerprint: {e.fingerprint}")
-        console.print(
-            "\n[yellow]Warning:[/yellow] Verify this fingerprint matches the host's actual key."
-        )
-
-        if typer.confirm("\nAccept this host key and retry?"):
-            accept_host_key(hostname, 22, expected_fingerprint=e.fingerprint)
-            console.print(
-                "Host key saved. Please run 'clawctl host create --bootstrap' again."
-            )
-        else:
-            console.print("Connection cancelled.")
-        raise typer.Exit(code=1)
-    except paramiko.SSHException as e:
-        # Handle unknown host key from RejectPolicy
-        if "not found in known_hosts" in str(e) or "Server" in str(e):
-            console.print(f"\n[yellow]Unknown host key for {hostname}[/yellow]")
-            console.print(
-                "Run 'ssh-keyscan' or connect manually first to add the host key."
-            )
-        else:
-            console.print(f"[yellow]SSH error:[/yellow] {e}")
-    except paramiko.AuthenticationException as e:
-        console.print(f"[yellow]Authentication failed:[/yellow] {e}")
-    except Exception as e:
-        console.print(f"[yellow]Could not connect:[/yellow] {e}")
-    finally:
-        client.close()
-
-    # Step 4: If auto-setup failed, show manual commands
-    if not auto_setup_success:
-        console.print("\n[yellow]Manual setup required.[/yellow]")
-        console.print("\nRun these commands on the target host:\n")
-        console.print("[dim]# Create xclm user[/dim]")
-        console.print("sudo useradd -m -s /bin/bash xclm")
-        console.print("")
-        console.print("[dim]# Grant passwordless sudo[/dim]")
-        console.print(
-            'echo "xclm ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/xclm'
-        )
-        console.print("sudo chmod 440 /etc/sudoers.d/xclm")
-        console.print("")
-        console.print("[dim]# Setup SSH access[/dim]")
-        console.print("sudo mkdir -p /home/xclm/.ssh")
-        console.print("sudo chmod 700 /home/xclm/.ssh")
-        # Shell-escape public key to prevent injection and escape Rich markup
-        # Use soft_wrap=False to keep command on one line for easy copy-paste
-        escaped_key = shlex.quote(public_key_content) if public_key_content else "''"
-        console.print(
-            f"echo {rich_escape(escaped_key)} | sudo tee /home/xclm/.ssh/authorized_keys",
-            soft_wrap=False,
-        )
-        console.print("sudo chmod 600 /home/xclm/.ssh/authorized_keys")
-        console.print("sudo chown -R xclm:xclm /home/xclm/.ssh")
-        console.print("")
-        console.print(f"Then run: [cyan]clawctl host create {hostname}[/cyan]")
-        # Exit non-zero so scripts can detect failure (B2 fix)
-        raise typer.Exit(code=1)
+# `clm host init` (auto-bootstrap) was removed in #547. Host preparation is
+# now manual — see docs/host-preparation.md. `clawctl host create` handles
+# keypair generation and prints the required setup commands.
 
 
 @host_app.command()
@@ -247,12 +81,14 @@ def add(
 ) -> None:
     """Add a new host to the fleet.
 
-    Requires keypair to exist (run 'clawctl host create --bootstrap' first).
+    Requires keypair to exist (run 'clawctl host create' first, which generates
+    one and prints the manual setup commands the host operator must run).
     Tests SSH connection before saving. Detects hardware capabilities
     automatically after successful connection.
     """
     # Determine key_id: Try hostname first, fall back to alias
-    # This ensures `clawctl host create --bootstrap 192.168.1.10` + `clawctl host create 192.168.1.10 --alias mybox` works
+    # `clawctl host create` uses the hostname (IP) as the key_id, so first-run
+    # registration and any later re-run with --alias resolve to the same record.
     from clawrium.core.keys import validate_key_id
 
     # Try hostname first (most common case: init and add use same identifier)
@@ -277,7 +113,7 @@ def add(
         if alias:
             console.print(f"  Also checked alias '{alias}'")
         console.print(
-            f"Run 'clawctl host create --bootstrap {hostname}' first to generate keys"
+            f"Run 'clawctl host create {hostname} --user xclm' first to generate keys"
         )
         raise typer.Exit(code=1)
 
@@ -842,7 +678,7 @@ def ps(
     if host_key is None:
         console.print(f"[red]Error:[/red] No keypair found for '{key_id}'")
         console.print(
-            f"Run 'clawctl host create --bootstrap {key_id}' to regenerate keys"
+            f"Run 'clawctl host delete {key_id} --force && clawctl host create {key_id} --user xclm' to regenerate keys"
         )
         raise typer.Exit(code=1)
     ssh_key = str(host_key)

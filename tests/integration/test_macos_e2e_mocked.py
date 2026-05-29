@@ -1,8 +1,8 @@
 """macOS E2E with the SSH session and upstream installer stubbed (issue #469).
 
-Runs on Linux. Exercises the full dispatcher → host_macos → playbook
-resolver → lifecycle_macos chain with paramiko + ansible-runner replaced
-by deterministic fakes. The goal is to catch any cross-module wiring
+Runs on Linux. Exercises the dispatcher → playbook resolver →
+lifecycle_macos chain with paramiko + ansible-runner replaced by
+deterministic fakes. The goal is to catch any cross-module wiring
 regressions in CI without needing an actual Mac runner.
 
 This is the companion to tests/integration/test_macos_e2e_real.py,
