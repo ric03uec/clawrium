@@ -102,21 +102,24 @@ onboarding:
           type: confirm
           message: "Enable Discord messaging for this agent?"
           default: false
-        # When select_discord=yes, the CLI prompts interactively for the bot
-        # token, allowed-user IDs, optional home channel, optional allowed
-        # channel allowlist, and require-mention toggle. Token persists to
-        # secrets.json under DISCORD_BOT_TOKEN; the rest land in hosts.json
-        # under config.channels.discord.
+        # DEPRECATED (#555): the `--stage channels` interactive flow has been
+        # retired. Channels are now first-class attachables — see
+        # `clawctl channel registry create --type discord` and
+        # `clawctl agent channel attach`. Token persists to secrets.json under
+        # channel:<name>:DISCORD_BOT_TOKEN; non-sensitive config lives in
+        # channels.json. The agent attachment list is
+        # hosts.json.agents.<name>.channels[].
         - id: select_slack
           name: "Enable Slack channel (optional)"
           type: confirm
           message: "Enable Slack messaging (Socket Mode) for this agent?"
           default: false
-        # When select_slack=yes, the CLI prompts interactively for the bot
-        # token (xoxb-), app token (xapp-), allowed-user IDs, optional home
-        # channel, and home channel name. Tokens persist to secrets.json
-        # under SLACK_BOT_TOKEN and SLACK_APP_TOKEN; the rest land in
-        # hosts.json under config.channels.slack.
+        # DEPRECATED (#555): the `--stage channels` interactive flow has been
+        # retired. Use `clawctl channel registry create --type slack` and
+        # `clawctl agent channel attach`. Tokens persist to secrets.json under
+        # channel:<name>:{SLACK_BOT_TOKEN,SLACK_APP_TOKEN}; non-sensitive
+        # config lives in channels.json. The agent attachment list is
+        # hosts.json.agents.<name>.channels[].
 
     validate:
       required: true

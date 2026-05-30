@@ -193,8 +193,9 @@ If you need to reconfigure a specific stage:
 ```bash
 clawctl agent configure <agent-name> --stage providers
 clawctl agent configure <agent-name> --stage identity
-clawctl agent configure <agent-name> --stage channels
 ```
+
+> **Channels:** the `--stage channels` flow is deprecated (#555). Use `clawctl channel registry create` + `clawctl agent channel attach` instead. See [Channels → Configuration](agent-support/channels/index.md#configuration).
 
 ### Skip Prompts
 
