@@ -334,6 +334,91 @@ def test_open_ssh_wraps_oserror(monkeypatch, tmp_path):
         lc._open_ssh({"hostname": "h.example", "key_id": "k"})
 
 
+def test_open_ssh_wraps_ssh_exception(monkeypatch, tmp_path):
+    """W-B (ATX #555 polish round 4): paramiko's generic `SSHException`
+    (e.g. banner timeout, transport-level error) shares the same
+    except tuple as `AuthenticationException` and must surface as
+    `CanonicalSyncError`."""
+    import paramiko
+
+    key_path = tmp_path / "k"
+    key_path.write_text("dummy")
+    monkeypatch.setattr(lc, "get_host_private_key", lambda _: key_path)
+    monkeypatch.setattr(
+        paramiko.SSHClient,
+        "connect",
+        lambda self, **kw: (_ for _ in ()).throw(
+            paramiko.SSHException("banner timeout")
+        ),
+    )
+    with pytest.raises(
+        CanonicalSyncError,
+        match=r"SSH connection to 'h\.example' failed: banner timeout",
+    ):
+        lc._open_ssh({"hostname": "h.example", "key_id": "k"})
+
+
+def test_zeroclaw_sync_repair_failure_raises(monkeypatch):
+    """B-NEW-1 (ATX #555 polish round 4): when
+    `_zeroclaw_repair_after_start` returns `(False, err)`, the sync
+    must raise `CanonicalSyncError` with the operator-actionable
+    message naming the re-pair failure. Closes the only branch added
+    in round 3 that lacked direct coverage."""
+    from clawrium.core.render import (
+        GatewayInputs,
+        ProviderInputs,
+        RenderInputs,
+        RenderedFiles,
+    )
+
+    inputs = RenderInputs(
+        agent_name="zc",
+        agent_type="zeroclaw",
+        provider=ProviderInputs(
+            name="or", type="openrouter", api_key="sk", default_model="m"
+        ),
+        gateway=GatewayInputs(host="h", port=40000, auth="a"),
+    )
+    monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+    rendered = RenderedFiles(
+        files={".zeroclaw/config.toml": "x = 1\n", ".zeroclaw/zeroclaw-env.conf": ""}
+    )
+    monkeypatch.setitem(lc._RENDERERS, "zeroclaw", lambda _: rendered)
+    monkeypatch.setattr(
+        lc,
+        "get_agent_by_name",
+        lambda _: ({"hostname": "h"}, "zeroclaw:zc", {}),
+    )
+    monkeypatch.setattr(
+        lc,
+        "diff_files",
+        lambda **_: [
+            FileDiff(
+                path=".zeroclaw/config.toml",
+                remote_path="/host/.zeroclaw/config.toml",
+                remote_body="x = 0\n",
+                rendered_body="x = 1\n",
+                unified_diff="--- a\n+++ b\n@@ @@\n-x = 0\n+x = 1\n",
+                remote_present=True,
+            ),
+        ],
+    )
+    monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+    monkeypatch.setattr(lc, "_atomic_write", lambda *a, **kw: None)
+    monkeypatch.setattr(lc, "_restart_unit", lambda *a, **kw: None)
+    monkeypatch.setattr(lc, "_verify_health", lambda *a, **kw: None)
+
+    with patch(
+        "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+        return_value=(False, "handshake timeout"),
+    ):
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"re-pair failed: handshake timeout",
+        ):
+            sync_agent_canonical("zc", restart=True, verify=False)
+
+
 def test_open_ssh_wraps_bad_host_key(monkeypatch, tmp_path):
     """B7 (ATX #555 polish round 3): `BadHostKeyException` (key swap
     on a previously-recorded host) must surface as `CanonicalSyncError`

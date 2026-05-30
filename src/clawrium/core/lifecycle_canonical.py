@@ -426,11 +426,16 @@ def sync_agent_canonical(
         #   reboot, `systemctl restart`, etc.).
         # - Other agent types (hermes, openclaw) keep the file-drift-gated
         #   restart so a true no-op sync stays cheap.
-        zeroclaw_force_restart = (
+        # W-D (ATX #555 polish round 4): renamed from
+        # `zeroclaw_force_restart` — the re-pair runs unconditionally
+        # (B1 round-3); this flag specifically tracks the "no
+        # file-drift but zeroclaw still needs a systemctl restart for
+        # bearer rotation to take effect" sub-case.
+        zeroclaw_needs_force_restart = (
             restart and inputs.agent_type == "zeroclaw" and not files_written
         )
-        if restart and (files_written or zeroclaw_force_restart):
-            if zeroclaw_force_restart:
+        if restart and (files_written or zeroclaw_needs_force_restart):
+            if zeroclaw_needs_force_restart:
                 emit(
                     "restart",
                     f"restarting {inputs.agent_type}-{agent_name}.service "

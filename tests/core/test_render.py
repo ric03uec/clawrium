@@ -1030,6 +1030,12 @@ def test_toml_escape_strips_nul_and_escapes_cr_lf():
     assert "\r" not in out
     assert "\n" not in out
     assert out == "ab\\rc\\nd"
+    # W-C (ATX #555 polish round 4): backslash and double quote must
+    # be escaped too — these are the TOML basic-string break-out
+    # characters and the regression that started B3 in round 1.
+    assert _toml_escape('a"b') == 'a\\"b'
+    assert _toml_escape("a\\b") == "a\\\\b"
+    assert _toml_escape("a\tb") == "a\\tb"
 
 
 def test_zeroclaw_toml_injection_payload_nul_and_cr():
