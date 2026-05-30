@@ -24,6 +24,7 @@ before any production code paths depend on it.
 
 from __future__ import annotations
 
+import functools as _functools
 from dataclasses import dataclass, field
 
 __all__ = [
@@ -504,14 +505,21 @@ def _integration_slug(name: str) -> str:
     return "".join(c for c in upper if c.isalnum() or c == "_")
 
 
-# Provider env-var-name table, keyed on provider.type. Each entry is a
-# tuple of (env_var_name_for_api_key, inference_provider_value). The
-# table is the ONLY place provider.type matters at render time.
-_HERMES_PROVIDER_ENV = {
-    "openrouter": ("OPENROUTER_API_KEY", "openrouter"),
-    "anthropic": ("ANTHROPIC_API_KEY", "anthropic"),
-    "openai": ("OPENAI_API_KEY", "openai"),
-}
+# W4 (ATX round 3): the legacy `_HERMES_PROVIDER_ENV` dispatch table was
+# removed in this commit. The Jinja template `hermes-env.canonical.j2`
+# is now the only source of truth for provider.type → env-var mapping
+# for hermes. The bedrock/ollama branches that previously lived next to
+# this table moved into the template alongside their main-bearer peers
+# so all five hermes providers share one branching surface.
+
+
+_HERMES_SUPPORTED_PROVIDERS = frozenset(
+    {"openrouter", "anthropic", "openai", "bedrock", "ollama"}
+)
+_HERMES_SUPPORTED_CHANNELS = frozenset({"discord", "slack"})
+_HERMES_SUPPORTED_INTEGRATIONS = frozenset(
+    {"github", "atlassian", "linear", "notion", "gitlab", "git"}
+)
 
 
 def render_hermes(inputs: RenderInputs) -> RenderedFiles:
@@ -521,220 +529,112 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
       - `.hermes/.env`: systemd EnvironmentFile body.
       - `.hermes/config.yaml`: model + auxiliary config.
 
-    Branches only on `inputs.provider.type`. Every field declared on
-    `inputs` flows into exactly one output line; the function does NOT
-    conditionally emit a section based on whether a hosts.json field
-    happened to be populated.
+    Both files are rendered from canonical Jinja templates loaded via
+    `importlib.resources` so the wheel ships them. Branches only on
+    `inputs.provider.type`. Every field declared on `inputs` flows into
+    exactly one output line; the function does NOT conditionally emit a
+    section based on whether a hosts.json field happened to be populated.
     """
-    env_lines: list[str] = []
-    env_lines.append(
-        f"# Managed by clawrium (clawctl). Re-render with "
-        f"`clawctl agent configure {inputs.agent_name}`."
-    )
-
-    # --- Provider credentials (branch on provider.type only) -----------
     ptype = inputs.provider.type
-    if ptype in _HERMES_PROVIDER_ENV:
-        env_var, inference_name = _HERMES_PROVIDER_ENV[ptype]
-        env_lines.append(f"{env_var}={_shell_quote(inputs.provider.api_key)}")
-        env_lines.append(f"HERMES_INFERENCE_PROVIDER={_shell_quote(inference_name)}")
-    elif ptype == "bedrock":
-        env_lines.append(f"AWS_ACCESS_KEY_ID={_shell_quote(inputs.provider.aws_access_key)}")
-        env_lines.append(f"AWS_SECRET_ACCESS_KEY={_shell_quote(inputs.provider.aws_secret_key)}")
-        env_lines.append(
-            f"AWS_DEFAULT_REGION={_shell_quote(inputs.provider.region or 'us-east-1')}"
-        )
-        env_lines.append("HERMES_INFERENCE_PROVIDER='bedrock'")
-    elif ptype == "ollama":
-        env_lines.append("HERMES_INFERENCE_PROVIDER='custom'")
-    else:
-        # `build_render_inputs` filters via _AGENT_TYPE_PROVIDER_SUPPORT,
-        # but callers may construct `RenderInputs` directly (tests,
-        # future programmatic configure flows). Raise loudly here so an
-        # unsupported provider type can never silently produce an
-        # incomplete on-host config.
+    if ptype not in _HERMES_SUPPORTED_PROVIDERS:
         raise AgentConfigError(
             f"render_hermes does not support provider type {ptype!r}. "
-            f"Supported: {sorted(_HERMES_PROVIDER_ENV) + ['bedrock', 'ollama']}"
+            f"Supported: {sorted(_HERMES_SUPPORTED_PROVIDERS)}"
         )
 
-    # --- API server block --------------------------------------------------
-    if inputs.api_server is not None:
-        env_lines.append("API_SERVER_ENABLED=1")
-        env_lines.append(f"API_SERVER_HOST={_shell_quote(inputs.api_server.host)}")
-        env_lines.append(f"API_SERVER_PORT={int(inputs.api_server.port)}")
-        env_lines.append(f"API_SERVER_KEY={_shell_quote(inputs.api_server.key)}")
-
-    # --- Channels (every attached channel renders all its tokens) ---------
+    # B2 (ATX round 4): duplicate-discord/duplicate-slack guard. The
+    # hermes daemon reads DISCORD_BOT_TOKEN / SLACK_BOT_TOKEN as scalar
+    # env vars — two attached channels of the same type would render
+    # two `DISCORD_BOT_TOKEN=` lines into the EnvironmentFile and
+    # systemd's last-wins parse semantics would silently keep one.
+    # Mirror the zeroclaw guard added in ATX round 3.
+    seen_channel_types: dict[str, str] = {}
     for channel in inputs.channels:
-        if channel.type == "discord":
-            env_lines.append(f"DISCORD_BOT_TOKEN={_shell_quote(channel.bot_token)}")
-            env_lines.append(
-                f"DISCORD_ALLOWED_USERS={_shell_quote(','.join(channel.allowed_users))}"
-            )
-            env_lines.append(
-                f"DISCORD_ALLOWED_CHANNELS={_shell_quote(','.join(channel.allowed_channels))}"
-            )
-            env_lines.append(
-                f"DISCORD_REQUIRE_MENTION={_shell_quote(str(channel.require_mention).lower())}"
-            )
-            # CRITICAL: only emit `DISCORD_ALLOW_ALL_USERS` when the
-            # operator explicitly set it. The hermes daemon parses this
-            # var as a presence flag (Python `bool(os.environ.get(...))`
-            # treats any non-empty string — including `'false'` — as
-            # truthy), so unconditionally emitting `'false'` would
-            # silently open public Discord access on every agent on
-            # first configure. Mirrors the j2 template's
-            # `{% if discord.get('allow_all_users') %}` guard at
-            # hermes.env.j2:58. This is a real-world regression we
-            # cannot risk.
-            if channel.allow_all_users:
-                env_lines.append("DISCORD_ALLOW_ALL_USERS=true")
-            env_lines.append(f"DISCORD_HOME_CHANNEL={_shell_quote(channel.home_channel)}")
-            env_lines.append(
-                f"DISCORD_HOME_CHANNEL_NAME={_shell_quote(channel.home_channel_name)}"
-            )
-            env_lines.append(
-                f"DISCORD_HOME_CHANNEL_THREAD_ID={_shell_quote(channel.home_channel_thread_id)}"
-            )
-        elif channel.type == "slack":
-            env_lines.append(f"SLACK_BOT_TOKEN={_shell_quote(channel.bot_token)}")
-            env_lines.append(f"SLACK_APP_TOKEN={_shell_quote(channel.app_token)}")
-            env_lines.append(
-                f"SLACK_ALLOWED_USERS={_shell_quote(','.join(channel.allowed_users))}"
-            )
-            env_lines.append(f"SLACK_HOME_CHANNEL={_shell_quote(channel.home_channel)}")
-            env_lines.append(
-                f"SLACK_HOME_CHANNEL_NAME={_shell_quote(channel.home_channel_name)}"
-            )
-        else:
+        if channel.type not in _HERMES_SUPPORTED_CHANNELS:
             raise AgentConfigError(
-                f"render_hermes: unsupported channel type {channel.type!r}"
+                f"render_hermes: unsupported channel type {channel.type!r}. "
+                f"Supported: {sorted(_HERMES_SUPPORTED_CHANNELS)}"
+            )
+        prior = seen_channel_types.get(channel.type)
+        if prior is not None:
+            raise AgentConfigError(
+                f"render_hermes: agent {inputs.agent_name!r} has "
+                f"multiple {channel.type} channels attached "
+                f"({prior!r}, {channel.name!r}); hermes emits one "
+                f"{channel.type.upper()}_BOT_TOKEN env var and "
+                f"systemd's last-wins parse would silently keep one. "
+                f"Detach one with `clawctl channel detach`."
+            )
+        seen_channel_types[channel.type] = channel.name
+
+    for integration in inputs.integrations:
+        if integration.type not in _HERMES_SUPPORTED_INTEGRATIONS:
+            # W2 (ATX round 1): same listing rule.
+            raise AgentConfigError(
+                f"render_hermes: unsupported integration type {integration.type!r}. "
+                f"Supported: {sorted(_HERMES_SUPPORTED_INTEGRATIONS)}"
             )
 
-    # --- Integrations (per-name and bare GITHUB_TOKEN fallback) -----------
+    integration_views: list[dict] = []
+    atlassian_views: list[dict] = []
+    seen_atlassian_slugs: set[str] = set()
     last_github_token = ""
     for integration in inputs.integrations:
         creds = dict(integration.credentials)
+        slug = _integration_slug(integration.name)
         if integration.type == "github":
-            token = creds.get("GITHUB_TOKEN", "")
-            slug = _integration_slug(integration.name)
-            env_lines.append(f"GITHUB_TOKEN_{slug}={_shell_quote(token)}")
-            last_github_token = token
-        elif integration.type == "atlassian":
-            # Atlassian creds are emitted in config.yaml's mcp_servers block,
-            # not the env file. Skip here.
-            continue
-        elif integration.type == "linear":
-            env_lines.append(f"LINEAR_API_KEY={_shell_quote(creds.get('LINEAR_API_KEY', ''))}")
-        elif integration.type == "notion":
-            env_lines.append(f"NOTION_API_KEY={_shell_quote(creds.get('NOTION_API_KEY', ''))}")
-        elif integration.type == "gitlab":
-            env_lines.append(f"GITLAB_TOKEN={_shell_quote(creds.get('GITLAB_TOKEN', ''))}")
-            if "GITLAB_URL" in creds:
-                env_lines.append(f"GITLAB_URL={_shell_quote(creds['GITLAB_URL'])}")
-        elif integration.type == "git":
-            # git-identity creds go into ~/.gitconfig via a separate render;
-            # nothing for the env file.
-            continue
-        else:
-            raise AgentConfigError(
-                f"render_hermes: unsupported integration type {integration.type!r}"
-            )
-    if last_github_token:
-        env_lines.append(f"GITHUB_TOKEN={_shell_quote(last_github_token)}")
-
-    env_body = "\n".join(env_lines) + "\n"
-
-    # --- config.yaml -------------------------------------------------------
-    yaml_lines: list[str] = []
-    yaml_lines.append(
-        f"# Managed by clawrium (clawctl). Re-render with "
-        f"`clawctl agent configure {inputs.agent_name}`."
-    )
-    if ptype == "openrouter":
-        yaml_lines.append("model:")
-        yaml_lines.append('  provider: "openrouter"')
-        yaml_lines.append('  base_url: "https://openrouter.ai/api/v1"')
-        yaml_lines.append(f"  default: {_yaml_quote(inputs.provider.default_model)}")
-        yaml_lines.append("auxiliary:")
-        yaml_lines.append("  title_generation:")
-        yaml_lines.append('    model: "anthropic/claude-haiku-4.5"')
-    elif ptype == "anthropic":
-        yaml_lines.append("model:")
-        yaml_lines.append('  provider: "anthropic"')
-        yaml_lines.append(f"  default: {_yaml_quote(inputs.provider.default_model)}")
-        yaml_lines.append("auxiliary:")
-        yaml_lines.append("  title_generation:")
-        yaml_lines.append('    model: "claude-haiku-4-5-20251001"')
-    elif ptype == "openai":
-        yaml_lines.append("model:")
-        yaml_lines.append('  provider: "openai"')
-        yaml_lines.append(f"  default: {_yaml_quote(inputs.provider.default_model)}")
-        yaml_lines.append("auxiliary:")
-        yaml_lines.append("  title_generation:")
-        yaml_lines.append('    model: "gpt-5-nano"')
-    elif ptype == "bedrock":
-        yaml_lines.append("model:")
-        yaml_lines.append('  provider: "bedrock"')
-        yaml_lines.append(f"  default: {_yaml_quote(inputs.provider.default_model)}")
-        yaml_lines.append("bedrock:")
-        yaml_lines.append(f"  region: {_yaml_quote(inputs.provider.region or 'us-east-1')}")
-        yaml_lines.append("auxiliary:")
-        yaml_lines.append("  title_generation:")
-        yaml_lines.append('    model: "anthropic.claude-haiku-4-5-20251001-v1:0"')
-    elif ptype == "ollama":
-        endpoint = inputs.provider.endpoint.rstrip("/")
-        if not endpoint.endswith("/v1"):
-            endpoint = endpoint + "/v1"
-        yaml_lines.append("model:")
-        yaml_lines.append('  provider: "custom"')
-        yaml_lines.append(f"  base_url: {_yaml_quote(endpoint)}")
-        yaml_lines.append(f"  default: {_yaml_quote(inputs.provider.default_model)}")
-
-    # Atlassian integrations → mcp_servers entries (sorted by name).
-    atlassian = [i for i in inputs.integrations if i.type == "atlassian"]
-    if atlassian:
-        yaml_lines.append("mcp_servers:")
-        seen_slugs: set[str] = set()
-        for integration in atlassian:
-            creds = dict(integration.credentials)
-            url = creds.get("ATLASSIAN_URL", "").rstrip("/")
-            email = creds.get("ATLASSIAN_EMAIL", "")
-            token = creds.get("ATLASSIAN_API_TOKEN", "")
-            # Use the env-var slug (alnum + underscore only). A naive
-            # `.replace('-', '_')` leaves CR/LF/colon/etc. in the key,
-            # enabling YAML key injection from a malicious or
-            # malformed integration name. The slug strips everything
-            # outside `[A-Z0-9_]`; lowercase here so YAML keys stay
-            # idiomatic snake_case.
-            slug = _integration_slug(integration.name).lower()
-            if not slug:
+            last_github_token = creds.get("GITHUB_TOKEN", "")
+        if integration.type == "atlassian":
+            lo_slug = slug.lower()
+            if not lo_slug:
                 raise AgentConfigError(
                     f"render_hermes: integration name {integration.name!r} "
                     f"slugifies to empty — refusing to emit an unnamed YAML key"
                 )
-            # Distinct integration names can slugify to the same YAML
-            # key (e.g. `my-atlassian` and `my_atlassian` both produce
-            # `my_atlassian`). PyYAML's last-wins semantics would
-            # silently drop one set of credentials. Fail loud instead.
-            if slug in seen_slugs:
+            if lo_slug in seen_atlassian_slugs:
                 raise AgentConfigError(
                     f"render_hermes: atlassian integration names collide on "
-                    f"YAML key {slug!r}; rename one of the integrations to "
+                    f"YAML key {lo_slug!r}; rename one of the integrations to "
                     f"differentiate after slugification"
                 )
-            seen_slugs.add(slug)
-            yaml_lines.append(f"  {slug}:")
-            yaml_lines.append("    env:")
-            yaml_lines.append(f"      JIRA_URL: {_yaml_quote(url)}")
-            yaml_lines.append(f"      JIRA_USERNAME: {_yaml_quote(email)}")
-            yaml_lines.append(f"      JIRA_API_TOKEN: {_yaml_quote(token)}")
-            yaml_lines.append(f"      CONFLUENCE_URL: {_yaml_quote(url + '/wiki')}")
-            yaml_lines.append(f"      CONFLUENCE_USERNAME: {_yaml_quote(email)}")
-            yaml_lines.append(f"      CONFLUENCE_API_TOKEN: {_yaml_quote(token)}")
+            seen_atlassian_slugs.add(lo_slug)
+            url = creds.get("ATLASSIAN_URL", "").rstrip("/")
+            atlassian_views.append(
+                {
+                    "slug": lo_slug,
+                    "url": url,
+                    "email": creds.get("ATLASSIAN_EMAIL", ""),
+                    "token": creds.get("ATLASSIAN_API_TOKEN", ""),
+                    "confluence_url": url + "/wiki",
+                }
+            )
+        integration_views.append(
+            {"type": integration.type, "slug": slug, "creds": creds}
+        )
 
-    yaml_body = "\n".join(yaml_lines) + "\n"
+    ollama_base_url = ""
+    if ptype == "ollama":
+        endpoint = inputs.provider.endpoint.rstrip("/")
+        if not endpoint.endswith("/v1"):
+            endpoint = endpoint + "/v1"
+        ollama_base_url = endpoint
+
+    env_body = _render_hermes_template(
+        "hermes-env.canonical.j2",
+        agent_name=inputs.agent_name,
+        provider=inputs.provider,
+        api_server=inputs.api_server,
+        channels=inputs.channels,
+        integrations=integration_views,
+        last_github_token=last_github_token,
+    )
+    yaml_body = _render_hermes_template(
+        "hermes-config.canonical.yaml.j2",
+        agent_name=inputs.agent_name,
+        provider=inputs.provider,
+        ollama_base_url=ollama_base_url,
+        atlassian_integrations=atlassian_views,
+    )
 
     return RenderedFiles(
         files={
@@ -744,10 +644,56 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
     )
 
 
+@_functools.lru_cache(maxsize=8)
+def _hermes_template(template_name: str):
+    """Load + compile a hermes canonical template once per process.
+
+    Memoized so `render_hermes`' two template renders per invocation do not
+    re-read the wheel resource or re-compile the Jinja AST. The cache is
+    keyed on filename; identity of returned template is stable.
+    """
+    from importlib.resources import files
+
+    from jinja2 import Environment, StrictUndefined
+
+    template_path = files("clawrium.platform.registry.hermes.templates").joinpath(
+        template_name
+    )
+    template_source = template_path.read_text(encoding="utf-8")
+
+    # autoescape=False is INTENTIONAL: shq/yq filters handle all shell and
+    # YAML quoting already, and the output files are shell EnvironmentFile
+    # bodies / YAML — not HTML. Flipping autoescape to True would
+    # double-encode every shq/yq-quoted value (e.g. `'sk-or-1'` →
+    # `&#x27;sk-or-1&#x27;`) and corrupt the on-host files silently.
+    env = Environment(
+        undefined=StrictUndefined,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+        autoescape=False,
+    )
+    env.filters["shq"] = lambda v: _shell_quote(str(v))
+    env.filters["yq"] = lambda v: _yaml_quote(str(v))
+    return env.from_string(template_source)
+
+
+def _render_hermes_template(template_name: str, **context) -> str:
+    """Render a hermes canonical template under
+    `clawrium.platform.registry.hermes.templates` via importlib.resources.
+
+    StrictUndefined so any missing context variable raises at render time
+    rather than silently producing an empty string. `shq` / `yq` filters
+    mirror `_shell_quote` / `_yaml_quote` exactly.
+    """
+    return _hermes_template(template_name).render(**context)
+
+
 # Zeroclaw provider section table. Each entry: (kind_string,)
 _ZEROCLAW_PROVIDER_KINDS = frozenset(
     {"anthropic", "openai", "ollama", "openrouter"}
 )
+_ZEROCLAW_SUPPORTED_INTEGRATIONS = frozenset({"github", "git"})
 
 
 def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
@@ -790,11 +736,33 @@ def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
         passthrough.append("GITHUB_TOKEN")
 
     # --- discord channel (zeroclaw supports discord only today) -----------
+    # B8: surface unsupported channel types up-front. Silently dropping a
+    # non-discord channel (slack, etc.) here meant operators who attached
+    # the wrong channel type would see a successful render with no Discord
+    # output — the daemon would then run without channel access and the
+    # mistake would only show up on first @mention.
+    # W1 (ATX round 3): a second `discord` channel is ALSO a silent-drop
+    # surface (zeroclaw daemon emits one [channels.discord] block, so two
+    # attached discord channels means the second is invisible). Raise so
+    # the operator detaches one rather than getting nondeterministic
+    # "which one won?" behavior.
     discord_channel = None
     for channel in inputs.channels:
         if channel.type == "discord":
+            if discord_channel is not None:
+                raise AgentConfigError(
+                    f"render_zeroclaw: agent {inputs.agent_name!r} has "
+                    f"multiple discord channels attached "
+                    f"({discord_channel.name!r}, {channel.name!r}); "
+                    f"zeroclaw renders exactly one [channels.discord] block. "
+                    f"Detach one with `clawctl channel detach`."
+                )
             discord_channel = channel
-            break
+            continue
+        raise AgentConfigError(
+            f"render_zeroclaw: unsupported channel type {channel.type!r} "
+            f"(zeroclaw supports 'discord' only)"
+        )
 
     # --- render the full canonical template -------------------------------
     toml_body = _render_zeroclaw_config_template(
@@ -813,7 +781,22 @@ def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
     )
     env_lines.append("[Service]")
     last_github_token = ""
+    # B9: silently skipping non-github integrations here (the previous
+    # `continue`) meant an operator attaching a gitlab/atlassian/linear
+    # integration to zeroclaw would see a successful render with no
+    # corresponding env var on disk. Mirror render_hermes's explicit
+    # whitelist and raise AgentConfigError on anything zeroclaw can't
+    # express today. `git` is a clientside-only identity integration
+    # (~/.gitconfig render lives elsewhere) so it is explicitly skipped.
+    # W5: defined as module constant for consistency with other
+    # supported-set tables in this module.
     for integration in inputs.integrations:
+        if integration.type not in _ZEROCLAW_SUPPORTED_INTEGRATIONS:
+            raise AgentConfigError(
+                f"render_zeroclaw: unsupported integration type "
+                f"{integration.type!r} (zeroclaw supports: "
+                f"{sorted(_ZEROCLAW_SUPPORTED_INTEGRATIONS)})"
+            )
         if integration.type != "github":
             continue
         creds = dict(integration.credentials)

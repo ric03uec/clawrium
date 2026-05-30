@@ -7,7 +7,6 @@ import { OSIcon } from "@/components/ui/os-icon";
 import { Button } from "@/components/ui/button";
 import {
   PAIRING_AGENT_TYPES,
-  WEB_UI_AGENT_TYPES,
   useAgentActions,
   useAgentPairingCode,
   useAgentWebUI,
@@ -22,11 +21,34 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
   const isRunning = agent.status === "running";
   const isStopped = agent.status === "stopped";
 
-  // Native UI button shows for any agent type whose manifest declares
-  // `features.web_ui`. Allowlist lives in the hook so the fetch and the
-  // render decision stay in sync.
-  const showWebUI = WEB_UI_AGENT_TYPES.has(agent.agent_type);
-  const webUI = useAgentWebUI(agent.agent_key, agent.agent_type, agent.status);
+  // B2 (#560 / #567): backend `/web-ui` returns `available: false` with
+  // a `reason` for any agent type whose manifest does not declare
+  // `features.web_ui` (see src/clawrium/core/web_ui.py:resolve). There
+  // is no client-side agent-type allowlist — the backend is the
+  // single gate.
+  //
+  // Render policy (W1/W3 from ATX round 4):
+  //   - data.available === true  → fully enabled button.
+  //   - loading / transient error (no data yet, OR available=false with
+  //     a transient reason) → disabled button with informative tooltip,
+  //     so the user gets feedback that the system is trying.
+  //   - permanent no-UI (`reason` says "does not expose") → button is
+  //     hidden entirely; rendering a perma-disabled button on every
+  //     nemoclaw / openclaw page was the previous UX regression.
+  const webUI = useAgentWebUI(agent.agent_key, agent.status);
+  const webUIPermanentlyUnavailable =
+    webUI.data?.available === false &&
+    !!webUI.data?.reason &&
+    webUI.data.reason.includes("does not expose");
+  const showWebUI = !webUIPermanentlyUnavailable;
+  const webUIReady = webUI.data?.available === true && !!webUI.data?.local_url;
+  const webUITooltip = webUI.isLoading
+    ? "Establishing tunnel…"
+    : webUI.isError
+      ? "Could not reach backend — will retry."
+      : webUIReady
+        ? "Open the native dashboard in a new tab"
+        : webUI.data?.reason || "Native UI not available";
 
   // Pairing code only meaningful for agent types whose SPA gates on an
   // in-process handshake (zeroclaw). The mint is on-demand: clicking the
@@ -61,40 +83,26 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          {showWebUI && (() => {
-            const tooltip = webUI.isLoading
-              ? "Establishing tunnel..."
-              : webUI.isError
-                ? "Could not reach backend — will retry."
-                : webUI.data?.available
-                  ? "Open the native dashboard in a new tab"
-                  : webUI.data?.reason || "Native UI not available";
-            return (
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={
-                  webUI.isLoading ||
-                  webUI.isError ||
-                  !webUI.data?.available ||
-                  !webUI.data?.local_url
+          {showWebUI && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!webUIReady}
+              onClick={() => {
+                if (webUI.data?.local_url) {
+                  window.open(
+                    webUI.data.local_url,
+                    "_blank",
+                    "noopener,noreferrer",
+                  );
                 }
-                onClick={() => {
-                  if (webUI.data?.local_url) {
-                    window.open(
-                      webUI.data.local_url,
-                      "_blank",
-                      "noopener,noreferrer",
-                    );
-                  }
-                }}
-                title={tooltip}
-                aria-label={tooltip}
-              >
-                {webUI.isLoading ? "Opening..." : "Open Agent UI"}
-              </Button>
-            );
-          })()}
+              }}
+              title={webUITooltip}
+              aria-label={webUITooltip}
+            >
+              {webUI.isLoading ? "Opening…" : "Open Agent UI"}
+            </Button>
+          )}
           {showPairing && (
             <Button
               variant="secondary"

@@ -1076,3 +1076,625 @@ def test_hermes_atlassian_credentials_absent_from_env():
     assert "ATLASSIAN" not in env
     assert "JIRA" not in env
     assert "CONFLUENCE" not in env
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 (#560): Jinja-template regression locks for render_hermes.
+#
+# The byte-for-byte expected outputs below were captured from the prior
+# list-of-strings implementation of `render_hermes`. Any drift in the new
+# Jinja template flow MUST be intentional and surface here as a test
+# failure with a clear diff — that is the entire point of locking these.
+# ---------------------------------------------------------------------------
+
+
+_MAURICE_LIKE_ENV_OPENROUTER = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure maurice`.\n"
+    "OPENROUTER_API_KEY='sk-or-maurice'\n"
+    "HERMES_INFERENCE_PROVIDER='openrouter'\n"
+    "API_SERVER_ENABLED=1\n"
+    "API_SERVER_HOST='127.0.0.1'\n"
+    "API_SERVER_PORT=8642\n"
+    "API_SERVER_KEY='maurice-key'\n"
+    "DISCORD_BOT_TOKEN='discord-maurice'\n"
+    "DISCORD_ALLOWED_USERS='u1,u2'\n"
+    "DISCORD_ALLOWED_CHANNELS=''\n"
+    "DISCORD_REQUIRE_MENTION='true'\n"
+    "DISCORD_HOME_CHANNEL='general'\n"
+    "DISCORD_HOME_CHANNEL_NAME=''\n"
+    "DISCORD_HOME_CHANNEL_THREAD_ID=''\n"
+    "GITHUB_TOKEN_GH_M='ghp_m'\n"
+    "GITHUB_TOKEN='ghp_m'\n"
+)
+
+
+_MAURICE_LIKE_YAML_OPENROUTER = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure maurice`.\n"
+    "model:\n"
+    "  provider: \"openrouter\"\n"
+    "  base_url: \"https://openrouter.ai/api/v1\"\n"
+    "  default: 'anthropic/claude-opus-4.7'\n"
+    "auxiliary:\n"
+    "  title_generation:\n"
+    "    model: \"anthropic/claude-haiku-4.5\"\n"
+)
+
+
+_ESPRESSO_LIKE_ENV_OLLAMA = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure espresso`.\n"
+    "HERMES_INFERENCE_PROVIDER='custom'\n"
+    "API_SERVER_ENABLED=1\n"
+    "API_SERVER_HOST='127.0.0.1'\n"
+    "API_SERVER_PORT=8642\n"
+    "API_SERVER_KEY='espresso-key'\n"
+)
+
+
+_ESPRESSO_LIKE_YAML_OLLAMA = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure espresso`.\n"
+    "model:\n"
+    "  provider: \"custom\"\n"
+    "  base_url: 'http://10.0.0.5:11434/v1'\n"
+    "  default: 'llama3'\n"
+)
+
+
+def test_hermes_render_byte_locks_maurice_openrouter():
+    """Regression lock: the Jinja-driven render must produce these exact bytes."""
+    inputs = RenderInputs(
+        agent_name="maurice",
+        agent_type="hermes",
+        provider=ProviderInputs(
+            name="or",
+            type="openrouter",
+            default_model="anthropic/claude-opus-4.7",
+            api_key="sk-or-maurice",
+        ),
+        channels=(
+            ChannelInputs(
+                name="discord-m",
+                type="discord",
+                bot_token="discord-maurice",
+                allowed_users=("u1", "u2"),
+                require_mention=True,
+                home_channel="general",
+            ),
+        ),
+        integrations=(
+            IntegrationInputs(
+                name="gh-m",
+                type="github",
+                credentials=(("GITHUB_TOKEN", "ghp_m"),),
+            ),
+        ),
+        api_server=APIServerInputs(host="127.0.0.1", port=8642, key="maurice-key"),
+    )
+    out = render_hermes(inputs)
+    assert out.files[".hermes/.env"] == _MAURICE_LIKE_ENV_OPENROUTER
+    assert out.files[".hermes/config.yaml"] == _MAURICE_LIKE_YAML_OPENROUTER
+
+
+def test_hermes_render_byte_locks_espresso_ollama():
+    """Regression lock: ollama path renders bytes-exact. Locks the W5
+    decision to omit `auxiliary.title_generation` for ollama (the local
+    model is already cheap; a remote aux pin defeats the point)."""
+    inputs = RenderInputs(
+        agent_name="espresso",
+        agent_type="hermes",
+        provider=ProviderInputs(
+            name="ol",
+            type="ollama",
+            default_model="llama3",
+            endpoint="http://10.0.0.5:11434",
+        ),
+        channels=(),
+        integrations=(),
+        api_server=APIServerInputs(host="127.0.0.1", port=8642, key="espresso-key"),
+    )
+    out = render_hermes(inputs)
+    assert out.files[".hermes/.env"] == _ESPRESSO_LIKE_ENV_OLLAMA
+    assert out.files[".hermes/config.yaml"] == _ESPRESSO_LIKE_YAML_OLLAMA
+    # Explicit absence-assertion: W5 — no auxiliary block for ollama.
+    assert "auxiliary:" not in out.files[".hermes/config.yaml"]
+
+
+def test_zeroclaw_rejects_non_discord_channel_b8():
+    """B8: non-discord channels must raise, not silently drop."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=(
+            ChannelInputs(name="slack-x", type="slack", bot_token="xoxb"),
+        ),
+        gateway=base.gateway,
+    )
+    with pytest.raises(AgentConfigError, match="unsupported channel type 'slack'"):
+        render_zeroclaw(inputs)
+
+
+def test_zeroclaw_rejects_non_github_integration_b9():
+    """B9: non-github (and non-git) integrations must raise, not silently drop."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        integrations=(
+            IntegrationInputs(
+                name="linear-x",
+                type="linear",
+                credentials=(("LINEAR_API_KEY", "lk_1"),),
+            ),
+        ),
+        gateway=base.gateway,
+    )
+    with pytest.raises(AgentConfigError, match="unsupported integration type 'linear'"):
+        render_zeroclaw(inputs)
+
+
+# ---------------------------------------------------------------------------
+# ATX round 1 follow-ups: explicit positive coverage for paths previously
+# only covered indirectly via the idempotency property.
+# ---------------------------------------------------------------------------
+
+
+def test_hermes_gitlab_integration_emits_token_and_optional_url():
+    """B8 (ATX round 1): gitlab token branch + optional GITLAB_URL must
+    both render. Wrong key name would silently emit empty values; this
+    locks both flavors of the branch."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs_token_only = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        integrations=(
+            IntegrationInputs(
+                name="gl-1",
+                type="gitlab",
+                credentials=(("GITLAB_TOKEN", "glpat-1"),),
+            ),
+        ),
+        api_server=base.api_server,
+    )
+    env = render_hermes(inputs_token_only).files[".hermes/.env"]
+    assert "GITLAB_TOKEN='glpat-1'" in env
+    assert "GITLAB_URL" not in env
+
+    inputs_with_url = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        integrations=(
+            IntegrationInputs(
+                name="gl-2",
+                type="gitlab",
+                credentials=(
+                    ("GITLAB_TOKEN", "glpat-2"),
+                    ("GITLAB_URL", "https://gitlab.example.com"),
+                ),
+            ),
+        ),
+        api_server=base.api_server,
+    )
+    env2 = render_hermes(inputs_with_url).files[".hermes/.env"]
+    assert "GITLAB_TOKEN='glpat-2'" in env2
+    assert "GITLAB_URL='https://gitlab.example.com'" in env2
+
+
+_HERMES_ANTHROPIC_ENV = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+    "ANTHROPIC_API_KEY='sk-ant-1'\n"
+    "HERMES_INFERENCE_PROVIDER='anthropic'\n"
+)
+_HERMES_ANTHROPIC_YAML = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+    "model:\n"
+    "  provider: \"anthropic\"\n"
+    "  default: 'claude-opus-4-7'\n"
+    "auxiliary:\n"
+    "  title_generation:\n"
+    "    model: \"claude-haiku-4-5-20251001\"\n"
+)
+
+
+_HERMES_OPENAI_ENV = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+    "OPENAI_API_KEY='sk-oa-1'\n"
+    "HERMES_INFERENCE_PROVIDER='openai'\n"
+)
+_HERMES_OPENAI_YAML = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+    "model:\n"
+    "  provider: \"openai\"\n"
+    "  default: 'gpt-5'\n"
+    "auxiliary:\n"
+    "  title_generation:\n"
+    "    model: \"gpt-5-nano\"\n"
+)
+
+
+_HERMES_BEDROCK_ENV = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+    "AWS_ACCESS_KEY_ID='AKIA-1'\n"
+    "AWS_SECRET_ACCESS_KEY='secret-1'\n"
+    "AWS_DEFAULT_REGION='us-east-1'\n"
+    "HERMES_INFERENCE_PROVIDER='bedrock'\n"
+)
+_HERMES_BEDROCK_YAML = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+    "model:\n"
+    "  provider: \"bedrock\"\n"
+    "  default: 'anthropic.claude-opus-4-1-v1:0'\n"
+    "bedrock:\n"
+    "  region: 'us-east-1'\n"
+    "auxiliary:\n"
+    "  title_generation:\n"
+    "    model: \"anthropic.claude-haiku-4-5-20251001-v1:0\"\n"
+)
+
+
+@pytest.mark.parametrize(
+    "ptype,expected_env,expected_yaml",
+    [
+        ("anthropic", _HERMES_ANTHROPIC_ENV, _HERMES_ANTHROPIC_YAML),
+        ("openai", _HERMES_OPENAI_ENV, _HERMES_OPENAI_YAML),
+        ("bedrock", _HERMES_BEDROCK_ENV, _HERMES_BEDROCK_YAML),
+    ],
+)
+def test_hermes_byte_lock_per_provider_branch(ptype, expected_env, expected_yaml):
+    """B9 (ATX round 1): each provider's Jinja branch is byte-locked.
+
+    Substring-only assertions cannot catch wrong line ordering or stray
+    blank lines introduced by `trim_blocks` misconfiguration. This locks
+    the full file body for anthropic, openai, and bedrock branches —
+    completing the matrix alongside the maurice (openrouter) and
+    espresso (ollama) byte-locks.
+    """
+    base = _baseline_inputs(ptype=ptype)
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(),
+        api_server=None,
+    )
+    out = render_hermes(inputs)
+    assert out.files[".hermes/.env"] == expected_env
+    assert out.files[".hermes/config.yaml"] == expected_yaml
+
+
+def test_zeroclaw_git_integration_is_allowed_w14():
+    """W14 (ATX round 1): `git` is the only non-github integration on
+    zeroclaw's whitelist. Positive path must render without raising and
+    must NOT emit a GITHUB_TOKEN_GIT env var (git identity goes into
+    ~/.gitconfig via a separate render path)."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=base.channels,
+        integrations=(
+            IntegrationInputs(
+                name="git-id",
+                type="git",
+                credentials=(("GIT_AUTHOR_NAME", "alpha"),),
+            ),
+        ),
+        gateway=base.gateway,
+    )
+    out = render_zeroclaw(inputs)
+    env = out.files[".zeroclaw/zeroclaw-env.conf"]
+    assert "GITHUB_TOKEN_GIT" not in env
+    assert "GITHUB_TOKEN=" not in env
+
+
+def test_hermes_atlassian_mcp_servers_byte_lock_w15():
+    """W15 (ATX round 1): lock the full `mcp_servers:` YAML block for an
+    atlassian integration. Field ordering and slug derivation are part of
+    the contract — a future "tidy" reordering would silently break
+    downstream YAML consumers that rely on the entry shape."""
+    base = _baseline_inputs(ptype="anthropic")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="my-atl",
+                type="atlassian",
+                credentials=(
+                    ("ATLASSIAN_API_TOKEN", "atl-tk"),
+                    ("ATLASSIAN_EMAIL", "u@x.com"),
+                    ("ATLASSIAN_URL", "https://acme.atlassian.net/"),
+                ),
+            ),
+        ),
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    # W7 (ATX round 3): full-file byte-lock, not substring containment.
+    expected = (
+        "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+        "model:\n"
+        "  provider: \"anthropic\"\n"
+        "  default: 'claude-opus-4-7'\n"
+        "auxiliary:\n"
+        "  title_generation:\n"
+        "    model: \"claude-haiku-4-5-20251001\"\n"
+        "mcp_servers:\n"
+        "  my_atl:\n"
+        "    env:\n"
+        "      JIRA_URL: 'https://acme.atlassian.net'\n"
+        "      JIRA_USERNAME: 'u@x.com'\n"
+        "      JIRA_API_TOKEN: 'atl-tk'\n"
+        "      CONFLUENCE_URL: 'https://acme.atlassian.net/wiki'\n"
+        "      CONFLUENCE_USERNAME: 'u@x.com'\n"
+        "      CONFLUENCE_API_TOKEN: 'atl-tk'\n"
+    )
+    assert yaml == expected
+
+
+# ---------------------------------------------------------------------------
+# ATX round 2 follow-ups.
+# ---------------------------------------------------------------------------
+
+
+_HERMES_SLACK_ENV_OPENROUTER = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+    "OPENROUTER_API_KEY='sk-or-1'\n"
+    "HERMES_INFERENCE_PROVIDER='openrouter'\n"
+    "SLACK_BOT_TOKEN='xoxb-bot'\n"
+    "SLACK_APP_TOKEN='xapp-app'\n"
+    "SLACK_ALLOWED_USERS='u1,u2'\n"
+    "SLACK_HOME_CHANNEL='C123'\n"
+    "SLACK_HOME_CHANNEL_NAME='general'\n"
+)
+
+
+def test_hermes_render_byte_locks_slack_channel():
+    """W1 (ATX round 2): slack-channel branch needs the same byte-lock
+    discipline as discord and the five provider branches. A whitespace
+    change from `trim_blocks`/`lstrip_blocks` flipping the wrong way
+    would pass substring-only tests undetected."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(
+            ChannelInputs(
+                name="slack-a",
+                type="slack",
+                bot_token="xoxb-bot",
+                app_token="xapp-app",
+                allowed_users=("u1", "u2"),
+                home_channel="C123",
+                home_channel_name="general",
+            ),
+        ),
+        integrations=(),
+        api_server=None,
+    )
+    out = render_hermes(inputs)
+    assert out.files[".hermes/.env"] == _HERMES_SLACK_ENV_OPENROUTER
+
+
+def test_hermes_atlassian_empty_slug_raises_w6():
+    """W6 (ATX round 2): empty-slug guard must trigger. Names made up
+    entirely of slug-stripped characters (dashes, punctuation) produce
+    an empty slug; emit-unquoted-empty-key would be a silent YAML
+    structure corruption."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        integrations=(
+            IntegrationInputs(
+                name="!!!",
+                type="atlassian",
+                credentials=(
+                    ("ATLASSIAN_API_TOKEN", "tk"),
+                    ("ATLASSIAN_EMAIL", "u@x"),
+                    ("ATLASSIAN_URL", "https://x"),
+                ),
+            ),
+        ),
+    )
+    with pytest.raises(AgentConfigError, match="slugifies to empty"):
+        render_hermes(inputs)
+
+
+def test_zeroclaw_rejects_mixed_channel_list_w7():
+    """W7 (ATX round 2): a `[discord, slack]` channel list must raise
+    on the slack entry rather than silently emit just the discord block.
+    Locks the new B8 `continue`-based loop's behavior against a future
+    regression to `break` semantics."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=(
+            ChannelInputs(name="discord-a", type="discord", bot_token="d-tok"),
+            ChannelInputs(name="slack-b", type="slack", bot_token="s-tok"),
+        ),
+        gateway=base.gateway,
+    )
+    with pytest.raises(AgentConfigError, match="unsupported channel type 'slack'"):
+        render_zeroclaw(inputs)
+
+
+# ---------------------------------------------------------------------------
+# ATX round 3 follow-ups.
+# ---------------------------------------------------------------------------
+
+
+def test_hermes_ollama_endpoint_with_v1_suffix_not_double_appended_w8():
+    """W8 (ATX round 3): the ollama endpoint normalization MUST be
+    idempotent. A provider record with `endpoint='http://h:11434/v1'`
+    must NOT render `http://h:11434/v1/v1`."""
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=ProviderInputs(
+            name="ol",
+            type="ollama",
+            default_model="llama3",
+            endpoint="http://h:11434/v1",
+        ),
+        channels=(),
+        integrations=(),
+        api_server=None,
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    assert "http://h:11434/v1/v1" not in yaml
+    assert "base_url: 'http://h:11434/v1'" in yaml
+
+    # Same with a trailing slash on /v1 — the rstrip strips it before the
+    # endswith check, so the result is still single-/v1.
+    inputs2 = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=ProviderInputs(
+            name="ol",
+            type="ollama",
+            default_model="llama3",
+            endpoint="http://h:11434/v1/",
+        ),
+        channels=(),
+        integrations=(),
+        api_server=None,
+    )
+    yaml2 = render_hermes(inputs2).files[".hermes/config.yaml"]
+    assert "http://h:11434/v1/v1" not in yaml2
+    assert "base_url: 'http://h:11434/v1'" in yaml2
+
+
+def test_zeroclaw_rejects_dual_discord_channels_w1_w9():
+    """W1 + W9 (ATX round 3): two discord channels attached to one
+    zeroclaw agent is a silent-drop hazard — zeroclaw daemon emits a
+    single `[channels.discord]` block, so the second attachment would
+    be invisible. Raise so the operator detaches one."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=(
+            ChannelInputs(name="discord-a", type="discord", bot_token="t1"),
+            ChannelInputs(name="discord-b", type="discord", bot_token="t2"),
+        ),
+        gateway=base.gateway,
+    )
+    with pytest.raises(AgentConfigError, match="multiple discord channels"):
+        render_zeroclaw(inputs)
+
+
+# ---------------------------------------------------------------------------
+# ATX round 4 follow-ups.
+# ---------------------------------------------------------------------------
+
+
+def test_hermes_rejects_dual_discord_channels_atx_r4_b2():
+    """ATX round 4 B2: hermes must mirror zeroclaw's dual-discord guard.
+    Two attached discord channels would both render
+    `DISCORD_BOT_TOKEN=...` lines into the EnvironmentFile and systemd's
+    last-wins parse would silently keep only one. Raise."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=(
+            ChannelInputs(name="discord-a", type="discord", bot_token="t1"),
+            ChannelInputs(name="discord-b", type="discord", bot_token="t2"),
+        ),
+        api_server=base.api_server,
+    )
+    with pytest.raises(AgentConfigError, match="multiple discord channels"):
+        render_hermes(inputs)
+
+
+def test_hermes_rejects_dual_slack_channels_atx_r4_b2():
+    """ATX round 4 B2: same guard for slack."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=(
+            ChannelInputs(
+                name="s-a", type="slack", bot_token="b1", app_token="a1"
+            ),
+            ChannelInputs(
+                name="s-b", type="slack", bot_token="b2", app_token="a2"
+            ),
+        ),
+        api_server=base.api_server,
+    )
+    with pytest.raises(AgentConfigError, match="multiple slack channels"):
+        render_hermes(inputs)
+
+
+_HERMES_DISCORD_ALLOW_ALL_USERS_ENV = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+    "OPENROUTER_API_KEY='sk-or-1'\n"
+    "HERMES_INFERENCE_PROVIDER='openrouter'\n"
+    "DISCORD_BOT_TOKEN='dt'\n"
+    "DISCORD_ALLOWED_USERS=''\n"
+    "DISCORD_ALLOWED_CHANNELS=''\n"
+    "DISCORD_REQUIRE_MENTION='true'\n"
+    "DISCORD_ALLOW_ALL_USERS=true\n"
+    "DISCORD_HOME_CHANNEL=''\n"
+    "DISCORD_HOME_CHANNEL_NAME=''\n"
+    "DISCORD_HOME_CHANNEL_THREAD_ID=''\n"
+)
+
+
+def test_hermes_discord_allow_all_users_byte_lock_atx_r4_w6():
+    """ATX round 4 W6: lock the exact byte sequence around
+    `DISCORD_ALLOW_ALL_USERS=true`. This is a SAFETY-CRITICAL presence
+    flag — the hermes daemon parses it as truthy on any non-empty
+    string (`bool(os.environ.get(...))`), so an accidental whitespace
+    drift around the `{% if channel.allow_all_users %}` Jinja block
+    that emitted it on EVERY agent (rather than only on opted-in
+    agents) would silently open public Discord access. The substring
+    assertion in the pre-existing test is necessary but not sufficient
+    — only a full byte-lock catches a stray newline / indentation
+    change that would still pass substring containment."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(
+            ChannelInputs(
+                name="d",
+                type="discord",
+                bot_token="dt",
+                allow_all_users=True,
+            ),
+        ),
+        integrations=(),
+        api_server=None,
+    )
+    env = render_hermes(inputs).files[".hermes/.env"]
+    assert env == _HERMES_DISCORD_ALLOW_ALL_USERS_ENV
+    # And the false case (default) must NOT emit the line.
+    inputs_default = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(
+            ChannelInputs(name="d", type="discord", bot_token="dt"),
+        ),
+        integrations=(),
+        api_server=None,
+    )
+    env_default = render_hermes(inputs_default).files[".hermes/.env"]
+    assert "DISCORD_ALLOW_ALL_USERS" not in env_default
