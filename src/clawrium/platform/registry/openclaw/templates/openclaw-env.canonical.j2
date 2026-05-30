@@ -5,8 +5,9 @@
    render_openclaw. 00_PLAN.md Phase 4 live dry-run on wolf-i closes the
    loop against the live daemon.
 
-   Distinct from `.env.j2` (still consumed by the legacy Ansible
-   `configure.yaml` playbook); see header comment on that file. #}
+   Distinct from `.env.j2` in this directory, which is still consumed by
+   the Ansible `configure.yaml` playbook — see header comment on that
+   file. #}
 # Managed by clawrium (clawctl). Re-render with `clawctl agent configure {{ agent_name }}`.
 {% if gateway is not none %}
 OPENCLAW_GATEWAY_BIND={{ (gateway.bind or 'lan') | shq }}

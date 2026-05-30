@@ -1979,3 +1979,203 @@ def test_openclaw_json_no_discord_attached_emits_empty_block():
     assert blob["channels"]["discord"]["enabled"] is False
     assert blob["channels"]["discord"]["allowFrom"] == []
     assert blob["channels"]["discord"]["guilds"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 ATX Round 1 — B3 + W4 follow-ups.
+#
+# B3: full byte-lock for .openclaw/openclaw.json — pins json.dumps params,
+#     key ordering, and every unmanaged baseline key. Any drift fails CI
+#     with a clear diff (mirrors the env byte-lock pattern above).
+# W4: gateway=None must leave the baseline gateway block byte-identical.
+# ---------------------------------------------------------------------------
+
+
+_OPENCLAW_JSON_BYTE_LOCK = """\
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.openclaw/workspace",
+      "model": {
+        "primary": "openrouter/anthropic/claude-opus-4.7"
+      },
+      "imageMaxDimensionPx": 1200,
+      "maxConcurrent": 4,
+      "sandbox": {
+        "mode": "off",
+        "scope": "session"
+      },
+      "heartbeat": {
+        "every": "30m",
+        "target": "last"
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "port": 40000,
+    "bind": "lan",
+    "reload": {
+      "mode": "hybrid",
+      "debounceMs": 300
+    }
+  },
+  "session": {
+    "dmScope": "per-channel-peer",
+    "threadBindings": {
+      "enabled": true,
+      "idleHours": 24,
+      "maxAgeHours": 168
+    },
+    "reset": {
+      "mode": "daily",
+      "atHour": 4,
+      "idleMinutes": 120
+    }
+  },
+  "tools": {
+    "exec": {
+      "host": "gateway",
+      "security": "full",
+      "ask": "off"
+    },
+    "deny": [
+      "browser"
+    ]
+  },
+  "channels": {
+    "discord": {
+      "enabled": true,
+      "allowFrom": [
+        "u1",
+        "u2"
+      ],
+      "guilds": {
+        "g1": {
+          "users": [
+            "u1",
+            "u2"
+          ],
+          "channels": {
+            "c1": {
+              "allow": true
+            },
+            "c2": {
+              "allow": true
+            }
+          }
+        }
+      }
+    }
+  },
+  "browser": {
+    "enabled": false
+  },
+  "env": {
+    "shellEnv": {
+      "enabled": true,
+      "timeoutMs": 15000
+    }
+  }
+}
+"""
+
+
+def test_openclaw_json_byte_lock():
+    """B3 (Round 1): full byte-equivalence lock for `.openclaw/openclaw.json`.
+    Pins json.dumps params (indent=2, sort_keys=False, trailing newline),
+    key ordering, and every unmanaged baseline key. Any drift fails CI."""
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="openclaw",
+        provider=ProviderInputs(
+            name="or",
+            type="openrouter",
+            default_model="anthropic/claude-opus-4.7",
+            api_key="sk-or-1",
+        ),
+        channels=(
+            ChannelInputs(
+                name="discord-a",
+                type="discord",
+                bot_token="discord-bot",
+                allowed_users=("u1", "u2"),
+                allowed_guilds=("g1",),
+                allowed_channels=("c1", "c2"),
+            ),
+        ),
+        integrations=(),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tkn", bind="lan"),
+    )
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    assert body == _OPENCLAW_JSON_BYTE_LOCK
+
+
+def test_openclaw_json_gateway_none_preserves_baseline_gateway_block():
+    """W4 (Round 1): with gateway=None the baseline gateway block must
+    survive byte-identical — no managed-path mutation should leak into
+    the unmanaged sections."""
+    import json
+
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="openclaw",
+        provider=ProviderInputs(
+            name="or", type="openrouter", default_model="m", api_key="sk-1"
+        ),
+        channels=(),
+        integrations=(),
+        gateway=None,
+    )
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    blob = json.loads(body)
+    # Baseline gateway block survives byte-identical when gateway=None.
+    assert blob["gateway"] == {
+        "mode": "local",
+        "port": 18789,
+        "bind": "lan",
+        "reload": {"mode": "hybrid", "debounceMs": 300},
+    }
+
+
+def test_openclaw_json_daemon_sections_unmanaged_baseline_keys_complete():
+    """B3 (Round 1) — strengthening: assert ALL unmanaged baseline keys
+    are present, not just a curated sample. Catches accidental baseline
+    truncation that the curated `daemon_sections_preserved` test misses."""
+    import json
+
+    inputs = _openclaw_inputs(ptype="openrouter")
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    blob = json.loads(body)
+    # Top-level keys must be exactly the baseline set.
+    assert set(blob.keys()) == {
+        "agents",
+        "gateway",
+        "session",
+        "tools",
+        "channels",
+        "browser",
+        "env",
+    }
+    # agents.defaults unmanaged keys (model is managed).
+    assert set(blob["agents"]["defaults"].keys()) == {
+        "workspace",
+        "model",
+        "imageMaxDimensionPx",
+        "maxConcurrent",
+        "sandbox",
+        "heartbeat",
+    }
+    # gateway unmanaged keys survive (port + bind are managed).
+    assert blob["gateway"]["mode"] == "local"
+    assert blob["gateway"]["reload"] == {"mode": "hybrid", "debounceMs": 300}
+    # tools.deny baseline value.
+    assert blob["tools"]["deny"] == ["browser"]
+    # agents.defaults.workspace baseline value.
+    assert blob["agents"]["defaults"]["workspace"] == "~/.openclaw/workspace"
+    assert blob["agents"]["defaults"]["imageMaxDimensionPx"] == 1200
+    assert blob["agents"]["defaults"]["maxConcurrent"] == 4
+    assert blob["agents"]["defaults"]["sandbox"] == {
+        "mode": "off",
+        "scope": "session",
+    }
