@@ -94,7 +94,12 @@ _SECRET_KEY_SUFFIXES = (
     "_SECRET_KEY",
     "_PASSWORD",
     "_CREDENTIALS",
-    "_KEY",  # broad; AWS_ACCESS_KEY_ID, etc.
+    "_KEY",  # broad; matches AWS_SECRET_ACCESS_KEY, GATEWAY_AUTH_KEY, etc.
+    # B5 (ATX #555 polish): explicit names for secret env vars whose
+    # suffix would NOT otherwise match (e.g. `AWS_ACCESS_KEY_ID` ends
+    # in `_ID`, not `_KEY`). Listed by exact suffix so they're picked
+    # up by the `endswith` check on the captured key.
+    "_KEY_ID",
 )
 
 
@@ -503,23 +508,37 @@ def sync_agent_canonical(
         transition_state as _transition,
     )
 
+    # B1 (ATX #555 polish): surface state-write failures on the result.
+    # Host-side write + bearer re-pair already succeeded; the sync is
+    # not a hard failure, but `start_agent` gates on state == READY so
+    # without a populated `error` field the operator sees `success=True`
+    # with a stuck non-READY agent and no diagnostic. W1 (ATX #555
+    # polish): emit on the `_ITE` branch too — mid-walk agents previously
+    # produced a clean success line followed by an unexplained failure
+    # from `start_agent`.
+    transition_error: str | None = None
     try:
         _transition(hostname, agent_key, _OS.READY)
-    except _ITE:
-        pass
+    except _ITE as exc:
+        emit(
+            "sync",
+            f"note: skipped state=READY transition for {agent_key} "
+            f"(agent is mid-walk: {exc!s}). `clawctl agent start` will "
+            f"surface the current onboarding stage.",
+        )
     except (_ANF, _ONF) as exc:
-        emit(
-            "sync",
-            f"warning: registry record missing for {agent_key} after "
-            f"sync: {exc!s}. Inspect hosts.json before running "
-            f"clawctl agent start.",
+        transition_error = (
+            f"registry record missing for {agent_key} after sync: "
+            f"{exc!s}. Inspect hosts.json before running "
+            f"clawctl agent start."
         )
+        emit("sync", f"warning: {transition_error}")
     except Exception as exc:
-        emit(
-            "sync",
-            f"warning: could not write state=READY to hosts.json: "
-            f"{exc!s}. Re-run sync to commit state.",
+        transition_error = (
+            f"could not write state=READY to hosts.json: {exc!s}. "
+            f"Re-run sync to commit state."
         )
+        emit("sync", f"warning: {transition_error}")
 
     emit(
         "sync",
@@ -533,4 +552,5 @@ def sync_agent_canonical(
         files_written=tuple(files_written),
         files_unchanged=tuple(files_unchanged),
         diffs=tuple(diffs),
+        error=transition_error,
     )

@@ -4,7 +4,7 @@
 schema_version = 2
 
 [gateway]
-host = "{{ gateway.host }}"
+host = "{{ gateway.host | toq }}"
 port = {{ gateway.port }}
 allow_public_bind = {{ "true" if gateway.allow_public_bind else "false" }}
 require_pairing = true
@@ -26,11 +26,11 @@ max_failed_attempts = 5
 max_pending_codes = 3
 
 [providers]
-fallback = "{{ provider.type }}"
+fallback = "{{ provider.type | toq }}"
 
 [providers.models.{{ provider.type }}]
-model = "{{ provider.default_model }}"
-{% if provider.type == "ollama" %}base_url = "{{ provider.endpoint }}"{% else %}api_key = "{{ provider.api_key }}"{% endif %}
+model = "{{ provider.default_model | toq }}"
+{% if provider.type == "ollama" %}base_url = "{{ provider.endpoint | toq }}"{% else %}api_key = "{{ provider.api_key | toq }}"{% endif %}
 
 [agent]
 max_tool_iterations = 200
@@ -91,11 +91,16 @@ show_tool_calls = false
 
 [channels.discord]
 enabled = {{ "true" if discord_channel else "false" }}
-bot_token = "{{ discord_channel.bot_token if discord_channel else "" }}"
-allowed_users = [{% if discord_channel %}{% for u in discord_channel.allowed_users %}"{{ u }}"{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}]
-allowed_guilds = [{% if discord_channel %}{% for g in discord_channel.allowed_guilds %}"{{ g }}"{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}]
+bot_token = "{{ (discord_channel.bot_token if discord_channel else "") | toq }}"
+allowed_users = [{% if discord_channel %}{% for u in discord_channel.allowed_users %}"{{ u | toq }}"{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}]
+allowed_guilds = [{% if discord_channel %}{% for g in discord_channel.allowed_guilds %}"{{ g | toq }}"{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}]
+{# B4 (ATX #555 polish): TOML key `mention_only` maps to the canonical
+   ChannelInputs.require_mention field. Upstream zeroclaw daemon's
+   serde struct uses `mention_only` (DiscordConfig::mention_only).
+   Names diverge intentionally; do not rename either side without
+   running `zeroclaw --dump-config` to verify. #}
 mention_only = {{ "true" if (discord_channel and discord_channel.require_mention) else "false" }}
-stream_mode = "{{ discord_channel.stream_mode if (discord_channel and discord_channel.stream_mode) else "off" }}"
+stream_mode = "{{ (discord_channel.stream_mode if (discord_channel and discord_channel.stream_mode) else "off") | toq }}"
 approval_timeout_secs = 300
 draft_update_interval_ms = 1000
 interrupt_on_new_message = false
@@ -141,7 +146,7 @@ forbidden_paths = [
   "/etc", "/sys", "/boot", "/proc",
   "~/.ssh", "~/.aws", "~/.gnupg", "~/.config/clawrium",
 ]
-shell_env_passthrough = [{% for entry in shell_env_passthrough %}"{{ entry }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+shell_env_passthrough = [{% for entry in shell_env_passthrough %}"{{ entry | toq }}"{% if not loop.last %}, {% endif %}{% endfor %}]
 auto_approve = ["file_read", "file_list", "content_search", "glob_search", "pdf_read", "image_info", "file_write", "file_edit", "http_request", "web_fetch", "web_search", "web_search_tool", "time", "weather", "memory_search", "memory_pin", "memory_recall", "memory_store", "memory_forget", "git_operations", "schedule", "cron_add", "cron_list", "cron_remove", "cron_run", "cron_runs", "cron_update", "ask_user", "escalate_to_human", "sessions_current", "sessions_list", "tool_search", "calculator", "browser", "browser_open"]
 allowed_roots = []
 always_ask = []

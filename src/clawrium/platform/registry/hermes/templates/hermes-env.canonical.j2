@@ -38,9 +38,19 @@ DISCORD_REQUIRE_MENTION={{ (channel.require_mention | string | lower) | shq }}
 {% if channel.allow_all_users %}
 DISCORD_ALLOW_ALL_USERS=true
 {% endif %}
+{# W4 (ATX #555 polish): guard each home-channel var. Empty-string vs
+   absent is semantically distinct for the daemon's env-var config
+   path — emitting `DISCORD_HOME_CHANNEL=''` makes the daemon treat an
+   un-set home channel as "explicitly empty" rather than "unset". #}
+{% if channel.home_channel %}
 DISCORD_HOME_CHANNEL={{ channel.home_channel | shq }}
+{% endif %}
+{% if channel.home_channel_name %}
 DISCORD_HOME_CHANNEL_NAME={{ channel.home_channel_name | shq }}
+{% endif %}
+{% if channel.home_channel_thread_id %}
 DISCORD_HOME_CHANNEL_THREAD_ID={{ channel.home_channel_thread_id | shq }}
+{% endif %}
 {% elif channel.type == 'slack' %}
 SLACK_BOT_TOKEN={{ channel.bot_token | shq }}
 SLACK_APP_TOKEN={{ channel.app_token | shq }}

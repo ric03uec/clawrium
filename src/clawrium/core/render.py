@@ -435,7 +435,11 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
     gateway_blob = config_blob.get("gateway")
     if isinstance(gateway_blob, dict):
         gateway_input = GatewayInputs(
-            host=str(gateway_blob.get("host", "")),
+            # W6 (ATX #555 polish): NUL in host value would silently
+            # truncate the TOML at parse time. Sanitize at assembly
+            # time, same as every other secret/identity string from
+            # hosts.json.
+            host=_clean_secret(gateway_blob.get("host")),
             port=int(gateway_blob.get("port", 0) or 0),
             # Same systemd-truncation hazard as api_server.key above.
             auth=_clean_secret(gateway_blob.get("auth")),
@@ -465,8 +469,15 @@ def _shell_quote(value: str) -> str:
     Embeds a single quote in a single-quoted string as: 'val'"'"'ue'.
     Used for systemd EnvironmentFile values so `#` mid-value isn't
     parsed as a comment and arbitrary content can't break the line.
+
+    W7 (ATX #555 polish): NUL is stripped unconditionally. A NUL inside
+    a single-quoted systemd EnvironmentFile value silently truncates
+    the file at the NUL byte, dropping every var below it — a
+    silent-wipe class identical to the bug parent #555 set out to
+    eliminate.
     """
-    return "'" + value.replace("'", "'\"'\"'") + "'"
+    cleaned = value.replace("\x00", "")
+    return "'" + cleaned.replace("'", "'\"'\"'") + "'"
 
 
 def _systemd_quote(value: str) -> str:
@@ -520,6 +531,13 @@ _HERMES_SUPPORTED_CHANNELS = frozenset({"discord", "slack"})
 _HERMES_SUPPORTED_INTEGRATIONS = frozenset(
     {"github", "atlassian", "linear", "notion", "gitlab", "git"}
 )
+# Lockstep with hermes' configure.yaml playbook
+# (`mcp_atlassian_version: "0.21.1"`). Without this pin in the rendered
+# `mcp_servers.<slug>.args` line the daemon's uvx launcher would resolve
+# `mcp-atlassian` to latest — divergent from the version `uv tool install`
+# installed onto the host, so a fresh tool venv would silently get a
+# different MCP build than the one tested.
+_HERMES_MCP_ATLASSIAN_VERSION = "0.21.1"
 
 
 def render_hermes(inputs: RenderInputs) -> RenderedFiles:
@@ -634,6 +652,7 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
         provider=inputs.provider,
         ollama_base_url=ollama_base_url,
         atlassian_integrations=atlassian_views,
+        mcp_atlassian_version=_HERMES_MCP_ATLASSIAN_VERSION,
     )
 
     return RenderedFiles(
@@ -820,21 +839,14 @@ def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
     )
 
 
-def _render_zeroclaw_config_template(
-    *,
-    agent_name: str,
-    gateway: "GatewayInputs",
-    provider: "ProviderInputs",
-    discord_channel: "ChannelInputs | None",
-    shell_env_passthrough: list[str],
-) -> str:
-    """Render the full-canonical zeroclaw config.toml Jinja template.
+@_functools.lru_cache(maxsize=1)
+def _zeroclaw_template():
+    """Load + compile the zeroclaw canonical config.toml template once.
 
-    The template lives at
-    `src/clawrium/platform/registry/zeroclaw/templates/zeroclaw-config.toml.j2`
-    and is a verbatim copy of the canonical zeroclaw config with only
-    clawctl-managed values templated. Loaded via importlib.resources so it
-    ships with the wheel.
+    W2 (ATX #555 polish): the 1027-line zeroclaw template was previously
+    re-read from disk and re-compiled on every render call. Hermes and
+    openclaw both cache theirs — mirror that for consistency and to keep
+    fan-out render benchmarks fast on multi-agent hosts.
     """
     from importlib.resources import files
 
@@ -852,7 +864,33 @@ def _render_zeroclaw_config_template(
         keep_trailing_newline=True,
         autoescape=False,  # TOML is not HTML
     )
-    template = env.from_string(template_source)
+    # `toq` filter — applied to every {{ ... }} that renders into a TOML
+    # double-quoted string. Closes B3 (ATX round on #555 polish): without
+    # this an API key containing `"` would terminate the TOML string
+    # early and could inject arbitrary keys (e.g. silently disable
+    # `require_pairing` on the gateway). `\` in any field would produce
+    # an invalid escape and brick TOML parse.
+    env.filters["toq"] = lambda v: _toml_escape(str(v))
+    return env.from_string(template_source)
+
+
+def _render_zeroclaw_config_template(
+    *,
+    agent_name: str,
+    gateway: "GatewayInputs",
+    provider: "ProviderInputs",
+    discord_channel: "ChannelInputs | None",
+    shell_env_passthrough: list[str],
+) -> str:
+    """Render the full-canonical zeroclaw config.toml Jinja template.
+
+    The template lives at
+    `src/clawrium/platform/registry/zeroclaw/templates/zeroclaw-config.toml.j2`
+    and is a verbatim copy of the canonical zeroclaw config with only
+    clawctl-managed values templated. Loaded via importlib.resources so it
+    ships with the wheel.
+    """
+    template = _zeroclaw_template()
     return template.render(
         agent_name=agent_name,
         gateway=gateway,
