@@ -1399,6 +1399,15 @@ def sync_agent(
         transition_state as _transition_post,
     )
 
+    # B-NEW-2 (ATX #555 polish round 4): mirror
+    # `lifecycle_canonical.py:sync_agent_canonical`'s success/error
+    # return contract. Only InvalidTransitionError represents a
+    # non-failure (mid-walk agent — start_agent will surface the stage).
+    # Registry-incoherence and generic IO/permission failures must
+    # surface as `success=False` so a CLI handler does not print
+    # "✓ sync complete" while the agent is stuck non-READY.
+    state_write_ok = True
+    state_write_err: str | None = None
     try:
         _transition_post(hostname, agent_key, _OS_post.READY)
     except _ITE_post:
@@ -1414,39 +1423,36 @@ def sync_agent(
         # recovery via re-sync (same error will fire) — distinct
         # remediation from the IO-failure branch below. ATX iter-5
         # W2-NEW carry-forward.
-        emit(
-            "sync",
-            f"warning: registry record missing for {agent_key} after "
-            f"configure: {exc!s}. Inspect hosts.json manually before "
-            f"running clawctl agent start.",
+        state_write_err = (
+            f"registry record missing for {agent_key} after configure: "
+            f"{exc!s}. Inspect hosts.json manually before running "
+            f"clawctl agent start."
         )
+        emit("sync", f"warning: {state_write_err}")
+        state_write_ok = False
     except Exception as exc:
         # Storage / IO failure (PermissionError, etc.) writing the
-        # READY pointer. Don't fail the sync — configure_agent already
-        # succeeded — but surface the gap. Re-sync IS the right
-        # remediation here. ATX iter-3 W-NEW-1.
-        #
-        # Note: emit raw exception string. Rendering-library escaping
-        # is the consumer's job (see clawctl/agent/sync.py:on_event
-        # and cli/agent.py:on_event for the boundary). ATX iter-5
-        # B1-iter5 (rich.markup.escape moved out of core).
-        emit(
-            "sync",
-            f"warning: could not write state=READY to hosts.json: "
-            f"{exc!s}. Agent is configured remotely; re-run sync to "
-            f"commit state.",
+        # READY pointer. ATX iter-3 W-NEW-1. Emit raw exception string;
+        # rendering-library escaping is the consumer's job (see
+        # clawctl/agent/sync.py:on_event and cli/agent.py:on_event for
+        # the boundary).
+        state_write_err = (
+            f"could not write state=READY to hosts.json: {exc!s}. "
+            f"Agent is configured remotely; re-run sync to commit state."
         )
+        emit("sync", f"warning: {state_write_err}")
+        state_write_ok = False
 
     emit("sync", f"Sync complete for {agent_key}")
 
     return {
-        "success": True,
+        "success": state_write_ok,
         "agent": agent_key,
         "host": hostname,
         "operation": "sync",
         "pid": None,
         "started_at": None,
-        "error": None,
+        "error": state_write_err,
     }
 
 

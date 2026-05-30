@@ -2375,6 +2375,24 @@ class TestResolveAgentRecord:
 class TestSyncAgent:
     """Tests for sync_agent function."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_transition_state(self):
+        """B-NEW-2 (ATX #555 polish round 4): `sync_agent` now mirrors
+        the canonical pipeline's success/error contract — the
+        post-configure `transition_state(..., READY)` call sets
+        `success=False` on registry-incoherence or IO errors. These
+        tests mock `get_host`/`configure_agent` but the real
+        `transition_state` runs against an empty `XDG_CONFIG_HOME`
+        (isolated by `_isolate_config_dir`) and naturally raises
+        `OnboardingNotFoundError`, which previously was silently
+        swallowed. Patch it here so each test exercises its intended
+        contract; tests that want to assert the failure path patch it
+        themselves and override this autouse fixture's effect."""
+        with patch(
+            "clawrium.core.onboarding.transition_state", return_value=None
+        ):
+            yield
+
     def test_raises_error_when_host_not_found(self):
         """Sync with unknown host fails."""
         with patch("clawrium.core.lifecycle.get_host", return_value=None):
@@ -2711,6 +2729,97 @@ class TestSyncAgent:
         mock_configure.assert_called_once()
         # Restart should NOT be called
         mock_restart.assert_not_called()
+
+    def test_sync_registry_incoherence_surfaces_success_false(self):
+        """B-NEW-2 (ATX #555 polish round 4): when post-configure
+        `transition_state` raises `OnboardingNotFoundError` (registry
+        record vanished between configure and READY write), legacy
+        `sync_agent` must mirror the canonical pipeline's contract —
+        `success=False` + populated `.error` — so a CLI handler
+        gating on `.success` does not print "✓ sync complete" with a
+        stuck non-READY agent. The autouse `_stub_transition_state`
+        fixture is overridden here by the inner `patch` per pytest's
+        last-patch-wins semantics."""
+        from clawrium.core.onboarding import OnboardingNotFoundError
+
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ):
+                with patch(
+                    "clawrium.core.onboarding.transition_state",
+                    side_effect=OnboardingNotFoundError("record vanished"),
+                ):
+                    result = sync_agent("192.168.1.100", "openclaw")
+
+        assert result["success"] is False
+        assert result["error"] is not None
+        assert "registry record missing" in result["error"]
+
+    def test_sync_state_write_io_failure_surfaces_success_false(self):
+        """B-NEW-2 (ATX #555 polish round 4): IO/permission failures
+        on the READY transition must also surface `success=False` —
+        not silently swallowed."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ):
+                with patch(
+                    "clawrium.core.onboarding.transition_state",
+                    side_effect=OSError("disk full"),
+                ):
+                    result = sync_agent("192.168.1.100", "openclaw")
+
+        assert result["success"] is False
+        assert result["error"] is not None
+        assert "state=READY" in result["error"]
+        assert "disk full" in result["error"]
 
     def test_allows_intermediate_onboarding_states(self):
         """Sync allows onboarding states after PENDING (providers, identity, etc.)."""

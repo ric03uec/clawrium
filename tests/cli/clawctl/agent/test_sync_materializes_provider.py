@@ -117,6 +117,12 @@ def test_sync_carries_optional_provider_fields():
         patch("clawrium.core.lifecycle.get_host", return_value=host),
         patch("clawrium.core.providers.storage.get_provider", return_value=rec),
         patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+        # B-NEW-2 (ATX #555 polish round 4): sync_agent now surfaces
+        # registry-incoherence on the post-configure READY transition
+        # as success=False. This test stubs get_host but not the
+        # transition target — patch transition_state explicitly to
+        # exercise the documented success path.
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
     ):
         result = sync_agent("192.168.1.100", "openclaw")
 
@@ -152,6 +158,8 @@ def test_sync_legacy_agent_without_attachment_unchanged():
     with (
         patch("clawrium.core.lifecycle.get_host", return_value=host),
         patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+        # B-NEW-2: see test_sync_carries_optional_provider_fields.
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
     ):
         result = sync_agent("192.168.1.100", "openclaw")
 
@@ -232,6 +240,8 @@ def test_sync_after_detach_preserves_last_known_good_provider():
     with (
         patch("clawrium.core.lifecycle.get_host", return_value=host),
         patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+        # B-NEW-2: see test_sync_carries_optional_provider_fields.
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
     ):
         result = sync_agent("192.168.1.100", "openclaw")
 
@@ -664,6 +674,8 @@ def test_sync_optional_field_max_tokens_zero_preserved():
         patch("clawrium.core.lifecycle.get_host", return_value=host),
         patch("clawrium.core.providers.storage.get_provider", return_value=rec),
         patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+        # B-NEW-2: see test_sync_carries_optional_provider_fields.
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
     ):
         result = sync_agent("192.168.1.100", "openclaw")
 
