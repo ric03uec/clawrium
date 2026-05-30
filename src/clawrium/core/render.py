@@ -542,14 +542,30 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
             f"Supported: {sorted(_HERMES_SUPPORTED_PROVIDERS)}"
         )
 
+    # B2 (ATX round 4): duplicate-discord/duplicate-slack guard. The
+    # hermes daemon reads DISCORD_BOT_TOKEN / SLACK_BOT_TOKEN as scalar
+    # env vars — two attached channels of the same type would render
+    # two `DISCORD_BOT_TOKEN=` lines into the EnvironmentFile and
+    # systemd's last-wins parse semantics would silently keep one.
+    # Mirror the zeroclaw guard added in ATX round 3.
+    seen_channel_types: dict[str, str] = {}
     for channel in inputs.channels:
         if channel.type not in _HERMES_SUPPORTED_CHANNELS:
-            # W1 (ATX round 1): list supported types so the operator can
-            # diagnose without grepping render.py.
             raise AgentConfigError(
                 f"render_hermes: unsupported channel type {channel.type!r}. "
                 f"Supported: {sorted(_HERMES_SUPPORTED_CHANNELS)}"
             )
+        prior = seen_channel_types.get(channel.type)
+        if prior is not None:
+            raise AgentConfigError(
+                f"render_hermes: agent {inputs.agent_name!r} has "
+                f"multiple {channel.type} channels attached "
+                f"({prior!r}, {channel.name!r}); hermes emits one "
+                f"{channel.type.upper()}_BOT_TOKEN env var and "
+                f"systemd's last-wins parse would silently keep one. "
+                f"Detach one with `clawctl channel detach`."
+            )
+        seen_channel_types[channel.type] = channel.name
 
     for integration in inputs.integrations:
         if integration.type not in _HERMES_SUPPORTED_INTEGRATIONS:

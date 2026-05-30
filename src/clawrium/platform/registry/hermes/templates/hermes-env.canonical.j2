@@ -6,15 +6,21 @@
      https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/scripts/install.sh
 
    The env-var names emitted below match what the daemon at the pinned
-   tag reads. Authoritative loci in upstream:
+   tag reads. Authoritative loci in upstream at v2026.5.7 (URLs are
+   resolvable at the pin; click them to verify a key name):
      - Provider key vars (OPENROUTER_API_KEY / ANTHROPIC_API_KEY /
-       OPENAI_API_KEY / AWS_*): hermes/config/loader.py
+       OPENAI_API_KEY / AWS_*):
+       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/config/loader.py
      - HERMES_INFERENCE_PROVIDER enum (`openrouter`|`anthropic`|`openai`|
-       `bedrock`|`custom`): hermes/config/providers.py
-     - API_SERVER_* (host/port/key/enabled): hermes/server/api.py
-     - DISCORD_*, SLACK_*: hermes/channels/{discord,slack}.py
+       `bedrock`|`custom`):
+       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/config/providers.py
+     - API_SERVER_* (host/port/key/enabled):
+       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/server/api.py
+     - DISCORD_*, SLACK_*:
+       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/channels/discord.py
+       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/channels/slack.py
      - GITHUB_TOKEN(_<SLUG>), GITLAB_*, LINEAR_API_KEY, NOTION_API_KEY:
-       hermes/tools/env_passthrough.py
+       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/tools/env_passthrough.py
 
    Static struct-parity verification against the upstream sources is
    out of band (the structs are not vendored into clawrium). Two

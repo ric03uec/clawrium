@@ -1593,3 +1593,108 @@ def test_zeroclaw_rejects_dual_discord_channels_w1_w9():
     )
     with pytest.raises(AgentConfigError, match="multiple discord channels"):
         render_zeroclaw(inputs)
+
+
+# ---------------------------------------------------------------------------
+# ATX round 4 follow-ups.
+# ---------------------------------------------------------------------------
+
+
+def test_hermes_rejects_dual_discord_channels_atx_r4_b2():
+    """ATX round 4 B2: hermes must mirror zeroclaw's dual-discord guard.
+    Two attached discord channels would both render
+    `DISCORD_BOT_TOKEN=...` lines into the EnvironmentFile and systemd's
+    last-wins parse would silently keep only one. Raise."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=(
+            ChannelInputs(name="discord-a", type="discord", bot_token="t1"),
+            ChannelInputs(name="discord-b", type="discord", bot_token="t2"),
+        ),
+        api_server=base.api_server,
+    )
+    with pytest.raises(AgentConfigError, match="multiple discord channels"):
+        render_hermes(inputs)
+
+
+def test_hermes_rejects_dual_slack_channels_atx_r4_b2():
+    """ATX round 4 B2: same guard for slack."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=(
+            ChannelInputs(
+                name="s-a", type="slack", bot_token="b1", app_token="a1"
+            ),
+            ChannelInputs(
+                name="s-b", type="slack", bot_token="b2", app_token="a2"
+            ),
+        ),
+        api_server=base.api_server,
+    )
+    with pytest.raises(AgentConfigError, match="multiple slack channels"):
+        render_hermes(inputs)
+
+
+_HERMES_DISCORD_ALLOW_ALL_USERS_ENV = (
+    "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+    "OPENROUTER_API_KEY='sk-or-1'\n"
+    "HERMES_INFERENCE_PROVIDER='openrouter'\n"
+    "DISCORD_BOT_TOKEN='dt'\n"
+    "DISCORD_ALLOWED_USERS=''\n"
+    "DISCORD_ALLOWED_CHANNELS=''\n"
+    "DISCORD_REQUIRE_MENTION='true'\n"
+    "DISCORD_ALLOW_ALL_USERS=true\n"
+    "DISCORD_HOME_CHANNEL=''\n"
+    "DISCORD_HOME_CHANNEL_NAME=''\n"
+    "DISCORD_HOME_CHANNEL_THREAD_ID=''\n"
+)
+
+
+def test_hermes_discord_allow_all_users_byte_lock_atx_r4_w6():
+    """ATX round 4 W6: lock the exact byte sequence around
+    `DISCORD_ALLOW_ALL_USERS=true`. This is a SAFETY-CRITICAL presence
+    flag — the hermes daemon parses it as truthy on any non-empty
+    string (`bool(os.environ.get(...))`), so an accidental whitespace
+    drift around the `{% if channel.allow_all_users %}` Jinja block
+    that emitted it on EVERY agent (rather than only on opted-in
+    agents) would silently open public Discord access. The substring
+    assertion in the pre-existing test is necessary but not sufficient
+    — only a full byte-lock catches a stray newline / indentation
+    change that would still pass substring containment."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(
+            ChannelInputs(
+                name="d",
+                type="discord",
+                bot_token="dt",
+                allow_all_users=True,
+            ),
+        ),
+        integrations=(),
+        api_server=None,
+    )
+    env = render_hermes(inputs).files[".hermes/.env"]
+    assert env == _HERMES_DISCORD_ALLOW_ALL_USERS_ENV
+    # And the false case (default) must NOT emit the line.
+    inputs_default = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(
+            ChannelInputs(name="d", type="discord", bot_token="dt"),
+        ),
+        integrations=(),
+        api_server=None,
+    )
+    env_default = render_hermes(inputs_default).files[".hermes/.env"]
+    assert "DISCORD_ALLOW_ALL_USERS" not in env_default

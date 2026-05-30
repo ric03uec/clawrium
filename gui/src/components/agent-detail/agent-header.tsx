@@ -23,13 +23,32 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
 
   // B2 (#560 / #567): backend `/web-ui` returns `available: false` with
   // a `reason` for any agent type whose manifest does not declare
-  // `features.web_ui` (see src/clawrium/core/web_ui.py:resolve). The
-  // button renders only when the backend says the UI is reachable —
-  // there is no client-side agent-type allowlist. Loading state hides
-  // the button rather than disabling it to avoid flashing a disabled
-  // button on every agent that doesn't expose a UI.
+  // `features.web_ui` (see src/clawrium/core/web_ui.py:resolve). There
+  // is no client-side agent-type allowlist — the backend is the
+  // single gate.
+  //
+  // Render policy (W1/W3 from ATX round 4):
+  //   - data.available === true  → fully enabled button.
+  //   - loading / transient error (no data yet, OR available=false with
+  //     a transient reason) → disabled button with informative tooltip,
+  //     so the user gets feedback that the system is trying.
+  //   - permanent no-UI (`reason` says "does not expose") → button is
+  //     hidden entirely; rendering a perma-disabled button on every
+  //     nemoclaw / openclaw page was the previous UX regression.
   const webUI = useAgentWebUI(agent.agent_key, agent.status);
-  const showWebUI = webUI.data?.available === true;
+  const webUIPermanentlyUnavailable =
+    webUI.data?.available === false &&
+    !!webUI.data?.reason &&
+    webUI.data.reason.includes("does not expose");
+  const showWebUI = !webUIPermanentlyUnavailable;
+  const webUIReady = webUI.data?.available === true && !!webUI.data?.local_url;
+  const webUITooltip = webUI.isLoading
+    ? "Establishing tunnel…"
+    : webUI.isError
+      ? "Could not reach backend — will retry."
+      : webUIReady
+        ? "Open the native dashboard in a new tab"
+        : webUI.data?.reason || "Native UI not available";
 
   // Pairing code only meaningful for agent types whose SPA gates on an
   // in-process handshake (zeroclaw). The mint is on-demand: clicking the
@@ -68,7 +87,7 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
             <Button
               variant="secondary"
               size="sm"
-              disabled={!webUI.data?.local_url}
+              disabled={!webUIReady}
               onClick={() => {
                 if (webUI.data?.local_url) {
                   window.open(
@@ -78,10 +97,10 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
                   );
                 }
               }}
-              title="Open the native dashboard in a new tab"
-              aria-label="Open the native dashboard in a new tab"
+              title={webUITooltip}
+              aria-label={webUITooltip}
             >
-              Open Agent UI
+              {webUI.isLoading ? "Opening…" : "Open Agent UI"}
             </Button>
           )}
           {showPairing && (

@@ -33,11 +33,29 @@ export function useAgentWebUI(key: string, status: string) {
     queryKey: ["agent-web-ui", key, status],
     queryFn: () => api.getAgentWebUI(key),
     enabled: !!key,
-    // Retry an unavailable tunnel every 30s so a transient failure clears
-    // itself once the host is reachable again. We stop retrying as soon as
-    // the tunnel is up to keep the reaper map quiet.
-    refetchInterval: (query) =>
-      query.state.data?.available ? false : 30_000,
+    // Polling policy (W2 from ATX round 4):
+    //   - available=true  → stop polling (tunnel is up).
+    //   - available=false WITH a reason returned by the backend
+    //     (`Agent type 'X' does not expose a native web UI.`) → stop
+    //     polling too: agent type is permanently no-UI; no amount of
+    //     refetching changes that. The previous unconditional 30s
+    //     interval kept hitting the endpoint forever for every
+    //     nemoclaw / openclaw / etc. fleet member.
+    //   - available=false with a transient reason (tunnel error,
+    //     daemon not reachable, etc.) → keep the 30s retry so a
+    //     blip clears itself.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 30_000;
+      if (data.available) return false;
+      // Backend reasons that indicate a permanent no-UI verdict for
+      // this agent type. Matched as a substring so phrasing tweaks
+      // upstream do not silently break polling behavior.
+      if (data.reason && data.reason.includes("does not expose")) {
+        return false;
+      }
+      return 30_000;
+    },
   });
 }
 

@@ -1,8 +1,11 @@
-{# Upstream schema reference (B1):
-     Repo:    https://github.com/NousResearch/hermes-agent
-     Pin:     v2026.5.7 (manifest.yaml platforms[].version)
-     Loader:  hermes/config/loader.py (`model:` block, `bedrock:` block,
-              `auxiliary.title_generation`, `mcp_servers:`)
+{# Upstream schema reference (B1 — ATX round 4 refinement: full URLs
+   at the pinned tag, not filesystem paths):
+     Repo:   https://github.com/NousResearch/hermes-agent
+     Pin:    v2026.5.7 (manifest.yaml platforms[].version)
+     Loader:
+       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/config/loader.py
+     (defines `model:` block, `bedrock:` block,
+      `auxiliary.title_generation`, `mcp_servers:`)
    Hermes deep-merges this YAML with its compiled defaults — unknown
    keys are silently dropped, so any typo in a key name is a silent
    no-op. Byte-locks in tests/core/test_render.py + Phase 4 live
