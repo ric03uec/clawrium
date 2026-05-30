@@ -69,12 +69,19 @@ def open(  # noqa: A001 — `open` matches plan §4 verb name
     claw_type = _claw_record.get("type", "")
     if claw_type == "ethos":
         agent_name = _claw_record.get("agent_name") or name
+        # Read state_dir from hosts.json config (persisted at install time).
+        # Fall back to the conventional default so existing installs without
+        # the field continue to work.
+        state_dir = (
+            _claw_record.get("config", {}).get("state_dir")
+            or f"/home/{agent_name}/.ethos"
+        )
         if needs_tunnel:
-            web_token = _read_ethos_web_token(resolved, agent_name)
+            web_token = _read_ethos_web_token(resolved, state_dir)
         else:
             try:
                 import builtins
-                with builtins.open(f"/home/{agent_name}/.ethos/web-token") as _f:
+                with builtins.open(f"{state_dir}/web-token") as _f:
                     web_token = _f.read().strip()
             except Exception:
                 web_token = ""
@@ -118,13 +125,13 @@ def _ssh_run(resolved: ResolvedUI, remote_cmd: str, timeout: int = 10) -> str:
         return ""
 
 
-def _read_ethos_web_token(resolved: ResolvedUI, agent_name: str) -> str:
+def _read_ethos_web_token(resolved: ResolvedUI, state_dir: str) -> str:
     """Read the ethos web-token from the remote host.
 
-    Reads directly from the agent user's home directory to avoid picking up
-    stale web-token files from other users on the same host.
+    Uses the persisted state_dir (from hosts.json config.state_dir) so the
+    correct path is used even if ETHOS_STATE_DIR was customised.
     """
     return _ssh_run(
         resolved,
-        f"sudo cat /home/{agent_name}/.ethos/web-token 2>/dev/null",
+        f"sudo cat {state_dir}/web-token 2>/dev/null",
     )

@@ -1214,6 +1214,13 @@ def run_installation(
                         "internal_port": chosen_gateway_port[0] if chosen_gateway_port else 44410,
                         "api_key": ethos_gateway_api_key,
                     }
+                    # Persist the ethos state directory so Python-side code
+                    # (open.py, memory CLIs) can read it from hosts.json rather
+                    # than recomputing /home/{agent_name}/.ethos. Matches the
+                    # ETHOS_STATE_DIR written into the systemd unit by configure.yaml.
+                    h["agents"][agent_name]["config"]["state_dir"] = (
+                        f"/home/{agent_name}/.ethos"
+                    )
 
                 # Store gateway authentication (OpenClaw only)
                 if gateway_token and gateway_url:
