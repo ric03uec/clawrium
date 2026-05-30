@@ -996,15 +996,21 @@ class TestDiagnoseUnitFailure:
             # the substring match. This case pins that behavior as a
             # regression guard.
             b"hermes[1234]: MY_OPENROUTER_API_KEY is not set\n",
-            # ATX iter-5 W1-RESIDUAL: cross-line case inside the
-            # suffix — `KEY:` on one line, `is\nnot set` straddling
-            # newline between `is` and `not set`. With the iter-4
-            # suffix `(?:is\s+)?not\s+set` (where `\s` includes
-            # `\n`), this would have over-fired on a `journalctl -o
-            # cat` blob that drops per-line timestamp prefixes.
-            # The iter-5 production fix tightened the suffix to
-            # `[\t ]+` everywhere; this negative pins the change.
+            # ATX iter-5 W1-RESIDUAL (#575): cross-line case inside
+            # the suffix — `KEY:` on one line, `is\nnot set`
+            # straddling newline between `is` and `not set`. With
+            # the iter-4 suffix `(?:is\s+)?not\s+set` (where `\s`
+            # includes `\n`), this would have over-fired on a
+            # `journalctl -o cat` blob that drops per-line
+            # timestamp prefixes. The iter-5 production fix
+            # tightened the suffix to `[\t ]+` everywhere; this
+            # negative pins the change.
             b"agent[1234]: OPENROUTER_API_KEY: is\nnot set\n",
+            # ATX iter-6 S3 (#575): the symmetric newline case
+            # between `not` and `set`. The iter-5 fix tightened
+            # both `is[\t ]+` and `not[\t ]+set`; this pins the
+            # second tightening.
+            b"agent[1234]: OPENROUTER_API_KEY: not\nset\n",
         ],
     )
     def test_provider_key_pattern_does_not_over_match_stale_env_logs(
@@ -1046,6 +1052,14 @@ class TestDiagnoseUnitFailure:
             # so a future scope-tightening of `(?i)` to the suffix
             # only would fail this test rather than silently regress.
             b"agent[1234]: openrouter_api_key not set\n",
+            # ATX iter-6 W3 (#575): tab in the `is`-to-`not`
+            # position. The `[\t ]+` class admits tabs but no
+            # prior positive case exercised them; without this,
+            # a future narrowing of the suffix to `[ ]+` (space
+            # only) would silently pass tests because the optional
+            # `(?:is[\t ]+)?` group lets the engine skip the
+            # `is` arm entirely.
+            b"hermes[1234]: OPENROUTER_API_KEY: is\tnot set\n",
         ],
     )
     def test_provider_key_pattern_matches_canonical_separators(

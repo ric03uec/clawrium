@@ -381,12 +381,15 @@ _KNOWN_UNIT_FATAL_PATTERNS: tuple[
         # not surface this remediation). `\b` does not match between
         # two word characters, so `MY_OPENROUTER_API_KEY` no longer
         # matches even via `re.search`.
-        # ATX iter-5 W1-RESIDUAL: the suffix groups also use
+        # ATX iter-5 W1-RESIDUAL (#575): the suffix groups also use
         # `[\t ]+` (not `\s+`) so a journal blob where a newline
         # falls between `is` and `not set` (e.g. `journalctl -o cat`
         # output that drops the per-line timestamp prefix) does not
-        # over-fire. The KEY↔phrase boundary and the in-phrase
-        # boundary are both horizontal-whitespace-only.
+        # over-fire. ATX iter-6 W1 (#575): the two boundary classes
+        # are not symmetric: the KEY↔phrase boundary `[\t :=]+`
+        # admits tabs, spaces, colon, and equals (a `KEY=` or
+        # `KEY:` style separator); the in-phrase boundaries `[\t ]+`
+        # are horizontal-whitespace-only. Both are newline-safe.
         r"(?i)(?:\bOPENROUTER_API_KEY[\t :=]+(?:is[\t ]+)?not[\t ]+set\b"
         r"|No inference provider configured)",
         frozenset(),  # empty == all agent types
