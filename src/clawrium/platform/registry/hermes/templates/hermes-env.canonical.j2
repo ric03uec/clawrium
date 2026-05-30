@@ -1,37 +1,10 @@
-{# B1 (ATX rounds 1–3) — Upstream schema reference.
-
-   Hermes daemon upstream: https://github.com/NousResearch/hermes-agent
-   Version pin (clawrium): 2026.5.7 (manifest.yaml platforms[].version)
-   Install entry point: scripts/install.sh on tag v2026.5.7:
-     https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/scripts/install.sh
-
-   The env-var names emitted below match what the daemon at the pinned
-   tag reads. Authoritative loci in upstream at v2026.5.7 (URLs are
-   resolvable at the pin; click them to verify a key name):
-     - Provider key vars (OPENROUTER_API_KEY / ANTHROPIC_API_KEY /
-       OPENAI_API_KEY / AWS_*):
-       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/config/loader.py
-     - HERMES_INFERENCE_PROVIDER enum (`openrouter`|`anthropic`|`openai`|
-       `bedrock`|`custom`):
-       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/config/providers.py
-     - API_SERVER_* (host/port/key/enabled):
-       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/server/api.py
-     - DISCORD_*, SLACK_*:
-       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/channels/discord.py
-       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/channels/slack.py
-     - GITHUB_TOKEN(_<SLUG>), GITLAB_*, LINEAR_API_KEY, NOTION_API_KEY:
-       https://github.com/NousResearch/hermes-agent/blob/v2026.5.7/hermes/tools/env_passthrough.py
-
-   Static struct-parity verification against the upstream sources is
-   out of band (the structs are not vendored into clawrium). Two
-   in-repo guards close the loop:
-     1. `tests/core/test_render.py` byte-locks pin parity with the
-        prior list-of-strings render_hermes (i.e. the on-host bytes
-        deployed to maurice/h1/h2/clawctl-demo today).
-     2. `clawctl agent sync --dry-run --diff` against a live agent
-        surfaces drift between the render and a host's working config
-        — 00_PLAN.md Phase 4 gates the merge on a clean diff for
-        maurice + espresso before live apply. #}
+{# Env-var contract: see docs/agent-support/hermes.md for the
+   authoritative list of env vars hermes reads (HERMES_INFERENCE_PROVIDER
+   enum values, API_SERVER_*, DISCORD_*, SLACK_*, provider key vars,
+   integration passthrough). Byte-locks in tests/core/test_render.py
+   pin parity with the prior list-of-strings render_hermes; 00_PLAN.md
+   Phase 4 live dry-run on maurice + espresso closes the loop against
+   the live daemon. #}
 # Managed by clawrium (clawctl). Re-render with `clawctl agent configure {{ agent_name }}`.
 {% if provider.type == 'openrouter' %}
 OPENROUTER_API_KEY={{ provider.api_key | shq }}
