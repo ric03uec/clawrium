@@ -336,8 +336,15 @@ _KNOWN_UNIT_FATAL_PATTERNS: tuple[
         # case a future zeroclaw rewrite changes the wording, so a
         # subsequent version bump does not silently turn this entry
         # into a dead letter.
+        # ATX iter-2 B1: dropped `|required` — it over-matched
+        # benign startup lines like "gateway.host (required): ..."
+        # or "checking gateway.host... required for daemon init"
+        # that any 100-line journal tail would contain regardless of
+        # crash reason. The two surviving alternation branches both
+        # describe the actual fault state ("must not be empty",
+        # "is empty").
         r"required_field_empty.*gateway\.host"
-        r"|gateway\.host.*(?:must not be empty|is empty|required)",
+        r"|gateway\.host.*(?:must not be empty|is empty)",
         frozenset({"zeroclaw"}),
         "zeroclaw daemon refused an empty `gateway.host`.",
         "Re-run `clawctl agent sync <agent>` after `clawctl` is upgraded "
@@ -349,7 +356,13 @@ _KNOWN_UNIT_FATAL_PATTERNS: tuple[
         # Cross-agent: any agent that loads an OpenRouter provider
         # without a populated key would surface one of these two
         # messages. Parenthesized alternation for clarity (ATX W6).
-        r"(?:OPENROUTER_API_KEY.*not set"
+        # ATX iter-2 B2: greedy `.*` between key and "not set" fired
+        # on lines like "OPENROUTER_API_KEY was not set on previous
+        # boot, now present" or "[was not set, using fallback]". The
+        # tightened pattern requires whitespace + an optional `is`
+        # + `not set` as adjacent tokens, with a word boundary on
+        # the tail so "not setX" doesn't slip through.
+        r"(?:OPENROUTER_API_KEY\s+(?:is\s+)?not\s+set\b"
         r"|No inference provider configured)",
         frozenset(),  # empty == all agent types
         "Provider credentials missing from the rendered config.",

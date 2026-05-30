@@ -804,23 +804,63 @@ class TestDiagnoseUnitFailure:
         assert "gateway.host" in diag
         assert "#576" in diag
 
-    def test_zeroclaw_broadened_gateway_host_token(self):
-        """ATX B3: the broadened regex matches a Rust-shaped phrasing
-        in addition to the v0.7.5 token, so a future zeroclaw rewrite
-        that changes wording does not silently turn this entry into a
-        dead letter."""
-        journal = (
+    @pytest.mark.parametrize(
+        "journal_line",
+        [
+            # Rust-shaped phrasing — "is empty" branch.
             b"zeroclaw: configuration error: field 'gateway.host' is "
-            b"empty in /home/zeroclaw-x/.zeroclaw/config.toml\n"
-        )
+            b"empty in /home/zeroclaw-x/.zeroclaw/config.toml\n",
+            # Canonical phrasing — "must not be empty" branch (ATX
+            # iter-2 W3: previously unexercised).
+            b"zeroclaw[1234]: validation: gateway.host must not be "
+            b"empty\n",
+        ],
+    )
+    def test_zeroclaw_broadened_gateway_host_token(self, journal_line):
+        """ATX B3 + iter-2 W3: the broadened regex matches both
+        post-v0.7.5 phrasings, so a future zeroclaw rewrite changing
+        wording does not silently turn this entry into a dead letter."""
         client = _FakeSSHClient(
-            [("journalctl", 0, journal)],
+            [("journalctl", 0, journal_line)],
         )
         diag = lc._diagnose_unit_failure(
             client, unit="zeroclaw-x.service", agent_type="zeroclaw"
         )
         assert diag is not None
         assert "gateway.host" in diag
+        # ATX iter-2 W1: pin the remediation body so a truncated
+        # remediation string fails this test loudly.
+        assert "clawctl agent sync" in diag
+        assert "#576" in diag
+
+    @pytest.mark.parametrize(
+        "journal_line",
+        [
+            # ATX iter-2 B1: a benign startup log mentioning the
+            # `(required)` annotation alongside `gateway.host` must
+            # NOT fire the diagnostic — that was the over-match the
+            # original `|required` alternation produced.
+            b"zeroclaw[1234]: Config field gateway.host (required): "
+            b"set this to 0.0.0.0\n",
+            b"zeroclaw[1234]: checking gateway.host... required for "
+            b"daemon init\n",
+        ],
+    )
+    def test_zeroclaw_required_annotation_does_not_over_match(
+        self, journal_line
+    ):
+        """ATX iter-2 B1: dropping `|required` from the alternation
+        means a benign startup log line mentioning the `(required)`
+        annotation no longer over-fires the diagnostic. The actual
+        crash cases ("must not be empty", "is empty") are unchanged
+        and still match."""
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal_line)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="zeroclaw-x.service", agent_type="zeroclaw"
+        )
+        assert diag is None
 
     def test_missing_provider_key_openrouter_translated(self):
         """ATX B4: the OPENROUTER_API_KEY branch must have its own
@@ -857,6 +897,38 @@ class TestDiagnoseUnitFailure:
         )
         assert diag is not None
         assert "Provider credentials missing" in diag
+        # ATX iter-2 W2: also pin the remediation body to match the
+        # rigor of the first-branch test.
+        assert "clawctl agent configure" in diag
+
+    @pytest.mark.parametrize(
+        "journal_line",
+        [
+            # ATX iter-2 B2: the greedy `.*` over-match cases that
+            # the tightened pattern (`\s+(?:is\s+)?not\s+set\b`)
+            # must reject. Each line contains the key name and the
+            # phrase "not set" but in a state-snapshot / migration
+            # context where the key IS present at boot.
+            b"hermes[1234]: OPENROUTER_API_KEY was not set on previous "
+            b"boot, now present\n",
+            b"hermes[1234]: config_loader: OPENROUTER_API_KEY [was not "
+            b"set, using fallback]\n",
+        ],
+    )
+    def test_provider_key_pattern_does_not_over_match_stale_env_logs(
+        self, journal_line
+    ):
+        """ATX iter-2 B2: tightening to `OPENROUTER_API_KEY\\s+(?:is\\s+)?not\\s+set\\b`
+        means a stale-env snapshot or migration log mentioning the
+        key + the phrase "not set" in a non-adjacent context no
+        longer over-fires the diagnostic."""
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal_line)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="hermes-x.service", agent_type="hermes"
+        )
+        assert diag is None
 
     def test_unknown_failure_returns_none(self):
         """A journal that doesn't match any catalog entry returns None
@@ -930,6 +1002,39 @@ class TestDiagnoseUnitFailure:
         # mentions gateway.host. Diagnostic must be None.
         assert diag is None
 
+    def test_zeroclaw_pattern_does_not_fire_on_openclaw(self):
+        """ATX iter-2 W4: third-type isolation. A future accidental
+        widening of `frozenset({'zeroclaw'})` to include `openclaw`
+        would surface a TOML-edit remediation against an agent type
+        that has no `~/.openclaw/config.toml` file. Pin the scope."""
+        journal = (
+            b"openclaw[1234]: some unrelated log line mentioning "
+            b"required_field_empty gateway.host in a docstring\n"
+        )
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="openclaw-x.service", agent_type="openclaw"
+        )
+        assert diag is None
+
+    def test_discord_pattern_does_not_fire_on_openclaw(self):
+        """ATX iter-2 W4: third-type isolation for the hermes-scoped
+        Discord entry. An openclaw journal containing the Discord
+        substring must NOT receive hermes architectural blame."""
+        journal = (
+            b"openclaw[1234]: external integration: "
+            b"discord.errors.LoginFailure: token rejected\n"
+        )
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="openclaw-x.service", agent_type="openclaw"
+        )
+        assert diag is None
+
     def test_discord_pattern_does_not_fire_on_zeroclaw(self):
         """ATX B1/W7: a zeroclaw journal that contains the Discord
         substring (e.g. a config reference) must NOT receive the
@@ -969,6 +1074,26 @@ class TestDiagnoseUnitFailure:
         # Discord entry is first in the tuple — it wins over the
         # provider-key entry, even though both match.
         assert "Discord" in diag
+        assert "Provider credentials missing" not in diag
+
+    def test_first_pattern_wins_zeroclaw_over_provider(self):
+        """ATX iter-2 W5: pin first-match-wins for the zeroclaw entry
+        beating the cross-agent provider entry. Earlier test covered
+        entries 1 vs 3 (Discord vs provider); this covers 2 vs 3."""
+        journal = (
+            b"zeroclaw[1234]: Error: [required_field_empty] gateway.host "
+            b"must not be empty (gateway.host)\n"
+            b"zeroclaw[1234]: also OPENROUTER_API_KEY is not set\n"
+        )
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="zeroclaw-x.service", agent_type="zeroclaw"
+        )
+        assert diag is not None
+        # Zeroclaw gateway.host entry (#2) wins over provider key (#3).
+        assert "gateway.host" in diag
         assert "Provider credentials missing" not in diag
 
 
