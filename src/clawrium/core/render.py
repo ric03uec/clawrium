@@ -880,6 +880,14 @@ _OPENCLAW_MODEL_PREFIX = {
     "bedrock": "bedrock/",
 }
 
+# Single source of truth for the openclaw gateway port fallback. Used by
+# BOTH the env template (`default_gateway_port` context var) AND
+# `_render_openclaw_json` so the env file and openclaw.json cannot
+# disagree on which port the daemon listens on. install.py always
+# provides a real port; this fallback only matters if `gateway` is
+# supplied without a port (defense in depth).
+_OPENCLAW_DEFAULT_GATEWAY_PORT = 40000
+
 
 def render_openclaw(inputs: RenderInputs) -> RenderedFiles:
     """Render openclaw's `.openclaw/env` (Jinja) + `.openclaw/openclaw.json`
@@ -981,6 +989,7 @@ def render_openclaw(inputs: RenderInputs) -> RenderedFiles:
         agent_name=inputs.agent_name,
         provider=inputs.provider,
         gateway=inputs.gateway,
+        default_gateway_port=_OPENCLAW_DEFAULT_GATEWAY_PORT,
         default_model_id=model_id,
         channels=inputs.channels,
         integrations=integration_views,
@@ -1071,7 +1080,7 @@ def _render_openclaw_json(
     # 2. gateway.port + 3. gateway.bind
     if gateway is not None:
         gw = baseline.setdefault("gateway", {})
-        gw["port"] = int(gateway.port or 18789)
+        gw["port"] = int(gateway.port or _OPENCLAW_DEFAULT_GATEWAY_PORT)
         gw["bind"] = gateway.bind or "lan"
 
     # 4. channels.discord.enabled + 5. channels.discord.allowFrom + guilds.

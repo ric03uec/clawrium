@@ -19,7 +19,7 @@
   },
   "gateway": {
     "mode": "local",
-    "port": 18789,
+    "port": 40000,
     "bind": "lan",
     "reload": {
       "mode": "hybrid",

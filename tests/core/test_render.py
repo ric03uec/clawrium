@@ -2130,9 +2130,11 @@ def test_openclaw_json_gateway_none_preserves_baseline_gateway_block():
     body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
     blob = json.loads(body)
     # Baseline gateway block survives byte-identical when gateway=None.
+    # Port matches `_OPENCLAW_DEFAULT_GATEWAY_PORT` so the baseline cannot
+    # disagree with the env-template fallback (Round 2 B1).
     assert blob["gateway"] == {
         "mode": "local",
-        "port": 18789,
+        "port": 40000,
         "bind": "lan",
         "reload": {"mode": "hybrid", "debounceMs": 300},
     }
@@ -2179,3 +2181,167 @@ def test_openclaw_json_daemon_sections_unmanaged_baseline_keys_complete():
         "mode": "off",
         "scope": "session",
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 ATX Round 2 follow-ups.
+#
+# B1: covered by `test_openclaw_json_gateway_none_preserves_baseline_gateway_block`
+#     update (port now matches `_OPENCLAW_DEFAULT_GATEWAY_PORT` = 40000).
+# B3: `has_gitlab_url` branch — test token-only (URL absent) + token+URL.
+# W1: gateway.auth=None must NOT emit `OPENCLAW_GATEWAY_AUTH_TOKEN=`.
+# W2: multi-guild discord channel exercises the loop with 2+ guilds.
+# W3: `git` integration skip path emits no env var.
+# ---------------------------------------------------------------------------
+
+
+def test_openclaw_gitlab_integration_emits_token_and_optional_url():
+    """B3 (Round 2): exercises both branches of `has_gitlab_url` in the
+    canonical env template."""
+    base_provider = ProviderInputs(
+        name="or", type="openrouter", default_model="m", api_key="sk-1"
+    )
+    # Token-only: GITLAB_URL must be ABSENT.
+    inputs_no_url = RenderInputs(
+        agent_name="alpha",
+        agent_type="openclaw",
+        provider=base_provider,
+        integrations=(
+            IntegrationInputs(
+                name="gl",
+                type="gitlab",
+                credentials=(("GITLAB_TOKEN", "gl-t"),),
+            ),
+        ),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, bind="lan"),
+    )
+    env = render_openclaw(inputs_no_url).files[".openclaw/env"]
+    assert "GITLAB_TOKEN='gl-t'" in env
+    assert "GITLAB_URL" not in env
+
+    # Token + URL: both lines present.
+    inputs_with_url = RenderInputs(
+        agent_name="alpha",
+        agent_type="openclaw",
+        provider=base_provider,
+        integrations=(
+            IntegrationInputs(
+                name="gl",
+                type="gitlab",
+                credentials=(
+                    ("GITLAB_TOKEN", "gl-t"),
+                    ("GITLAB_URL", "https://gl.example.com"),
+                ),
+            ),
+        ),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, bind="lan"),
+    )
+    env = render_openclaw(inputs_with_url).files[".openclaw/env"]
+    assert "GITLAB_TOKEN='gl-t'" in env
+    assert "GITLAB_URL='https://gl.example.com'" in env
+
+
+def test_openclaw_gateway_auth_none_omits_auth_token_var():
+    """W1 (Round 2): when gateway.auth is empty, AUTH_TOKEN line must NOT
+    be emitted (a present-but-empty token would let the daemon enter
+    "token mode with empty token" and reject all requests)."""
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="openclaw",
+        provider=ProviderInputs(
+            name="or", type="openrouter", default_model="m", api_key="sk-1"
+        ),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="", bind="lan"),
+    )
+    env = render_openclaw(inputs).files[".openclaw/env"]
+    assert "OPENCLAW_GATEWAY_AUTH_MODE=none" in env
+    assert "OPENCLAW_GATEWAY_AUTH_TOKEN" not in env
+
+
+def test_openclaw_multi_guild_discord_renders_all_guilds():
+    """W2 (Round 2): two guilds in allowed_guilds must both materialize
+    as keys in channels.discord.guilds."""
+    import json
+
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="openclaw",
+        provider=ProviderInputs(
+            name="or", type="openrouter", default_model="m", api_key="sk-1"
+        ),
+        channels=(
+            ChannelInputs(
+                name="d",
+                type="discord",
+                bot_token="t",
+                allowed_users=("u1",),
+                allowed_guilds=("g1", "g2"),
+                allowed_channels=("c1",),
+            ),
+        ),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, bind="lan"),
+    )
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    blob = json.loads(body)
+    assert set(blob["channels"]["discord"]["guilds"].keys()) == {"g1", "g2"}
+    for guild_id in ("g1", "g2"):
+        assert blob["channels"]["discord"]["guilds"][guild_id]["users"] == ["u1"]
+        assert blob["channels"]["discord"]["guilds"][guild_id]["channels"] == {
+            "c1": {"allow": True}
+        }
+
+
+def test_openclaw_git_integration_skipped():
+    """W3 (Round 2): `git` integration is intentionally skipped in env
+    render (clientside identity; ~/.gitconfig render lives elsewhere)."""
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="openclaw",
+        provider=ProviderInputs(
+            name="or", type="openrouter", default_model="m", api_key="sk-1"
+        ),
+        integrations=(
+            IntegrationInputs(
+                name="me",
+                type="git",
+                credentials=(("GIT_USER_EMAIL", "a@b"), ("GIT_USER_NAME", "Me")),
+            ),
+        ),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, bind="lan"),
+    )
+    env = render_openclaw(inputs).files[".openclaw/env"]
+    assert "GIT_USER_EMAIL" not in env
+    assert "GIT_USER_NAME" not in env
+
+
+def test_openclaw_model_prefix_idempotent():
+    """Round 2 S3: pre-prefixed model id must NOT double up.
+    (`openrouter/m` stays `openrouter/m`, not `openrouter/openrouter/m`.)"""
+    for ptype, model_id in [
+        ("openrouter", "openrouter/anthropic/claude-opus-4.7"),
+        ("bedrock", "bedrock/anthropic.claude-opus-4-1-v1:0"),
+    ]:
+        if ptype == "openrouter":
+            p = ProviderInputs(
+                name="or", type=ptype, default_model=model_id, api_key="sk-1"
+            )
+        else:
+            p = ProviderInputs(
+                name="br",
+                type=ptype,
+                default_model=model_id,
+                region="us-east-1",
+                aws_access_key="AKIA-1",
+                aws_secret_key="secret-1",
+            )
+        inputs = RenderInputs(
+            agent_name="alpha",
+            agent_type="openclaw",
+            provider=p,
+            gateway=GatewayInputs(host="0.0.0.0", port=40000, bind="lan"),
+        )
+        env = render_openclaw(inputs).files[".openclaw/env"]
+        assert f"OPENCLAW_DEFAULT_MODEL='{model_id}'" in env
+        # Critical: prefix must not appear twice.
+        prefix = f"{ptype}/"
+        assert env.count(prefix + prefix) == 0

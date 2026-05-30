@@ -11,10 +11,13 @@
 # Managed by clawrium (clawctl). Re-render with `clawctl agent configure {{ agent_name }}`.
 {% if gateway is not none %}
 OPENCLAW_GATEWAY_BIND={{ (gateway.bind or 'lan') | shq }}
-OPENCLAW_GATEWAY_PORT={{ (gateway.port or 40000) | int }}
-OPENCLAW_GATEWAY_AUTH_MODE={% if gateway.auth %}token{% else %}none{% endif %}
-
+OPENCLAW_GATEWAY_PORT={{ (gateway.port or default_gateway_port) | int }}
+{% if gateway.auth %}
+OPENCLAW_GATEWAY_AUTH_MODE=token
 OPENCLAW_GATEWAY_AUTH_TOKEN={{ gateway.auth | shq }}
+{% else %}
+OPENCLAW_GATEWAY_AUTH_MODE=none
+{% endif %}
 {% endif %}
 OPENCLAW_DEFAULT_MODEL={{ default_model_id | shq }}
 {% if provider.type == 'anthropic' %}
