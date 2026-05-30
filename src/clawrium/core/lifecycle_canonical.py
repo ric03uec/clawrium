@@ -340,9 +340,12 @@ _KNOWN_UNIT_FATAL_PATTERNS: tuple[
         # benign startup lines like "gateway.host (required): ..."
         # or "checking gateway.host... required for daemon init"
         # that any 100-line journal tail would contain regardless of
-        # crash reason. The two surviving alternation branches both
-        # describe the actual fault state ("must not be empty",
-        # "is empty").
+        # crash reason. Two branches survive: branch1 anchors on the
+        # canonical zeroclaw token name `required_field_empty`
+        # adjacent to `gateway.host` (fires independently of any
+        # trailing suffix); branch2 anchors on the actual fault-
+        # state phrasings `must not be empty` / `is empty` that
+        # any future zeroclaw wording would reuse.
         r"required_field_empty.*gateway\.host"
         r"|gateway\.host.*(?:must not be empty|is empty)",
         frozenset({"zeroclaw"}),
@@ -356,13 +359,15 @@ _KNOWN_UNIT_FATAL_PATTERNS: tuple[
         # Cross-agent: any agent that loads an OpenRouter provider
         # without a populated key would surface one of these two
         # messages. Parenthesized alternation for clarity (ATX W6).
-        # ATX iter-2 B2: greedy `.*` between key and "not set" fired
-        # on lines like "OPENROUTER_API_KEY was not set on previous
-        # boot, now present" or "[was not set, using fallback]". The
-        # tightened pattern requires whitespace + an optional `is`
-        # + `not set` as adjacent tokens, with a word boundary on
-        # the tail so "not setX" doesn't slip through.
-        r"(?:OPENROUTER_API_KEY\s+(?:is\s+)?not\s+set\b"
+        # ATX iter-2 B2 + iter-3 W-NEW-1: the separator class
+        # `[\s:=]+` covers whitespace, `KEY: not set`, and `KEY=`
+        # styles; the optional `is` and `\b` tail anchor stay from
+        # iter-2 to keep `was not set, now present` rejected. The
+        # `IGNORECASE` flag is shipped via `(?i)` so logs that
+        # uppercase the phrase (`IS NOT SET`) still match — the
+        # `OPENROUTER_API_KEY` prefix is specific enough that
+        # case-folding adds no false-positive risk.
+        r"(?i)(?:OPENROUTER_API_KEY[\s:=]+(?:is\s+)?not\s+set\b"
         r"|No inference provider configured)",
         frozenset(),  # empty == all agent types
         "Provider credentials missing from the rendered config.",

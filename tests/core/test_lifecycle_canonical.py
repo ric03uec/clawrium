@@ -844,16 +844,25 @@ class TestDiagnoseUnitFailure:
             b"set this to 0.0.0.0\n",
             b"zeroclaw[1234]: checking gateway.host... required for "
             b"daemon init\n",
+            # ATX iter-3 S3: also pin the exact `is required` /
+            # `required` phrasings that the dropped `|required` branch
+            # would have over-matched. These exercise the specific
+            # word boundary that distinguishes a startup annotation
+            # from a fault state.
+            b"zeroclaw[1234]: schema: gateway.host is required\n",
+            b"zeroclaw[1234]: gateway.host required\n",
         ],
     )
     def test_zeroclaw_required_annotation_does_not_over_match(
         self, journal_line
     ):
-        """ATX iter-2 B1: dropping `|required` from the alternation
-        means a benign startup log line mentioning the `(required)`
-        annotation no longer over-fires the diagnostic. The actual
-        crash cases ("must not be empty", "is empty") are unchanged
-        and still match."""
+        """ATX iter-2 B1 + iter-3 S3: dropping `|required` from the
+        alternation means startup logs mentioning `(required)`,
+        `is required`, or bare `required` alongside `gateway.host` no
+        longer over-fire the diagnostic. The actual crash cases
+        ("must not be empty", "is empty") are unchanged and still
+        match (covered by `test_zeroclaw_broadened_gateway_host_token`).
+        """
         client = _FakeSSHClient(
             [("journalctl", 0, journal_line)],
         )
@@ -861,6 +870,40 @@ class TestDiagnoseUnitFailure:
             client, unit="zeroclaw-x.service", agent_type="zeroclaw"
         )
         assert diag is None
+
+    def test_zeroclaw_branch1_alone_matches_canonical_token(self):
+        """ATX iter-3 W-NEW-2: pin that branch1
+        (`required_field_empty.*gateway.host`) fires on a journal
+        line that does NOT carry any suffix branch2 would also
+        accept. Without this case, deleting branch1 from the
+        production regex would still pass every other test —
+        because every other positive test happens to carry both
+        a `required_field_empty` token AND a `must not be empty` /
+        `is empty` phrase, so branch2 alone covers them. A
+        mutation-test would flag the missing exclusive coverage."""
+        # No `must not be empty` / `is empty` suffix — only branch1
+        # can match this line.
+        journal = (
+            b"zeroclaw[1234]: [required_field_empty] gateway.host "
+            b"\xe2\x80\x94 field was blank\n"
+        )
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="zeroclaw-x.service", agent_type="zeroclaw"
+        )
+        assert diag is not None
+        assert "gateway.host" in diag
+        # Sanity check: branch2 alone (without `required_field_empty`)
+        # would NOT have matched this body. The diagnostic firing
+        # therefore proves branch1 carries its own weight.
+        import re as _re_local
+
+        pattern = lc._KNOWN_UNIT_FATAL_PATTERNS[1][0]
+        branch2_only = r"gateway\.host.*(?:must not be empty|is empty)"
+        assert _re_local.search(pattern, journal.decode())
+        assert not _re_local.search(branch2_only, journal.decode())
 
     def test_missing_provider_key_openrouter_translated(self):
         """ATX B4: the OPENROUTER_API_KEY branch must have its own
@@ -905,23 +948,28 @@ class TestDiagnoseUnitFailure:
         "journal_line",
         [
             # ATX iter-2 B2: the greedy `.*` over-match cases that
-            # the tightened pattern (`\s+(?:is\s+)?not\s+set\b`)
-            # must reject. Each line contains the key name and the
-            # phrase "not set" but in a state-snapshot / migration
-            # context where the key IS present at boot.
+            # the tightened pattern must reject. Each line contains
+            # the key name and the phrase "not set" but in a
+            # state-snapshot / migration context where the key IS
+            # present at boot. ATX iter-3 S2: replaced the second
+            # case (which previously failed for the wrong reason —
+            # no whitespace after key name) with a stale-env
+            # snapshot that genuinely tests the "was…not set,
+            # now-present" adjacency the comment narrates.
             b"hermes[1234]: OPENROUTER_API_KEY was not set on previous "
             b"boot, now present\n",
-            b"hermes[1234]: config_loader: OPENROUTER_API_KEY [was not "
-            b"set, using fallback]\n",
+            b"hermes[1234]: OPENROUTER_API_KEY was not set, now using "
+            b"fallback\n",
         ],
     )
     def test_provider_key_pattern_does_not_over_match_stale_env_logs(
         self, journal_line
     ):
-        """ATX iter-2 B2: tightening to `OPENROUTER_API_KEY\\s+(?:is\\s+)?not\\s+set\\b`
-        means a stale-env snapshot or migration log mentioning the
-        key + the phrase "not set" in a non-adjacent context no
-        longer over-fires the diagnostic."""
+        """ATX iter-2 B2: tightening to
+        `OPENROUTER_API_KEY[\\s:=]+(?:is\\s+)?not\\s+set\\b` means a
+        stale-env snapshot or migration log that mentions the key +
+        a non-adjacent "not set" phrase no longer over-fires the
+        diagnostic."""
         client = _FakeSSHClient(
             [("journalctl", 0, journal_line)],
         )
@@ -929,6 +977,40 @@ class TestDiagnoseUnitFailure:
             client, unit="hermes-x.service", agent_type="hermes"
         )
         assert diag is None
+
+    @pytest.mark.parametrize(
+        "journal_line",
+        [
+            # ATX iter-3 W-NEW-1: the colon-separator case the
+            # iter-2 pattern silently missed.
+            b"hermes[1234]: OPENROUTER_API_KEY: is not set in "
+            b"environment\n",
+            b"hermes[1234]: OPENROUTER_API_KEY: not set\n",
+            # `KEY=` style — covered by the same `[\\s:=]+` class.
+            b"hermes[1234]: OPENROUTER_API_KEY=not set\n",
+            # ATX iter-3 S6: uppercase variant — `(?i)` flag means
+            # this matches even though the prefix is uppercase but
+            # the phrase is too.
+            b"hermes[1234]: OPENROUTER_API_KEY IS NOT SET\n",
+        ],
+    )
+    def test_provider_key_pattern_matches_canonical_separators(
+        self, journal_line
+    ):
+        """ATX iter-3 W-NEW-1 + S6: the widened separator class
+        `[\\s:=]+` plus the `(?i)` flag means colon, equals, and
+        case-shifted variants all surface the diagnostic. Without
+        these, the pattern was silently missing a common log
+        shape."""
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal_line)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="hermes-x.service", agent_type="hermes"
+        )
+        assert diag is not None
+        assert "Provider credentials missing" in diag
+        assert "clawctl agent configure" in diag
 
     def test_unknown_failure_returns_none(self):
         """A journal that doesn't match any catalog entry returns None
@@ -1003,14 +1085,25 @@ class TestDiagnoseUnitFailure:
         assert diag is None
 
     def test_zeroclaw_pattern_does_not_fire_on_openclaw(self):
-        """ATX iter-2 W4: third-type isolation. A future accidental
-        widening of `frozenset({'zeroclaw'})` to include `openclaw`
-        would surface a TOML-edit remediation against an agent type
-        that has no `~/.openclaw/config.toml` file. Pin the scope."""
+        """ATX iter-2 W4: third-type isolation. The journal body
+        here DOES match the zeroclaw regex content-wise — what
+        suppresses the diagnostic is the `agent_types` scope filter,
+        not the regex itself. A future accidental widening of
+        `frozenset({'zeroclaw'})` to include `openclaw` would
+        immediately surface a TOML-edit remediation against an agent
+        type that has no `~/.openclaw/config.toml` file. ATX iter-3
+        S1: make the dual nature explicit — the regex matches, the
+        scope filter blocks."""
+        import re as _re_local
+
         journal = (
-            b"openclaw[1234]: some unrelated log line mentioning "
-            b"required_field_empty gateway.host in a docstring\n"
+            b"openclaw[1234]: [required_field_empty] gateway.host must "
+            b"not be empty\n"
         )
+        # Make the test intent explicit: the regex would match this
+        # body. The scope filter is what suppresses the diagnostic.
+        zeroclaw_pattern = lc._KNOWN_UNIT_FATAL_PATTERNS[1][0]
+        assert _re_local.search(zeroclaw_pattern, journal.decode())
         client = _FakeSSHClient(
             [("journalctl", 0, journal)],
         )
@@ -1056,7 +1149,8 @@ class TestDiagnoseUnitFailure:
         assert diag is None
 
     def test_first_pattern_wins_on_overlap(self):
-        """ATX W4: pin the tuple-order contract — when a journal
+        """ATX W5 (iter-3 S5: corrected tag — this is W5, not W4):
+        pin the tuple-order contract — when a journal
         matches multiple patterns, the earlier one in the tuple wins.
         Future refactor to a dict would break this and the test would
         flag it."""
