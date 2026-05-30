@@ -368,6 +368,65 @@ def test_sync_refuses_required_stage_without_declarative_surface():
     assert "clawctl agent configure" in msg  # Workaround named.
 
 
+def test_sync_passes_when_identity_already_complete_in_ledger():
+    """Issue #577: when the operator has already run
+    `clawctl agent configure <name> --stage identity` and the onboarding
+    ledger records `stages.identity.status == complete`, the providers /
+    sync walk must NOT raise the "requires manual identity" gate. The
+    gate should consult the same source `clawctl agent describe` reads,
+    not a stale proxy."""
+
+    def can_skip_only_validate(agent_type: str, stage: str) -> bool:
+        return stage == "validate"
+
+    host = {
+        "hostname": "192.168.1.100",
+        "key_id": "test",
+        "agent_name": "xclm",
+        "port": 22,
+        "agents": {
+            "opc-work": {
+                "type": "openclaw",
+                "onboarding": {
+                    "state": "providers",
+                    "stages": {
+                        "providers": {"status": "complete"},
+                        # Operator already completed identity out-of-band.
+                        "identity": {"status": "complete"},
+                        "channels": {"status": "pending"},
+                        "validate": {"status": "pending"},
+                    },
+                },
+                "config": {"gateway": {"port": 40000}},
+                "providers": ["local-inx"],
+            }
+        },
+    }
+
+    def fake_configure(hostname, claw_name, config_data, **kwargs):
+        return (True, None)
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch(
+            "clawrium.core.providers.storage.get_provider",
+            return_value=_ollama_provider_record(),
+        ),
+        patch("clawrium.core.onboarding.complete_stage", return_value=True),
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
+        patch(
+            "clawrium.core.onboarding.can_skip_stage",
+            side_effect=can_skip_only_validate,
+        ),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        # Must not raise — the prior identity completion in the ledger
+        # is honored. Pre-fix this would raise "requires manual identity".
+        result = sync_agent("192.168.1.100", "openclaw")
+
+    assert result["success"] is True
+
+
 def test_sync_hermes_real_manifest_configure_fail_does_not_persist_ready():
     """ATX iter-2 B-ITER2-1 + B-ITER2-2: with the REAL hermes manifest
     (no can_skip_stage patch), if configure_agent fails the state

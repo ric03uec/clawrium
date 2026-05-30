@@ -1294,6 +1294,22 @@ def sync_agent(
                     pass
                 continue
             if stage_name in _NO_DECLARATIVE_SURFACE_YET:
+                # Issue #577: consult the onboarding ledger (the same
+                # source `clawctl agent describe` reads) before raising.
+                # If the operator already ran `clawctl agent configure
+                # <name> --stage <stage>`, the stage record will be
+                # `complete` (or `skipped`) on disk — treat this walk as
+                # an idempotent no-op for that stage instead of blocking
+                # the providers / sync path forever with a stale gate.
+                stage_record = (
+                    onboarding.get("stages", {}).get(stage_name, {})
+                )
+                stage_status = stage_record.get("status")
+                if stage_status in (
+                    StageStatus.COMPLETE.value,
+                    StageStatus.SKIPPED.value,
+                ):
+                    continue
                 raise LifecycleError(
                     f"agent '{agent_key}' (type={agent_type}) requires manual "
                     f"{stage_name} configuration: no clawctl declarative "
