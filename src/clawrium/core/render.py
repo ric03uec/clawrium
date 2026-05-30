@@ -435,12 +435,19 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
     gateway_input: GatewayInputs | None = None
     gateway_blob = config_blob.get("gateway")
     if isinstance(gateway_blob, dict):
+        # #576: zeroclaw's daemon refuses an empty `gateway.host`
+        # (`required_field_empty: gateway.host must not be empty`), so a
+        # missing or empty value here would render `host = ""` in
+        # config.toml and brick `clawctl agent configure` on every fresh
+        # install. Default to `0.0.0.0` per the documented
+        # `features.web_ui.bind: wildcard` contract in AGENTS.md.
+        host_raw = _clean_secret(gateway_blob.get("host"))
         gateway_input = GatewayInputs(
             # W6 (ATX #555 polish): NUL in host value would silently
             # truncate the TOML at parse time. Sanitize at assembly
             # time, same as every other secret/identity string from
             # hosts.json.
-            host=_clean_secret(gateway_blob.get("host")),
+            host=host_raw or "0.0.0.0",
             port=int(gateway_blob.get("port", 0) or 0),
             # Same systemd-truncation hazard as api_server.key above.
             auth=_clean_secret(gateway_blob.get("auth")),

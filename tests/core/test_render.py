@@ -785,6 +785,71 @@ def test_hermes_atlassian_slug_collision_raises():
         render_hermes(inputs)
 
 
+def test_gateway_host_defaults_to_wildcard_when_missing_or_empty(stores):
+    """#576: zeroclaw's daemon refuses an empty `gateway.host`. The
+    assembler must default to `0.0.0.0` (the documented wildcard bind)
+    so a fresh install whose hosts.json carries `gateway.host = ""` (or
+    no host key at all) still renders a config.toml the daemon accepts.
+    """
+    stores.agent = (
+        {"hostname": "host-1"},
+        "zeroclaw",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                # Empty string — the post-install seed shape.
+                "gateway": {"host": "", "port": 40000, "auth": "tk", "bind": "lan"},
+            },
+        },
+    )
+    stores.providers["or"] = {"name": "or", "type": "openrouter", "default_model": "m"}
+    stores.provider_api_keys["or"] = "sk-1"
+    inputs = build_render_inputs("alpha")
+    assert inputs.gateway is not None and inputs.gateway.host == "0.0.0.0"
+
+    # Same assertion with the host key entirely absent from the dict.
+    stores.agent = (
+        {"hostname": "host-1"},
+        "zeroclaw",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {"port": 40000, "auth": "tk", "bind": "lan"},
+            },
+        },
+    )
+    inputs = build_render_inputs("alpha")
+    assert inputs.gateway is not None and inputs.gateway.host == "0.0.0.0"
+
+
+def test_gateway_host_preserves_explicit_loopback(stores):
+    """#576: the default only fills in for empty/missing — an explicit
+    `127.0.0.1` (or any operator-chosen value) round-trips unchanged.
+    Prevents the default from masking an intentional loopback bind."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "zeroclaw",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {
+                    "host": "127.0.0.1",
+                    "port": 40000,
+                    "auth": "tk",
+                    "bind": "lan",
+                },
+            },
+        },
+    )
+    stores.providers["or"] = {"name": "or", "type": "openrouter", "default_model": "m"}
+    stores.provider_api_keys["or"] = "sk-1"
+    inputs = build_render_inputs("alpha")
+    assert inputs.gateway is not None and inputs.gateway.host == "127.0.0.1"
+
+
 def test_clean_secret_applied_to_gateway_auth_and_api_server_key(stores):
     """W1: NUL/CR/LF in gateway.auth or api_server.key must be stripped
     before they hit the systemd EnvironmentFile."""
