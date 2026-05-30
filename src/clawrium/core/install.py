@@ -266,6 +266,7 @@ def run_installation(
     cleanup_failed: bool = False,
     resume: bool = False,
     force: bool = False,
+    version_override: str | None = None,
 ) -> InstallResult:
     """Run full installation of an agent on a host.
 
@@ -317,8 +318,17 @@ def run_installation(
         reasons = ", ".join(compat["reasons"])
         raise InstallationError(f"Host is incompatible: {reasons}")
 
-    matched_version = compat["matched_entry"]["version"]
-    emit("validate", f"Compatible with {claw_name} v{matched_version}")
+    if version_override:
+        matched_version = version_override.lstrip("v")
+        emit("validate", f"Version override: {claw_name} v{matched_version}")
+    elif compat["matched_entry"] is not None:
+        matched_version = compat["matched_entry"]["version"]
+        emit("validate", f"Compatible with {claw_name} v{matched_version}")
+    else:
+        # Hardware not yet gathered — fall back to latest manifest version.
+        manifest = load_manifest(claw_name)
+        matched_version = manifest["platforms"][0]["version"]
+        emit("validate", f"Hardware unknown, using latest: {claw_name} v{matched_version}")
 
     # Step 4: Validate custom name if provided (format only, uniqueness checked in updater)
     if name is not None:
@@ -557,6 +567,19 @@ def run_installation(
                     and 8600 <= existing_api_port <= 8699
                 ):
                     preserved_api_server_port[0] = existing_api_port
+            if claw_name == "ethos":
+                existing_ethos_gw_port = (
+                    h["agents"][chosen_name[0]]
+                    .get("config", {})
+                    .get("gateway", {})
+                    .get("internal_port")
+                )
+                if (
+                    isinstance(existing_ethos_gw_port, int)
+                    and not isinstance(existing_ethos_gw_port, bool)
+                    and 43000 <= existing_ethos_gw_port <= 44999
+                ):
+                    preserved_gateway_port[0] = existing_ethos_gw_port
             h["agents"][chosen_name[0]]["status"] = "installing"
             h["agents"][chosen_name[0]]["error"] = None
             h["agents"][chosen_name[0]]["version"] = matched_version  # Update version
@@ -619,6 +642,19 @@ def run_installation(
                         and 8600 <= existing_api_port <= 8699
                     ):
                         preserved_api_server_port[0] = existing_api_port
+                if claw_name == "ethos":
+                    existing_ethos_gw_port = (
+                        h["agents"][chosen_name[0]]
+                        .get("config", {})
+                        .get("gateway", {})
+                        .get("internal_port")
+                    )
+                    if (
+                        isinstance(existing_ethos_gw_port, int)
+                        and not isinstance(existing_ethos_gw_port, bool)
+                        and 43000 <= existing_ethos_gw_port <= 44999
+                    ):
+                        preserved_gateway_port[0] = existing_ethos_gw_port
 
             h["agents"][chosen_name[0]] = {
                 "type": claw_name,
@@ -681,6 +717,22 @@ def run_installation(
                 "host": "0.0.0.0",
                 "port": chosen_api_server_port[0],
             }
+        if claw_name == "ethos":
+            # ethos web-api is always on port 3000 (upstream fixed).
+            # Store 3000 at config.gateway.port so the web_ui resolver
+            # (port_field: gateway.port) tunnels to the correct target.
+            chosen_gateway_port[0] = _pick_per_instance_port(
+                h,
+                chosen_name[0],
+                base=43000,
+                span=2000,
+                port_field_path=("gateway", "internal_port"),
+                preserved_port=preserved_gateway_port[0],
+            )
+            record["config"]["gateway"] = {
+                "port": 3000,
+                "internal_port": chosen_gateway_port[0],
+            }
         return h
 
     update_host(host["hostname"], set_installing)
@@ -709,7 +761,7 @@ def run_installation(
 
     # Step 6: Build inventory with extra vars for playbook
     matched_entry = compat["matched_entry"]
-    claw_sha256 = matched_entry.get("sha256", "")
+    claw_sha256 = matched_entry.get("sha256", "") if matched_entry else ""
 
     # Load secrets for this agent instance. Key by `host["key_id"]`
     # (immutable identifier, issue #448) so the lookup survives any
@@ -814,6 +866,40 @@ def run_installation(
             "port": dashboard_port,
         }
 
+    # Ethos: generate (or reuse) the ETHOS_GATEWAY_API_KEY that gates the
+    # local OpenAI-compatible gateway on 127.0.0.1:<gateway_port>. Generated
+    # once on first install so reconfigure flows can rely on the same token.
+    # Persisted in secrets.json under the canonical instance key.
+    ethos_gateway_api_key = None
+    if claw_name == "ethos":
+        canonical_hostname = host["hostname"]
+        instance_key = get_instance_key(canonical_hostname, claw_name, agent_name)
+        existing_entry = get_instance_secrets(instance_key).get("ETHOS_GATEWAY_API_KEY")
+        existing_key = existing_entry.get("value") if existing_entry else None
+        if isinstance(existing_key, str) and len(existing_key) == 64 and all(
+            c in "0123456789abcdef" for c in existing_key
+        ):
+            ethos_gateway_api_key = existing_key
+        else:
+            if existing_key is not None:
+                logger.warning(
+                    "Existing ETHOS_GATEWAY_API_KEY for %s is corrupted "
+                    "(not 64-char lowercase hex); regenerating.",
+                    instance_key,
+                )
+            ethos_gateway_api_key = secrets.token_hex(32)  # 64-char hex token
+            set_instance_secret(
+                instance_key,
+                "ETHOS_GATEWAY_API_KEY",
+                ethos_gateway_api_key,
+                description="Bearer token for ethos local OpenAI-compatible gateway.",
+            )
+        config["gateway"] = {
+            "port": 3000,
+            "internal_port": chosen_gateway_port[0],
+            "api_key": ethos_gateway_api_key,
+        }
+
     inventory = {
         "all": {
             "hosts": {
@@ -822,6 +908,9 @@ def run_installation(
                     "ansible_user": host.get("user", "xclm"),
                     "ansible_port": host.get("port", 22),
                     "ansible_ssh_private_key_file": str(ssh_key),
+                    "ansible_become_timeout": 120,
+                    "ansible_pipelining": True,
+                    "ansible_ssh_extra_args": "-o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ConnectTimeout=60",
                 }
             },
             "vars": {
@@ -875,6 +964,7 @@ def run_installation(
             quiet=False,  # Show output
             verbosity=1,  # Show task details (-v)
             timeout=300,  # 5 min timeout for base install
+            envvars={"ANSIBLE_BECOME_TIMEOUT": "120"},
         )
 
         if result.status != "successful":
@@ -903,6 +993,7 @@ def run_installation(
             quiet=False,  # Show output
             verbosity=1,  # Show task details (-v)
             timeout=1800,  # 30 min timeout for claw install
+            envvars={"ANSIBLE_BECOME_TIMEOUT": "120"},
         )
 
         if result.status != "successful":
@@ -1111,6 +1202,25 @@ def run_installation(
                     if "config" not in h["agents"][agent_name]:
                         h["agents"][agent_name]["config"] = {}
                     h["agents"][agent_name]["config"]["gateway"] = preserved_gateway[0]
+
+                # Persist ethos gateway config (port + api_key) to hosts.json.
+                # The api_key is generated before the playbook runs and stored
+                # in secrets.json; write it here so configure can read it back.
+                if claw_name == "ethos" and ethos_gateway_api_key:
+                    if "config" not in h["agents"][agent_name]:
+                        h["agents"][agent_name]["config"] = {}
+                    h["agents"][agent_name]["config"]["gateway"] = {
+                        "port": 3000,
+                        "internal_port": chosen_gateway_port[0] if chosen_gateway_port else 44410,
+                        "api_key": ethos_gateway_api_key,
+                    }
+                    # Persist the ethos state directory so Python-side code
+                    # (open.py, memory CLIs) can read it from hosts.json rather
+                    # than recomputing /home/{agent_name}/.ethos. Matches the
+                    # ETHOS_STATE_DIR written into the systemd unit by configure.yaml.
+                    h["agents"][agent_name]["config"]["state_dir"] = (
+                        f"/home/{agent_name}/.ethos"
+                    )
 
                 # Store gateway authentication (OpenClaw only)
                 if gateway_token and gateway_url:

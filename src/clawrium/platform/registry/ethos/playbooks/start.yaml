@@ -1,0 +1,105 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: Check if systemd service exists
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+      register: service_file
+
+    - name: Fail if service not installed
+      ansible.builtin.fail:
+        msg: "Ethos service not installed. Run 'clawctl agent install --type ethos ...' first."
+      when: not service_file.stat.exists
+
+    - name: Probe candidate ethos binary paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "/opt/clawrium-node24/bin/ethos"
+        - "/usr/local/bin/ethos"
+      register: ethos_stat_start
+
+    - name: Fail if ethos binary not found
+      ansible.builtin.fail:
+        msg: "ethos binary not found at any candidate path"
+      when: ethos_stat_start.results | selectattr('stat.exists', 'equalto', true) | list | length == 0
+
+    - name: Set ethos binary path fact
+      ansible.builtin.set_fact:
+        ethos_bin_start: "{{ (ethos_stat_start.results | selectattr('stat.exists', 'equalto', true) | first).item }}"
+
+    # Re-render the unit on every start so any binary-path changes (e.g. after
+    # a Node.js upgrade that shifts the npm global prefix) are picked up without
+    # requiring a full reinstall. Mirrors the hermes start.yaml pattern.
+    - name: Sync ethos systemd unit
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+        content: |
+          [Unit]
+          Description=Ethos AI Agent ({{ agent_name }})
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User={{ agent_name }}
+          WorkingDirectory=/home/{{ agent_name }}/.ethos
+          EnvironmentFile=/home/{{ agent_name }}/.ethos/.env
+          Environment=PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+          Environment=ETHOS_ENV_FILE=/home/{{ agent_name }}/.ethos/.env
+          Environment=ETHOS_STATE_DIR=/home/{{ agent_name }}/.ethos
+          ExecStart={{ ethos_bin_start }} run-all
+          StandardOutput=journal
+          StandardError=journal
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+      no_log: true
+      register: unit_changed
+
+    - name: Reload systemd if unit changed
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      when: unit_changed.changed
+
+    - name: Start ethos service
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        state: started
+        enabled: yes
+        daemon_reload: yes
+      register: start_result
+
+    # Brief settle window so systemd has time to either reach `active` or
+    # crash through `Restart=on-failure` cycles.
+    - name: Pause briefly to let service reach steady state
+      ansible.builtin.pause:
+        seconds: 3
+
+    - name: Capture service active state
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+      register: service_status
+
+    - name: Display service state
+      ansible.builtin.debug:
+        msg: >-
+          Ethos service {{ agent_type }}-{{ agent_name }} is
+          {{ service_status.status.ActiveState }}
+          (sub-state: {{ service_status.status.SubState }}).
+
+    - name: Fail if service is not active
+      ansible.builtin.fail:
+        msg: >-
+          Ethos service {{ agent_type }}-{{ agent_name }} failed to reach
+          'active' state (currently
+          {{ service_status.status.ActiveState }}/{{ service_status.status.SubState }}).
+          Inspect logs with:
+            sudo journalctl -u {{ agent_type }}-{{ agent_name }} -n 100 --no-pager
+          Common cause: ~/.ethos/.env is missing required provider credentials.
+          Run `clawctl agent configure {{ agent_name }}` to provision a provider.
+      when: service_status.status.ActiveState not in ['active', 'activating']

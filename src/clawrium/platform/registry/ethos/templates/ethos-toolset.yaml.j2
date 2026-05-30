@@ -1,0 +1,17 @@
+# toolset.yaml — managed by clawrium
+tools:
+  - read_file
+  - write_file
+  - bash
+  - search_web
+  - memory_read
+  - memory_write
+
+fs_reach: workspace
+
+safety:
+  network:
+    allow:
+      - "*.anthropic.com"
+      - "*.openai.com"
+      - "api.openrouter.ai"

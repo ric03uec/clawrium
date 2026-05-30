@@ -483,6 +483,60 @@ def ensure(agent_key: str, *, owned: bool = True) -> int:
         return local_port
 
 
+def ensure_at_port(agent_key: str, remote_port: int, *, owned: bool = True) -> int:
+    """Like ``ensure`` but tunnels to an explicit ``remote_port`` instead of
+    the agent's web-UI port.  Use a namespaced key (e.g. ``"kevin:chat"``) to
+    avoid colliding with the web-UI tunnel for the same agent.
+    """
+    from clawrium.core.web_ui import ResolvedUI, resolve
+
+    resolved = resolve(agent_key)
+    if resolved is None:
+        raise TunnelError(
+            f"Agent '{agent_key}' could not be resolved for SSH tunnel."
+        )
+
+    ssh_config = resolved.ssh_config
+    namespaced_key = f"{agent_key}:{remote_port}"
+    with _get_ensure_lock(namespaced_key):
+        existing = _existing_healthy_tunnel(namespaced_key)
+        if existing is not None:
+            if owned:
+                _OWNED_TUNNELS.add(namespaced_key)
+                _register_atexit()
+            return existing.local_port
+
+        _evict_stale(namespaced_key)
+
+        local_port = _pick_free_port()
+        tmp_resolved = ResolvedUI(
+            host=resolved.host,
+            bind="loopback",
+            remote_port=remote_port,
+            ssh_config=ssh_config,
+        )
+        cmd = _build_ssh_for(tmp_resolved, local_port)
+        signature = _cmdline_signature(cmd)
+        proc = _spawn_ssh(cmd)
+        if not _wait_for_connect(local_port):
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                except OSError:
+                    pass
+            raise TunnelError(
+                f"SSH tunnel to port {remote_port} did not become ready in time."
+            )
+
+        import time
+        info = TunnelInfo(pid=proc.pid, local_port=local_port, started_at=time.time(), ssh_cmdline_signature=signature)
+        _write_state(namespaced_key, info)
+        if owned:
+            _OWNED_TUNNELS.add(namespaced_key)
+            _register_atexit()
+        return local_port
+
+
 def close(agent_key: str) -> None:
     """Close (kill) the tunnel for ``agent_key`` if we own it.
 

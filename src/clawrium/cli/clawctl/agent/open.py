@@ -18,7 +18,7 @@ import typer
 from clawrium.cli.clawctl._common import is_local_host
 from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
-from clawrium.core.web_ui import resolve as resolve_web_ui
+from clawrium.core.web_ui import ResolvedUI, resolve as resolve_web_ui
 
 
 def open(  # noqa: A001 — `open` matches plan §4 verb name
@@ -64,6 +64,31 @@ def open(  # noqa: A001 — `open` matches plan §4 verb name
             )
         url = f"http://127.0.0.1:{local_port}"
 
+    # For ethos agents, append the web token as a query param so the dashboard
+    # frontend can authenticate its requests to ethos serve.
+    claw_type = _claw_record.get("type", "")
+    if claw_type == "ethos":
+        agent_name = _claw_record.get("agent_name") or name
+        # Read state_dir from hosts.json config (persisted at install time).
+        # Fall back to the conventional default so existing installs without
+        # the field continue to work.
+        state_dir = (
+            _claw_record.get("config", {}).get("state_dir")
+            or f"/home/{agent_name}/.ethos"
+        )
+        if needs_tunnel:
+            web_token = _read_ethos_web_token(resolved, state_dir)
+        else:
+            try:
+                import builtins
+                with builtins.open(f"{state_dir}/web-token") as _f:
+                    web_token = _f.read().strip()
+            except Exception:
+                web_token = ""
+        if web_token:
+            from urllib.parse import quote
+            url = f"{url}/auth/exchange?t={quote(web_token, safe='')}"
+
     if print_url:
         typer.echo(url)
         return
@@ -75,3 +100,38 @@ def open(  # noqa: A001 — `open` matches plan §4 verb name
             "Hint:  re-run with --print-url to get the URL for manual use.",
             err=True,
         )
+
+
+def _ssh_run(resolved: ResolvedUI, remote_cmd: str, timeout: int = 10) -> str:
+    """Run a single command on the remote host via SSH. Returns stdout stripped, or ''."""
+    import subprocess
+
+    ssh = resolved.ssh_config or {}
+    user = ssh.get("user")
+    if not user:
+        return ""
+    cmd = ["ssh", "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes"]
+    port = ssh.get("port")
+    if isinstance(port, int):
+        cmd += ["-p", str(port)]
+    identity = ssh.get("identity_file")
+    if isinstance(identity, str):
+        cmd += ["-i", identity]
+    cmd += [f"{user}@{resolved.host}", remote_cmd]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _read_ethos_web_token(resolved: ResolvedUI, state_dir: str) -> str:
+    """Read the ethos web-token from the remote host.
+
+    Uses the persisted state_dir (from hosts.json config.state_dir) so the
+    correct path is used even if ETHOS_STATE_DIR was customised.
+    """
+    return _ssh_run(
+        resolved,
+        f"sudo cat {state_dir}/web-token 2>/dev/null",
+    )

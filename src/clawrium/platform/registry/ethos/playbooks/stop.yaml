@@ -1,0 +1,45 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: Check if systemd service exists
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+      register: service_file
+
+    - name: Stop ethos service gracefully
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        state: stopped
+      register: stop_result
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    - name: Disable ethos service
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        enabled: no
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    - name: Wait for service to stop
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+      register: service_status
+      until: service_status.status.ActiveState != "active"
+      retries: 10
+      delay: 2
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    # Verify the ethos process has stopped by checking for `ethos run-all`
+    - name: Verify ethos process is stopped
+      ansible.builtin.command:
+        cmd: pgrep -u {{ agent_name }} -f "ethos run-all"
+      register: process_check
+      changed_when: false
+      failed_when: process_check.rc == 0
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg: "Ethos service {{ agent_type }}-{{ agent_name }} stopped and disabled. ~/.ethos/ preserved."

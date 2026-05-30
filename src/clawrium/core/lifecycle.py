@@ -26,6 +26,7 @@ from clawrium.core.secrets import (
     get_instance_key,
     get_instance_secrets,
     remove_instance_secrets,
+    set_instance_secret,
 )
 from clawrium.core.skills_state import cleanup_agent_state
 
@@ -65,6 +66,7 @@ ALIAS_TO_CANONICAL = {
     "opc": "openclaw",
     "zc": "zeroclaw",
     "nc": "nemoclaw",
+    "ethos": "ethos",
 }
 
 
@@ -355,6 +357,9 @@ def _run_lifecycle_playbook(
                     "ansible_user": host.get("user", "xclm"),
                     "ansible_port": host.get("port", 22),
                     "ansible_ssh_private_key_file": str(ssh_key),
+                    "ansible_become_timeout": 120,
+                    "ansible_pipelining": True,
+                    "ansible_ssh_extra_args": "-o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ConnectTimeout=60",
                 }
             },
             "vars": {
@@ -675,6 +680,22 @@ def start_agent(
                 "error": f"Re-pair after start failed: {repair_error}",
             }
 
+    if _resolve_agent_type(claw_name) == "ethos":
+        emit("start", f"Daemon started; waiting for {agent_key} gateway...")
+        health_ok, health_err = _ethos_health_check_after_start(
+            hostname, agent_key, claw_record, on_event=on_event
+        )
+        if not health_ok:
+            return {
+                "success": False,
+                "agent": agent_key,
+                "host": hostname,
+                "operation": "start",
+                "pid": None,
+                "started_at": now,
+                "error": f"Ethos gateway health check failed: {health_err}",
+            }
+
     emit("start", f"Started {agent_key} successfully")
 
     return {
@@ -868,6 +889,73 @@ def _extract_zeroclaw_gateway_facts(
     return None, None
 
 
+def _create_ethos_chat_token(
+    host: dict,
+    agent_name: str,
+    ssh_key: "Path | None",
+    on_event: "Callable[[str, str], None] | None" = None,
+) -> str | None:
+    """Create an ethos API key via SSH and return the sk-ethos-... token.
+
+    Runs `ethos api-key create --name clawctl` as the agent Linux user.
+    Returns None if SSH is unreachable or the command fails.
+    """
+    import re
+    import subprocess
+
+    hostname = host.get("hostname", "")
+    user = host.get("user", "xclm")
+    port = host.get("port", 22)
+
+    # Probe candidate binary paths in the same order as configure.yaml and
+    # exec.yaml. The NodeSource install places the binary under the npm global
+    # prefix (often /opt/clawrium-node24/bin/); a system-level install lands
+    # it at /usr/local/bin/ethos. The first executable found wins.
+    _probe = (
+        "for p in /opt/clawrium-node24/bin/ethos /usr/local/bin/ethos; do "
+        '[ -x "$p" ] && echo "$p" && break; done'
+    )
+
+    ssh_base = ["ssh", "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=15"]
+    if port and port != 22:
+        ssh_base += ["-p", str(port)]
+    if ssh_key:
+        ssh_base += ["-i", str(ssh_key)]
+
+    try:
+        probe_result = subprocess.run(
+            ssh_base + [f"{user}@{hostname}", _probe],
+            capture_output=True, text=True, timeout=15,
+        )
+        ethos_bin = probe_result.stdout.strip()
+    except Exception:
+        ethos_bin = ""
+
+    if not ethos_bin:
+        logger.warning("ethos binary not found on %s; skipping ETHOS_CHAT_TOKEN creation", hostname)
+        return None
+
+    cmd = ssh_base + [
+        f"{user}@{hostname}",
+        f"sudo -u {agent_name} {ethos_bin} api-key create --name clawctl 2>&1",
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        output = result.stdout + result.stderr
+        match = re.search(r"sk-ethos-[a-f0-9]{64}", output)
+        if match:
+            token = match.group(0)
+            if on_event:
+                on_event("configure", f"Created ETHOS_CHAT_TOKEN for {agent_name}")
+            return token
+        logger.warning("ethos api-key create ran but no sk-ethos- token found in output")
+    except Exception as exc:
+        logger.warning("Failed to create ethos API key via SSH: %s", exc)
+    return None
+
+
 def _zeroclaw_repair_after_start(
     hostname: str,
     agent_name: str | None,
@@ -941,6 +1029,9 @@ def _zeroclaw_repair_after_start(
                     "ansible_user": host.get("user", "xclm"),
                     "ansible_port": host.get("port", 22),
                     "ansible_ssh_private_key_file": str(ssh_key),
+                    "ansible_become_timeout": 120,
+                    "ansible_pipelining": True,
+                    "ansible_ssh_extra_args": "-o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ConnectTimeout=60",
                 }
             },
             "vars": {
@@ -1044,6 +1135,87 @@ def _zeroclaw_repair_after_start(
         return False, str(exc)
     finally:
         _cleanup_ansible_artifacts(operation_log_dir)
+
+
+def _ethos_health_check_after_start(
+    hostname: str,
+    agent_key: str,
+    agent_record: dict,
+    on_event: Callable[[str, str], None] | None = None,
+    *,
+    timeout: int = 90,
+) -> tuple[bool, str | None]:
+    """Poll the ethos web-api health endpoint via SSH until it responds 200.
+
+    ethos web-api binds to 127.0.0.1:3000 on the remote host, so we probe
+    via SSH. `run-all` starts multiple sub-processes; boot can take 30-60s.
+
+    Probe order per iteration:
+      1. /health  — documented in manifest validate task
+      2. /healthz — alternative used by some ethos builds
+      3. /v1/models — OpenAI-compat liveness if both /health paths are absent
+    """
+    import time
+    import subprocess
+
+    # ethos run-all exposes its own health aggregator on port 3003
+    # (visible in journal as "health: http://127.0.0.1:3003/healthz").
+    # Port 3000 (serve) also has /healthz but starts serving immediately
+    # even before adapters load, so it's not a reliable readiness signal.
+    port = 3003
+    _HEALTH_PATHS = ["/healthz"]
+    deadline = time.monotonic() + timeout
+
+    from clawrium.core.hosts import get_host
+    from clawrium.core.keys import get_host_private_key
+
+    host = get_host(hostname)
+    if not host:
+        return False, f"Host {hostname!r} not found"
+    key_id = host.get("key_id") or hostname
+    ssh_key = get_host_private_key(key_id)
+    if not ssh_key:
+        return False, "SSH key not found for health check"
+
+    ssh_user = host.get("user", "xclm")
+    ssh_port = host.get("port", 22)
+
+    def _ssh(cmd: str) -> int:
+        try:
+            r = subprocess.run(
+                [
+                    "ssh", "-i", str(ssh_key),
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "ConnectTimeout=3",
+                    "-p", str(ssh_port),
+                    f"{ssh_user}@{hostname}",
+                    cmd,
+                ],
+                capture_output=True,
+                timeout=6,
+            )
+            return r.returncode
+        except (subprocess.TimeoutExpired, OSError):
+            return 1
+
+    agent_name = agent_record.get("agent_name", agent_key)
+    service_unit = f"ethos-{agent_name}"
+
+    while time.monotonic() < deadline:
+        # Fast gate: systemd unit must be active before we bother with HTTP.
+        if _ssh(f"systemctl is-active --quiet {service_unit}") != 0:
+            time.sleep(3)
+            continue
+        # HTTP probe — try each candidate path; first 200 wins.
+        for path in _HEALTH_PATHS:
+            if _ssh(f"curl -sf http://127.0.0.1:{port}{path}") == 0:
+                return True, None
+        time.sleep(3)
+
+    return False, (
+        f"Ethos service {service_unit} did not become ready within {timeout}s. "
+        f"Check logs: sudo journalctl -u {service_unit} -n 50 --no-pager"
+    )
 
 
 def sync_agent(
@@ -1269,14 +1441,19 @@ def sync_agent(
         _safe_transition(_OS.PROVIDERS)
 
         # --- remaining stages (Option D walk) ---------------------
-        # Per #523 audit: today only `identity` for openclaw lacks a
-        # clawctl declarative surface. Hermes/zeroclaw mark identity
-        # `auto_skip: true`. Channels and validate are completed as
-        # state-machine bookkeeping — channels' actual content comes
-        # from the separate `clawctl agent channel attach` surface
-        # (#509), and validate's health check is implicit in
-        # configure_agent's Ansible exit code below.
+        # Per #523 audit: openclaw identity lacks a clawctl declarative
+        # surface (requires user prompts). Hermes/zeroclaw mark identity
+        # `auto_skip: true`. Ethos identity is configure-playbook-owned:
+        # configure.yaml renders SOUL.md + toolset.yaml + personality
+        # config.yaml, so the stage is legitimately COMPLETE after configure.
+        # Channels and validate are completed as state-machine bookkeeping —
+        # channels' actual content comes from the separate
+        # `clawctl agent channel attach` surface (#509), and validate's
+        # health check is implicit in configure_agent's Ansible exit code.
         _NO_DECLARATIVE_SURFACE_YET = {"identity"}
+        # Stages that configure.yaml handles directly — mark COMPLETE even
+        # without an interactive declarative surface.
+        _CONFIGURE_PLAYBOOK_OWNED: set[tuple[str, str]] = {("ethos", "identity")}
         _STAGE_NEXT_STATE = {
             "identity": _OS.IDENTITY,
             "channels": _OS.CHANNELS,
@@ -1289,6 +1466,14 @@ def sync_agent(
                 try:
                     complete_stage(
                         hostname, agent_key, stage_name, StageStatus.SKIPPED
+                    )
+                except InvalidTransitionError:
+                    pass
+                continue
+            if (agent_type, stage_name) in _CONFIGURE_PLAYBOOK_OWNED:
+                try:
+                    complete_stage(
+                        hostname, agent_key, stage_name, StageStatus.COMPLETE
                     )
                 except InvalidTransitionError:
                     pass
@@ -1792,22 +1977,78 @@ def configure_agent(
 
             update_host(host["hostname"], _persist_reconstructed_api_server)
 
+    # Ethos: hydrate the persisted gateway block (non-sensitive shape from
+    # hosts.json) PLUS the bearer token from secrets.json into config_data so
+    # the configure playbook can render ETHOS_GATEWAY_API_KEY into ~/.ethos/.env.
+    # Reconfigure flows reuse the persisted token verbatim (idempotency
+    # contract — clients reading the gateway don't see rotation).
+    if resolved_type == "ethos":
+        persisted_gateway = agent_record.get("config", {}).get("gateway")
+        instance_key = get_instance_key(
+            host["hostname"], resolved_type, unix_agent_name
+        )
+        secret_entry = get_instance_secrets(instance_key).get("ETHOS_GATEWAY_API_KEY")
+        ethos_api_key = secret_entry.get("value") if secret_entry else None
+
+        if not (
+            isinstance(ethos_api_key, str)
+            and len(ethos_api_key) == 64
+            and all(c in "0123456789abcdef" for c in ethos_api_key)
+        ):
+            return (
+                False,
+                "Ethos agent missing or invalid ETHOS_GATEWAY_API_KEY in "
+                "secrets.json (expected 64-char lowercase hex). "
+                "Re-run 'clawctl agent install --type ethos ...' to generate one.",
+            )
+
+        if isinstance(persisted_gateway, dict):
+            existing_gateway = config_data.get("gateway") or {}
+            if not isinstance(existing_gateway, dict):
+                existing_gateway = {}
+            merged_gateway = {**existing_gateway, **persisted_gateway}
+            # gateway.port = 3000 (ethos web-api, hardcoded upstream).
+            # Accept any valid port (1-65535); the 43000-44999 window is for
+            # gateway.internal_port (ETHOS_GATEWAY_PORT), not the web-api port.
+            persisted_port = merged_gateway.get("port")
+            if not (
+                isinstance(persisted_port, int)
+                and not isinstance(persisted_port, bool)
+                and 0 < persisted_port <= 65535
+            ):
+                logger.warning(
+                    "Ethos gateway port %r is not a valid port number — "
+                    "falling back to 3000 (ethos web-api default).",
+                    persisted_port,
+                )
+                merged_gateway["port"] = 3000
+            merged_gateway["api_key"] = ethos_api_key
+            config_data["gateway"] = merged_gateway
+        else:
+            # hosts.json shape missing; reconstruct with the fixed web-api port.
+            logger.warning(
+                "Ethos %s on %s has no gateway block in hosts.json — "
+                "reconstructing with port 3000 (ethos web-api default).",
+                unix_agent_name,
+                host["hostname"],
+            )
+            config_data["gateway"] = {
+                "port": 3000,
+                "api_key": ethos_api_key,
+            }
+
     # #560: Discord/Slack channel hydration now reads from the canonical
     # `channels.json` store via `_hydrate_channels_from_canonical` rather
     # than the deprecated `agent_record.config.channels.<type>` shape.
-    # The helper produces the same dict shape the ansible configure
-    # playbook expects (`config_data["channels"][type] = {...}`), so the
-    # playbook is unchanged. The legacy hosts.json shape read at this
-    # site was the original #555 silent-wipe bug surface; removing it
-    # closes that class.
-    if resolved_type in ("hermes", "zeroclaw"):
+    # Ethos supports Discord + Slack (same as hermes), so include_slack=True.
+    if resolved_type in ("hermes", "zeroclaw", "ethos"):
         ok, err = _hydrate_channels_from_canonical(
             config_data,
             host=host,
             agent_key=agent_key,
             agent_record=agent_record,
             resolved_type=resolved_type,
-            include_slack=(resolved_type == "hermes"),
+            include_slack=(resolved_type in ("hermes", "ethos")),
         )
         if not ok:
             return False, err
@@ -2064,9 +2305,13 @@ def configure_agent(
         "all": {
             "hosts": {
                 host["hostname"]: {
+                    "ansible_host": host["hostname"],
                     "ansible_user": host.get("user", "xclm"),
                     "ansible_port": host.get("port", 22),
                     "ansible_ssh_private_key_file": str(ssh_key),
+                    "ansible_become_timeout": 120,
+                    "ansible_pipelining": True,
+                    "ansible_ssh_extra_args": "-o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ConnectTimeout=60",
                 }
             },
             "vars": ansible_vars,
@@ -2095,6 +2340,8 @@ def configure_agent(
         configure_timeout = 240
     elif resolved_type == "zeroclaw":
         configure_timeout = 180
+    elif resolved_type == "ethos":
+        configure_timeout = 120
     else:
         configure_timeout = 60
 
@@ -2105,6 +2352,10 @@ def configure_agent(
             playbook=str(playbook_path),
             quiet=True,
             timeout=configure_timeout,
+            envvars={
+                "ANSIBLE_HOST_KEY_CHECKING": "False",
+                "ANSIBLE_PIPELINING": "True",
+            },
         )
 
         if result.status == "timeout":
@@ -2113,6 +2364,12 @@ def configure_agent(
         if result.status != "successful":
             error_msg = f"Configure playbook failed: {result.status}"
             for event in result.events:
+                if event.get("event") == "runner_on_unreachable":
+                    event_data = event.get("event_data", {})
+                    res = event_data.get("res", {})
+                    msg = res.get("msg", "") or str(res)
+                    error_msg = f"Host unreachable: {msg}"
+                    break
                 if event.get("event") == "runner_on_failed":
                     event_data = event.get("event_data", {})
                     res = event_data.get("res", {})
@@ -2364,6 +2621,23 @@ def configure_agent(
                 zc_gateway_token,
                 reason,
             )
+
+        # Ethos: create an API key via SSH and store as ETHOS_CHAT_TOKEN.
+        # Done post-configure (service is running) via a direct SSH call so
+        # we don't depend on Ansible fact-cache persistence.
+        if resolved_type == "ethos":
+            ethos_chat_token = _create_ethos_chat_token(
+                host, agent_key, ssh_key, on_event
+            )
+            if ethos_chat_token:
+                instance_key = get_instance_key(host["hostname"], "ethos", agent_key)
+                set_instance_secret(
+                    instance_key,
+                    "ETHOS_CHAT_TOKEN",
+                    ethos_chat_token,
+                    description="Ethos /v1 chat bearer token (clm-managed)",
+                )
+                emit("configure", f"Stored ETHOS_CHAT_TOKEN for {agent_key}")
 
         emit("configure", f"Successfully configured {agent_key}")
         return True, None

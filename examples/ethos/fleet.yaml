@@ -1,0 +1,54 @@
+# Apply:   clawctl apply -f ethos/fleet.yaml
+# Preview: clawctl diff -f ethos/fleet.yaml
+# Teardown: clawctl delete -f ethos/fleet.yaml
+
+---
+apiVersion: clawrium.io/v1
+kind: Host
+metadata:
+  name: ethos-homelab
+  labels:
+    env: homelab
+    location: local
+spec:
+  hostname: 192.168.1.47
+  user: xclm
+  port: 22
+  bootstrap: true
+
+---
+apiVersion: clawrium.io/v1
+kind: Provider
+metadata:
+  name: ethos-openrouter
+  labels:
+    tier: primary
+spec:
+  type: openrouter
+  config:
+    defaultModel: moonshotai/kimi-k2.6
+  credentials:
+    apiKey:
+      secretRef: providers/ethos-openrouter/apiKey
+
+---
+apiVersion: clawrium.io/v1
+kind: Agent
+metadata:
+  name: kevin
+  labels:
+    env: homelab
+    type: ethos
+spec:
+  type: ethos
+  version: "0.4.3"
+  host: ethos-homelab
+  provider: ethos-openrouter
+  channels: []
+  skills: []
+  integrations: []
+  config:
+    model: moonshotai/kimi-k2.6
+  lifecycle:
+    autoStart: true
+    autoRestart: false

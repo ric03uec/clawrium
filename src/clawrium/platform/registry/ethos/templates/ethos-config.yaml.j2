@@ -1,0 +1,14 @@
+schemaVersion: 1
+{% set provider = config.provider | default({}) %}
+{% set provider_type = provider.type | default('') %}
+{% set model_id = provider.default_model | default('') %}
+{% if provider_type %}
+provider: {{ provider_type }}
+{% else %}
+provider: anthropic
+{% endif %}
+apiKey: ${secrets:providers/{{ provider_type | default('anthropic') }}/apiKey}
+{% if model_id %}
+model: {{ model_id }}
+{% endif %}
+personality: default

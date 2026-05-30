@@ -1,0 +1,275 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: Check if agent user exists
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ agent_name }}"
+      failed_when: false
+      register: user_check
+
+    - name: Fail if ethos not installed
+      ansible.builtin.fail:
+        msg: "Agent user '{{ agent_name }}' not found. Run 'clawctl agent install --type ethos ...' first."
+      when: user_check.msg is defined
+
+    - name: Verify ETHOS_GATEWAY_API_KEY is present in config
+      ansible.builtin.fail:
+        msg: |
+          config.gateway.api_key is missing for agent '{{ agent_name }}'.
+          Re-run 'clawctl agent install --type ethos --host <h> --name {{ agent_name }}' to regenerate.
+      when: config.gateway is not defined or not config.gateway.api_key
+
+    # ethos_home centralises the state-dir path so every task uses the same
+    # value. ETHOS_STATE_DIR is passed to the systemd unit so ethos reads
+    # its data from here regardless of the process's $HOME.
+    - name: Set ethos_home fact
+      ansible.builtin.set_fact:
+        ethos_home: "/home/{{ agent_name }}/.ethos"
+
+    - name: Ensure ~/.ethos config directory exists
+      ansible.builtin.file:
+        path: "{{ ethos_home }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    - name: Ensure ~/.ethos/personalities/default directory exists
+      ansible.builtin.file:
+        path: "{{ ethos_home }}/personalities/default"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    - name: Probe candidate ethos binary paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "/opt/clawrium-node24/bin/ethos"
+        - "/usr/local/bin/ethos"
+      register: ethos_stat_results
+
+    - name: Fail if ethos binary not found at any candidate path
+      ansible.builtin.fail:
+        msg: "ethos binary not found at /opt/clawrium-node24/bin/ethos or /usr/local/bin/ethos"
+      when: ethos_stat_results.results | selectattr('stat.exists', 'equalto', true) | list | length == 0
+
+    - name: Set ethos binary path for service unit
+      ansible.builtin.set_fact:
+        ethos_bin_conf: "{{ (ethos_stat_results.results | selectattr('stat.exists', 'equalto', true) | first).item }}"
+
+    - name: Sync ethos systemd unit (configure ExecStart)
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+        content: |
+          [Unit]
+          Description=Ethos AI Agent ({{ agent_name }})
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User={{ agent_name }}
+          WorkingDirectory={{ ethos_home }}
+          EnvironmentFile={{ ethos_home }}/.env
+          Environment=PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+          Environment=ETHOS_ENV_FILE={{ ethos_home }}/.env
+          Environment=ETHOS_STATE_DIR={{ ethos_home }}
+          ExecStart={{ ethos_bin_conf }} run-all
+          StandardOutput=journal
+          StandardError=journal
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+      no_log: true
+      notify: Restart ethos service
+
+    # Render ~/.ethos/.env from template
+    - name: Render ~/.ethos/.env from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/ethos.env.j2"
+        dest: "{{ ethos_home }}/.env"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        force: yes
+      no_log: true
+      notify: Restart ethos service
+
+    # Render ~/.ethos/config.yaml from template
+    - name: Render ~/.ethos/config.yaml from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/ethos-config.yaml.j2"
+        dest: "{{ ethos_home }}/config.yaml"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        force: yes
+      no_log: true
+      notify: Restart ethos service
+
+    # Render default personality SOUL.md
+    - name: Render SOUL.md for default personality
+      ansible.builtin.template:
+        src: "{{ template_path }}/ethos-soul.md.j2"
+        dest: "{{ ethos_home }}/personalities/default/SOUL.md"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        force: yes
+      no_log: true
+      notify: Restart ethos service
+
+    # Render default personality toolset.yaml
+    - name: Render toolset.yaml for default personality
+      ansible.builtin.template:
+        src: "{{ template_path }}/ethos-toolset.yaml.j2"
+        dest: "{{ ethos_home }}/personalities/default/toolset.yaml"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        force: yes
+      no_log: true
+      notify: Restart ethos service
+
+    # Render default personality config.yaml
+    - name: Render personality config.yaml for default personality
+      ansible.builtin.template:
+        src: "{{ template_path }}/ethos-personality-config.yaml.j2"
+        dest: "{{ ethos_home }}/personalities/default/config.yaml"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        force: yes
+      no_log: true
+      notify: Restart ethos service
+
+    # Render ~/.gitconfig for each `git` integration
+    - name: Render ~/.gitconfig for each git integration
+      ansible.builtin.template:
+        src: "{{ shared_template_path }}/gitconfig.j2"
+        dest: "/home/{{ agent_name }}/.gitconfig"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+      become: yes
+      become_user: "{{ agent_name }}"
+      no_log: true
+      when: integrations is defined
+      loop: "{{ integrations | dict2items | selectattr('value.type', 'equalto', 'git') | list }}"
+      loop_control:
+        label: "{{ item.key }}"
+      vars:
+        git:
+          user_name:            "{{ item.value.GIT_USER_NAME | default('') }}"
+          user_email:           "{{ item.value.GIT_USER_EMAIL | default('') }}"
+          init_default_branch:  "{{ item.value.GIT_INIT_DEFAULT_BRANCH | default('main') }}"
+          pull_rebase:          "{{ item.value.GIT_PULL_REBASE | default('false') }}"
+          core_editor:          "{{ item.value.GIT_CORE_EDITOR | default('vim') }}"
+
+    # GitHub CLI authentication
+    - name: GitHub CLI authentication block
+      when: integrations is defined
+      block:
+        - name: Check if gh CLI is installed
+          ansible.builtin.command: which gh
+          register: gh_check
+          changed_when: false
+          failed_when: false
+
+        - name: Authenticate gh CLI for each github integration
+          ansible.builtin.command:
+            argv:
+              - gh
+              - auth
+              - login
+              - --with-token
+            stdin: "{{ item.value.GITHUB_TOKEN }}"
+          become: yes
+          become_user: "{{ agent_name }}"
+          no_log: true
+          changed_when: false
+          when:
+            - gh_check.rc == 0
+            - item.value.type == 'github'
+            - item.value.GITHUB_TOKEN is defined
+          loop: "{{ integrations | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
+    # Per-provider credential verification
+    - name: Verify .env credentials for OpenRouter provider
+      ansible.builtin.command:
+        cmd: grep -q '^OPENROUTER_API_KEY=' "{{ ethos_home }}/.env"
+      register: openrouter_check
+      changed_when: false
+      failed_when: openrouter_check.rc != 0
+      no_log: true
+      when:
+        - config.provider is defined
+        - config.provider.type == 'openrouter'
+        - provider_api_key | default('') | length > 0
+
+    - name: Verify .env credentials for Anthropic provider
+      ansible.builtin.command:
+        cmd: grep -q '^ANTHROPIC_API_KEY=' "{{ ethos_home }}/.env"
+      register: anthropic_check
+      changed_when: false
+      failed_when: anthropic_check.rc != 0
+      no_log: true
+      when:
+        - config.provider is defined
+        - config.provider.type == 'anthropic'
+        - provider_api_key | default('') | length > 0
+
+    - name: Verify .env credentials for OpenAI provider
+      ansible.builtin.command:
+        cmd: grep -q '^OPENAI_API_KEY=' "{{ ethos_home }}/.env"
+      register: openai_check
+      changed_when: false
+      failed_when: openai_check.rc != 0
+      no_log: true
+      when:
+        - config.provider is defined
+        - config.provider.type == 'openai'
+        - provider_api_key | default('') | length > 0
+
+    # Verify the gateway key always renders
+    - name: Verify .env contains ETHOS_GATEWAY_API_KEY
+      ansible.builtin.command:
+        cmd: grep -q '^ETHOS_GATEWAY_API_KEY=' "{{ ethos_home }}/.env"
+      register: gateway_key_check
+      changed_when: false
+      failed_when: gateway_key_check.rc != 0
+      no_log: true
+
+    - name: Kill stale ethos processes before restart
+      ansible.builtin.shell: pkill -f "ethos run-all" || pkill -f "ethos serve" || true
+      changed_when: false
+      failed_when: false
+
+    - name: Apply pending config changes
+      ansible.builtin.meta: flush_handlers
+
+
+    - name: Display configure success
+      ansible.builtin.debug:
+        msg: |
+          Ethos agent '{{ agent_name }}' configured for provider '{{ config.provider.type | default('auto') }}'.
+          OpenAI-compatible gateway exposed on 127.0.0.1:{{ config.gateway.port | int }}, bearer-token protected (ETHOS_GATEWAY_API_KEY).
+          Service: ethos-{{ agent_name }}.service (active)
+
+  handlers:
+    # Single canonical restart handler. Always does daemon_reload.
+    - name: Restart ethos service
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        state: restarted
+        enabled: yes
+        daemon_reload: yes

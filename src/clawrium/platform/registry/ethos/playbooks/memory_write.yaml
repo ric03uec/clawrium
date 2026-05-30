@@ -1,0 +1,106 @@
+---
+# Ethos memory write — supports:
+#   - MEMORY.md  (agent notes, ≤ 2200 chars)  → ~/.ethos/personalities/default/
+#   - USER.md    (user profile, ≤ 1375 chars)  → ~/.ethos/personalities/default/
+#   - SOUL.md    (agent identity, ≤ 3000 chars) → ~/.ethos/personalities/default/
+# The ethos daemon may concurrently read/write these files. Use
+# write-to-staging-then-rename so any concurrent reader observes either
+# the old or new content, never a partial write.
+- hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    memory_char_limits:
+      MEMORY.md: 2200
+      USER.md: 1375
+      SOUL.md: 3000
+    # All memory files live under ~/.ethos/personalities/default/
+    memory_target_dir: "/home/{{ agent_name }}/.ethos/personalities/default"
+  tasks:
+    - name: Validate agent_name format
+      ansible.builtin.fail:
+        msg: "Invalid agent_name format"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate memory filename pattern
+      ansible.builtin.fail:
+        msg: "Invalid memory filename"
+      when:
+        - memory_filename is not match('^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$')
+
+    - name: Reject path-traversal components
+      ansible.builtin.fail:
+        msg: "Invalid memory filename: traversal components not allowed"
+      when:
+        - memory_filename.split('/') | intersect(['', '.', '..']) | length > 0
+
+    - name: Restrict to ethos memory allowlist
+      ansible.builtin.fail:
+        msg: "ethos memory accepts only MEMORY.md, USER.md, and SOUL.md"
+      when:
+        - memory_filename not in ['MEMORY.md', 'USER.md', 'SOUL.md']
+
+    - name: Decode content for length validation
+      ansible.builtin.set_fact:
+        memory_decoded_content: "{{ memory_content_b64 | b64decode }}"
+      no_log: true
+
+    - name: Enforce ethos per-file character limit
+      ansible.builtin.fail:
+        msg: >-
+          ethos memory file '{{ memory_filename }}' exceeds character limit
+          ({{ memory_decoded_content | length }} >
+          {{ memory_char_limits[memory_filename] }} chars)
+      when:
+        - memory_decoded_content | length > memory_char_limits[memory_filename]
+
+    - name: Drop decoded content from facts
+      ansible.builtin.set_fact:
+        memory_decoded_content: ""
+      no_log: true
+
+    - name: Ensure target directory exists
+      ansible.builtin.file:
+        path: "{{ memory_target_dir }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    - name: Clear any stale staging file
+      ansible.builtin.file:
+        path: "{{ memory_target_dir }}/.{{ memory_filename }}.tmp"
+        state: absent
+
+    - name: Write memory file content to staging path
+      ansible.builtin.copy:
+        content: "{{ memory_content_b64 | b64decode }}"
+        dest: "{{ memory_target_dir }}/.{{ memory_filename }}.tmp"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Verify staging file is a regular file (TOCTOU guard)
+      ansible.builtin.stat:
+        path: "{{ memory_target_dir }}/.{{ memory_filename }}.tmp"
+        follow: false
+      register: ethos_staging_stat
+
+    - name: Fail if staging file is a symlink or missing
+      ansible.builtin.fail:
+        msg: "Staging file is not a regular file (possible TOCTOU symlink race)"
+      when:
+        - not (ethos_staging_stat.stat.exists | default(false))
+          or (ethos_staging_stat.stat.islnk | default(false))
+          or not (ethos_staging_stat.stat.isreg | default(false))
+
+    - name: Atomically replace memory file
+      ansible.builtin.command:
+        cmd: >-
+          mv -f
+          {{ memory_target_dir }}/.{{ memory_filename }}.tmp
+          {{ memory_target_dir }}/{{ memory_filename }}
+      changed_when: true
+      no_log: true

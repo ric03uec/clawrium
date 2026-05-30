@@ -1,0 +1,45 @@
+---
+# Ethos memory delete — targets ~/.ethos/personalities/default/<filename>.
+# Restricted to MEMORY.md and USER.md.
+#
+# Asymmetry note: memory_write.yaml also accepts SOUL.md, but SOUL.md is
+# the agent's core identity file. Deleting it is treated as destructive
+# enough to require manual SSH intervention rather than routing through
+# `clawctl agent memory delete`.
+- hosts: all
+  become: yes
+  gather_facts: false
+  tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate memory filenames pattern
+      ansible.builtin.fail:
+        msg: "Invalid memory filename"
+      loop: "{{ memory_files }}"
+      when:
+        - item is not match('^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$')
+
+    - name: Reject path-traversal components in filenames
+      ansible.builtin.fail:
+        msg: "Invalid memory filename: traversal components not allowed"
+      loop: "{{ memory_files }}"
+      when:
+        - item.split('/') | intersect(['', '.', '..']) | length > 0
+
+    - name: Restrict to ethos memory allowlist
+      ansible.builtin.fail:
+        msg: "ethos memory accepts only MEMORY.md and USER.md"
+      loop: "{{ memory_files }}"
+      when:
+        - item not in ['MEMORY.md', 'USER.md']
+
+    - name: Delete memory files
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.ethos/personalities/default/{{ item }}"
+        state: absent
+      loop: "{{ memory_files }}"
+      no_log: true

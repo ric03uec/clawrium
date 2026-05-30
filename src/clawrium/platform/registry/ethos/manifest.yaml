@@ -1,0 +1,146 @@
+agent:
+  type: ethos
+  description: "TypeScript AI agent framework — personality is architecture"
+
+workspace:
+  memory_path: "~/.ethos/personalities"
+
+features:
+  memory: true
+  # Chat dispatch resolves to the OpenAI-compatible HTTP backend for ethos.
+  chat:
+    type: openai
+  # Native browser dashboard shipped by ethos upstream. Bound to loopback
+  # on the agent host; clawctl tunnels through SSH. Port 3000 is ethos's
+  # hardcoded web-api port. install.py persists 3000 at config.gateway.port
+  # so the web_ui resolver picks it up via port_field.
+  web_ui:
+    enabled: true
+    bind: loopback
+    port_field: gateway.port
+
+# Secrets configuration.
+# All provider keys are optional: install installs the binary in an inert state.
+# configure writes ~/.ethos/.env with the active provider's key and
+# the ETHOS_GATEWAY_API_KEY needed to bring the gateway online.
+secrets:
+  required: []
+
+  optional:
+    - key: ANTHROPIC_API_KEY
+      description: "Anthropic API key"
+    - key: OPENAI_API_KEY
+      description: "OpenAI API key"
+    - key: OPENROUTER_API_KEY
+      description: "OpenRouter API key (200+ models)"
+    - key: DISCORD_BOT_TOKEN
+      description: "Discord bot token"
+    - key: SLACK_BOT_TOKEN
+      description: "Slack bot token"
+    - key: SLACK_APP_TOKEN
+      description: "Slack app-level token for Socket Mode"
+    - key: TELEGRAM_BOT_TOKEN
+      description: "Telegram bot token"
+
+# Onboarding workflow configuration.
+onboarding:
+  stages:
+    providers:
+      required: true
+      description: "Assign inference provider"
+      tasks:
+        - id: select_provider
+          name: "Select inference provider"
+          type: provider_select
+        - id: verify_provider
+          name: "Verify provider connectivity"
+          type: provider_test
+
+    identity:
+      required: true
+      description: "Configure Ethos personality (SOUL.md + toolset.yaml + config.yaml)"
+      tasks:
+        - id: select_personality
+          name: "Select or create personality"
+          type: select
+          options: [engineer, researcher, reviewer, coach, operator, custom]
+          default: engineer
+        - id: soul_file
+          name: "Create personality SOUL.md"
+          type: file_create
+          path: "~/.ethos/personalities/default/SOUL.md"
+          template: "templates/ethos-soul.md.j2"
+          prompt: "Describe your agent's personality and purpose"
+
+    channels:
+      required: true
+      description: "Configure communication channels"
+      tasks:
+        - id: confirm_gateway
+          name: "Confirm gateway channel"
+          type: confirm
+          message: "Ethos will expose an OpenAI-compatible HTTP API on 127.0.0.1:<gateway_port>, bearer-token protected. Use 'clawctl agent chat' to connect."
+          default: true
+        - id: select_discord
+          name: "Enable Discord channel (optional)"
+          type: confirm
+          message: "Enable Discord messaging for this agent?"
+          default: false
+        - id: select_slack
+          name: "Enable Slack channel (optional)"
+          type: confirm
+          message: "Enable Slack messaging for this agent?"
+          default: false
+        - id: select_telegram
+          name: "Enable Telegram channel (optional)"
+          type: confirm
+          message: "Enable Telegram messaging for this agent?"
+          default: false
+
+    validate:
+      required: true
+      description: "Verify Ethos is healthy"
+      tasks:
+        - id: binary_check
+          name: "Verify ethos binary"
+          type: command
+          command: "ethos --version"
+        - id: env_check
+          name: "Verify ~/.ethos/.env exists"
+          type: file_exists
+          paths:
+            - "~/.ethos/.env"
+        - id: config_check
+          name: "Verify ~/.ethos/config.yaml exists"
+          type: file_exists
+          paths:
+            - "~/.ethos/config.yaml"
+        - id: health_check
+          name: "Verify gateway /health returns 200"
+          type: command
+          # The actual port is per-instance. This `command` field is
+          # descriptive — the live probe is run by the health check in
+          # lifecycle.py, which reads the port from hosts.json.
+          command: "curl -fsS http://127.0.0.1:<gateway_port>/health"
+
+platforms:
+  - version: "0.4.3"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=24.0.0"
+        npm: ">=10.0.0"
+  - version: "0.4.3"
+    os: ubuntu
+    os_version: "22.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=24.0.0"
+        npm: ">=10.0.0"

@@ -1,0 +1,45 @@
+---
+# Passthrough: run the ethos native CLI on the agent host.
+- hosts: all
+  gather_facts: false
+  vars:
+    workdir: "/home/{{ agent_name }}/.ethos"
+  tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Resolve npm global prefix
+      ansible.builtin.command: npm prefix -g
+      register: npm_prefix_exec
+      changed_when: false
+      failed_when: false
+
+    - name: Set ethos binary path
+      ansible.builtin.set_fact:
+        ethos_bin_exec: "{{ (npm_prefix_exec.stdout | trim) + '/bin/ethos' if npm_prefix_exec.rc == 0 else '/usr/local/bin/ethos' }}"
+
+    - name: Run agent exec command
+      ansible.builtin.command:
+        argv: "{{ [ethos_bin_exec] + cmd_argv }}"
+        chdir: "{{ workdir }}"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: exec_result
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Emit stdout
+      ansible.builtin.debug:
+        msg: "EXEC_STDOUT={{ exec_result.stdout | default('') | b64encode }}"
+
+    - name: Emit stderr
+      ansible.builtin.debug:
+        msg: "EXEC_STDERR={{ exec_result.stderr | default('') | b64encode }}"
+
+    - name: Emit rc
+      ansible.builtin.debug:
+        msg: "EXEC_RC={{ exec_result.rc | default(255) }}"

@@ -1,0 +1,239 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: Normalize target Ethos version (strip leading 'v')
+      ansible.builtin.set_fact:
+        ethos_target_version: "{{ (claw_version | default('v2026.5.0')) | regex_replace('^v', '') }}"
+
+    # Use /usr/sbin/nologin since the agent user is a service account: it
+    # runs `ethos run-all` under systemd and is not meant for interactive
+    # login. Reduces lateral-movement attack surface if the account is ever
+    # compromised.
+    - name: Create agent user
+      ansible.builtin.user:
+        name: "{{ agent_name }}"
+        state: present
+        create_home: yes
+        shell: /usr/sbin/nologin
+
+    # Node.js 24 is required. Install via NodeSource if the current node
+    # major version is less than 24 or node is missing.
+    - name: Check current Node.js version
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if ! command -v node >/dev/null 2>&1; then
+          echo "0"
+          exit 0
+        fi
+        node --version | sed -e 's/^v//' -e 's/\..*//'
+      args:
+        executable: /bin/bash
+      register: node_major_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Node.js 24 via NodeSource (when current < 24 or missing)
+      when: (node_major_check.stdout | default('0') | int) < 24
+      block:
+        - name: Download NodeSource setup script
+          ansible.builtin.get_url:
+            url: "https://deb.nodesource.com/setup_24.x"
+            dest: "/tmp/nodesource_setup.sh"
+            mode: "0700"
+            timeout: 30
+
+        - name: Run NodeSource setup script
+          ansible.builtin.command:
+            cmd: /bin/bash /tmp/nodesource_setup.sh
+          register: nodesource_setup
+          changed_when: nodesource_setup.rc == 0
+
+        - name: Install nodejs package
+          ansible.builtin.apt:
+            name: nodejs
+            state: present
+            update_cache: yes
+
+        - name: Remove NodeSource setup script
+          ansible.builtin.file:
+            path: "/tmp/nodesource_setup.sh"
+            state: absent
+
+    # Version-aware skip: re-running install on a host that already has the
+    # target version is a no-op for the binary install step. `--force` (via
+    # the `force_install` extra var) overrides this.
+    - name: Resolve npm global prefix (pre-install)
+      ansible.builtin.command: "npm prefix -g"
+      register: npm_prefix_g_pre
+      changed_when: false
+      failed_when: false
+
+    - name: Set pre-install ethos binary path fact
+      ansible.builtin.set_fact:
+        ethos_bin_pre: "{{ (npm_prefix_g_pre.stdout | trim) + '/bin/ethos' if npm_prefix_g_pre.rc == 0 else '/usr/local/bin/ethos' }}"
+
+    - name: Check if ethos binary exists
+      ansible.builtin.stat:
+        path: "{{ ethos_bin_pre }}"
+      register: ethos_binary_stat
+
+    - name: Get installed ethos version
+      ansible.builtin.command: "{{ ethos_bin_pre }} --version"
+      register: ethos_version_check
+      changed_when: false
+      failed_when: false
+      become: false
+      when: ethos_binary_stat.stat.exists
+
+    # `ethos --version` prints something like `ethos/2026.5.0 linux-x64 node/v24.0.0`
+    # Parse out the semver after the slash.
+    - name: Parse installed ethos version
+      ansible.builtin.set_fact:
+        ethos_installed_version: "{{ ((ethos_version_check.stdout | default('')) | regex_search('ethos/([0-9]+\\.[0-9]+\\.[0-9]+)', '\\1') | default([''], true) | first) | default('', true) }}"
+      when:
+        - ethos_version_check is defined
+        - (ethos_version_check.rc | default(1)) == 0
+
+    - name: Set install skip condition
+      ansible.builtin.set_fact:
+        ethos_already_installed: >-
+          {{ ethos_binary_stat.stat.exists
+             and (ethos_installed_version | default('')) == ethos_target_version
+             and not (force_install | default(false) | bool) }}
+
+    - name: Mark install as skipped when already installed
+      ansible.builtin.debug:
+        msg: "Ethos v{{ ethos_installed_version | default('unknown') }} already installed at {{ ethos_bin | default('/usr/local/bin/ethos') }}. Skipping binary install."
+      when: ethos_already_installed
+
+    - name: Note that --force was supplied (overriding skip)
+      ansible.builtin.debug:
+        msg: "force=true: reinstalling Ethos at {{ ethos_bin | default('/usr/local/bin/ethos') }}"
+      when:
+        - ethos_binary_stat.stat.exists
+        - force_install | default(false) | bool
+
+    - name: Install @ethosagent/cli globally via npm
+      ansible.builtin.command:
+        cmd: "npm install -g @ethosagent/cli@{{ ethos_target_version }}"
+      register: ethos_npm_install
+      changed_when: ethos_npm_install.rc == 0
+      when: not ethos_already_installed
+
+    - name: Resolve npm global prefix (post-install)
+      ansible.builtin.command: "npm prefix -g"
+      register: npm_prefix_g
+      changed_when: false
+
+    - name: Set ethos binary path fact
+      ansible.builtin.set_fact:
+        ethos_bin: "{{ npm_prefix_g.stdout | trim }}/bin/ethos"
+
+    - name: Create ~/.ethos/ config directory
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.ethos"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    - name: Create ~/.ethos/personalities/ directory
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.ethos/personalities"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    - name: Create ~/.ethos/secrets/ directory
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.ethos/secrets"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    - name: Create ~/.ethos/personalities/default/ directory
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.ethos/personalities/default"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0700"
+
+    # Create empty .env file (mode 0600, force: no to preserve on re-install)
+    - name: Create empty Ethos environment file (preserved across re-installs)
+      ansible.builtin.copy:
+        dest: "/home/{{ agent_name }}/.ethos/.env"
+        content: ""
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        force: no
+
+    # Tighten permissions backstop
+    - name: Enforce 0600 permissions on Ethos environment file
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.ethos/.env"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        state: file
+
+    # Placeholder config.yaml (will be replaced by configure)
+    - name: Create placeholder ~/.ethos/config.yaml
+      ansible.builtin.copy:
+        dest: "/home/{{ agent_name }}/.ethos/config.yaml"
+        content: |
+          # Placeholder — managed by clawrium (clawctl). Do not edit by hand.
+          # Run `clawctl agent configure {{ agent_name }}` to provision provider and start.
+          gateway:
+            port: 0
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0600"
+        force: no
+
+    # Service is dropped DISABLED and NOT started. Phase 2 (configure) writes
+    # provider credentials to .env and turns the unit on.
+    - name: Create systemd service file (disabled, not started)
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+        content: |
+          [Unit]
+          Description=Ethos AI Agent ({{ agent_name }})
+          After=network.target
+
+          [Service]
+          Type=simple
+          User={{ agent_name }}
+          WorkingDirectory=/home/{{ agent_name }}/.ethos
+          EnvironmentFile=/home/{{ agent_name }}/.ethos/.env
+          Environment=PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+          Environment=ETHOS_ENV_FILE=/home/{{ agent_name }}/.ethos/.env
+          Environment=ETHOS_STATE_DIR=/home/{{ agent_name }}/.ethos
+          ExecStart={{ ethos_bin }} run-all
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+      no_log: true
+      notify: Reload systemd
+
+    - name: Flush handlers to apply systemd daemon-reload
+      ansible.builtin.meta: flush_handlers
+
+    - name: Display install success
+      ansible.builtin.debug:
+        msg: |
+          Ethos {{ ethos_target_version }} installed for agent '{{ agent_name }}'.
+          Service unit ethos-{{ agent_name }}.service dropped (disabled, stopped).
+          Run `clawctl agent configure {{ agent_name }}` to provision a provider and start the gateway.
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes

@@ -1,0 +1,44 @@
+---
+# Ethos memory model:
+#   - MEMORY.md  (agent notes, ≤ 2200 chars) → ~/.ethos/personalities/default/
+#   - USER.md    (user profile, ≤ 1375 chars) → ~/.ethos/personalities/default/
+#   - SOUL.md    (agent identity, ≤ 3000 chars) → ~/.ethos/personalities/default/
+- hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    memory_top_level_files:
+      - { name: "MEMORY.md", path: "/home/{{ agent_name }}/.ethos/personalities/default/MEMORY.md" }
+      - { name: "USER.md", path: "/home/{{ agent_name }}/.ethos/personalities/default/USER.md" }
+      - { name: "SOUL.md", path: "/home/{{ agent_name }}/.ethos/personalities/default/SOUL.md" }
+  tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Set workspace path
+      ansible.builtin.set_fact:
+        memory_workspace_path: "/home/{{ agent_name }}/.ethos/personalities/default"
+
+    - name: Stat memory files
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      register: top_level_stats
+      loop: "{{ memory_top_level_files }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Emit workspace path
+      ansible.builtin.debug:
+        msg: "WORKSPACE_PATH={{ memory_workspace_path }}"
+
+    - name: Emit top-level file stats
+      ansible.builtin.debug:
+        msg: >-
+          TOP {{ item.item.name }}
+          {{ (item.stat.size | default(-1)) if item.stat.exists else -1 }}
+      loop: "{{ top_level_stats.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"

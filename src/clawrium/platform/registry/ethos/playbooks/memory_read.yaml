@@ -1,0 +1,57 @@
+---
+# Ethos memory read targets:
+#   - MEMORY.md, USER.md → ~/.ethos/personalities/default/<filename>
+#   - SOUL.md → ~/.ethos/personalities/default/SOUL.md
+# The Python dispatcher rejects unsupported filenames before reaching this
+# playbook, but the same allowlist is enforced here as defense-in-depth.
+- hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    # All memory files live under ~/.ethos/personalities/default/
+    memory_target_dir: "/home/{{ agent_name }}/.ethos/personalities/default"
+  tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate memory filename pattern
+      ansible.builtin.fail:
+        msg: "Invalid memory filename"
+      when:
+        - memory_filename is not match('^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)?$')
+
+    - name: Reject path-traversal components
+      ansible.builtin.fail:
+        msg: "Invalid memory filename: traversal components not allowed"
+      when:
+        - memory_filename.split('/') | intersect(['', '.', '..']) | length > 0
+
+    - name: Restrict to ethos memory allowlist
+      ansible.builtin.fail:
+        msg: "ethos memory accepts only MEMORY.md, USER.md, and SOUL.md"
+      when:
+        - memory_filename not in ['MEMORY.md', 'USER.md', 'SOUL.md']
+
+    - name: Resolve memory file path
+      ansible.builtin.set_fact:
+        memory_target: "{{ memory_target_dir }}/{{ memory_filename }}"
+
+    - name: Verify file exists
+      ansible.builtin.stat:
+        path: "{{ memory_target }}"
+      register: memory_stat
+
+    - name: Fail if file does not exist
+      ansible.builtin.fail:
+        msg: "Memory file not found: {{ memory_filename }}"
+      when: not memory_stat.stat.exists
+
+    - name: Read memory file content
+      # no_log is intentionally NOT set: it would censor the runner event
+      # to {"censored": ...} and Python would never see the file content.
+      ansible.builtin.slurp:
+        src: "{{ memory_target }}"
+      register: memory_content

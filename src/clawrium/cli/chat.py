@@ -176,6 +176,12 @@ def chat(
                 host_record=host_record,
                 response_timeout_seconds=timeout,
             )
+        elif chat_type == "openai" and agent_type == "ethos":
+            backend = _build_ethos_backend(
+                agent_record=agent_record,
+                host_record=host_record,
+                response_timeout_seconds=timeout,
+            )
         elif chat_type == "openai":
             backend = _build_hermes_backend(
                 agent_record=agent_record,
@@ -306,8 +312,9 @@ def chat(
                         f"Try a higher --timeout value (current: {timeout}s)."
                     )
                 else:
+                    svc = "ethos" if agent_type == "ethos" else "hermes"
                     console.print(
-                        f"Check 'systemctl --user status hermes-{rich_escape(str(canonical_name))}' on the agent host."
+                        f"Check 'systemctl status {svc}-{rich_escape(str(canonical_name))}' on the agent host."
                     )
                     # Legacy install hint: persisted bind still on loopback means the
                     # opportunistic 127.0.0.1 → 0.0.0.0 migration in lifecycle hasn't
@@ -701,6 +708,52 @@ def _build_zeroclaw_backend(
     return ZeroClawChatBackend(
         gateway_url=url,
         auth_token=SecretStr(gateway["auth"]),
+        timeout_seconds=response_timeout_seconds,
+    )
+
+
+def _build_ethos_backend(
+    agent_record: dict[str, Any],
+    host_record: dict[str, Any],
+    response_timeout_seconds: float,
+) -> ChatBackend:
+    """Construct an EthosOpenAIBackend from the persisted hosts.json record."""
+    from clawrium.core.chat_ethos import EthosOpenAIBackend
+
+    config = agent_record.get("config")
+    if not isinstance(config, dict):
+        raise ValueError("Agent config missing. Re-run 'clawctl agent configure'.")
+    gateway = config.get("gateway")
+    if not isinstance(gateway, dict):
+        raise ValueError("Ethos gateway config missing. Re-run 'clawctl agent configure'.")
+
+    hostname = host_record.get("hostname")
+    if not isinstance(hostname, str) or not hostname.strip():
+        raise ValueError("Host primary address not found.")
+
+    # ethos web-api (port 3000) serves /v1/chat/completions + the dashboard.
+    # Establish an SSH tunnel so the local clawctl process can reach it.
+    from clawrium.core.web_ui_tunnel import TunnelError
+
+    agent_key = agent_record.get("agent_name") or agent_record.get("name") or hostname
+    try:
+        from clawrium.core.web_ui_tunnel import ensure as ensure_tunnel
+        local_port = ensure_tunnel(agent_key, owned=True)
+    except TunnelError as exc:
+        raise ValueError(f"Could not establish SSH tunnel to ethos serve: {exc}") from exc
+
+    instance_key = get_instance_key(hostname, "ethos", agent_record.get("agent_name", ""))
+    secrets = get_instance_secrets(instance_key)
+    chat_entry = secrets.get("ETHOS_CHAT_TOKEN")
+    auth_token = chat_entry.get("value", "") if isinstance(chat_entry, dict) else ""
+
+    # config.chat_model selects the ethos persona (e.g. "engineer", "ethos-default").
+    chat_model = config.get("chat_model") or "ethos-default"
+
+    return EthosOpenAIBackend(
+        base_url=f"http://127.0.0.1:{local_port}/v1",
+        auth_token=auth_token,
+        model=chat_model,
         timeout_seconds=response_timeout_seconds,
     )
 
