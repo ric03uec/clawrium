@@ -748,7 +748,9 @@ class _FakeSSHClient:
     (substring, exit_status, stdout_bytes) describes one expected call;
     the first matching tuple is consumed. Order does not matter — the
     helper under test calls `is-active` and `journalctl` in a fixed
-    order but we let the tests assert on outcome only."""
+    order but we let the tests assert on outcome only. Unmatched
+    commands raise AssertionError so a needle typo surfaces loudly
+    (ATX S3)."""
 
     def __init__(self, scripted: list[tuple[str, int, bytes]]) -> None:
         self._scripted = list(scripted)
@@ -761,10 +763,9 @@ class _FakeSSHClient:
                 self._scripted.pop(i)
                 stream = _FakeStream(payload, rc)
                 return (None, stream, stream)
-        # Unmatched — return empty success so the test surfaces an
-        # AssertionError on `self.calls` rather than a generic exception.
-        stream = _FakeStream(b"", 0)
-        return (None, stream, stream)
+        raise AssertionError(
+            f"_FakeSSHClient: no scripted match for command {command!r}"
+        )
 
 
 class TestDiagnoseUnitFailure:
@@ -778,9 +779,13 @@ class TestDiagnoseUnitFailure:
         client = _FakeSSHClient(
             [("journalctl", 0, journal)],
         )
-        diag = lc._diagnose_unit_failure(client, unit="hermes-x.service")
+        diag = lc._diagnose_unit_failure(
+            client, unit="hermes-x.service", agent_type="hermes"
+        )
         assert diag is not None
         assert "Discord" in diag
+        # ATX W5: pin the remediation body so a future truncation of
+        # the catalog string fails this test loudly.
         assert "clawctl channel registry" in diag
 
     def test_zeroclaw_empty_gateway_host_translated(self):
@@ -792,10 +797,66 @@ class TestDiagnoseUnitFailure:
         client = _FakeSSHClient(
             [("journalctl", 0, journal)],
         )
-        diag = lc._diagnose_unit_failure(client, unit="zeroclaw-x.service")
+        diag = lc._diagnose_unit_failure(
+            client, unit="zeroclaw-x.service", agent_type="zeroclaw"
+        )
         assert diag is not None
         assert "gateway.host" in diag
         assert "#576" in diag
+
+    def test_zeroclaw_broadened_gateway_host_token(self):
+        """ATX B3: the broadened regex matches a Rust-shaped phrasing
+        in addition to the v0.7.5 token, so a future zeroclaw rewrite
+        that changes wording does not silently turn this entry into a
+        dead letter."""
+        journal = (
+            b"zeroclaw: configuration error: field 'gateway.host' is "
+            b"empty in /home/zeroclaw-x/.zeroclaw/config.toml\n"
+        )
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="zeroclaw-x.service", agent_type="zeroclaw"
+        )
+        assert diag is not None
+        assert "gateway.host" in diag
+
+    def test_missing_provider_key_openrouter_translated(self):
+        """ATX B4: the OPENROUTER_API_KEY branch must have its own
+        coverage so a regex typo or remediation truncation fails
+        loudly."""
+        journal = (
+            b"hermes[1234]: ConfigError: OPENROUTER_API_KEY is not set "
+            b"in environment\n"
+        )
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="hermes-x.service", agent_type="hermes"
+        )
+        assert diag is not None
+        assert "Provider credentials missing" in diag
+        assert "clawctl agent configure" in diag
+
+    def test_missing_provider_key_alternation_branch(self):
+        """ATX B4: covers the second branch of the alternation so a
+        future reorder of branches does not leave it unexercised."""
+        journal = (
+            b"agent boot error: No inference provider configured "
+            b"after stage providers\n"
+        )
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal)],
+        )
+        # Cross-agent entry — empty `agent_types` means it fires on
+        # any agent type. Verified with `openclaw` here.
+        diag = lc._diagnose_unit_failure(
+            client, unit="openclaw-x.service", agent_type="openclaw"
+        )
+        assert diag is not None
+        assert "Provider credentials missing" in diag
 
     def test_unknown_failure_returns_none(self):
         """A journal that doesn't match any catalog entry returns None
@@ -805,7 +866,9 @@ class TestDiagnoseUnitFailure:
         client = _FakeSSHClient(
             [("journalctl", 0, journal)],
         )
-        diag = lc._diagnose_unit_failure(client, unit="hermes-x.service")
+        diag = lc._diagnose_unit_failure(
+            client, unit="hermes-x.service", agent_type="hermes"
+        )
         assert diag is None
 
     def test_empty_journal_returns_none(self):
@@ -815,10 +878,12 @@ class TestDiagnoseUnitFailure:
         client = _FakeSSHClient(
             [("journalctl", 0, b"\n\n   \n")],
         )
-        diag = lc._diagnose_unit_failure(client, unit="hermes-x.service")
+        diag = lc._diagnose_unit_failure(
+            client, unit="hermes-x.service", agent_type="hermes"
+        )
         assert diag is None
 
-    def test_ssh_failure_swallowed(self, monkeypatch):
+    def test_ssh_failure_swallowed(self):
         """If the journal fetch raises (SSH disconnect, sudo refused,
         etc.) the helper must return None so the caller surfaces the
         original `unit not active` error rather than the diagnostic
@@ -829,9 +894,82 @@ class TestDiagnoseUnitFailure:
                 raise RuntimeError("ssh dropped")
 
         diag = lc._diagnose_unit_failure(
-            _RaisingClient(), unit="hermes-x.service"
+            _RaisingClient(),
+            unit="hermes-x.service",
+            agent_type="hermes",
         )
         assert diag is None
+
+    def test_uses_sudo_n_flag(self):
+        """ATX W1: the journal fetch must use `sudo -n` to fail fast on
+        a sudoers regression rather than hang waiting on a password
+        prompt."""
+        client = _FakeSSHClient([("journalctl", 0, b"")])
+        lc._diagnose_unit_failure(
+            client, unit="hermes-x.service", agent_type="hermes"
+        )
+        assert any("sudo -n " in cmd for cmd in client.calls), client.calls
+
+    def test_zeroclaw_pattern_does_not_fire_on_hermes(self):
+        """ATX B1/W7: a hermes-unit journal that happens to contain
+        the `gateway.host` substring must NOT receive the zeroclaw
+        TOML-edit remediation — the catalog entry is `agent_types`-
+        scoped to zeroclaw only."""
+        journal = (
+            b"hermes[1234]: some unrelated log line mentioning "
+            b"required_field_empty gateway.host in a docstring\n"
+        )
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="hermes-x.service", agent_type="hermes"
+        )
+        # Catalog is hermes-scoped for Discord and zeroclaw-scoped for
+        # gateway.host; neither matches a hermes journal that only
+        # mentions gateway.host. Diagnostic must be None.
+        assert diag is None
+
+    def test_discord_pattern_does_not_fire_on_zeroclaw(self):
+        """ATX B1/W7: a zeroclaw journal that contains the Discord
+        substring (e.g. a config reference) must NOT receive the
+        hermes-blaming Discord remediation."""
+        journal = (
+            b"zeroclaw[1234]: channel discord error: "
+            b"discord.errors.LoginFailure: token rejected\n"
+        )
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="zeroclaw-x.service", agent_type="zeroclaw"
+        )
+        # Discord entry is hermes-only. Zeroclaw uses its own native
+        # discord client; if/when a zeroclaw-shaped Discord catalog
+        # entry is needed, it should be a separate tuple with its own
+        # remediation string.
+        assert diag is None
+
+    def test_first_pattern_wins_on_overlap(self):
+        """ATX W4: pin the tuple-order contract — when a journal
+        matches multiple patterns, the earlier one in the tuple wins.
+        Future refactor to a dict would break this and the test would
+        flag it."""
+        journal = (
+            b"hermes[1234]: discord.errors.LoginFailure: bad token\n"
+            b"hermes[1234]: also OPENROUTER_API_KEY is not set\n"
+        )
+        client = _FakeSSHClient(
+            [("journalctl", 0, journal)],
+        )
+        diag = lc._diagnose_unit_failure(
+            client, unit="hermes-x.service", agent_type="hermes"
+        )
+        assert diag is not None
+        # Discord entry is first in the tuple — it wins over the
+        # provider-key entry, even though both match.
+        assert "Discord" in diag
+        assert "Provider credentials missing" not in diag
 
 
 class TestVerifyHealthDiagnosticWrap:
@@ -861,6 +999,9 @@ class TestVerifyHealthDiagnosticWrap:
         # right inside the error, not just the symptom.
         assert "Diagnosis:" in msg
         assert "Discord" in msg
+        # ATX W5: pin the remediation body so the test fails loudly
+        # if a future change drops the actionable command.
+        assert "clawctl channel registry" in msg
 
     def test_failure_falls_back_to_base_message_on_unknown_pattern(self):
         scripted = [
@@ -885,3 +1026,29 @@ class TestVerifyHealthDiagnosticWrap:
         lc._verify_health(client, agent_type="hermes", agent_name="x")
         # And no second `journalctl` call — happy path is one round trip.
         assert all("journalctl" not in c for c in client.calls)
+
+    def test_diagnose_helper_raise_does_not_mask_health_verdict(
+        self, monkeypatch
+    ):
+        """ATX B5: if `_diagnose_unit_failure` raises internally
+        (defensive belt-and-braces against future regressions in the
+        catalog or regex), `_verify_health` must still raise
+        `CanonicalSyncError` with the bare base message — not the
+        diagnostic helper's exception."""
+        scripted = [("is-active", 3, b"activating\n")]
+        client = _FakeSSHClient(scripted)
+
+        def _raising_diagnose(*_a, **_kw):
+            raise RuntimeError("catalog blew up")
+
+        monkeypatch.setattr(lc, "_diagnose_unit_failure", _raising_diagnose)
+        with pytest.raises(CanonicalSyncError) as exc:
+            lc._verify_health(
+                client, agent_type="hermes", agent_name="x"
+            )
+        msg = str(exc.value)
+        assert "not active after restart" in msg
+        assert "state='activating'" in msg
+        # Crucial: the catalog raise must NOT mask the verdict.
+        assert "Diagnosis:" not in msg
+        assert "catalog blew up" not in msg

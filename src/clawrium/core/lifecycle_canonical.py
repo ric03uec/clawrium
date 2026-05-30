@@ -305,13 +305,20 @@ def _restart_unit(
 # in the upstream package, and the chat-port-never-binds symptom
 # points nowhere near the channel registry as the actual cause.
 #
-# Each entry: (regex, summary, remediation). The regex matches any
-# substring of the journal tail (Python `re.search`). The summary
-# is the one-line cause; the remediation is what the operator should
-# do next. Patterns are checked in order — first match wins.
-_KNOWN_UNIT_FATAL_PATTERNS: tuple[tuple[str, str, str], ...] = (
+# Each entry: (regex, agent_types, summary, remediation). `agent_types`
+# is a `frozenset` of agent type names the entry applies to; an empty
+# set means "all agent types". The regex matches any substring of the
+# journal tail (Python `re.search`). Patterns are checked in order —
+# first match wins. The matched journal text is NEVER forwarded to
+# callers — only the compile-time `summary` + `remediation` strings
+# are returned, so adding a tuple element that captures the matched
+# line would be a security regression (avoid).
+_KNOWN_UNIT_FATAL_PATTERNS: tuple[
+    tuple[str, frozenset[str], str, str], ...
+] = (
     (
         r"discord\.errors\.LoginFailure",
+        frozenset({"hermes"}),
         "Discord rejected the bot token (LoginFailure / 401 Unauthorized).",
         "Re-issue the channel record with a valid token: `clawctl channel "
         "registry delete <name> --yes` + `clawctl channel registry create "
@@ -322,7 +329,16 @@ _KNOWN_UNIT_FATAL_PATTERNS: tuple[tuple[str, str, str], ...] = (
         "it (tracked in #575).",
     ),
     (
-        r"required_field_empty.*gateway\.host",
+        # ATX B3: zeroclaw v0.7.5 emits the exact token
+        # `[required_field_empty] gateway.host must not be empty` per the
+        # observed journal capture in #576. The broadened alternation
+        # also matches a Rust-shaped `field 'gateway.host' is empty` in
+        # case a future zeroclaw rewrite changes the wording, so a
+        # subsequent version bump does not silently turn this entry
+        # into a dead letter.
+        r"required_field_empty.*gateway\.host"
+        r"|gateway\.host.*(?:must not be empty|is empty|required)",
+        frozenset({"zeroclaw"}),
         "zeroclaw daemon refused an empty `gateway.host`.",
         "Re-run `clawctl agent sync <agent>` after `clawctl` is upgraded "
         "to a release containing the #576 fix, or hand-edit "
@@ -330,7 +346,12 @@ _KNOWN_UNIT_FATAL_PATTERNS: tuple[tuple[str, str, str], ...] = (
         "under `[gateway]` and restart the unit.",
     ),
     (
-        r"OPENROUTER_API_KEY.*not set|No inference provider configured",
+        # Cross-agent: any agent that loads an OpenRouter provider
+        # without a populated key would surface one of these two
+        # messages. Parenthesized alternation for clarity (ATX W6).
+        r"(?:OPENROUTER_API_KEY.*not set"
+        r"|No inference provider configured)",
+        frozenset(),  # empty == all agent types
         "Provider credentials missing from the rendered config.",
         "Run `clawctl agent doctor <agent>` — it should show "
         "`api_key=present`. If it shows `missing`, re-run "
@@ -344,6 +365,7 @@ def _diagnose_unit_failure(
     client: paramiko.SSHClient,
     *,
     unit: str,
+    agent_type: str,
     timeout: int = 15,
 ) -> str | None:
     """Tail a failed unit's journal and look for known fatal patterns.
@@ -351,25 +373,48 @@ def _diagnose_unit_failure(
     Returns a one-line remediation-shaped diagnostic, or None if no
     pattern matched. Failures inside this helper (SSH disconnect,
     sudo denied, etc.) deliberately return None — diagnostics must
-    never mask the original `unit not active` error.
-    """
-    import re
+    never mask the original `unit not active` error. The swallow path
+    is debuggable via `logger.debug` so a sudoers regression is not
+    completely invisible (ATX W2).
 
+    `agent_type` is required so each catalog entry's `agent_types`
+    scope can filter false-positive matches (e.g. a hypothetical
+    openclaw journal containing the substring `gateway.host` should
+    not surface a zeroclaw-shaped TOML remediation — ATX B1/B2).
+
+    Worst-case wall-clock on this helper is one extra `exec_command`
+    bounded by the given `timeout` — the caller's overall budget is
+    `2 × timeout` (one is-active probe + one journal fetch). Callers
+    that want a tighter cap can pass a smaller `timeout` here.
+    """
     cmd = (
-        f"sudo journalctl --unit {shlex.quote(unit)} "
+        # `-n` matches the rest of this file (`_restart_unit`,
+        # `_write_remote_config`) — fail immediately if sudoers was
+        # accidentally scoped, rather than blocking on a password
+        # prompt that would only hang `exec_command` (ATX W1).
+        f"sudo -n journalctl --unit {shlex.quote(unit)} "
         f"--no-pager --lines 100 2>/dev/null || true"
     )
     try:
         _, out, _ = client.exec_command(cmd, timeout=timeout)
         out.channel.recv_exit_status()
         journal = out.read().decode("utf-8", errors="replace")
-    except Exception:
+    except Exception as exc:
+        # Keep the swallow contract — but make a sudoers regression
+        # debuggable rather than completely invisible (ATX W2).
+        logger.debug(
+            "_diagnose_unit_failure: exception fetching journal for %s: %s",
+            unit,
+            exc,
+        )
         return None
 
     if not journal.strip():
         return None
 
-    for pattern, summary, remediation in _KNOWN_UNIT_FATAL_PATTERNS:
+    for pattern, agent_types, summary, remediation in _KNOWN_UNIT_FATAL_PATTERNS:
+        if agent_types and agent_type not in agent_types:
+            continue
         if re.search(pattern, journal):
             return f"{summary} {remediation}"
     return None
@@ -388,9 +433,23 @@ def _verify_health(
     rc = out.channel.recv_exit_status()
     state = out.read().decode("utf-8", errors="replace").strip()
     if rc != 0 or state != "active":
-        diagnostic = _diagnose_unit_failure(
-            client, unit=unit, timeout=timeout
-        )
+        # Diagnostic is best-effort — a raise inside the helper still
+        # leaves the verdict-raise below intact (ATX B5).
+        diagnostic: str | None
+        try:
+            diagnostic = _diagnose_unit_failure(
+                client,
+                unit=unit,
+                agent_type=agent_type,
+                timeout=timeout,
+            )
+        except Exception as exc:
+            logger.debug(
+                "_verify_health: _diagnose_unit_failure raised for %s: %s",
+                unit,
+                exc,
+            )
+            diagnostic = None
         base = (
             f"unit {unit} is not active after restart (state={state!r})"
         )
