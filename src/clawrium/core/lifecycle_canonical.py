@@ -296,6 +296,171 @@ def _restart_unit(
         )
 
 
+# #575: when a unit fails to come active after restart, capture the
+# tail of its journal and translate well-known fatal patterns into
+# remediation-shaped messages. The default error (`unit not active
+# after restart (state='activating')`) sends the operator chasing the
+# wrong layer — e.g. the hermes Discord-token crash brings the entire
+# FastAPI gateway down via an unisolated `discord.errors.LoginFailure`
+# in the upstream package, and the chat-port-never-binds symptom
+# points nowhere near the channel registry as the actual cause.
+#
+# Each entry: (regex, agent_types, summary, remediation). `agent_types`
+# is a `frozenset` of agent type names the entry applies to; an empty
+# set means "all agent types". The regex matches any substring of the
+# journal tail (Python `re.search`). Patterns are checked in order —
+# first match wins. The matched journal text is NEVER forwarded to
+# callers — only the compile-time `summary` + `remediation` strings
+# are returned, so adding a tuple element that captures the matched
+# line would be a security regression (avoid).
+_KNOWN_UNIT_FATAL_PATTERNS: tuple[
+    tuple[str, frozenset[str], str, str], ...
+] = (
+    (
+        r"discord\.errors\.LoginFailure",
+        frozenset({"hermes"}),
+        "Discord rejected the bot token (LoginFailure / 401 Unauthorized).",
+        "Re-issue the channel record with a valid token: `clawctl channel "
+        "registry delete <name> --yes` + `clawctl channel registry create "
+        "<name> --type discord --token-stdin …` + `clawctl agent sync "
+        "<agent>`. The current hermes upstream does not isolate Discord "
+        "client failures from the gateway process, so a stale or "
+        "fat-fingered token currently takes the chat endpoint down with "
+        "it (tracked in #575).",
+    ),
+    (
+        # ATX B3: zeroclaw v0.7.5 emits the exact token
+        # `[required_field_empty] gateway.host must not be empty` per the
+        # observed journal capture in #576. The broadened alternation
+        # also matches a Rust-shaped `field 'gateway.host' is empty` in
+        # case a future zeroclaw rewrite changes the wording, so a
+        # subsequent version bump does not silently turn this entry
+        # into a dead letter.
+        # ATX iter-2 B1: dropped `|required` — it over-matched
+        # benign startup lines like "gateway.host (required): ..."
+        # or "checking gateway.host... required for daemon init"
+        # that any 100-line journal tail would contain regardless of
+        # crash reason. Two branches survive: branch1 anchors on the
+        # canonical zeroclaw token name `required_field_empty`
+        # adjacent to `gateway.host` (fires independently of any
+        # trailing suffix); branch2 anchors on the actual fault-
+        # state phrasings `must not be empty` / `is empty` that
+        # any future zeroclaw wording would reuse.
+        r"required_field_empty.*gateway\.host"
+        r"|gateway\.host.*(?:must not be empty|is empty)",
+        frozenset({"zeroclaw"}),
+        "zeroclaw daemon refused an empty `gateway.host`.",
+        "Re-run `clawctl agent sync <agent>` after `clawctl` is upgraded "
+        "to a release containing the #576 fix, or hand-edit "
+        "`~/.zeroclaw/config.toml` on the host to set `host = \"0.0.0.0\"` "
+        "under `[gateway]` and restart the unit.",
+    ),
+    (
+        # Cross-agent: any agent that loads an OpenRouter provider
+        # without a populated key would surface one of these two
+        # messages. Parenthesized alternation for clarity (ATX W6).
+        # ATX iter-2 B2 + iter-3 W-NEW-1: the separator class covers
+        # `KEY: not set`, `KEY=not set`, and tab/space-separated
+        # variants; the optional `is` and `\b` tail anchor stay
+        # from iter-2 to keep `was not set, now present` rejected.
+        # ATX iter-4 W1: the separator class is restricted to
+        # horizontal whitespace + `:` + `=`. `[\s:=]+` would have
+        # included `\n`, which over `re.search` against the full
+        # 100-line journal blob meant a journal where
+        # `OPENROUTER_API_KEY` ends one line and `not set ...`
+        # begins the next would over-fire.
+        # ATX iter-4 W2: the `(?i)` flag applies to the entire
+        # pattern, intentionally — `openrouter_api_key not set` (a
+        # lowercase env-dump shape that some agents emit) is a
+        # legitimate match. `No inference provider configured` also
+        # case-folds, which is harmless since both branches share
+        # the cross-agent scope and the phrase is specific.
+        # ATX iter-4 W3: leading `\b` rejects substring matches
+        # inside a longer identifier (e.g. `MY_OPENROUTER_API_KEY` —
+        # which is NOT the OpenRouter key clawctl plumbs and should
+        # not surface this remediation). `\b` does not match between
+        # two word characters, so `MY_OPENROUTER_API_KEY` no longer
+        # matches even via `re.search`.
+        # ATX iter-5 W1-RESIDUAL (#575): the suffix groups also use
+        # `[\t ]+` (not `\s+`) so a journal blob where a newline
+        # falls between `is` and `not set` (e.g. `journalctl -o cat`
+        # output that drops the per-line timestamp prefix) does not
+        # over-fire. ATX iter-6 W1 (#575): the two boundary classes
+        # are not symmetric: the KEY↔phrase boundary `[\t :=]+`
+        # admits tabs, spaces, colon, and equals (a `KEY=` or
+        # `KEY:` style separator); the in-phrase boundaries `[\t ]+`
+        # are horizontal-whitespace-only. Both are newline-safe.
+        r"(?i)(?:\bOPENROUTER_API_KEY[\t :=]+(?:is[\t ]+)?not[\t ]+set\b"
+        r"|No inference provider configured)",
+        frozenset(),  # empty == all agent types
+        "Provider credentials missing from the rendered config.",
+        "Run `clawctl agent doctor <agent>` — it should show "
+        "`api_key=present`. If it shows `missing`, re-run "
+        "`clawctl agent configure <agent> --stage providers --provider "
+        "<id>` and confirm the provider record carries a credential.",
+    ),
+)
+
+
+def _diagnose_unit_failure(
+    client: paramiko.SSHClient,
+    *,
+    unit: str,
+    agent_type: str,
+    timeout: int = 15,
+) -> str | None:
+    """Tail a failed unit's journal and look for known fatal patterns.
+
+    Returns a one-line remediation-shaped diagnostic, or None if no
+    pattern matched. Failures inside this helper (SSH disconnect,
+    sudo denied, etc.) deliberately return None — diagnostics must
+    never mask the original `unit not active` error. The swallow path
+    is debuggable via `logger.debug` so a sudoers regression is not
+    completely invisible (ATX W2).
+
+    `agent_type` is required so each catalog entry's `agent_types`
+    scope can filter false-positive matches (e.g. a hypothetical
+    openclaw journal containing the substring `gateway.host` should
+    not surface a zeroclaw-shaped TOML remediation — ATX B1/B2).
+
+    Worst-case wall-clock on this helper is one extra `exec_command`
+    bounded by the given `timeout` — the caller's overall budget is
+    `2 × timeout` (one is-active probe + one journal fetch). Callers
+    that want a tighter cap can pass a smaller `timeout` here.
+    """
+    cmd = (
+        # `-n` matches the rest of this file (`_restart_unit`,
+        # `_write_remote_config`) — fail immediately if sudoers was
+        # accidentally scoped, rather than blocking on a password
+        # prompt that would only hang `exec_command` (ATX W1).
+        f"sudo -n journalctl --unit {shlex.quote(unit)} "
+        f"--no-pager --lines 100 2>/dev/null || true"
+    )
+    try:
+        _, out, _ = client.exec_command(cmd, timeout=timeout)
+        out.channel.recv_exit_status()
+        journal = out.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        # Keep the swallow contract — but make a sudoers regression
+        # debuggable rather than completely invisible (ATX W2).
+        logger.debug(
+            "_diagnose_unit_failure: exception fetching journal for %s: %s",
+            unit,
+            exc,
+        )
+        return None
+
+    if not journal.strip():
+        return None
+
+    for pattern, agent_types, summary, remediation in _KNOWN_UNIT_FATAL_PATTERNS:
+        if agent_types and agent_type not in agent_types:
+            continue
+        if re.search(pattern, journal):
+            return f"{summary} {remediation}"
+    return None
+
+
 def _verify_health(
     client: paramiko.SSHClient,
     *,
@@ -309,9 +474,29 @@ def _verify_health(
     rc = out.channel.recv_exit_status()
     state = out.read().decode("utf-8", errors="replace").strip()
     if rc != 0 or state != "active":
-        raise CanonicalSyncError(
+        # Diagnostic is best-effort — a raise inside the helper still
+        # leaves the verdict-raise below intact (ATX B5).
+        diagnostic: str | None
+        try:
+            diagnostic = _diagnose_unit_failure(
+                client,
+                unit=unit,
+                agent_type=agent_type,
+                timeout=timeout,
+            )
+        except Exception as exc:
+            logger.debug(
+                "_verify_health: _diagnose_unit_failure raised for %s: %s",
+                unit,
+                exc,
+            )
+            diagnostic = None
+        base = (
             f"unit {unit} is not active after restart (state={state!r})"
         )
+        if diagnostic:
+            raise CanonicalSyncError(f"{base}. Diagnosis: {diagnostic}")
+        raise CanonicalSyncError(base)
 
 
 def sync_agent_canonical(
