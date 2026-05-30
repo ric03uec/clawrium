@@ -982,31 +982,41 @@ class TestDiagnoseUnitFailure:
             b"hermes[1234]: OPENROUTER_API_KEY environment variable "
             b"was previously not set\n",
             # ATX iter-4 W1: cross-line case — key at end of one
-            # journal line, "not set" at start of next. With
-            # `[\s:=]+` (which includes `\n`) the diagnostic would
-            # over-fire on the multi-line blob; with `[\t :=]+`
-            # the newline breaks adjacency and the diagnostic stays
-            # silent.
+            # journal line, "not set" at start of next. With a
+            # newline-including separator class the diagnostic
+            # would over-fire on the multi-line blob; with
+            # `[\t :=]+` the newline breaks adjacency and the
+            # diagnostic stays silent.
             b"agent[1234]: env dump OPENROUTER_API_KEY\n"
             b"agent[1234]: not set, using ollama fallback\n",
-            # ATX iter-4 W3: left-boundary case — `MY_OPENROUTER_API_KEY`
-            # is NOT the OpenRouter key clawctl plumbs, so the
-            # diagnostic should not surface even though the substring
-            # match looks tempting. Pre-existing left-boundary gap;
-            # full `\b` anchor on the key name is tracked as a
-            # follow-up but the negative test pins the current
-            # behavior so a future tightening is regression-safe.
+            # ATX iter-4 W3 fix in place: leading `\b` now rejects
+            # substring prefixes. `MY_OPENROUTER_API_KEY` is NOT the
+            # OpenRouter key clawctl plumbs, and the leading word
+            # boundary on `\bOPENROUTER_API_KEY` correctly suppresses
+            # the substring match. This case pins that behavior as a
+            # regression guard.
             b"hermes[1234]: MY_OPENROUTER_API_KEY is not set\n",
+            # ATX iter-5 W1-RESIDUAL: cross-line case inside the
+            # suffix — `KEY:` on one line, `is\nnot set` straddling
+            # newline between `is` and `not set`. With the iter-4
+            # suffix `(?:is\s+)?not\s+set` (where `\s` includes
+            # `\n`), this would have over-fired on a `journalctl -o
+            # cat` blob that drops per-line timestamp prefixes.
+            # The iter-5 production fix tightened the suffix to
+            # `[\t ]+` everywhere; this negative pins the change.
+            b"agent[1234]: OPENROUTER_API_KEY: is\nnot set\n",
         ],
     )
     def test_provider_key_pattern_does_not_over_match_stale_env_logs(
         self, journal_line
     ):
         """ATX iter-2 B2: tightening to
-        `OPENROUTER_API_KEY[\\s:=]+(?:is\\s+)?not\\s+set\\b` means a
-        stale-env snapshot or migration log that mentions the key +
-        a non-adjacent "not set" phrase no longer over-fires the
-        diagnostic."""
+        `\\bOPENROUTER_API_KEY[\\t :=]+(?:is[\\t ]+)?not[\\t ]+set\\b`
+        means a stale-env snapshot or migration log that mentions
+        the key + a non-adjacent "not set" phrase no longer
+        over-fires the diagnostic. ATX iter-5: the horizontal-only
+        whitespace classes also reject newline-straddling matches
+        in the suffix."""
         client = _FakeSSHClient(
             [("journalctl", 0, journal_line)],
         )
@@ -1023,7 +1033,7 @@ class TestDiagnoseUnitFailure:
             b"hermes[1234]: OPENROUTER_API_KEY: is not set in "
             b"environment\n",
             b"hermes[1234]: OPENROUTER_API_KEY: not set\n",
-            # `KEY=` style — covered by the same `[\\s:=]+` class.
+            # `KEY=` style — covered by the same `[\\t :=]+` class.
             b"hermes[1234]: OPENROUTER_API_KEY=not set\n",
             # ATX iter-3 S6: uppercase variant — `(?i)` flag means
             # this matches even though the prefix is uppercase but
@@ -1041,11 +1051,11 @@ class TestDiagnoseUnitFailure:
     def test_provider_key_pattern_matches_canonical_separators(
         self, journal_line
     ):
-        """ATX iter-3 W-NEW-1 + S6: the widened separator class
-        `[\\s:=]+` plus the `(?i)` flag means colon, equals, and
-        case-shifted variants all surface the diagnostic. Without
-        these, the pattern was silently missing a common log
-        shape."""
+        """ATX iter-3 W-NEW-1 + S6: the `[\\t :=]+` separator class
+        (horizontal whitespace + colon + equals) plus the `(?i)`
+        flag means colon, equals, and case-shifted variants all
+        surface the diagnostic. Without these, the pattern was
+        silently missing a common log shape."""
         client = _FakeSSHClient(
             [("journalctl", 0, journal_line)],
         )
