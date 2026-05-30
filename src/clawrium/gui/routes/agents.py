@@ -883,13 +883,16 @@ async def agent_exec(agent_key: str, body: ExecRequest):
     """
     from clawrium.core.agent_exec import run_agent_exec, AgentExecError
 
-    agent = _resolve_agent(agent_key)
-    hostname = agent["host"]
-    agent_name = agent["agent_name"]
-    claw_type = agent["agent_type"]
-
     if not body.command:
         raise HTTPException(status_code=400, detail="command list must not be empty")
+
+    resolved = await asyncio.to_thread(_resolve_agent, agent_key)
+    if not resolved:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+
+    host_record, claw_type, agent_record = resolved
+    hostname = host_record.get("hostname", "")
+    agent_name = agent_record.get("agent_name") or agent_key
 
     timeout = max(5, min(body.timeout, 120))
 
