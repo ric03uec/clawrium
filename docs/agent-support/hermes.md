@@ -47,8 +47,8 @@ Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible 
 | Channel | Status | Notes |
 |---------|:------:|-------|
 | **Local OpenAI-compatible HTTP API** (`POST /v1/chat/completions`, `GET /v1/models`, `GET /health`) | ✅ | Bound to loopback on the agent host. See [Use the local API](#3-use-the-local-openai-compatible-api). |
-| **[Discord](channels/discord.md)** | ✅ | clawctl-managed via `clawctl agent configure <name> --stage channels`. Token in `secrets.json` (B3 invariant); non-sensitive config in `hosts.json`. See [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration). |
-| **[Slack](channels/slack.md)** | ✅ | Socket Mode (no public endpoint). clawctl-managed via `clawctl agent configure <name> --stage channels`. Both tokens in `secrets.json`; non-sensitive config in `hosts.json`. See [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration). |
+| **[Discord](channels/discord.md)** | ✅ | clawctl-managed via `clawctl channel registry create` + `clawctl agent channel attach`. Token in `secrets.json` (B3 invariant); non-sensitive config in `channels.json`. See [Discord channel page → Setup (Hermes)](channels/discord.md#setup-hermes). |
+| **[Slack](channels/slack.md)** | ✅ | Socket Mode (no public endpoint). clawctl-managed via `clawctl channel registry create` + `clawctl agent channel attach`. Both tokens in `secrets.json`; non-sensitive config in `channels.json`. See [Slack channel page → Setup (Hermes)](channels/slack.md#setup-hermes). |
 | **`clawctl agent chat <hermes-name>`** | ✅ | Supported via the OpenAI-compatible HTTP backend (`HermesOpenAIBackend`). Connects to `http://<host>:8642/v1` using the bearer token from `secrets.json`. |
 | **Telegram / WhatsApp / Signal** | 📋 | Deferred |
 | **Email / Matrix / Mattermost / Teams / Google Chat** | 📋 | Deferred |

@@ -83,14 +83,15 @@ onboarding:
           type: confirm
           message: "Enable Discord messaging for this agent?"
           default: false
-        # When select_discord=yes, the CLI prompts interactively for the bot
-        # token, allowed-user IDs, optional allowed-guild allowlist, and
-        # reply-to-mentions-only toggle. Token persists to secrets.json under
-        # DISCORD_BOT_TOKEN; the rest land in hosts.json under
-        # config.channels.discord and are rendered into ~/.zeroclaw/config.toml
-        # as a [channels.discord] table (zeroclaw v0.7.5 docs/book/src/channels/
-        # chat-others.md). Note: bot_token lives in TOML inline — zeroclaw does
-        # not consume DISCORD_BOT_TOKEN as an env var.
+        # DEPRECATED (#555): the `--stage channels` interactive flow has been
+        # retired. Use `clawctl channel registry create --type discord` and
+        # `clawctl agent channel attach`. Token persists to secrets.json under
+        # channel:<name>:DISCORD_BOT_TOKEN. The agent attachment list lives at
+        # hosts.json.agents.<name>.channels[]; the canonical render pipeline
+        # emits a [channels.discord] table in ~/.zeroclaw/config.toml from
+        # that source (zeroclaw v0.7.5 docs/book/src/channels/chat-others.md).
+        # Note: bot_token lives in TOML inline — zeroclaw does not consume
+        # DISCORD_BOT_TOKEN as an env var.
 
     validate:
       description: "Verify installation"

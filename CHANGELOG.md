@@ -85,6 +85,57 @@ Highlights:
 - New blog post:
   [`website/blog/2026-05-24-clawctl-kubectl-ux.md`](website/blog/2026-05-24-clawctl-kubectl-ux.md).
 
+### Fixed
+
+- **#555 — silent on-host config wipe on every `clawctl agent
+  sync|configure|restart|skill attach|channel attach|integration
+  attach`.** Templates emitted provider, channel, and integration
+  blocks conditionally on `hosts.json.agents.<n>.config.*` being
+  populated; when those fields were null (the common state after the
+  attachment-list refactor), every sync silently dropped the
+  `OPENROUTER_API_KEY`, `DISCORD_*`, `SLACK_*`, and integration env
+  vars from `~/.hermes/.env` and `[channels.discord]` /
+  `[providers.models.*]` blocks from `~/.zeroclaw/config.toml` while
+  reporting `drift=0`.
+
+  **Regression window:** from the conditional-emit commit that
+  introduced the `config.channels` / `config.provider` reads through
+  the F1–F6 canonical render pipeline (PR #556, #557, #559) and
+  legacy read-path drop (PR #566, #567, #568 — this release).
+
+  **Affected agents:** anyone whose
+  `hosts.json.agents.<n>.config.provider` or
+  `hosts.json.agents.<n>.config.channels` was ever null (the default
+  state when the agent was last attached using the new
+  `clawctl channel registry create` / `clawctl agent channel attach`
+  flow without a prior legacy-stage write).
+
+  **Recovery:**
+
+  ```bash
+  # 1. Re-derive provider_id / channels[] / integrations[] from
+  #    onboarding + secrets.json + on-host .env grep. Idempotent.
+  clawctl admin migrate-agent <agent-name>
+
+  # 2. Confirm the agent's declared attachments resolve cleanly.
+  clawctl agent doctor <agent-name>
+
+  # 3. Dry-run the sync to see exactly what will land on the host.
+  clawctl agent sync <agent-name> --dry-run --diff
+
+  # 4. Apply.
+  clawctl agent sync <agent-name>
+  ```
+
+  After this release, `clawctl agent sync` reads from clawctl's own
+  stores (`providers.json` + `channels.json` + `integrations.json` +
+  `secrets.json` + `hosts.json.agents.<n>.{provider_id, channels[],
+  integrations[]}`), renders the full canonical bundle deterministically,
+  and refuses to remove a host-side secret without `--force` or an
+  explicit detach. There is no `drift=0` success path that depends on
+  clawctl's own incomplete model — drift is computed against what's
+  actually on the host.
+
 ### Migration notes
 
 For each existing agent on each host:
@@ -97,3 +148,8 @@ clawctl agent sync <agent-name>
 
 Remote `clawctl agent chat` sessions will see a one-time 401 after the
 sync; reconnecting picks up the fresh bearer transparently.
+
+**Anyone who ran `clawctl agent sync|configure|restart` against an
+agent during the regression window:** follow the recovery sequence
+above to re-derive lost attachments and re-render the on-host config
+from the canonical pipeline.
