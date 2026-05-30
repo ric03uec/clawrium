@@ -113,3 +113,103 @@ be addressed in the same follow-up that retires the legacy
 **Final test counts**: 86 passed in `tests/core/test_render.py` (was 71 at PR open). `make lint` clean.
 
 **PR URL**: https://github.com/ric03uec/clawrium/pull/567 (stacked on PR #566 / Phase 1).
+
+## Phase 3 — Openclaw Templates
+
+**Stage**: phase-3-execute
+**Skill**: /itx:execute
+**Timestamp**: 2026-05-29T20:30:00Z
+**Model**: claude-opus-4-7
+
+```prompt
+Execute Phase 3 of issue #560 in this worktree.
+
+Scope:
+- src/clawrium/platform/registry/openclaw/templates/.env.j2 audit (do NOT
+  modify — Phase 2 tactical lesson: legacy template consumed by Ansible
+  configure.yaml + install.yaml).
+- src/clawrium/platform/registry/openclaw/templates/openclaw.json (NEW —
+  JSON baseline; synthesized from legacy template defaults since wolf-i
+  is unreachable from execution context).
+- src/clawrium/platform/registry/openclaw/templates/openclaw.json.j2 (do
+  NOT delete — legacy Ansible consumer).
+- Add NEW canonical templates alongside:
+  - openclaw-env.canonical.j2 (Jinja, F3 inputs, byte-equivalent to prior
+    list-of-strings render_openclaw env output).
+  - openclaw.json (real JSON baseline).
+- src/clawrium/core/render.py render_openclaw — refactor:
+  - Env path: importlib.resources + Jinja2 StrictUndefined / trim_blocks /
+    lstrip_blocks / keep_trailing_newline.
+  - JSON path: importlib.resources.read_text → json.loads → deep-update
+    the 5 clawctl-managed paths → json.dumps(indent=2, sort_keys=False).
+  - Validate provider/channel/integration types up-front (mirror hermes/
+    zeroclaw Phase 1+2 patterns); add dual-discord + dual-slack guards.
+
+Constraints:
+- ATX CLI only (/home/devashish/bin/atx). Not MCP.
+- All git commit + push use --no-verify.
+- Do not modify the existing openclaw .env.j2 or openclaw.json.j2.
+- Do not touch Phases 1 or 2 (already merged).
+```
+
+**Output**:
+- PR #568 opened, base `issue-560-p1-drop-canonical-flag` (which already
+  contains Phase 1 + Phase 2 merges via commit `7c3a357`).
+- 4 commits delivered:
+  - `ce2e2a5` — Phase 3 initial: canonical templates added; render_openclaw
+    refactored to importlib.resources + Jinja + JSON deep-update; legacy
+    templates carry cross-reference headers; 11 new tests (6 env byte-locks
+    + json byte-lock managed paths + daemon-section preservation +
+    dual-discord/dual-slack guards + no-discord empty block).
+  - `d6e0569` — Round 1 follow-ups: B3 (full JSON byte-lock fixture +
+    unmanaged-key completeness check), W4 (gateway=None preservation
+    test), S3 (drop inconsistent "LEGACY:" template comment label).
+  - `cd3a85b` — Round 2 follow-ups: B1 (unified `_OPENCLAW_DEFAULT_GATEWAY_PORT`
+    constant — env template + JSON now agree byte-for-byte on fallback
+    port), B3 (gitlab `has_gitlab_url` branch test), W1 (template no
+    longer emits empty `AUTH_TOKEN=` when auth is falsy), W2 (multi-guild
+    test), W3 (`git` skip test), S3 (model-prefix idempotency test).
+  - `2231b22` — Round 3 follow-up: B1 (CRITICAL silent-wipe fix —
+    `gateway.auth` flows into `openclaw.json` as
+    `{mode: token, token: <auth>}`; without this, F3 sync would have
+    wiped the install-time bearer on every run — exactly the bug class
+    #560 was opened to prevent). 2 regression tests.
+
+**Tactical choice (Callout)**: Mirrors Phase 2's exact pattern. The legacy
+`openclaw/.env.j2` and `openclaw/openclaw.json.j2` are still consumed by
+the Ansible-driven `clawctl agent configure` playbook (`configure.yaml:79,
+146`) and `agent install` playbook (`install.yaml:152`). Rewriting them
+to F3 input shape would break the legacy paths and their test suites.
+New canonical templates are added alongside under new filenames;
+cross-reference comments link them. Consolidation of the two template
+families is deferred to the same follow-up that retires the legacy
+Ansible configure path.
+
+**Synthesized baseline Callout**: The `openclaw.json` baseline was
+synthesized from the legacy `openclaw.json.j2`'s unconditional defaults
++ sensible values (wolf-i unreachable from execution context). Phase 4
+live dry-run on wolf-i will surface any drift. The synthesized baseline
+includes: `agents.defaults` (workspace, model, imageMaxDimensionPx,
+maxConcurrent, sandbox, heartbeat), `gateway` (mode, port=40000, bind,
+reload), `session` (dmScope, threadBindings, reset), `tools` (exec,
+deny=[browser]), `channels.discord` (enabled, allowFrom, guilds),
+`browser` (enabled=false), `env.shellEnv` (enabled, timeoutMs).
+
+### Phase 3 ATX Review Cycle Summary
+
+| Round | Rating | Total blockers | In-scope fixed | Out-of-scope deferred |
+|-------|--------|----------------|----------------|----------------------|
+| 1     | 2/5    | 4              | B3, W4, S3     | B1 (zeroclaw template), B2 (lifecycle.py), B4 (zeroclaw schema link) |
+| 2     | 2/5    | 3              | B1 (port unification), B3 (gitlab branch test), W1, W2, W3, S3 (model-prefix) | B2 (synthesized baseline — Phase 4 live verify), W4-W6, S1-S6 |
+| 3     | 2/5    | 4              | **B1 (gateway.auth silent-wipe fix)** + regression tests | B2 (Phase 4 wolf-i prerequisite), B3 (sync.py — Phase 1), B4 (lifecycle_canonical.py — Phase 1), W1/W4/W5/W6 (sync.py/lifecycle.py) |
+
+**Status**: `[ITX-STUCK]` after 3 ATX rounds. PR comment with full reasoning:
+https://github.com/ric03uec/clawrium/pull/568#issuecomment-4581496429
+
+**Final test counts**: 110 passed in `tests/core/test_render.py` (was 89
+at PR open). `make lint` clean. 45 baseline `tests/test_configure_zeroclaw.py`
+failures unchanged (pre-existing — Phases 1+2 carry the same baseline).
+
+**PR URL**: https://github.com/ric03uec/clawrium/pull/568 (stacked on
+PR #567 / Phase 2, which is merged into the base branch
+`issue-560-p1-drop-canonical-flag`).
