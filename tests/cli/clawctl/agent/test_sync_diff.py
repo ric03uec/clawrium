@@ -210,19 +210,19 @@ def test_diff_text_sanitizes_bidi_in_patch(fleet_dir, monkeypatch) -> None:
 
 
 def test_diff_text_does_not_invoke_real_sync(fleet_dir, monkeypatch) -> None:
-    """ATX iter-1 W9 — dry-run invariant: sync_agent must not be called."""
+    """ATX iter-1 W9 — dry-run invariant: the canonical sync must not run."""
     _patch_render(monkeypatch)
     _patch_reader(monkeypatch, body=_RENDERED.files[".openclaw/.env"])
 
-    from clawrium.cli.clawctl.agent import sync as sync_mod
-
     called = {"yes": False}
 
-    def _boom(**kwargs):
+    def _boom(*args, **kwargs):
         called["yes"] = True
-        raise AssertionError("sync_agent must not run under --diff")
+        raise AssertionError("sync_agent_canonical must not run under --diff")
 
-    monkeypatch.setattr(sync_mod, "sync_agent", _boom)
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical", _boom
+    )
 
     result = runner.invoke(app, ["agent", "sync", "wise-hypatia", "--diff"])
     assert result.exit_code == 0, result.output

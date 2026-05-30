@@ -17,21 +17,24 @@ This module replaces that path with the canonical pipeline:
     restart  = systemctl restart <atype>-<name>.service
     verify   = light health check (unit active)
 
-The function is opt-in via `clawctl agent sync --canonical` while the
-test matrix in `tests/integration/test_render_matrix.py` proves parity
-against the legacy path. Once green in CI on a disposable container
-host, a follow-up PR flips the default and drops the legacy
-extravar-based sync.
+Since #560, this is the only sync path — the `--canonical` opt-in flag
+was dropped and the legacy ansible extravar fork was removed from
+`clawctl agent sync`. The test matrix in
+`tests/integration/test_render_matrix.py` continues to prove parity
+against the legacy renderer outputs.
 
-Scope guard: this module deliberately does NOT touch `configure_agent`
-or `restart_agent`. Those paths still drive the onboarding state
-machine, hermes API-server reconstruction, AWS bedrock credential
-staging, and the zeroclaw gateway re-pair invariants from issue #437.
-Replacing them belongs in a follow-up. Sync is the right first cut:
-it's the most frequently invoked op (every `clawctl agent provider
-attach`, `clawctl agent channel attach`, etc. ends with a sync) and
-the matrix test from #555 is specifically targeted at sync's render
-output.
+Post-write tail (#560):
+
+    repair  = for zeroclaw, re-pair gateway bearer (#437) and atomically
+              persist to hosts.json.gateway.auth
+    advance = transition onboarding state to READY (swallows
+              InvalidTransitionError for mid-walk agents)
+
+The re-pair step reuses `lifecycle._zeroclaw_repair_after_start` so the
+ansible pair playbook (the single source of truth for the
+`POST /pair/code → POST /pair` handshake) is not duplicated. The READY
+write mirrors `sync_agent`'s post-configure transition at
+`lifecycle.py:1386-1438` and tolerates the same exception shapes.
 """
 
 from __future__ import annotations
@@ -165,6 +168,24 @@ def _diff_removes_secrets(diff: FileDiff) -> set[str]:
 
 
 def _open_ssh(host: dict, *, timeout: int = 15) -> paramiko.SSHClient:
+    """Open an SSH client to `host` using the registered private key.
+
+    Host-key policy: `WarningPolicy` — matches `lifecycle.py:471` and
+    `render_diff.py:119` so every clawctl SSH client in the codebase
+    behaves the same way. The rationale (from `lifecycle.py:462-471`):
+    `clawctl host create` provisions a host without a `known_hosts`
+    entry; default `RejectPolicy` would refuse every legitimate first
+    connection. `AutoAddPolicy` silently persists keys with no
+    visibility. `WarningPolicy` connects but logs, so a key swap
+    surfaces via paramiko's logger.
+
+    `BadHostKeyException` (raised by paramiko when a *known* key
+    changes) is NOT suppressed — it propagates as a connect failure,
+    which is the desired behavior for MITM detection. The TOFU-style
+    `StrictHostKeyPolicy` in `ssh_connection.py` is for the
+    user-prompt path; the sync pipeline is non-interactive, so the
+    project-wide `WarningPolicy` is the right cell here.
+    """
     key_id = host.get("key_id") or host.get("hostname") or ""
     private_key = get_host_private_key(key_id)
     if not private_key:
@@ -175,13 +196,29 @@ def _open_ssh(host: dict, *, timeout: int = 15) -> paramiko.SSHClient:
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.WarningPolicy())
-    client.connect(
-        hostname=host.get("hostname", ""),
-        port=int(host.get("port", 22) or 22),
-        username=host.get("user", "xclm"),
-        key_filename=str(private_key),
-        timeout=timeout,
-    )
+    try:
+        client.connect(
+            hostname=host.get("hostname", ""),
+            port=int(host.get("port", 22) or 22),
+            username=host.get("user", "xclm"),
+            key_filename=str(private_key),
+            timeout=timeout,
+        )
+    except paramiko.BadHostKeyException as exc:
+        raise CanonicalSyncError(
+            f"host key for {host.get('hostname', '')!r} has changed since "
+            f"`clawctl host create` recorded it: {exc}. Refusing to "
+            f"write — this could be a MITM. Verify the host and re-run "
+            f"`clawctl host create` if intentional."
+        ) from exc
+    except (paramiko.AuthenticationException, paramiko.SSHException) as exc:
+        raise CanonicalSyncError(
+            f"SSH connection to {host.get('hostname', '')!r} failed: {exc}"
+        ) from exc
+    except OSError as exc:
+        raise CanonicalSyncError(
+            f"network error reaching {host.get('hostname', '')!r}: {exc}"
+        ) from exc
     return client
 
 
@@ -349,8 +386,9 @@ def sync_agent_canonical(
         raise SecretRemovalRefused(
             f"refusing to sync {agent_name!r}: rendered body removes "
             f"host-side secrets ({details}). Inspect with `clawctl "
-            f"agent sync {agent_name} --dry-run --diff`. Re-run with "
-            f"`--force` if the removal is intentional."
+            f"agent sync {agent_name} --dry-run --diff`. Recovery: "
+            f"re-attach the channel/integration that owns the missing "
+            f"secret, or restore it via `clawctl secret set ...`."
         )
 
     files_written: list[str] = []
@@ -371,8 +409,33 @@ def sync_agent_canonical(
             )
             files_written.append(d.path)
 
-        if restart and files_written:
-            emit("restart", f"restarting {inputs.agent_type}-{agent_name}.service")
+        # Restart policy:
+        #
+        # - zeroclaw MUST restart on every sync regardless of
+        #   `files_written`, so the gateway bearer rotation downstream
+        #   (issue #437, see B1 comment below) runs every time. The
+        #   AGENTS.md "Gateway Token Lifecycle (zeroclaw)" section is
+        #   explicit: "There is no idempotent-skip path." A no-drift
+        #   sync that skipped restart would leave `hosts.json.gateway.auth`
+        #   permanently stale after any external daemon restart (host
+        #   reboot, `systemctl restart`, etc.).
+        # - Other agent types (hermes, openclaw) keep the file-drift-gated
+        #   restart so a true no-op sync stays cheap.
+        zeroclaw_force_restart = (
+            restart and inputs.agent_type == "zeroclaw" and not files_written
+        )
+        if restart and (files_written or zeroclaw_force_restart):
+            if zeroclaw_force_restart:
+                emit(
+                    "restart",
+                    f"restarting {inputs.agent_type}-{agent_name}.service "
+                    f"(no drift; zeroclaw bearer rotation requires restart)",
+                )
+            else:
+                emit(
+                    "restart",
+                    f"restarting {inputs.agent_type}-{agent_name}.service",
+                )
             _restart_unit(
                 client,
                 agent_type=inputs.agent_type,
@@ -389,6 +452,74 @@ def sync_agent_canonical(
             emit("restart", "skipped (no files changed)")
     finally:
         client.close()
+
+    # B1 (#437): zeroclaw daemon does not persist bearer state across
+    # systemd restarts. After a restart, the cached bearer in
+    # hosts.json.gateway.auth is stale; the daemon will enforce a
+    # freshly-minted token on its next request. Re-pair unconditionally
+    # whenever sync is operating on a zeroclaw with `restart=True` —
+    # AGENTS.md's "Gateway Token Lifecycle (zeroclaw)" explicitly
+    # forbids an idempotent-skip path here. The restart block above
+    # already force-restarts zeroclaw on no-drift sync for exactly this
+    # invariant. The pair playbook is the single source of truth for
+    # the handshake — reuse `_zeroclaw_repair_after_start` rather than
+    # reimplementing.
+    if restart and inputs.agent_type == "zeroclaw":
+        from clawrium.core.lifecycle import _zeroclaw_repair_after_start
+
+        emit("repair", f"re-pairing zeroclaw gateway for {agent_name}")
+        repair_ok, repair_err = _zeroclaw_repair_after_start(
+            hostname,
+            agent_name=agent_name,
+            on_event=on_event,
+            reason="sync",
+        )
+        if not repair_ok:
+            raise CanonicalSyncError(
+                f"sync wrote and restarted {agent_name!r} but the gateway "
+                f"re-pair failed: {repair_err}. `clawctl agent chat` will "
+                f"return 401 until you re-run `clawctl agent sync` or "
+                f"`clawctl agent restart`."
+            )
+
+    # B2: advance the onboarding state machine to READY so
+    # `start_agent` (which gates on state == READY) accepts the agent
+    # after a sync. Mirrors lifecycle.py:1386-1438's post-configure
+    # transition contract. The three exception shapes have distinct
+    # remediations:
+    #   - InvalidTransitionError: mid-walk (PROVIDERS/IDENTITY/...);
+    #     sync cannot bypass the stage walk. Silent — start_agent
+    #     surfaces the non-READY state.
+    #   - AgentNotFoundError / OnboardingNotFoundError: registry
+    #     incoherence; surfacing via emit() rather than raise because
+    #     the host-side write already succeeded.
+    #   - Anything else (IO, permission): same — surface as warning,
+    #     don't fail the sync.
+    from clawrium.core.onboarding import (
+        AgentNotFoundError as _ANF,
+        InvalidTransitionError as _ITE,
+        OnboardingNotFoundError as _ONF,
+        OnboardingState as _OS,
+        transition_state as _transition,
+    )
+
+    try:
+        _transition(hostname, agent_key, _OS.READY)
+    except _ITE:
+        pass
+    except (_ANF, _ONF) as exc:
+        emit(
+            "sync",
+            f"warning: registry record missing for {agent_key} after "
+            f"sync: {exc!s}. Inspect hosts.json before running "
+            f"clawctl agent start.",
+        )
+    except Exception as exc:
+        emit(
+            "sync",
+            f"warning: could not write state=READY to hosts.json: "
+            f"{exc!s}. Re-run sync to commit state.",
+        )
 
     emit(
         "sync",

@@ -1,0 +1,68 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.openclaw/workspace",
+      "model": {
+        "primary": ""
+      },
+      "imageMaxDimensionPx": 1200,
+      "maxConcurrent": 4,
+      "sandbox": {
+        "mode": "off",
+        "scope": "session"
+      },
+      "heartbeat": {
+        "every": "30m",
+        "target": "last"
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "port": 40000,
+    "bind": "lan",
+    "reload": {
+      "mode": "hybrid",
+      "debounceMs": 300
+    }
+  },
+  "session": {
+    "dmScope": "per-channel-peer",
+    "threadBindings": {
+      "enabled": true,
+      "idleHours": 24,
+      "maxAgeHours": 168
+    },
+    "reset": {
+      "mode": "daily",
+      "atHour": 4,
+      "idleMinutes": 120
+    }
+  },
+  "tools": {
+    "exec": {
+      "host": "gateway",
+      "security": "full",
+      "ask": "off"
+    },
+    "deny": [
+      "browser"
+    ]
+  },
+  "channels": {
+    "discord": {
+      "enabled": false,
+      "allowFrom": [],
+      "guilds": {}
+    }
+  },
+  "browser": {
+    "enabled": false
+  },
+  "env": {
+    "shellEnv": {
+      "enabled": true,
+      "timeoutMs": 15000
+    }
+  }
+}

@@ -1450,6 +1450,130 @@ def sync_agent(
     }
 
 
+def _hydrate_channels_from_canonical(
+    config_data: dict,
+    *,
+    host: dict,
+    agent_key: str,
+    agent_record: dict,
+    resolved_type: str,
+    include_slack: bool,
+) -> tuple[bool, str | None]:
+    """Populate `config_data["channels"]` from canonical channels.json + secrets.
+
+    Replaces the legacy hosts.json `agent_record.config.channels.<type>`
+    read (the original #555 silent-wipe surface) with a canonical-sourced
+    assembly that mirrors what `core/render.build_render_inputs` produces.
+    The ansible configure playbook consumes the same legacy dict shape it
+    always did (`channels.discord = {enabled, bot_token, ...}` and
+    `channels.slack = {enabled, bot_token, app_token, ...}`); only the
+    *source* of the data changes.
+
+    For each attached channel (via `get_agent_channels`), we read its
+    record from `channels.json`, hydrate the secret from secrets.json,
+    and reshape into the legacy dict. Discord and Slack are the only
+    types currently supported; other types are ignored at this layer
+    (the canonical renderer in `core/render.py` validates the broader
+    surface).
+
+    Caller-passed `config_data["channels"]` is overwritten for Discord
+    and (when `include_slack`) Slack to keep canonical channels.json as
+    the single source of truth — there is no merge path that could
+    silently re-introduce the deprecated shape.
+    """
+    from clawrium.core.channels import (
+        get_channel,
+        get_channel_token,
+    )
+
+    discord_record: dict | None = None
+    discord_token: str | None = None
+    slack_record: dict | None = None
+    slack_bot_token: str | None = None
+    slack_app_token: str | None = None
+
+    # Read attached channels off the already-loaded agent_record. This
+    # avoids a redundant hosts.json read (which `get_agent_channels`
+    # does) and keeps the helper test-friendly: the existing test
+    # harnesses for configure_agent mock the agent_record dict but do
+    # NOT always materialize hosts.json on disk.
+    attached = agent_record.get("channels", [])
+    if not isinstance(attached, list):
+        attached = []
+
+    for channel_name in attached:
+        if not isinstance(channel_name, str):
+            continue
+        record = get_channel(channel_name)
+        if not isinstance(record, dict):
+            continue
+        ctype = record.get("type") or ""
+        if ctype == "discord" and discord_record is None:
+            discord_record = record
+            discord_token = get_channel_token(channel_name, "BOT_TOKEN")
+        elif ctype == "slack" and include_slack and slack_record is None:
+            slack_record = record
+            slack_bot_token = get_channel_token(channel_name, "BOT_TOKEN")
+            slack_app_token = get_channel_token(channel_name, "APP_TOKEN")
+
+    current_channels = config_data.get("channels")
+    if not isinstance(current_channels, dict):
+        current_channels = {}
+
+    if discord_record is not None:
+        cfg = discord_record.get("config") or {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+        if not isinstance(discord_token, str) or len(discord_token) < 50:
+            return (
+                False,
+                "Discord channel attached to this agent but BOT_TOKEN "
+                "is missing or invalid in secrets.json. Re-run "
+                "'clm channel set-secret <channel> BOT_TOKEN <token>'.",
+            )
+        current_channels["discord"] = {
+            **cfg,
+            "enabled": True,
+            "bot_token": discord_token,
+        }
+
+    if slack_record is not None:
+        cfg = slack_record.get("config") or {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+        # Same prefix validation as the legacy block (xoxb-, xapp-).
+        if not isinstance(slack_bot_token, str) or not slack_bot_token.startswith(
+            "xoxb-"
+        ):
+            return (
+                False,
+                "Slack channel attached to this agent but SLACK_BOT_TOKEN is "
+                "missing or invalid in secrets.json (expected `xoxb-...`).",
+            )
+        if not isinstance(slack_app_token, str) or not slack_app_token.startswith(
+            "xapp-"
+        ):
+            return (
+                False,
+                "Slack channel attached to this agent but SLACK_APP_TOKEN is "
+                "missing or invalid in secrets.json (expected `xapp-...`).",
+            )
+        slack_dict = {
+            **cfg,
+            "enabled": True,
+            "bot_token": slack_bot_token,
+            "app_token": slack_app_token,
+        }
+        current_channels["slack"] = slack_dict
+
+    if discord_record is not None or slack_record is not None:
+        config_data["channels"] = current_channels
+
+    # Resolved_type is captured for future per-type branching; not used yet.
+    _ = resolved_type
+    return True, None
+
+
 def configure_agent(
     hostname: str,
     claw_name: str,
@@ -1654,136 +1778,25 @@ def configure_agent(
 
             update_host(host["hostname"], _persist_reconstructed_api_server)
 
-        # Hermes Slack: merge persisted channels.slack shape from hosts.json
-        # with anything passed in config_data, then hydrate the bot/app tokens
-        # from secrets.json. Mirrors the Discord hydration pattern.
-        #
-        # Discord hydration moved out of this hermes-only branch to a sibling
-        # block below (#422) so zeroclaw can share it; Slack stays hermes-only
-        # because zeroclaw v0.7.5 has no native Slack channel. The
-        # persisted_channels/incoming_channels locals below feed only Slack.
-        persisted_channels = agent_record.get("config", {}).get("channels") or {}
-        if not isinstance(persisted_channels, dict):
-            persisted_channels = {}
-        incoming_channels = config_data.get("channels") or {}
-        if not isinstance(incoming_channels, dict):
-            incoming_channels = {}
-
-        persisted_slack = persisted_channels.get("slack") or {}
-        if not isinstance(persisted_slack, dict):
-            persisted_slack = {}
-
-        incoming_slack = incoming_channels.get("slack") or {}
-        if not isinstance(incoming_slack, dict):
-            incoming_slack = {}
-
-        merged_slack = {**persisted_slack, **incoming_slack}
-
-        if merged_slack.get("enabled"):
-            slack_secrets = get_instance_secrets(instance_key)
-            slack_bot_secret = slack_secrets.get("SLACK_BOT_TOKEN")
-            slack_bot_val = (
-                slack_bot_secret.get("value")
-                if isinstance(slack_bot_secret, dict)
-                else None
-            )
-            slack_app_secret = slack_secrets.get("SLACK_APP_TOKEN")
-            slack_app_val = (
-                slack_app_secret.get("value")
-                if isinstance(slack_app_secret, dict)
-                else None
-            )
-            if not isinstance(slack_bot_val, str) or not slack_bot_val.startswith(
-                "xoxb-"
-            ):
-                return (
-                    False,
-                    "Slack enabled for this agent but SLACK_BOT_TOKEN is "
-                    "missing or invalid in secrets.json. Re-run "
-                    "'clm agent configure <name> --stage channels' to set it.",
-                )
-            if not isinstance(slack_app_val, str) or not slack_app_val.startswith(
-                "xapp-"
-            ):
-                return (
-                    False,
-                    "Slack enabled for this agent but SLACK_APP_TOKEN is "
-                    "missing or invalid in secrets.json. Re-run "
-                    "'clm agent configure <name> --stage channels' to set it.",
-                )
-            merged_slack["bot_token"] = slack_bot_val
-            merged_slack["app_token"] = slack_app_val
-
-        if persisted_slack or incoming_slack:
-            current_channels = config_data.get("channels") or {}
-            if not isinstance(current_channels, dict):
-                current_channels = {}
-            current_channels["slack"] = merged_slack
-            config_data["channels"] = current_channels
-
-    # Discord channel hydration (#422). Shared between hermes and zeroclaw —
-    # both consume the same DISCORD_BOT_TOKEN secrets.json entry, the only
-    # difference is downstream: hermes renders DISCORD_BOT_TOKEN into .env
-    # via .env.j2 while zeroclaw renders bot_token = "<token>" into config.toml
-    # via config.toml.j2's [channels.discord] block. The hydration is identical.
-    #
-    # Gated on Discord being present in either persisted or incoming config
-    # before any get_instance_key call so a configure for a non-Discord agent
-    # with an unusable agent_name (e.g. the invalid-claw-user test path) still
-    # falls through to the validation block below.
+    # #560: Discord/Slack channel hydration now reads from the canonical
+    # `channels.json` store via `_hydrate_channels_from_canonical` rather
+    # than the deprecated `agent_record.config.channels.<type>` shape.
+    # The helper produces the same dict shape the ansible configure
+    # playbook expects (`config_data["channels"][type] = {...}`), so the
+    # playbook is unchanged. The legacy hosts.json shape read at this
+    # site was the original #555 silent-wipe bug surface; removing it
+    # closes that class.
     if resolved_type in ("hermes", "zeroclaw"):
-        discord_persisted_channels = (
-            agent_record.get("config", {}).get("channels") or {}
+        ok, err = _hydrate_channels_from_canonical(
+            config_data,
+            host=host,
+            agent_key=agent_key,
+            agent_record=agent_record,
+            resolved_type=resolved_type,
+            include_slack=(resolved_type == "hermes"),
         )
-        if not isinstance(discord_persisted_channels, dict):
-            discord_persisted_channels = {}
-        discord_persisted = discord_persisted_channels.get("discord") or {}
-        if not isinstance(discord_persisted, dict):
-            discord_persisted = {}
-
-        discord_incoming_channels = config_data.get("channels") or {}
-        if not isinstance(discord_incoming_channels, dict):
-            discord_incoming_channels = {}
-        discord_incoming = discord_incoming_channels.get("discord") or {}
-        if not isinstance(discord_incoming, dict):
-            discord_incoming = {}
-
-        if discord_persisted or discord_incoming:
-            # Persisted onto incoming so an explicit caller-provided field
-            # wins, but fields the caller didn't set (e.g.
-            # _sync_provider_config only carrying provider) inherit from
-            # hosts.json.
-            discord_merged = {**discord_persisted, **discord_incoming}
-
-            if discord_merged.get("enabled"):
-                discord_instance_key = get_instance_key(
-                    host.get("key_id") or host["hostname"],
-                    resolved_type,
-                    unix_agent_name,
-                )
-                discord_secret = get_instance_secrets(discord_instance_key).get(
-                    "DISCORD_BOT_TOKEN"
-                )
-                discord_token = (
-                    discord_secret.get("value")
-                    if isinstance(discord_secret, dict)
-                    else None
-                )
-                if not isinstance(discord_token, str) or len(discord_token) < 50:
-                    return (
-                        False,
-                        "Discord enabled for this agent but DISCORD_BOT_TOKEN "
-                        "is missing or invalid in secrets.json. Re-run "
-                        "'clm agent configure <name> --stage channels' to set "
-                        "it.",
-                    )
-                discord_merged["bot_token"] = discord_token
-
-            current_channels = config_data.get("channels") or {}
-            if not isinstance(current_channels, dict):
-                current_channels = {}
-            current_channels["discord"] = discord_merged
-            config_data["channels"] = current_channels
+        if not ok:
+            return False, err
 
     # Validate config data before running Ansible
     # Validate required provider fields (must check dict type first)

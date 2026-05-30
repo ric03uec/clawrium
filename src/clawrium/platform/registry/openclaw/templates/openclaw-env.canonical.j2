@@ -1,0 +1,68 @@
+{# Canonical openclaw `.openclaw/env` template — F3 input shape.
+
+   See ../../core/render.py:render_openclaw. Byte-locks in
+   tests/core/test_render.py pin parity with the prior list-of-strings
+   render_openclaw. 00_PLAN.md Phase 4 live dry-run on wolf-i closes the
+   loop against the live daemon.
+
+   Distinct from `.env.j2` in this directory, which is still consumed by
+   the Ansible `configure.yaml` playbook — see header comment on that
+   file. #}
+# Managed by clawrium (clawctl). Re-render with `clawctl agent configure {{ agent_name }}`.
+{% if gateway is not none %}
+OPENCLAW_GATEWAY_BIND={{ (gateway.bind or 'lan') | shq }}
+OPENCLAW_GATEWAY_PORT={{ (gateway.port or default_gateway_port) | int }}
+{% if gateway.auth %}
+OPENCLAW_GATEWAY_AUTH_MODE=token
+OPENCLAW_GATEWAY_AUTH_TOKEN={{ gateway.auth | shq }}
+{% else %}
+OPENCLAW_GATEWAY_AUTH_MODE=none
+{% endif %}
+{% endif %}
+OPENCLAW_DEFAULT_MODEL={{ default_model_id | shq }}
+{% if provider.type == 'anthropic' %}
+ANTHROPIC_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'openai' %}
+OPENAI_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'openrouter' %}
+OPENROUTER_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'zai' %}
+ZAI_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'bedrock' %}
+AWS_ACCESS_KEY_ID={{ provider.aws_access_key | shq }}
+AWS_SECRET_ACCESS_KEY={{ provider.aws_secret_key | shq }}
+{% elif provider.type == 'ollama' %}
+OPENCLAW_OLLAMA_URL={{ provider.endpoint | shq }}
+{% endif %}
+{% for channel in channels %}
+{% if channel.type == 'discord' %}
+DISCORD_BOT_TOKEN={{ channel.bot_token | shq }}
+{% elif channel.type == 'slack' %}
+SLACK_BOT_TOKEN={{ channel.bot_token | shq }}
+SLACK_APP_TOKEN={{ channel.app_token | shq }}
+{% endif %}
+{% endfor %}
+{% for integration in integrations %}
+{% if integration.type == 'github' %}
+GITHUB_TOKEN_{{ integration.slug }}={{ integration.token | shq }}
+{% elif integration.type == 'gitlab' %}
+GITLAB_TOKEN={{ integration.gitlab_token | shq }}
+{% if integration.has_gitlab_url %}
+GITLAB_URL={{ integration.gitlab_url | shq }}
+{% endif %}
+{% elif integration.type == 'atlassian' %}
+JIRA_URL={{ integration.atlassian_url | shq }}
+CONFLUENCE_URL={{ integration.confluence_url | shq }}
+JIRA_EMAIL={{ integration.atlassian_email | shq }}
+CONFLUENCE_EMAIL={{ integration.atlassian_email | shq }}
+JIRA_API_TOKEN={{ integration.atlassian_api_token | shq }}
+CONFLUENCE_API_TOKEN={{ integration.atlassian_api_token | shq }}
+{% elif integration.type == 'linear' %}
+LINEAR_API_KEY={{ integration.linear_api_key | shq }}
+{% elif integration.type == 'notion' %}
+NOTION_API_KEY={{ integration.notion_api_key | shq }}
+{% endif %}
+{% endfor %}
+{% if last_github_token %}
+GITHUB_TOKEN={{ last_github_token | shq }}
+{% endif %}
