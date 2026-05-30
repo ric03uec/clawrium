@@ -409,8 +409,33 @@ def sync_agent_canonical(
             )
             files_written.append(d.path)
 
-        if restart and files_written:
-            emit("restart", f"restarting {inputs.agent_type}-{agent_name}.service")
+        # Restart policy:
+        #
+        # - zeroclaw MUST restart on every sync regardless of
+        #   `files_written`, so the gateway bearer rotation downstream
+        #   (issue #437, see B1 comment below) runs every time. The
+        #   AGENTS.md "Gateway Token Lifecycle (zeroclaw)" section is
+        #   explicit: "There is no idempotent-skip path." A no-drift
+        #   sync that skipped restart would leave `hosts.json.gateway.auth`
+        #   permanently stale after any external daemon restart (host
+        #   reboot, `systemctl restart`, etc.).
+        # - Other agent types (hermes, openclaw) keep the file-drift-gated
+        #   restart so a true no-op sync stays cheap.
+        zeroclaw_force_restart = (
+            restart and inputs.agent_type == "zeroclaw" and not files_written
+        )
+        if restart and (files_written or zeroclaw_force_restart):
+            if zeroclaw_force_restart:
+                emit(
+                    "restart",
+                    f"restarting {inputs.agent_type}-{agent_name}.service "
+                    f"(no drift; zeroclaw bearer rotation requires restart)",
+                )
+            else:
+                emit(
+                    "restart",
+                    f"restarting {inputs.agent_type}-{agent_name}.service",
+                )
             _restart_unit(
                 client,
                 agent_type=inputs.agent_type,
@@ -432,15 +457,14 @@ def sync_agent_canonical(
     # systemd restarts. After a restart, the cached bearer in
     # hosts.json.gateway.auth is stale; the daemon will enforce a
     # freshly-minted token on its next request. Re-pair unconditionally
-    # whenever the daemon was actually restarted so `clawctl agent
-    # chat` reconnects against an authoritative bearer. The pair
-    # playbook is the single source of truth for the handshake — reuse
-    # `_zeroclaw_repair_after_start` rather than reimplementing.
-    if (
-        restart
-        and files_written
-        and inputs.agent_type == "zeroclaw"
-    ):
+    # whenever sync is operating on a zeroclaw with `restart=True` —
+    # AGENTS.md's "Gateway Token Lifecycle (zeroclaw)" explicitly
+    # forbids an idempotent-skip path here. The restart block above
+    # already force-restarts zeroclaw on no-drift sync for exactly this
+    # invariant. The pair playbook is the single source of truth for
+    # the handshake — reuse `_zeroclaw_repair_after_start` rather than
+    # reimplementing.
+    if restart and inputs.agent_type == "zeroclaw":
         from clawrium.core.lifecycle import _zeroclaw_repair_after_start
 
         emit("repair", f"re-pairing zeroclaw gateway for {agent_name}")

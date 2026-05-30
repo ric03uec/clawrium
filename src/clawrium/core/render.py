@@ -1045,6 +1045,22 @@ def _openclaw_json_baseline() -> str:
 
     Returns the raw text; `_render_openclaw_json` re-parses on every call so
     deep-updates don't mutate the shared baseline dict.
+
+    Baseline schema provenance: the structure mirrors the legacy
+    `openclaw.json.j2` Ansible template at
+    `src/clawrium/platform/registry/openclaw/templates/openclaw.json.j2`,
+    which is the existing source of truth for the on-host file shape
+    (consumed by `install.yaml` and `configure.yaml`). Field names
+    (`agents.defaults.{workspace,model,sandbox,heartbeat}`, `gateway.{mode,
+    port,bind,reload,auth}`, `session.{dmScope,threadBindings,reset}`,
+    `tools.{exec,deny}`, `channels.discord.{enabled,allowFrom,guilds}`,
+    `browser.enabled`, `env.shellEnv.{enabled,timeoutMs}`) are copied
+    verbatim from that template's defaults. 00_PLAN.md Phase 4 closes
+    the schema verification loop with a live dry-run against wolf-i's
+    `~/.openclaw/openclaw.json`; if any key name diverges, the captured
+    live file replaces this synthesized baseline. Until Phase 4 runs,
+    treat the baseline as "best-effort match to the legacy Ansible
+    template" — silent no-op risk on unknown keys is non-zero.
     """
     from importlib.resources import files
 

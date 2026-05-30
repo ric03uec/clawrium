@@ -335,6 +335,78 @@ def test_canonical_sync_repairs_zeroclaw_gateway(monkeypatch, fleet_dir) -> None
     assert captured.get("repair_agent") == "test-agent"
 
 
+def test_canonical_sync_repairs_zeroclaw_even_with_no_drift(
+    monkeypatch, fleet_dir
+) -> None:
+    """PR #568 ATX round 3 B4 + AGENTS.md §Gateway Token Lifecycle:
+    a no-drift `clawctl agent sync` (zero files changed) on a zeroclaw
+    MUST still restart the service and re-pair the gateway bearer.
+    AGENTS.md explicitly forbids an idempotent-skip path here — without
+    this behavior, `hosts.json.gateway.auth` would go permanently stale
+    after any external daemon restart (host reboot, `systemctl restart`).
+    """
+    from clawrium.core import lifecycle_canonical
+    from clawrium.core.render import RenderInputs, ProviderInputs
+
+    captured: dict = {}
+
+    def fake_build(name):
+        return RenderInputs(
+            agent_type="zeroclaw",
+            agent_name=name,
+            provider=ProviderInputs(
+                name="p", type="anthropic", endpoint="", default_model="x"
+            ),
+        )
+
+    def fake_render(inputs):
+        from clawrium.core.render import RenderedFiles
+
+        return RenderedFiles(files={".zeroclaw/config.toml": "[gateway]\n"})
+
+    monkeypatch.setattr(lifecycle_canonical, "build_render_inputs", fake_build)
+    monkeypatch.setattr(
+        lifecycle_canonical, "_RENDERERS", {"zeroclaw": fake_render}
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "get_agent_by_name",
+        lambda n: ({"hostname": "test-host"}, n, {"type": "zeroclaw"}),
+    )
+    # No drift: diff returns an empty list — files_written stays empty.
+    monkeypatch.setattr(lifecycle_canonical, "diff_files", lambda **kw: [])
+    monkeypatch.setattr(
+        lifecycle_canonical, "_open_ssh", lambda host, timeout=15: MagicMock()
+    )
+    monkeypatch.setattr(lifecycle_canonical, "_atomic_write", lambda *a, **kw: None)
+
+    restart_calls: list[str] = []
+
+    def fake_restart(client, *, agent_type, agent_name):
+        restart_calls.append(agent_name)
+
+    monkeypatch.setattr(lifecycle_canonical, "_restart_unit", fake_restart)
+    monkeypatch.setattr(lifecycle_canonical, "_verify_health", lambda *a, **kw: None)
+
+    def fake_repair(hostname, *, agent_name, on_event, reason):
+        captured["repair_agent"] = agent_name
+        return True, None
+
+    from clawrium.core import lifecycle as lifecycle_mod
+
+    monkeypatch.setattr(
+        lifecycle_mod, "_zeroclaw_repair_after_start", fake_repair
+    )
+    from clawrium.core import onboarding as onboarding_mod
+
+    monkeypatch.setattr(onboarding_mod, "transition_state", lambda *a, **kw: True)
+
+    lifecycle_canonical.sync_agent_canonical("test-agent")
+    # Both restart AND re-pair must run despite zero file drift.
+    assert restart_calls == ["test-agent"]
+    assert captured.get("repair_agent") == "test-agent"
+
+
 def test_canonical_sync_propagates_repair_failure(monkeypatch, fleet_dir) -> None:
     """B1: if `_zeroclaw_repair_after_start` returns failure, the canonical
     sync must raise CanonicalSyncError (no silent write of stale bearer)."""
@@ -434,6 +506,56 @@ def test_sync_renders_gateway_token_rotated_as_yellow_notice(
     assert result.exit_code == 0, result.output
     assert "Gateway token rotated" in result.output
     assert "wise-hypatia" in result.output
+
+
+def test_sync_gateway_token_rotated_escapes_rich_markup_in_agent_key(
+    fleet_dir, monkeypatch
+) -> None:
+    """PR #568 ATX round 3 B3: an agent_key containing Rich markup
+    metacharacters (`[`, `]`) must be escaped before interpolation so
+    a hostile or accidental `[bold red]` cannot rewrite console styling
+    or smuggle a closing `[/yellow]` and break out of the notice block.
+    """
+    import json as _json
+
+    hostile_key = "evil[/yellow][bold red]INJECTED[/bold red]"
+
+    def fake_sync(name, *, force, restart, verify, on_event):
+        on_event(
+            "gateway_token_rotated",
+            _json.dumps(
+                {
+                    "agent_key": hostile_key,
+                    "old_prefix": "abc",
+                    "new_prefix": "def",
+                    "reason": "sync",
+                }
+            ),
+        )
+
+        class _R:
+            files_written = [".zeroclaw/config.toml"]
+            files_unchanged: list[str] = []
+
+        return _R()
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical", fake_sync
+    )
+    result = runner.invoke(app, ["agent", "sync", "wise-hypatia"])
+    assert result.exit_code == 0, result.output
+    # The hostile substring `[bold red]INJECTED[/bold red]` must NOT
+    # appear as live markup in the rendered output. Rich's `escape()`
+    # converts `[` → `\[`, so the closing `[/yellow]` injection cannot
+    # close the outer notice prematurely. The literal text of the key
+    # is fine to surface to the operator (escaped form `\[` is what
+    # ends up in the rendered terminal output).
+    assert "INJECTED" in result.output
+    # Crucially: the visible "Gateway token rotated" + reconnect text
+    # must remain intact (i.e. the injection didn't break out of the
+    # notice).
+    assert "Gateway token rotated" in result.output
+    assert "reconnect" in result.output
 
 
 def test_open_ssh_translates_bad_host_key_to_canonical_error(monkeypatch) -> None:

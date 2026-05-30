@@ -12,8 +12,10 @@ Phase lines (plan §6.10, post-#560):
     + final `synced (drift=0, took Xs)`
 
 Note: the legacy 5-phase sequence included `re-pairing gateway`. The
-canonical pipeline does not yet re-pair the zeroclaw gateway bearer;
-that gap is tracked separately (see PR #566 Callouts).
+canonical pipeline NOW re-pairs the zeroclaw gateway bearer on every
+sync invocation with `restart=True` (issue #437, restored in PR #568
+ATX round 3). The phase is emitted as a `repair` event rather than a
+numbered phase line so the user-visible sequence stays at 4 steps.
 
 Flags:
 - `--timeout 120` — 2-minute default; advisory (canonical pipeline
@@ -337,6 +339,7 @@ def sync(
             import json as _json
 
             from rich.console import Console
+            from rich.markup import escape as rich_escape
 
             console = Console()
 
@@ -350,8 +353,14 @@ def sync(
             except (_json.JSONDecodeError, TypeError):
                 pass
             if agent_label:
+                # `agent_label` originates from JSON-parsed daemon output;
+                # escape Rich markup metacharacters (`[`, `]`) before
+                # interpolating so a hostile or accidental `[bold]` in an
+                # agent_key cannot rewrite the rendered styling. Matches
+                # the pattern at cli/agent.py:145.
                 console.print(
-                    f"  [yellow]Gateway token rotated for {agent_label}. "
+                    f"  [yellow]Gateway token rotated for "
+                    f"{rich_escape(agent_label)}. "
                     f"Active chat sessions on other machines will need to "
                     f"reconnect.[/yellow]"
                 )
