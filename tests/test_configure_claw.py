@@ -2661,18 +2661,19 @@ class TestZeroclawDiscordHydration:
             },
             "gateway": {"host": "0.0.0.0", "port": 40000},
         }
+        agent_record: dict = {
+            "type": "zeroclaw",
+            "agent_name": "zc-test",
+            "config": agent_config,
+        }
+        # #560: canonical channel attach (channels.json is the source of
+        # truth, mocked via `canonical_channels` fixture).
         if discord_persisted is not None:
-            agent_config["channels"] = {"discord": discord_persisted}
+            agent_record["channels"] = ["my-discord"]
         return {
             "hostname": "test-host",
             "key_id": "test",
-            "agents": {
-                "zc-test": {
-                    "type": "zeroclaw",
-                    "agent_name": "zc-test",
-                    "config": agent_config,
-                }
-            },
+            "agents": {"zc-test": agent_record},
         }
 
     def _setup_fact_cache(self, tmp_path: Path) -> Path:
@@ -2758,20 +2759,21 @@ class TestZeroclawDiscordHydration:
             }
         }
 
-    def test_discord_token_hydrated_for_zeroclaw(self, tmp_path: Path):
+    def test_discord_token_hydrated_for_zeroclaw(
+        self, tmp_path: Path, canonical_channels
+    ):
         """The bot_token from secrets.json lands on
         config_data['channels']['discord']['bot_token'] before the playbook
         runs — same path as hermes, just a different downstream consumer
         (config.toml.j2 instead of .env.j2)."""
         token = "B" * 64
-        host = self._make_host(
-            discord_persisted={
-                "enabled": True,
-                "allowed_users": ["740723459344302120"],
-                "allowed_guilds": ["123"],
-                "require_mention": True,
-            }
-        )
+        cfg = {
+            "allowed_users": ["740723459344302120"],
+            "allowed_guilds": ["123"],
+            "require_mention": True,
+        }
+        canonical_channels(discord={"my-discord": (cfg, token)})
+        host = self._make_host(discord_persisted=cfg)
         secrets = self._discord_secrets_entry(token)
 
         success, error, captured = self._run_zeroclaw_configure(host, tmp_path, secrets)
@@ -2798,40 +2800,47 @@ class TestZeroclawDiscordHydration:
             or "bot_token" not in sent["channels"].get("discord", {})
         )
 
-    def test_discord_enabled_without_token_rejected_zeroclaw(self, tmp_path: Path):
-        """`enabled = true` with no DISCORD_BOT_TOKEN in secrets.json must
+    def test_discord_enabled_without_token_rejected_zeroclaw(
+        self, tmp_path: Path, canonical_channels
+    ):
+        """Channel attached with no token in secrets.json must
         return (False, error) — same failure mode as hermes."""
-        host = self._make_host(discord_persisted={"enabled": True})
-        secrets = {}  # No DISCORD_BOT_TOKEN at all.
+        canonical_channels(discord={"my-discord": ({}, None)})
+        host = self._make_host(discord_persisted={})
+        secrets = {}
 
         success, error, _ = self._run_zeroclaw_configure(host, tmp_path, secrets)
         assert success is False
-        assert "DISCORD_BOT_TOKEN" in (error or "")
+        assert "BOT_TOKEN" in (error or "")
 
-    def test_discord_short_token_rejected_zeroclaw(self, tmp_path: Path):
+    def test_discord_short_token_rejected_zeroclaw(
+        self, tmp_path: Path, canonical_channels
+    ):
         """Bot tokens shorter than 50 chars are rejected; mirrors hermes
         validation."""
-        host = self._make_host(discord_persisted={"enabled": True})
+        canonical_channels(discord={"my-discord": ({}, "short-token")})
+        host = self._make_host(discord_persisted={})
         secrets = self._discord_secrets_entry("short-token")
 
         success, error, _ = self._run_zeroclaw_configure(host, tmp_path, secrets)
         assert success is False
-        assert "DISCORD_BOT_TOKEN" in (error or "")
+        assert "BOT_TOKEN" in (error or "")
 
-    def test_discord_bot_token_stripped_from_hosts_json_zeroclaw(self, tmp_path: Path):
+    def test_discord_bot_token_stripped_from_hosts_json_zeroclaw(
+        self, tmp_path: Path, canonical_channels
+    ):
         """ATX Round 1 B1: zeroclaw must mirror hermes's strip-before-persist
         behavior so bot_token never lands in hosts.json. Without this, the
         token roundtrips: hydrated → persisted → read into existing_config →
         re-hydrated, defeating the B3 invariant that bot_token lives in
         secrets.json only."""
         token = "B" * 64
-        host = self._make_host(
-            discord_persisted={
-                "enabled": True,
-                "allowed_users": ["740723459344302120"],
-                "require_mention": True,
-            }
-        )
+        cfg = {
+            "allowed_users": ["740723459344302120"],
+            "require_mention": True,
+        }
+        canonical_channels(discord={"my-discord": (cfg, token)})
+        host = self._make_host(discord_persisted=cfg)
         secrets = self._discord_secrets_entry(token)
 
         captured_update: dict = {}

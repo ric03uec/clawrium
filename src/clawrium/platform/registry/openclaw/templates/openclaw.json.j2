@@ -1,3 +1,9 @@
+{# LEGACY: consumed by `clawctl agent configure` + `agent install` Ansible
+   playbooks (platform/registry/openclaw/playbooks/{configure,install}.yaml).
+   Uses the pre-F3 `config.*` extravar shape. The canonical F3-input path is
+   `openclaw.json` baseline + `render_openclaw` deep-update in
+   `clawrium.core.render`. Consolidation deferred — same lesson as Phase 2 /
+   hermes (#560 PR #567). #}
 {
 {% set agents = config.agents | default({}) %}
 {% set agents_defaults = agents.defaults | default({}) %}

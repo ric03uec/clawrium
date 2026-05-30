@@ -1,249 +1,115 @@
-{# Managed by clawrium (clawctl). Do not edit by hand — re-render with
-   `clawctl agent configure {{ agent_name | default('<name>') }}`.
-
-   v0.7.5 schema:
-   - [gateway] binds 0.0.0.0 with require_pairing = true so cross-LAN
-     `clawctl chat` works and the bearer token captured in configure is the
-     auth boundary. See .itx/357/01_EXECUTION.md "Security Considerations".
-   - [providers.models.<name>] sub-table per provider with a `kind`
-     discriminator. Only the four providers in scope for #112 are emitted:
-     anthropic, openai, ollama, openrouter.
-   - Integrations block intentionally removed per #112 plan; reintroduced
-     under a follow-up issue.
-#}
-{# TOML-safe basic-string escaping. Must cover four character classes that
-   could escape a "…" basic string and inject arbitrary keys:
-     - backslash and double-quote (the basic-string terminators)
-     - CR / LF (split the string across lines, anything past `\n` is parsed
-       as a new TOML statement — classic injection vector)
-     - tab (less dangerous on its own, but TOML treats raw tabs in basic
-       strings inconsistently across parsers)
-   Order matters: backslash must escape first so the literal-`\` produced
-   by every subsequent replacement is itself doubled. ATX Round 1 B1. #}
-{%- macro toml_escape(value) -%}
-{{ value | string
-   | replace('\\', '\\\\')
-   | replace('"', '\\"')
-   | replace('\r', '\\r')
-   | replace('\n', '\\n')
-   | replace('\t', '\\t') }}
-{%- endmacro -%}
-{% set provider = config.provider | default({}) %}
-{% set provider_type = provider.type | default('') %}
-{% set model_id = provider.default_model | default('') %}
-{% set endpoint = provider.endpoint | default('') %}
-{% set personality = config.personality | default({}) %}
-{% set personality_name = personality.name | default(agent_name | default('zeroclaw')) %}
-{% set personality_timezone = personality.timezone | default('UTC') %}
-{% set personality_style = personality.communication_style | default('direct, concise') %}
-{# Per zeroclaw v0.7.5 docs (docs/book/src/providers/configuration.md),
-   `default_provider` and `default_model` are TOP-LEVEL keys — they must
-   appear before any [section] header so TOML does not scope them under
-   the preceding table. Placing them under [gateway] caused the daemon
-   to fall back to the empty default-provider stub and crash gateway
-   startup with "Unknown provider: default". #}
-{% if provider_type in ['anthropic', 'openai', 'ollama', 'openrouter'] %}
-default_provider = "{{ toml_escape(provider_type) }}"
-{% if model_id %}
-default_model = "{{ toml_escape(model_id) }}"
-{% endif %}
-{% endif %}
+# Managed by clawrium (clawctl). Re-render with `clawctl agent configure {{ agent_name }}`.
+# This template is a FULL copy of the canonical zeroclaw config.toml — every section
+# zeroclaw expects is preserved verbatim. Only clawctl-managed values are templated.
+schema_version = 2
 
 [gateway]
-{# Every variable interpolated into a "…" basic string passes through
-   toml_escape so a hand-edited host (or future provider_type/model_id
-   that picks up user input) cannot break out of the string. ATX
-   Round 1 B2. #}
-host = "{{ toml_escape(config.gateway.host) }}"
-port = {{ config.gateway.port | int }}
-allow_public_bind = {{ config.gateway.allow_public_bind | bool | lower }}
-require_pairing = {{ (config.gateway.require_pairing | default(true)) | bool | lower }}
+host = "{{ gateway.host }}"
+port = {{ gateway.port }}
+allow_public_bind = {{ "true" if gateway.allow_public_bind else "false" }}
+require_pairing = true
+idempotency_max_keys = 10000
+idempotency_ttl_secs = 300
+pair_rate_limit_per_minute = 10
+paired_tokens = []
+rate_limit_max_keys = 10000
+session_persistence = true
+session_ttl_hours = 0
+trust_forwarded_headers = false
+webhook_rate_limit_per_minute = 60
 
-{% if provider_type in ['anthropic', 'openai', 'ollama', 'openrouter'] %}
-{# Section header is a bare TOML key; restrict to the allow-list above so
-   no caller-supplied content reaches the header (which has its own
-   escaping rules different from basic strings). The `in [...]` guard
-   above already enforces this. #}
-[providers.models.{{ provider_type }}]
-kind = "{{ toml_escape(provider_type) }}"
-{% if model_id %}
-model = "{{ toml_escape(model_id) }}"
-{% endif %}
-{% if provider_type == 'ollama' %}
-{# Ollama / OpenAI-compatible local endpoint: base_url, no api_key. #}
-{% if endpoint %}
-base_url = "{{ toml_escape(endpoint) }}"
-{% endif %}
-{% else %}
-{# anthropic / openai / openrouter: api_key from the playbook var. #}
-{% if provider_api_key | default('') %}
-api_key = "{{ toml_escape(provider_api_key) }}"
-{% endif %}
-{% endif %}
-{% endif %}
+[gateway.pairing_dashboard]
+code_length = 8
+code_ttl_secs = 3600
+lockout_secs = 300
+max_failed_attempts = 5
+max_pending_codes = 3
 
-{# Personality block (#358). Mirrors the runtime's onboarding question set
-   so a fresh `clawctl agent configure` lands the agent with sensible voice
-   defaults instead of an empty section. Operators can override via
-   `config.personality.{name,timezone,communication_style}` passed through
-   from clawctl; the workspace MD files own the deeper personality content. #}
-[personality]
-name = "{{ toml_escape(personality_name) }}"
-timezone = "{{ toml_escape(personality_timezone) }}"
-communication_style = "{{ toml_escape(personality_style) }}"
+[providers]
+fallback = "{{ provider.type }}"
 
-{# --- Agent runtime knobs --------------------------------------------------
-   Pin the daemon's tool-loop + context budgets above their default
-   coding-hostile values. Verified defaults from
-   crates/zeroclaw-config/src/schema.rs L3342-3422 @ v0.7.5:
-     max_tool_iterations    = 10
-     max_context_tokens     = 32000
-     max_tool_result_chars  = 50000
-     max_history_messages   = 50
-     keep_tool_context_turns = 2
-   A real coding cycle (plan → edit → test → fix → re-test → commit →
-   push → gh pr create) routinely needs 60–100 tool calls, holds AGENTS.md
-   + several source files + diff output in context at once, and re-reads
-   files many turns later. The upstream defaults truncate mid-task and
-   the model misattributes the truncation as a policy block, poisoning
-   history. Values below give a TDD/PR workflow room to breathe. #}
+[providers.models.{{ provider.type }}]
+model = "{{ provider.default_model }}"
+{% if provider.type == "ollama" %}base_url = "{{ provider.endpoint }}"{% else %}api_key = "{{ provider.api_key }}"{% endif %}
+
 [agent]
 max_tool_iterations = 200
 max_context_tokens = 180000
 max_tool_result_chars = 200000
 max_history_messages = 200
 keep_tool_context_turns = 8
+compact_context = false
+context_aware_tools = false
+max_system_prompt_chars = 0
+parallel_tools = false
+tool_call_dedup_exempt = []
+tool_dispatcher = "auto"
+tool_filter_groups = []
 
-{# --- Discord channel (#422, stream_mode added in #468) --------------------
-   ZeroClaw v0.7.5 schema. Authoritative source is the Rust struct in
-   crates/zeroclaw-channels/src/discord.rs (NOT the book docs — the docs
-   list `reply_to_mentions_only` but no such field exists in the schema
-   at v0.7.5; the daemon's serde silently drops unknown keys). Verified
-   fields:
-     [channels.discord]
-     enabled, bot_token, allowed_guilds, allowed_users,
-     mention_only, draft_update_interval_ms,
-     stream_mode, multi_message_delay_ms
-   bot_token is inline TOML (NOT an env var) — distinct from hermes which
-   reads DISCORD_BOT_TOKEN from .env. The token is hydrated into
-   config.channels.discord.bot_token by lifecycle.configure_agent before this
-   template runs (mirrors the hermes hydration path; same secrets.json key
-   DISCORD_BOT_TOKEN).
+[agent.context_compression]
+enabled = true
+identifier_policy = "strict"
+max_passes = 3
+protect_first_n = 3
+protect_last_n = 4
+source_max_chars = 50000
+summary_max_chars = 4000
+threshold_ratio = 0.5
+timeout_secs = 60
+tool_result_retrim_chars = 2000
+tool_result_trim_exempt = []
 
-   stream_mode governs whether long turns surface mid-turn progress to
-   Discord. Upstream default is "off" (silent until the final reply lands),
-   which is the symptom #468 tracked. Valid values: "off", "partial",
-   "multi_message". The wizard defaults new agents to "partial".
+[agent.eval]
+enabled = false
+max_retries = 1
+min_quality_score = 0.5
 
-   Hermes-wizard fields with no upstream zeroclaw equivalent are dropped
-   silently here: home_channel, home_channel_name, home_channel_thread_id,
-   allow_all_users, allowed_channels. They land in hosts.json under
-   channels.discord.* but never reach config.toml.
-#}
-{% set _channels = config.channels | default({}) %}
-{% set _discord = _channels.get('discord', {}) if _channels else {} %}
-{% if _discord.get('enabled') and _discord.get('bot_token') %}
+[agent.history_pruning]
+collapse_tool_results = true
+enabled = false
+keep_recent = 4
+max_tokens = 8192
+
+[agent.thinking]
+default_level = "medium"
+
+[agent.tool_receipts]
+enabled = false
+inject_system_prompt = true
+show_in_response = false
+
+[channels]
+ack_reactions = true
+cli = true
+debounce_ms = 0
+message_timeout_secs = 300
+session_backend = "sqlite"
+session_persistence = true
+session_ttl_hours = 0
+show_tool_calls = false
+
 
 [channels.discord]
-enabled = true
-bot_token = "{{ toml_escape(_discord.get('bot_token')) }}"
-{% if _discord.get('allowed_guilds') %}
-allowed_guilds = [{% for guild in _discord.get('allowed_guilds') %}"{{ toml_escape(guild) }}"{% if not loop.last %}, {% endif %}{% endfor %}]
-{% else %}
-allowed_guilds = []
-{% endif %}
-{% if _discord.get('allowed_users') %}
-allowed_users = [{% for user in _discord.get('allowed_users') %}"{{ toml_escape(user) }}"{% if not loop.last %}, {% endif %}{% endfor %}]
-{% else %}
-allowed_users = []
-{% endif %}
-{# require_mention is the hermes-side knob; upstream's canonical field
-   in crates/zeroclaw-channels/src/discord.rs is `mention_only`. The
-   book docs at docs/book/src/channels/chat-others.md said
-   `reply_to_mentions_only`, but that field doesn't exist in the schema
-   — the daemon's serde silently drops it. Every clawrium-deployed
-   zeroclaw bot before this fix had its `require_mention=true` flag
-   rendered into a no-op key and ran as an ambient responder
-   regardless. Translate to the canonical name here.
+enabled = {{ "true" if discord_channel else "false" }}
+bot_token = "{{ discord_channel.bot_token if discord_channel else "" }}"
+allowed_users = [{% if discord_channel %}{% for u in discord_channel.allowed_users %}"{{ u }}"{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}]
+allowed_guilds = [{% if discord_channel %}{% for g in discord_channel.allowed_guilds %}"{{ g }}"{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}]
+mention_only = {{ "true" if (discord_channel and discord_channel.require_mention) else "false" }}
+stream_mode = "{{ discord_channel.stream_mode if (discord_channel and discord_channel.stream_mode) else "off" }}"
+approval_timeout_secs = 300
+draft_update_interval_ms = 1000
+interrupt_on_new_message = false
+listen_to_bots = false
+multi_message_delay_ms = 800
+stall_timeout_secs = 0
 
-   ATX Round 3 W3 + Round 4 B1-R4: default `true` to match the CLI
-   prompt's default, applied via dict.get(key, default) at the Python
-   level rather than `| default(true)` — Jinja2's default() filter only
-   fires on Undefined, NOT on None, and dict.get() returns None for
-   missing keys. A `_discord.get('require_mention') | default(true)`
-   form silently rendered `false` for any legacy hosts.json record
-   predating the field, turning mention-gated bots into ambient
-   responders — exactly the safety regression Round 3 W3 was meant to
-   prevent. #}
-mention_only = {{ _discord.get('require_mention', true) | bool | lower }}
-{% if _discord.get('draft_update_interval_ms') %}
-draft_update_interval_ms = {{ _discord.get('draft_update_interval_ms') | int }}
-{% endif %}
-{# stream_mode (#468): emitted only when set. The daemon defaults to
-   "off" when the key is absent, which is the "chat stuck until done"
-   symptom. Wizard prompts default new agents to "partial". Valid values
-   are constrained by the wizard but toml_escape is still applied so a
-   hand-edited hosts.json can't inject TOML structure via this field. #}
-{% if _discord.get('stream_mode') %}
-stream_mode = "{{ toml_escape(_discord.get('stream_mode')) }}"
-{% endif %}
-{# multi_message_delay_ms is only consulted when stream_mode = "multi_message".
-   Same falsy-zero behaviour as draft_update_interval_ms — value 0 is
-   dropped so the daemon's compiled-in default applies. #}
-{% if _discord.get('multi_message_delay_ms') %}
-multi_message_delay_ms = {{ _discord.get('multi_message_delay_ms') | int }}
-{% endif %}
-{% endif %}
-
-{# --- Autonomy block (#422) ------------------------------------------------
-   Rendered every configure so the daemon's autonomy posture is a known
-   quantity rather than relying on whatever defaults the binary picked up.
-   Values mirror docs/book/src/security/autonomy.md verbatim for v0.7.5.
-
-   shell_env_passthrough is the ONLY documented mechanism for exposing env
-   vars to the shell tool (security/sandboxing.md). The defaults below
-   replicate the upstream-doc example exactly; per-integration token names
-   are appended so credentials wired via the systemd Environment= drop-in
-   (configure.yaml) actually reach the agent's shell tool.
-
-   Without this block, secret-pattern env vars (matching _TOKEN, _SECRET,
-   _PASSWORD, API_KEY) are auto-stripped by the sandbox even if the daemon
-   has them in its environment. Explicit allowlisting is mandatory — globs
-   are NOT supported, so every GITHUB_TOKEN_<NAME> needs its own entry. #}
-{% set _integrations = integrations | default({}, true) %}
-{% set _passthrough = ['PATH', 'HOME', 'USER', 'LANG'] %}
-{% set _github_seen = namespace(any=false) %}
-{% for _name, _integration in _integrations | dictsort %}
-{% if _integration.type == 'github' and _integration.GITHUB_TOKEN is defined %}
-{% set _slug = _name | upper | replace('-', '_') | regex_replace('[^A-Z0-9_]', '') %}
-{% set _ = _passthrough.append('GITHUB_TOKEN_' ~ _slug) %}
-{% set _github_seen.any = true %}
-{% endif %}
-{% endfor %}
-{% if _github_seen.any %}
-{% set _ = _passthrough.append('GITHUB_TOKEN') %}
-{% endif %}
 
 [autonomy]
 level = "supervised"
 workspace_only = true
-{# v0.7.5 AutonomyConfig defaults (schema.rs L5820-5942) are sized for a
-   light-touch personal assistant, not a coding agent:
-     max_actions_per_hour   = 20    → ~one tool call every 3 minutes
-     max_cost_per_day_cents = 500   → $5/day, exhausted by one Opus session
-     shell_timeout_secs     = 60    → kills `cargo build`, long test suites
-   Bump all three to coding-appropriate ceilings. These are *ceilings*,
-   not floors — actual usage is driven by the conversation. #}
 max_actions_per_hour = 1000
 max_cost_per_day_cents = 50000
 shell_timeout_secs = 600
-{# Explicit broad developer allowlist. v0.7.5 treats
-   `allowed_commands = []` as deny-all rather than permissive (the
-   upstream doc only specifies the non-empty case). Positive list
-   below covers the normal developer surface: shell/coreutils, text
-   processing, file ops, archives, network, vcs, build toolchains,
-   JSON/YAML inspection. Anything not listed is blocked at the
-   policy layer regardless of approval. #}
 allowed_commands = [
   # Shell / coreutils
   "bash", "sh", "env", "which", "whoami", "pwd",
@@ -270,137 +136,18 @@ allowed_commands = [
   # JSON / YAML
   "jq", "yq",
 ]
-{# Dropped from `true` because the upstream pattern matcher flagged
-   any remote-touching git op (`git push`, `git branch <new>`) as
-   high-risk and blocked them — making the PR-creation workflow
-   impossible. With this off, destructive ops still need the
-   supervised-mode approval prompt (operator clicks yes/no per
-   tool/session), and `forbidden_commands` / `forbidden_paths`
-   continue to enforce hard stops on system-level damage. Tradeoff
-   accepted in conversation: policy is operator-judgment instead of
-   pattern-match. #}
 block_high_risk_commands = false
-{# System-wrecker tier. Binary names, not patterns — `git reset
-   --hard` still passes through because the binary is `git`, not
-   `reset`. Approval gate at supervised level catches that. #}
-forbidden_commands = [
-  "shutdown", "reboot", "poweroff", "halt",
-  "mkfs", "dd", "fdisk", "parted",
-  "iptables", "ufw", "systemctl",
-  "sudo", "su",
-]
 forbidden_paths = [
   "/etc", "/sys", "/boot", "/proc",
   "~/.ssh", "~/.aws", "~/.gnupg", "~/.config/clawrium",
 ]
-shell_env_passthrough = [{% for _entry in _passthrough %}"{{ _entry }}"{% if not loop.last %}, {% endif %}{% endfor %}]
-{# `auto_approve` is a flat list on the autonomy struct. The
-   `[autonomy.auto_approve] tools = [...]` sub-table form documented
-   in docs/book/src/security/autonomy.md crashes v0.7.5 with
-   `TOML parse error … invalid type: map, expected a sequence` — the
-   shipped binary's `strings` output shows `autonomy.auto-approve` /
-   `auto_approve` as a Vec<String> field directly on the autonomy
-   struct (doc is ahead of the schema).
+shell_env_passthrough = [{% for entry in shell_env_passthrough %}"{{ entry }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+auto_approve = ["file_read", "file_list", "content_search", "glob_search", "pdf_read", "image_info", "file_write", "file_edit", "http_request", "web_fetch", "web_search", "web_search_tool", "time", "weather", "memory_search", "memory_pin", "memory_recall", "memory_store", "memory_forget", "git_operations", "schedule", "cron_add", "cron_list", "cron_remove", "cron_run", "cron_runs", "cron_update", "ask_user", "escalate_to_human", "sessions_current", "sessions_list", "tool_search", "calculator", "browser", "browser_open"]
+allowed_roots = []
+always_ask = []
+non_cli_excluded_tools = []
+require_approval_for_medium_risk = true
 
-   FULLY AUTONOMOUS POSTURE: every tool in the runtime registry is
-   pre-approved. Per-call human-in-the-loop gating is OFF; safety is
-   delegated to `allowed_commands` / `forbidden_commands` /
-   `forbidden_paths` (above) and the `max_*` budget ceilings. Sourced
-   from `GET /api/tools` against a live v0.7.5 daemon — keep in sync
-   when upstream adds tools. Also includes upstream-documented names
-   that the runtime may surface under slightly different identifiers
-   (http_request, web_search, time, file_list, pdf_read, memory_*,
-   tool_search) so approval prompts never fire regardless of binary
-   version. #}
-auto_approve = [
-  # Shell / browser (high-risk — bounded by allowed/forbidden_commands)
-  "shell",
-  "browser",
-  "browser_open",
-  # File ops
-  "file_read",
-  "file_list",
-  "file_write",
-  "file_edit",
-  "content_search",
-  "glob_search",
-  "pdf_read",
-  "image_info",
-  "screenshot",
-  # Web / HTTP
-  "http_request",
-  "web_fetch",
-  "web_search",
-  "web_search_tool",
-  # Time / info / utilities
-  "time",
-  "weather",
-  "calculator",
-  "canvas",
-  "llm_task",
-  # Memory (incl. destructive)
-  "memory_search",
-  "memory_pin",
-  "memory_recall",
-  "memory_store",
-  "memory_forget",
-  "memory_export",
-  "memory_purge",
-  # Daemon control (model/routing/proxy)
-  "model_routing_config",
-  "model_switch",
-  "proxy_config",
-  # Git
-  "git_operations",
-  # Scheduling / cron
-  "schedule",
-  "cron_add",
-  "cron_list",
-  "cron_remove",
-  "cron_run",
-  "cron_runs",
-  "cron_update",
-  # Backup / system
-  "backup",
-  # Notifications
-  "pushover",
-  # Channel interaction
-  "ask_user",
-  "escalate_to_human",
-  "poll",
-  "reaction",
-  # Inter-session — full surface auto-approved (cross-session read/write
-  # is now allowed; revisit if multi-tenant scenarios appear).
-  "sessions_current",
-  "sessions_list",
-  "sessions_history",
-  "sessions_send",
-  "sessions_reset",
-  "sessions_delete",
-  # Tool catalog
-  "tool_search",
-]
-
-{# --- Pacing / loop detection ---------------------------------------------
-   v0.7.5 PacingConfig defaults (crates/zeroclaw-config/src/schema.rs
-   L3481-3547):
-     loop_detection_enabled     = true
-     loop_detection_window_size = 20
-     loop_detection_max_repeats = 3
-   With max_repeats=3 in a 20-call window, the daemon blocks any tool
-   that returns identical results 4 times — even with different args.
-   That tripped the runtime in production on routine coding cadence
-   (re-running `pytest -x` between fixes, re-reading the same file
-   across edits, `git status` between commits):
-     `zeroclaw_runtime::agent::loop_: loop detector blocked tool call
-      tool=shell msg=Blocked: tool 'shell' called 6 times with different
-      arguments but identical results`
-   loop_ignore_tools is the surgical knob — listed tools never trip
-   the detector regardless of window/max_repeats. Restricted to the
-   high-repeat, low-risk surface (shell, file_read, search tools);
-   web_fetch / http_request / git_operations remain detected because
-   repeated identical results from those almost always indicate genuine
-   pathology. #}
 [pacing]
 loop_detection_enabled = true
 loop_detection_window_size = 40
@@ -412,3 +159,577 @@ loop_ignore_tools = [
   "content_search",
   "glob_search",
 ]
+
+[agents]
+
+[backup]
+compress = true
+destination_dir = "state/backups"
+enabled = true
+encrypt = false
+include_dirs = ["config", "memory", "audit", "knowledge"]
+max_keep = 10
+
+[browser]
+allowed_domains = ["*"]
+backend = "agent_browser"
+enabled = true
+native_headless = true
+native_webdriver_url = "http://127.0.0.1:9515"
+
+[browser.computer_use]
+allow_remote_endpoint = false
+endpoint = "http://127.0.0.1:8787/v1/actions"
+timeout_ms = 15000
+window_allowlist = []
+
+[browser_delegate]
+allowed_domains = []
+blocked_domains = []
+chrome_profile_dir = ""
+cli_binary = "claude"
+enabled = false
+task_timeout_secs = 120
+
+[claude_code]
+allowed_tools = ["Read", "Edit", "Bash", "Write"]
+enabled = false
+env_passthrough = []
+max_output_bytes = 2097152
+timeout_secs = 600
+
+[claude_code_runner]
+enabled = false
+session_ttl = 3600
+tmux_prefix = "zc-claude-"
+
+[cloud_ops]
+cost_threshold_monthly_usd = 100.0
+default_cloud = "aws"
+enabled = false
+iac_tools = ["terraform"]
+supported_clouds = ["aws", "azure", "gcp"]
+well_architected_frameworks = ["aws-waf"]
+
+[codex_cli]
+enabled = false
+env_passthrough = []
+max_output_bytes = 2097152
+timeout_secs = 600
+
+[composio]
+enabled = false
+entity_id = "default"
+
+[cost]
+allow_override = false
+daily_limit_usd = 10.0
+enabled = true
+monthly_limit_usd = 100.0
+warn_at_percent = 80
+
+[cost.enforcement]
+mode = "warn"
+reserve_percent = 10
+
+[cost.prices]
+
+[cost.prices."anthropic/claude-3-haiku"]
+input = 0.25
+output = 1.25
+
+[cost.prices."anthropic/claude-3.5-sonnet"]
+input = 3.0
+output = 15.0
+
+[cost.prices."anthropic/claude-opus-4-20250514"]
+input = 15.0
+output = 75.0
+
+[cost.prices."anthropic/claude-sonnet-4-20250514"]
+input = 3.0
+output = 15.0
+
+[cost.prices."google/gemini-1.5-pro"]
+input = 1.25
+output = 5.0
+
+[cost.prices."google/gemini-2.0-flash"]
+input = 0.1
+output = 0.4
+
+[cost.prices."openai/gpt-4o"]
+input = 5.0
+output = 15.0
+
+[cost.prices."openai/gpt-4o-mini"]
+input = 0.15
+output = 0.6
+
+[cost.prices."openai/o1-preview"]
+input = 15.0
+output = 60.0
+
+[cron]
+catch_up_on_startup = true
+enabled = true
+jobs = []
+max_run_history = 50
+
+[data_retention]
+categories = []
+dry_run = false
+enabled = false
+retention_days = 90
+
+[delegate]
+agentic_timeout_secs = 300
+timeout_secs = 120
+
+[escalation]
+alert_channels = []
+
+[gemini_cli]
+enabled = false
+env_passthrough = []
+max_output_bytes = 2097152
+timeout_secs = 600
+
+[google_workspace]
+allowed_operations = []
+allowed_services = []
+audit_log = false
+enabled = false
+rate_limit_per_minute = 60
+timeout_secs = 30
+
+[hardware]
+baud_rate = 115200
+enabled = false
+transport = "None"
+workspace_datasheets = false
+
+[heartbeat]
+adaptive = false
+deadman_timeout_minutes = 0
+enabled = true
+interval_minutes = 30
+load_session_context = false
+max_interval_minutes = 120
+max_run_history = 100
+min_interval_minutes = 5
+task_timeout_secs = 600
+two_phase = true
+
+[hooks]
+enabled = true
+
+[hooks.builtin]
+command_logger = false
+
+[hooks.builtin.webhook_audit]
+enabled = false
+include_args = false
+max_args_bytes = 4096
+tool_patterns = []
+url = ""
+
+[http_request]
+allow_private_hosts = false
+allowed_domains = ["*"]
+enabled = true
+max_response_size = 1000000
+timeout_secs = 30
+
+[identity]
+format = "openclaw"
+
+[image_gen]
+api_key_env = "FAL_API_KEY"
+default_model = "fal-ai/flux/schnell"
+enabled = false
+
+[jira]
+allowed_actions = ["get_ticket"]
+api_token = ""
+base_url = ""
+enabled = false
+timeout_secs = 30
+
+[knowledge]
+auto_capture = false
+cross_workspace_search = false
+db_path = "/home/clawrium-d01/.zeroclaw/knowledge.db"
+enabled = false
+max_nodes = 100000
+suggest_on_query = true
+
+[link_enricher]
+enabled = false
+max_links = 3
+timeout_secs = 10
+
+[linkedin]
+api_version = "202602"
+enabled = false
+
+[linkedin.content]
+github_repos = []
+github_users = []
+instructions = ""
+persona = ""
+rss_feeds = []
+topics = []
+
+[linkedin.image]
+card_accent_color = "#0A66C2"
+enabled = false
+fallback_card = true
+providers = ["stability", "imagen", "dalle", "flux"]
+temp_dir = "linkedin/images"
+
+[linkedin.image.dalle]
+api_key_env = "OPENAI_API_KEY"
+model = "dall-e-3"
+size = "1024x1024"
+
+[linkedin.image.flux]
+api_key_env = "FAL_API_KEY"
+model = "fal-ai/flux/schnell"
+
+[linkedin.image.imagen]
+api_key_env = "GOOGLE_VERTEX_API_KEY"
+project_id_env = "GOOGLE_CLOUD_PROJECT"
+region = "us-central1"
+
+[linkedin.image.stability]
+api_key_env = "STABILITY_API_KEY"
+model = "stable-diffusion-xl-1024-v1-0"
+
+[mcp]
+deferred_loading = true
+enabled = false
+servers = []
+
+[media_pipeline]
+describe_images = true
+enabled = false
+summarize_video = true
+transcribe_audio = true
+
+[memory]
+archive_after_days = 7
+audit_enabled = false
+audit_retention_days = 30
+auto_hydrate = true
+auto_save = true
+backend = "sqlite"
+chunk_max_tokens = 512
+conflict_threshold = 0.85
+conversation_retention_days = 30
+default_namespace = "default"
+embedding_cache_size = 10000
+embedding_dimensions = 1536
+embedding_model = "text-embedding-3-small"
+embedding_provider = "none"
+fts_early_return_score = 0.85
+hygiene_enabled = true
+keyword_weight = 0.3
+min_relevance_score = 0.4
+purge_after_days = 30
+rerank_enabled = false
+rerank_threshold = 5
+response_cache_enabled = false
+response_cache_hot_entries = 256
+response_cache_max_entries = 5000
+response_cache_ttl_minutes = 60
+retrieval_stages = ["cache", "fts", "vector"]
+search_mode = "hybrid"
+snapshot_enabled = false
+snapshot_on_hygiene = false
+vector_weight = 0.7
+
+[memory.policy]
+max_entries_per_category = 0
+max_entries_per_namespace = 0
+read_only_namespaces = []
+
+[memory.policy.retention_days_by_category]
+
+[memory.postgres]
+vector_dimensions = 1536
+vector_enabled = false
+
+[memory.qdrant]
+collection = "zeroclaw_memories"
+
+[microsoft365]
+auth_flow = "client_credentials"
+enabled = false
+scopes = ["https://graph.microsoft.com/.default"]
+token_cache_encrypted = true
+
+[multimodal]
+allow_remote_fetch = false
+max_image_size_mb = 5
+max_images = 4
+
+[node_transport]
+allowed_peers = []
+connection_pool_size = 4
+enabled = true
+max_request_age_secs = 300
+mutual_tls = false
+require_https = true
+shared_secret = ""
+
+[nodes]
+enabled = false
+max_nodes = 16
+
+[notion]
+api_key = ""
+database_id = ""
+enabled = false
+input_property = "Input"
+max_concurrent = 4
+poll_interval_secs = 5
+recover_stale = true
+result_property = "Result"
+status_property = "Status"
+
+[observability]
+backend = "none"
+runtime_trace_max_entries = 200
+runtime_trace_mode = "none"
+runtime_trace_path = "state/runtime-trace.jsonl"
+
+[onboard_state]
+completed_sections = []
+
+[opencode_cli]
+enabled = false
+env_passthrough = []
+max_output_bytes = 2097152
+timeout_secs = 600
+
+[peripherals]
+boards = []
+enabled = false
+
+[pipeline]
+allowed_tools = []
+enabled = false
+max_steps = 20
+
+[plugins]
+auto_discover = false
+enabled = false
+max_plugins = 50
+plugins_dir = "/home/clawrium-d01/.zeroclaw/plugins"
+
+[plugins.security]
+signature_mode = "disabled"
+trusted_publisher_keys = []
+
+[project_intel]
+default_language = "en"
+enabled = false
+include_git_data = true
+include_jira_data = false
+report_output_dir = "/home/clawrium-d01/.zeroclaw/project-reports"
+risk_sensitivity = "medium"
+
+[proxy]
+enabled = false
+no_proxy = []
+scope = "zeroclaw"
+services = []
+
+[query_classification]
+enabled = false
+rules = []
+
+[reliability]
+api_keys = []
+channel_initial_backoff_secs = 2
+channel_max_backoff_secs = 60
+fallback_providers = []
+provider_backoff_ms = 500
+provider_retries = 2
+scheduler_poll_secs = 15
+scheduler_retries = 2
+
+[reliability.model_fallbacks]
+
+[runtime]
+kind = "native"
+
+[runtime.docker]
+allowed_workspace_roots = []
+cpu_limit = 1.0
+image = "alpine:3.20"
+memory_limit_mb = 512
+mount_workspace = true
+network = "none"
+read_only_rootfs = true
+
+[scheduler]
+enabled = true
+max_concurrent = 4
+max_tasks = 64
+
+[secrets]
+encrypt = true
+
+[security]
+
+[security.audit]
+enabled = true
+log_path = "audit.log"
+max_size_mb = 100
+sign_events = false
+
+[security.estop]
+enabled = false
+require_otp_to_resume = true
+state_file = "/home/clawrium-d01/.zeroclaw/estop-state.json"
+
+[security.nevis]
+client_id = ""
+enabled = false
+instance_url = ""
+realm = "master"
+require_mfa = false
+role_mapping = []
+session_timeout_secs = 3600
+token_validation = "local"
+
+[security.otp]
+cache_valid_secs = 300
+challenge_max_attempts = 3
+enabled = false
+gated_actions = ["shell", "file_write", "browser_open", "browser", "memory_forget"]
+gated_domain_categories = []
+gated_domains = []
+method = "totp"
+token_ttl_secs = 30
+
+[security.resources]
+max_cpu_time_seconds = 60
+max_memory_mb = 512
+max_subprocesses = 10
+memory_monitoring = true
+
+[security.sandbox]
+backend = "auto"
+firejail_args = []
+
+[security.webauthn]
+enabled = false
+rp_id = "localhost"
+rp_name = "ZeroClaw"
+rp_origin = "http://localhost:42617"
+
+[security_ops]
+auto_triage = false
+enabled = false
+max_auto_severity = "low"
+playbooks_dir = "/home/clawrium-d01/.zeroclaw/playbooks"
+report_output_dir = "/home/clawrium-d01/.zeroclaw/security-reports"
+require_approval_for_actions = true
+
+[shell_tool]
+timeout_secs = 60
+
+[skills]
+allow_scripts = false
+open_skills_enabled = false
+prompt_injection_mode = "full"
+
+[skills.skill_creation]
+enabled = false
+max_skills = 500
+similarity_threshold = 0.85
+
+[skills.skill_improvement]
+cooldown_secs = 3600
+enabled = true
+
+[sop]
+approval_timeout_secs = 300
+default_execution_mode = "supervised"
+max_concurrent_total = 4
+max_finished_runs = 100
+
+[storage]
+
+[storage.provider]
+
+[storage.provider.config]
+provider = ""
+schema = "public"
+table = "memories"
+
+[swarms]
+
+[text_browser]
+enabled = false
+timeout_secs = 30
+
+[transcription]
+api_url = "https://api.groq.com/openai/v1/audio/transcriptions"
+default_provider = "groq"
+enabled = false
+max_duration_secs = 120
+model = "whisper-large-v3-turbo"
+transcribe_non_ptt_audio = false
+
+[trust]
+correction_penalty = 0.05
+decay_half_life_days = 30.0
+initial_score = 0.8
+regression_threshold = 0.5
+success_boost = 0.01
+
+[tts]
+default_format = "mp3"
+default_provider = "openai"
+default_voice = "alloy"
+enabled = false
+max_text_length = 4096
+
+[tunnel]
+provider = "none"
+
+[verifiable_intent]
+enabled = false
+strictness = "strict"
+
+[web_fetch]
+allowed_domains = ["*"]
+allowed_private_hosts = []
+blocked_domains = []
+enabled = true
+max_response_size = 500000
+timeout_secs = 30
+
+[web_fetch.firecrawl]
+api_key_env = "FIRECRAWL_API_KEY"
+api_url = "https://api.firecrawl.dev/v1"
+enabled = false
+mode = "scrape"
+
+[web_search]
+enabled = true
+max_results = 5
+provider = "duckduckgo"
+timeout_secs = 15
+
+[workspace]
+cross_workspace_search = false
+enabled = false
+isolate_audit = true
+isolate_memory = true
+isolate_secrets = true
+workspaces_dir = "/home/clawrium-d01/.zeroclaw/workspaces"

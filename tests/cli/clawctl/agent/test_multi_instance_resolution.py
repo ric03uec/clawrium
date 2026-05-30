@@ -156,23 +156,36 @@ def test_sync_passes_instance_name_not_type(
     monkeypatch: pytest.MonkeyPatch,
     instance: str,
 ) -> None:
-    """sync has a different mock signature (returns dict with success).
-    Verify the same instance/type contract.
+    """Sync now routes through the canonical pipeline (#560). Verify the
+    on-host instance name (first positional arg) is the user-facing
+    instance, not the agent type.
     """
     captured: dict = {}
 
-    def capturing_sync(**kwargs):
+    class _Result:
+        files_written: list[str] = []
+        files_unchanged: list[str] = []
+
+    def capturing_sync(name, **kwargs):
+        captured["name"] = name
         captured.update(kwargs)
-        return {"success": True}
+        return _Result()
 
     monkeypatch.setattr(
-        "clawrium.cli.clawctl.agent.sync.sync_agent", capturing_sync
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical",
+        capturing_sync,
     )
     result = runner.invoke(app, ["agent", "sync", instance])
 
     assert result.exit_code == 0, f"sync {instance} failed: {result.output}"
-    assert captured.get("agent_name") == instance
-    assert captured.get("claw_name") == "zeroclaw"
+    assert captured.get("name") == instance
+    # Regression guard against the type/instance conflation the legacy
+    # test asserted: the on-host name MUST NOT be the agent type.
+    assert captured.get("name") != "zeroclaw"
+    # Default kwargs: no force, restart + verify on, no workspace.
+    assert captured.get("force") is False
+    assert captured.get("restart") is True
+    assert captured.get("verify") is True
 
 
 @pytest.mark.parametrize("instance", ["audit-1", "audit-2", "audit-3"])

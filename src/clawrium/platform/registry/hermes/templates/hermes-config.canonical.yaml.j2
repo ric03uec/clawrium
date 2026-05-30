@@ -1,0 +1,70 @@
+{# YAML-key contract: see docs/agent-support/hermes.md for the
+   authoritative shape of the hermes config.yaml (`model:` block,
+   `bedrock:` block, `auxiliary.title_generation`, `mcp_servers:`).
+   Hermes deep-merges this YAML with its compiled defaults — unknown
+   keys are silently dropped, so any typo in a key name is a silent
+   no-op. Byte-locks in tests/core/test_render.py + 00_PLAN.md Phase 4
+   live dry-run on maurice + espresso close the loop against the live
+   daemon. #}
+# Managed by clawrium (clawctl). Re-render with `clawctl agent configure {{ agent_name }}`.
+{% if provider.type == 'openrouter' %}
+model:
+  provider: "openrouter"
+  base_url: "https://openrouter.ai/api/v1"
+  default: {{ provider.default_model | yq }}
+auxiliary:
+  title_generation:
+    model: "anthropic/claude-haiku-4.5"
+{% elif provider.type == 'anthropic' %}
+model:
+  provider: "anthropic"
+  default: {{ provider.default_model | yq }}
+auxiliary:
+  title_generation:
+    model: "claude-haiku-4-5-20251001"
+{% elif provider.type == 'openai' %}
+model:
+  provider: "openai"
+  default: {{ provider.default_model | yq }}
+auxiliary:
+  title_generation:
+    model: "gpt-5-nano"
+{% elif provider.type == 'bedrock' %}
+model:
+  provider: "bedrock"
+  default: {{ provider.default_model | yq }}
+bedrock:
+  region: {{ (provider.region or 'us-east-1') | yq }}
+auxiliary:
+  title_generation:
+    model: "anthropic.claude-haiku-4-5-20251001-v1:0"
+{% elif provider.type == 'ollama' %}
+{# W5: no auxiliary.title_generation pin for ollama. The primary model
+   already runs locally and is cheap — pinning to a remote aux model
+   would defeat the point of running the daemon offline. Mirrors the
+   prior list-of-strings render_hermes ollama branch and is the
+   intentional asymmetry; do not add an aux block here without also
+   verifying it routes to a local model. #}
+model:
+  provider: "custom"
+  base_url: {{ ollama_base_url | yq }}
+  default: {{ provider.default_model | yq }}
+{% endif %}
+{% if atlassian_integrations %}
+mcp_servers:
+{% for entry in atlassian_integrations %}
+{# W6 (ATX round 1): the slug is already restricted to `[a-z0-9_]` by
+   `_integration_slug` (alnum + underscore) before this template sees it,
+   so the YAML key cannot be quote-injected. Defense-in-depth: if the
+   sanitizer is ever weakened, the YAML parser will still reject any
+   slug containing a colon/space/dash because we do not wrap the key. #}
+  {{ entry.slug }}:
+    env:
+      JIRA_URL: {{ entry.url | yq }}
+      JIRA_USERNAME: {{ entry.email | yq }}
+      JIRA_API_TOKEN: {{ entry.token | yq }}
+      CONFLUENCE_URL: {{ entry.confluence_url | yq }}
+      CONFLUENCE_USERNAME: {{ entry.email | yq }}
+      CONFLUENCE_API_TOKEN: {{ entry.token | yq }}
+{% endfor %}
+{% endif %}
