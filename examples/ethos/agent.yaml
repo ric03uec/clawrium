@@ -1,0 +1,20 @@
+apiVersion: clawrium.io/v1
+kind: Agent
+metadata:
+  name: kevin
+  labels:
+    env: homelab
+    type: ethos
+spec:
+  type: ethos
+  version: "0.4.3"
+  host: ethos-homelab
+  provider: ethos-openrouter
+  channels: []
+  skills: []
+  integrations: []
+  config:
+    model: moonshotai/kimi-k2.6
+  lifecycle:
+    autoStart: true
+    autoRestart: false

@@ -18,7 +18,7 @@ import typer
 from clawrium.cli.clawctl._common import is_local_host
 from clawrium.cli.clawctl.agent._shared import safe_resolve_agent
 from clawrium.cli.output import emit_error, stream_action
-from clawrium.core.web_ui import resolve as resolve_web_ui
+from clawrium.core.web_ui import ResolvedUI, resolve as resolve_web_ui
 
 
 def open(  # noqa: A001 — `open` matches plan §4 verb name
@@ -64,6 +64,24 @@ def open(  # noqa: A001 — `open` matches plan §4 verb name
             )
         url = f"http://127.0.0.1:{local_port}"
 
+    # For ethos agents, append the web token as a query param so the dashboard
+    # frontend can authenticate its requests to ethos serve.
+    claw_type = _claw_record.get("type", "")
+    if claw_type == "ethos":
+        agent_name = _claw_record.get("agent_name") or name
+        if needs_tunnel:
+            web_token = _read_ethos_web_token(resolved, agent_name)
+        else:
+            try:
+                import builtins
+                with builtins.open(f"/home/{agent_name}/.ethos/web-token") as _f:
+                    web_token = _f.read().strip()
+            except Exception:
+                web_token = ""
+        if web_token:
+            from urllib.parse import quote
+            url = f"{url}/auth/exchange?t={quote(web_token, safe='')}"
+
     if print_url:
         typer.echo(url)
         return
@@ -75,3 +93,38 @@ def open(  # noqa: A001 — `open` matches plan §4 verb name
             "Hint:  re-run with --print-url to get the URL for manual use.",
             err=True,
         )
+
+
+def _ssh_run(resolved: ResolvedUI, remote_cmd: str, timeout: int = 10) -> str:
+    """Run a single command on the remote host via SSH. Returns stdout stripped, or ''."""
+    import subprocess
+
+    ssh = resolved.ssh_config or {}
+    user = ssh.get("user")
+    if not user:
+        return ""
+    cmd = ["ssh", "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes"]
+    port = ssh.get("port")
+    if isinstance(port, int):
+        cmd += ["-p", str(port)]
+    identity = ssh.get("identity_file")
+    if isinstance(identity, str):
+        cmd += ["-i", identity]
+    cmd += [f"{user}@{resolved.host}", remote_cmd]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _read_ethos_web_token(resolved: ResolvedUI, agent_name: str) -> str:
+    """Read the ethos web-token from the remote host.
+
+    Reads directly from the agent user's home directory to avoid picking up
+    stale web-token files from other users on the same host.
+    """
+    return _ssh_run(
+        resolved,
+        f"sudo cat /home/{agent_name}/.ethos/web-token 2>/dev/null",
+    )

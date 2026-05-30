@@ -1,0 +1,122 @@
+---
+# Ethos skills_apply — reconciles ~/.ethos/skills/clawrium/ with the
+# clawrium desired state for one agent.
+#
+# Inputs (extravars):
+#   - agent_name:           unix user that owns the ethos install
+#   - staging_dir:          control-machine path with one
+#                           `<name>/SKILL.md` per desired skill
+#   - desired_skill_names:  list of slug names currently in desired state
+#                           (empty list = uninstall everything we own)
+#
+# Invariants:
+#   - Only ever reads/writes under ~/.ethos/skills/clawrium/. Other
+#     directories under ~/.ethos/skills/ are never touched.
+#   - Every install is idempotent.
+- hosts: all
+  become: yes
+  gather_facts: false
+  vars:
+    skills_root: "/home/{{ agent_name }}/.ethos/skills/clawrium"
+  tasks:
+    # ----------------------- input validation (runs FIRST) ------------------
+
+    - name: Assert agent_name matches the safe slug pattern
+      ansible.builtin.assert:
+        that:
+          - agent_name is string
+          - agent_name is match('^[a-z][a-z0-9_-]{0,31}$')
+        fail_msg: "Invalid agent_name: {{ agent_name | default('<unset>') }}"
+        quiet: true
+
+    - name: Assert desired_skill_names is a list
+      ansible.builtin.assert:
+        that:
+          - desired_skill_names is iterable
+          - desired_skill_names is not string
+          - desired_skill_names is not mapping
+        fail_msg: "desired_skill_names must be a list"
+        quiet: true
+
+    - name: Assert every desired skill name matches the safe slug pattern
+      ansible.builtin.assert:
+        that:
+          - item is string
+          - item is match('^[a-z0-9][a-z0-9_-]*$')
+        fail_msg: "Unsafe skill name in desired_skill_names: {{ item }}"
+        quiet: true
+      loop: "{{ desired_skill_names }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Assert staging_dir is a non-empty absolute path under the clawrium staging tree
+      ansible.builtin.assert:
+        that:
+          - staging_dir is string
+          - staging_dir | length > 0
+          - staging_dir.startswith('/')
+          - "'/clawrium/staging/skills/' in staging_dir"
+        fail_msg: >-
+          staging_dir must be an absolute path under
+          `${clawrium_config}/staging/skills/` (got '{{ staging_dir }}')
+        quiet: true
+
+    # ----------------------- materialize ------------------------------------
+
+    - name: Ensure clawrium-managed skills root exists
+      ansible.builtin.file:
+        path: "{{ skills_root }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0755"
+
+    - name: List existing clawrium-managed skill directories on host
+      ansible.builtin.find:
+        paths: "{{ skills_root }}"
+        file_type: directory
+        depth: 1
+        follow: false
+      register: existing_skill_dirs
+
+    - name: Compute set of skill directories to prune
+      ansible.builtin.set_fact:
+        skills_to_prune: >-
+          {{ existing_skill_dirs.files
+             | map(attribute='path')
+             | map('basename')
+             | difference(desired_skill_names) }}
+      changed_when: false
+
+    - name: Prune skill directories no longer in desired state
+      ansible.builtin.file:
+        path: "{{ skills_root }}/{{ item }}"
+        state: absent
+      loop: "{{ skills_to_prune }}"
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - item is match('^[a-z0-9][a-z0-9_-]*$')
+
+    - name: Ensure per-skill directory exists for each desired skill
+      ansible.builtin.file:
+        path: "{{ skills_root }}/{{ item }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0755"
+      loop: "{{ desired_skill_names }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Materialize SKILL.md for each desired skill
+      ansible.builtin.copy:
+        src: "{{ staging_dir }}/{{ item }}/SKILL.md"
+        dest: "{{ skills_root }}/{{ item }}/SKILL.md"
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: "0644"
+      loop: "{{ desired_skill_names }}"
+      loop_control:
+        label: "{{ item }}"
+      no_log: true

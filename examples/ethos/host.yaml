@@ -1,0 +1,12 @@
+apiVersion: clawrium.io/v1
+kind: Host
+metadata:
+  name: ethos-homelab
+  labels:
+    env: homelab
+    location: local
+spec:
+  hostname: 192.168.1.47
+  user: xclm
+  port: 22
+  bootstrap: true

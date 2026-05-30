@@ -1,0 +1,13 @@
+apiVersion: clawrium.io/v1
+kind: Provider
+metadata:
+  name: ethos-openrouter
+  labels:
+    tier: primary
+spec:
+  type: openrouter
+  config:
+    defaultModel: moonshotai/kimi-k2.6
+  credentials:
+    apiKey:
+      secretRef: providers/ethos-openrouter/apiKey

@@ -1,0 +1,89 @@
+---
+- hosts: all
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Check if systemd service exists
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+      register: service_file
+
+    - name: Stop ethos service if running
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        state: stopped
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    - name: Disable ethos service
+      ansible.builtin.systemd:
+        name: "{{ agent_type }}-{{ agent_name }}"
+        enabled: no
+      when: service_file.stat.exists
+      ignore_errors: yes
+
+    - name: Remove systemd service file
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
+        state: absent
+      notify: Reload systemd
+
+    - name: Check if ethos config directory exists
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/.ethos"
+      register: ethos_config_dir
+
+    - name: Remove ethos config directory
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.ethos"
+        state: absent
+      when: ethos_config_dir.stat.exists
+
+    - name: Check how many ethos agent users exist on host
+      ansible.builtin.shell: |
+        # Count other users that look like ethos agent accounts by checking
+        # for /usr/local/bin/ethos usage in processes
+        getent passwd | awk -F: '$7 == "/usr/sbin/nologin" {print $1}' | grep -v "{{ agent_name }}" | wc -l
+      register: other_ethos_users
+      changed_when: false
+      failed_when: false
+
+    # Only uninstall the npm global package if no other agents on this host.
+    # This is a best-effort check — if other ethos agents exist, skip removal.
+    - name: Uninstall @ethosagent/cli globally (only when no other ethos agents)
+      ansible.builtin.command:
+        cmd: npm uninstall -g @ethosagent/cli
+      register: npm_uninstall
+      changed_when: npm_uninstall.rc == 0
+      failed_when: false
+      when: (other_ethos_users.stdout | default('0') | int) == 0
+
+    - name: Check if agent user exists
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ agent_name }}"
+      register: user_check
+      ignore_errors: yes
+
+    - name: Terminate any lingering per-user processes before userdel
+      ansible.builtin.command: pkill -KILL -u {{ agent_name }}
+      register: pkill_result
+      changed_when: pkill_result.rc == 0
+      failed_when: false
+      when: user_check is not failed
+
+    - name: Remove agent user account (and home directory)
+      ansible.builtin.user:
+        name: "{{ agent_name }}"
+        state: absent
+        remove: yes
+      when: user_check is not failed
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg: "Ethos agent '{{ agent_name }}' removed (service, ~/.ethos/, user)."
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes

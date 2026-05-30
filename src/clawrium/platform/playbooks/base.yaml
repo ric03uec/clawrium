@@ -2,8 +2,15 @@
 - hosts: all
   become: yes
   tasks:
+    - name: Stop unattended-upgrades to release apt locks
+      ansible.builtin.systemd:
+        name: unattended-upgrades
+        state: stopped
+      failed_when: false
+      changed_when: false
+
     - name: Kill stale apt lock holders
-      ansible.builtin.command: fuser -k {{ item }}
+      ansible.builtin.shell: "timeout 5 fuser -k {{ item }} 2>/dev/null; exit 0"
       loop:
         - /var/lib/apt/lists/lock
         - /var/lib/dpkg/lock

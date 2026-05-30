@@ -221,7 +221,8 @@ def resolve(agent_key: str) -> ResolvedUI | None:
         return None
 
     config = agent_record.get("config") or {}
-    persisted_port = _dotted_lookup(config, web_ui["port_field"])
+    pf = web_ui.get("port_field") or ""
+    persisted_port = _dotted_lookup(config, pf) if pf else None
     # Persisted ports accepted down to 1 — the manifest validator forbids
     # privileged default_port values, but a per-instance override that an
     # operator manually wrote into hosts.json is resolved faithfully here;
@@ -245,7 +246,7 @@ def resolve(agent_key: str) -> ResolvedUI | None:
             "manifest declares no default_port — treating as no UI available",
             agent_key,
             agent_type,
-            web_ui["port_field"],
+            web_ui.get("port_field", "(none)"),
         )
         return None
 

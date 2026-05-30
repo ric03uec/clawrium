@@ -590,11 +590,14 @@ def _validate_web_ui(web_ui_value: object, agent_type: str) -> WebUIFeatureConfi
         )
 
     port_field = web_ui.get("port_field")
-    if (
-        not isinstance(port_field, str)
-        or not port_field.strip()
-        or not _PORT_FIELD_RE.fullmatch(port_field)
-    ):
+    has_port_field = "port_field" in web_ui
+    if not has_port_field:
+        _raise_parse_error(
+            agent_type,
+            "features.web_ui.port_field is required "
+            "(dotted path into agent config, e.g. 'gateway.port')",
+        )
+    if not isinstance(port_field, str) or not port_field.strip() or not _PORT_FIELD_RE.fullmatch(port_field):
         _raise_parse_error(
             agent_type,
             "has invalid `features.web_ui.port_field` "
@@ -604,7 +607,7 @@ def _validate_web_ui(web_ui_value: object, agent_type: str) -> WebUIFeatureConfi
     result: WebUIFeatureConfig = {
         "enabled": enabled,
         "bind": bind,
-        "port_field": port_field,
+        "port_field": port_field if has_port_field else "",
     }
     if has_default_port:
         result["default_port"] = default_port
@@ -925,6 +928,20 @@ def check_compatibility(
             key=lambda platform: _parse_version_safe(platform["version"]),
             reverse=True,
         )
+
+    # Hardware not yet gathered (fresh host — no scan run yet). Skip all
+    # hardware checks and let the install playbook proceed; Ansible will
+    # collect facts and the host record will be updated after first install.
+    hardware_known = bool(
+        hardware.get("os") and hardware.get("os") != "unknown"
+        and hardware.get("memtotal_mb", 0) > 0
+    )
+    if not hardware_known:
+        return {
+            "compatible": True,
+            "matched_entry": None,
+            "reasons": [],
+        }
 
     all_reasons: list[str] = []
 
