@@ -129,6 +129,8 @@ def test_sync_workspace_flag_disables_restart_and_verify(
 
 
 def test_sync_surfaces_secret_removal_refused(fleet_dir, monkeypatch) -> None:
+    """#560: with `--force` removed, the recovery path is re-attach /
+    `clawctl secret set`, not a flag. The error message must reflect that."""
     from clawrium.core.lifecycle_canonical import SecretRemovalRefused
 
     _patch_canonical(
@@ -136,13 +138,18 @@ def test_sync_surfaces_secret_removal_refused(fleet_dir, monkeypatch) -> None:
         SecretRemovalRefused(
             "refusing to sync 'wise-hypatia': rendered body removes "
             "host-side secrets (.zeroclaw/config.toml: would remove "
-            "['DISCORD_BOT_TOKEN']). Re-run with `--force` if intentional."
+            "['DISCORD_BOT_TOKEN']). Recovery: re-attach the channel/"
+            "integration that owns the missing secret, or restore it "
+            "via `clawctl secret set ...`."
         ),
     )
     result = runner.invoke(app, ["agent", "sync", "wise-hypatia"])
     assert result.exit_code != 0
     assert "refusing to sync" in result.output
-    assert "--force" in result.output
+    assert "re-attach" in result.output
+    # Regression guard: the message must NOT recommend `--force`, which
+    # was removed in #560.
+    assert "--force" not in result.output
 
 
 def test_sync_surfaces_canonical_sync_error(fleet_dir, monkeypatch) -> None:
@@ -391,6 +398,42 @@ def test_canonical_sync_propagates_repair_failure(monkeypatch, fleet_dir) -> Non
     with _pytest.raises(lifecycle_canonical.CanonicalSyncError) as excinfo:
         lifecycle_canonical.sync_agent_canonical("test-agent")
     assert "re-pair failed" in str(excinfo.value)
+
+
+def test_sync_renders_gateway_token_rotated_as_yellow_notice(
+    fleet_dir, monkeypatch
+) -> None:
+    """AGENTS.md §Gateway Token Lifecycle: `clawctl agent sync` must
+    surface the `gateway_token_rotated` event as a yellow notice so
+    operators see when remote chat sessions need to reconnect."""
+    import json as _json
+
+    def fake_sync(name, *, force, restart, verify, on_event):
+        on_event(
+            "gateway_token_rotated",
+            _json.dumps(
+                {
+                    "agent_key": "wise-hypatia",
+                    "old_prefix": "abc",
+                    "new_prefix": "def",
+                    "reason": "sync",
+                }
+            ),
+        )
+
+        class _R:
+            files_written = [".zeroclaw/config.toml"]
+            files_unchanged: list[str] = []
+
+        return _R()
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical", fake_sync
+    )
+    result = runner.invoke(app, ["agent", "sync", "wise-hypatia"])
+    assert result.exit_code == 0, result.output
+    assert "Gateway token rotated" in result.output
+    assert "wise-hypatia" in result.output
 
 
 def test_open_ssh_translates_bad_host_key_to_canonical_error(monkeypatch) -> None:

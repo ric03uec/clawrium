@@ -326,8 +326,42 @@ def sync(
             streamer.emit(
                 resource=resource, phase=stage, state="event", message=message
             )
-        else:
-            stream_action(resource=resource, message=f"{stage}: {message}")
+            return
+        # AGENTS.md §"Gateway Token Lifecycle (zeroclaw)" requires a
+        # yellow notice on `configure` / `sync` / `restart` whenever the
+        # zeroclaw bearer rotates. The legacy path emits this via
+        # `_print_configure_warnings` in `cli/agent.py:122-152`; mirror
+        # that here for the canonical sync path so remote chat sessions
+        # learn they must reconnect.
+        if stage == "gateway_token_rotated":
+            import json as _json
+
+            from rich.console import Console
+
+            console = Console()
+
+            agent_label: str | None = None
+            try:
+                payload = _json.loads(message)
+                if isinstance(payload, dict):
+                    raw_key = payload.get("agent_key")
+                    if isinstance(raw_key, str) and raw_key:
+                        agent_label = raw_key
+            except (_json.JSONDecodeError, TypeError):
+                pass
+            if agent_label:
+                console.print(
+                    f"  [yellow]Gateway token rotated for {agent_label}. "
+                    f"Active chat sessions on other machines will need to "
+                    f"reconnect.[/yellow]"
+                )
+            else:
+                console.print(
+                    "  [yellow]Gateway token rotated. Active chat sessions "
+                    "on other machines will need to reconnect.[/yellow]"
+                )
+            return
+        stream_action(resource=resource, message=f"{stage}: {message}")
 
     try:
         canonical_result = sync_agent_canonical(
