@@ -11,6 +11,11 @@ require_pairing = true
 idempotency_max_keys = 10000
 idempotency_ttl_secs = 300
 pair_rate_limit_per_minute = 10
+# W5 (ATX #555 polish round 2): always empty — every clawctl render
+# wipes paired tokens so the daemon requires a fresh /pair handshake
+# after configure/sync/restart. See AGENTS.md "Gateway Token Lifecycle
+# (zeroclaw)". Do not persist tokens here; the canonical pipeline
+# re-mints the bearer via `_zeroclaw_repair_after_start`.
 paired_tokens = []
 rate_limit_max_keys = 10000
 session_persistence = true

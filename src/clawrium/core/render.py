@@ -470,27 +470,46 @@ def _shell_quote(value: str) -> str:
     Used for systemd EnvironmentFile values so `#` mid-value isn't
     parsed as a comment and arbitrary content can't break the line.
 
-    W7 (ATX #555 polish): NUL is stripped unconditionally. A NUL inside
-    a single-quoted systemd EnvironmentFile value silently truncates
-    the file at the NUL byte, dropping every var below it — a
-    silent-wipe class identical to the bug parent #555 set out to
-    eliminate.
+    Strips NUL/CR/LF unconditionally:
+    * NUL — silently truncates the systemd EnvironmentFile at the NUL
+      byte, dropping every var below it (silent-wipe class, parent
+      #555).
+    * CR/LF — a single-quoted POSIX string CAN span lines, but systemd
+      EnvironmentFile parses one assignment per line; a literal newline
+      in any value breaks the assignment grammar (W7 / round-2 B2).
     """
-    cleaned = value.replace("\x00", "")
+    cleaned = value.replace("\x00", "").replace("\r", "").replace("\n", "")
     return "'" + cleaned.replace("'", "'\"'\"'") + "'"
 
 
 def _systemd_quote(value: str) -> str:
-    """Double-quote escape for systemd Environment= drop-ins."""
-    cleaned = value.replace("\r", "").replace("\n", "")
+    """Double-quote escape for systemd Environment= drop-ins.
+
+    Strips NUL (round-2 B3) for the same EnvironmentFile-truncation
+    reason as `_shell_quote`. Escapes `$` → `$$` (round-2 W2) because
+    systemd performs variable substitution in double-quoted
+    `Environment=` values BEFORE handing them to the process — a token
+    like `ghp_$SOMETHING` would otherwise be silently corrupted to
+    `ghp_` at unit load.
+    """
+    cleaned = value.replace("\x00", "").replace("\r", "").replace("\n", "")
     cleaned = cleaned.replace("\\", "\\\\").replace('"', '\\"')
+    cleaned = cleaned.replace("$", "$$")
     return f'"{cleaned}"'
 
 
 def _toml_escape(value: str) -> str:
-    """Escape a value for use inside a TOML basic string."""
+    """Escape a value for use inside a TOML basic string.
+
+    Strips NUL (round-2 B1): the TOML spec rejects NUL in basic
+    strings and some parsers truncate the string at NUL silently
+    rather than erroring. `gateway.host` and `provider.endpoint`
+    both flow through this filter, so a NUL anywhere upstream in
+    hosts.json would otherwise corrupt the rendered config.toml.
+    """
     return (
-        value.replace("\\", "\\\\")
+        value.replace("\x00", "")
+        .replace("\\", "\\\\")
         .replace('"', '\\"')
         .replace("\r", "\\r")
         .replace("\n", "\\n")
@@ -553,6 +572,21 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
     exactly one output line; the function does NOT conditionally emit a
     section based on whether a hosts.json field happened to be populated.
     """
+    # W3 (ATX #555 polish round 2): defense-in-depth guard. The
+    # canonical YAML template interpolates `{{ agent_name }}` into the
+    # bare path `/home/<name>/.local/bin/uvx` (mcp_servers.command),
+    # which is NOT yq-quoted. `core.lifecycle` validates agent_name
+    # upstream against the same pattern, but the pure renderer must not
+    # assume callers passed pre-validated inputs.
+    import re as _re
+
+    if not _re.match(r"^[a-z][a-z0-9_-]{0,31}$", inputs.agent_name):
+        raise AgentConfigError(
+            f"render_hermes: agent_name {inputs.agent_name!r} does not "
+            f"match `^[a-z][a-z0-9_-]{{0,31}}$`; refusing to interpolate "
+            f"into the mcp_servers.command path."
+        )
+
     ptype = inputs.provider.type
     if ptype not in _HERMES_SUPPORTED_PROVIDERS:
         raise AgentConfigError(

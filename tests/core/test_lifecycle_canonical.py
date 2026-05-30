@@ -130,6 +130,208 @@ class TestDiffRemovesSecrets:
         assert _diff_removes_secrets(d) == set()
 
 
+def _stub_sync_environment(monkeypatch, *, agent_type: str = "hermes"):
+    """Stub out the IO surface so `sync_agent_canonical` can run in-process.
+
+    Returns the captured event list and the per-call patches so tests
+    can override individual collaborators (transition_state, etc.).
+    """
+    from clawrium.core.render import (
+        ChannelInputs,
+        GatewayInputs,
+        ProviderInputs,
+        RenderInputs,
+        RenderedFiles,
+    )
+
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type=agent_type,
+        provider=ProviderInputs(
+            name="o", type="openrouter", api_key="sk", default_model="m"
+        ),
+        channels=(
+            ChannelInputs(name="d", type="discord", bot_token="t"),
+        ),
+        gateway=GatewayInputs(host="h", port=40000, auth="a"),
+    )
+    monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+    if agent_type == "zeroclaw":
+        rendered = RenderedFiles(
+            files={
+                ".zeroclaw/config.toml": "x = 1\n",
+                ".zeroclaw/zeroclaw-env.conf": "",
+            }
+        )
+    else:
+        rendered = RenderedFiles(files={".hermes/.env": "FOO=1\n"})
+    monkeypatch.setitem(lc._RENDERERS, agent_type, lambda _: rendered)
+    monkeypatch.setattr(
+        lc,
+        "get_agent_by_name",
+        lambda _: ({"hostname": "h"}, f"{agent_type}:alpha", {}),
+    )
+    diff = FileDiff(
+        path=next(iter(rendered.files)),
+        remote_path="/host/" + next(iter(rendered.files)),
+        remote_body="",
+        rendered_body=next(iter(rendered.files.values())),
+        unified_diff="--- a\n+++ b\n@@ @@\n+x\n",
+        remote_present=False,
+    )
+    monkeypatch.setattr(lc, "diff_files", lambda **_: [diff])
+    monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+    monkeypatch.setattr(lc, "_atomic_write", lambda *a, **kw: None)
+    monkeypatch.setattr(lc, "_restart_unit", lambda *a, **kw: None)
+    monkeypatch.setattr(lc, "_verify_health", lambda *a, **kw: None)
+    events: list[tuple[str, str]] = []
+    return events, inputs
+
+
+def test_sync_state_ready_success_no_error_field(monkeypatch):
+    """B4 (ATX #555 polish round 2): happy-path state transition leaves
+    `CanonicalSyncResult.error` unpopulated."""
+    events, _ = _stub_sync_environment(monkeypatch)
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state",
+        lambda *a, **kw: None,
+    )
+    result = sync_agent_canonical(
+        "alpha",
+        restart=False,
+        verify=False,
+        on_event=lambda s, m: events.append((s, m)),
+    )
+    assert result.success
+    assert result.error is None
+
+
+def test_sync_state_ready_invalid_transition_emits_note(monkeypatch):
+    """B4: InvalidTransitionError leaves `error=None` (mid-walk agents
+    are not a sync failure) but emits a `sync` note explaining the
+    skip — previously this branch was completely silent."""
+    from clawrium.core.onboarding import InvalidTransitionError
+
+    events, _ = _stub_sync_environment(monkeypatch)
+
+    def _raise(*a, **kw):
+        raise InvalidTransitionError("stuck in PROVIDERS")
+
+    monkeypatch.setattr("clawrium.core.onboarding.transition_state", _raise)
+    result = sync_agent_canonical(
+        "alpha",
+        restart=False,
+        verify=False,
+        on_event=lambda s, m: events.append((s, m)),
+    )
+    assert result.success
+    assert result.error is None
+    note_events = [m for s, m in events if s == "sync" and "skipped state=READY" in m]
+    assert note_events, events
+
+
+def test_sync_state_ready_agent_not_found_populates_error(monkeypatch):
+    """B4: AgentNotFoundError surfaces on `result.error` so callers
+    that gate on `.error is None` see the registry incoherence
+    (previously success=True / error=None — silent)."""
+    from clawrium.core.onboarding import AgentNotFoundError
+
+    events, _ = _stub_sync_environment(monkeypatch)
+
+    def _raise(*a, **kw):
+        raise AgentNotFoundError("agent gone")
+
+    monkeypatch.setattr("clawrium.core.onboarding.transition_state", _raise)
+    result = sync_agent_canonical(
+        "alpha",
+        restart=False,
+        verify=False,
+        on_event=lambda s, m: events.append((s, m)),
+    )
+    assert result.success
+    assert result.error is not None
+    assert "registry record missing" in result.error
+    assert "agent gone" in result.error
+
+
+def test_sync_state_ready_generic_exception_populates_error(monkeypatch):
+    """B4: a non-onboarding-typed exception (IO, permission) on the
+    state-write surfaces on `result.error`."""
+    events, _ = _stub_sync_environment(monkeypatch)
+
+    def _raise(*a, **kw):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("clawrium.core.onboarding.transition_state", _raise)
+    result = sync_agent_canonical(
+        "alpha",
+        restart=False,
+        verify=False,
+        on_event=lambda s, m: events.append((s, m)),
+    )
+    assert result.success
+    assert result.error is not None
+    assert "state=READY" in result.error
+    assert "disk full" in result.error
+
+
+def test_open_ssh_raises_when_no_private_key(monkeypatch):
+    """W9 (ATX #555 polish round 2): missing SSH key for the host
+    surfaces as `CanonicalSyncError` with the operator-actionable hint
+    referencing `clawctl host create`."""
+    monkeypatch.setattr(lc, "get_host_private_key", lambda _: None)
+    with pytest.raises(CanonicalSyncError, match="no SSH key registered"):
+        lc._open_ssh({"hostname": "h", "key_id": "k"})
+
+
+def test_sync_unknown_agent_type_raises(monkeypatch):
+    """W10 (ATX #555 polish round 2): unknown agent type — renderer
+    table lookup returns None — surfaces a CanonicalSyncError."""
+    from clawrium.core.render import (
+        GatewayInputs,
+        ProviderInputs,
+        RenderInputs,
+    )
+
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="bogusclaw",
+        provider=ProviderInputs(name="o", type="openrouter"),
+        gateway=GatewayInputs(host="h", port=1),
+    )
+    monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+    with pytest.raises(CanonicalSyncError, match="no canonical renderer"):
+        sync_agent_canonical("alpha")
+
+
+def test_sync_agent_missing_from_hosts_raises(monkeypatch):
+    """W10 (ATX #555 polish round 2): get_agent_by_name returning None
+    must surface as CanonicalSyncError, not propagate a confusing
+    AttributeError downstream."""
+    from clawrium.core.render import (
+        GatewayInputs,
+        ProviderInputs,
+        RenderInputs,
+        RenderedFiles,
+    )
+
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=ProviderInputs(name="o", type="openrouter", api_key="k"),
+        gateway=GatewayInputs(host="h", port=1),
+    )
+    monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+    monkeypatch.setitem(
+        lc._RENDERERS,
+        "hermes",
+        lambda _: RenderedFiles(files={".hermes/.env": ""}),
+    )
+    monkeypatch.setattr(lc, "get_agent_by_name", lambda _: None)
+    with pytest.raises(CanonicalSyncError, match="not found in hosts.json"):
+        sync_agent_canonical("alpha")
+
+
 def test_sync_force_bypass_writes_through_secret_removal(monkeypatch):
     """force=True must allow a sync that removes host-side secrets."""
     from clawrium.core.render import (
@@ -167,8 +369,8 @@ def test_sync_force_bypass_writes_through_secret_removal(monkeypatch):
     )
     monkeypatch.setattr(lc, "diff_files", lambda **_: [diff])
     monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
-    monkeypatch.setattr(lc, "_atomic_write", lambda *a, **kw: None)
-    # restart=False so we don't traverse the zeroclaw repair path.
+    # W7 (ATX #555 polish round 2): capture remote_path so we can
+    # assert the rendered body actually reaches `_atomic_write`.
     written: list = []
     monkeypatch.setattr(
         lc,
@@ -181,13 +383,15 @@ def test_sync_force_bypass_writes_through_secret_removal(monkeypatch):
         lambda *a, **kw: None,
     )
 
-    # Without force, refusal:
+    # Without force, refusal — and no write attempted.
     with pytest.raises(SecretRemovalRefused):
         sync_agent_canonical("alpha", force=False, restart=False)
-    # With force, no raise; the rendered body is written.
+    assert written == []
+    # With force, no raise; the rendered body IS written.
     result = sync_agent_canonical("alpha", force=True, restart=False)
     assert result.success
     assert ".hermes/.env" in result.files_written
+    assert written == ["/host/.env"]
 
 
 # ---------------------------------------------------------------------------
@@ -355,3 +559,8 @@ def test_zeroclaw_sync_restart_false_skips_restart_and_repair(monkeypatch):
     assert result.success
     assert restart_called == []
     assert repair_called == []
+    # W8 (ATX #555 polish round 2): event-stream assertion — `repair`
+    # stage must never be emitted when `restart=False`, even on a
+    # zeroclaw. This catches a future regression where the gate moves
+    # off `restart` without updating the event emission.
+    assert not any(stage == "repair" for stage, _ in events), events

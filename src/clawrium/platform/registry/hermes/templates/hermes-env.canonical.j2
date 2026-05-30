@@ -55,8 +55,15 @@ DISCORD_HOME_CHANNEL_THREAD_ID={{ channel.home_channel_thread_id | shq }}
 SLACK_BOT_TOKEN={{ channel.bot_token | shq }}
 SLACK_APP_TOKEN={{ channel.app_token | shq }}
 SLACK_ALLOWED_USERS={{ (channel.allowed_users | join(',')) | shq }}
+{# W4 (ATX #555 polish round 2): match the discord home-channel guards
+   above. Empty-string vs absent stays semantically distinct for the
+   slack daemon path too. #}
+{% if channel.home_channel %}
 SLACK_HOME_CHANNEL={{ channel.home_channel | shq }}
+{% endif %}
+{% if channel.home_channel_name %}
 SLACK_HOME_CHANNEL_NAME={{ channel.home_channel_name | shq }}
+{% endif %}
 {% endif %}
 {% endfor %}
 {# Integration loop emits per-integration env vars. Two types are
