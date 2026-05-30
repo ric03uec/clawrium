@@ -19,6 +19,7 @@ Closes ATX #555-polish blockers:
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -33,6 +34,19 @@ from clawrium.core.lifecycle_canonical import (
     sync_agent_canonical,
 )
 from clawrium.core.render_diff import FileDiff
+
+
+def _catalog_pattern_containing(needle: str) -> str:
+    """Look up a `_KNOWN_UNIT_FATAL_PATTERNS` regex by content
+    instead of positional index — ATX iter-4 S2. Inserting a new
+    catalog entry before an existing one no longer silently shifts
+    the index out from under the test."""
+    for pattern, _scope, _summary, _remediation in lc._KNOWN_UNIT_FATAL_PATTERNS:
+        if needle in pattern:
+            return pattern
+    raise AssertionError(
+        f"no catalog entry contains {needle!r}; check needle or catalog"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -898,12 +912,10 @@ class TestDiagnoseUnitFailure:
         # Sanity check: branch2 alone (without `required_field_empty`)
         # would NOT have matched this body. The diagnostic firing
         # therefore proves branch1 carries its own weight.
-        import re as _re_local
-
-        pattern = lc._KNOWN_UNIT_FATAL_PATTERNS[1][0]
+        pattern = _catalog_pattern_containing("required_field_empty")
         branch2_only = r"gateway\.host.*(?:must not be empty|is empty)"
-        assert _re_local.search(pattern, journal.decode())
-        assert not _re_local.search(branch2_only, journal.decode())
+        assert re.search(pattern, journal.decode())
+        assert not re.search(branch2_only, journal.decode())
 
     def test_missing_provider_key_openrouter_translated(self):
         """ATX B4: the OPENROUTER_API_KEY branch must have its own
@@ -951,15 +963,40 @@ class TestDiagnoseUnitFailure:
             # the tightened pattern must reject. Each line contains
             # the key name and the phrase "not set" but in a
             # state-snapshot / migration context where the key IS
-            # present at boot. ATX iter-3 S2: replaced the second
-            # case (which previously failed for the wrong reason —
-            # no whitespace after key name) with a stale-env
-            # snapshot that genuinely tests the "was…not set,
-            # now-present" adjacency the comment narrates.
+            # present at boot.
             b"hermes[1234]: OPENROUTER_API_KEY was not set on previous "
             b"boot, now present\n",
             b"hermes[1234]: OPENROUTER_API_KEY was not set, now using "
             b"fallback\n",
+            # ATX iter-4 S3: bracket-form stale-env case that the
+            # iter-2 comment narrated but no test previously
+            # covered. Bracket separator is not in the `[\t :=]+`
+            # class, so the diagnostic must NOT fire.
+            b"hermes[1234]: OPENROUTER_API_KEY [was not set, "
+            b"using fallback]\n",
+            # ATX iter-4 S4: a case that would fire under a naive
+            # `.*` pattern but NOT under the tightened
+            # `[\t :=]+(?:is\s+)?not\s+set\b` — the key name and
+            # "previously not set" phrase are 4 words apart, so
+            # only `.*` could bridge them.
+            b"hermes[1234]: OPENROUTER_API_KEY environment variable "
+            b"was previously not set\n",
+            # ATX iter-4 W1: cross-line case — key at end of one
+            # journal line, "not set" at start of next. With
+            # `[\s:=]+` (which includes `\n`) the diagnostic would
+            # over-fire on the multi-line blob; with `[\t :=]+`
+            # the newline breaks adjacency and the diagnostic stays
+            # silent.
+            b"agent[1234]: env dump OPENROUTER_API_KEY\n"
+            b"agent[1234]: not set, using ollama fallback\n",
+            # ATX iter-4 W3: left-boundary case — `MY_OPENROUTER_API_KEY`
+            # is NOT the OpenRouter key clawctl plumbs, so the
+            # diagnostic should not surface even though the substring
+            # match looks tempting. Pre-existing left-boundary gap;
+            # full `\b` anchor on the key name is tracked as a
+            # follow-up but the negative test pins the current
+            # behavior so a future tightening is regression-safe.
+            b"hermes[1234]: MY_OPENROUTER_API_KEY is not set\n",
         ],
     )
     def test_provider_key_pattern_does_not_over_match_stale_env_logs(
@@ -992,6 +1029,13 @@ class TestDiagnoseUnitFailure:
             # this matches even though the prefix is uppercase but
             # the phrase is too.
             b"hermes[1234]: OPENROUTER_API_KEY IS NOT SET\n",
+            # ATX iter-4 W2: lowercase env-var name — some agents
+            # emit env dumps in lowercase. The `(?i)` flag applies
+            # to the whole pattern (acknowledged in production
+            # comment); this is an intentional match, pinned here
+            # so a future scope-tightening of `(?i)` to the suffix
+            # only would fail this test rather than silently regress.
+            b"agent[1234]: openrouter_api_key not set\n",
         ],
     )
     def test_provider_key_pattern_matches_canonical_separators(
@@ -1094,16 +1138,14 @@ class TestDiagnoseUnitFailure:
         type that has no `~/.openclaw/config.toml` file. ATX iter-3
         S1: make the dual nature explicit — the regex matches, the
         scope filter blocks."""
-        import re as _re_local
-
         journal = (
             b"openclaw[1234]: [required_field_empty] gateway.host must "
             b"not be empty\n"
         )
         # Make the test intent explicit: the regex would match this
         # body. The scope filter is what suppresses the diagnostic.
-        zeroclaw_pattern = lc._KNOWN_UNIT_FATAL_PATTERNS[1][0]
-        assert _re_local.search(zeroclaw_pattern, journal.decode())
+        zeroclaw_pattern = _catalog_pattern_containing("required_field_empty")
+        assert re.search(zeroclaw_pattern, journal.decode())
         client = _FakeSSHClient(
             [("journalctl", 0, journal)],
         )

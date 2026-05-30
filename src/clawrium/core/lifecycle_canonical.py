@@ -359,15 +359,29 @@ _KNOWN_UNIT_FATAL_PATTERNS: tuple[
         # Cross-agent: any agent that loads an OpenRouter provider
         # without a populated key would surface one of these two
         # messages. Parenthesized alternation for clarity (ATX W6).
-        # ATX iter-2 B2 + iter-3 W-NEW-1: the separator class
-        # `[\s:=]+` covers whitespace, `KEY: not set`, and `KEY=`
-        # styles; the optional `is` and `\b` tail anchor stay from
-        # iter-2 to keep `was not set, now present` rejected. The
-        # `IGNORECASE` flag is shipped via `(?i)` so logs that
-        # uppercase the phrase (`IS NOT SET`) still match — the
-        # `OPENROUTER_API_KEY` prefix is specific enough that
-        # case-folding adds no false-positive risk.
-        r"(?i)(?:OPENROUTER_API_KEY[\s:=]+(?:is\s+)?not\s+set\b"
+        # ATX iter-2 B2 + iter-3 W-NEW-1: the separator class covers
+        # `KEY: not set`, `KEY=not set`, and tab/space-separated
+        # variants; the optional `is` and `\b` tail anchor stay
+        # from iter-2 to keep `was not set, now present` rejected.
+        # ATX iter-4 W1: the separator class is restricted to
+        # horizontal whitespace + `:` + `=`. `[\s:=]+` would have
+        # included `\n`, which over `re.search` against the full
+        # 100-line journal blob meant a journal where
+        # `OPENROUTER_API_KEY` ends one line and `not set ...`
+        # begins the next would over-fire.
+        # ATX iter-4 W2: the `(?i)` flag applies to the entire
+        # pattern, intentionally — `openrouter_api_key not set` (a
+        # lowercase env-dump shape that some agents emit) is a
+        # legitimate match. `No inference provider configured` also
+        # case-folds, which is harmless since both branches share
+        # the cross-agent scope and the phrase is specific.
+        # ATX iter-4 W3: leading `\b` rejects substring matches
+        # inside a longer identifier (e.g. `MY_OPENROUTER_API_KEY` —
+        # which is NOT the OpenRouter key clawctl plumbs and should
+        # not surface this remediation). `\b` does not match between
+        # two word characters, so `MY_OPENROUTER_API_KEY` no longer
+        # matches even via `re.search`.
+        r"(?i)(?:\bOPENROUTER_API_KEY[\t :=]+(?:is\s+)?not\s+set\b"
         r"|No inference provider configured)",
         frozenset(),  # empty == all agent types
         "Provider credentials missing from the rendered config.",
