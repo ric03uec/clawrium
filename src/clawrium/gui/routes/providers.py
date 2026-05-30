@@ -113,14 +113,23 @@ async def list_providers():
 
 @router.get("/types")
 async def provider_types():
-    """Get available provider types and their model catalogs."""
+    """Get available provider types with rich model metadata from the catalog.
+
+    Ollama returns an empty model list — its models are populated per-instance
+    from the host's Ollama daemon via `available_models`, not from the catalog.
+    """
+    catalog = load_model_catalog()
     types = {}
     for ptype, info in PROVIDER_MODELS.items():
+        if ptype == "ollama":
+            models: list[dict] = []
+        else:
+            models = list(catalog["providers"].get(ptype, {}).get("models", []))
         types[ptype] = {
             "endpoint": info.get("endpoint"),
-            "models": info.get("models"),
-            "requires_api_key": ptype != "ollama",
-            "requires_endpoint": ptype == "ollama",
+            "models": models,
+            "requires_api_key": info.get("requires_api_key", ptype != "ollama"),
+            "requires_endpoint": info.get("requires_endpoint", ptype == "ollama"),
         }
     return {"types": types}
 

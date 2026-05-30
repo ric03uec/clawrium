@@ -798,20 +798,21 @@ def _list_provider_types() -> None:
     """List all supported provider types."""
     console.print("[bold]Supported provider types:[/bold]\n")
 
+    from clawrium.core.providers.models import get_model_count
+
     for provider_type in _get_provider_types():
         config = PROVIDER_MODELS[provider_type]
         endpoint = config.get("endpoint")
-        models = config.get("models")
 
         if provider_type == "ollama":
             console.print(
                 f"  [cyan]{provider_type}[/cyan] - Self-hosted (dynamic model discovery)"
             )
         elif endpoint:
-            model_count = len(models) if models else 0
+            model_count = get_model_count(provider_type)
             console.print(f"  [cyan]{provider_type}[/cyan] - {model_count} models")
         else:
-            model_count = len(models) if models else 0
+            model_count = get_model_count(provider_type)
             console.print(
                 f"  [cyan]{provider_type}[/cyan] - {model_count} models (SDK-based)"
             )

@@ -33,13 +33,21 @@ import type { ProviderTypesMap } from "@/lib/types";
 const providerTypes: ProviderTypesMap = {
   openai: {
     endpoint: "https://api.openai.com/v1",
-    models: ["gpt-4o"],
+    models: [
+      {
+        id: "gpt-4o",
+        name: "GPT-4o",
+        lab: "OpenAI",
+        context_window: 128000,
+        tags: ["multimodal"],
+      },
+    ],
     requires_api_key: true,
     requires_endpoint: false,
   },
   ollama: {
     endpoint: null,
-    models: null,
+    models: [],
     requires_api_key: false,
     requires_endpoint: true,
   },

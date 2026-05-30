@@ -177,9 +177,17 @@ export interface Provider {
   updated_at: string | null;
 }
 
+export interface ModelInfo {
+  id: string;
+  name: string;
+  lab: string;
+  context_window: number;
+  tags: string[];
+}
+
 export interface ProviderTypeInfo {
   endpoint: string | null;
-  models: string[] | null;
+  models: ModelInfo[];
   requires_api_key: boolean;
   requires_endpoint: boolean;
 }

@@ -9,7 +9,6 @@ Official OpenAI API integration for GPT models.
 <!-- MODEL-TABLE:START -->
 | Model ID | Name | Context |
 |----------|------|---------|
-| `codex-mini-latest` | Codex Mini | 200K |
 | `gpt-3.5-turbo` | GPT-3.5-turbo | 16K |
 | `gpt-4` | GPT-4 | 8K |
 | `gpt-4-turbo` | GPT-4 Turbo | 128K |
@@ -43,6 +42,8 @@ Official OpenAI API integration for GPT models.
 | `gpt-5.4-pro` | GPT-5.4 Pro | 1M |
 | `gpt-5.4-mini` | GPT-5.4 mini | 400K |
 | `gpt-5.4-nano` | GPT-5.4 nano | 400K |
+| `gpt-5.5` | GPT-5.5 | 1M |
+| `gpt-5.5-pro` | GPT-5.5 Pro | 1M |
 | `chatgpt-image-latest` | chatgpt-image-latest | - |
 | `gpt-image-1` | gpt-image-1 | - |
 | `gpt-image-1-mini` | gpt-image-1-mini | - |

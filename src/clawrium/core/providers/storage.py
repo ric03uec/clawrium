@@ -49,92 +49,44 @@ PROVIDERS_FILE = "providers.json"
 # Provider name pattern: starts with letter, alphanumeric/underscore/hyphen, 1-64 chars
 PROVIDER_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
 
-# Hardcoded model registry for supported providers
+# Provider type registry: endpoint defaults and auth requirements.
+# Model lists are sourced from the catalog at src/clawrium/core/providers/models.json
+# via clawrium.core.providers.models. Do not hardcode model IDs here.
 PROVIDER_MODELS: dict[str, dict] = {
     "openai": {
         "endpoint": "https://api.openai.com/v1",
-        "models": [
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-4-turbo",
-            "gpt-4",
-            "gpt-3.5-turbo",
-            "o1",
-            "o1-mini",
-            "o1-preview",
-        ],
+        "requires_api_key": True,
+        "requires_endpoint": False,
     },
     "anthropic": {
         "endpoint": "https://api.anthropic.com",
-        "models": [
-            "claude-opus-4-20250514",
-            "claude-sonnet-4-20250514",
-            "claude-3-5-sonnet-20241022",
-            "claude-3-5-haiku-20241022",
-            "claude-3-opus-20240229",
-            "claude-3-sonnet-20240229",
-            "claude-3-haiku-20240307",
-        ],
+        "requires_api_key": True,
+        "requires_endpoint": False,
     },
     "openrouter": {
         "endpoint": "https://openrouter.ai/api/v1",
-        "models": [
-            "anthropic/claude-opus-4",
-            "anthropic/claude-sonnet-4",
-            "openai/gpt-4o",
-            "openai/o1",
-            "openai/gpt-oss-120b",
-            "google/gemini-2.5-pro",
-            "meta-llama/llama-4-maverick",
-            "deepseek/deepseek-chat-v3",
-            "deepseek/deepseek-r1",
-            "qwen/qwen3-235b",
-            "z-ai/glm-4.5",
-            "z-ai/glm-4.5-air",
-            "moonshotai/kimi-k2",
-            "minimax/minimax-m1",
-        ],
+        "requires_api_key": True,
+        "requires_endpoint": False,
     },
     "bedrock": {
         "endpoint": None,  # Uses AWS SDK
-        "models": [
-            "anthropic.claude-opus-4-20250514-v1:0",
-            "anthropic.claude-sonnet-4-20250514-v1:0",
-            "anthropic.claude-3-5-sonnet-20241022-v2:0",
-            "anthropic.claude-3-5-haiku-20241022-v1:0",
-            "anthropic.claude-3-haiku-20240307-v1:0",
-            "amazon.titan-text-express-v1",
-            "amazon.titan-text-lite-v1",
-            "meta.llama3-70b-instruct-v1:0",
-        ],
+        "requires_api_key": True,
+        "requires_endpoint": False,
     },
     "vertex": {
         "endpoint": None,  # Uses Google SDK, requires project_id
-        "models": [
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-2.0-flash",
-            "gemini-1.5-pro",
-            "gemini-1.5-flash",
-        ],
+        "requires_api_key": True,
+        "requires_endpoint": False,
     },
     "zai": {
         "endpoint": "https://open.bigmodel.cn/api/paas/v4",
-        "models": [
-            "glm-4",
-            "glm-4-plus",
-            "glm-4-air",
-            "glm-4-airx",
-            "glm-4-flash",
-            "glm-4-long",
-            "glm-4v",
-            "glm-4v-plus",
-        ],
+        "requires_api_key": True,
+        "requires_endpoint": False,
     },
     "ollama": {
         "endpoint": None,  # User-provided
-        "models": None,  # Dynamic discovery via fetch_ollama_models()
+        "requires_api_key": False,
+        "requires_endpoint": True,
     },
 }
 
@@ -332,19 +284,29 @@ def validate_ollama_url(url: str) -> str:
 
 
 def get_models_for_type(provider_type: str) -> list[str] | None:
-    """Get available models for a provider type.
+    """Get available model IDs for a provider type.
 
     Args:
         provider_type: Provider type to get models for.
 
     Returns:
-        List of model names, or None for dynamic providers (like Ollama).
+        List of model ID strings, or None for dynamic providers (like Ollama).
 
     Raises:
         InvalidProviderTypeError: If type is not valid.
     """
     validate_provider_type(provider_type)
-    return PROVIDER_MODELS[provider_type]["models"]
+    if provider_type == "ollama":
+        return None
+    from clawrium.core.providers.models import (
+        ProviderNotFoundError,
+        get_model_ids_for_provider,
+    )
+
+    try:
+        return get_model_ids_for_provider(provider_type)
+    except ProviderNotFoundError:
+        return []
 
 
 def fetch_ollama_models(endpoint: str, timeout: int = 10) -> list[str]:

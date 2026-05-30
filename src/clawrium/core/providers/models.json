@@ -5,17 +5,6 @@
     "openai": {
       "models": [
         {
-          "id": "codex-mini-latest",
-          "name": "Codex Mini",
-          "lab": "OpenAI",
-          "context_window": 200000,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal"
-          ]
-        },
-        {
           "id": "gpt-3.5-turbo",
           "name": "GPT-3.5-turbo",
           "lab": "OpenAI",
@@ -395,6 +384,30 @@
           ]
         },
         {
+          "id": "gpt-5.5",
+          "name": "GPT-5.5",
+          "lab": "OpenAI",
+          "context_window": 1050000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "gpt-5.5-pro",
+          "name": "GPT-5.5 Pro",
+          "lab": "OpenAI",
+          "context_window": 1050000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
           "id": "chatgpt-image-latest",
           "name": "chatgpt-image-latest",
           "lab": "OpenAI",
@@ -742,6 +755,18 @@
           ]
         },
         {
+          "id": "claude-opus-4-8",
+          "name": "Claude Opus 4.8",
+          "lab": "Anthropic",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
           "id": "claude-3-sonnet-20240229",
           "name": "Claude Sonnet 3",
           "lab": "Anthropic",
@@ -851,8 +876,102 @@
     "openrouter": {
       "models": [
         {
+          "id": "aion-labs/aion-1.0",
+          "name": "Aion-1.0",
+          "lab": "Aion Labs",
+          "context_window": 131072,
+          "tags": [
+            "reasoning"
+          ]
+        },
+        {
+          "id": "aion-labs/aion-1.0-mini",
+          "name": "Aion-1.0-Mini",
+          "lab": "Aion Labs",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "aion-labs/aion-2.0",
+          "name": "Aion-2.0",
+          "lab": "Aion Labs",
+          "context_window": 131072,
+          "tags": [
+            "reasoning"
+          ]
+        },
+        {
+          "id": "aion-labs/aion-rp-llama-3.1-8b",
+          "name": "Aion-RP 1.0 (8B)",
+          "lab": "Aion Labs",
+          "context_window": 32768,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "~anthropic/claude-haiku-latest",
+          "name": "Anthropic Claude Haiku Latest",
+          "lab": "~Anthropic",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "~anthropic/claude-sonnet-latest",
+          "name": "Anthropic Claude Sonnet Latest",
+          "lab": "~Anthropic",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openrouter/auto",
+          "name": "Auto Router",
+          "lab": "Openrouter",
+          "context_window": 2000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "id": "openrouter/bodybuilder",
+          "name": "Body Builder (beta)",
+          "lab": "Openrouter",
+          "context_window": 128000,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "anthropic/claude-3-haiku",
+          "name": "Claude 3 Haiku",
+          "lab": "Anthropic",
+          "context_window": 200000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
           "id": "anthropic/claude-3.5-haiku",
-          "name": "Claude Haiku 3.5",
+          "name": "Claude 3.5 Haiku",
           "lab": "Anthropic",
           "context_window": 200000,
           "tags": [
@@ -863,7 +982,7 @@
         },
         {
           "id": "anthropic/claude-haiku-4.5",
-          "name": "Claude Haiku 4.5",
+          "name": "Claude Haiku 4.5 (latest)",
           "lab": "Anthropic",
           "context_window": 200000,
           "tags": [
@@ -887,7 +1006,7 @@
         },
         {
           "id": "anthropic/claude-opus-4.1",
-          "name": "Claude Opus 4.1",
+          "name": "Claude Opus 4.1 (latest)",
           "lab": "Anthropic",
           "context_window": 200000,
           "tags": [
@@ -899,7 +1018,7 @@
         },
         {
           "id": "anthropic/claude-opus-4.5",
-          "name": "Claude Opus 4.5",
+          "name": "Claude Opus 4.5 (latest)",
           "lab": "Anthropic",
           "context_window": 200000,
           "tags": [
@@ -922,6 +1041,18 @@
           ]
         },
         {
+          "id": "anthropic/claude-opus-4.6-fast",
+          "name": "Claude Opus 4.6 (Fast)",
+          "lab": "Anthropic",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
           "id": "anthropic/claude-opus-4.7",
           "name": "Claude Opus 4.7",
           "lab": "Anthropic",
@@ -934,10 +1065,46 @@
           ]
         },
         {
-          "id": "anthropic/claude-3.7-sonnet",
-          "name": "Claude Sonnet 3.7",
+          "id": "anthropic/claude-opus-4.7-fast",
+          "name": "Claude Opus 4.7 (Fast)",
           "lab": "Anthropic",
-          "context_window": 200000,
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "anthropic/claude-opus-4.8",
+          "name": "Claude Opus 4.8",
+          "lab": "Anthropic",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "anthropic/claude-opus-4.8-fast",
+          "name": "Claude Opus 4.8 (Fast)",
+          "lab": "Anthropic",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "~anthropic/claude-opus-latest",
+          "name": "Claude Opus Latest",
+          "lab": "~Anthropic",
+          "context_window": 1000000,
           "tags": [
             "reasoning",
             "tool-use",
@@ -949,7 +1116,7 @@
           "id": "anthropic/claude-sonnet-4",
           "name": "Claude Sonnet 4",
           "lab": "Anthropic",
-          "context_window": 200000,
+          "context_window": 1000000,
           "tags": [
             "reasoning",
             "tool-use",
@@ -959,7 +1126,7 @@
         },
         {
           "id": "anthropic/claude-sonnet-4.5",
-          "name": "Claude Sonnet 4.5",
+          "name": "Claude Sonnet 4.5 (latest)",
           "lab": "Anthropic",
           "context_window": 1000000,
           "tags": [
@@ -982,22 +1149,96 @@
           ]
         },
         {
+          "id": "alfredpros/codellama-7b-instruct-solidity",
+          "name": "CodeLLaMa 7B Instruct Solidity",
+          "lab": "Alfredpros",
+          "context_window": 4096,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "arcee-ai/coder-large",
+          "name": "Coder Large",
+          "lab": "Arcee Ai",
+          "context_window": 32768,
+          "tags": [
+            "general"
+          ]
+        },
+        {
           "id": "mistralai/codestral-2508",
           "name": "Codestral 2508",
           "lab": "Mistralai",
           "context_window": 256000,
           "tags": [
             "tool-use",
+            "multimodal"
+          ]
+        },
+        {
+          "id": "deepcogito/cogito-v2.1-671b",
+          "name": "Cogito v2.1 671B",
+          "lab": "Deepcogito",
+          "context_window": 128000,
+          "tags": [
+            "reasoning"
+          ]
+        },
+        {
+          "id": "cohere/command-a",
+          "name": "Command A",
+          "lab": "Cohere",
+          "context_window": 256000,
+          "tags": [
             "open-weights"
           ]
         },
         {
-          "id": "deepseek/deepseek-r1-distill-llama-70b",
-          "name": "DeepSeek R1 Distill Llama 70B",
-          "lab": "Deepseek",
-          "context_window": 8192,
+          "id": "cohere/command-r-08-2024",
+          "name": "Command R",
+          "lab": "Cohere",
+          "context_window": 128000,
           "tags": [
-            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "cohere/command-r-plus-08-2024",
+          "name": "Command R+",
+          "lab": "Cohere",
+          "context_window": 128000,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "cohere/command-r7b-12-2024",
+          "name": "Command R7B",
+          "lab": "Cohere",
+          "context_window": 128000,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "thedrummer/cydonia-24b-v4.1",
+          "name": "Cydonia 24B V4.1",
+          "lab": "Thedrummer",
+          "context_window": 131072,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "deepseek/deepseek-chat",
+          "name": "DeepSeek Chat",
+          "lab": "Deepseek",
+          "context_window": 128000,
+          "tags": [
+            "tool-use",
             "open-weights"
           ]
         },
@@ -1005,16 +1246,17 @@
           "id": "deepseek/deepseek-chat-v3-0324",
           "name": "DeepSeek V3 0324",
           "lab": "Deepseek",
-          "context_window": 16384,
+          "context_window": 163840,
           "tags": [
+            "tool-use",
             "open-weights"
           ]
         },
         {
-          "id": "deepseek/deepseek-v3.1-terminus",
-          "name": "DeepSeek V3.1 Terminus",
+          "id": "deepseek/deepseek-chat-v3.1",
+          "name": "DeepSeek V3.1",
           "lab": "Deepseek",
-          "context_window": 131072,
+          "context_window": 163840,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1022,10 +1264,20 @@
           ]
         },
         {
-          "id": "deepseek/deepseek-v3.1-terminus:exacto",
-          "name": "DeepSeek V3.1 Terminus (exacto)",
-          "lab": "Deepseek",
+          "id": "nex-agi/deepseek-v3.1-nex-n1",
+          "name": "DeepSeek V3.1 Nex N1",
+          "lab": "Nex Agi",
           "context_window": 131072,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "deepseek/deepseek-v3.1-terminus",
+          "name": "DeepSeek V3.1 Terminus",
+          "lab": "Deepseek",
+          "context_window": 163840,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1036,7 +1288,7 @@
           "id": "deepseek/deepseek-v3.2",
           "name": "DeepSeek V3.2",
           "lab": "Deepseek",
-          "context_window": 163840,
+          "context_window": 131072,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1044,8 +1296,8 @@
           ]
         },
         {
-          "id": "deepseek/deepseek-v3.2-speciale",
-          "name": "DeepSeek V3.2 Speciale",
+          "id": "deepseek/deepseek-v3.2-exp",
+          "name": "DeepSeek V3.2 Exp",
           "lab": "Deepseek",
           "context_window": 163840,
           "tags": [
@@ -1055,10 +1307,10 @@
           ]
         },
         {
-          "id": "deepseek/deepseek-chat-v3.1",
-          "name": "DeepSeek-V3.1",
+          "id": "deepseek/deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
           "lab": "Deepseek",
-          "context_window": 163840,
+          "context_window": 1048576,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1066,10 +1318,21 @@
           ]
         },
         {
-          "id": "deepseek/deepseek-r1",
-          "name": "DeepSeek: R1",
+          "id": "deepseek/deepseek-v4-flash:free",
+          "name": "DeepSeek V4 Flash (free)",
           "lab": "Deepseek",
-          "context_window": 64000,
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "deepseek/deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro",
+          "lab": "Deepseek",
+          "context_window": 1048576,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1078,88 +1341,87 @@
         },
         {
           "id": "mistralai/devstral-2512",
-          "name": "Devstral 2 2512",
+          "name": "Devstral 2",
           "lab": "Mistralai",
           "context_window": 262144,
           "tags": [
             "tool-use",
+            "multimodal",
             "open-weights"
           ]
         },
         {
-          "id": "mistralai/devstral-medium-2507",
+          "id": "mistralai/devstral-medium",
           "name": "Devstral Medium",
           "lab": "Mistralai",
           "context_window": 131072,
           "tags": [
             "tool-use",
-            "open-weights"
+            "multimodal"
           ]
         },
         {
-          "id": "mistralai/devstral-small-2505",
-          "name": "Devstral Small",
-          "lab": "Mistralai",
-          "context_window": 128000,
-          "tags": [
-            "tool-use",
-            "open-weights"
-          ]
-        },
-        {
-          "id": "mistralai/devstral-small-2507",
+          "id": "mistralai/devstral-small",
           "name": "Devstral Small 1.1",
           "lab": "Mistralai",
           "context_window": 131072,
           "tags": [
             "tool-use",
+            "multimodal",
             "open-weights"
           ]
         },
         {
-          "id": "openrouter/elephant-alpha",
-          "name": "Elephant (free)",
-          "lab": "Openrouter",
-          "context_window": 262144,
+          "id": "baidu/ernie-4.5-21b-a3b",
+          "name": "ERNIE 4.5 21B A3B",
+          "lab": "Baidu",
+          "context_window": 120000,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "baidu/ernie-4.5-21b-a3b-thinking",
+          "name": "ERNIE 4.5 21B A3B Thinking",
+          "lab": "Baidu",
+          "context_window": 131072,
           "tags": [
             "reasoning",
-            "tool-use"
+            "open-weights"
           ]
         },
         {
-          "id": "black-forest-labs/flux.2-flex",
-          "name": "FLUX.2 Flex",
-          "lab": "Black Forest Labs",
-          "context_window": 67344,
+          "id": "baidu/ernie-4.5-300b-a47b",
+          "name": "ERNIE 4.5 300B A47B ",
+          "lab": "Baidu",
+          "context_window": 123000,
           "tags": [
-            "vision"
+            "open-weights"
           ]
         },
         {
-          "id": "black-forest-labs/flux.2-klein-4b",
-          "name": "FLUX.2 Klein 4B",
-          "lab": "Black Forest Labs",
-          "context_window": 40960,
+          "id": "baidu/ernie-4.5-vl-28b-a3b",
+          "name": "ERNIE 4.5 VL 28B A3B",
+          "lab": "Baidu",
+          "context_window": 30000,
           "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
             "open-weights",
             "vision"
           ]
         },
         {
-          "id": "black-forest-labs/flux.2-max",
-          "name": "FLUX.2 Max",
-          "lab": "Black Forest Labs",
-          "context_window": 46864,
+          "id": "baidu/ernie-4.5-vl-424b-a47b",
+          "name": "ERNIE 4.5 VL 424B A47B ",
+          "lab": "Baidu",
+          "context_window": 123000,
           "tags": [
-            "vision"
-          ]
-        },
-        {
-          "id": "black-forest-labs/flux.2-pro",
-          "name": "FLUX.2 Pro",
-          "lab": "Black Forest Labs",
-          "context_window": 46864,
-          "tags": [
+            "reasoning",
+            "multimodal",
+            "open-weights",
             "vision"
           ]
         },
@@ -1176,10 +1438,30 @@
           ]
         },
         {
-          "id": "z-ai/glm-4.5",
-          "name": "GLM 4.5",
+          "id": "z-ai/glm-4-32b",
+          "name": "GLM 4 32B ",
           "lab": "Z Ai",
           "context_window": 128000,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "z-ai/glm-4.5-air:free",
+          "name": "GLM 4.5 Air (free)",
+          "lab": "Z Ai",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "z-ai/glm-4.5",
+          "name": "GLM-4.5",
+          "lab": "Z Ai",
+          "context_window": 131072,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1188,9 +1470,9 @@
         },
         {
           "id": "z-ai/glm-4.5-air",
-          "name": "GLM 4.5 Air",
+          "name": "GLM-4.5-Air",
           "lab": "Z Ai",
-          "context_window": 128000,
+          "context_window": 131070,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1198,20 +1480,10 @@
           ]
         },
         {
-          "id": "z-ai/glm-4.5-air:free",
-          "name": "GLM 4.5 Air (free)",
-          "lab": "Z Ai",
-          "context_window": 128000,
-          "tags": [
-            "reasoning",
-            "open-weights"
-          ]
-        },
-        {
           "id": "z-ai/glm-4.5v",
-          "name": "GLM 4.5V",
+          "name": "GLM-4.5V",
           "lab": "Z Ai",
-          "context_window": 64000,
+          "context_window": 65536,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1222,9 +1494,9 @@
         },
         {
           "id": "z-ai/glm-4.6",
-          "name": "GLM 4.6",
+          "name": "GLM-4.6",
           "lab": "Z Ai",
-          "context_window": 200000,
+          "context_window": 202752,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1232,21 +1504,23 @@
           ]
         },
         {
-          "id": "z-ai/glm-4.6:exacto",
-          "name": "GLM 4.6 (exacto)",
+          "id": "z-ai/glm-4.6v",
+          "name": "GLM-4.6V",
           "lab": "Z Ai",
-          "context_window": 200000,
+          "context_window": 131072,
           "tags": [
             "reasoning",
             "tool-use",
-            "open-weights"
+            "multimodal",
+            "open-weights",
+            "vision"
           ]
         },
         {
           "id": "z-ai/glm-4.7",
           "name": "GLM-4.7",
           "lab": "Z Ai",
-          "context_window": 204800,
+          "context_window": 202752,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1257,7 +1531,7 @@
           "id": "z-ai/glm-4.7-flash",
           "name": "GLM-4.7-Flash",
           "lab": "Z Ai",
-          "context_window": 200000,
+          "context_window": 202752,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1292,50 +1566,134 @@
           "context_window": 202752,
           "tags": [
             "reasoning",
-            "tool-use",
-            "open-weights"
+            "tool-use"
           ]
         },
         {
-          "id": "openai/gpt-oss-120b",
-          "name": "GPT OSS 120B",
-          "lab": "Openai",
-          "context_window": 131072,
+          "id": "z-ai/glm-5v-turbo",
+          "name": "GLM-5V-Turbo",
+          "lab": "Z Ai",
+          "context_window": 202752,
           "tags": [
             "reasoning",
             "tool-use",
-            "open-weights"
+            "multimodal",
+            "vision"
           ]
         },
         {
-          "id": "openai/gpt-oss-120b:exacto",
-          "name": "GPT OSS 120B (exacto)",
+          "id": "openai/gpt-audio",
+          "name": "GPT Audio",
           "lab": "Openai",
-          "context_window": 131072,
+          "context_window": 128000,
           "tags": [
-            "reasoning",
             "tool-use",
-            "open-weights"
+            "multimodal",
+            "audio"
           ]
         },
         {
-          "id": "openai/gpt-oss-20b",
-          "name": "GPT OSS 20B",
+          "id": "openai/gpt-audio-mini",
+          "name": "GPT Audio Mini",
           "lab": "Openai",
-          "context_window": 131072,
+          "context_window": 128000,
           "tags": [
-            "reasoning",
             "tool-use",
-            "open-weights"
+            "multimodal",
+            "audio"
           ]
         },
         {
-          "id": "openai/gpt-oss-safeguard-20b",
-          "name": "GPT OSS Safeguard 20B",
+          "id": "openai/gpt-chat-latest",
+          "name": "GPT Chat Latest",
           "lab": "Openai",
-          "context_window": 131072,
+          "context_window": 400000,
           "tags": [
-            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-3.5-turbo-0613",
+          "name": "GPT-3.5 Turbo (older v0613)",
+          "lab": "Openai",
+          "context_window": 4095,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "openai/gpt-3.5-turbo-16k",
+          "name": "GPT-3.5 Turbo 16k",
+          "lab": "Openai",
+          "context_window": 16385,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "openai/gpt-3.5-turbo-instruct",
+          "name": "GPT-3.5 Turbo Instruct",
+          "lab": "Openai",
+          "context_window": 4095,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "openai/gpt-3.5-turbo",
+          "name": "GPT-3.5-turbo",
+          "lab": "Openai",
+          "context_window": 16385,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "openai/gpt-4",
+          "name": "GPT-4",
+          "lab": "Openai",
+          "context_window": 8191,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "openai/gpt-4-0314",
+          "name": "GPT-4 (older v0314)",
+          "lab": "Openai",
+          "context_window": 8191,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "openai/gpt-4-turbo",
+          "name": "GPT-4 Turbo",
+          "lab": "Openai",
+          "context_window": 128000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-4-1106-preview",
+          "name": "GPT-4 Turbo (older v1106)",
+          "lab": "Openai",
+          "context_window": 128000,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "openai/gpt-4-turbo-preview",
+          "name": "GPT-4 Turbo Preview",
+          "lab": "Openai",
+          "context_window": 128000,
+          "tags": [
             "tool-use"
           ]
         },
@@ -1352,7 +1710,7 @@
         },
         {
           "id": "openai/gpt-4.1-mini",
-          "name": "GPT-4.1 Mini",
+          "name": "GPT-4.1 mini",
           "lab": "Openai",
           "context_window": 1047576,
           "tags": [
@@ -1362,14 +1720,98 @@
           ]
         },
         {
-          "id": "openai/gpt-4o-mini",
-          "name": "GPT-4o-mini",
+          "id": "openai/gpt-4.1-nano",
+          "name": "GPT-4.1 nano",
+          "lab": "Openai",
+          "context_window": 1047576,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-4o",
+          "name": "GPT-4o",
           "lab": "Openai",
           "context_window": 128000,
           "tags": [
             "tool-use",
             "multimodal",
             "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-4o-2024-05-13",
+          "name": "GPT-4o (2024-05-13)",
+          "lab": "Openai",
+          "context_window": 128000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-4o-2024-08-06",
+          "name": "GPT-4o (2024-08-06)",
+          "lab": "Openai",
+          "context_window": 128000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-4o-2024-11-20",
+          "name": "GPT-4o (2024-11-20)",
+          "lab": "Openai",
+          "context_window": 128000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-4o-search-preview",
+          "name": "GPT-4o Search Preview",
+          "lab": "Openai",
+          "context_window": 128000,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "openai/gpt-4o-mini",
+          "name": "GPT-4o mini",
+          "lab": "Openai",
+          "context_window": 128000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-4o-mini-2024-07-18",
+          "name": "GPT-4o-mini (2024-07-18)",
+          "lab": "Openai",
+          "context_window": 128000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-4o-mini-search-preview",
+          "name": "GPT-4o-mini Search Preview",
+          "lab": "Openai",
+          "context_window": 128000,
+          "tags": [
+            "general"
           ]
         },
         {
@@ -1386,23 +1828,10 @@
         },
         {
           "id": "openai/gpt-5-chat",
-          "name": "GPT-5 Chat (latest)",
+          "name": "GPT-5 Chat",
           "lab": "Openai",
-          "context_window": 400000,
+          "context_window": 128000,
           "tags": [
-            "reasoning",
-            "multimodal",
-            "vision"
-          ]
-        },
-        {
-          "id": "openai/gpt-5-codex",
-          "name": "GPT-5 Codex",
-          "lab": "Openai",
-          "context_window": 400000,
-          "tags": [
-            "reasoning",
-            "tool-use",
             "multimodal",
             "vision"
           ]
@@ -1414,7 +1843,17 @@
           "context_window": 400000,
           "tags": [
             "reasoning",
-            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-5-image-mini",
+          "name": "GPT-5 Image Mini",
+          "lab": "Openai",
+          "context_window": 400000,
+          "tags": [
+            "reasoning",
             "multimodal",
             "vision"
           ]
@@ -1456,6 +1895,18 @@
           ]
         },
         {
+          "id": "openai/gpt-5-codex",
+          "name": "GPT-5-Codex",
+          "lab": "Openai",
+          "context_window": 400000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
           "id": "openai/gpt-5.1",
           "name": "GPT-5.1",
           "lab": "Openai",
@@ -1473,7 +1924,6 @@
           "lab": "Openai",
           "context_window": 128000,
           "tags": [
-            "reasoning",
             "tool-use",
             "multimodal",
             "vision"
@@ -1481,7 +1931,7 @@
         },
         {
           "id": "openai/gpt-5.1-codex",
-          "name": "GPT-5.1-Codex",
+          "name": "GPT-5.1 Codex",
           "lab": "Openai",
           "context_window": 400000,
           "tags": [
@@ -1493,7 +1943,7 @@
         },
         {
           "id": "openai/gpt-5.1-codex-max",
-          "name": "GPT-5.1-Codex-Max",
+          "name": "GPT-5.1 Codex Max",
           "lab": "Openai",
           "context_window": 400000,
           "tags": [
@@ -1505,7 +1955,7 @@
         },
         {
           "id": "openai/gpt-5.1-codex-mini",
-          "name": "GPT-5.1-Codex-Mini",
+          "name": "GPT-5.1 Codex mini",
           "lab": "Openai",
           "context_window": 400000,
           "tags": [
@@ -1533,6 +1983,17 @@
           "lab": "Openai",
           "context_window": 128000,
           "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-5.2-codex",
+          "name": "GPT-5.2 Codex",
+          "lab": "Openai",
+          "context_window": 400000,
+          "tags": [
             "reasoning",
             "tool-use",
             "multimodal",
@@ -1552,12 +2013,11 @@
           ]
         },
         {
-          "id": "openai/gpt-5.2-codex",
-          "name": "GPT-5.2-Codex",
+          "id": "openai/gpt-5.3-chat",
+          "name": "GPT-5.3 Chat",
           "lab": "Openai",
-          "context_window": 400000,
+          "context_window": 128000,
           "tags": [
-            "reasoning",
             "tool-use",
             "multimodal",
             "vision"
@@ -1565,7 +2025,7 @@
         },
         {
           "id": "openai/gpt-5.3-codex",
-          "name": "GPT-5.3-Codex",
+          "name": "GPT-5.3 Codex",
           "lab": "Openai",
           "context_window": 400000,
           "tags": [
@@ -1588,24 +2048,12 @@
           ]
         },
         {
-          "id": "openai/gpt-5.4-mini",
-          "name": "GPT-5.4 Mini",
+          "id": "openai/gpt-5.4-image-2",
+          "name": "GPT-5.4 Image 2",
           "lab": "Openai",
-          "context_window": 400000,
+          "context_window": 272000,
           "tags": [
             "reasoning",
-            "tool-use",
-            "multimodal",
-            "vision"
-          ]
-        },
-        {
-          "id": "openai/gpt-5.4-nano",
-          "name": "GPT-5.4 Nano",
-          "lab": "Openai",
-          "context_window": 400000,
-          "tags": [
-            "tool-use",
             "multimodal",
             "vision"
           ]
@@ -1623,8 +2071,68 @@
           ]
         },
         {
+          "id": "openai/gpt-5.4-mini",
+          "name": "GPT-5.4 mini",
+          "lab": "Openai",
+          "context_window": 400000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-5.4-nano",
+          "name": "GPT-5.4 nano",
+          "lab": "Openai",
+          "context_window": 400000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-5.5",
+          "name": "GPT-5.5",
+          "lab": "Openai",
+          "context_window": 1050000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/gpt-5.5-pro",
+          "name": "GPT-5.5 Pro",
+          "lab": "Openai",
+          "context_window": 1050000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
           "id": "google/gemini-2.0-flash-001",
           "name": "Gemini 2.0 Flash",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "id": "google/gemini-2.0-flash-lite-001",
+          "name": "Gemini 2.0 Flash Lite",
           "lab": "Google",
           "context_window": 1048576,
           "tags": [
@@ -1648,21 +2156,8 @@
           ]
         },
         {
-          "id": "google/gemini-2.5-flash-lite",
-          "name": "Gemini 2.5 Flash Lite",
-          "lab": "Google",
-          "context_window": 1048576,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal",
-            "vision",
-            "audio"
-          ]
-        },
-        {
           "id": "google/gemini-2.5-flash-lite-preview-09-2025",
-          "name": "Gemini 2.5 Flash Lite Preview 09-25",
+          "name": "Gemini 2.5 Flash Lite Preview 09-2025",
           "lab": "Google",
           "context_window": 1048576,
           "tags": [
@@ -1674,8 +2169,8 @@
           ]
         },
         {
-          "id": "google/gemini-2.5-flash-preview-09-2025",
-          "name": "Gemini 2.5 Flash Preview 09-25",
+          "id": "google/gemini-2.5-flash-lite",
+          "name": "Gemini 2.5 Flash-Lite",
           "lab": "Google",
           "context_window": 1048576,
           "tags": [
@@ -1713,7 +2208,7 @@
           ]
         },
         {
-          "id": "google/gemini-2.5-pro-preview-06-05",
+          "id": "google/gemini-2.5-pro-preview",
           "name": "Gemini 2.5 Pro Preview 06-05",
           "lab": "Google",
           "context_window": 1048576,
@@ -1739,10 +2234,10 @@
           ]
         },
         {
-          "id": "google/gemini-3-pro-preview",
-          "name": "Gemini 3 Pro Preview",
+          "id": "google/gemini-3.1-flash-lite",
+          "name": "Gemini 3.1 Flash Lite",
           "lab": "Google",
-          "context_window": 1050000,
+          "context_window": 1048576,
           "tags": [
             "reasoning",
             "tool-use",
@@ -1791,8 +2286,21 @@
           ]
         },
         {
-          "id": "google/gemma-2-9b-it",
-          "name": "Gemma 2 9B",
+          "id": "google/gemini-3.5-flash",
+          "name": "Gemini 3.5 Flash",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "id": "google/gemma-2-27b-it",
+          "name": "Gemma 2 27B",
           "lab": "Google",
           "context_window": 8192,
           "tags": [
@@ -1805,17 +2313,7 @@
           "lab": "Google",
           "context_window": 131072,
           "tags": [
-            "multimodal",
-            "open-weights",
-            "vision"
-          ]
-        },
-        {
-          "id": "google/gemma-3-12b-it:free",
-          "name": "Gemma 3 12B (free)",
-          "lab": "Google",
-          "context_window": 32768,
-          "tags": [
+            "tool-use",
             "multimodal",
             "open-weights",
             "vision"
@@ -1824,18 +2322,6 @@
         {
           "id": "google/gemma-3-27b-it",
           "name": "Gemma 3 27B",
-          "lab": "Google",
-          "context_window": 96000,
-          "tags": [
-            "tool-use",
-            "multimodal",
-            "open-weights",
-            "vision"
-          ]
-        },
-        {
-          "id": "google/gemma-3-27b-it:free",
-          "name": "Gemma 3 27B (free)",
           "lab": "Google",
           "context_window": 131072,
           "tags": [
@@ -1849,32 +2335,11 @@
           "id": "google/gemma-3-4b-it",
           "name": "Gemma 3 4B",
           "lab": "Google",
-          "context_window": 96000,
+          "context_window": 131072,
           "tags": [
             "multimodal",
             "open-weights",
             "vision"
-          ]
-        },
-        {
-          "id": "google/gemma-3-4b-it:free",
-          "name": "Gemma 3 4B (free)",
-          "lab": "Google",
-          "context_window": 32768,
-          "tags": [
-            "multimodal",
-            "open-weights",
-            "vision"
-          ]
-        },
-        {
-          "id": "google/gemma-3n-e2b-it:free",
-          "name": "Gemma 3n 2B (free)",
-          "lab": "Google",
-          "context_window": 8192,
-          "tags": [
-            "multimodal",
-            "open-weights"
           ]
         },
         {
@@ -1883,36 +2348,12 @@
           "lab": "Google",
           "context_window": 32768,
           "tags": [
-            "multimodal",
             "open-weights"
-          ]
-        },
-        {
-          "id": "google/gemma-3n-e4b-it:free",
-          "name": "Gemma 3n 4B (free)",
-          "lab": "Google",
-          "context_window": 8192,
-          "tags": [
-            "multimodal",
-            "open-weights"
-          ]
-        },
-        {
-          "id": "google/gemma-4-26b-a4b-it",
-          "name": "Gemma 4 26B A4B",
-          "lab": "Google",
-          "context_window": 262144,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal",
-            "open-weights",
-            "vision"
           ]
         },
         {
           "id": "google/gemma-4-26b-a4b-it:free",
-          "name": "Gemma 4 26B A4B (free)",
+          "name": "Gemma 4 26B A4B  (free)",
           "lab": "Google",
           "context_window": 262144,
           "tags": [
@@ -1924,8 +2365,8 @@
           ]
         },
         {
-          "id": "google/gemma-4-31b-it",
-          "name": "Gemma 4 31B",
+          "id": "google/gemma-4-26b-a4b-it",
+          "name": "Gemma 4 26B A4B IT",
           "lab": "Google",
           "context_window": 262144,
           "tags": [
@@ -1950,78 +2391,66 @@
           ]
         },
         {
-          "id": "x-ai/grok-3",
-          "name": "Grok 3",
-          "lab": "X Ai",
-          "context_window": 131072,
-          "tags": [
-            "tool-use"
-          ]
-        },
-        {
-          "id": "x-ai/grok-3-beta",
-          "name": "Grok 3 Beta",
-          "lab": "X Ai",
-          "context_window": 131072,
-          "tags": [
-            "tool-use"
-          ]
-        },
-        {
-          "id": "x-ai/grok-3-mini",
-          "name": "Grok 3 Mini",
-          "lab": "X Ai",
-          "context_window": 131072,
-          "tags": [
-            "reasoning",
-            "tool-use"
-          ]
-        },
-        {
-          "id": "x-ai/grok-3-mini-beta",
-          "name": "Grok 3 Mini Beta",
-          "lab": "X Ai",
-          "context_window": 131072,
-          "tags": [
-            "reasoning",
-            "tool-use"
-          ]
-        },
-        {
-          "id": "x-ai/grok-4",
-          "name": "Grok 4",
-          "lab": "X Ai",
-          "context_window": 256000,
-          "tags": [
-            "reasoning",
-            "tool-use"
-          ]
-        },
-        {
-          "id": "x-ai/grok-4-fast",
-          "name": "Grok 4 Fast",
-          "lab": "X Ai",
-          "context_window": 2000000,
+          "id": "google/gemma-4-31b-it",
+          "name": "Gemma 4 31B IT",
+          "lab": "Google",
+          "context_window": 262144,
           "tags": [
             "reasoning",
             "tool-use",
+            "multimodal",
+            "open-weights",
             "vision"
           ]
         },
         {
-          "id": "x-ai/grok-4.1-fast",
-          "name": "Grok 4.1 Fast",
-          "lab": "X Ai",
-          "context_window": 2000000,
+          "id": "~google/gemini-flash-latest",
+          "name": "Google Gemini Flash Latest",
+          "lab": "~Google",
+          "context_window": 1048576,
           "tags": [
             "reasoning",
             "tool-use",
-            "vision"
+            "multimodal",
+            "vision",
+            "audio"
           ]
         },
         {
-          "id": "x-ai/grok-4.20-beta",
-          "name": "Grok 4.20 Beta",
+          "id": "~google/gemini-pro-latest",
+          "name": "Google Gemini Pro Latest",
+          "lab": "~Google",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "id": "ibm-granite/granite-4.0-h-micro",
+          "name": "Granite 4.0 Micro",
+          "lab": "Ibm Granite",
+          "context_window": 131000,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "ibm-granite/granite-4.1-8b",
+          "name": "Granite 4.1 8B",
+          "lab": "Ibm Granite",
+          "context_window": 131072,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "x-ai/grok-4.20",
+          "name": "Grok 4.20",
           "lab": "X Ai",
           "context_window": 2000000,
           "tags": [
@@ -2032,8 +2461,8 @@
           ]
         },
         {
-          "id": "x-ai/grok-4.20-multi-agent-beta",
-          "name": "Grok 4.20 Multi - Agent Beta",
+          "id": "x-ai/grok-4.20-multi-agent",
+          "name": "Grok 4.20 Multi-Agent",
           "lab": "X Ai",
           "context_window": 2000000,
           "tags": [
@@ -2043,13 +2472,45 @@
           ]
         },
         {
-          "id": "x-ai/grok-code-fast-1",
-          "name": "Grok Code Fast 1",
+          "id": "x-ai/grok-4.3",
+          "name": "Grok 4.3",
+          "lab": "X Ai",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "x-ai/grok-build-0.1",
+          "name": "Grok Build 0.1",
           "lab": "X Ai",
           "context_window": 256000,
           "tags": [
             "reasoning",
-            "tool-use"
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "nousresearch/hermes-2-pro-llama-3-8b",
+          "name": "Hermes 2 Pro - Llama-3 8B",
+          "lab": "Nousresearch",
+          "context_window": 8192,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "nousresearch/hermes-3-llama-3.1-405b",
+          "name": "Hermes 3 405B Instruct",
+          "lab": "Nousresearch",
+          "context_window": 131072,
+          "tags": [
+            "open-weights"
           ]
         },
         {
@@ -2058,7 +2519,15 @@
           "lab": "Nousresearch",
           "context_window": 131072,
           "tags": [
-            "reasoning",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "nousresearch/hermes-3-llama-3.1-70b",
+          "name": "Hermes 3 70B Instruct",
+          "lab": "Nousresearch",
+          "context_window": 131072,
+          "tags": [
             "open-weights"
           ]
         },
@@ -2069,7 +2538,6 @@
           "context_window": 131072,
           "tags": [
             "reasoning",
-            "tool-use",
             "open-weights"
           ]
         },
@@ -2080,13 +2548,33 @@
           "context_window": 131072,
           "tags": [
             "reasoning",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "tencent/hunyuan-a13b-instruct",
+          "name": "Hunyuan A13B Instruct",
+          "lab": "Tencent",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "tencent/hy3-preview",
+          "name": "Hy3 preview",
+          "lab": "Tencent",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
             "tool-use",
             "open-weights"
           ]
         },
         {
           "id": "prime-intellect/intellect-3",
-          "name": "Intellect 3",
+          "name": "INTELLECT-3",
           "lab": "Prime Intellect",
           "context_window": 131072,
           "tags": [
@@ -2096,8 +2584,45 @@
           ]
         },
         {
+          "id": "inflection/inflection-3-pi",
+          "name": "Inflection 3 Pi",
+          "lab": "Inflection",
+          "context_window": 8000,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "inflection/inflection-3-productivity",
+          "name": "Inflection 3 Productivity",
+          "lab": "Inflection",
+          "context_window": 8000,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "ai21/jamba-large-1.7",
+          "name": "Jamba Large 1.7",
+          "lab": "Ai21",
+          "context_window": 256000,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "kwaipilot/kat-coder-pro-v2",
+          "name": "KAT-Coder-Pro V2",
+          "lab": "Kwaipilot",
+          "context_window": 256000,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
           "id": "moonshotai/kimi-k2",
-          "name": "Kimi K2",
+          "name": "Kimi K2 0711",
           "lab": "Moonshotai",
           "context_window": 131072,
           "tags": [
@@ -2107,17 +2632,7 @@
         },
         {
           "id": "moonshotai/kimi-k2-0905",
-          "name": "Kimi K2 Instruct 0905",
-          "lab": "Moonshotai",
-          "context_window": 262144,
-          "tags": [
-            "tool-use",
-            "open-weights"
-          ]
-        },
-        {
-          "id": "moonshotai/kimi-k2-0905:exacto",
-          "name": "Kimi K2 Instruct 0905 (exacto)",
+          "name": "Kimi K2 0905",
           "lab": "Moonshotai",
           "context_window": 262144,
           "tags": [
@@ -2150,10 +2665,45 @@
           ]
         },
         {
+          "id": "moonshotai/kimi-k2.6",
+          "name": "Kimi K2.6",
+          "lab": "Moonshotai",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "moonshotai/kimi-k2.6:free",
+          "name": "Kimi K2.6 (free)",
+          "lab": "Moonshotai",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "liquid/lfm-2-24b-a2b",
+          "name": "LFM2-24B-A2B",
+          "lab": "Liquid",
+          "context_window": 32768,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
           "id": "liquid/lfm-2.5-1.2b-instruct:free",
           "name": "LFM2.5-1.2B-Instruct (free)",
           "lab": "Liquid",
-          "context_window": 131072,
+          "context_window": 32768,
           "tags": [
             "open-weights"
           ]
@@ -2162,9 +2712,124 @@
           "id": "liquid/lfm-2.5-1.2b-thinking:free",
           "name": "LFM2.5-1.2B-Thinking (free)",
           "lab": "Liquid",
-          "context_window": 131072,
+          "context_window": 32768,
           "tags": [
             "reasoning",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "poolside/laguna-m.1:free",
+          "name": "Laguna M.1 (free)",
+          "lab": "Poolside",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "poolside/laguna-xs.2:free",
+          "name": "Laguna XS.2 (free)",
+          "lab": "Poolside",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "inclusionai/ling-2.6-1t",
+          "name": "Ling-2.6-1T",
+          "lab": "Inclusionai",
+          "context_window": 262144,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "inclusionai/ling-2.6-flash",
+          "name": "Ling-2.6-flash",
+          "lab": "Inclusionai",
+          "context_window": 262144,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "meta-llama/llama-3-70b-instruct",
+          "name": "Llama 3 70B Instruct",
+          "lab": "Meta Llama",
+          "context_window": 8192,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "meta-llama/llama-3-8b-instruct",
+          "name": "Llama 3 8B Instruct",
+          "lab": "Meta Llama",
+          "context_window": 8192,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "sao10k/l3-lunaris-8b",
+          "name": "Llama 3 8B Lunaris",
+          "lab": "Sao10K",
+          "context_window": 8192,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "sao10k/l3-euryale-70b",
+          "name": "Llama 3 Euryale 70B v2.1",
+          "lab": "Sao10K",
+          "context_window": 8192,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "sao10k/l3.1-70b-hanami-x1",
+          "name": "Llama 3.1 70B Hanami x1",
+          "lab": "Sao10K",
+          "context_window": 16000,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "meta-llama/llama-3.1-70b-instruct",
+          "name": "Llama 3.1 70B Instruct",
+          "lab": "Meta Llama",
+          "context_window": 131072,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "meta-llama/llama-3.1-8b-instruct",
+          "name": "Llama 3.1 8B Instruct",
+          "lab": "Meta Llama",
+          "context_window": 16384,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "sao10k/l3.1-euryale-70b",
+          "name": "Llama 3.1 Euryale 70B v2.2",
+          "lab": "Sao10K",
+          "context_window": 131072,
+          "tags": [
+            "tool-use",
             "open-weights"
           ]
         },
@@ -2180,10 +2845,100 @@
           ]
         },
         {
+          "id": "meta-llama/llama-3.2-1b-instruct",
+          "name": "Llama 3.2 1B Instruct",
+          "lab": "Meta Llama",
+          "context_window": 60000,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "meta-llama/llama-3.2-3b-instruct",
+          "name": "Llama 3.2 3B Instruct",
+          "lab": "Meta Llama",
+          "context_window": 80000,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
           "id": "meta-llama/llama-3.2-3b-instruct:free",
           "name": "Llama 3.2 3B Instruct (free)",
           "lab": "Meta Llama",
           "context_window": 131072,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "meta-llama/llama-3.3-70b-instruct:free",
+          "name": "Llama 3.3 70B Instruct (free)",
+          "lab": "Meta Llama",
+          "context_window": 65536,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "sao10k/l3.3-euryale-70b",
+          "name": "Llama 3.3 Euryale 70B",
+          "lab": "Sao10K",
+          "context_window": 131072,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+          "name": "Llama 3.3 Nemotron Super 49B V1.5",
+          "lab": "Nvidia",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "meta-llama/llama-4-maverick",
+          "name": "Llama 4 Maverick",
+          "lab": "Meta Llama",
+          "context_window": 1048576,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "meta-llama/llama-4-scout",
+          "name": "Llama 4 Scout",
+          "lab": "Meta Llama",
+          "context_window": 327680,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "meta-llama/llama-guard-3-8b",
+          "name": "Llama Guard 3 8B",
+          "lab": "Meta Llama",
+          "context_window": 131072,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "meta-llama/llama-guard-4-12b",
+          "name": "Llama Guard 4 12B",
+          "lab": "Meta Llama",
+          "context_window": 163840,
           "tags": [
             "multimodal",
             "open-weights",
@@ -2191,12 +2946,50 @@
           ]
         },
         {
-          "id": "meta-llama/llama-3.3-70b-instruct:free",
-          "name": "Llama 3.3 70B Instruct (free)",
+          "id": "meta-llama/llama-3.3-70b-instruct",
+          "name": "Llama-3.3-70B-Instruct",
           "lab": "Meta Llama",
           "context_window": 131072,
           "tags": [
             "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "google/lyria-3-clip-preview",
+          "name": "Lyria 3 Clip Preview",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "google/lyria-3-pro-preview",
+          "name": "Lyria 3 Pro Preview",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "arcee-ai/maestro-reasoning",
+          "name": "Maestro Reasoning",
+          "lab": "Arcee Ai",
+          "context_window": 131072,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "anthracite-org/magnum-v4-72b",
+          "name": "Magnum v4 72B",
+          "lab": "Anthracite Org",
+          "context_window": 16384,
+          "tags": [
             "open-weights"
           ]
         },
@@ -2208,15 +3001,6 @@
           "tags": [
             "reasoning",
             "tool-use"
-          ]
-        },
-        {
-          "id": "inception/mercury-edit-2",
-          "name": "Mercury Edit 2",
-          "lab": "Inception",
-          "context_window": 128000,
-          "tags": [
-            "reasoning"
           ]
         },
         {
@@ -2239,7 +3023,6 @@
             "reasoning",
             "tool-use",
             "multimodal",
-            "open-weights",
             "vision",
             "audio"
           ]
@@ -2247,6 +3030,30 @@
         {
           "id": "xiaomi/mimo-v2-pro",
           "name": "MiMo-V2-Pro",
+          "lab": "Xiaomi",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "xiaomi/mimo-v2.5",
+          "name": "MiMo-V2.5",
+          "lab": "Xiaomi",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "id": "xiaomi/mimo-v2.5-pro",
+          "name": "MiMo-V2.5-Pro",
           "lab": "Xiaomi",
           "context_window": 1048576,
           "tags": [
@@ -2262,59 +3069,23 @@
           "context_window": 1000000,
           "tags": [
             "reasoning",
-            "tool-use",
-            "open-weights"
+            "tool-use"
           ]
         },
         {
-          "id": "minimax/minimax-m2",
-          "name": "MiniMax M2",
+          "id": "minimax/minimax-m2-her",
+          "name": "MiniMax M2-her",
           "lab": "Minimax",
-          "context_window": 196600,
+          "context_window": 65536,
           "tags": [
-            "reasoning",
-            "tool-use",
-            "open-weights"
-          ]
-        },
-        {
-          "id": "minimax/minimax-m2.1",
-          "name": "MiniMax M2.1",
-          "lab": "Minimax",
-          "context_window": 204800,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "open-weights"
-          ]
-        },
-        {
-          "id": "minimax/minimax-m2.5",
-          "name": "MiniMax M2.5",
-          "lab": "Minimax",
-          "context_window": 204800,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "open-weights"
+            "general"
           ]
         },
         {
           "id": "minimax/minimax-m2.5:free",
           "name": "MiniMax M2.5 (free)",
           "lab": "Minimax",
-          "context_window": 204800,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "open-weights"
-          ]
-        },
-        {
-          "id": "minimax/minimax-m2.7",
-          "name": "MiniMax M2.7",
-          "lab": "Minimax",
-          "context_window": 204800,
+          "context_window": 196608,
           "tags": [
             "reasoning",
             "tool-use",
@@ -2325,9 +3096,130 @@
           "id": "minimax/minimax-01",
           "name": "MiniMax-01",
           "lab": "Minimax",
-          "context_window": 1000000,
+          "context_window": 1000192,
+          "tags": [
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "minimax/minimax-m2",
+          "name": "MiniMax-M2",
+          "lab": "Minimax",
+          "context_window": 196608,
           "tags": [
             "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "minimax/minimax-m2.1",
+          "name": "MiniMax-M2.1",
+          "lab": "Minimax",
+          "context_window": 196608,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "minimax/minimax-m2.5",
+          "name": "MiniMax-M2.5",
+          "lab": "Minimax",
+          "context_window": 196608,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "minimax/minimax-m2.7",
+          "name": "MiniMax-M2.7",
+          "lab": "Minimax",
+          "context_window": 196608,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "mistralai/ministral-14b-2512",
+          "name": "Ministral 3 14B 2512",
+          "lab": "Mistralai",
+          "context_window": 262144,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "mistralai/ministral-3b-2512",
+          "name": "Ministral 3 3B 2512",
+          "lab": "Mistralai",
+          "context_window": 131072,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "mistralai/ministral-8b-2512",
+          "name": "Ministral 3 8B 2512",
+          "lab": "Mistralai",
+          "context_window": 262144,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "mistralai/mistral-large",
+          "name": "Mistral Large",
+          "lab": "Mistralai",
+          "context_window": 128000,
+          "tags": [
+            "tool-use",
+            "multimodal"
+          ]
+        },
+        {
+          "id": "mistralai/mistral-large-2411",
+          "name": "Mistral Large 2.1",
+          "lab": "Mistralai",
+          "context_window": 131072,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "mistralai/mistral-large-2407",
+          "name": "Mistral Large 2407",
+          "lab": "Mistralai",
+          "context_window": 131072,
+          "tags": [
+            "tool-use",
+            "multimodal"
+          ]
+        },
+        {
+          "id": "mistralai/mistral-large-2512",
+          "name": "Mistral Large 3",
+          "lab": "Mistralai",
+          "context_window": 262144,
+          "tags": [
             "tool-use",
             "multimodal",
             "open-weights",
@@ -2349,7 +3241,7 @@
           "id": "mistralai/mistral-medium-3.1",
           "name": "Mistral Medium 3.1",
           "lab": "Mistralai",
-          "context_window": 262144,
+          "context_window": 131072,
           "tags": [
             "tool-use",
             "multimodal",
@@ -2357,12 +3249,42 @@
           ]
         },
         {
+          "id": "mistralai/mistral-medium-3-5",
+          "name": "Mistral Medium 3.5",
+          "lab": "Mistralai",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "mistralai/mistral-nemo",
+          "name": "Mistral Nemo",
+          "lab": "Mistralai",
+          "context_window": 131072,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "mistralai/mistral-small-24b-instruct-2501",
+          "name": "Mistral Small 3",
+          "lab": "Mistralai",
+          "context_window": 32768,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
           "id": "mistralai/mistral-small-3.1-24b-instruct",
-          "name": "Mistral Small 3.1 24B Instruct",
+          "name": "Mistral Small 3.1 24B",
           "lab": "Mistralai",
           "context_window": 128000,
           "tags": [
-            "tool-use",
             "multimodal",
             "open-weights",
             "vision"
@@ -2370,9 +3292,9 @@
         },
         {
           "id": "mistralai/mistral-small-3.2-24b-instruct",
-          "name": "Mistral Small 3.2 24B Instruct",
+          "name": "Mistral Small 3.2 24B",
           "lab": "Mistralai",
-          "context_window": 96000,
+          "context_window": 128000,
           "tags": [
             "tool-use",
             "multimodal",
@@ -2394,6 +3316,99 @@
           ]
         },
         {
+          "id": "mistralai/mixtral-8x22b-instruct",
+          "name": "Mixtral 8x22B Instruct",
+          "lab": "Mistralai",
+          "context_window": 65536,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "~moonshotai/kimi-latest",
+          "name": "MoonshotAI Kimi Latest",
+          "lab": "~Moonshotai",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "morph/morph-v3-fast",
+          "name": "Morph V3 Fast",
+          "lab": "Morph",
+          "context_window": 81920,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "morph/morph-v3-large",
+          "name": "Morph V3 Large",
+          "lab": "Morph",
+          "context_window": 262144,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "gryphe/mythomax-l2-13b",
+          "name": "MythoMax 13B",
+          "lab": "Gryphe",
+          "context_window": 4096,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "google/gemini-2.5-flash-image",
+          "name": "Nano Banana",
+          "lab": "Google",
+          "context_window": 32768,
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "google/gemini-3.1-flash-image-preview",
+          "name": "Nano Banana 2",
+          "lab": "Google",
+          "context_window": 65536,
+          "tags": [
+            "reasoning",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "google/gemini-3-pro-image-preview",
+          "name": "Nano Banana Pro (Gemini 3 Pro Image Preview)",
+          "lab": "Google",
+          "context_window": 65536,
+          "tags": [
+            "reasoning",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "nvidia/nemotron-3-nano-30b-a3b",
+          "name": "Nemotron 3 Nano 30B A3B",
+          "lab": "Nvidia",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
           "id": "nvidia/nemotron-3-nano-30b-a3b:free",
           "name": "Nemotron 3 Nano 30B A3B (free)",
           "lab": "Nvidia",
@@ -2402,6 +3417,19 @@
             "reasoning",
             "tool-use",
             "open-weights"
+          ]
+        },
+        {
+          "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+          "name": "Nemotron 3 Nano Omni (free)",
+          "lab": "Nvidia",
+          "context_window": 256000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision",
+            "audio"
           ]
         },
         {
@@ -2434,8 +3462,20 @@
           "tags": [
             "reasoning",
             "tool-use",
+            "multimodal",
             "open-weights",
             "vision"
+          ]
+        },
+        {
+          "id": "nvidia/nemotron-nano-9b-v2",
+          "name": "Nemotron Nano 9B V2",
+          "lab": "Nvidia",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
           ]
         },
         {
@@ -2445,6 +3485,209 @@
           "context_window": 128000,
           "tags": [
             "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "amazon/nova-2-lite-v1",
+          "name": "Nova 2 Lite",
+          "lab": "Amazon",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "amazon/nova-lite-v1",
+          "name": "Nova Lite 1.0",
+          "lab": "Amazon",
+          "context_window": 300000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "amazon/nova-micro-v1",
+          "name": "Nova Micro 1.0",
+          "lab": "Amazon",
+          "context_window": 128000,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "amazon/nova-premier-v1",
+          "name": "Nova Premier 1.0",
+          "lab": "Amazon",
+          "context_window": 1000000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "amazon/nova-pro-v1",
+          "name": "Nova Pro 1.0",
+          "lab": "Amazon",
+          "context_window": 300000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "allenai/olmo-3-32b-think",
+          "name": "Olmo 3 32B Think",
+          "lab": "Allenai",
+          "context_window": 65536,
+          "tags": [
+            "reasoning",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "~openai/gpt-latest",
+          "name": "OpenAI GPT Latest",
+          "lab": "~Openai",
+          "context_window": 1050000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "~openai/gpt-mini-latest",
+          "name": "OpenAI GPT Mini Latest",
+          "lab": "~Openai",
+          "context_window": 400000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openrouter/owl-alpha",
+          "name": "Owl Alpha",
+          "lab": "Openrouter",
+          "context_window": 1048756,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "writer/palmyra-x5",
+          "name": "Palmyra X5",
+          "lab": "Writer",
+          "context_window": 1040000,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "openrouter/pareto-code",
+          "name": "Pareto Code Router",
+          "lab": "Openrouter",
+          "context_window": 2000000,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "perceptron/perceptron-mk1",
+          "name": "Perceptron Mk1",
+          "lab": "Perceptron",
+          "context_window": 32768,
+          "tags": [
+            "reasoning",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "microsoft/phi-4",
+          "name": "Phi 4",
+          "lab": "Microsoft",
+          "context_window": 16384,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "microsoft/phi-4-mini-instruct",
+          "name": "Phi 4 Mini Instruct",
+          "lab": "Microsoft",
+          "context_window": 128000,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "mistralai/pixtral-large-2411",
+          "name": "Pixtral Large 2411",
+          "lab": "Mistralai",
+          "context_window": 131072,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen-plus-2025-07-28",
+          "name": "Qwen Plus 0728",
+          "lab": "Qwen",
+          "context_window": 1000000,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "qwen/qwen-plus-2025-07-28:thinking",
+          "name": "Qwen Plus 0728 (thinking)",
+          "lab": "Qwen",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "qwen/qwen-plus",
+          "name": "Qwen-Plus",
+          "lab": "Qwen",
+          "context_window": 1000000,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "qwen/qwen-2.5-72b-instruct",
+          "name": "Qwen2.5 72B Instruct",
+          "lab": "Qwen",
+          "context_window": 32768,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "qwen/qwen-2.5-7b-instruct",
+          "name": "Qwen2.5 7B Instruct",
+          "lab": "Qwen",
+          "context_window": 32768,
+          "tags": [
             "tool-use",
             "open-weights"
           ]
@@ -2462,7 +3705,7 @@
           "id": "qwen/qwen2.5-vl-72b-instruct",
           "name": "Qwen2.5 VL 72B Instruct",
           "lab": "Qwen",
-          "context_window": 32768,
+          "context_window": 32000,
           "tags": [
             "multimodal",
             "open-weights",
@@ -2470,7 +3713,29 @@
           ]
         },
         {
-          "id": "qwen/qwen3-235b-a22b-07-25",
+          "id": "qwen/qwen3-14b",
+          "name": "Qwen3 14B",
+          "lab": "Qwen",
+          "context_window": 40960,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-235b-a22b",
+          "name": "Qwen3 235B A22B",
+          "lab": "Qwen",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-235b-a22b-2507",
           "name": "Qwen3 235B A22B Instruct 2507",
           "lab": "Qwen",
           "context_window": 262144,
@@ -2491,10 +3756,21 @@
           ]
         },
         {
+          "id": "qwen/qwen3-30b-a3b",
+          "name": "Qwen3 30B A3B",
+          "lab": "Qwen",
+          "context_window": 40960,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
           "id": "qwen/qwen3-30b-a3b-instruct-2507",
           "name": "Qwen3 30B A3B Instruct 2507",
           "lab": "Qwen",
-          "context_window": 262000,
+          "context_window": 262144,
           "tags": [
             "tool-use",
             "open-weights"
@@ -2504,7 +3780,7 @@
           "id": "qwen/qwen3-30b-a3b-thinking-2507",
           "name": "Qwen3 30B A3B Thinking 2507",
           "lab": "Qwen",
-          "context_window": 262000,
+          "context_window": 131072,
           "tags": [
             "reasoning",
             "tool-use",
@@ -2512,21 +3788,23 @@
           ]
         },
         {
-          "id": "qwen/qwen3-coder",
-          "name": "Qwen3 Coder",
+          "id": "qwen/qwen3-32b",
+          "name": "Qwen3 32B",
           "lab": "Qwen",
-          "context_window": 262144,
+          "context_window": 40960,
           "tags": [
+            "reasoning",
             "tool-use",
             "open-weights"
           ]
         },
         {
-          "id": "qwen/qwen3-coder:exacto",
-          "name": "Qwen3 Coder (exacto)",
+          "id": "qwen/qwen3-8b",
+          "name": "Qwen3 8B",
           "lab": "Qwen",
-          "context_window": 131072,
+          "context_window": 40960,
           "tags": [
+            "reasoning",
             "tool-use",
             "open-weights"
           ]
@@ -2542,10 +3820,49 @@
           ]
         },
         {
+          "id": "qwen/qwen3-coder",
+          "name": "Qwen3 Coder 480B A35B",
+          "lab": "Qwen",
+          "context_window": 262144,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-coder:free",
+          "name": "Qwen3 Coder 480B A35B (free)",
+          "lab": "Qwen",
+          "context_window": 262000,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
           "id": "qwen/qwen3-coder-flash",
           "name": "Qwen3 Coder Flash",
           "lab": "Qwen",
-          "context_window": 128000,
+          "context_window": 1000000,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-coder-next",
+          "name": "Qwen3 Coder Next",
+          "lab": "Qwen",
+          "context_window": 262144,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-coder-plus",
+          "name": "Qwen3 Coder Plus",
+          "lab": "Qwen",
+          "context_window": 1000000,
           "tags": [
             "tool-use"
           ]
@@ -2553,6 +3870,15 @@
         {
           "id": "qwen/qwen3-max",
           "name": "Qwen3 Max",
+          "lab": "Qwen",
+          "context_window": 262144,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-max-thinking",
+          "name": "Qwen3 Max Thinking",
           "lab": "Qwen",
           "context_window": 262144,
           "tags": [
@@ -2571,14 +3897,111 @@
           ]
         },
         {
+          "id": "qwen/qwen3-next-80b-a3b-instruct:free",
+          "name": "Qwen3 Next 80B A3B Instruct (free)",
+          "lab": "Qwen",
+          "context_window": 262144,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
           "id": "qwen/qwen3-next-80b-a3b-thinking",
           "name": "Qwen3 Next 80B A3B Thinking",
           "lab": "Qwen",
-          "context_window": 262144,
+          "context_window": 131072,
           "tags": [
             "reasoning",
             "tool-use",
             "open-weights"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-vl-235b-a22b-instruct",
+          "name": "Qwen3 VL 235B A22B Instruct",
+          "lab": "Qwen",
+          "context_window": 262144,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-vl-235b-a22b-thinking",
+          "name": "Qwen3 VL 235B A22B Thinking",
+          "lab": "Qwen",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-vl-30b-a3b-instruct",
+          "name": "Qwen3 VL 30B A3B Instruct",
+          "lab": "Qwen",
+          "context_window": 131072,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-vl-30b-a3b-thinking",
+          "name": "Qwen3 VL 30B A3B Thinking",
+          "lab": "Qwen",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-vl-32b-instruct",
+          "name": "Qwen3 VL 32B Instruct",
+          "lab": "Qwen",
+          "context_window": 131072,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-vl-8b-instruct",
+          "name": "Qwen3 VL 8B Instruct",
+          "lab": "Qwen",
+          "context_window": 131072,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3-vl-8b-thinking",
+          "name": "Qwen3 VL 8B Thinking",
+          "lab": "Qwen",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
           ]
         },
         {
@@ -2607,6 +4030,130 @@
           ]
         },
         {
+          "id": "qwen/qwen3.5-plus-20260420",
+          "name": "Qwen3.5 Plus 2026-04-20",
+          "lab": "Qwen",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3.5-122b-a10b",
+          "name": "Qwen3.5-122B-A10B",
+          "lab": "Qwen",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3.5-27b",
+          "name": "Qwen3.5-27B",
+          "lab": "Qwen",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3.5-35b-a3b",
+          "name": "Qwen3.5-35B-A3B",
+          "lab": "Qwen",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3.5-9b",
+          "name": "Qwen3.5-9B",
+          "lab": "Qwen",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3.5-flash-02-23",
+          "name": "Qwen3.5-Flash",
+          "lab": "Qwen",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3.6-27b",
+          "name": "Qwen3.6 27B",
+          "lab": "Qwen",
+          "context_window": 262140,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3.6-35b-a3b",
+          "name": "Qwen3.6 35B A3B",
+          "lab": "Qwen",
+          "context_window": 262140,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3.6-flash",
+          "name": "Qwen3.6 Flash",
+          "lab": "Qwen",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwen/qwen3.6-max-preview",
+          "name": "Qwen3.6 Max Preview",
+          "lab": "Qwen",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
           "id": "qwen/qwen3.6-plus",
           "name": "Qwen3.6 Plus",
           "lab": "Qwen",
@@ -2619,10 +4166,151 @@
           ]
         },
         {
-          "id": "qwen/qwen3.5-flash-02-23",
-          "name": "Qwen: Qwen3.5-Flash",
+          "id": "qwen/qwen3.7-max",
+          "name": "Qwen3.7 Max",
           "lab": "Qwen",
           "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "deepseek/deepseek-r1",
+          "name": "R1",
+          "lab": "Deepseek",
+          "context_window": 64000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "deepseek/deepseek-r1-0528",
+          "name": "R1 0528",
+          "lab": "Deepseek",
+          "context_window": 163840,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "deepseek/deepseek-r1-distill-llama-70b",
+          "name": "R1 Distill Llama 70B",
+          "lab": "Deepseek",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "deepseek/deepseek-r1-distill-qwen-32b",
+          "name": "R1 Distill Qwen 32B",
+          "lab": "Deepseek",
+          "context_window": 32768,
+          "tags": [
+            "reasoning",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "undi95/remm-slerp-l2-13b",
+          "name": "ReMM SLERP 13B",
+          "lab": "Undi95",
+          "context_window": 6144,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "rekaai/reka-edge",
+          "name": "Reka Edge",
+          "lab": "Rekaai",
+          "context_window": 16384,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "rekaai/reka-flash-3",
+          "name": "Reka Flash 3",
+          "lab": "Rekaai",
+          "context_window": 65536,
+          "tags": [
+            "reasoning",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "relace/relace-apply-3",
+          "name": "Relace Apply 3",
+          "lab": "Relace",
+          "context_window": 256000,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "relace/relace-search",
+          "name": "Relace Search",
+          "lab": "Relace",
+          "context_window": 256000,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "inclusionai/ring-2.6-1t",
+          "name": "Ring-2.6-1T",
+          "lab": "Inclusionai",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "essentialai/rnj-1-instruct",
+          "name": "Rnj 1 Instruct",
+          "lab": "Essentialai",
+          "context_window": 32768,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "thedrummer/rocinante-12b",
+          "name": "Rocinante 12B",
+          "lab": "Thedrummer",
+          "context_window": 32768,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "mistralai/mistral-saba",
+          "name": "Saba",
+          "lab": "Mistralai",
+          "context_window": 32768,
+          "tags": [
+            "tool-use",
+            "multimodal"
+          ]
+        },
+        {
+          "id": "bytedance-seed/seed-1.6",
+          "name": "Seed 1.6",
+          "lab": "Bytedance Seed",
+          "context_window": 262144,
           "tags": [
             "reasoning",
             "tool-use",
@@ -2631,42 +4319,108 @@
           ]
         },
         {
-          "id": "sourceful/riverflow-v2-fast-preview",
-          "name": "Riverflow V2 Fast Preview",
-          "lab": "Sourceful",
-          "context_window": 8192,
-          "tags": [
-            "open-weights",
-            "vision"
-          ]
-        },
-        {
-          "id": "sourceful/riverflow-v2-max-preview",
-          "name": "Riverflow V2 Max Preview",
-          "lab": "Sourceful",
-          "context_window": 8192,
-          "tags": [
-            "open-weights",
-            "vision"
-          ]
-        },
-        {
-          "id": "sourceful/riverflow-v2-standard-preview",
-          "name": "Riverflow V2 Standard Preview",
-          "lab": "Sourceful",
-          "context_window": 8192,
-          "tags": [
-            "open-weights",
-            "vision"
-          ]
-        },
-        {
-          "id": "bytedance-seed/seedream-4.5",
-          "name": "Seedream 4.5",
+          "id": "bytedance-seed/seed-1.6-flash",
+          "name": "Seed 1.6 Flash",
           "lab": "Bytedance Seed",
-          "context_window": 4096,
+          "context_window": 262144,
           "tags": [
-            "open-weights",
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "bytedance-seed/seed-2.0-lite",
+          "name": "Seed-2.0-Lite",
+          "lab": "Bytedance Seed",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "bytedance-seed/seed-2.0-mini",
+          "name": "Seed-2.0-Mini",
+          "lab": "Bytedance Seed",
+          "context_window": 262144,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "thedrummer/skyfall-36b-v2",
+          "name": "Skyfall 36B V2",
+          "lab": "Thedrummer",
+          "context_window": 32768,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "perplexity/sonar",
+          "name": "Sonar",
+          "lab": "Perplexity",
+          "context_window": 127072,
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "perplexity/sonar-deep-research",
+          "name": "Sonar Deep Research",
+          "lab": "Perplexity",
+          "context_window": 128000,
+          "tags": [
+            "reasoning"
+          ]
+        },
+        {
+          "id": "perplexity/sonar-pro",
+          "name": "Sonar Pro",
+          "lab": "Perplexity",
+          "context_window": 200000,
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "perplexity/sonar-pro-search",
+          "name": "Sonar Pro Search",
+          "lab": "Perplexity",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "perplexity/sonar-reasoning-pro",
+          "name": "Sonar Reasoning Pro",
+          "lab": "Perplexity",
+          "context_window": 128000,
+          "tags": [
+            "reasoning",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "arcee-ai/spotlight",
+          "name": "Spotlight",
+          "lab": "Arcee Ai",
+          "context_window": 131072,
+          "tags": [
+            "multimodal",
             "vision"
           ]
         },
@@ -2674,7 +4428,7 @@
           "id": "stepfun/step-3.5-flash",
           "name": "Step 3.5 Flash",
           "lab": "Stepfun",
-          "context_window": 256000,
+          "context_window": 262144,
           "tags": [
             "reasoning",
             "tool-use",
@@ -2682,13 +4436,24 @@
           ]
         },
         {
-          "id": "arcee-ai/trinity-large-preview:free",
-          "name": "Trinity Large Preview",
-          "lab": "Arcee Ai",
+          "id": "stepfun/step-3.7-flash",
+          "name": "Step 3.7 Flash",
+          "lab": "Stepfun",
+          "context_window": 256000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "switchpoint/router",
+          "name": "Switchpoint Router",
+          "lab": "Switchpoint",
           "context_window": 131072,
           "tags": [
-            "tool-use",
-            "open-weights"
+            "reasoning"
           ]
         },
         {
@@ -2703,6 +4468,28 @@
           ]
         },
         {
+          "id": "arcee-ai/trinity-mini",
+          "name": "Trinity Mini",
+          "lab": "Arcee Ai",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "bytedance/ui-tars-1.5-7b",
+          "name": "UI-TARS 7B ",
+          "lab": "Bytedance",
+          "context_window": 128000,
+          "tags": [
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
           "id": "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
           "name": "Uncensored (free)",
           "lab": "Cognitivecomputations",
@@ -2712,8 +4499,79 @@
           ]
         },
         {
+          "id": "thedrummer/unslopnemo-12b",
+          "name": "UnslopNemo 12B",
+          "lab": "Thedrummer",
+          "context_window": 32768,
+          "tags": [
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "arcee-ai/virtuoso-large",
+          "name": "Virtuoso Large",
+          "lab": "Arcee Ai",
+          "context_window": 131072,
+          "tags": [
+            "tool-use"
+          ]
+        },
+        {
+          "id": "mistralai/voxtral-small-24b-2507",
+          "name": "Voxtral Small 24B 2507",
+          "lab": "Mistralai",
+          "context_window": 32000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "audio"
+          ]
+        },
+        {
+          "id": "mancer/weaver",
+          "name": "Weaver (alpha)",
+          "lab": "Mancer",
+          "context_window": 8000,
+          "tags": [
+            "general"
+          ]
+        },
+        {
+          "id": "microsoft/wizardlm-2-8x22b",
+          "name": "WizardLM-2 8x22B",
+          "lab": "Microsoft",
+          "context_window": 65535,
+          "tags": [
+            "open-weights"
+          ]
+        },
+        {
+          "id": "openai/gpt-oss-120b",
+          "name": "gpt-oss-120b",
+          "lab": "Openai",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
           "id": "openai/gpt-oss-120b:free",
           "name": "gpt-oss-120b (free)",
+          "lab": "Openai",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "openai/gpt-oss-20b",
+          "name": "gpt-oss-20b",
           "lab": "Openai",
           "context_window": 131072,
           "tags": [
@@ -2734,9 +4592,9 @@
           ]
         },
         {
-          "id": "nvidia/nemotron-nano-9b-v2",
-          "name": "nvidia-nemotron-nano-9b-v2",
-          "lab": "Nvidia",
+          "id": "openai/gpt-oss-safeguard-20b",
+          "name": "gpt-oss-safeguard-20b",
+          "lab": "Openai",
           "context_window": 131072,
           "tags": [
             "reasoning",
@@ -2745,8 +4603,113 @@
           ]
         },
         {
+          "id": "openai/o1",
+          "name": "o1",
+          "lab": "Openai",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/o1-pro",
+          "name": "o1-pro",
+          "lab": "Openai",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/o3",
+          "name": "o3",
+          "lab": "Openai",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/o3-mini-high",
+          "name": "o3 Mini High",
+          "lab": "Openai",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal"
+          ]
+        },
+        {
+          "id": "openai/o3-deep-research",
+          "name": "o3-deep-research",
+          "lab": "Openai",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/o3-mini",
+          "name": "o3-mini",
+          "lab": "Openai",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal"
+          ]
+        },
+        {
+          "id": "openai/o3-pro",
+          "name": "o3-pro",
+          "lab": "Openai",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/o4-mini-high",
+          "name": "o4 Mini High",
+          "lab": "Openai",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
           "id": "openai/o4-mini",
-          "name": "o4 Mini",
+          "name": "o4-mini",
+          "lab": "Openai",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "openai/o4-mini-deep-research",
+          "name": "o4-mini-deep-research",
           "lab": "Openai",
           "context_window": 200000,
           "tags": [
@@ -2761,22 +4724,24 @@
     "bedrock": {
       "models": [
         {
-          "id": "anthropic.claude-3-haiku-20240307-v1:0",
-          "name": "Claude Haiku 3",
+          "id": "au.anthropic.claude-opus-4-6-v1",
+          "name": "AU Anthropic Claude Opus 4.6",
           "lab": "AWS",
-          "context_window": 200000,
+          "context_window": 1000000,
           "tags": [
+            "reasoning",
             "tool-use",
             "multimodal",
             "vision"
           ]
         },
         {
-          "id": "anthropic.claude-3-5-haiku-20241022-v1:0",
-          "name": "Claude Haiku 3.5",
+          "id": "au.anthropic.claude-sonnet-4-6",
+          "name": "AU Anthropic Claude Sonnet 4.6",
           "lab": "AWS",
-          "context_window": 200000,
+          "context_window": 1000000,
           "tags": [
+            "reasoning",
             "tool-use",
             "multimodal",
             "vision"
@@ -2785,6 +4750,18 @@
         {
           "id": "anthropic.claude-haiku-4-5-20251001-v1:0",
           "name": "Claude Haiku 4.5",
+          "lab": "AWS",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "au.anthropic.claude-haiku-4-5-20251001-v1:0",
+          "name": "Claude Haiku 4.5 (AU)",
           "lab": "AWS",
           "context_window": 200000,
           "tags": [
@@ -2821,30 +4798,6 @@
         {
           "id": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
           "name": "Claude Haiku 4.5 (US)",
-          "lab": "AWS",
-          "context_window": 200000,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal",
-            "vision"
-          ]
-        },
-        {
-          "id": "anthropic.claude-opus-4-20250514-v1:0",
-          "name": "Claude Opus 4",
-          "lab": "AWS",
-          "context_window": 200000,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal",
-            "vision"
-          ]
-        },
-        {
-          "id": "us.anthropic.claude-opus-4-20250514-v1:0",
-          "name": "Claude Opus 4 (US)",
           "lab": "AWS",
           "context_window": 200000,
           "tags": [
@@ -3011,6 +4964,18 @@
           ]
         },
         {
+          "id": "jp.anthropic.claude-opus-4-7",
+          "name": "Claude Opus 4.7 (JP)",
+          "lab": "AWS",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
           "id": "us.anthropic.claude-opus-4-7",
           "name": "Claude Opus 4.7 (US)",
           "lab": "AWS",
@@ -3023,43 +4988,10 @@
           ]
         },
         {
-          "id": "anthropic.claude-3-5-sonnet-20240620-v1:0",
-          "name": "Claude Sonnet 3.5",
+          "id": "anthropic.claude-opus-4-8",
+          "name": "Claude Opus 4.8",
           "lab": "AWS",
-          "context_window": 200000,
-          "tags": [
-            "tool-use",
-            "multimodal",
-            "vision"
-          ]
-        },
-        {
-          "id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-          "name": "Claude Sonnet 3.5 v2",
-          "lab": "AWS",
-          "context_window": 200000,
-          "tags": [
-            "tool-use",
-            "multimodal",
-            "vision"
-          ]
-        },
-        {
-          "id": "anthropic.claude-3-7-sonnet-20250219-v1:0",
-          "name": "Claude Sonnet 3.7",
-          "lab": "AWS",
-          "context_window": 200000,
-          "tags": [
-            "tool-use",
-            "multimodal",
-            "vision"
-          ]
-        },
-        {
-          "id": "anthropic.claude-sonnet-4-20250514-v1:0",
-          "name": "Claude Sonnet 4",
-          "lab": "AWS",
-          "context_window": 200000,
+          "context_window": 1000000,
           "tags": [
             "reasoning",
             "tool-use",
@@ -3068,10 +5000,10 @@
           ]
         },
         {
-          "id": "eu.anthropic.claude-sonnet-4-20250514-v1:0",
-          "name": "Claude Sonnet 4 (EU)",
+          "id": "au.anthropic.claude-opus-4-8",
+          "name": "Claude Opus 4.8 (AU)",
           "lab": "AWS",
-          "context_window": 200000,
+          "context_window": 1000000,
           "tags": [
             "reasoning",
             "tool-use",
@@ -3080,10 +5012,10 @@
           ]
         },
         {
-          "id": "global.anthropic.claude-sonnet-4-20250514-v1:0",
-          "name": "Claude Sonnet 4 (Global)",
+          "id": "eu.anthropic.claude-opus-4-8",
+          "name": "Claude Opus 4.8 (EU)",
           "lab": "AWS",
-          "context_window": 200000,
+          "context_window": 1000000,
           "tags": [
             "reasoning",
             "tool-use",
@@ -3092,10 +5024,34 @@
           ]
         },
         {
-          "id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
-          "name": "Claude Sonnet 4 (US)",
+          "id": "global.anthropic.claude-opus-4-8",
+          "name": "Claude Opus 4.8 (Global)",
           "lab": "AWS",
-          "context_window": 200000,
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "jp.anthropic.claude-opus-4-8",
+          "name": "Claude Opus 4.8 (JP)",
+          "lab": "AWS",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "us.anthropic.claude-opus-4-8",
+          "name": "Claude Opus 4.8 (US)",
+          "lab": "AWS",
+          "context_window": 1000000,
           "tags": [
             "reasoning",
             "tool-use",
@@ -3106,6 +5062,18 @@
         {
           "id": "anthropic.claude-sonnet-4-5-20250929-v1:0",
           "name": "Claude Sonnet 4.5",
+          "lab": "AWS",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "au.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "name": "Claude Sonnet 4.5 (AU)",
           "lab": "AWS",
           "context_window": 200000,
           "tags": [
@@ -3130,6 +5098,18 @@
         {
           "id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
           "name": "Claude Sonnet 4.5 (Global)",
+          "lab": "AWS",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "jp.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "name": "Claude Sonnet 4.5 (JP)",
           "lab": "AWS",
           "context_window": 200000,
           "tags": [
@@ -3188,6 +5168,18 @@
           ]
         },
         {
+          "id": "jp.anthropic.claude-sonnet-4-6",
+          "name": "Claude Sonnet 4.6 (JP)",
+          "lab": "AWS",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
           "id": "us.anthropic.claude-sonnet-4-6",
           "name": "Claude Sonnet 4.6 (US)",
           "lab": "AWS",
@@ -3202,6 +5194,16 @@
         {
           "id": "deepseek.r1-v1:0",
           "name": "DeepSeek-R1",
+          "lab": "AWS",
+          "context_window": 128000,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "us.deepseek.r1-v1:0",
+          "name": "DeepSeek-R1 (US)",
           "lab": "AWS",
           "context_window": 128000,
           "tags": [
@@ -3327,7 +5329,7 @@
           "id": "moonshot.kimi-k2-thinking",
           "name": "Kimi K2 Thinking",
           "lab": "AWS",
-          "context_window": 256000,
+          "context_window": 262143,
           "tags": [
             "reasoning",
             "tool-use",
@@ -3338,22 +5340,12 @@
           "id": "moonshotai.kimi-k2.5",
           "name": "Kimi K2.5",
           "lab": "AWS",
-          "context_window": 256000,
+          "context_window": 262143,
           "tags": [
             "reasoning",
             "tool-use",
             "open-weights",
             "vision"
-          ]
-        },
-        {
-          "id": "meta.llama3-1-405b-instruct-v1:0",
-          "name": "Llama 3.1 405B Instruct",
-          "lab": "AWS",
-          "context_window": 128000,
-          "tags": [
-            "tool-use",
-            "open-weights"
           ]
         },
         {
@@ -3374,50 +5366,6 @@
           "tags": [
             "tool-use",
             "open-weights"
-          ]
-        },
-        {
-          "id": "meta.llama3-2-11b-instruct-v1:0",
-          "name": "Llama 3.2 11B Instruct",
-          "lab": "AWS",
-          "context_window": 128000,
-          "tags": [
-            "tool-use",
-            "multimodal",
-            "open-weights",
-            "vision"
-          ]
-        },
-        {
-          "id": "meta.llama3-2-1b-instruct-v1:0",
-          "name": "Llama 3.2 1B Instruct",
-          "lab": "AWS",
-          "context_window": 131000,
-          "tags": [
-            "tool-use",
-            "open-weights"
-          ]
-        },
-        {
-          "id": "meta.llama3-2-3b-instruct-v1:0",
-          "name": "Llama 3.2 3B Instruct",
-          "lab": "AWS",
-          "context_window": 131000,
-          "tags": [
-            "tool-use",
-            "open-weights"
-          ]
-        },
-        {
-          "id": "meta.llama3-2-90b-instruct-v1:0",
-          "name": "Llama 3.2 90B Instruct",
-          "lab": "AWS",
-          "context_window": 128000,
-          "tags": [
-            "tool-use",
-            "multimodal",
-            "open-weights",
-            "vision"
           ]
         },
         {
@@ -3443,8 +5391,32 @@
           ]
         },
         {
+          "id": "us.meta.llama4-maverick-17b-instruct-v1:0",
+          "name": "Llama 4 Maverick 17B Instruct (US)",
+          "lab": "AWS",
+          "context_window": 1000000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
           "id": "meta.llama4-scout-17b-instruct-v1:0",
           "name": "Llama 4 Scout 17B Instruct",
+          "lab": "AWS",
+          "context_window": 3500000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "open-weights",
+            "vision"
+          ]
+        },
+        {
+          "id": "us.meta.llama4-scout-17b-instruct-v1:0",
+          "name": "Llama 4 Scout 17B Instruct (US)",
           "lab": "AWS",
           "context_window": 3500000,
           "tags": [
@@ -3611,18 +5583,6 @@
           ]
         },
         {
-          "id": "amazon.nova-premier-v1:0",
-          "name": "Nova Premier",
-          "lab": "AWS",
-          "context_window": 1000000,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal",
-            "vision"
-          ]
-        },
-        {
           "id": "amazon.nova-pro-v1:0",
           "name": "Nova Pro",
           "lab": "AWS",
@@ -3779,6 +5739,160 @@
     "vertex": {
       "models": [
         {
+          "id": "claude-3-5-haiku@20241022",
+          "name": "Claude Haiku 3.5",
+          "lab": "Google",
+          "context_window": 200000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-haiku-4-5@20251001",
+          "name": "Claude Haiku 4.5",
+          "lab": "Google",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-opus-4@20250514",
+          "name": "Claude Opus 4",
+          "lab": "Google",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-opus-4-1@20250805",
+          "name": "Claude Opus 4.1",
+          "lab": "Google",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-opus-4-5@20251101",
+          "name": "Claude Opus 4.5",
+          "lab": "Google",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-opus-4-6@default",
+          "name": "Claude Opus 4.6",
+          "lab": "Google",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-opus-4-7@default",
+          "name": "Claude Opus 4.7",
+          "lab": "Google",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-opus-4-8@default",
+          "name": "Claude Opus 4.8",
+          "lab": "Google",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-3-5-sonnet@20241022",
+          "name": "Claude Sonnet 3.5 v2",
+          "lab": "Google",
+          "context_window": 200000,
+          "tags": [
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-3-7-sonnet@20250219",
+          "name": "Claude Sonnet 3.7",
+          "lab": "Google",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-sonnet-4@20250514",
+          "name": "Claude Sonnet 4",
+          "lab": "Google",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-sonnet-4-5@20250929",
+          "name": "Claude Sonnet 4.5",
+          "lab": "Google",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-sonnet-4-6@default",
+          "name": "Claude Sonnet 4.6",
+          "lab": "Google",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
           "id": "deepseek-ai/deepseek-v3.1-maas",
           "name": "DeepSeek V3.1",
           "lab": "Google",
@@ -3858,7 +5972,7 @@
         },
         {
           "id": "gemini-2.0-flash-lite",
-          "name": "Gemini 2.0 Flash Lite",
+          "name": "Gemini 2.0 Flash-Lite",
           "lab": "Google",
           "context_window": 1048576,
           "tags": [
@@ -3871,19 +5985,6 @@
         {
           "id": "gemini-2.5-flash",
           "name": "Gemini 2.5 Flash",
-          "lab": "Google",
-          "context_window": 1048576,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal",
-            "vision",
-            "audio"
-          ]
-        },
-        {
-          "id": "gemini-2.5-flash-lite",
-          "name": "Gemini 2.5 Flash Lite",
           "lab": "Google",
           "context_window": 1048576,
           "tags": [
@@ -3908,45 +6009,6 @@
           ]
         },
         {
-          "id": "gemini-2.5-flash-lite-preview-09-2025",
-          "name": "Gemini 2.5 Flash Lite Preview 09-25",
-          "lab": "Google",
-          "context_window": 1048576,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal",
-            "vision",
-            "audio"
-          ]
-        },
-        {
-          "id": "gemini-2.5-flash-preview-04-17",
-          "name": "Gemini 2.5 Flash Preview 04-17",
-          "lab": "Google",
-          "context_window": 1048576,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal",
-            "vision",
-            "audio"
-          ]
-        },
-        {
-          "id": "gemini-2.5-flash-preview-05-20",
-          "name": "Gemini 2.5 Flash Preview 05-20",
-          "lab": "Google",
-          "context_window": 1048576,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal",
-            "vision",
-            "audio"
-          ]
-        },
-        {
           "id": "gemini-2.5-flash-preview-09-2025",
           "name": "Gemini 2.5 Flash Preview 09-25",
           "lab": "Google",
@@ -3960,34 +6022,21 @@
           ]
         },
         {
+          "id": "gemini-2.5-flash-lite",
+          "name": "Gemini 2.5 Flash-Lite",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
           "id": "gemini-2.5-pro",
           "name": "Gemini 2.5 Pro",
-          "lab": "Google",
-          "context_window": 1048576,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal",
-            "vision",
-            "audio"
-          ]
-        },
-        {
-          "id": "gemini-2.5-pro-preview-05-06",
-          "name": "Gemini 2.5 Pro Preview 05-06",
-          "lab": "Google",
-          "context_window": 1048576,
-          "tags": [
-            "reasoning",
-            "tool-use",
-            "multimodal",
-            "vision",
-            "audio"
-          ]
-        },
-        {
-          "id": "gemini-2.5-pro-preview-06-05",
-          "name": "Gemini 2.5 Pro Preview 06-05",
           "lab": "Google",
           "context_window": 1048576,
           "tags": [
@@ -4025,6 +6074,32 @@
           ]
         },
         {
+          "id": "gemini-3.1-flash-lite",
+          "name": "Gemini 3.1 Flash Lite",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "id": "gemini-3.1-flash-lite-preview",
+          "name": "Gemini 3.1 Flash Lite Preview",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
           "id": "gemini-3.1-pro-preview",
           "name": "Gemini 3.1 Pro Preview",
           "lab": "Google",
@@ -4040,6 +6115,19 @@
         {
           "id": "gemini-3.1-pro-preview-customtools",
           "name": "Gemini 3.1 Pro Preview Custom Tools",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "id": "gemini-3.5-flash",
+          "name": "Gemini 3.5 Flash",
           "lab": "Google",
           "context_window": 1048576,
           "tags": [
@@ -4259,7 +6347,7 @@
         },
         {
           "id": "glm-5v-turbo",
-          "name": "glm-5v-turbo",
+          "name": "GLM-5V-Turbo",
           "lab": "Zhipu AI",
           "context_window": 200000,
           "tags": [
