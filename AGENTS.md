@@ -85,7 +85,7 @@ The website docs MUST follow `docs/host-preparation.md` exactly. Do not edit `we
 
 - Repository: https://github.com/ric03uec/clawrium
 - Project Board: https://github.com/users/ric03uec/projects/1
-- Version: 26.5.4
+- Version: 26.6.0
 
 ## Gateway Token Lifecycle (zeroclaw)
 
