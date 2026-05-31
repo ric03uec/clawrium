@@ -88,6 +88,15 @@ export interface PairingCodeResponse {
   pairing_code: string;
 }
 
+// Response from POST /fleet/agents/{key}/connection-token. Returned only
+// by agent types whose dashboard SPA prompts for a long-lived gateway
+// bearer on first open (openclaw). The token is the same install-time
+// bearer persisted in hosts.json — revealing it does not mutate state
+// on either the GUI server or the agent daemon.
+export interface ConnectionTokenResponse {
+  token: string;
+}
+
 // Topology types
 export interface TopologyResponse {
   control: TopologyControl;

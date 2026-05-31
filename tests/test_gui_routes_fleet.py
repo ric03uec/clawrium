@@ -604,3 +604,144 @@ def test_pairing_code_local_host_skips_tunnel(isolated_config: Path):
     assert resp.json() == {"pairing_code": "111111"}
     # Hits the remote port directly, not the tunnel local port.
     assert captured["url"] == "http://127.0.0.1:40123/api/pairing/initiate"
+
+
+# /api/fleet/agents/{key}/connection-token
+# Reveals the long-lived gateway bearer for openclaw's Control UI login.
+# Distinct from /pairing-code: no daemon round-trip, no mutation —
+# returns the same install-time token already persisted in hosts.json.
+
+
+def _openclaw_config(bearer: str = "oc_test_bearer", port: int = 40456) -> dict:
+    return {"gateway": {"auth": bearer, "port": port}}
+
+
+def _openclaw_resolved(host: str = "192.168.1.100") -> ResolvedUI:
+    return ResolvedUI(
+        host=host,
+        remote_port=40456,
+        bind="wildcard",
+        ssh_config={"user": "xclm"},
+    )
+
+
+def test_connection_token_404_for_unknown_agent(isolated_config: Path):
+    _seed_hosts(isolated_config, "openclaw", _openclaw_config())
+    with TestClient(app) as client:
+        resp = client.post("/api/fleet/agents/nope/connection-token")
+    assert resp.status_code == 404
+
+
+def test_connection_token_400_for_non_reveal_agent_type(isolated_config: Path):
+    """hermes does not use a long-lived gateway token for browser auth."""
+    _seed_hosts(isolated_config, "hermes", {"dashboard": {"port": 45123}})
+    with TestClient(app) as client:
+        resp = client.post("/api/fleet/agents/demo/connection-token")
+    assert resp.status_code == 400
+    assert "gateway token" in resp.json()["detail"].lower()
+
+
+def test_connection_token_400_for_zeroclaw(isolated_config: Path):
+    """zeroclaw is a pairing-code type, not a token-reveal type — the
+    earlier guard fires before the manifest check.
+    """
+    _seed_hosts(isolated_config, "zeroclaw", _zeroclaw_config())
+    with TestClient(app) as client:
+        resp = client.post("/api/fleet/agents/demo/connection-token")
+    assert resp.status_code == 400
+    assert "gateway token" in resp.json()["detail"].lower()
+
+
+def test_connection_token_400_when_resolver_returns_none(isolated_config: Path):
+    """When resolve() returns None for an openclaw agent (no
+    features.web_ui in the manifest), the route returns 400 after the
+    type-allowlist guard passes.
+    """
+    _seed_hosts(isolated_config, "openclaw", _openclaw_config())
+    with patch("clawrium.core.web_ui.resolve", return_value=None):
+        with TestClient(app) as client:
+            resp = client.post("/api/fleet/agents/demo/connection-token")
+    assert resp.status_code == 400
+    assert "native web ui" in resp.json()["detail"].lower()
+
+
+def test_connection_token_409_when_bearer_missing(isolated_config: Path):
+    """openclaw without persisted gateway.auth → 409 + configure guidance."""
+    _seed_hosts(isolated_config, "openclaw", {"gateway": {"port": 40456}})
+    with patch("clawrium.core.web_ui.resolve", return_value=_openclaw_resolved()):
+        with TestClient(app) as client:
+            resp = client.post("/api/fleet/agents/demo/connection-token")
+    assert resp.status_code == 409
+    assert "clawctl agent configure" in resp.json()["detail"]
+
+
+def test_connection_token_409_when_bearer_blank(isolated_config: Path):
+    _seed_hosts(isolated_config, "openclaw", {"gateway": {"auth": "   "}})
+    with patch("clawrium.core.web_ui.resolve", return_value=_openclaw_resolved()):
+        with TestClient(app) as client:
+            resp = client.post("/api/fleet/agents/demo/connection-token")
+    assert resp.status_code == 409
+    assert "clawctl agent configure" in resp.json()["detail"]
+
+
+def test_connection_token_success(isolated_config: Path):
+    """Happy path: returns the persisted gateway.auth verbatim."""
+    _seed_hosts(isolated_config, "openclaw", _openclaw_config("oc_real_bearer"))
+    with patch("clawrium.core.web_ui.resolve", return_value=_openclaw_resolved()):
+        with TestClient(app) as client:
+            resp = client.post("/api/fleet/agents/demo/connection-token")
+    assert resp.status_code == 200
+    assert resp.json() == {"token": "oc_real_bearer"}
+
+
+def test_connection_token_strips_trailing_whitespace(isolated_config: Path):
+    """Hand-edited hosts.json with a trailing newline → returned stripped."""
+    _seed_hosts(isolated_config, "openclaw", _openclaw_config("oc_bearer\n"))
+    with patch("clawrium.core.web_ui.resolve", return_value=_openclaw_resolved()):
+        with TestClient(app) as client:
+            resp = client.post("/api/fleet/agents/demo/connection-token")
+    assert resp.status_code == 200
+    assert resp.json() == {"token": "oc_bearer"}
+
+
+def test_connection_token_prefers_secrets_store_over_legacy_hosts_json(
+    isolated_config: Path,
+):
+    """W2 (ATX): the endpoint MUST go through `_resolve_openclaw_credentials`
+    rather than reading `gateway.auth` directly. Otherwise a future rotation
+    that lands only in the secrets store leaves the legacy hosts.json field
+    stale and users paste a dead token into the Control UI.
+
+    Verifies the wiring by patching the helper itself: if the endpoint
+    bypassed it and read hosts.json directly, the assertion below would
+    return the legacy value `"oc_legacy"` instead of `"oc_rotated"`.
+    """
+    _seed_hosts(isolated_config, "openclaw", _openclaw_config("oc_legacy"))
+    with (
+        patch("clawrium.core.web_ui.resolve", return_value=_openclaw_resolved()),
+        patch(
+            "clawrium.gui.routes.agents._resolve_openclaw_credentials",
+            return_value=("oc_rotated", None),
+        ),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/fleet/agents/demo/connection-token")
+    assert resp.status_code == 200
+    assert resp.json() == {"token": "oc_rotated"}
+
+
+def test_connection_token_get_does_not_leak_bearer(isolated_config: Path):
+    """The endpoint is POST-only. The GUI server mounts the SPA on a
+    catch-all GET, so a GET to this path falls through to index.html
+    (not a 405). Guard against a future router refactor that
+    accidentally adds a GET handler returning the bearer — the
+    JSON-token shape MUST NOT appear in a GET response body.
+    """
+    _seed_hosts(
+        isolated_config, "openclaw", _openclaw_config("oc_should_not_leak")
+    )
+    with TestClient(app) as client:
+        resp = client.get("/api/fleet/agents/demo/connection-token")
+    # Either 405 (route refuses GET) or 200 (SPA fallback). The
+    # invariant is that the bearer never appears in the GET body.
+    assert "oc_should_not_leak" not in resp.text
