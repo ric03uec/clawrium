@@ -362,6 +362,15 @@ async def agent_web_ui(agent_key: str) -> dict[str, Any]:
 # allowlist in `gui/src/hooks/use-agent.ts`.
 _PAIRING_AGENT_TYPES = {"zeroclaw"}
 
+# Agent types whose dashboard SPA prompts for a long-lived gateway bearer
+# token on first open (paste-from-clipboard). Today only openclaw — its
+# Control UI WebSocket auth uses the token persisted at
+# `hosts.json.agents.<name>.config.gateway.auth`. Distinct from
+# `_PAIRING_AGENT_TYPES` (zeroclaw mints a fresh one-shot pairing code on
+# every connect; openclaw reuses the static install-time bearer). Keep in
+# sync with `TOKEN_REVEAL_AGENT_TYPES` in `gui/src/hooks/use-agent.ts`.
+_TOKEN_REVEAL_AGENT_TYPES = {"openclaw"}
+
 # Bound the upstream call to the agent daemon so a hung / unreachable
 # daemon doesn't pin a FastAPI worker. The pairing endpoint is in-process
 # on the agent and should respond in milliseconds; 10s is a generous
@@ -526,6 +535,63 @@ async def agent_pairing_code(agent_key: str) -> dict[str, Any]:
         )
 
     return {"pairing_code": code}
+
+
+@router.post("/fleet/agents/{agent_key}/connection-token")
+async def agent_connection_token(agent_key: str) -> dict[str, Any]:
+    """Reveal the gateway bearer token for an agent's native UI login.
+
+    For agent types whose dashboard SPA prompts the user to paste a
+    long-lived gateway token on first open (openclaw today). Distinct
+    from ``/pairing-code``: openclaw's token is the same install-time
+    bearer already persisted in ``hosts.json`` under
+    ``agents.<name>.config.gateway.auth``, so the endpoint is a
+    privileged read — no daemon round-trip and no mutation.
+
+    POST (not GET) because the body is a long-lived secret: GET URLs
+    can land in browser history, proxy logs, and referer headers;
+    POST bodies do not. Symmetric with the ``/pairing-code`` mutation
+    pattern. The endpoint relies on the GUI server's existing
+    local-only / authenticated session model — anyone who can hit
+    this URL can already read ``hosts.json`` directly on disk.
+    """
+    resolved_match = await asyncio.to_thread(resolve_agent, agent_key)
+    if resolved_match is None:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+    _host_record, agent_type, agent_record = resolved_match
+
+    if agent_type not in _TOKEN_REVEAL_AGENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Agent type '{agent_type}' does not use a long-lived "
+                "gateway token for browser auth."
+            ),
+        )
+
+    ui = await asyncio.to_thread(web_ui_module.resolve, agent_key)
+    if ui is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Agent '{agent_key}' does not declare a native web UI in its manifest."
+            ),
+        )
+
+    gateway = (agent_record.get("config") or {}).get("gateway") or {}
+    bearer = gateway.get("auth")
+    if not isinstance(bearer, str) or not bearer.strip():
+        # No persisted bearer means lifecycle ops have not run successfully.
+        # Mirror the pairing-code endpoint's 409 + operator guidance.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Agent '{agent_key}' has no gateway token persisted. Run "
+                f"`clawctl agent configure {agent_key}` first."
+            ),
+        )
+
+    return {"token": bearer}
 
 
 async def reap_idle_tunnels(threshold_seconds: float = 1800.0) -> int:

@@ -8,7 +8,9 @@ export {
   useAgentActions,
   useAgentWebUI,
   useAgentPairingCode,
+  useAgentConnectionToken,
   PAIRING_AGENT_TYPES,
+  TOKEN_REVEAL_AGENT_TYPES,
 } from "./use-agent";
 export { useSettings, useVersion, useClearUsage } from "./use-settings";
 export {
