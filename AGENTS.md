@@ -72,6 +72,10 @@ Host preparation instructions live in [`docs/host-preparation.md`](docs/host-pre
 
 The website docs MUST follow `docs/host-preparation.md` exactly. Do not edit `website/docs/guides/host-setup.md` directly.
 
+## Mirrored Developer Skills
+
+Some developer skills are mirrored across `.claude/skills/<name>/SKILL.md` and `.opencode/skills/<name>/SKILL.md` so the same workflow is available from either Claude Code or opencode. For mirrored skills, the two `SKILL.md` files MUST stay byte-identical — any edit to one must be mirrored to the other in the same commit. Currently mirrored: `release-announcements`. (Most `.claude/skills/` skills have an opencode counterpart that has drifted intentionally for project-specific wording — those are not part of this rule; only skills explicitly listed here.)
+
 ## Key Concepts
 
 - **Host**: A machine in your network that runs one or more agents
