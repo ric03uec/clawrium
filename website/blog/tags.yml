@@ -7,3 +7,8 @@ breaking-changes:
   label: Breaking Changes
   permalink: /breaking-changes
   description: Releases with backward-incompatible CLI or API changes
+
+release-notes:
+  label: Release Notes
+  permalink: /release-notes
+  description: Version release notes and changelogs
