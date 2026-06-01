@@ -1,7 +1,7 @@
 ---
 name: clawrium-release-announcements
 description: Daily — draft a release blog post, open a PR, iterate on comments until merged
-version: 0.2.0
+version: 0.2.1
 author: clawrium
 license: MIT
 platforms: [linux, macos]
@@ -18,6 +18,10 @@ release that has not yet been processed, draft a release blog post, open a PR,
 post a Discord announcement, and enter an iteration loop: poll the PR for new
 comments every 30 minutes, address feedback, and only complete when the PR is
 merged. Skip releases whose tag range contains zero commits (re-tags).
+
+**Silent operation**: When running as a scheduled job, if there are no new
+releases to process and no new PR comments to address, respond with `[SILENT]`
+to suppress delivery. Do not send "no updates found" notifications.
 
 ## When to Use
 
@@ -40,7 +44,7 @@ writing), but the intent is one announcement per release.
 | Draft     | Write blog markdown per `skills/clawrium/blog-author/SKILL.md` rules                   |
 | PR        | Create branch `blog/<tag>-<slug>`, commit file, push, open PR                          |
 | Discord   | Post short announcement in `#announcements`                                             |
-| Iterate   | Poll PR comments every 30 min, apply feedback, push fixes                              |
+| Iterate   | Poll PR comments + review comments every 30 min, apply feedback, push fixes            |
 | Complete  | Move kanban task to Done once PR is merged; record tag in memory                       |
 
 ## Procedure
@@ -231,7 +235,21 @@ For each release published since the last successful run of this skill:
     a. **Load state**: Query the kanban card for this release. If the card is
        already in `Done` state, skip — the release is fully processed.
 
-    b. **Check PR state**:
+    b. **Fetch all review comments**: Always fetch **both** PR-level comments
+       **and** inline review comments on every run:
+
+       ```bash
+       # PR-level comments
+       gh pr view <pr_number> --repo ric03uec/clawrium --json comments
+
+       # Inline review comments (comments on specific lines of code)
+       gh api repos/ric03uec/clawrium/pulls/<pr_number>/comments
+       ```
+
+       Combine both sources, sort by `created_at`, and filter for comments
+       newer than `last_comment_processed` from the kanban card metadata.
+
+    c. **Check PR state**:
 
        ```bash
        gh pr view <pr_number> --repo ric03uec/clawrium --json state,mergedAt,closedAt,comments,reviews
@@ -243,14 +261,11 @@ For each release published since the last successful run of this skill:
          `outcome: cancelled`, record tag in memory, reply with cancellation.
        - If `state == "OPEN"`: Continue to comment processing.
 
-    c. **Process new comments**:
+    d. **Process new comments**:
 
-       Fetch all PR comments and review comments. Compare against the last
-       processed comment timestamp stored in the kanban card metadata.
-
-       For each new comment:
+       For each new comment (after `last_comment_processed`):
        - Parse the feedback
-       - Apply changes to the blog file
+       - Apply changes to the blog file in `website/blog/`
        - Commit with message: `blog: address review feedback — <summary>`
        - Push to the branch
        - Reply to the PR comment confirming the fix (if the comment is from a
@@ -258,16 +273,17 @@ For each release published since the last successful run of this skill:
 
        Update the card metadata with the latest processed comment timestamp.
 
-    d. **Update kanban card**:
+    e. **Update kanban card**:
 
        - Lane: `In Progress` (while iterating)
        - Metadata: `{ "pr_number": <n>, "pr_url": "<url>", "last_comment_processed": "<iso8601>" }`
 
-    e. **Reply with status**:
+    f. **Reply behavior**:
 
-       ```
-       release=<tag> pr=<url> status=iterating comments_processed=<N> waiting_for_review
-       ```
+       - If comments were processed: Reply with status
+         `release=<tag> pr=<url> status=iterating comments_processed=<N> waiting_for_review`
+       - If no new comments and PR still open: Reply `[SILENT]` to suppress
+         delivery — no need to notify when nothing changed
 
 13. **Polling interval**.
 
@@ -353,6 +369,8 @@ Discord format is specified inline in Phase 4 (steps 10-11).
   gate.
 - Leaving the kanban card in `Ready` or `In Progress` after PR merge. Must
   move to `Done`.
+- Sending Discord notifications for "no updates found" — use `[SILENT]`
+  response when nothing changed to suppress delivery.
 
 ## Verification
 
