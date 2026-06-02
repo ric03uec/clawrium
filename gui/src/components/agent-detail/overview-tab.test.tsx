@@ -66,6 +66,16 @@ describe("OverviewTab — upgrade-available badge", () => {
     expect(screen.queryByTestId("upgrade-available-badge")).toBeNull();
   });
 
+  it("does not render badge for version '?' sentinel (never-started agent)", () => {
+    render(
+      <OverviewTab
+        agent={makeAgent({ version: "?", latest_supported_version: "2026.5.28" })}
+        agentKey="demo"
+      />,
+    );
+    expect(screen.queryByTestId("upgrade-available-badge")).toBeNull();
+  });
+
   it("does not render badge when latest_supported_version is null", () => {
     render(
       <OverviewTab

@@ -1039,11 +1039,19 @@ def check_compatibility(
 
 
 def latest_supported_version(claw_name: str, hardware: dict) -> str | None:
-    """Return the max manifest version compatible with the host hardware.
+    """Return the max manifest version compatible with the host's OS+arch.
 
-    Filters platform entries to those whose os/os_version/arch match the
-    host (same matching rules as `check_compatibility`), then returns the
-    max `version`. Returns None if no platform entry matches.
+    This is a *narrower* filter than `check_compatibility`: it considers
+    only `os`, `os_version`, and `arch`, and intentionally ignores the
+    `requirements` block (`min_memory_mb`, `gpu_required`, dependency
+    versions). The intent is to answer "which manifest versions can
+    target this host's platform triple?" for the GUI's "Upgrade
+    available" indicator — a richer compatibility verdict (memory, GPU,
+    dependency depth) is left to `check_compatibility`, which the
+    install / upgrade execution paths already invoke.
+
+    Returns the max compatible `version`, or None if no platform entry
+    matches the host's OS/arch.
     """
     try:
         manifest = load_manifest(claw_name)

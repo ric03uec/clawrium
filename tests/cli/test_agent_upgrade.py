@@ -246,6 +246,114 @@ def test_upgrade_json_output_mode(isolated_config: Path, _patch_drift_clean):
     assert payload["to_version"] == "2026.5.28"
 
 
+def test_upgrade_retries_after_previous_failed_install(
+    isolated_config: Path, _patch_drift_clean
+):
+    """ATX B3: a prior failed install leaves version=target+status=failed.
+
+    Without the failed-status retry path the no-op shortcut would trap
+    the operator forever. Confirm the retry path calls run_installation
+    even when installed == manifest max.
+    """
+    _write_host(isolated_config, "openclaw", "2026.5.28")
+    # Flip the status to 'failed' to simulate the trap.
+    data = json.loads((isolated_config / "hosts.json").read_text())
+    data[0]["agents"]["test-agent"]["status"] = "failed"
+    (isolated_config / "hosts.json").write_text(json.dumps(data))
+
+    def _fake_install(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": "openclaw",
+            "version": "2026.5.28",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ) as mock_install:
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+    mock_install.assert_called_once()
+    assert "already at latest" not in result.output.lower()
+
+
+def test_upgrade_zeroclaw_invokes_restart_agent_for_bearer_rotation(
+    isolated_config: Path, _patch_drift_clean
+):
+    """ATX B2: zeroclaw install never re-pairs; upgrade must drive the
+
+    canonical lifecycle via `restart_agent` so the bearer rotates and
+    `gateway_token_rotated` fires per AGENTS.md.
+    """
+    _write_host(isolated_config, "zeroclaw", "0.6.0")
+
+    def _fake_install(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": "zeroclaw",
+            "version": "0.7.5",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    def _fake_restart(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": kwargs.get("agent_name") or "zeroclaw",
+            "host": kwargs.get("hostname", ""),
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ), patch(
+        "clawrium.core.lifecycle.restart_agent", side_effect=_fake_restart
+    ) as mock_restart:
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+    mock_restart.assert_called_once()
+
+
+def test_upgrade_openclaw_does_not_invoke_restart_agent(
+    isolated_config: Path, _patch_drift_clean
+):
+    """openclaw is intentionally NOT in `_PAIRING_AGENT_TYPES` — its
+
+    bearer is a static install-time token (see AGENTS.md §"Native
+    Dashboards"). The post-install restart path must NOT fire for it.
+    """
+    _write_host(isolated_config, "openclaw", "2026.4.2")
+
+    def _fake_install(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": "openclaw",
+            "version": "2026.5.28",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ), patch(
+        "clawrium.core.lifecycle.restart_agent",
+        side_effect=AssertionError("restart_agent must not be called for openclaw"),
+    ):
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+
+
 def test_upgrade_skip_drift_check_bypasses_preflight(isolated_config: Path):
     """`--skip-drift-check` means the drift helper is never called."""
     _write_host(isolated_config, "openclaw", "2026.4.2")

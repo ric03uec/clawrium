@@ -100,7 +100,15 @@
         group: "{{ agent_name }}"
         force: yes
         timeout: 30
-        checksum: "{{ installer_checksum | default(omit) }}"
+        # Variable name must match `claw_sha256` injected by
+        # `core/install.py` (issue #592 ATX B1). Older revisions used
+        # `installer_checksum` which never resolved, silently dropping
+        # the checksum gate via `default(omit)`. Manifest entries that
+        # omit the `sha256:` field still bypass verification — adding
+        # it per platform entry is tracked as a separate hardening
+        # follow-up because the openclaw installer URL is unpinned and
+        # the digest rotates upstream without a manifest bump.
+        checksum: "{{ ('sha256:' + claw_sha256) if claw_sha256 else omit }}"
       when: not openclaw_already_installed
 
     - name: Install OpenClaw CLI runtime

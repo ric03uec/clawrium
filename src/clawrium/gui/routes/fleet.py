@@ -209,8 +209,12 @@ async def agent_detail(agent_key: str, host: str | None = None):
                 from clawrium.core.registry import latest_supported_version
 
                 try:
+                    # `.get("hardware", {})` does NOT fall back when the
+                    # value is explicitly `null` in hosts.json (pre-fact-
+                    # detection hosts). Use `or {}` to coerce. ATX W3
+                    # (issue #592).
                     payload["latest_supported_version"] = latest_supported_version(
-                        detail["agent_type"], h.get("hardware", {})
+                        detail["agent_type"], h.get("hardware") or {}
                     )
                 except Exception:
                     payload["latest_supported_version"] = None

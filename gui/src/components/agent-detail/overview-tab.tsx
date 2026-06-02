@@ -153,9 +153,14 @@ function VersionRow({
   latestSupportedVersion: string | null;
   agentName: string;
 }) {
+  // `version === '?'` is the legacy sentinel from `cli/tui/data.py` for
+  // agents that have never started — `parseInt('?', 10) || 0` would
+  // resolve to 0 and falsely trip the badge for every agent in that
+  // state. ATX W2 (issue #592).
+  const versionKnown = !!version && version !== "?";
   const upgradeAvailable =
     !!latestSupportedVersion &&
-    !!version &&
+    versionKnown &&
     isNewerVersion(latestSupportedVersion, version);
 
   return (

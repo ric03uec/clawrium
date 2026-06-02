@@ -51,6 +51,16 @@ _RENDERERS = {
     "openclaw": "render_openclaw",
 }
 
+# Agent types whose gateway requires a bearer-token re-pair on lifecycle
+# operations (AGENTS.md §"Gateway Token Lifecycle (zeroclaw)"). The
+# upgrade path force-reinstalls the binary, restarts the unit, and the
+# daemon mints a fresh bearer — `hosts.json.gateway.auth` must be
+# rewritten atomically or remote `clawctl agent chat` sessions will get
+# a clean 401. ATX B2 (issue #592): drive the rotation by calling
+# `lifecycle.restart_agent` after the install playbook returns; that
+# helper already emits the `gateway_token_rotated` event.
+_PAIRING_AGENT_TYPES = {"zeroclaw"}
+
 
 def _drift_files(host: dict, agent_name: str, agent_type: str) -> list[str]:
     """Return the list of file paths that differ between rendered and host.
@@ -104,7 +114,18 @@ def upgrade(
             hint="clawctl agent describe " + name,
         )
 
-    hardware = host.get("hardware", {})
+    # ATX B3 (issue #592): `core/install.py:set_installing()` stamps the
+    # target version into `hosts.json` BEFORE Ansible runs. A failed
+    # playbook leaves `version=<new_target>` with `status="failed"`. If
+    # we naively trust the version field, a retry would compare
+    # installed==target and exit as a no-op, permanently trapping the
+    # operator. Treat any non-installed status as "version is unreliable
+    # for the no-op decision" and let `run_installation(force=True)`
+    # drive the retry. The fix-forward is to call install regardless.
+    install_status = str(claw_record.get("status") or "").lower()
+    failed_retry = install_status == "failed"
+
+    hardware = host.get("hardware") or {}
     target = latest_supported_version(agent_type, hardware)
     if target is None:
         emit_error(
@@ -120,7 +141,7 @@ def upgrade(
     installed_v = _parse(installed)
     target_v = _parse(target)
 
-    if target_v == installed_v:
+    if target_v == installed_v and not failed_retry:
         msg = f"already at latest ({installed})"
         if use_json:
             typer.echo(
@@ -137,7 +158,7 @@ def upgrade(
             stream_action(resource=resource, message=msg)
         return
 
-    if target_v < installed_v:
+    if target_v < installed_v and not failed_retry:
         emit_error(
             f"refusing downgrade: installed {installed} > manifest max {target}",
             hint="manifest entries may have been removed; restore them or reinstall",
@@ -172,6 +193,12 @@ def upgrade(
             yes=yes,
         )
 
+    if failed_retry and not use_json:
+        stream_action(
+            resource=resource,
+            message="retrying upgrade after previous failed install (status=failed)",
+        )
+
     try:
         result = run_installation(
             claw_name=agent_type,
@@ -182,6 +209,33 @@ def upgrade(
     except InstallationError as exc:
         emit_error(f"upgrade failed: {exc}")
         return
+
+    # ATX B2 (issue #592): zeroclaw's install playbook does NOT pair
+    # (see `core/install.py:1069`); the bearer token lives in the
+    # configure path. After a forced reinstall the daemon mints a new
+    # bearer and `hosts.json.gateway.auth` falls out of sync. Route
+    # through `lifecycle.restart_agent`, which rotates the bearer and
+    # emits a `gateway_token_rotated` event per AGENTS.md §"Gateway
+    # Token Lifecycle".
+    if agent_type in _PAIRING_AGENT_TYPES:
+        from clawrium.core.lifecycle import LifecycleError, restart_agent
+
+        def _emit_lifecycle(stage: str, message: str) -> None:
+            if not use_json:
+                stream_action(resource=resource, message=f"{stage}: {message}")
+
+        try:
+            restart_agent(
+                hostname=hostname,
+                claw_name=agent_type,
+                agent_name=on_host_name,
+                on_event=_emit_lifecycle,
+            )
+        except LifecycleError as exc:
+            emit_error(
+                f"upgrade installed but post-install restart failed: {exc}",
+                hint="run `clawctl agent restart` to rotate the gateway token",
+            )
 
     if use_json:
         typer.echo(
