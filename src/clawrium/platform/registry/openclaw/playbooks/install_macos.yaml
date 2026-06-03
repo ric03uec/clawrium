@@ -1,0 +1,397 @@
+---
+# macOS counterpart to install.yaml. Mirrors the Linux flow with these
+# OS-specific differences:
+#   - Agent user created via `dscl` instead of `useradd`.
+#   - HOME at /Users/<agent_name> (not /home/<agent_name>).
+#   - launchd plist (rendered from the shared
+#     `templates/openclaw.plist.j2` so install-time and start-time
+#     writes can't drift) replaces the inline systemd unit.
+#   - Brewed node/npm under /opt/homebrew/bin (base_macos.yaml).
+#
+# Pairing happens here (not in start) because the gateway's bootstrap
+# token endpoint is loopback-only; the daemon must be live in the same
+# session that runs the pair script. Atomic install — matches the
+# Linux behavior contract.
+- hosts: all
+  become: yes
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: >
+          install_macos.yaml invoked against a non-Darwin host
+          (ansible_os_family={{ ansible_os_family }}). This indicates a
+          dispatcher bug.
+      when: ansible_os_family != "Darwin"
+
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Normalize target OpenClaw version
+      ansible.builtin.set_fact:
+        openclaw_target_version: "{{ (claw_version | default('v2026.5.28')) | regex_replace('^v', '') }}"
+
+    # ----- Agent user creation via dscl -----
+    - name: Discover existing UID for agent user
+      ansible.builtin.shell: |
+        dscl . -read /Users/{{ agent_name | quote }} UniqueID 2>/dev/null \
+          | awk '/UniqueID:/{print $2}'
+      args:
+        executable: /bin/bash
+      register: agent_uid_existing
+      changed_when: false
+      failed_when: false
+
+    - name: Discover free UID >= 700 for new agent user
+      ansible.builtin.shell: |
+        set -euo pipefail
+        used=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | uniq)
+        candidate=700
+        while echo "$used" | grep -qx "$candidate"; do
+          candidate=$((candidate + 1))
+        done
+        echo "$candidate"
+      args:
+        executable: /bin/bash
+      register: agent_uid_new
+      changed_when: false
+      when: (agent_uid_existing.stdout | trim) == ""
+
+    - name: Resolve effective UID for agent user
+      ansible.builtin.set_fact:
+        agent_uid: "{{ (agent_uid_existing.stdout | trim) if (agent_uid_existing.stdout | trim) != '' else (agent_uid_new.stdout | trim) }}"
+
+    - name: Create agent user record via dscl
+      ansible.builtin.command: "dscl . -create /Users/{{ agent_name }} {{ item.key }} {{ item.value }}"
+      loop:
+        - { key: "UserShell", value: "/bin/bash" }
+        - { key: "RealName", value: "OpenClaw Agent ({{ agent_name }})" }
+        - { key: "UniqueID", value: "{{ agent_uid }}" }
+        - { key: "PrimaryGroupID", value: "20" }
+        - { key: "NFSHomeDirectory", value: "/Users/{{ agent_name }}" }
+      changed_when: false
+
+    - name: Ensure /Users/<agent> home directory exists with correct ownership
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0755"
+
+    # ----- Binary discovery + version-aware skip (parity with Linux) -----
+    - name: Check per-agent openclaw binary
+      ansible.builtin.stat:
+        path: "/Users/{{ agent_name }}/.openclaw/bin/openclaw"
+      register: openclaw_per_agent_stat
+
+    - name: Discover openclaw binary in PATH
+      ansible.builtin.shell: |
+        PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin which openclaw || true
+      args:
+        executable: /bin/bash
+      register: openclaw_which_result
+      changed_when: false
+      failed_when: false
+
+    - name: Resolve openclaw binary (per-agent preferred, PATH fallback)
+      ansible.builtin.set_fact:
+        openclaw_discovered_binary: >-
+          {{ ('/Users/' ~ agent_name ~ '/.openclaw/bin/openclaw')
+             if (openclaw_per_agent_stat.stat.exists
+                 and openclaw_per_agent_stat.stat.executable | default(false)
+                 and (openclaw_per_agent_stat.stat.size | default(0)) > 0)
+             else (openclaw_which_result.stdout | trim) }}
+
+    - name: Validate discovered binary path
+      ansible.builtin.fail:
+        msg: "Discovered openclaw binary at unsafe path: {{ openclaw_discovered_binary }}. Expected under /opt/homebrew/bin/, /usr/local/bin/, /usr/bin/, or /Users/."
+      when: >
+        (openclaw_discovered_binary | length) > 0 and
+        not (openclaw_discovered_binary.startswith('/opt/homebrew/bin/') or
+             openclaw_discovered_binary.startswith('/usr/local/bin/') or
+             openclaw_discovered_binary.startswith('/usr/bin/') or
+             openclaw_discovered_binary.startswith('/Users/'))
+
+    - name: Get installed openclaw version
+      ansible.builtin.command: "{{ openclaw_discovered_binary }} --version"
+      register: openclaw_version_check
+      changed_when: false
+      failed_when: false
+      when: (openclaw_discovered_binary | length) > 0
+
+    - name: Parse installed openclaw version
+      ansible.builtin.set_fact:
+        openclaw_installed_version: "{{ (openclaw_version_check.stdout | default('')) | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+)') | default('', true) }}"
+      when:
+        - openclaw_version_check is defined
+        - (openclaw_version_check.rc | default(1)) == 0
+
+    - name: Set install skip condition
+      ansible.builtin.set_fact:
+        openclaw_already_installed: >-
+          {{ (openclaw_discovered_binary | length) > 0
+             and (openclaw_installed_version | default('')) == openclaw_target_version
+             and not (force_install | default(false) | bool) }}
+        openclaw_runtime_binary: "{{ openclaw_discovered_binary if (openclaw_discovered_binary | length) > 0 else '/Users/' ~ agent_name ~ '/.openclaw/bin/openclaw' }}"
+
+    - name: Mark install as skipped when already installed
+      ansible.builtin.debug:
+        msg: "OpenClaw v{{ openclaw_installed_version | default('unknown') }} already installed at {{ openclaw_discovered_binary }}. Skipping binary install."
+      when: openclaw_already_installed
+
+    # ----- Install -----
+    - name: Download OpenClaw installer script
+      ansible.builtin.get_url:
+        url: https://openclaw.ai/install-cli.sh
+        dest: "/Users/{{ agent_name }}/openclaw-install.sh"
+        mode: "0700"
+        owner: "{{ agent_name }}"
+        group: staff
+        force: yes
+        timeout: 30
+        checksum: "{{ ('sha256:' + claw_sha256) if claw_sha256 else omit }}"
+      when: not openclaw_already_installed
+
+    - name: Install OpenClaw CLI runtime
+      ansible.builtin.command:
+        argv:
+          - /bin/bash
+          - "/Users/{{ agent_name }}/openclaw-install.sh"
+          - --prefix
+          - "/Users/{{ agent_name }}/.openclaw"
+          - --install-method
+          - npm
+          - --version
+          - "{{ openclaw_target_version }}"
+          - --no-onboard
+      become_user: "{{ agent_name }}"
+      environment:
+        HOME: "/Users/{{ agent_name }}"
+        PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+      when: not openclaw_already_installed
+
+    - name: Clean up installer script
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/openclaw-install.sh"
+        state: absent
+      when: not openclaw_already_installed
+
+    - name: Create workspace directory
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/workspace"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+
+    - name: Create OpenClaw config directory
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.openclaw"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+
+    - name: Create OpenClaw logs directory
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.openclaw/logs"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+
+    - name: Resolve per-instance gateway port from inventory (issue #533)
+      ansible.builtin.set_fact:
+        openclaw_port: "{{ config.gateway.port }}"
+
+    - name: Validate openclaw_port is a plain integer
+      ansible.builtin.fail:
+        msg: "Invalid openclaw_port: must be digits only"
+      when: openclaw_port | string is not regex('^[0-9]+$')
+
+    - name: Write openclaw config from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/openclaw.json.j2"
+        dest: "/Users/{{ agent_name }}/.openclaw/openclaw.json"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+      when: not openclaw_already_installed
+      no_log: true
+
+    - name: Write exec approvals policy from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/exec-approvals.json.j2"
+        dest: "/Users/{{ agent_name }}/.openclaw/exec-approvals.json"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+        backup: yes
+      no_log: true
+
+    - name: Verify exec approvals JSON is valid
+      ansible.builtin.command:
+        cmd: python3 -m json.tool /Users/{{ agent_name }}/.openclaw/exec-approvals.json
+      changed_when: false
+
+    - name: Create environment file for agent
+      ansible.builtin.copy:
+        dest: "/Users/{{ agent_name }}/.openclaw/env"
+        content: ""
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+        force: no
+
+    # ----- launchd plist (shared template — see openclaw.plist.j2) -----
+    - name: Write launchd plist from shared template
+      ansible.builtin.template:
+        src: "{{ template_path }}/openclaw.plist.j2"
+        dest: "/Library/LaunchDaemons/ai.clawrium.openclaw.{{ agent_name }}.plist"
+        owner: root
+        group: wheel
+        mode: "0644"
+      register: openclaw_plist_result
+
+    # Reload on ANY plist content change, including re-installs of an
+    # already-present binary (env, working dir, etc. may have shifted).
+    # systemd's daemon_reload+restart on the Linux path covers the
+    # same case.
+    - name: Bootout existing openclaw launchd unit if plist changed
+      ansible.builtin.command:
+        cmd: "launchctl bootout system/ai.clawrium.openclaw.{{ agent_name }}"
+      register: openclaw_bootout
+      changed_when: openclaw_bootout.rc == 0
+      failed_when: false
+      when: openclaw_plist_result.changed
+
+    - name: Bootstrap openclaw launchd unit
+      ansible.builtin.command:
+        cmd: "launchctl bootstrap system /Library/LaunchDaemons/ai.clawrium.openclaw.{{ agent_name }}.plist"
+      register: openclaw_bootstrap
+      changed_when: openclaw_bootstrap.rc == 0
+      # Tolerate "already loaded" — launchd is inconsistent (rc=5, 17, 37, 149)
+      # depending on macOS version. Subsequent kickstart confirms liveness.
+      failed_when: >
+        openclaw_bootstrap.rc != 0 and
+        not (
+          'already' in (openclaw_bootstrap.stderr | default('') | lower) or
+          'input/output' in (openclaw_bootstrap.stderr | default('') | lower) or
+          'file exists' in (openclaw_bootstrap.stderr | default('') | lower) or
+          'service' in (openclaw_bootstrap.stderr | default('') | lower)
+        )
+
+    - name: Kickstart openclaw service (ensure running)
+      ansible.builtin.command:
+        cmd: "launchctl kickstart -k system/ai.clawrium.openclaw.{{ agent_name }}"
+      changed_when: true
+
+    - name: Wait for gateway port to be listening
+      ansible.builtin.wait_for:
+        port: "{{ openclaw_port }}"
+        host: "{{ ansible_host }}"
+        timeout: 60
+      delegate_to: localhost
+      become: no
+
+    # ----- Pairing block (lifted from install.yaml, paths swapped) -----
+    - name: Read gateway authentication token from config file
+      ansible.builtin.slurp:
+        src: "/Users/{{ agent_name }}/.openclaw/openclaw.json"
+      register: openclaw_config_raw
+      no_log: true
+      when: not openclaw_already_installed
+
+    - name: Parse gateway token from config
+      ansible.builtin.set_fact:
+        gateway_token_result_stdout: "{{ (openclaw_config_raw.content | b64decode | from_json).gateway.auth.token }}"
+      no_log: true
+      when: not openclaw_already_installed
+
+    - name: Validate gateway token format
+      ansible.builtin.fail:
+        msg: "Gateway token not found or invalid format"
+      when:
+        - not openclaw_already_installed
+        - gateway_token_result_stdout is not defined or
+          gateway_token_result_stdout | length < 32 or
+          not (gateway_token_result_stdout is regex('^[a-zA-Z0-9_-]+$'))
+      no_log: true
+
+    - name: Copy device pairing script
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/pair_device.mjs"
+        dest: "/Users/{{ agent_name }}/pair_device.mjs"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+      when: not openclaw_already_installed
+
+    - name: Install ws package for pairing script
+      ansible.builtin.command:
+        cmd: /opt/homebrew/bin/npm install ws
+        chdir: "/Users/{{ agent_name }}"
+      become_user: "{{ agent_name }}"
+      environment:
+        HOME: "/Users/{{ agent_name }}"
+        PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+      changed_when: true
+      when: not openclaw_already_installed
+
+    - name: Run device pairing via localhost
+      ansible.builtin.command:
+        argv:
+          - /opt/homebrew/bin/node
+          - pair_device.mjs
+          - "ws://127.0.0.1:{{ openclaw_port }}"
+          - "{{ gateway_token_result_stdout }}"
+        chdir: "/Users/{{ agent_name }}"
+      become_user: "{{ agent_name }}"
+      environment:
+        HOME: "/Users/{{ agent_name }}"
+        PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+      register: pairing_result
+      no_log: true
+      when: not openclaw_already_installed
+
+    - name: Parse device credentials
+      ansible.builtin.set_fact:
+        device_credentials: "{{ pairing_result.stdout | from_json }}"
+      no_log: true
+      when: not openclaw_already_installed
+
+    - name: Validate device credentials
+      ansible.builtin.fail:
+        msg: "Device pairing failed: {{ device_credentials.error | default('unknown error') }}"
+      when:
+        - not openclaw_already_installed
+        - device_credentials.deviceToken is not defined or device_credentials.deviceToken | length < 10
+      no_log: true
+
+    - name: Clean up pairing script
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/pair_device.mjs"
+        state: absent
+
+    - name: Clean up node_modules from pairing
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/node_modules"
+        state: absent
+
+    - name: Clean up package-lock.json from pairing
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/package-lock.json"
+        state: absent
+
+    - name: Save all credentials to fact for retrieval
+      ansible.builtin.set_fact:
+        openclaw_gateway_token: "{{ gateway_token_result_stdout }}"
+        openclaw_gateway_url: "ws://{{ ansible_host }}:{{ openclaw_port }}"
+        openclaw_device_id: "{{ device_credentials.deviceId }}"
+        openclaw_device_token: "{{ device_credentials.deviceToken }}"
+        openclaw_device_private_key: "{{ device_credentials.privateKeyPem }}"
+        cacheable: true
+      no_log: true
+      when: not openclaw_already_installed

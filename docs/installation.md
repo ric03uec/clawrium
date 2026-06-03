@@ -160,13 +160,25 @@ the host.
 
 ### Install an agent
 
+Both `hermes` and `openclaw` agent types are supported on macOS
+(Apple Silicon, macOS 14+). They can coexist on the same host.
+
 ```bash
+# hermes
 clawctl agent create <name> --type hermes --host <alias>
+
+# openclaw
+clawctl agent create <name> --type openclaw --host <alias>
 ```
 
 Behind the scenes, clawrium installs Homebrew (if missing), then
-`node`, `ripgrep`, `ffmpeg`, and `uv` via brew, and runs the upstream
-hermes installer under a per-agent macOS user (`/Users/<agent_name>/`).
+`node`, `ripgrep`, `ffmpeg`, and `uv` via brew, creates a per-agent
+macOS user (`/Users/<agent_name>/`), and runs the upstream installer
+for the chosen agent type. The openclaw install also registers a
+launchd unit at
+`/Library/LaunchDaemons/ai.clawrium.openclaw.<agent>.plist` and
+performs the loopback pairing handshake to populate
+`gateway.auth` + `gateway.device_*` in `hosts.json`.
 
 Configure, start, chat — same commands as Linux:
 
@@ -196,6 +208,12 @@ sudo rm -f /etc/sudoers.d/xclm
 sudo launchctl bootout system/ai.clawrium.hermes.<agent>
 sudo launchctl bootout system/ai.clawrium.hermes.<agent>.dashboard
 sudo rm -f /Library/LaunchDaemons/ai.clawrium.hermes.<agent>*.plist
+sudo dscl . -delete /Users/<agent>
+sudo rm -rf /Users/<agent>
+
+# Remove an openclaw agent named <agent>
+sudo launchctl bootout system/ai.clawrium.openclaw.<agent>
+sudo rm -f /Library/LaunchDaemons/ai.clawrium.openclaw.<agent>.plist
 sudo dscl . -delete /Users/<agent>
 sudo rm -rf /Users/<agent>
 ```

@@ -289,7 +289,7 @@ def test_configure_agent_injects_macos_playbook_and_restarts(monkeypatch):
 
     restart_calls: list = []
 
-    def fake_restart(host, agent_name, on_event=None):
+    def fake_restart(host, agent_name, on_event=None, agent_type="hermes"):
         restart_calls.append((host["hostname"], agent_name))
         return True, None
 
@@ -386,7 +386,7 @@ def test_sync_agent_injects_macos_playbook_and_restarts(monkeypatch):
     monkeypatch.setattr(
         lifecycle_macos,
         "restart_agent_macos",
-        lambda host, agent, on_event=None: restart_calls.append((host["hostname"], agent)) or (True, None),
+        lambda host, agent, on_event=None, agent_type="hermes": restart_calls.append((host["hostname"], agent)) or (True, None),
     )
 
     result = lifecycle_macos.sync_agent(

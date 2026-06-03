@@ -1,0 +1,278 @@
+---
+# macOS counterpart to configure.yaml. Renders the same templates
+# (openclaw.json.j2 + exec-approvals.json.j2 + .env.j2) into
+# /Users/<agent>/.openclaw/ instead of /home/<agent>/.openclaw/, and
+# DOES NOT touch launchctl — lifecycle_macos.configure_agent triggers
+# a launchctl restart after this playbook returns.
+- hosts: all
+  become: yes
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: configure_macos.yaml invoked against non-Darwin host
+      when: ansible_os_family != "Darwin"
+
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Verify gateway token exists in config (strict mode only)
+      ansible.builtin.fail:
+        msg: "Gateway auth token not found. Run installation again to generate token."
+      when:
+        - config.gateway.auth is not defined or not config.gateway.auth
+      tags: [never, strict]
+
+    - name: Check that agent user exists via dscl
+      ansible.builtin.command: "dscl . -read /Users/{{ agent_name | quote }} UniqueID"
+      register: agent_user_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if openclaw agent user is missing
+      ansible.builtin.fail:
+        msg: "Agent user '{{ agent_name }}' not found. Run 'clawctl agent create --type openclaw' first."
+      when: agent_user_check.rc != 0
+
+    - name: Ensure openclaw config directory exists
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.openclaw"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+
+    - name: Ensure workspace directory exists
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.openclaw/workspace"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0700"
+
+    - name: Copy SOUL.md to workspace
+      ansible.builtin.copy:
+        src: "{{ identity_files.soul_path }}"
+        dest: "/Users/{{ agent_name }}/.openclaw/workspace/SOUL.md"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0644"
+      when: identity_files is defined and identity_files.soul_path is defined
+
+    - name: Render AGENTS.md from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/AGENTS.md.j2"
+        dest: "/Users/{{ agent_name }}/.openclaw/workspace/AGENTS.md"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0644"
+      when: identity_files is defined and identity_files.sync_workspace | default(false)
+
+    - name: Render TOOLS.md from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/TOOLS.md.j2"
+        dest: "/Users/{{ agent_name }}/.openclaw/workspace/TOOLS.md"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0644"
+      when: identity_files is defined and identity_files.sync_workspace | default(false)
+
+    - name: Render IDENTITY.md from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/IDENTITY.md.j2"
+        dest: "/Users/{{ agent_name }}/.openclaw/workspace/IDENTITY.md"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0644"
+      when: identity_files is defined and identity_files.sync_workspace | default(false)
+
+    - name: Write openclaw .env from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/.env.j2"
+        dest: "/Users/{{ agent_name }}/.openclaw/env"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+      no_log: true
+
+    - name: Render ~/.gitconfig for each git integration
+      ansible.builtin.template:
+        src: "{{ shared_template_path }}/gitconfig.j2"
+        dest: "/Users/{{ agent_name }}/.gitconfig"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+      become: yes
+      become_user: "{{ agent_name }}"
+      no_log: true
+      when: integrations is defined
+      loop: "{{ integrations | dict2items | selectattr('value.type', 'equalto', 'git') | list }}"
+      loop_control:
+        label: "{{ item.key }}"
+      vars:
+        git:
+          user_name:            "{{ item.value.GIT_USER_NAME | default('') }}"
+          user_email:           "{{ item.value.GIT_USER_EMAIL | default('') }}"
+          init_default_branch:  "{{ item.value.GIT_INIT_DEFAULT_BRANCH | default('main') }}"
+          pull_rebase:          "{{ item.value.GIT_PULL_REBASE | default('false') }}"
+          core_editor:          "{{ item.value.GIT_CORE_EDITOR | default('vim') }}"
+
+    - name: GitHub CLI authentication block
+      when: integrations is defined
+      block:
+        - name: Check if gh CLI is installed
+          ansible.builtin.shell: |
+            PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin which gh || true
+          args:
+            executable: /bin/bash
+          register: gh_check
+          changed_when: false
+          failed_when: false
+
+        - name: Authenticate gh CLI for each github integration
+          ansible.builtin.command:
+            argv:
+              - "{{ gh_check.stdout | trim }}"
+              - auth
+              - login
+              - --with-token
+            stdin: "{{ item.value.GITHUB_TOKEN }}"
+          become: yes
+          become_user: "{{ agent_name }}"
+          no_log: true
+          when:
+            - (gh_check.stdout | trim) | length > 0
+            - item.value.type == 'github'
+            - item.value.GITHUB_TOKEN is defined
+          loop: "{{ integrations | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
+    - name: Write openclaw config from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/openclaw.json.j2"
+        dest: "/Users/{{ agent_name }}/.openclaw/openclaw.json"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+      no_log: true
+      when: config.provider is defined and config.provider.default_model is defined
+
+    - name: Write exec approvals policy from template
+      ansible.builtin.template:
+        src: "{{ template_path }}/exec-approvals.json.j2"
+        dest: "/Users/{{ agent_name }}/.openclaw/exec-approvals.json"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0600"
+        backup: yes
+      no_log: true
+
+    - name: Verify exec approvals JSON is valid
+      ansible.builtin.command:
+        cmd: python3 -m json.tool /Users/{{ agent_name }}/.openclaw/exec-approvals.json
+      changed_when: false
+
+    - name: Config verification block
+      when: config.provider is defined and config.provider.default_model is defined
+      block:
+        - name: Write expected config for verification
+          no_log: true
+          ansible.builtin.copy:
+            content: "{{ config | to_json }}"
+            dest: "/tmp/clawrium_expected_config_{{ agent_name }}.json"
+            mode: "0600"
+
+        - name: Copy verify script to remote
+          ansible.builtin.copy:
+            src: "{{ template_path }}/verify_config.py"
+            dest: "/tmp/clawrium_verify_config_{{ agent_name }}.py"
+            mode: "0700"
+
+        - name: Verify openclaw.json configuration
+          no_log: true
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "/tmp/clawrium_verify_config_{{ agent_name }}.py"
+              - "/Users/{{ agent_name }}/.openclaw/openclaw.json"
+              - "/tmp/clawrium_expected_config_{{ agent_name }}.json"
+          register: verify_config
+          failed_when: verify_config.rc != 0
+
+      always:
+        - name: Clean up expected config temp file
+          ansible.builtin.file:
+            path: "/tmp/clawrium_expected_config_{{ agent_name }}.json"
+            state: absent
+
+        - name: Clean up verify script
+          ansible.builtin.file:
+            path: "/tmp/clawrium_verify_config_{{ agent_name }}.py"
+            state: absent
+
+    - name: Verify .env has the configured provider's credential key
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -qE
+          - "^{{ provider_env_key }}=.+"
+          - "/Users/{{ agent_name }}/.openclaw/env"
+      register: provider_env_check
+      changed_when: false
+      failed_when: provider_env_check.rc != 0
+      no_log: true
+      vars:
+        provider_env_key: >-
+          {{
+            {'anthropic': 'ANTHROPIC_API_KEY',
+             'openai': 'OPENAI_API_KEY',
+             'openrouter': 'OPENROUTER_API_KEY',
+             'zai': 'ZAI_API_KEY',
+             'vertex': 'GOOGLE_APPLICATION_CREDENTIALS'}[config.provider.type]
+          }}
+      when:
+        - config.provider is defined
+        - config.provider.type in ['anthropic','openai','openrouter','zai','vertex']
+        - provider_api_key | default('') | length > 0
+
+    - name: Verify .env has AWS_ACCESS_KEY_ID (Bedrock provider)
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -qE
+          - "^AWS_ACCESS_KEY_ID=.+"
+          - "/Users/{{ agent_name }}/.openclaw/env"
+      register: bedrock_access_check
+      changed_when: false
+      failed_when: bedrock_access_check.rc != 0
+      no_log: true
+      when:
+        - config.provider is defined
+        - config.provider.type == 'bedrock'
+        - aws_access_key | default('') | length > 0
+        - aws_secret_key | default('') | length > 0
+
+    - name: Verify .env has AWS_SECRET_ACCESS_KEY (Bedrock provider)
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -qE
+          - "^AWS_SECRET_ACCESS_KEY=.+"
+          - "/Users/{{ agent_name }}/.openclaw/env"
+      register: bedrock_secret_check
+      changed_when: false
+      failed_when: bedrock_secret_check.rc != 0
+      no_log: true
+      when:
+        - config.provider is defined
+        - config.provider.type == 'bedrock'
+        - aws_access_key | default('') | length > 0
+        - aws_secret_key | default('') | length > 0
+
+    - name: Display configure success
+      ansible.builtin.debug:
+        msg: |
+          Configuration written to /Users/{{ agent_name }}/.openclaw/.
+          Lifecycle layer will restart the launchd unit.
