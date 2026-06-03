@@ -739,6 +739,11 @@ def sync_agent(
     from clawrium.core.playbook_resolver import resolve_agent_playbook
 
     macos_playbook = resolve_agent_playbook(claw_name, "configure", "darwin")
+    # ATX iter4 B1: do NOT let _core_sync write state=READY before we
+    # know the post-sync launchctl restart succeeded. Otherwise a
+    # failed restart leaves hosts.json claiming the agent is ready
+    # while the daemon is down — a subsequent `clawctl agent start`
+    # passes the READY guard and meets a stopped service.
     result = _core_sync(
         hostname=hostname,
         claw_name=claw_name,
@@ -746,6 +751,7 @@ def sync_agent(
         workspace_only=workspace_only,
         on_event=on_event,
         playbook_path_override=macos_playbook,
+        defer_state_transition=True,
     )
     if not result.get("success"):
         return result
@@ -763,6 +769,38 @@ def sync_agent(
     if not restart_ok:
         result["success"] = False
         result["error"] = f"Post-sync restart failed: {restart_err}"
+        return result
+
+    # Restart succeeded → commit the deferred READY transition. Mirrors
+    # the matrix in _core_sync (InvalidTransitionError is a no-op, the
+    # two registry-missing branches surface as warnings).
+    from clawrium.core.onboarding import (
+        AgentNotFoundError,
+        InvalidTransitionError,
+        OnboardingNotFoundError,
+        OnboardingState,
+        transition_state,
+    )
+
+    try:
+        transition_state(hostname, agent_key, OnboardingState.READY)
+    except InvalidTransitionError as exc:
+        if on_event:
+            on_event(
+                "sync",
+                f"note: skipped state=READY for {agent_key} (mid-walk: {exc!s})",
+            )
+    except (AgentNotFoundError, OnboardingNotFoundError) as exc:
+        result["success"] = False
+        result["error"] = (
+            f"registry record missing for {agent_key} after sync: {exc!s}"
+        )
+    except Exception as exc:
+        result["success"] = False
+        result["error"] = (
+            f"could not write state=READY to hosts.json: {exc!s}. "
+            f"Agent is configured + running; re-run sync to commit state."
+        )
     return result
 
 

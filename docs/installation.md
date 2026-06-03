@@ -171,14 +171,17 @@ clawctl agent create <name> --type hermes --host <alias>
 clawctl agent create <name> --type openclaw --host <alias>
 ```
 
-Behind the scenes, clawrium installs Homebrew (if missing), then
-`node`, `ripgrep`, `ffmpeg`, and `uv` via brew, creates a per-agent
-macOS user (`/Users/<agent_name>/`), and runs the upstream installer
-for the chosen agent type. The openclaw install also registers a
-launchd unit at
-`/Library/LaunchDaemons/ai.clawrium.openclaw.<agent>.plist` and
-performs the loopback pairing handshake to populate
-`gateway.auth` + `gateway.device_*` in `hosts.json`.
+Behind the scenes, clawrium installs Homebrew (if missing) and the
+brew packages required for the chosen agent type, creates a per-agent
+macOS user (`/Users/<agent_name>/`), and runs the upstream installer:
+
+- **hermes** requires `node`, `ripgrep`, `ffmpeg`, and `uv`. The
+  upstream hermes installer also writes a launchd plist (gateway +
+  optional dashboard) at `/Library/LaunchDaemons/`.
+- **openclaw** requires only `node`. Install registers a launchd unit
+  at `/Library/LaunchDaemons/ai.clawrium.openclaw.<agent>.plist` and
+  performs the loopback pairing handshake to populate `gateway.auth`
+  + `gateway.device_*` in `hosts.json`.
 
 Configure, start, chat — same commands as Linux:
 

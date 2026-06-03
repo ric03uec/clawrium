@@ -1173,6 +1173,7 @@ def sync_agent(
     workspace_only: bool = False,
     on_event: Callable[[str, str], None] | None = None,
     playbook_path_override: Path | None = None,
+    defer_state_transition: bool = False,
 ) -> LifecycleResult:
     """Sync configuration to an agent instance.
 
@@ -1554,6 +1555,24 @@ def sync_agent(
     # "✓ sync complete" while the agent is stuck non-READY.
     state_write_ok = True
     state_write_err: str | None = None
+    if defer_state_transition:
+        # Caller (e.g. lifecycle_macos.sync_agent) owns the READY write
+        # so it can gate the transition on a post-configure restart
+        # actually succeeding. Skip the write here without failing sync.
+        emit(
+            "sync",
+            "defer_state_transition=true: caller will write state=READY "
+            "after its post-configure step completes.",
+        )
+        return {
+            "success": True,
+            "agent": agent_key,
+            "host": hostname,
+            "operation": "sync",
+            "pid": None,
+            "started_at": None,
+            "error": None,
+        }
     try:
         _transition_post(hostname, agent_key, _OS_post.READY)
     except _ITE_post as exc:

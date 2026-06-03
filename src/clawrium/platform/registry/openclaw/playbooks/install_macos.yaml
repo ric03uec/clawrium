@@ -272,15 +272,19 @@
         cmd: "launchctl bootstrap system /Library/LaunchDaemons/ai.clawrium.openclaw.{{ agent_name }}.plist"
       register: openclaw_bootstrap
       changed_when: openclaw_bootstrap.rc == 0
-      # Tolerate "already loaded" — launchd is inconsistent (rc=5, 17, 37, 149)
-      # depending on macOS version. Subsequent kickstart confirms liveness.
+      # Tolerate "already loaded" via the same explicit (rc, marker)
+      # matrix used in core/lifecycle_macos._bootstrap_with_tolerance.
+      # The bare 'service' substring used previously over-matched
+      # malformed-plist errors like rc=5 'Service configuration
+      # invalid: ...' — those must surface as real failures.
       failed_when: >
-        openclaw_bootstrap.rc != 0 and
-        not (
-          'already' in (openclaw_bootstrap.stderr | default('') | lower) or
-          'input/output' in (openclaw_bootstrap.stderr | default('') | lower) or
-          'file exists' in (openclaw_bootstrap.stderr | default('') | lower) or
-          'service' in (openclaw_bootstrap.stderr | default('') | lower)
+        openclaw_bootstrap.rc != 0
+        and not (
+          openclaw_bootstrap.rc == 37 or
+          (openclaw_bootstrap.rc == 17 and 'file exists' in (openclaw_bootstrap.stderr | default('') | lower)) or
+          (openclaw_bootstrap.rc == 5  and 'input/output' in (openclaw_bootstrap.stderr | default('') | lower)) or
+          (openclaw_bootstrap.rc == 149 and 'already' in (openclaw_bootstrap.stderr | default('') | lower)) or
+          'service already loaded' in (openclaw_bootstrap.stderr | default('') | lower)
         )
 
     - name: Kickstart openclaw service (ensure running)

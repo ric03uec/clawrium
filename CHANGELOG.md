@@ -32,21 +32,24 @@ release.
 
 ### Added
 
-- Openclaw can now be installed and run on macOS hosts alongside hermes
-  (#604). `clawctl agent create --type openclaw --host <mac>` provisions
-  an agent user via `dscl`, installs the openclaw CLI under
+- Openclaw can now be installed and run on macOS hosts alongside
+  hermes (#604). `clawctl agent create --type openclaw --host <mac>`
+  provisions an agent user via `dscl`, installs the openclaw CLI under
   `/Users/<agent>/.openclaw`, registers a launchd unit under
   `/Library/LaunchDaemons/ai.clawrium.openclaw.<agent>.plist`, and runs
   the gateway pairing handshake the same way the Linux path does.
+  Hermes and openclaw can coexist on the same macOS host with distinct
+  launchd labels (`ai.clawrium.hermes.<agent>` vs
+  `ai.clawrium.openclaw.<agent>`).
 
 ### Changed
 
-- On macOS, hermes and openclaw can now coexist on the same host with
-  distinct launchd units (`ai.clawrium.hermes.<agent>` and
-  `ai.clawrium.openclaw.<agent>`). Lifecycle commands (`agent start`,
-  `agent stop`, `agent restart`, `agent configure`, `agent sync`,
-  `agent remove`) work uniformly across both agent types. Existing
-  hermes agents on macOS continue to behave identically.
+- `lifecycle.sync_agent` accepts a new `defer_state_transition`
+  keyword (default `False`) so OS-specific callers can own the
+  `state=READY` write. The macOS path now uses this to commit
+  `state=READY` only after the post-configure `launchctl restart`
+  succeeds — otherwise a failed restart would leave `hosts.json`
+  claiming an agent is ready while the daemon is down (#604).
 
 ### Fixed
 

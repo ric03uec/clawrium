@@ -388,6 +388,12 @@ def test_sync_agent_injects_macos_playbook_and_restarts(monkeypatch):
         "restart_agent_macos",
         lambda host, agent, on_event=None, agent_type="hermes": restart_calls.append((host["hostname"], agent)) or (True, None),
     )
+    # iter4 B1: lifecycle_macos.sync_agent now owns the READY write,
+    # so the test must stub the real transition_state path.
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state",
+        lambda *a, **kw: None,
+    )
 
     result = lifecycle_macos.sync_agent(
         hostname="x", claw_name="hermes", agent_name="h1"

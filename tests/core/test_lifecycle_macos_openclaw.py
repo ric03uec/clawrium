@@ -219,6 +219,9 @@ def test_sync_agent_openclaw_injects_openclaw_playbook(monkeypatch):
         )
         or (True, None),
     )
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state", lambda *a, **kw: None
+    )
 
     result = lifecycle_macos.sync_agent(
         hostname="x", claw_name="openclaw", agent_name="o1"
@@ -417,6 +420,231 @@ def test_bootstrap_tolerance_rejects_malformed_plist(monkeypatch):
     assert ok is False
     assert err and "rc=5" in err
     assert "Service configuration invalid" in err
+
+
+def test_bootstrap_tolerance_rc17_without_file_exists_fails():
+    """W4: rc=17 without the 'File exists' marker is a real failure."""
+    client = _FakeClient(responses=[(17, "", "different error string")])
+    ok, err = lifecycle_macos._bootstrap_with_tolerance(
+        client, "o1", kind="gateway", agent_type="openclaw"
+    )
+    assert ok is False
+    assert err and "rc=17" in err
+
+
+def test_bootstrap_tolerance_rc149_without_already_fails():
+    """W4: rc=149 without 'already' is a real failure."""
+    client = _FakeClient(responses=[(149, "", "Resource busy")])
+    ok, err = lifecycle_macos._bootstrap_with_tolerance(
+        client, "o1", kind="gateway", agent_type="openclaw"
+    )
+    assert ok is False
+    assert err and "rc=149" in err
+
+
+def test_restart_agent_macos_openclaw_cold_host_fallback(monkeypatch):
+    """W5: kickstart -k returns 'could not find service' on a cold host
+    → restart_agent_macos must fall back to install_service + bootstrap
+    + kickstart for the openclaw label."""
+    install_calls: list = []
+
+    def fake_install(_c, _name, **kw):
+        install_calls.append(kw.get("agent_type"))
+        return "/p"
+
+    monkeypatch.setattr(lifecycle_macos, "install_service", fake_install)
+    client = _FakeClient(
+        responses=[
+            (113, "", "Could not find service\n"),  # kickstart -k fails (cold)
+            (0, "", ""),  # bootstrap (fallback)
+            (0, "", ""),  # kickstart (fallback)
+        ]
+    )
+    monkeypatch.setattr(lifecycle_macos, "_ssh", lambda _h: client)
+
+    ok, err = lifecycle_macos.restart_agent_macos(
+        {"hostname": "x", "agents": {"o1": {"type": "openclaw", "config": {}}}},
+        "o1",
+        agent_type="openclaw",
+    )
+    assert ok is True
+    assert err is None
+    assert install_calls == ["openclaw"]
+    # The bootstrap target must be openclaw's label, not hermes'.
+    bootstraps = [c for c in client.commands if "bootstrap" in c]
+    assert bootstraps and "ai.clawrium.openclaw.o1" in bootstraps[0]
+
+
+def test_public_start_agent_threads_openclaw_through(monkeypatch):
+    """W6: lifecycle_macos.start_agent (public) with claw_name='openclaw'
+    must call start_agent_macos with agent_type='openclaw' (not the
+    default 'hermes')."""
+    from clawrium.core.onboarding import OnboardingState
+
+    captured: dict = {}
+
+    def fake_start_macos(host, agent_name, on_event=None, agent_type="hermes"):
+        captured["agent_type"] = agent_type
+        captured["agent_name"] = agent_name
+        return True, None
+
+    monkeypatch.setattr(lifecycle_macos, "start_agent_macos", fake_start_macos)
+    monkeypatch.setattr(
+        "clawrium.core.hosts.get_host",
+        lambda _h: {
+            "hostname": "x",
+            "os_family": "darwin",
+            "agents": {
+                "o1": {
+                    "type": "openclaw",
+                    "agent_name": "o1",
+                    "config": {},
+                    "onboarding": {"state": OnboardingState.READY.value},
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(lifecycle_macos, "_update_agent_runtime", lambda *a, **k: None)
+
+    result = lifecycle_macos.start_agent(
+        hostname="x", claw_name="openclaw", agent_name="o1"
+    )
+    assert result["success"] is True
+    assert captured == {"agent_type": "openclaw", "agent_name": "o1"}
+
+
+def test_public_stop_agent_threads_openclaw_through(monkeypatch):
+    """W6: same regression for stop_agent."""
+    captured: dict = {}
+
+    def fake_stop_macos(host, agent_name, on_event=None, agent_type="hermes"):
+        captured["agent_type"] = agent_type
+        return True, None
+
+    monkeypatch.setattr(lifecycle_macos, "stop_agent_macos", fake_stop_macos)
+    monkeypatch.setattr(
+        "clawrium.core.hosts.get_host",
+        lambda _h: {
+            "hostname": "x",
+            "os_family": "darwin",
+            "agents": {
+                "o1": {"type": "openclaw", "agent_name": "o1", "config": {}}
+            },
+        },
+    )
+    monkeypatch.setattr(lifecycle_macos, "_update_agent_runtime", lambda *a, **k: None)
+
+    result = lifecycle_macos.stop_agent(
+        hostname="x", claw_name="openclaw", agent_name="o1"
+    )
+    assert result["success"] is True
+    assert captured["agent_type"] == "openclaw"
+
+
+def test_public_restart_agent_threads_openclaw_through(monkeypatch):
+    """W6: same regression for restart_agent."""
+    captured: dict = {}
+
+    def fake_restart_macos(host, agent_name, on_event=None, agent_type="hermes"):
+        captured["agent_type"] = agent_type
+        return True, None
+
+    monkeypatch.setattr(lifecycle_macos, "restart_agent_macos", fake_restart_macos)
+    monkeypatch.setattr(
+        "clawrium.core.hosts.get_host",
+        lambda _h: {
+            "hostname": "x",
+            "os_family": "darwin",
+            "agents": {
+                "o1": {"type": "openclaw", "agent_name": "o1", "config": {}}
+            },
+        },
+    )
+    monkeypatch.setattr(lifecycle_macos, "_update_agent_runtime", lambda *a, **k: None)
+
+    result = lifecycle_macos.restart_agent(
+        hostname="x", claw_name="openclaw", agent_name="o1"
+    )
+    assert result["success"] is True
+    assert captured["agent_type"] == "openclaw"
+
+
+def test_sync_agent_defers_state_ready_until_restart_succeeds(monkeypatch):
+    """B1: lifecycle_macos.sync_agent must NOT let _core_sync write
+    state=READY before restart succeeds. Verify by spying on the
+    `defer_state_transition` kwarg passed to _core_sync."""
+    sync_kwargs: dict = {}
+
+    def fake_core_sync(**kw):
+        sync_kwargs.update(kw)
+        return {
+            "success": True,
+            "agent": "o1",
+            "host": kw.get("hostname"),
+            "operation": "sync",
+        }
+
+    monkeypatch.setattr("clawrium.core.lifecycle.sync_agent", fake_core_sync)
+    monkeypatch.setattr(
+        "clawrium.core.hosts.get_host",
+        lambda _h: {
+            "hostname": "x",
+            "os_family": "darwin",
+            "agents": {"o1": {"type": "openclaw", "agent_name": "o1", "config": {}}},
+        },
+    )
+    monkeypatch.setattr(
+        lifecycle_macos, "restart_agent_macos", lambda *a, **k: (True, None)
+    )
+    transitioned: list = []
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state",
+        lambda h, a, s: transitioned.append((h, a, s)),
+    )
+
+    result = lifecycle_macos.sync_agent(
+        hostname="x", claw_name="openclaw", agent_name="o1"
+    )
+    assert result["success"] is True
+    # _core_sync was told to defer state write.
+    assert sync_kwargs.get("defer_state_transition") is True
+    # The READY transition happens once, AFTER restart returned True.
+    assert len(transitioned) == 1
+
+
+def test_sync_agent_skips_state_ready_when_restart_fails(monkeypatch):
+    """B1: if the post-sync restart fails, state=READY must NOT be
+    written — otherwise hosts.json claims ready while daemon is down."""
+
+    def fake_core_sync(**kw):
+        return {"success": True, "agent": "o1", "host": kw.get("hostname"), "operation": "sync"}
+
+    monkeypatch.setattr("clawrium.core.lifecycle.sync_agent", fake_core_sync)
+    monkeypatch.setattr(
+        "clawrium.core.hosts.get_host",
+        lambda _h: {
+            "hostname": "x",
+            "os_family": "darwin",
+            "agents": {"o1": {"type": "openclaw", "agent_name": "o1", "config": {}}},
+        },
+    )
+    monkeypatch.setattr(
+        lifecycle_macos,
+        "restart_agent_macos",
+        lambda *a, **k: (False, "launchctl bootout failed"),
+    )
+    transitioned: list = []
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state",
+        lambda h, a, s: transitioned.append((h, a, s)),
+    )
+
+    result = lifecycle_macos.sync_agent(
+        hostname="x", claw_name="openclaw", agent_name="o1"
+    )
+    assert result["success"] is False
+    assert "Post-sync restart failed" in (result["error"] or "")
+    assert transitioned == []
 
 
 def test_launchd_helpers_reject_shell_metacharacter_agent_name():
