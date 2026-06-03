@@ -102,21 +102,24 @@ onboarding:
           type: confirm
           message: "Enable Discord messaging for this agent?"
           default: false
-        # When select_discord=yes, the CLI prompts interactively for the bot
-        # token, allowed-user IDs, optional home channel, optional allowed
-        # channel allowlist, and require-mention toggle. Token persists to
-        # secrets.json under DISCORD_BOT_TOKEN; the rest land in hosts.json
-        # under config.channels.discord.
+        # DEPRECATED (#555): the `--stage channels` interactive flow has been
+        # retired. Channels are now first-class attachables — see
+        # `clawctl channel registry create --type discord` and
+        # `clawctl agent channel attach`. Token persists to secrets.json under
+        # channel:<name>:DISCORD_BOT_TOKEN; non-sensitive config lives in
+        # channels.json. The agent attachment list is
+        # hosts.json.agents.<name>.channels[].
         - id: select_slack
           name: "Enable Slack channel (optional)"
           type: confirm
           message: "Enable Slack messaging (Socket Mode) for this agent?"
           default: false
-        # When select_slack=yes, the CLI prompts interactively for the bot
-        # token (xoxb-), app token (xapp-), allowed-user IDs, optional home
-        # channel, and home channel name. Tokens persist to secrets.json
-        # under SLACK_BOT_TOKEN and SLACK_APP_TOKEN; the rest land in
-        # hosts.json under config.channels.slack.
+        # DEPRECATED (#555): the `--stage channels` interactive flow has been
+        # retired. Use `clawctl channel registry create --type slack` and
+        # `clawctl agent channel attach`. Tokens persist to secrets.json under
+        # channel:<name>:{SLACK_BOT_TOKEN,SLACK_APP_TOKEN}; non-sensitive
+        # config lives in channels.json. The agent attachment list is
+        # hosts.json.agents.<name>.channels[].
 
     validate:
       required: true
@@ -181,6 +184,44 @@ platforms:
     os_version: ">=14"
     arch: arm64
     sha256: "b34368cb0628d5acbdc48fe6f4160fb6f51bb33377e8f5a7415fd790a57456e5"
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        ripgrep: "*"
+        ffmpeg: "*"
+        uv: "*"
+  - version: "2026.5.29.2"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    sha256: "82978b9ed77fc851d9f0dc5009e69790424e344ea3e856a5948bd78b30981481"
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        python: ">=3.11"
+        ripgrep: "*"
+        ffmpeg: "*"
+        uv: "*"
+  - version: "2026.5.29.2"
+    os: ubuntu
+    os_version: "22.04"
+    arch: x86_64
+    sha256: "82978b9ed77fc851d9f0dc5009e69790424e344ea3e856a5948bd78b30981481"
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        python: ">=3.11"
+        ripgrep: "*"
+        ffmpeg: "*"
+        uv: "*"
+  - version: "2026.5.29.2"
+    os: macos
+    os_version: ">=14"
+    arch: arm64
+    sha256: "82978b9ed77fc851d9f0dc5009e69790424e344ea3e856a5948bd78b30981481"
     requirements:
       min_memory_mb: 2048
       gpu_required: false

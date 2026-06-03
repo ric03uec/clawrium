@@ -208,6 +208,10 @@ make format     # Auto-format
 
 Issues are the source of truth. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
+## Changelog
+
+Changes for the current, unreleased version are tracked in [CHANGELOG.md](CHANGELOG.md). Every shipped release is archived under [`docs/releases/<version>/`](docs/releases/), which is the single place to read the full history of what changed in any release.
+
 ## License
 
 Apache 2.0

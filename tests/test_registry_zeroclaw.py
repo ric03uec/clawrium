@@ -332,8 +332,8 @@ def test_zeroclaw_memory_playbooks_exist():
         )
 
 
-def test_zeroclaw_memory_info_lists_seven_personality_files():
-    """memory_info must enumerate all 7 personality files (no BOOTSTRAP.md)."""
+def test_zeroclaw_memory_info_lists_six_personality_files():
+    """memory_info must enumerate all 6 personality files (no BOOTSTRAP.md)."""
     from importlib.resources import files
     import yaml
 
@@ -347,7 +347,6 @@ def test_zeroclaw_memory_info_lists_seven_personality_files():
         "AGENTS.md",
         "TOOLS.md",
         "MEMORY.md",
-        "HEARTBEAT.md",
     }
     # BOOTSTRAP.md must NOT be listed — runtime owns its lifecycle.
     assert "BOOTSTRAP.md" not in top

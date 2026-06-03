@@ -25,6 +25,7 @@ before any production code paths depend on it.
 from __future__ import annotations
 
 import functools as _functools
+import re
 from dataclasses import dataclass, field
 
 __all__ = [
@@ -421,6 +422,31 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
     api_server_input: APIServerInputs | None = None
     api_server_blob = config_blob.get("api_server")
     if isinstance(api_server_blob, dict):
+        # Hermes API_SERVER_KEY lives in secrets.json (install.py:1138-1145
+        # writes only the non-sensitive shape to hosts.json by design). The
+        # legacy configure_agent path hydrates it at lifecycle.py:1695; the
+        # canonical render path must do the same or every `agent sync`
+        # writes `API_SERVER_KEY=''` into ~/.hermes/.env and the gateway
+        # refuses to bind a wildcard interface without a key (#582).
+        key_value = _clean_secret(api_server_blob.get("key"))
+        if not key_value and agent_type == "hermes":
+            from clawrium.core.install import _is_valid_hermes_api_server_key
+            from clawrium.core.secrets import (
+                get_instance_key,
+                get_instance_secrets,
+            )
+
+            instance_key = get_instance_key(
+                host_record.get("key_id") or hostname,
+                "hermes",
+                agent_key,
+            )
+            entry = get_instance_secrets(instance_key).get(
+                "HERMES_API_SERVER_KEY"
+            )
+            candidate = entry.get("value") if entry else None
+            if _is_valid_hermes_api_server_key(candidate):
+                key_value = _clean_secret(candidate)
         api_server_input = APIServerInputs(
             host=str(api_server_blob.get("host", "")),
             port=int(api_server_blob.get("port", 0) or 0),
@@ -428,14 +454,33 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
             # silently truncate the systemd EnvironmentFile after
             # API_SERVER_KEY=, dropping every var below it. Sanitize at
             # assembly time, same as provider/channel/integration secrets.
-            key=_clean_secret(api_server_blob.get("key")),
+            key=key_value,
         )
 
     gateway_input: GatewayInputs | None = None
     gateway_blob = config_blob.get("gateway")
     if isinstance(gateway_blob, dict):
+        # #576: zeroclaw's daemon refuses an empty `gateway.host`
+        # (`required_field_empty: gateway.host must not be empty`), so a
+        # missing/empty/whitespace-only value here would render
+        # `host = ""` (or `host = "   "`) in config.toml and brick
+        # `clawctl agent configure` on every fresh install. Default to
+        # `0.0.0.0` per the documented `features.web_ui.bind: wildcard`
+        # contract in AGENTS.md.
+        #
+        # `.strip()` catches whitespace-only values that `_clean_secret`
+        # does not (it strips NUL/CR/LF only). The default only fires
+        # for zeroclaw in practice — `render_hermes` and the openclaw
+        # renderer never read `inputs.gateway.host`, so applying the
+        # default unconditionally here is safe and keeps the assembler
+        # agent-type-agnostic.
+        host_raw = _clean_secret(gateway_blob.get("host")).strip()
         gateway_input = GatewayInputs(
-            host=str(gateway_blob.get("host", "")),
+            # W6 (ATX #555 polish): NUL in host value would silently
+            # truncate the TOML at parse time. Sanitize at assembly
+            # time, same as every other secret/identity string from
+            # hosts.json.
+            host=host_raw or "0.0.0.0",
             port=int(gateway_blob.get("port", 0) or 0),
             # Same systemd-truncation hazard as api_server.key above.
             auth=_clean_secret(gateway_blob.get("auth")),
@@ -465,21 +510,75 @@ def _shell_quote(value: str) -> str:
     Embeds a single quote in a single-quoted string as: 'val'"'"'ue'.
     Used for systemd EnvironmentFile values so `#` mid-value isn't
     parsed as a comment and arbitrary content can't break the line.
+
+    Strips NUL/CR/LF unconditionally:
+    * NUL — silently truncates the systemd EnvironmentFile at the NUL
+      byte, dropping every var below it (silent-wipe class, parent
+      #555).
+    * CR/LF — a single-quoted POSIX string CAN span lines, but systemd
+      EnvironmentFile parses one assignment per line; a literal newline
+      in any value breaks the assignment grammar (W7 / round-2 B2).
     """
-    return "'" + value.replace("'", "'\"'\"'") + "'"
+    cleaned = value.replace("\x00", "").replace("\r", "").replace("\n", "")
+    return "'" + cleaned.replace("'", "'\"'\"'") + "'"
 
 
 def _systemd_quote(value: str) -> str:
-    """Double-quote escape for systemd Environment= drop-ins."""
-    cleaned = value.replace("\r", "").replace("\n", "")
+    """Double-quote escape for systemd Environment= drop-ins.
+
+    Strips NUL (round-2 B3) for the same EnvironmentFile-truncation
+    reason as `_shell_quote`. Escapes `$` → `$$` (round-2 W2) because
+    systemd performs variable substitution in double-quoted
+    `Environment=` values BEFORE handing them to the process — a token
+    like `ghp_$SOMETHING` would otherwise be silently corrupted to
+    `ghp_` at unit load. Escapes `%` → `%%` (round-3 W2) because
+    systemd also performs specifier expansion (`%h`, `%n`, `%u`, etc.)
+    in the same pass — a credential containing `%n` would otherwise be
+    silently rewritten to the unit name.
+    """
+    cleaned = value.replace("\x00", "").replace("\r", "").replace("\n", "")
     cleaned = cleaned.replace("\\", "\\\\").replace('"', '\\"')
+    cleaned = cleaned.replace("%", "%%").replace("$", "$$")
     return f'"{cleaned}"'
 
 
+# W4 (ATX #555 polish round 3): the bare `{{ agent_name }}` Jinja
+# interpolation is used by the hermes mcp_servers.command path and the
+# `# Re-render with `clawctl agent configure {{ agent_name }}`` header
+# comment present in every canonical template. Validate at the entry
+# point of every renderer (not just hermes) so a future template that
+# starts interpolating the name into a sensitive position cannot be
+# fed a malicious value via the pure-function API.
+_AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+def _validate_agent_name(value: object) -> str:
+    """Return `value` if it matches the agent_name grammar, else raise.
+
+    Accepts `object` rather than `str` so the round-3 W6 hazard
+    (passing `None`) raises `AgentConfigError` instead of `TypeError`
+    inside the regex engine.
+    """
+    if not isinstance(value, str) or not _AGENT_NAME_RE.match(value):
+        raise AgentConfigError(
+            f"agent_name must match ^[a-z][a-z0-9_-]{{0,31}}$; got "
+            f"{value!r}"
+        )
+    return value
+
+
 def _toml_escape(value: str) -> str:
-    """Escape a value for use inside a TOML basic string."""
+    """Escape a value for use inside a TOML basic string.
+
+    Strips NUL (round-2 B1): the TOML spec rejects NUL in basic
+    strings and some parsers truncate the string at NUL silently
+    rather than erroring. `gateway.host` and `provider.endpoint`
+    both flow through this filter, so a NUL anywhere upstream in
+    hosts.json would otherwise corrupt the rendered config.toml.
+    """
     return (
-        value.replace("\\", "\\\\")
+        value.replace("\x00", "")
+        .replace("\\", "\\\\")
         .replace('"', '\\"')
         .replace("\r", "\\r")
         .replace("\n", "\\n")
@@ -520,6 +619,13 @@ _HERMES_SUPPORTED_CHANNELS = frozenset({"discord", "slack"})
 _HERMES_SUPPORTED_INTEGRATIONS = frozenset(
     {"github", "atlassian", "linear", "notion", "gitlab", "git"}
 )
+# Lockstep with hermes' configure.yaml playbook
+# (`mcp_atlassian_version: "0.21.1"`). Without this pin in the rendered
+# `mcp_servers.<slug>.args` line the daemon's uvx launcher would resolve
+# `mcp-atlassian` to latest — divergent from the version `uv tool install`
+# installed onto the host, so a fresh tool venv would silently get a
+# different MCP build than the one tested.
+_HERMES_MCP_ATLASSIAN_VERSION = "0.21.1"
 
 
 def render_hermes(inputs: RenderInputs) -> RenderedFiles:
@@ -535,6 +641,8 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
     exactly one output line; the function does NOT conditionally emit a
     section based on whether a hosts.json field happened to be populated.
     """
+    _validate_agent_name(inputs.agent_name)
+
     ptype = inputs.provider.type
     if ptype not in _HERMES_SUPPORTED_PROVIDERS:
         raise AgentConfigError(
@@ -634,6 +742,7 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
         provider=inputs.provider,
         ollama_base_url=ollama_base_url,
         atlassian_integrations=atlassian_views,
+        mcp_atlassian_version=_HERMES_MCP_ATLASSIAN_VERSION,
     )
 
     return RenderedFiles(
@@ -706,6 +815,8 @@ def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
     about destroys daemon-managed sections (gateway pairing state, security
     knobs, memory backends, cost.prices, hooks, etc.).
     """
+    _validate_agent_name(inputs.agent_name)
+
     ptype = inputs.provider.type
 
     if ptype not in _ZEROCLAW_PROVIDER_KINDS:
@@ -820,21 +931,14 @@ def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
     )
 
 
-def _render_zeroclaw_config_template(
-    *,
-    agent_name: str,
-    gateway: "GatewayInputs",
-    provider: "ProviderInputs",
-    discord_channel: "ChannelInputs | None",
-    shell_env_passthrough: list[str],
-) -> str:
-    """Render the full-canonical zeroclaw config.toml Jinja template.
+@_functools.lru_cache(maxsize=1)
+def _zeroclaw_template():
+    """Load + compile the zeroclaw canonical config.toml template once.
 
-    The template lives at
-    `src/clawrium/platform/registry/zeroclaw/templates/zeroclaw-config.toml.j2`
-    and is a verbatim copy of the canonical zeroclaw config with only
-    clawctl-managed values templated. Loaded via importlib.resources so it
-    ships with the wheel.
+    W2 (ATX #555 polish): the 1027-line zeroclaw template was previously
+    re-read from disk and re-compiled on every render call. Hermes and
+    openclaw both cache theirs — mirror that for consistency and to keep
+    fan-out render benchmarks fast on multi-agent hosts.
     """
     from importlib.resources import files
 
@@ -852,7 +956,33 @@ def _render_zeroclaw_config_template(
         keep_trailing_newline=True,
         autoescape=False,  # TOML is not HTML
     )
-    template = env.from_string(template_source)
+    # `toq` filter — applied to every {{ ... }} that renders into a TOML
+    # double-quoted string. Closes B3 (ATX round on #555 polish): without
+    # this an API key containing `"` would terminate the TOML string
+    # early and could inject arbitrary keys (e.g. silently disable
+    # `require_pairing` on the gateway). `\` in any field would produce
+    # an invalid escape and brick TOML parse.
+    env.filters["toq"] = lambda v: _toml_escape(str(v))
+    return env.from_string(template_source)
+
+
+def _render_zeroclaw_config_template(
+    *,
+    agent_name: str,
+    gateway: "GatewayInputs",
+    provider: "ProviderInputs",
+    discord_channel: "ChannelInputs | None",
+    shell_env_passthrough: list[str],
+) -> str:
+    """Render the full-canonical zeroclaw config.toml Jinja template.
+
+    The template lives at
+    `src/clawrium/platform/registry/zeroclaw/templates/zeroclaw-config.toml.j2`
+    and is a verbatim copy of the canonical zeroclaw config with only
+    clawctl-managed values templated. Loaded via importlib.resources so it
+    ships with the wheel.
+    """
+    template = _zeroclaw_template()
     return template.render(
         agent_name=agent_name,
         gateway=gateway,
@@ -908,6 +1038,7 @@ def render_openclaw(inputs: RenderInputs) -> RenderedFiles:
     `json.dumps` formatting), matching the silent-wipe-prevention contract
     introduced for zeroclaw in #565.
     """
+    _validate_agent_name(inputs.agent_name)
     ptype = inputs.provider.type
     if ptype not in _OPENCLAW_SUPPORTED_PROVIDERS:
         raise AgentConfigError(

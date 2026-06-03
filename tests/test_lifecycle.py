@@ -1435,10 +1435,12 @@ class TestConfigureAgentZeroclawBearerForwarding:
         assert "zc_LEAK_FROM_CONFIGURE" not in (error or ""), (
             f"configure_agent censored-guard regressed: {error!r}"
         )
-        # ATX iter-3 S3 / NW4: exact equality so the format itself is
-        # locked (not just a substring), and a silent None return would
-        # fail loudly.
-        assert error == "Configure playbook failed: failed"
+        # #583: the bearer-leak contract is the load-bearing one and
+        # still holds verbatim. The wording around it changed because
+        # the reporter now surfaces a `no_log: true` hint with the
+        # failing task name instead of the bare prefix.
+        assert "no_log: true" in (error or "")
+        assert "ANSIBLE_NO_LOG=False" in (error or "")
 
     def test_configure_all_censored_events_falls_back_to_generic_error(
         self, tmp_path: Path
@@ -1485,8 +1487,12 @@ class TestConfigureAgentZeroclawBearerForwarding:
             ],
         )
         assert success is False
+        # #583: bearer must still not leak — that contract is the load-bearing
+        # one. The wording around it changed because the reporter now
+        # surfaces a `no_log: true` hint instead of the bare prefix.
         assert "zc_" not in (error or "")
-        assert error == "Configure playbook failed: failed"
+        assert "no_log: true" in (error or "")
+        assert "ANSIBLE_NO_LOG=False" in (error or "")
 
     def test_configure_timeout_returns_friendly_error(self, tmp_path: Path):
         """ATX iter-4 NW-B: pin the configure timeout branch. The
@@ -1543,7 +1549,12 @@ class TestConfigureAgentZeroclawBearerForwarding:
         )
         assert success is False
         assert error is not None
-        assert error == "Configure playbook failed: failed"
+        # #583: when msg AND stderr are both None, the reporter now
+        # falls through to the pre-task summary (no events to attribute
+        # to a task name). The load-bearing contract — error is never
+        # None — still holds.
+        assert "None" not in error
+        assert "Configure playbook failed" in error
 
     def test_configure_zeroclaw_missing_gateway_fails_port_validation(
         self, tmp_path: Path
@@ -2375,6 +2386,24 @@ class TestResolveAgentRecord:
 class TestSyncAgent:
     """Tests for sync_agent function."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_transition_state(self):
+        """B-NEW-2 (ATX #555 polish round 4): `sync_agent` now mirrors
+        the canonical pipeline's success/error contract — the
+        post-configure `transition_state(..., READY)` call sets
+        `success=False` on registry-incoherence or IO errors. These
+        tests mock `get_host`/`configure_agent` but the real
+        `transition_state` runs against an empty `XDG_CONFIG_HOME`
+        (isolated by `_isolate_config_dir`) and naturally raises
+        `OnboardingNotFoundError`, which previously was silently
+        swallowed. Patch it here so each test exercises its intended
+        contract; tests that want to assert the failure path patch it
+        themselves and override this autouse fixture's effect."""
+        with patch(
+            "clawrium.core.onboarding.transition_state", return_value=None
+        ):
+            yield
+
     def test_raises_error_when_host_not_found(self):
         """Sync with unknown host fails."""
         with patch("clawrium.core.lifecycle.get_host", return_value=None):
@@ -2711,6 +2740,204 @@ class TestSyncAgent:
         mock_configure.assert_called_once()
         # Restart should NOT be called
         mock_restart.assert_not_called()
+
+    def test_sync_registry_incoherence_surfaces_success_false(self):
+        """B-NEW-2 (ATX #555 polish round 4): when post-configure
+        `transition_state` raises `OnboardingNotFoundError` (registry
+        record vanished between configure and READY write), legacy
+        `sync_agent` must mirror the canonical pipeline's contract —
+        `success=False` + populated `.error` — so a CLI handler
+        gating on `.success` does not print "✓ sync complete" with a
+        stuck non-READY agent. The autouse `_stub_transition_state`
+        fixture is overridden here by the inner `patch` per pytest's
+        last-patch-wins semantics."""
+        from clawrium.core.onboarding import OnboardingNotFoundError
+
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ):
+                with patch(
+                    "clawrium.core.onboarding.transition_state",
+                    side_effect=OnboardingNotFoundError("record vanished"),
+                ):
+                    result = sync_agent("192.168.1.100", "openclaw")
+
+        assert result["success"] is False
+        assert result["error"] is not None
+        assert "registry record missing" in result["error"]
+
+    def test_sync_invalid_transition_stays_success_true(self):
+        """W2 (ATX #555 polish round 5): `InvalidTransitionError` from
+        the post-configure READY transition is the ONLY exception
+        branch that must stay `success=True` — the agent is mid-walk
+        (PROVIDERS/IDENTITY/CHANNELS), configure_agent already
+        succeeded, and `clawctl agent start` will surface the actual
+        stage. Pin this contract so a future refactor that
+        accidentally lumps `_ITE_post` into the `success=False` branch
+        is caught by CI."""
+        from clawrium.core.onboarding import InvalidTransitionError
+
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        events: list = []
+
+        def on_event(stage, message):
+            events.append((stage, message))
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ):
+                with patch(
+                    "clawrium.core.onboarding.transition_state",
+                    side_effect=InvalidTransitionError("stuck in PROVIDERS"),
+                ):
+                    result = sync_agent(
+                        "192.168.1.100", "openclaw", on_event=on_event
+                    )
+
+        assert result["success"] is True
+        assert result["error"] is None
+        # W1 round-5: a `note:` line emitted on the mid-walk branch so
+        # the CLI can surface why state didn't advance to READY.
+        assert any(
+            "skipped state=READY" in msg
+            and "PROVIDERS" in msg
+            for _, msg in events
+        ), events
+
+    def test_sync_agent_not_found_surfaces_success_false(self):
+        """W3 (ATX #555 polish round 5): companion to
+        `test_sync_registry_incoherence_surfaces_success_false` —
+        `AgentNotFoundError` shares the except tuple with
+        `OnboardingNotFoundError`. Both must surface as
+        `success=False` + populated `error`."""
+        from clawrium.core.onboarding import AgentNotFoundError
+
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ):
+                with patch(
+                    "clawrium.core.onboarding.transition_state",
+                    side_effect=AgentNotFoundError("agent vanished"),
+                ):
+                    result = sync_agent("192.168.1.100", "openclaw")
+
+        assert result["success"] is False
+        assert result["error"] is not None
+        assert "registry record missing" in result["error"]
+        assert "agent vanished" in result["error"]
+
+    def test_sync_state_write_io_failure_surfaces_success_false(self):
+        """B-NEW-2 (ATX #555 polish round 4): IO/permission failures
+        on the READY transition must also surface `success=False` —
+        not silently swallowed."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 40000},
+                        "provider": {
+                            "name": "test",
+                            "type": "ollama",
+                            "endpoint": "http://localhost:11434",
+                            "default_model": "llama3",
+                        },
+                    },
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ):
+                with patch(
+                    "clawrium.core.onboarding.transition_state",
+                    side_effect=OSError("disk full"),
+                ):
+                    result = sync_agent("192.168.1.100", "openclaw")
+
+        assert result["success"] is False
+        assert result["error"] is not None
+        assert "state=READY" in result["error"]
+        assert "disk full" in result["error"]
 
     def test_allows_intermediate_onboarding_states(self):
         """Sync allows onboarding states after PENDING (providers, identity, etc.)."""

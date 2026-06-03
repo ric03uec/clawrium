@@ -74,9 +74,17 @@
     # embedded verbatim. 0600 with agent ownership so only the service user
     # (and root) can read. Ansible's default `force: yes` (not set here)
     # only restarts the daemon when content changes — ATX S1 fix.
-    - name: Render ~/.zeroclaw/config.toml from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/zeroclaw-config.toml.j2"
+    # #583: deploy the pre-rendered config.toml from
+    # `clawrium.core.render.render_zeroclaw` instead of re-rendering
+    # the same Jinja template under Ansible's environment. The
+    # canonical Python renderer owns the single source of truth for
+    # the file contents (including the custom `toq` filter); Ansible
+    # just lays the bytes down. This eliminates the dual-render hazard
+    # where the Python path and the Ansible path could silently
+    # diverge.
+    - name: Deploy ~/.zeroclaw/config.toml (pre-rendered canonical content)
+      ansible.builtin.copy:
+        content: "{{ prerendered_zeroclaw_config_toml }}"
         dest: "/home/{{ agent_name }}/.zeroclaw/config.toml"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"

@@ -4,7 +4,7 @@
   tasks:
     - name: Normalize target Hermes version (strip leading 'v')
       ansible.builtin.set_fact:
-        hermes_target_version: "{{ (claw_version | default('v2026.5.7')) | regex_replace('^v', '') }}"
+        hermes_target_version: "{{ (claw_version | default('v2026.5.29.2')) | regex_replace('^v', '') }}"
 
     - name: Resolve Hermes git tag for installer (always 'v'-prefixed)
       ansible.builtin.set_fact:
@@ -279,37 +279,21 @@
         or not ((node_version_major.stdout | default('0')) is match('^[0-9]+$'))
         or (node_version_major.stdout | default('0') | int) < 18
 
-    # Issue #490 — Pre-build the TUI bundle + work around two upstream
-    # NousResearch/hermes-agent v2026.5.7 defects.
+    # Pre-build the TUI bundle so the runtime never needs to.
     #
-    # Defect A (filename drift): `ui-tui/packages/hermes-ink/package.json`'s
-    # `build` script writes `dist/entry-exports.js`, but
-    # `hermes_cli/main.py:_hermes_ink_bundle_stale` checks for
-    # `dist/ink-bundle.js`. The expected file is never produced, so the
-    # staleness check is permanently True, which propagates through
-    # `_tui_build_needed` and forces a rebuild on every dashboard chat
-    # request.
-    #
-    # Defect B (blocking subprocess in async handler):
-    # `web_server.py:pty_ws` calls `_resolve_chat_argv` (→ `_make_tui_argv`,
-    # → `subprocess.run([npm, "run", "build"], ...)`) synchronously between
-    # `await ws.accept()` and the PTY spawn. With defect A active, every
-    # chat WS upgrade triggers a multi-second blocking build that prevents
-    # uvicorn from flushing the queued HTTP 101 to the client — browsers
-    # see the handshake fail.
-    #
-    # Mitigation here:
-    #   (1) Run `npm install + npm run build` at install time so the
-    #       runtime never needs to.
-    #   (2) Copy `entry-exports.js` → `ink-bundle.js` so the staleness
-    #       check finds the file it's looking for.
-    #   (3) Touch `ink-bundle.js` (fresh mtime, defeats
-    #       `_hermes_ink_bundle_stale`) and `dist/entry.js` (fresh mtime
-    #       newer than all `.ts/.tsx` + meta files, defeats
-    #       `_tui_build_needed`).
-    #
-    # Retire this block once upstream lands fixes for both defects (track
-    # via issue #490).
+    # In v2026.5.29.2, `hermes_cli/main.py` gates the dashboard chat path on
+    # `_tui_need_npm_install()` + `_tui_need_rebuild()`, which check
+    # `dist/entry.js` mtime (plus npm lockfile consistency) against the
+    # input dirs `src/` and `packages/hermes-ink/src/`. Building at install
+    # time keeps both checks at False so `pty_ws` does not spawn a blocking
+    # `npm run build` between `ws.accept()` and the PTY spawn (issue #490
+    # defect B). The `ink-bundle.js` alias workaround for #490 defect A is
+    # retired here: upstream removed `_hermes_ink_bundle_stale` entirely
+    # and no longer checks for that filename anywhere. The hermes-ink
+    # package also no longer ships a `dist/`-rooted artifact in
+    # v2026.5.29.2; it serves `index.js`/`text-input.js` at the package
+    # root. See issue #601 for the regression that surfaced when the
+    # alias step kept trying to read a source path that no longer exists.
     - name: Install ui-tui Node dependencies (idempotent)
       ansible.builtin.command:
         cmd: npm install --silent --no-fund --no-audit --no-progress
@@ -330,25 +314,7 @@
       changed_when: "'esbuild' in (hermes_ui_tui_build.stdout | default(''))"
       failed_when: hermes_ui_tui_build.rc != 0
 
-    - name: Alias entry-exports.js to ink-bundle.js (upstream filename drift workaround)
-      ansible.builtin.copy:
-        src: "/home/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/entry-exports.js"
-        dest: "/home/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/ink-bundle.js"
-        remote_src: true
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
-        mode: "0644"
-
-    - name: Touch ink-bundle.js so _hermes_ink_bundle_stale sees a fresh mtime
-      ansible.builtin.file:
-        path: "/home/{{ agent_name }}/.hermes/code/ui-tui/packages/hermes-ink/dist/ink-bundle.js"
-        state: touch
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
-        mode: "0644"
-      changed_when: false
-
-    - name: Touch ui-tui/dist/entry.js so _tui_build_needed sees a fresh mtime
+    - name: Touch ui-tui/dist/entry.js so _tui_need_rebuild sees a fresh mtime
       ansible.builtin.file:
         path: "/home/{{ agent_name }}/.hermes/code/ui-tui/dist/entry.js"
         state: touch

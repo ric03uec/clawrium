@@ -15,8 +15,17 @@ from clawrium.core.web_ui import ResolvedUI
 runner = CliRunner()
 
 
-def _seed_hosts(config_dir: Path, agent_type: str) -> None:
-    """Write a minimal hosts.json with one agent of the given type."""
+def _seed_hosts(
+    config_dir: Path,
+    agent_type: str,
+    config: dict | None = None,
+) -> None:
+    """Write a minimal hosts.json with one agent of the given type.
+
+    `config` overrides the agent's `config` block — pass e.g.
+    `{"gateway": {"port": 40456}}` for tests that need a persisted port
+    so the fixture stays coherent with what install.py would write.
+    """
     hosts = [
         {
             "hostname": "192.168.1.100",
@@ -28,7 +37,7 @@ def _seed_hosts(config_dir: Path, agent_type: str) -> None:
                     "type": agent_type,
                     "agent_name": "demo",
                     "name": "demo",
-                    "config": {},
+                    "config": config or {},
                 }
             },
         }
@@ -38,14 +47,18 @@ def _seed_hosts(config_dir: Path, agent_type: str) -> None:
 
 
 def test_open_rejects_agent_without_web_ui_feature(isolated_config: Path):
-    """openclaw has no `features.web_ui` in its manifest → resolver returns
-    None → CLI exits with a clear "does not declare a native web UI" error.
+    """When the resolver returns None (manifest does not declare
+    `features.web_ui`) → CLI exits with a clear "does not declare a
+    native web UI" error.
 
-    The hermes-only gate was dropped in #491 (zeroclaw also exposes a UI);
-    the manifest's `features.web_ui` block is now the only gate.
+    The hermes-only gate was dropped in #491 (zeroclaw also exposes a UI),
+    and openclaw joined the UI-bearing set after that. All three bundled
+    agent types now declare `features.web_ui`, so this test patches the
+    resolver directly to exercise the manifest-not-declared code path.
     """
     _seed_hosts(isolated_config, "openclaw")
-    result = runner.invoke(app, ["agent", "open", "demo"])
+    with patch("clawrium.core.web_ui.resolve", return_value=None):
+        result = runner.invoke(app, ["agent", "open", "demo"])
     assert result.exit_code == 1
     assert "does not declare" in result.output.lower()
     assert "native web ui" in result.output.lower()
@@ -289,3 +302,40 @@ def test_open_remote_zeroclaw_spawns_tunnel_with_wildcard_bind(isolated_config: 
     assert result.exit_code == 0, result.output
     mock_ensure.assert_called_once_with("demo")
     mock_browser.assert_called_once_with("http://127.0.0.1:39211/")
+
+
+def test_open_remote_openclaw_spawns_tunnel_with_wildcard_bind(isolated_config: Path):
+    """openclaw resolves with `bind='wildcard'` (mirror of zeroclaw) and
+    still tunnels to remote loopback. Regression anchor for the openclaw
+    parity work that landed `features.web_ui` in the manifest.
+
+    Seed mirrors what install.py persists at first install (gateway port
+    in 40000..41999): even though the resolver is patched below, the
+    fixture stays internally coherent — a less-mocked variant of this
+    test (real resolver) would resolve to the same `ResolvedUI`.
+    """
+    _seed_hosts(isolated_config, "openclaw", {"gateway": {"port": 40456}})
+    resolved = ResolvedUI(
+        host="oc.local",
+        remote_port=40456,
+        bind="wildcard",
+        ssh_config={"user": "xclm"},
+    )
+
+    with (
+        patch("clawrium.core.web_ui.resolve", return_value=resolved),
+        patch(
+            "clawrium.core.health.check_claw_health",
+            return_value=_running_health(agent_type="openclaw", host="oc.local"),
+        ),
+        patch("clawrium.core.web_ui_tunnel.ensure", return_value=39212) as mock_ensure,
+        patch("clawrium.core.web_ui_tunnel.close"),
+        patch("webbrowser.open") as mock_browser,
+        patch("threading.Event") as mock_event_cls,
+    ):
+        mock_event_cls.return_value.wait.return_value = None
+        result = runner.invoke(app, ["agent", "open", "demo"])
+
+    assert result.exit_code == 0, result.output
+    mock_ensure.assert_called_once_with("demo")
+    mock_browser.assert_called_once_with("http://127.0.0.1:39212/")

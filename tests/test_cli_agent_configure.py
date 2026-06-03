@@ -31,8 +31,14 @@ def create_host_with_claw(
     claw_type: str = "openclaw",
     onboarding_state: str = "pending",
     config: dict | None = None,
+    providers: list | None = None,
 ) -> None:
-    """Create a test host with a claw installed."""
+    """Create a test host with a claw installed.
+
+    ``providers`` populates the tier-1 attachment list (the single source of
+    truth for whether a provider is attached). Pass it when a test exercises a
+    code path gated on provider attachment (e.g. channels configure).
+    """
     hosts_file = config_dir / "hosts.json"
     config_dir.mkdir(parents=True, exist_ok=True)
 
@@ -75,6 +81,10 @@ def create_host_with_claw(
     # Add config if provided
     if config:
         agent_data["config"] = config
+
+    # Tier-1 provider attachment list (single source of truth)
+    if providers is not None:
+        agent_data["providers"] = providers
 
     hosts_data = [
         {
@@ -900,11 +910,14 @@ class TestRunChannelsStageDiscord:
         from clawrium.cli.agent import _sync_channel_config
 
         create_test_keypair(isolated_config, "work")
-        # Create host with configured provider - agent stored under claw_type key
+        # Create host with configured provider - agent stored under claw_type key.
+        # Tier-1 `providers` is the single source of truth the channels-configure
+        # gate checks; a real agent has a provider attached before this stage.
         create_host_with_claw(
             isolated_config,
             onboarding_state="channels",
             config={"provider": {"name": "test-provider", "type": "openai"}},
+            providers=["test-provider"],
         )
 
         captured_calls = []

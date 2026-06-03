@@ -6,3 +6,9 @@ ric03uec:
   socials:
     github: ric03uec
     linkedin: https://www.linkedin.com/in/devashishm/
+
+maurice:
+  name: Maurice
+  title: Program Manager, clawrium
+  url: https://github.com/ric03uec/clawrium
+  page: true

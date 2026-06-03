@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { ModelComboBox } from "./model-combobox";
 import type {
   AcceleratorVendor,
   ProviderTypesMap,
@@ -158,27 +159,25 @@ export function AddProviderModal({
         )}
 
         {/* Default Model */}
-        {availableModels && availableModels.length > 0 && (
+        {availableModels.length > 0 && (
           <div>
             <label
               htmlFor={modelId}
               className="block text-xs font-medium text-secondary mb-1"
             >
               Default Model
+              <span className="ml-2 font-normal text-muted">
+                ({availableModels.length} available)
+              </span>
             </label>
-            <select
-              id={modelId}
+            <ModelComboBox
+              inputId={modelId}
               value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            >
-              <option value="">Select model...</option>
-              {availableModels.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
+              onChange={setModel}
+              options={availableModels}
+              groupByLab={type === "openrouter" || type === "bedrock" || type === "vertex"}
+              placeholder="Search models by id, name, lab, or tag..."
+            />
           </div>
         )}
 

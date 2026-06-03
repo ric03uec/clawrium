@@ -16,6 +16,15 @@ export function useAgent(key: string) {
 // serves its dashboard without an in-process pairing step.
 export const PAIRING_AGENT_TYPES = new Set(["zeroclaw"]);
 
+// Agent types whose dashboard SPA prompts the user to paste a
+// long-lived gateway bearer token on first open. The token is the same
+// install-time bearer persisted in hosts.json under
+// `agents.<name>.config.gateway.auth`. Today only openclaw — zeroclaw
+// uses the one-shot pairing-code handshake above, and hermes gates on
+// the SSH key only. Keep in sync with `_TOKEN_REVEAL_AGENT_TYPES` in
+// `src/clawrium/gui/routes/fleet.py`.
+export const TOKEN_REVEAL_AGENT_TYPES = new Set(["openclaw"]);
+
 // B2 (#560 / #567): the agent-type allowlist that used to live here
 // (`WEB_UI_AGENT_TYPES`) was a client-side duplicate of the backend
 // manifest resolver in `src/clawrium/core/web_ui.py:resolve`. Adding
@@ -40,7 +49,7 @@ export function useAgentWebUI(key: string, status: string) {
     //     polling too: agent type is permanently no-UI; no amount of
     //     refetching changes that. The previous unconditional 30s
     //     interval kept hitting the endpoint forever for every
-    //     nemoclaw / openclaw / etc. fleet member.
+    //     nemoclaw / etc. fleet member.
     //   - available=false with a transient reason (tunnel error,
     //     daemon not reachable, etc.) → keep the 30s retry so a
     //     blip clears itself.
@@ -64,6 +73,17 @@ export function useAgentPairingCode(key: string) {
   // in-memory pairing code; the previous code becomes invalid.
   return useMutation({
     mutationFn: () => api.mintAgentPairingCode(key),
+  });
+}
+
+export function useAgentConnectionToken(key: string) {
+  // Reveal-on-demand mutation. The token is static (the same
+  // install-time bearer), so this is a privileged read rather than a
+  // mutation — modeled as `useMutation` to keep the secret out of the
+  // background-refetch query cache and to make the reveal an explicit
+  // user gesture.
+  return useMutation({
+    mutationFn: () => api.getAgentConnectionToken(key),
   });
 }
 

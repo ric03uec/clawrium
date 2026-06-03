@@ -1,5 +1,5 @@
 ---
-# ZeroClaw memory info — surfaces all 7 personality MD files in
+# ZeroClaw memory info — surfaces all 6 personality MD files in
 # ~/.zeroclaw/workspace plus any user-added daily notes under
 # ~/.zeroclaw/workspace/memory/. BOOTSTRAP.md is intentionally omitted:
 # the ZeroClaw runtime generates it on first boot and self-deletes after
@@ -15,7 +15,6 @@
       - AGENTS.md
       - TOOLS.md
       - MEMORY.md
-      - HEARTBEAT.md
   tasks:
     - name: Validate agent_name (defense-in-depth)
       ansible.builtin.fail:

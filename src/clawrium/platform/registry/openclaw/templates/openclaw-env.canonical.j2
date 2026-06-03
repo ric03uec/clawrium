@@ -31,6 +31,11 @@ ZAI_API_KEY={{ provider.api_key | shq }}
 {% elif provider.type == 'bedrock' %}
 AWS_ACCESS_KEY_ID={{ provider.aws_access_key | shq }}
 AWS_SECRET_ACCESS_KEY={{ provider.aws_secret_key | shq }}
+{# W3 (ATX #555 polish): AWS SDK has no default region — without
+   AWS_DEFAULT_REGION the bedrock client errors out at first call on
+   bare homelab boxes that have no `~/.aws/config`. Mirror hermes
+   canonical env's bedrock branch. #}
+AWS_DEFAULT_REGION={{ (provider.region or 'us-east-1') | shq }}
 {% elif provider.type == 'ollama' %}
 OPENCLAW_OLLAMA_URL={{ provider.endpoint | shq }}
 {% endif %}

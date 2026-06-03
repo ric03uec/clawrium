@@ -37,6 +37,7 @@ from clawrium.cli.clawctl.agent import (
     start as _start,
     stop as _stop,
     sync as _sync,
+    upgrade as _upgrade,
 )
 
 __all__ = ["agent_app"]
@@ -66,6 +67,10 @@ agent_app.command(name="restart", help="Restart an agent.")(_restart.restart)
 agent_app.command(name="sync", help="Flush local control-plane state to the agent.")(
     _sync.sync
 )
+agent_app.command(
+    name="upgrade",
+    help="Upgrade an agent to the manifest's max supported version.",
+)(_upgrade.upgrade)
 agent_app.command(
     name="doctor",
     help="Diagnose an agent's render bundle (attachments, secrets, files).",

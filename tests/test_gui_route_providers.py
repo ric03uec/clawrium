@@ -254,3 +254,34 @@ def test_update_cloud_provider_skips_ollama_validation(monkeypatch):
     body = ProviderUpdate(endpoint="http://169.254.169.254/")
     asyncio.run(update_provider_endpoint("cloud", body))
     assert captured["result"]["endpoint"] == "http://169.254.169.254/"
+
+
+# ─── provider_types endpoint ────────────────────────────────────────
+
+
+def test_provider_types_returns_rich_model_metadata():
+    """`/types` returns full ModelInfo objects for cloud providers."""
+    result = asyncio.run(providers_mod.provider_types())
+    types = result["types"]
+
+    # All seven provider types are present
+    assert set(types.keys()) == {
+        "openai", "anthropic", "openrouter", "bedrock",
+        "vertex", "zai", "ollama",
+    }
+
+    # Cloud providers carry catalog-shaped models
+    openai_models = types["openai"]["models"]
+    assert isinstance(openai_models, list)
+    assert len(openai_models) > 0
+    first = openai_models[0]
+    for key in ("id", "name", "lab", "context_window", "tags"):
+        assert key in first, f"missing {key} in ModelInfo"
+
+    # Auth flags survive
+    assert types["openai"]["requires_api_key"] is True
+    assert types["ollama"]["requires_api_key"] is False
+    assert types["ollama"]["requires_endpoint"] is True
+
+    # Ollama yields an empty catalog (models populated per-instance)
+    assert types["ollama"]["models"] == []

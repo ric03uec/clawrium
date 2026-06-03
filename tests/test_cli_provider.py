@@ -579,7 +579,7 @@ class TestProviderBedrock:
                 "--type",
                 "bedrock",
                 "--model",
-                "anthropic.claude-sonnet-4-20250514-v1:0",
+                "anthropic.claude-sonnet-4-5-20250929-v1:0",
             ],
             input="AKIAIOSFODNN7EXAMPLE\nwJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
         )
@@ -600,7 +600,7 @@ class TestProviderBedrock:
         assert providers[0]["name"] == "my-bedrock"
         assert providers[0]["type"] == "bedrock"
         assert (
-            providers[0]["default_model"] == "anthropic.claude-sonnet-4-20250514-v1:0"
+            providers[0]["default_model"] == "anthropic.claude-sonnet-4-5-20250929-v1:0"
         )
         # AWS credentials should NOT be in providers.json (stored in secrets)
         assert "access_key" not in providers[0]
@@ -666,7 +666,7 @@ class TestProviderBedrock:
         bedrock_provider = {
             "name": "my-bedrock",
             "type": "bedrock",
-            "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
+            "default_model": "anthropic.claude-sonnet-4-5-20250929-v1:0",
             "created_at": "2026-04-01T00:00:00+00:00",
             "updated_at": "2026-04-01T00:00:00+00:00",
         }
@@ -689,7 +689,7 @@ class TestProviderBedrock:
         bedrock_provider = {
             "name": "my-bedrock",
             "type": "bedrock",
-            "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
+            "default_model": "anthropic.claude-sonnet-4-5-20250929-v1:0",
             "created_at": "2026-04-01T00:00:00+00:00",
             "updated_at": "2026-04-01T00:00:00+00:00",
         }
@@ -713,7 +713,7 @@ class TestProviderBedrock:
         bedrock_provider = {
             "name": "my-bedrock",
             "type": "bedrock",
-            "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
+            "default_model": "anthropic.claude-sonnet-4-5-20250929-v1:0",
             "created_at": "2026-04-01T00:00:00+00:00",
             "updated_at": "2026-04-01T00:00:00+00:00",
         }
@@ -744,7 +744,7 @@ class TestProviderBedrock:
         bedrock_provider = {
             "name": "my-bedrock",
             "type": "bedrock",
-            "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
+            "default_model": "anthropic.claude-sonnet-4-5-20250929-v1:0",
             "created_at": "2026-04-01T00:00:00+00:00",
             "updated_at": "2026-04-01T00:00:00+00:00",
         }
@@ -776,7 +776,7 @@ class TestProviderBedrock:
         bedrock_provider = {
             "name": "my-bedrock",
             "type": "bedrock",
-            "default_model": "anthropic.claude-sonnet-4-20250514-v1:0",
+            "default_model": "anthropic.claude-sonnet-4-5-20250929-v1:0",
             "created_at": "2026-04-01T00:00:00+00:00",
             "updated_at": "2026-04-01T00:00:00+00:00",
         }

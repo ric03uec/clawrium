@@ -55,6 +55,29 @@ def _isolate_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
 
+@pytest.fixture(autouse=True)
+def _clear_render_template_caches() -> None:
+    """B7 (ATX #555 polish): drop lru_cache state between tests.
+
+    `render._hermes_template`, `render._zeroclaw_template`, and
+    `render._openclaw_template` are module-level `@lru_cache`-decorated
+    template loaders. Tests that patch `importlib.resources.files`
+    silently get a cached pre-patch template if these caches persist
+    across tests — template-path refactors would not be caught. Mirrors
+    the pattern `load_model_catalog.cache_clear()` already follows in
+    the codebase.
+    """
+    from clawrium.core import render
+
+    render._hermes_template.cache_clear()
+    render._zeroclaw_template.cache_clear()
+    render._openclaw_template.cache_clear()
+    yield
+    render._hermes_template.cache_clear()
+    render._zeroclaw_template.cache_clear()
+    render._openclaw_template.cache_clear()
+
+
 @pytest.fixture
 def tmp_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create a temporary config directory and set XDG_CONFIG_HOME."""

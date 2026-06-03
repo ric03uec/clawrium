@@ -731,11 +731,15 @@ def _sync_channel_config(
     # Merge channels into existing config
     existing_config = agent.get("config", {})
 
-    # Guard against overwriting provider config if not present (B4)
-    # If provider stage was completed, config should have provider key
-    if not existing_config.get("provider"):
+    # Guard against configuring channels before a provider is attached (B4).
+    # Tier-1 `providers` (the attachment list) is the single source of truth for
+    # whether a provider is attached — the same list build_render_inputs and
+    # _first_provider read. Do not fall back to the tier-2 `config.provider`
+    # render payload here (it materializes only after a successful sync).
+    if not (agent.get("providers") or []):
         raise RuntimeError(
-            "Provider not configured. Run 'clm agent configure <agent> --stage providers' first."
+            f"Provider not configured. Run "
+            f"'clawctl agent provider attach <provider> --agent {agent_name}' first."
         )
 
     existing_config["channels"] = channels_config
@@ -2739,8 +2743,8 @@ def open_ui(
     browser at the local end of the tunnel. The tunnel runs until you
     Ctrl-C.
 
-    Hermes and zeroclaw expose a native UI today; agents whose manifests
-    do not declare `features.web_ui` (e.g. openclaw) print a hard-error.
+    Hermes, zeroclaw, and openclaw expose a native UI today; agents whose
+    manifests do not declare `features.web_ui` print a hard-error.
     """
     import signal
     import webbrowser

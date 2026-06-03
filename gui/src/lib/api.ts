@@ -71,6 +71,11 @@ export const api = {
     request<PairingCodeResponse>(`/fleet/agents/${key}/pairing-code`, {
       method: "POST",
     }),
+  getAgentConnectionToken: (key: string) =>
+    request<ConnectionTokenResponse>(
+      `/fleet/agents/${key}/connection-token`,
+      { method: "POST" },
+    ),
   startAgent: (key: string) => request<ActionResponse>(`/agents/${key}/start`, { method: "POST" }),
   stopAgent: (key: string) => request<ActionResponse>(`/agents/${key}/stop`, { method: "POST" }),
   restartAgent: (key: string) => request<ActionResponse>(`/agents/${key}/restart`, { method: "POST" }),
@@ -261,6 +266,7 @@ import type {
   ActionResponse,
   WebUIResponse,
   PairingCodeResponse,
+  ConnectionTokenResponse,
   TopologyResponse,
   Provider,
   ProviderTypesMap,

@@ -65,15 +65,51 @@ def test_resolve_hermes_uses_persisted_port(monkeypatch):
     assert resolved.remote_port == 45123
 
 
-def test_resolve_openclaw_returns_none(monkeypatch):
-    """openclaw's manifest does not declare `features.web_ui`."""
+def test_resolve_openclaw_returns_gateway_port(monkeypatch):
+    """openclaw resolves to its persisted `gateway.port` (mirror of zeroclaw).
+
+    The openclaw gateway daemon serves its control SPA on the same port
+    as the WebSocket gateway (`config.gateway.port`), so the resolver
+    must return that persisted value with `bind: wildcard` — the SSH
+    tunnel still targets remote loopback via BIND_ADDRESS_MAP.
+    """
+    agent_record = {
+        "agent_name": "oc",
+        "type": "openclaw",
+        "config": {"gateway": {"port": 40456}},
+    }
+    _patch_agent(
+        monkeypatch,
+        host=_host("oc.local"),
+        agent_type="openclaw",
+        agent_record=agent_record,
+    )
+
+    resolved = resolve("oc")
+
+    assert isinstance(resolved, ResolvedUI)
+    assert resolved.host == "oc.local"
+    assert resolved.remote_port == 40456
+    assert resolved.bind == "wildcard"
+    assert resolved.ssh_config.get("user") == "xclm"
+
+
+def test_resolve_openclaw_without_persisted_port_returns_none(monkeypatch, caplog):
+    """openclaw without persisted `gateway.port` resolves to None.
+
+    Same rationale as the hermes/zeroclaw equivalents: install.py picks
+    a per-instance port, so inventing a default would silently serve a
+    different instance's UI on hosts with multiple openclaw agents.
+    """
     _patch_agent(
         monkeypatch,
         host=_host(),
         agent_type="openclaw",
         agent_record={"agent_name": "oc", "type": "openclaw", "config": {}},
     )
-    assert resolve("oc") is None
+    with caplog.at_level("WARNING", logger="clawrium.core.web_ui"):
+        assert resolve("oc") is None
+    assert any("gateway.port" in rec.message for rec in caplog.records)
 
 
 def test_resolve_zeroclaw_returns_gateway_port(monkeypatch):

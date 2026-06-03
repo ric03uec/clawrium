@@ -207,77 +207,55 @@
             path: "/tmp/clawrium_verify_config_{{ agent_name }}.py"
             state: absent
 
-    # Verify .env has required credentials for provider type
-    # Uses lineinfile in check mode to verify presence without shell injection risk
-    - name: Verify .env credentials for Anthropic provider
-      ansible.builtin.lineinfile:
-        path: "/home/{{ agent_name }}/.openclaw/env"
-        regexp: '^ANTHROPIC_API_KEY='
-        state: present
-        line: "# verification placeholder"
-      check_mode: true
-      register: anthropic_check
-      failed_when: anthropic_check.changed
+    # Verify .env has the required credential key for the configured
+    # provider type. #583: previously implemented via `lineinfile` with
+    # `check_mode: true` + `failed_when: <reg>.changed` — that's broken
+    # because lineinfile with `state: present` + `regexp` + `line` will
+    # always report `changed=true` in check mode against any real value
+    # (it would REPLACE the matching line with the literal placeholder).
+    # The verify task therefore failed every time the API key was
+    # actually set, regardless of file content. Replace with a real
+    # presence probe via `command: grep -qE ...` so the verification
+    # checks what its name says it checks.
+    - name: Verify .env has the configured provider's credential key
+      ansible.builtin.command:
+        # `grep -qE '^KEY=.+'` — line exists AND has a non-empty value
+        # after the `=`. `argv` form avoids any shell interpretation.
+        argv:
+          - grep
+          - -qE
+          - "^{{ provider_env_key }}=.+"
+          - "/home/{{ agent_name }}/.openclaw/env"
+      register: provider_env_check
+      changed_when: false
+      failed_when: provider_env_check.rc != 0
       no_log: true
+      vars:
+        provider_env_key: >-
+          {{
+            {'anthropic': 'ANTHROPIC_API_KEY',
+             'openai': 'OPENAI_API_KEY',
+             'openrouter': 'OPENROUTER_API_KEY',
+             'zai': 'ZAI_API_KEY',
+             'vertex': 'GOOGLE_APPLICATION_CREDENTIALS'}[config.provider.type]
+          }}
       when:
         - config.provider is defined
-        - config.provider.type == 'anthropic'
+        - config.provider.type in ['anthropic','openai','openrouter','zai','vertex']
         - provider_api_key | default('') | length > 0
 
-    - name: Verify .env credentials for OpenAI provider
-      ansible.builtin.lineinfile:
-        path: "/home/{{ agent_name }}/.openclaw/env"
-        regexp: '^OPENAI_API_KEY='
-        state: present
-        line: "# verification placeholder"
-      check_mode: true
-      register: openai_check
-      failed_when: openai_check.changed
-      no_log: true
-      when:
-        - config.provider is defined
-        - config.provider.type == 'openai'
-        - provider_api_key | default('') | length > 0
-
-    - name: Verify .env credentials for OpenRouter provider
-      ansible.builtin.lineinfile:
-        path: "/home/{{ agent_name }}/.openclaw/env"
-        regexp: '^OPENROUTER_API_KEY='
-        state: present
-        line: "# verification placeholder"
-      check_mode: true
-      register: openrouter_check
-      failed_when: openrouter_check.changed
-      no_log: true
-      when:
-        - config.provider is defined
-        - config.provider.type == 'openrouter'
-        - provider_api_key | default('') | length > 0
-
-    - name: Verify .env credentials for ZAI provider
-      ansible.builtin.lineinfile:
-        path: "/home/{{ agent_name }}/.openclaw/env"
-        regexp: '^ZAI_API_KEY='
-        state: present
-        line: "# verification placeholder"
-      check_mode: true
-      register: zai_check
-      failed_when: zai_check.changed
-      no_log: true
-      when:
-        - config.provider is defined
-        - config.provider.type == 'zai'
-        - provider_api_key | default('') | length > 0
-
-    - name: Verify .env credentials for Bedrock provider (access key)
-      ansible.builtin.lineinfile:
-        path: "/home/{{ agent_name }}/.openclaw/env"
-        regexp: '^AWS_ACCESS_KEY_ID='
-        state: present
-        line: "# verification placeholder"
-      check_mode: true
+    # Bedrock is the one type that needs TWO keys (access + secret).
+    # Same grep contract, two probes.
+    - name: Verify .env has AWS_ACCESS_KEY_ID (Bedrock provider)
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -qE
+          - "^AWS_ACCESS_KEY_ID=.+"
+          - "/home/{{ agent_name }}/.openclaw/env"
       register: bedrock_access_check
-      failed_when: bedrock_access_check.changed
+      changed_when: false
+      failed_when: bedrock_access_check.rc != 0
       no_log: true
       when:
         - config.provider is defined
@@ -285,36 +263,22 @@
         - aws_access_key | default('') | length > 0
         - aws_secret_key | default('') | length > 0
 
-    - name: Verify .env credentials for Bedrock provider (secret key)
-      ansible.builtin.lineinfile:
-        path: "/home/{{ agent_name }}/.openclaw/env"
-        regexp: '^AWS_SECRET_ACCESS_KEY='
-        state: present
-        line: "# verification placeholder"
-      check_mode: true
+    - name: Verify .env has AWS_SECRET_ACCESS_KEY (Bedrock provider)
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -qE
+          - "^AWS_SECRET_ACCESS_KEY=.+"
+          - "/home/{{ agent_name }}/.openclaw/env"
       register: bedrock_secret_check
-      failed_when: bedrock_secret_check.changed
+      changed_when: false
+      failed_when: bedrock_secret_check.rc != 0
       no_log: true
       when:
         - config.provider is defined
         - config.provider.type == 'bedrock'
         - aws_access_key | default('') | length > 0
         - aws_secret_key | default('') | length > 0
-
-    - name: Verify .env credentials for Vertex provider
-      ansible.builtin.lineinfile:
-        path: "/home/{{ agent_name }}/.openclaw/env"
-        regexp: '^GOOGLE_APPLICATION_CREDENTIALS='
-        state: present
-        line: "# verification placeholder"
-      check_mode: true
-      register: vertex_check
-      failed_when: vertex_check.changed
-      no_log: true
-      when:
-        - config.provider is defined
-        - config.provider.type == 'vertex'
-        - provider_api_key | default('') | length > 0
 
     - name: Ensure service is enabled
       ansible.builtin.systemd:

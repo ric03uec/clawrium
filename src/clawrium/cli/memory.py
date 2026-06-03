@@ -32,6 +32,7 @@ from clawrium.core.memory import (
     claw_supports_memory,
     delete_memory_files,
     get_memory_info,
+    is_file_writable,
     read_memory_file,
     write_memory_file,
 )
@@ -367,14 +368,47 @@ def edit_cmd(
 
     original = read_memory_file(hostname, agent_name, file)
     if original is None:
-        console.print(
-            f"[yellow]Memory unavailable for '{safe_claw}' on '{safe_host}'.[/yellow]"
-        )
-        console.print(
-            "[dim]The agent may be unreachable, still installing, or in a "
-            "failed state. Run 'clm ps' to check status.[/dim]"
-        )
-        raise typer.Exit(code=1)
+        # Distinguish between "agent unreachable" and "file doesn't exist"
+        # by checking if we can get memory info for this agent.
+        mem_info = get_memory_info(hostname, agent_name)
+        if mem_info is None:
+            # Agent is unreachable or in a failed state
+            console.print(
+                f"[yellow]Memory unavailable for '{safe_claw}' on '{safe_host}'.[/yellow]"
+            )
+            console.print(
+                "[dim]The agent may be unreachable, still installing, or in a "
+                "failed state. Run 'clm ps' to check status.[/dim]"
+            )
+            raise typer.Exit(code=1)
+
+        # Agent is reachable but file doesn't exist. Check if it's allowlisted.
+        if not is_file_writable(claw_type, file):
+            console.print(
+                f"[red]Error:[/red] '{safe_file}' is not a writable memory file "
+                f"for {claw_type} agents."
+            )
+            raise typer.Exit(code=1)
+
+        # File is allowlisted but missing — prompt to create
+        if not force:
+            if not _stdin_is_tty():
+                console.print(
+                    "[red]Error:[/red] Creating a new file requires either "
+                    "--force or an interactive TTY."
+                )
+                raise typer.Exit(code=1)
+
+            create = typer.confirm(
+                f"File '{safe_file}' doesn't exist on agent '{safe_claw}'. Create it?",
+                default=False,
+            )
+            if not create:
+                console.print("Cancelled.")
+                raise typer.Exit(code=0)
+
+        # Open editor with empty content for the new file
+        original = ""
 
     original_hash = hashlib.sha256(original.encode("utf-8")).digest()
 

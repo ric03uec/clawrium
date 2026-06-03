@@ -109,29 +109,26 @@ def agent_to_row(
 
 
 def _first_provider(claw_record: dict) -> Optional[str]:
-    """Surface the first attached provider name for the describe/get row.
+    """Surface the attached provider name for the describe/get row.
 
-    Read order (falsy/malformed at any tier falls through to the next):
-    1. `claw_record["providers"]` — the new attach list (Pattern A; #426/#509).
-       Single-provider invariant is enforced at attach time, so index 0 is
-       the canonical name. Accepts both `["name"]` (string entries) and
-       `[{"name": "..."}]` (dict entries) shapes.
-    2. `claw_record["config"]["provider"]["name"]` — the materialization
-       layer written by `sync_agent` (lifecycle.py:945-992) on every
-       successful sync/configure with a provider attached. Absent on
-       fresh `clawctl agent create` records (config={}) and on agents
-       whose last configure call failed.
-    3. `claw_record["config"]["providers"]` — vestigial plural-key path
-       kept for any handwritten or third-party record that uses it.
-       Accepts dict (`{name: {...}}`) and list (`[name, ...]` /
-       `[{"name": "..."}, ...]`) shapes. Terminal tier — anything
-       malformed here returns None (no further fallback).
+    Single source of truth: `claw_record["providers"]` — the attach list
+    (Pattern A; #426/#509). The single-provider invariant is enforced at
+    attach time, so index 0 is the canonical name. Accepts both
+    `["name"]` (string entries) and `[{"name": "..."}]` (dict entries)
+    shapes.
 
-    String entries are validated against `PROVIDER_NAME_PATTERN` (the
-    same pattern enforced at write time by `validate_provider_name`).
-    Mismatches fall through rather than render — this closes the
-    write-time/read-time validation asymmetry against handwritten
-    records that contain markup or other non-conforming characters.
+    There is intentionally NO fallback to `config["provider"]` (the
+    materialized render payload written by sync) or to the vestigial
+    `config["providers"]` plural key. Provider state is read from exactly
+    one place; if nothing is attached this returns None, matching
+    `build_render_inputs` (render.py), which raises when the same tier-1
+    list is empty. This alignment closes the historical asymmetry where an
+    agent with a provider only in `config.provider` rendered in `agent get`
+    but failed the render/drift/upgrade path.
+
+    String entries are validated against `PROVIDER_NAME_PATTERN` (the same
+    pattern enforced at write time by `validate_provider_name`); a
+    non-conforming entry returns None rather than rendering markup.
     """
     from clawrium.core.providers.storage import PROVIDER_NAME_PATTERN
 
@@ -148,31 +145,6 @@ def _first_provider(claw_record: dict) -> Optional[str]:
         if accepted:
             return accepted
         if isinstance(first, dict):
-            accepted = _accept(first.get("name"))
-            if accepted:
-                return accepted
+            return _accept(first.get("name"))
 
-    config = claw_record.get("config", {}) or {}
-    materialized = config.get("provider")
-    if isinstance(materialized, dict):
-        accepted = _accept(materialized.get("name"))
-        if accepted:
-            return accepted
-
-    providers = config.get("providers") or {}
-    if isinstance(providers, dict) and providers:
-        # Dict key path: validate the key the same way as other tiers
-        # so e.g. `{"[bold]x[/]": {...}}` doesn't render markup.
-        accepted = _accept(next(iter(providers.keys())))
-        if accepted:
-            return accepted
-    elif isinstance(providers, list) and providers:
-        first = providers[0]
-        accepted = _accept(first)
-        if accepted:
-            return accepted
-        if isinstance(first, dict):
-            accepted = _accept(first.get("name"))
-            if accepted:
-                return accepted
     return None

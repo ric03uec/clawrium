@@ -14,6 +14,29 @@ features:
   # Chat dispatch resolves to the WebSocket gateway client for openclaw.
   chat:
     type: websocket
+  # Native control UI served by the openclaw gateway itself (no separate
+  # systemd unit) on the same port as `config.gateway.port`. Upstream
+  # docs: https://docs.openclaw.ai/web/control-ui — the SPA is served
+  # automatically by `openclaw gateway run`, so no config flag is needed
+  # to enable it. `bind: wildcard` mirrors zeroclaw: the gateway binds
+  # `lan` (0.0.0.0), and the SSH tunnel still targets remote loopback
+  # via BIND_ADDRESS_MAP. No `default_port` because install.py picks a
+  # per-instance gateway port in 40000..41999 (same allocator path as
+  # zeroclaw, see install.py ~L645) and persists it under
+  # `gateway.port` — a manifest-wide default would silently collide on
+  # a host running multiple openclaw instances.
+  #
+  # Auth caveat: the SPA authenticates over the gateway WebSocket using
+  # the bearer token already stored in hosts.json.agents.<name>.config.
+  # gateway.auth.token. Today the user pastes that token into the SPA's
+  # login form on first open — openclaw's auth flow differs from
+  # zeroclaw's pairing-code handshake, so openclaw is intentionally NOT
+  # added to `_PAIRING_AGENT_TYPES` in gui/routes/fleet.py. A dedicated
+  # pairing UX for openclaw can land as a follow-up.
+  web_ui:
+    enabled: true
+    bind: wildcard
+    port_field: gateway.port
 
 # Secrets configuration
 # Note: Provider-specific API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
@@ -113,6 +136,24 @@ platforms:
       dependencies:
         nodejs: ">=20.0.0"
   - version: "2026.4.2"
+    os: ubuntu
+    os_version: "22.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=18.0.0"
+  - version: "2026.5.28"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=20.0.0"
+  - version: "2026.5.28"
     os: ubuntu
     os_version: "22.04"
     arch: x86_64

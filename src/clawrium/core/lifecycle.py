@@ -145,6 +145,126 @@ def _get_logs_dir() -> Path:
     return logs_dir
 
 
+def _summarize_ansible_configure_failure(
+    result: object, log_dir: str
+) -> str:
+    """Turn an ansible-runner failed `result` into an actionable error string.
+
+    Three failure shapes are handled, in priority order:
+      1. A `runner_on_failed` event with uncensored `res.msg` or
+         `res.stderr` → surface task name + the underlying message.
+      2. Every failing task had `no_log: true` (res is `{"censored": ...}`)
+         → surface task name + a hint on how to see the real error
+         without leaking whatever the censored res contains (bearer
+         tokens, API keys).
+      3. ansible-runner failed before any task ran (playbook parse error,
+         inventory load error, connection error) → surface the recap
+         stats / verbose stdout / stderr instead of the useless
+         `"failed"` literal.
+
+    A pure function over the runner result so it can be unit-tested
+    without spinning a real Ansible job. #583.
+    """
+    status = getattr(result, "status", "failed")
+    rc = getattr(result, "rc", "?")
+    error_msg = f"Configure playbook failed: {status}"
+    found_task_failure = False
+    censored_failure_task: str | None = None
+    # `result.events` is consumed-on-iteration in ansible-runner ≥ 2.x
+    # — capture into a list once so the multi-pass walks below all see
+    # the same events. Defensive against both list and generator
+    # implementations.
+    events = list(getattr(result, "events", []) or [])
+    for event in events:
+        if event.get("event") != "runner_on_failed":
+            continue
+        event_data = event.get("event_data", {}) or {}
+        res = event_data.get("res", {}) or {}
+        if res.get("censored"):
+            # Remember the FIRST censored failure for the hint branch;
+            # subsequent ones don't add information.
+            if censored_failure_task is None:
+                censored_failure_task = event_data.get(
+                    "task", "<unknown task>"
+                )
+            continue
+        task_name = event_data.get("task", "<unknown task>")
+        # ATX #445 iter-3 NW4: `is not None` so a `{"msg": None}` entry
+        # doesn't short-circuit error_msg to None and leak an empty
+        # string up the stack.
+        msg = res.get("msg")
+        if msg is not None:
+            error_msg = f"task {task_name!r}: {msg}"
+            found_task_failure = True
+            break
+        stderr = res.get("stderr")
+        if stderr is not None:
+            error_msg = f"task {task_name!r}: {stderr}"
+            found_task_failure = True
+            break
+
+    if found_task_failure:
+        return error_msg
+
+    if censored_failure_task is not None:
+        return (
+            f"task {censored_failure_task!r} failed but output was "
+            f"suppressed by `no_log: true`. Re-run with "
+            f"ANSIBLE_NO_LOG=False in the environment, or "
+            f"temporarily set `no_log: false` on the task, to see "
+            f"the underlying error."
+        )
+
+    # Pre-task failure — no task events fired. Pull together whatever
+    # ansible-runner did emit so the operator has something to debug.
+    pre_task_errors: list[str] = []
+    for event in events:
+        etype = event.get("event")
+        if etype in ("error", "verbose"):
+            stdout = event.get("stdout") or ""
+            if stdout.strip():
+                pre_task_errors.append(stdout.strip())
+        elif etype == "playbook_on_stats":
+            event_data = event.get("event_data", {}) or {}
+            if event_data:
+                pre_task_errors.append(f"recap: {event_data}")
+
+    # `result.stdout` / `result.stderr` are file-like — read at most
+    # ~4KB so a stack trace fits but a giant playbook dump doesn't.
+    def _safe_read(stream) -> str:
+        if stream is None:
+            return ""
+        try:
+            return stream.read(4096) or ""
+        except Exception:
+            return ""
+
+    stdout_blob = _safe_read(getattr(result, "stdout", None))
+    stderr_blob = _safe_read(getattr(result, "stderr", None))
+
+    detail_parts: list[str] = []
+    if pre_task_errors:
+        detail_parts.append(" | ".join(pre_task_errors))
+    if stderr_blob.strip():
+        detail_parts.append(f"stderr: {stderr_blob.strip()}")
+    if stdout_blob.strip() and not pre_task_errors:
+        # Trim to last 1KB so a parse traceback is visible without
+        # flooding the CLI with the full playbook dump.
+        tail = stdout_blob.strip()[-1024:]
+        detail_parts.append(f"stdout: {tail}")
+
+    if detail_parts:
+        return (
+            f"Configure playbook failed before any task ran "
+            f"(status={status}, rc={rc}): " + "; ".join(detail_parts)
+        )
+    return (
+        f"Configure playbook failed (status={status}, "
+        f"rc={rc}) — ansible-runner produced no events "
+        f"or output. Check {log_dir} for artifacts."
+    )
+
+
 def _safe_host_display(host: dict, hostname: str) -> str:
     """Return a filesystem-safe host display string for log dir naming.
 
@@ -1479,13 +1599,39 @@ def sync_agent(
                     pass
                 continue
             if stage_name in _NO_DECLARATIVE_SURFACE_YET:
+                # Issue #577: consult the onboarding ledger (the same
+                # source `clawctl agent describe` reads) before raising.
+                # If the operator already ran `clawctl agent configure
+                # <name> --stage <stage>`, the stage record will be
+                # `complete` (or `skipped`) on disk — treat this walk as
+                # an idempotent no-op for that stage instead of blocking
+                # the providers / sync path forever with a stale gate.
+                stage_record = (
+                    onboarding.get("stages", {}).get(stage_name, {})
+                )
+                stage_status = stage_record.get("status")
+                if stage_status in (
+                    StageStatus.COMPLETE.value,
+                    StageStatus.SKIPPED.value,
+                ):
+                    # ATX #577 W1: emit a breadcrumb so an operator
+                    # debugging an unexpectedly-quiet sync can see that
+                    # the gate was honored from ledger state rather than
+                    # silently bypassed.
+                    emit(
+                        "sync",
+                        f"stage {stage_name!r} already {stage_status} in "
+                        f"onboarding ledger for {agent_key}; skipping "
+                        f"manual-configure gate",
+                    )
+                    continue
                 raise LifecycleError(
                     f"agent '{agent_key}' (type={agent_type}) requires manual "
                     f"{stage_name} configuration: no clawctl declarative "
                     f"surface exists for the {stage_name} stage yet "
                     f"(tracked in #523). Workaround: complete this stage via "
                     f"'clawctl agent configure {agent_key} --stage {stage_name}', "
-                    f"then re-run sync."
+                    f"then retry this command."
                 )
             try:
                 complete_stage(
@@ -1584,54 +1730,68 @@ def sync_agent(
         transition_state as _transition_post,
     )
 
+    # B-NEW-2 (ATX #555 polish round 4): mirror
+    # `lifecycle_canonical.py:sync_agent_canonical`'s success/error
+    # return contract. Only InvalidTransitionError represents a
+    # non-failure (mid-walk agent — start_agent will surface the stage).
+    # Registry-incoherence and generic IO/permission failures must
+    # surface as `success=False` so a CLI handler does not print
+    # "✓ sync complete" while the agent is stuck non-READY.
+    state_write_ok = True
+    state_write_err: str | None = None
     try:
         _transition_post(hostname, agent_key, _OS_post.READY)
-    except _ITE_post:
+    except _ITE_post as exc:
         # Stuck mid-walk at PROVIDERS/IDENTITY/CHANNELS, or idempotent
         # READY→READY. No recovery via re-sync; agent is configured
-        # remotely, only the local state pointer is stale. Silent is
-        # correct — start_agent will surface the non-READY state.
-        # ATX iter-3 W-NEW-1.
-        pass
+        # remotely, only the local state pointer is stale. Don't fail
+        # the sync (configure_agent already succeeded) but emit so the
+        # CLI does not print "✓ sync complete" without context — next
+        # `clawctl agent start` will otherwise fail with no breadcrumb.
+        # W1 (ATX #555 polish round 5) mirrors
+        # lifecycle_canonical.py's _ITE branch.
+        emit(
+            "sync",
+            f"note: skipped state=READY transition for {agent_key} "
+            f"(agent is mid-walk: {exc!s}). `clawctl agent start` will "
+            f"surface the current onboarding stage.",
+        )
     except (_ANF_post, _ONF_post) as exc:
         # Registry incoherence: the agent or onboarding record vanished
         # between configure_agent succeeding and the READY write. No
         # recovery via re-sync (same error will fire) — distinct
         # remediation from the IO-failure branch below. ATX iter-5
         # W2-NEW carry-forward.
-        emit(
-            "sync",
-            f"warning: registry record missing for {agent_key} after "
-            f"configure: {exc!s}. Inspect hosts.json manually before "
-            f"running clawctl agent start.",
+        state_write_err = (
+            f"registry record missing for {agent_key} after configure: "
+            f"{exc!s}. Inspect hosts.json manually before running "
+            f"clawctl agent start."
         )
+        emit("sync", f"warning: {state_write_err}")
+        state_write_ok = False
     except Exception as exc:
         # Storage / IO failure (PermissionError, etc.) writing the
-        # READY pointer. Don't fail the sync — configure_agent already
-        # succeeded — but surface the gap. Re-sync IS the right
-        # remediation here. ATX iter-3 W-NEW-1.
-        #
-        # Note: emit raw exception string. Rendering-library escaping
-        # is the consumer's job (see clawctl/agent/sync.py:on_event
-        # and cli/agent.py:on_event for the boundary). ATX iter-5
-        # B1-iter5 (rich.markup.escape moved out of core).
-        emit(
-            "sync",
-            f"warning: could not write state=READY to hosts.json: "
-            f"{exc!s}. Agent is configured remotely; re-run sync to "
-            f"commit state.",
+        # READY pointer. ATX iter-3 W-NEW-1. Emit raw exception string;
+        # rendering-library escaping is the consumer's job (see
+        # clawctl/agent/sync.py:on_event and cli/agent.py:on_event for
+        # the boundary).
+        state_write_err = (
+            f"could not write state=READY to hosts.json: {exc!s}. "
+            f"Agent is configured remotely; re-run sync to commit state."
         )
+        emit("sync", f"warning: {state_write_err}")
+        state_write_ok = False
 
     emit("sync", f"Sync complete for {agent_key}")
 
     return {
-        "success": True,
+        "success": state_write_ok,
         "agent": agent_key,
         "host": hostname,
         "operation": "sync",
         "pid": None,
         "started_at": None,
-        "error": None,
+        "error": state_write_err,
     }
 
 
@@ -2263,6 +2423,46 @@ def configure_agent(
             f"Invalid agent_name format: '{unix_agent_name}'. Must start with lowercase letter and contain only lowercase letters, digits, hyphens, underscores (max 32 chars)",
         )
 
+    # #583: pre-render canonical config files via `clawrium.core.render`
+    # and hand them to the Ansible playbook as plain string vars. The
+    # playbook then deploys with `copy: content: ...` instead of
+    # `ansible.builtin.template:`. This collapses the dual-render path
+    # (Jinja-in-Python AND Jinja-in-Ansible against the same template
+    # file) into a single source of truth — closing the same class of
+    # bug as #555/#582, where one render path silently diverges from
+    # the other.
+    #
+    # Today only zeroclaw config.toml is pre-rendered (it uses the
+    # custom `toq` filter that Ansible's Jinja env can't discover
+    # reliably under ansible-runner's private_data_dir layout). Hermes
+    # and openclaw playbook templates still render via Ansible's
+    # template module — they don't use custom filters, so the dual
+    # path doesn't bite them yet. Extending to them is a follow-up.
+    prerendered_files: dict[str, str] = {}
+    if resolved_type == "zeroclaw":
+        try:
+            from clawrium.core.render import build_render_inputs, render_zeroclaw
+
+            render_inputs = build_render_inputs(unix_agent_name)
+            rendered = render_zeroclaw(render_inputs)
+            # Key matches the rendered.files dict from render_zeroclaw —
+            # the playbook references this by its full key so the var
+            # name and the file path stay locked together.
+            prerendered_files[".zeroclaw/config.toml"] = (
+                rendered.files[".zeroclaw/config.toml"]
+            )
+        except Exception as exc:
+            # Surface the render failure with the same error shape the
+            # Ansible reporter uses, so the operator sees a single
+            # consistent failure mode instead of two.
+            logger.warning(
+                "Pre-render of zeroclaw config.toml failed for %s: %s — "
+                "configure will fall back to the playbook template task "
+                "and likely fail with the same error.",
+                unix_agent_name,
+                exc,
+            )
+
     # Build Ansible inventory with API key passed directly
     ansible_vars = {
         "agent_name": unix_agent_name,
@@ -2277,6 +2477,9 @@ def configure_agent(
         "slack_bot_token": slack_bot_token,
         "slack_app_token": slack_app_token,
         "integrations": integrations_data,
+        "prerendered_zeroclaw_config_toml": prerendered_files.get(
+            ".zeroclaw/config.toml", ""
+        ),
     }
 
     # Issue #437: zeroclaw always re-pairs on configure. No skip path,
@@ -2331,55 +2534,38 @@ def configure_agent(
     else:
         configure_timeout = 60
 
+    # #583: per-claw `filter_plugins/` directory adjacent to the playbook.
+    # Ansible's auto-discovery does not find it reliably under
+    # ansible-runner's private_data_dir layout, so we plumb it as an
+    # explicit env var. Mirrors the Jinja filters registered in
+    # `clawrium.core.render` (e.g. `toq`) so both render paths agree.
+    filter_plugin_dir = playbook_path.parent / "filter_plugins"
+    ansible_runner_envvars: dict[str, str] = {
+        "ANSIBLE_HOST_KEY_CHECKING": "False",
+        "ANSIBLE_PIPELINING": "True",
+    }
+    if filter_plugin_dir.is_dir():
+        ansible_runner_envvars["ANSIBLE_FILTER_PLUGINS"] = str(
+            filter_plugin_dir
+        )
+
     try:
         result = ansible_runner.run(
             private_data_dir=str(operation_log_dir),
             inventory=inventory,
             playbook=str(playbook_path),
+            envvars=ansible_runner_envvars,
             quiet=True,
             timeout=configure_timeout,
-            envvars={
-                "ANSIBLE_HOST_KEY_CHECKING": "False",
-                "ANSIBLE_PIPELINING": "True",
-            },
         )
 
         if result.status == "timeout":
             return False, "Configure operation timed out"
 
         if result.status != "successful":
-            error_msg = f"Configure playbook failed: {result.status}"
-            for event in result.events:
-                if event.get("event") == "runner_on_unreachable":
-                    event_data = event.get("event_data", {})
-                    res = event_data.get("res", {})
-                    msg = res.get("msg", "") or str(res)
-                    error_msg = f"Host unreachable: {msg}"
-                    break
-                if event.get("event") == "runner_on_failed":
-                    event_data = event.get("event_data", {})
-                    res = event_data.get("res", {})
-                    # ATX #445 W1: a `no_log: true` task that fails surfaces
-                    # `{"censored": "..."}` in res; skip it so we don't read
-                    # `msg`/`stderr` keys that may carry the bearer if a
-                    # debug-mode daemon echoes the Authorization header back
-                    # in its 401 body.
-                    if res.get("censored"):
-                        continue
-                    # ATX #445 iter-3 NW4: `if "msg" in res` would fire on a
-                    # `{"msg": None}` entry and set error_msg = None, leaking
-                    # an empty error string up the stack. Use `is not None`
-                    # so the loop falls through to stderr / generic prefix.
-                    # ATX iter-4 S-F: symmetric `.get` access on both lines.
-                    msg = res.get("msg")
-                    if msg is not None:
-                        error_msg = msg
-                        break
-                    stderr = res.get("stderr")
-                    if stderr is not None:
-                        error_msg = stderr
-                        break
-            return False, error_msg
+            return False, _summarize_ansible_configure_failure(
+                result, str(operation_log_dir)
+            )
 
         # ZeroClaw: extract the bearer token + gateway URL the configure
         # playbook minted via the pairing handshake. configure.yaml emits

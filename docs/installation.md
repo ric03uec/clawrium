@@ -54,7 +54,7 @@ uv tool install clawrium
 ```
 Resolved 1 package in 523ms
 Installed 1 package in 12ms
- + clawrium==26.5.4
+ + clawrium==26.6.0
 ```
 
 ### Run Without Installing
@@ -101,7 +101,7 @@ Check the version:
 clawctl --version
 ```
 ```
-clawctl 26.5.4
+clawctl 26.6.0
 ```
 
 ## Initialize Clawrium
@@ -135,7 +135,7 @@ Linux or macOS.
 On the macOS host you want to manage:
 
 1. **A user with `sudo` access** for the manual `xclm` setup. See
-   [Host Preparation](host-preparation.md) for the exact commands — macOS
+   [Host Preparation](guides/host-setup.md) for the exact commands — macOS
    uses `dscl`, `dseditgroup` (including the critical
    `com.apple.access_ssh` group membership), and `sudoers.d`. Password
    sudo is fine; you only run the commands once, interactively.
@@ -146,7 +146,7 @@ On the macOS host you want to manage:
 
 ### Register the host
 
-Follow [Host Preparation](host-preparation.md) — the same flow works for
+Follow [Host Preparation](guides/host-setup.md) — the same flow works for
 Linux and macOS hosts. In short:
 
 ```bash

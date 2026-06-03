@@ -635,7 +635,9 @@ class TestProviderModelsConstant:
         assert set(PROVIDER_MODELS.keys()) == expected
 
     def test_cloud_providers_have_models(self):
-        """Cloud providers have non-empty model lists."""
+        """Cloud providers have non-empty model lists in the catalog."""
+        from clawrium.core.providers.storage import get_models_for_type
+
         cloud_providers = [
             "openai",
             "anthropic",
@@ -645,13 +647,15 @@ class TestProviderModelsConstant:
             "zai",
         ]
         for provider_type in cloud_providers:
-            models = PROVIDER_MODELS[provider_type]["models"]
+            models = get_models_for_type(provider_type)
             assert isinstance(models, list)
             assert len(models) > 0, f"{provider_type} should have models"
 
     def test_ollama_has_no_hardcoded_models(self):
-        """Ollama provider has None for models (dynamic discovery)."""
-        assert PROVIDER_MODELS["ollama"]["models"] is None
+        """Ollama provider returns None for models (dynamic discovery)."""
+        from clawrium.core.providers.storage import get_models_for_type
+
+        assert get_models_for_type("ollama") is None
 
     def test_providers_with_endpoints(self):
         """Providers with fixed endpoints have them set."""

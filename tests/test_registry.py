@@ -1389,10 +1389,23 @@ def test_hermes_manifest_declares_web_ui():
     assert "default_port" not in web_ui
 
 
-def test_openclaw_manifest_does_not_declare_web_ui():
-    """openclaw does not opt into the native-UI mechanism."""
+def test_openclaw_manifest_declares_web_ui_via_gateway_port():
+    """openclaw opts into the native-UI mechanism via gateway.port.
+
+    Mirrors zeroclaw: the openclaw gateway daemon serves its control SPA
+    on the same port as `config.gateway.port`, so `port_field` resolves
+    to that path. No `default_port`: install.py picks a per-instance
+    port at install time (the same 40000..41999 allocator branch as
+    zeroclaw) and persists it under `gateway.port`, so a manifest-wide
+    default would silently collide on hosts running multiple openclaw
+    instances.
+    """
     manifest = load_manifest("openclaw")
-    assert "web_ui" not in manifest.get("features", {})
+    web_ui = manifest.get("features", {}).get("web_ui", {})
+    assert web_ui.get("enabled") is True
+    assert web_ui.get("bind") == "wildcard"
+    assert web_ui.get("port_field") == "gateway.port"
+    assert "default_port" not in web_ui
 
 
 def test_zeroclaw_manifest_declares_web_ui():

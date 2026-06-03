@@ -1,10 +1,12 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { ModelComboBox } from "./model-combobox";
 import type {
   AcceleratorVendor,
+  ModelInfo,
   Provider,
   ProviderTypesMap,
   ProviderUpdate,
@@ -38,8 +40,19 @@ export function EditProviderModal({
     useState<AcceleratorVendor>(initialAccelerator);
 
   const typeInfo = providerTypes[provider.type];
-  const availableModels = typeInfo?.models || provider.available_models || [];
   const isLocalInference = provider.type === "ollama";
+  const availableModels: ModelInfo[] = useMemo(() => {
+    if (isLocalInference) {
+      return (provider.available_models ?? []).map((id) => ({
+        id,
+        name: id,
+        lab: "Ollama",
+        context_window: 0,
+        tags: [],
+      }));
+    }
+    return typeInfo?.models ?? [];
+  }, [isLocalInference, provider.available_models, typeInfo]);
 
   const idPrefix = useId();
   const modelId = `${idPrefix}-model`;
@@ -81,27 +94,29 @@ export function EditProviderModal({
         </div>
 
         {/* Default Model */}
-        {availableModels && availableModels.length > 0 ? (
+        {availableModels.length > 0 ? (
           <div>
             <label
               htmlFor={modelId}
               className="block text-xs font-medium text-secondary mb-1"
             >
               Default Model
+              <span className="ml-2 font-normal text-muted">
+                ({availableModels.length} available)
+              </span>
             </label>
-            <select
-              id={modelId}
+            <ModelComboBox
+              inputId={modelId}
               value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            >
-              <option value="">Select model...</option>
-              {availableModels.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
+              onChange={setModel}
+              options={availableModels}
+              groupByLab={
+                provider.type === "openrouter" ||
+                provider.type === "bedrock" ||
+                provider.type === "vertex"
+              }
+              placeholder="Search models..."
+            />
           </div>
         ) : (
           <div>

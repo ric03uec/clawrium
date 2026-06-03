@@ -33,7 +33,7 @@ uv tool install clawrium
 ```
 Resolved 1 package in 523ms
 Installed 1 package in 12ms
- + clawrium==26.5.4
+ + clawrium==26.6.0
 ```
 
 Verify installation:
@@ -44,15 +44,20 @@ clawctl --help
 ```
  Usage: clawctl [OPTIONS] COMMAND [ARGS]...
 
- Clawrium - Manage your AI assistant fleet
+ clawctl — manage your AI assistant fleet, kubectl-style.
 
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
-│ init      Initialize Clawrium and check dependencies                         │
-│ host      Manage hosts in your fleet                                         │
-│ provider  Manage inference providers (LLM APIs)                              │
-│ agent     Manage agents in your fleet                                        │
-│ ps        Show fleet status across all hosts                                 │
-│ chat      Chat with a deployed agent                                         │
+│ service     System-level lifecycle ops (init, snapshot, ...)                 │
+│ host        Manage hosts in your fleet                                       │
+│ provider    Manage inference providers (LLM APIs)                            │
+│ integration Manage external service integrations                             │
+│ channel     Manage chat-channel attachables (Discord, Slack, ...)            │
+│ skill       Browse the skills catalog                                        │
+│ agent       Manage agents in your fleet                                      │
+│ tui         Launch the interactive TUI dashboard                             │
+│ gui         Launch the local web GUI dashboard                               │
+│ version     Show clawctl version and exit                                    │
+│ completion  Emit a shell-completion script                                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -143,7 +148,7 @@ homelab    192.168.1.100   x86_64         4       16.0          -
 Install OpenClaw on your host:
 
 ```bash
-clawctl agent create --type openclaw --host homelab --name my-assistant
+clawctl agent create my-assistant --type openclaw --host homelab
 ```
 ```
 Fetching openclaw manifest...

@@ -64,7 +64,7 @@ ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/
 |---------|:------:|-------|
 | **`clawctl agent chat <zeroclaw-name>`** | ✅ | Connects to `ws://<host>:42617/ws/chat` with `Authorization: Bearer <paired-token>`. See [Use the WebSocket chat surface](#3-use-the-websocket-chat-surface). |
 | **OpenAI-compatible HTTP API** | ❌ | Not exposed by upstream ZeroClaw. Use [Hermes](hermes.md) when an OpenAI-style HTTP endpoint is required. |
-| **[Discord](channels/discord.md)** | ✅ | Native — rendered as `[channels.discord]` in `config.toml`. Bot token is **inline TOML**, not env-based (differs from hermes). Schema follows zeroclaw v0.7.5 upstream: `bot_token`, `allowed_guilds`, `allowed_users`, `reply_to_mentions_only`, `draft_update_interval_ms`. Configure via `clawctl agent configure <name> --stage channels`. |
+| **[Discord](channels/discord.md)** | ✅ | Native — rendered as `[channels.discord]` in `config.toml`. Bot token is **inline TOML**, not env-based (differs from hermes). Schema follows zeroclaw v0.7.5 upstream: `bot_token`, `allowed_guilds`, `allowed_users`, `reply_to_mentions_only`, `draft_update_interval_ms`. Configure via `clawctl channel registry create <channel-name> --type discord ...` + `clawctl agent channel attach <channel-name> --agent <name>`. |
 | **Slack** | ❌ | Not supported (use [OpenClaw](openclaw.md) or [Hermes](hermes.md)). Tracked as a follow-up. |
 | **Web / WhatsApp / Telegram / Email / Matrix** | ❌ | Not supported. |
 

@@ -9,6 +9,19 @@ Google Cloud Vertex AI provides access to Gemini models.
 <!-- MODEL-TABLE:START -->
 | Model ID | Name | Context |
 |----------|------|---------|
+| `claude-3-5-haiku@20241022` | Claude Haiku 3.5 | 200K |
+| `claude-haiku-4-5@20251001` | Claude Haiku 4.5 | 200K |
+| `claude-opus-4@20250514` | Claude Opus 4 | 200K |
+| `claude-opus-4-1@20250805` | Claude Opus 4.1 | 200K |
+| `claude-opus-4-5@20251101` | Claude Opus 4.5 | 200K |
+| `claude-opus-4-6@default` | Claude Opus 4.6 | 1M |
+| `claude-opus-4-7@default` | Claude Opus 4.7 | 1M |
+| `claude-opus-4-8@default` | Claude Opus 4.8 | 1M |
+| `claude-3-5-sonnet@20241022` | Claude Sonnet 3.5 v2 | 200K |
+| `claude-3-7-sonnet@20250219` | Claude Sonnet 3.7 | 200K |
+| `claude-sonnet-4@20250514` | Claude Sonnet 4 | 200K |
+| `claude-sonnet-4-5@20250929` | Claude Sonnet 4.5 | 200K |
+| `claude-sonnet-4-6@default` | Claude Sonnet 4.6 | 1M |
 | `deepseek-ai/deepseek-v3.1-maas` | DeepSeek V3.1 | 163K |
 | `deepseek-ai/deepseek-v3.2-maas` | DeepSeek V3.2 | 163K |
 | `zai-org/glm-4.7-maas` | GLM-4.7 | 200K |
@@ -16,21 +29,19 @@ Google Cloud Vertex AI provides access to Gemini models.
 | `openai/gpt-oss-120b-maas` | GPT OSS 120B | 131K |
 | `openai/gpt-oss-20b-maas` | GPT OSS 20B | 131K |
 | `gemini-2.0-flash` | Gemini 2.0 Flash | 1M |
-| `gemini-2.0-flash-lite` | Gemini 2.0 Flash Lite | 1M |
+| `gemini-2.0-flash-lite` | Gemini 2.0 Flash-Lite | 1M |
 | `gemini-2.5-flash` | Gemini 2.5 Flash | 1M |
-| `gemini-2.5-flash-lite` | Gemini 2.5 Flash Lite | 1M |
 | `gemini-2.5-flash-lite-preview-06-17` | Gemini 2.5 Flash Lite Preview 06-17 | 65K |
-| `gemini-2.5-flash-lite-preview-09-2025` | Gemini 2.5 Flash Lite Preview 09-25 | 1M |
-| `gemini-2.5-flash-preview-04-17` | Gemini 2.5 Flash Preview 04-17 | 1M |
-| `gemini-2.5-flash-preview-05-20` | Gemini 2.5 Flash Preview 05-20 | 1M |
 | `gemini-2.5-flash-preview-09-2025` | Gemini 2.5 Flash Preview 09-25 | 1M |
+| `gemini-2.5-flash-lite` | Gemini 2.5 Flash-Lite | 1M |
 | `gemini-2.5-pro` | Gemini 2.5 Pro | 1M |
-| `gemini-2.5-pro-preview-05-06` | Gemini 2.5 Pro Preview 05-06 | 1M |
-| `gemini-2.5-pro-preview-06-05` | Gemini 2.5 Pro Preview 06-05 | 1M |
 | `gemini-3-flash-preview` | Gemini 3 Flash Preview | 1M |
 | `gemini-3-pro-preview` | Gemini 3 Pro Preview | 1M |
+| `gemini-3.1-flash-lite` | Gemini 3.1 Flash Lite | 1M |
+| `gemini-3.1-flash-lite-preview` | Gemini 3.1 Flash Lite Preview | 1M |
 | `gemini-3.1-pro-preview` | Gemini 3.1 Pro Preview | 1M |
 | `gemini-3.1-pro-preview-customtools` | Gemini 3.1 Pro Preview Custom Tools | 1M |
+| `gemini-3.5-flash` | Gemini 3.5 Flash | 1M |
 | `gemini-embedding-001` | Gemini Embedding 001 | 2K |
 | `gemini-flash-latest` | Gemini Flash Latest | 1M |
 | `gemini-flash-lite-latest` | Gemini Flash-Lite Latest | 1M |

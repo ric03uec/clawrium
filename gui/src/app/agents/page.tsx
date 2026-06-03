@@ -81,8 +81,11 @@ function AgentDetailView({
         <span className="text-primary-text">{agent.agent_name}</span>
       </div>
 
-      {/* Header */}
-      <AgentHeader agent={agent} />
+      {/* Header — keyed on agent_key so local state (revealed connection
+          token, copied flags, pairing-code mutation result) does not leak
+          across agents when the user switches via the search-param-only
+          route change. */}
+      <AgentHeader key={agent.agent_key} agent={agent} />
 
       {/* Metrics */}
       <AgentMetrics agent={agent} />

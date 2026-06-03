@@ -102,7 +102,11 @@ export function OverviewTab({ agent, agentKey }: OverviewTabProps) {
           <InfoRow label="Name" value={agent.agent_name} />
           <InfoRow label="Type" value={agent.agent_type} />
           <InfoRow label="Host" value={agent.host_alias || agent.host} />
-          <InfoRow label="Version" value={agent.version || "—"} />
+          <VersionRow
+            version={agent.version}
+            latestSupportedVersion={agent.latest_supported_version}
+            agentName={agent.agent_name}
+          />
           <InfoRow label="Status" value={agent.status} />
           <InfoRow label="Uptime" value={agent.uptime || "—"} />
           {agent.gateway_url && (
@@ -122,6 +126,62 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div>
       <span className="text-muted text-xs block">{label}</span>
       <span className="text-primary-text font-mono text-xs">{value}</span>
+    </div>
+  );
+}
+
+function isNewerVersion(latest: string, current: string): boolean {
+  const parse = (v: string) => v.replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
+  const a = parse(latest);
+  const b = parse(current);
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const ai = a[i] ?? 0;
+    const bi = b[i] ?? 0;
+    if (ai > bi) return true;
+    if (ai < bi) return false;
+  }
+  return false;
+}
+
+function VersionRow({
+  version,
+  latestSupportedVersion,
+  agentName,
+}: {
+  version: string;
+  latestSupportedVersion: string | null;
+  agentName: string;
+}) {
+  // `version === '?'` is the legacy sentinel from `cli/tui/data.py` for
+  // agents that have never started — `parseInt('?', 10) || 0` would
+  // resolve to 0 and falsely trip the badge for every agent in that
+  // state. ATX W2 (issue #592).
+  const versionKnown = !!version && version !== "?";
+  const upgradeAvailable =
+    !!latestSupportedVersion &&
+    versionKnown &&
+    isNewerVersion(latestSupportedVersion, version);
+
+  return (
+    <div data-testid="version-row">
+      <span className="text-muted text-xs block">Version</span>
+      <span className="text-primary-text font-mono text-xs">
+        {version || "—"}
+      </span>
+      {upgradeAvailable && (
+        <div
+          data-testid="upgrade-available-badge"
+          className="mt-1 inline-flex flex-col gap-0.5"
+        >
+          <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full font-mono">
+            ↑ Upgrade available: {latestSupportedVersion}
+          </span>
+          <span className="text-xs text-muted font-mono">
+            Run: clawctl agent upgrade {agentName}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

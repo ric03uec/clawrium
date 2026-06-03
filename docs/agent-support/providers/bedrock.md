@@ -9,14 +9,13 @@ Amazon Bedrock provides managed access to foundation models through AWS infrastr
 <!-- MODEL-TABLE:START -->
 | Model ID | Name | Context |
 |----------|------|---------|
-| `anthropic.claude-3-haiku-20240307-v1:0` | Claude Haiku 3 | 200K |
-| `anthropic.claude-3-5-haiku-20241022-v1:0` | Claude Haiku 3.5 | 200K |
+| `au.anthropic.claude-opus-4-6-v1` | AU Anthropic Claude Opus 4.6 | 1M |
+| `au.anthropic.claude-sonnet-4-6` | AU Anthropic Claude Sonnet 4.6 | 1M |
 | `anthropic.claude-haiku-4-5-20251001-v1:0` | Claude Haiku 4.5 | 200K |
+| `au.anthropic.claude-haiku-4-5-20251001-v1:0` | Claude Haiku 4.5 (AU) | 200K |
 | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | Claude Haiku 4.5 (EU) | 200K |
 | `global.anthropic.claude-haiku-4-5-20251001-v1:0` | Claude Haiku 4.5 (Global) | 200K |
 | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Claude Haiku 4.5 (US) | 200K |
-| `anthropic.claude-opus-4-20250514-v1:0` | Claude Opus 4 | 200K |
-| `us.anthropic.claude-opus-4-20250514-v1:0` | Claude Opus 4 (US) | 200K |
 | `anthropic.claude-opus-4-1-20250805-v1:0` | Claude Opus 4.1 | 200K |
 | `us.anthropic.claude-opus-4-1-20250805-v1:0` | Claude Opus 4.1 (US) | 200K |
 | `anthropic.claude-opus-4-5-20251101-v1:0` | Claude Opus 4.5 | 200K |
@@ -30,23 +29,27 @@ Amazon Bedrock provides managed access to foundation models through AWS infrastr
 | `anthropic.claude-opus-4-7` | Claude Opus 4.7 | 1M |
 | `eu.anthropic.claude-opus-4-7` | Claude Opus 4.7 (EU) | 1M |
 | `global.anthropic.claude-opus-4-7` | Claude Opus 4.7 (Global) | 1M |
+| `jp.anthropic.claude-opus-4-7` | Claude Opus 4.7 (JP) | 1M |
 | `us.anthropic.claude-opus-4-7` | Claude Opus 4.7 (US) | 1M |
-| `anthropic.claude-3-5-sonnet-20240620-v1:0` | Claude Sonnet 3.5 | 200K |
-| `anthropic.claude-3-5-sonnet-20241022-v2:0` | Claude Sonnet 3.5 v2 | 200K |
-| `anthropic.claude-3-7-sonnet-20250219-v1:0` | Claude Sonnet 3.7 | 200K |
-| `anthropic.claude-sonnet-4-20250514-v1:0` | Claude Sonnet 4 | 200K |
-| `eu.anthropic.claude-sonnet-4-20250514-v1:0` | Claude Sonnet 4 (EU) | 200K |
-| `global.anthropic.claude-sonnet-4-20250514-v1:0` | Claude Sonnet 4 (Global) | 200K |
-| `us.anthropic.claude-sonnet-4-20250514-v1:0` | Claude Sonnet 4 (US) | 200K |
+| `anthropic.claude-opus-4-8` | Claude Opus 4.8 | 1M |
+| `au.anthropic.claude-opus-4-8` | Claude Opus 4.8 (AU) | 1M |
+| `eu.anthropic.claude-opus-4-8` | Claude Opus 4.8 (EU) | 1M |
+| `global.anthropic.claude-opus-4-8` | Claude Opus 4.8 (Global) | 1M |
+| `jp.anthropic.claude-opus-4-8` | Claude Opus 4.8 (JP) | 1M |
+| `us.anthropic.claude-opus-4-8` | Claude Opus 4.8 (US) | 1M |
 | `anthropic.claude-sonnet-4-5-20250929-v1:0` | Claude Sonnet 4.5 | 200K |
+| `au.anthropic.claude-sonnet-4-5-20250929-v1:0` | Claude Sonnet 4.5 (AU) | 200K |
 | `eu.anthropic.claude-sonnet-4-5-20250929-v1:0` | Claude Sonnet 4.5 (EU) | 200K |
 | `global.anthropic.claude-sonnet-4-5-20250929-v1:0` | Claude Sonnet 4.5 (Global) | 200K |
+| `jp.anthropic.claude-sonnet-4-5-20250929-v1:0` | Claude Sonnet 4.5 (JP) | 200K |
 | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | Claude Sonnet 4.5 (US) | 200K |
 | `anthropic.claude-sonnet-4-6` | Claude Sonnet 4.6 | 1M |
 | `eu.anthropic.claude-sonnet-4-6` | Claude Sonnet 4.6 (EU) | 1M |
 | `global.anthropic.claude-sonnet-4-6` | Claude Sonnet 4.6 (Global) | 1M |
+| `jp.anthropic.claude-sonnet-4-6` | Claude Sonnet 4.6 (JP) | 1M |
 | `us.anthropic.claude-sonnet-4-6` | Claude Sonnet 4.6 (US) | 1M |
 | `deepseek.r1-v1:0` | DeepSeek-R1 | 128K |
+| `us.deepseek.r1-v1:0` | DeepSeek-R1 (US) | 128K |
 | `deepseek.v3-v1:0` | DeepSeek-V3.1 | 163K |
 | `deepseek.v3.2` | DeepSeek-V3.2 | 163K |
 | `mistral.devstral-2-123b` | Devstral 2 123B | 256K |
@@ -58,18 +61,15 @@ Amazon Bedrock provides managed access to foundation models through AWS infrastr
 | `google.gemma-3-4b-it` | Gemma 3 4B IT | 128K |
 | `google.gemma-3-12b-it` | Google Gemma 3 12B | 131K |
 | `google.gemma-3-27b-it` | Google Gemma 3 27B Instruct | 202K |
-| `moonshot.kimi-k2-thinking` | Kimi K2 Thinking | 256K |
-| `moonshotai.kimi-k2.5` | Kimi K2.5 | 256K |
-| `meta.llama3-1-405b-instruct-v1:0` | Llama 3.1 405B Instruct | 128K |
+| `moonshot.kimi-k2-thinking` | Kimi K2 Thinking | 262K |
+| `moonshotai.kimi-k2.5` | Kimi K2.5 | 262K |
 | `meta.llama3-1-70b-instruct-v1:0` | Llama 3.1 70B Instruct | 128K |
 | `meta.llama3-1-8b-instruct-v1:0` | Llama 3.1 8B Instruct | 128K |
-| `meta.llama3-2-11b-instruct-v1:0` | Llama 3.2 11B Instruct | 128K |
-| `meta.llama3-2-1b-instruct-v1:0` | Llama 3.2 1B Instruct | 131K |
-| `meta.llama3-2-3b-instruct-v1:0` | Llama 3.2 3B Instruct | 131K |
-| `meta.llama3-2-90b-instruct-v1:0` | Llama 3.2 90B Instruct | 128K |
 | `meta.llama3-3-70b-instruct-v1:0` | Llama 3.3 70B Instruct | 128K |
 | `meta.llama4-maverick-17b-instruct-v1:0` | Llama 4 Maverick 17B Instruct | 1M |
+| `us.meta.llama4-maverick-17b-instruct-v1:0` | Llama 4 Maverick 17B Instruct (US) | 1M |
 | `meta.llama4-scout-17b-instruct-v1:0` | Llama 4 Scout 17B Instruct | 3M |
+| `us.meta.llama4-scout-17b-instruct-v1:0` | Llama 4 Scout 17B Instruct (US) | 3M |
 | `mistral.magistral-small-2509` | Magistral Small 1.2 | 128K |
 | `minimax.minimax-m2` | MiniMax M2 | 204K |
 | `minimax.minimax-m2.1` | MiniMax M2.1 | 204K |
@@ -85,7 +85,6 @@ Amazon Bedrock provides managed access to foundation models through AWS infrastr
 | `amazon.nova-2-lite-v1:0` | Nova 2 Lite | 128K |
 | `amazon.nova-lite-v1:0` | Nova Lite | 300K |
 | `amazon.nova-micro-v1:0` | Nova Micro | 128K |
-| `amazon.nova-premier-v1:0` | Nova Premier | 1M |
 | `amazon.nova-pro-v1:0` | Nova Pro | 300K |
 | `writer.palmyra-x4-v1:0` | Palmyra X4 | 122K |
 | `writer.palmyra-x5-v1:0` | Palmyra X5 | 1M |

@@ -103,12 +103,16 @@ def test_describe_json(fleet_dir) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _first_provider read-order coverage
+# _first_provider read coverage
 #
-# Resolution order (see _shared.py:_first_provider docstring):
-#   1. claw_record["providers"]                       # attach list (new)
-#   2. claw_record["config"]["provider"]["name"]      # materialization layer
-#   3. claw_record["config"]["providers"]             # vestigial plural
+# Single source of truth: provider state is read from EXACTLY one place —
+# tier-1 `claw_record["providers"]` (the attach list). There is no fallback
+# to the tier-2 `config.provider` materialization or the vestigial tier-3
+# `config.providers` plural. This aligns the display reader with
+# build_render_inputs (render.py), which raises when the same tier-1 list is
+# empty. An agent whose provider lives only in `config.provider` reads as
+# "no provider attached" and must be fixed with `clawctl agent provider
+# attach <provider> --agent <name>`.
 # ---------------------------------------------------------------------------
 
 
@@ -125,21 +129,21 @@ def test_first_provider_prefers_attach_list_dict_entry():
     assert _first_provider(record) == "clawrium-glm51"
 
 
-def test_first_provider_falls_back_to_materialized_config_provider():
-    # Covers every pre-Pattern-A install on disk: config.provider is the
-    # singular dict written by sync_agent / configure_agent. Without this
-    # fallback, `clawctl agent describe` showed `Provider: -` for every
-    # legacy agent.
+def test_first_provider_ignores_materialized_config_provider():
+    # tier-2 `config.provider` is the singular dict written by
+    # sync_agent / configure_agent as the Ansible render payload. It is
+    # NOT a read source: with no tier-1 attach list, _first_provider
+    # returns None regardless of config.provider.
     record = {"config": {"provider": {"name": "clawrium-glm51"}}}
-    assert _first_provider(record) == "clawrium-glm51"
+    assert _first_provider(record) is None
 
 
-def test_first_provider_skips_empty_attach_list_then_uses_materialization():
+def test_first_provider_empty_attach_list_does_not_use_materialization():
     record = {
         "providers": [],
         "config": {"provider": {"name": "clawrium-glm51"}},
     }
-    assert _first_provider(record) == "clawrium-glm51"
+    assert _first_provider(record) is None
 
 
 def test_first_provider_returns_none_when_nothing_present():
@@ -148,31 +152,50 @@ def test_first_provider_returns_none_when_nothing_present():
     assert _first_provider({"config": {"provider": {}}}) is None
 
 
-def test_first_provider_vestigial_plural_path_still_resolves():
+def test_first_provider_ignores_vestigial_plural_path():
+    # tier-3 `config.providers` (plural) was a vestigial reader. It is no
+    # longer consulted; only the tier-1 attach list resolves.
     record = {"config": {"providers": {"legacy-name": {"type": "ollama"}}}}
-    assert _first_provider(record) == "legacy-name"
+    assert _first_provider(record) is None
 
 
-def test_first_provider_dict_entry_without_name_falls_through_to_materialization():
-    # ATX W1: a dict attach-list entry that's missing the `name` key
-    # must NOT short-circuit the function with None. It must fall
-    # through to the config.provider.name materialization tier so a
-    # malformed attach record doesn't silently swallow the real value.
+def test_first_provider_dict_entry_without_name_returns_none():
+    # A dict attach-list entry missing the `name` key has no resolvable
+    # tier-1 provider; with no fallback this reads as None.
     record = {
         "providers": [{"type": "openrouter"}],  # no `name`
         "config": {"provider": {"name": "clawrium-glm51"}},
     }
-    assert _first_provider(record) == "clawrium-glm51"
+    assert _first_provider(record) is None
 
 
-def test_first_provider_empty_string_attach_entry_falls_through():
-    # Defence-in-depth: empty string in attach list should not render
-    # as the provider name; fall through to materialization.
+def test_first_provider_empty_string_attach_entry_returns_none():
+    # An empty string in the attach list is not a valid provider name and
+    # does not fall through to any other tier.
     record = {
         "providers": [""],
         "config": {"provider": {"name": "clawrium-glm51"}},
     }
-    assert _first_provider(record) == "clawrium-glm51"
+    assert _first_provider(record) is None
+
+
+def test_first_provider_tier2_only_record_reads_as_none():
+    # Regression for the provider-tier reader asymmetry bug: a record
+    # shaped like vand/doppio before tier-1 back-fill — no top-level
+    # `providers`, provider only in `config.provider` — must read as
+    # None so the display agrees with the render/drift path that raises
+    # AgentConfigError for the same shape.
+    record = {
+        "config": {
+            "provider": {
+                "name": "esper-bedrock",
+                "type": "bedrock",
+                "endpoint": "",
+                "default_model": "zai.glm-5",
+            }
+        }
+    }
+    assert _first_provider(record) is None
 
 
 def test_first_provider_never_synced_agent_shape():
@@ -298,133 +321,90 @@ def test_describe_provider_line_renders_attach_list_name(fleet_dir) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tier-3 vestigial-list path safety (W-A iter-2)
+# Tier-3 vestigial path is no longer read (single-source consolidation)
 # ---------------------------------------------------------------------------
 
 
 def test_first_provider_tier3_list_dict_without_name_returns_none():
-    # W-A: tier-3 list-of-dicts with a nameless entry. Used to fall
-    # through `return first.get("name")` returning None; now explicit.
     record = {"config": {"providers": [{"type": "ollama"}]}}
     assert _first_provider(record) is None
 
 
-def test_first_provider_tier3_list_none_entry_does_not_render_None_string():
-    # W-A: `return str(first)` would have produced the literal string
-    # "None" in the PROVIDER column. Must return None instead.
+def test_first_provider_tier3_list_none_entry_returns_none():
     record = {"config": {"providers": [None]}}
     assert _first_provider(record) is None
 
 
-def test_first_provider_tier3_list_int_entry_does_not_coerce():
-    # W-A: integer entry should not render as "42" in the PROVIDER
-    # column.
+def test_first_provider_tier3_list_int_entry_returns_none():
     record = {"config": {"providers": [42]}}
     assert _first_provider(record) is None
 
 
 # ---------------------------------------------------------------------------
-# Type-safety on tier-1 dict `name` value (W-C iter-2)
+# Type-safety on tier-1 dict `name` value
 # ---------------------------------------------------------------------------
 
 
-def test_first_provider_dict_name_value_is_non_string_falls_through():
-    # W-C: a dict attach-list entry whose `name` is itself a dict
-    # would have rendered as a Python repr in the PROVIDER column.
-    # Now falls through to the materialization tier.
+def test_first_provider_dict_name_value_is_non_string_returns_none():
+    # A dict attach-list entry whose `name` is itself a dict is not a
+    # valid provider name; with no fallback this reads as None.
     record = {
         "providers": [{"name": {"nested": "bad"}}],
         "config": {"provider": {"name": "clawrium-glm51"}},
     }
-    assert _first_provider(record) == "clawrium-glm51"
+    assert _first_provider(record) is None
 
 
 # ---------------------------------------------------------------------------
-# Format validation on string entries (W-D iter-2 — defense-in-depth)
+# Format validation on tier-1 string entries (defense-in-depth)
 # ---------------------------------------------------------------------------
 
 
-def test_first_provider_string_attach_with_markup_falls_through():
-    # W-D: a handwritten attach entry containing Rich/markdown markup
-    # (`[bold]x[/]`) does not match PROVIDER_NAME_PATTERN at write
-    # time but historically passed the read-time check. Now read-time
-    # also validates the pattern, falling through to the materialized
-    # value so a malformed attach record cannot inject characters
-    # into the PROVIDER column.
+def test_first_provider_string_attach_with_markup_returns_none():
+    # A tier-1 attach entry containing Rich/markdown markup (`[bold]x[/]`)
+    # does not match PROVIDER_NAME_PATTERN; with no fallback it reads as
+    # None so a malformed attach record cannot inject characters into the
+    # PROVIDER column.
     record = {
         "providers": ["[bold]atk[/]"],
         "config": {"provider": {"name": "clawrium-glm51"}},
     }
-    assert _first_provider(record) == "clawrium-glm51"
+    assert _first_provider(record) is None
 
 
-def test_first_provider_string_attach_with_invalid_chars_falls_through():
-    # W-D: pattern rejects names with `/`, `:`, etc. — falls through.
+def test_first_provider_string_attach_with_invalid_chars_returns_none():
+    # Pattern rejects names with `/`, `:`, etc.
     record = {
         "providers": ["evil/path"],
         "config": {"provider": {"name": "clawrium-glm51"}},
     }
-    assert _first_provider(record) == "clawrium-glm51"
+    assert _first_provider(record) is None
 
 
 # ---------------------------------------------------------------------------
-# Iter-3 cleanups (W-N-3, W-N-4, W-N-5)
+# Tier-1 pattern boundary coverage
 # ---------------------------------------------------------------------------
-
-
-def test_first_provider_tier3_list_dict_without_name_falls_through_to_tier2():
-    # W-N-3 (iter-3): the existing "returns None" test was
-    # non-discriminating (old code returned None for the same input).
-    # This variant proves the dict-without-name in tier-3 list does
-    # not short-circuit before tier-2 would otherwise resolve.
-    record = {
-        "config": {
-            "providers": [{"type": "ollama"}],  # tier-3 dict, no name
-            "provider": {"name": "tier2-fallback-name"},  # tier-2 wins
-        },
-    }
-    # In _first_provider's iteration order, tier-2 is checked BEFORE
-    # tier-3, so this actually exercises tier-2 winning. The point of
-    # this test is that adding a malformed tier-3 entry doesn't break
-    # the tier-2 read — i.e. _first_provider is robust to having
-    # garbage in tiers it doesn't reach.
-    assert _first_provider(record) == "tier2-fallback-name"
-
-
-def test_first_provider_tier3_list_string_happy_path():
-    # W-N-4: tier-3 list with a valid string entry. The post-W-A
-    # rewrite uses `_accept` here; without a happy-path test, a
-    # silent rejection (e.g. if PROVIDER_NAME_PATTERN were tightened)
-    # would go uncaught.
-    record = {"config": {"providers": ["valid-provider"]}}
-    assert _first_provider(record) == "valid-provider"
-
-
-def test_first_provider_tier3_list_dict_with_name_happy_path():
-    # W-N-4: tier-3 list with a valid dict-with-name entry.
-    record = {"config": {"providers": [{"name": "valid-provider"}]}}
-    assert _first_provider(record) == "valid-provider"
 
 
 def test_first_provider_accept_64_char_name_is_valid():
-    # W-N-5: PROVIDER_NAME_PATTERN's `{0,63}` quantifier allows up to
-    # 64 chars total (1 leading letter + 63 trailing). Exercise the
-    # boundary so a future tightening (e.g. `{0,62}`) would be
-    # caught by test failure rather than silent rejection at runtime.
+    # PROVIDER_NAME_PATTERN's `{0,63}` quantifier allows up to 64 chars
+    # total (1 leading letter + 63 trailing). Exercise the boundary so a
+    # future tightening (e.g. `{0,62}`) would be caught by test failure
+    # rather than silent rejection at runtime.
     name_64 = "a" + "x" * 63
     assert len(name_64) == 64
     assert _first_provider({"providers": [name_64]}) == name_64
 
 
-def test_first_provider_accept_65_char_name_falls_through():
-    # W-N-5: one character over the limit must fall through.
+def test_first_provider_accept_65_char_name_returns_none():
+    # One character over the limit must read as None (no fallback).
     name_65 = "a" + "x" * 64
     assert len(name_65) == 65
     record = {
         "providers": [name_65],
         "config": {"provider": {"name": "clawrium-glm51"}},
     }
-    assert _first_provider(record) == "clawrium-glm51"
+    assert _first_provider(record) is None
 
 
 def test_describe_stage_empty_status_string_does_not_use_state_shim(

@@ -625,14 +625,16 @@ def test_openclaw_openrouter_prefixes_model():
     assert "OPENROUTER_API_KEY='sk-or-1'" in env
 
 
-def test_render_no_branch_on_unset_optional_field():
-    """`render_hermes` must not branch on whether home_channel is empty.
+def test_render_home_channel_guarded_when_empty():
+    """W4 (ATX #555 polish): empty home_channel must NOT emit the var.
 
-    Two inputs that differ only in unset/empty optional fields should
-    produce structurally identical output (same line count, same keys).
+    The legacy template guarded each DISCORD_HOME_CHANNEL* var with
+    `{% if %}`; the canonical template now does the same. Empty string
+    vs absent is semantically distinct for the daemon's env-var config
+    path — emitting `DISCORD_HOME_CHANNEL=''` makes the daemon treat
+    "no home channel" as "explicitly empty" instead of "unset".
     """
     base = _baseline_inputs(ptype="openrouter")
-    # Variant: empty home_channel.
     variant = RenderInputs(
         agent_name=base.agent_name,
         agent_type=base.agent_type,
@@ -652,12 +654,10 @@ def test_render_no_branch_on_unset_optional_field():
         api_server=base.api_server,
         gateway=base.gateway,
     )
-    a = render_hermes(base).files[".hermes/.env"].splitlines()
-    b = render_hermes(variant).files[".hermes/.env"].splitlines()
-    # Same number of lines — emission is unconditional.
-    assert len(a) == len(b)
-    # The DISCORD_HOME_CHANNEL line is present in both (empty quoted in variant).
-    assert any(line.startswith("DISCORD_HOME_CHANNEL=") for line in b)
+    env = render_hermes(variant).files[".hermes/.env"]
+    assert not any(
+        line.startswith("DISCORD_HOME_CHANNEL=") for line in env.splitlines()
+    ), env
 
 
 def test_renderers_reject_unsupported_provider_type_defensively():
@@ -783,6 +783,181 @@ def test_hermes_atlassian_slug_collision_raises():
     )
     with pytest.raises(AgentConfigError, match="collide on YAML key"):
         render_hermes(inputs)
+
+
+@pytest.mark.parametrize(
+    "host_value",
+    [
+        # The post-install seed shape — `host = ""` in hosts.json.
+        "",
+        # Whitespace-only: `_clean_secret` strips NUL/CR/LF but not
+        # spaces/tabs. `"   " or "0.0.0.0"` short-circuits to `"   "`
+        # without the `.strip()` guard, and the daemon refuses it the
+        # same way it refuses `""`. B1 from ATX review of the initial
+        # patch.
+        "   ",
+        "\t \t",
+        # NUL-contaminated host: `_clean_secret` strips the NUL to "",
+        # which then defaults via the same code path. Covers parity
+        # with the W6 sanitization at line ~447.
+        "\x00",
+    ],
+)
+def test_gateway_host_defaults_to_wildcard_when_blank(stores, host_value):
+    """#576: zeroclaw's daemon refuses an empty `gateway.host`. The
+    assembler must default to `0.0.0.0` (the documented wildcard bind)
+    so a fresh install whose hosts.json carries any blank/whitespace
+    host value still renders a config.toml the daemon accepts.
+    """
+    stores.agent = (
+        {"hostname": "host-1"},
+        "zeroclaw",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {
+                    "host": host_value,
+                    "port": 40000,
+                    "auth": "tk",
+                    "bind": "lan",
+                },
+            },
+        },
+    )
+    stores.providers["or"] = {"name": "or", "type": "openrouter", "default_model": "m"}
+    stores.provider_api_keys["or"] = "sk-1"
+    inputs = build_render_inputs("alpha")
+    assert inputs.gateway is not None and inputs.gateway.host == "0.0.0.0"
+
+
+def test_gateway_host_defaults_to_wildcard_when_key_missing(stores):
+    """#576: same default fires when the `host` key is absent entirely,
+    not just empty. Covers the shape some legacy migrations produced."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "zeroclaw",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {"port": 40000, "auth": "tk", "bind": "lan"},
+            },
+        },
+    )
+    stores.providers["or"] = {"name": "or", "type": "openrouter", "default_model": "m"}
+    stores.provider_api_keys["or"] = "sk-1"
+    inputs = build_render_inputs("alpha")
+    assert inputs.gateway is not None and inputs.gateway.host == "0.0.0.0"
+
+
+@pytest.mark.parametrize("host_value", ["", "   ", "\t \t"])
+def test_gateway_host_default_round_trips_through_render_zeroclaw(
+    stores, host_value
+):
+    """#576 / ATX W1 + iter-2 W: extend the default assertion to call
+    the actual `render_zeroclaw` Jinja path and confirm the rendered
+    `config.toml` contains `host = "0.0.0.0"` under `[gateway]`. The
+    assembler-only assertion above would stay green even if a template
+    regression rendered the pre-strip raw value — the on-host daemon
+    is what consumes this. Parametrized over the same blank set as the
+    assembler test so a whitespace-only input also has a Jinja-path
+    assertion."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "zeroclaw",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {
+                    "host": host_value,
+                    "port": 40000,
+                    "auth": "tk",
+                    "bind": "lan",
+                },
+            },
+        },
+    )
+    stores.providers["or"] = {"name": "or", "type": "openrouter", "default_model": "m"}
+    stores.provider_api_keys["or"] = "sk-1"
+    inputs = build_render_inputs("alpha")
+    rendered = render_zeroclaw(inputs)
+    toml_body = rendered.files[".zeroclaw/config.toml"]
+    # The rendered TOML must carry the wildcard bind under [gateway].
+    # An empty/whitespace host (which the daemon refuses) would render
+    # as `host = ""` or `host = "   "` respectively.
+    assert 'host = "0.0.0.0"' in toml_body
+    assert 'host = ""' not in toml_body
+    if host_value.strip() != host_value or host_value:
+        # The raw pre-strip value must not survive into the rendered
+        # TOML — guards against a future template change that bypasses
+        # the assembler's strip+default.
+        assert f'host = "{host_value}"' not in toml_body
+
+
+def test_gateway_host_preserves_explicit_value(stores):
+    """#576: the default only fills in for blank/missing — an explicit
+    operator value round-trips unchanged. Loopback and a LAN IP are
+    both verified so the `or` path is not silently masking arbitrary
+    non-empty input."""
+    stores.providers["or"] = {"name": "or", "type": "openrouter", "default_model": "m"}
+    stores.provider_api_keys["or"] = "sk-1"
+    for explicit in ("127.0.0.1", "192.168.1.5"):
+        stores.agent = (
+            {"hostname": "host-1"},
+            "zeroclaw",
+            {
+                "agent_name": "alpha",
+                "providers": [{"name": "or", "role": "primary", "model": ""}],
+                "config": {
+                    "gateway": {
+                        "host": explicit,
+                        "port": 40000,
+                        "auth": "tk",
+                        "bind": "lan",
+                    },
+                },
+            },
+        )
+        inputs = build_render_inputs("alpha")
+        assert inputs.gateway is not None and inputs.gateway.host == explicit
+
+
+def test_hermes_render_ignores_gateway_host_default(stores):
+    """#576 / ATX W2: the `0.0.0.0` default is applied unconditionally
+    in `build_render_inputs` because no current renderer other than
+    zeroclaw reads `inputs.gateway.host`. This test pins that
+    invariant: a hermes agent with a blank `config.gateway.host` must
+    still render successfully and its output must not carry the
+    zeroclaw-shaped `[gateway]` block."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "hermes",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": "m"}],
+            "config": {
+                "api_server": {"host": "0.0.0.0", "port": 8642, "key": "k"},
+                # Blank host — would brick zeroclaw, must not affect hermes.
+                "gateway": {"host": "", "port": 40000, "auth": "tk"},
+            },
+        },
+    )
+    stores.providers["or"] = {"name": "or", "type": "openrouter", "default_model": "m"}
+    stores.provider_api_keys["or"] = "sk-1"
+    inputs = build_render_inputs("alpha")
+    rendered = render_hermes(inputs)
+    # Pin the hermes output shape so the negative-only assertions below
+    # aren't vacuously true if a future refactor changes the file map.
+    assert ".hermes/.env" in rendered.files
+    assert "HERMES_INFERENCE_PROVIDER" in rendered.files[".hermes/.env"]
+    for path, body in rendered.files.items():
+        # The zeroclaw-shaped `[gateway]` TOML block must not appear in
+        # any hermes output file.
+        assert "[gateway]" not in body, (
+            f"hermes render leaked zeroclaw [gateway] block into {path}"
+        )
 
 
 def test_clean_secret_applied_to_gateway_auth_and_api_server_key(stores):
@@ -982,6 +1157,98 @@ def test_shell_quote_escapes_single_quote():
     assert _shell_quote("plain") == "'plain'"
 
 
+def test_shell_quote_strips_nul_cr_lf():
+    """B5 (ATX #555 polish round 3): NUL truncates systemd
+    EnvironmentFile at the byte; CR/LF breaks the
+    one-assignment-per-line grammar. All three must be stripped before
+    POSIX quoting."""
+    from clawrium.core.render import _shell_quote
+
+    assert _shell_quote("foo\x00bar") == "'foobar'"
+    assert _shell_quote("foo\nbar") == "'foobar'"
+    assert _shell_quote("foo\rbar") == "'foobar'"
+    assert _shell_quote("a\x00b\nc\rd") == "'abcd'"
+    # Empty-string edge case still produces a valid empty POSIX literal.
+    assert _shell_quote("") == "''"
+
+
+def test_systemd_quote_strips_nul_and_escapes_dollar_percent():
+    """B4 + round-3 W2 (ATX #555 polish round 3): `_systemd_quote` must
+    strip NUL (EnvironmentFile truncation), escape `$` → `$$` (systemd
+    variable expansion on Environment= values), and escape `%` → `%%`
+    (systemd specifier expansion `%h`, `%n`, etc.)."""
+    from clawrium.core.render import _systemd_quote
+
+    assert _systemd_quote("ghp_$FOO") == '"ghp_$$FOO"'
+    assert _systemd_quote("ghp_%n") == '"ghp_%%n"'
+    assert _systemd_quote("a$b%c") == '"a$$b%%c"'
+    # NUL stripped.
+    assert _systemd_quote("foo\x00bar") == '"foobar"'
+    # CR/LF stripped.
+    assert _systemd_quote("foo\nbar\rbaz") == '"foobarbaz"'
+    # Backslash and quote still escaped.
+    assert _systemd_quote('a"b\\c') == '"a\\"b\\\\c"'
+
+
+def test_toml_escape_strips_nul_and_escapes_cr_lf():
+    """B6 (ATX #555 polish round 3): NUL must be stripped (TOML spec
+    rejects bare NUL; some parsers silently truncate). CR must be
+    escaped as `\\r` not emitted bare. LF as `\\n`."""
+    from clawrium.core.render import _toml_escape
+
+    assert _toml_escape("foo\x00bar") == "foobar"
+    assert _toml_escape("foo\rbar") == "foo\\rbar"
+    assert _toml_escape("foo\nbar") == "foo\\nbar"
+    # Combined.
+    out = _toml_escape("a\x00b\rc\nd")
+    assert "\x00" not in out
+    assert "\r" not in out
+    assert "\n" not in out
+    assert out == "ab\\rc\\nd"
+    # W-C (ATX #555 polish round 4): backslash and double quote must
+    # be escaped too — these are the TOML basic-string break-out
+    # characters and the regression that started B3 in round 1.
+    assert _toml_escape('a"b') == 'a\\"b'
+    assert _toml_escape("a\\b") == "a\\\\b"
+    assert _toml_escape("a\tb") == "a\\tb"
+
+
+def test_zeroclaw_toml_injection_payload_nul_and_cr():
+    """B6 (ATX #555 polish round 3): extend the B3 TOML injection
+    regression with NUL and CR payloads. Asserts the parsed body has
+    NUL stripped + CR properly escaped and the rendered body contains
+    no literal NUL or bare CR."""
+    import tomllib
+
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type="zeroclaw",
+        provider=ProviderInputs(
+            name="or",
+            type="openrouter",
+            default_model="m",
+            # NUL + CR + LF + quote + backslash all in the api_key.
+            api_key="sk-\x00\r\n\"\\evil",
+        ),
+        gateway=GatewayInputs(
+            host="1.2.3.4\x00\r",
+            port=40000,
+            allow_public_bind=True,
+        ),
+    )
+    toml_body = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    # The rendered body must contain no literal NUL.
+    assert "\x00" not in toml_body
+    parsed = tomllib.loads(toml_body)
+    # NUL stripped, CR + LF preserved via escape, quote/backslash escaped.
+    assert (
+        parsed["providers"]["models"]["openrouter"]["api_key"]
+        == 'sk-\r\n"\\evil'
+    )
+    assert parsed["gateway"]["host"] == "1.2.3.4\r"
+
+
 def test_hermes_bedrock_config_yaml_section_pinned():
     """Iter-3 W1: pin the bedrock config.yaml content too, not just env."""
     inputs = _baseline_inputs(ptype="bedrock")
@@ -1101,8 +1368,6 @@ _MAURICE_LIKE_ENV_OPENROUTER = (
     "DISCORD_ALLOWED_CHANNELS=''\n"
     "DISCORD_REQUIRE_MENTION='true'\n"
     "DISCORD_HOME_CHANNEL='general'\n"
-    "DISCORD_HOME_CHANNEL_NAME=''\n"
-    "DISCORD_HOME_CHANNEL_THREAD_ID=''\n"
     "GITHUB_TOKEN_GH_M='ghp_m'\n"
     "GITHUB_TOKEN='ghp_m'\n"
 )
@@ -1196,6 +1461,73 @@ def test_hermes_render_byte_locks_espresso_ollama():
     assert out.files[".hermes/config.yaml"] == _ESPRESSO_LIKE_YAML_OLLAMA
     # Explicit absence-assertion: W5 — no auxiliary block for ollama.
     assert "auxiliary:" not in out.files[".hermes/config.yaml"]
+
+
+def test_zeroclaw_toml_string_interpolations_escape_special_chars():
+    """B3 (ATX #555 polish): every TOML double-quoted-string interpolation
+    in zeroclaw-config.toml.j2 must run through the `toq` filter so a
+    quote, backslash, or newline inside any clawctl-controlled value
+    cannot terminate the string early or break out of the field.
+
+    Attack model: an API key containing `"` could otherwise close the
+    string and inject arbitrary TOML keys — e.g. `require_pairing =
+    false` silently disabling gateway auth. A `\\` would produce an
+    invalid escape and brick TOML parse.
+
+    The body must parse cleanly as TOML AND every injected special
+    char must round-trip into the parsed string value verbatim.
+    """
+    import tomllib
+
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type="zeroclaw",
+        provider=ProviderInputs(
+            name="or",
+            type="openrouter",
+            default_model='evil"\\model\n',
+            api_key='sk-"]\\evil\n',
+        ),
+        channels=(
+            ChannelInputs(
+                name="discord-evil",
+                type="discord",
+                bot_token='token"\\\n',
+                allowed_users=('u"1', "u\\2"),
+                allowed_guilds=('g"\\1',),
+                stream_mode='partial"\\',
+            ),
+        ),
+        gateway=GatewayInputs(
+            host='1.2.3.4" require_pairing = false #',
+            port=40000,
+            allow_public_bind=True,
+        ),
+    )
+    toml_body = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    parsed = tomllib.loads(toml_body)
+
+    # Injection-via-host must NOT toggle require_pairing.
+    assert parsed["gateway"]["require_pairing"] is True
+    assert parsed["gateway"]["host"] == '1.2.3.4" require_pairing = false #'
+
+    # Provider values round-trip.
+    assert parsed["providers"]["fallback"] == "openrouter"
+    assert (
+        parsed["providers"]["models"]["openrouter"]["model"]
+        == 'evil"\\model\n'
+    )
+    assert (
+        parsed["providers"]["models"]["openrouter"]["api_key"]
+        == 'sk-"]\\evil\n'
+    )
+
+    # Discord values round-trip.
+    assert parsed["channels"]["discord"]["bot_token"] == 'token"\\\n'
+    assert parsed["channels"]["discord"]["allowed_users"] == ['u"1', "u\\2"]
+    assert parsed["channels"]["discord"]["allowed_guilds"] == ['g"\\1']
+    assert parsed["channels"]["discord"]["stream_mode"] == 'partial"\\'
 
 
 def test_zeroclaw_rejects_non_discord_channel_b8():
@@ -1427,6 +1759,8 @@ def test_hermes_atlassian_mcp_servers_byte_lock_w15():
         "    model: \"claude-haiku-4-5-20251001\"\n"
         "mcp_servers:\n"
         "  my_atl:\n"
+        '    command: "/home/alpha/.local/bin/uvx"\n'
+        '    args: ["--from", "mcp-atlassian==0.21.1", "mcp-atlassian"]\n'
         "    env:\n"
         "      JIRA_URL: 'https://acme.atlassian.net'\n"
         "      JIRA_USERNAME: 'u@x.com'\n"
@@ -1650,9 +1984,6 @@ _HERMES_DISCORD_ALLOW_ALL_USERS_ENV = (
     "DISCORD_ALLOWED_CHANNELS=''\n"
     "DISCORD_REQUIRE_MENTION='true'\n"
     "DISCORD_ALLOW_ALL_USERS=true\n"
-    "DISCORD_HOME_CHANNEL=''\n"
-    "DISCORD_HOME_CHANNEL_NAME=''\n"
-    "DISCORD_HOME_CHANNEL_THREAD_ID=''\n"
 )
 
 
@@ -1770,6 +2101,7 @@ _OPENCLAW_ENV_BEDROCK = (
     "OPENCLAW_DEFAULT_MODEL='bedrock/anthropic.claude-opus-4-1-v1:0'\n"
     "AWS_ACCESS_KEY_ID='AKIA-1'\n"
     "AWS_SECRET_ACCESS_KEY='secret-1'\n"
+    "AWS_DEFAULT_REGION='us-east-1'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
@@ -2399,3 +2731,276 @@ def test_openclaw_json_no_auth_omits_gateway_auth_block():
     body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
     blob = json.loads(body)
     assert "auth" not in blob["gateway"]
+
+
+# ---------------------------------------------------------------------------
+# #582: HERMES_API_SERVER_KEY must be hydrated from secrets.json
+#
+# install.py writes the api_server shape (enabled/host/port) into hosts.json
+# but NOT the bearer — the key lives in secrets.json under the canonical
+# instance key. The legacy configure_agent path hydrates it at
+# lifecycle.py:1695; the canonical render path must do the same or every
+# `agent sync` writes API_SERVER_KEY='' and hermes refuses to bind a
+# wildcard interface.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def hermes_secret_stores(stores, monkeypatch):
+    """Adds in-memory fakes for the secrets-store hooks the render path
+    reaches into to hydrate HERMES_API_SERVER_KEY. Returns the existing
+    `stores` bundle with an extra `.instance_secrets` dict attached."""
+    instance_secrets: dict[str, dict[str, dict]] = {}
+
+    def _get_instance_key(host: str, claw_type: str, claw_name: str) -> str:
+        return f"{host}:{claw_type}:{claw_name}"
+
+    def _get_instance_secrets(instance_key: str):
+        return dict(instance_secrets.get(instance_key, {}))
+
+    monkeypatch.setattr(
+        "clawrium.core.secrets.get_instance_key", _get_instance_key
+    )
+    monkeypatch.setattr(
+        "clawrium.core.secrets.get_instance_secrets", _get_instance_secrets
+    )
+
+    stores.instance_secrets = instance_secrets  # type: ignore[attr-defined]
+    return stores
+
+
+def _hermes_agent_with_api_server(
+    *,
+    api_server: dict | None,
+    host_key_id: str | None = "host-1",
+    agent_name: str = "alpha",
+):
+    """Build a (host_record, agent_type, agent_record) triple matching
+    the post-install shape: hermes agent with an openrouter primary
+    attachment and a non-sensitive api_server block in hosts.json.
+
+    `api_server` is the dict written under `config.api_server`. Pass
+    `None` to omit the block entirely.
+    """
+    host = {"hostname": "host-1"}
+    if host_key_id is not None:
+        host["key_id"] = host_key_id
+    cfg: dict = {}
+    if api_server is not None:
+        cfg["api_server"] = api_server
+    return (
+        host,
+        "hermes",
+        {
+            "agent_name": agent_name,
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": cfg,
+        },
+    )
+
+
+def _seed_openrouter_provider(stores):
+    stores.providers["or"] = {
+        "name": "or",
+        "type": "openrouter",
+        "default_model": "anthropic/claude-opus-4.7",
+    }
+    stores.provider_api_keys["or"] = "sk-or-1"
+
+
+VALID_HEX_KEY = "a" * 64  # 64-char lowercase hex — matches _is_valid_hermes_api_server_key
+
+
+def test_hermes_api_server_key_hydrated_from_secrets_when_missing_in_hosts_json(
+    hermes_secret_stores,
+):
+    """#582 fix: hosts.json carries only the shape (enabled/host/port),
+    secrets.json carries the bearer. The canonical render must hydrate
+    the bearer from secrets.json keyed by `host_key_id:hermes:agent_name`
+    so that every sync renders a non-empty API_SERVER_KEY."""
+    stores = hermes_secret_stores
+    stores.agent = _hermes_agent_with_api_server(
+        api_server={"enabled": True, "host": "0.0.0.0", "port": 8642},
+    )
+    _seed_openrouter_provider(stores)
+    stores.instance_secrets["host-1:hermes:alpha"] = {
+        "HERMES_API_SERVER_KEY": {"value": VALID_HEX_KEY}
+    }
+
+    inputs = build_render_inputs("alpha")
+
+    assert inputs.api_server is not None
+    assert inputs.api_server.key == VALID_HEX_KEY
+    assert inputs.api_server.host == "0.0.0.0"
+    assert inputs.api_server.port == 8642
+
+
+def test_hermes_api_server_key_inline_in_hosts_json_wins_over_secrets(
+    hermes_secret_stores,
+):
+    """Backwards compat with pre-#318 hermes entries that persisted the
+    bearer inline in hosts.json (e.g. legacy `espresso`). If the blob
+    already carries a key, the render path uses it verbatim and does
+    NOT clobber it with whatever happens to be in secrets.json."""
+    stores = hermes_secret_stores
+    inline = "b" * 64
+    stores.agent = _hermes_agent_with_api_server(
+        api_server={
+            "enabled": True,
+            "host": "0.0.0.0",
+            "port": 8642,
+            "key": inline,
+        },
+    )
+    _seed_openrouter_provider(stores)
+    # A different secret in secrets.json — must NOT be picked up because
+    # the inline value already satisfied the hydration check.
+    stores.instance_secrets["host-1:hermes:alpha"] = {
+        "HERMES_API_SERVER_KEY": {"value": "c" * 64}
+    }
+
+    inputs = build_render_inputs("alpha")
+
+    assert inputs.api_server is not None
+    assert inputs.api_server.key == inline
+
+
+def test_hermes_api_server_key_uses_hostname_when_key_id_absent(
+    hermes_secret_stores,
+):
+    """Pre-#448 host records did not carry `key_id`. The instance-key
+    lookup must fall back to `hostname` so legacy hosts still get their
+    bearer hydrated."""
+    stores = hermes_secret_stores
+    stores.agent = _hermes_agent_with_api_server(
+        api_server={"enabled": True, "host": "0.0.0.0", "port": 8642},
+        host_key_id=None,  # legacy: no key_id field
+    )
+    _seed_openrouter_provider(stores)
+    stores.instance_secrets["host-1:hermes:alpha"] = {
+        "HERMES_API_SERVER_KEY": {"value": VALID_HEX_KEY}
+    }
+
+    inputs = build_render_inputs("alpha")
+
+    assert inputs.api_server is not None
+    assert inputs.api_server.key == VALID_HEX_KEY
+
+
+def test_hermes_api_server_key_invalid_secret_falls_through_to_empty(
+    hermes_secret_stores,
+):
+    """Defensive: if secrets.json was hand-edited to a malformed value
+    (not 64-char lowercase hex), the validator rejects it and the render
+    emits an empty key rather than silently shipping garbage into the
+    EnvironmentFile. The configure_agent path will surface the error to
+    the operator; render's job is to not propagate a bad bearer."""
+    stores = hermes_secret_stores
+    stores.agent = _hermes_agent_with_api_server(
+        api_server={"enabled": True, "host": "0.0.0.0", "port": 8642},
+    )
+    _seed_openrouter_provider(stores)
+    stores.instance_secrets["host-1:hermes:alpha"] = {
+        "HERMES_API_SERVER_KEY": {"value": "not-hex-and-too-short"}
+    }
+
+    inputs = build_render_inputs("alpha")
+
+    assert inputs.api_server is not None
+    assert inputs.api_server.key == ""
+
+
+def test_hermes_api_server_key_missing_secret_falls_through_to_empty(
+    hermes_secret_stores,
+):
+    """Defensive: no entry in secrets.json at all — render returns
+    empty rather than crashing. configure_agent surfaces the real
+    error; render stays pure."""
+    stores = hermes_secret_stores
+    stores.agent = _hermes_agent_with_api_server(
+        api_server={"enabled": True, "host": "0.0.0.0", "port": 8642},
+    )
+    _seed_openrouter_provider(stores)
+    # Intentionally no entry in instance_secrets for host-1:hermes:alpha.
+
+    inputs = build_render_inputs("alpha")
+
+    assert inputs.api_server is not None
+    assert inputs.api_server.key == ""
+
+
+def test_non_hermes_agent_does_not_hydrate_api_server_key(
+    hermes_secret_stores, monkeypatch
+):
+    """The secrets.json reach-through is hermes-specific (zeroclaw and
+    openclaw don't use HERMES_API_SERVER_KEY). For a non-hermes agent,
+    the render path must not touch the secrets store at all — guards
+    against accidentally hydrating an unrelated agent's secret onto a
+    different agent type."""
+    stores = hermes_secret_stores
+
+    # Tripwire: if anything calls get_instance_secrets while rendering a
+    # non-hermes agent, the test fails loudly.
+    called: list[str] = []
+
+    def _tripwire(instance_key: str):
+        called.append(instance_key)
+        return {}
+
+    monkeypatch.setattr(
+        "clawrium.core.secrets.get_instance_secrets", _tripwire
+    )
+
+    # Build a zeroclaw agent record with an api_server block (this is
+    # synthetic — zeroclaw doesn't use api_server in production, but
+    # the render code shouldn't care: it should branch on agent_type).
+    host = {"hostname": "host-1", "key_id": "host-1"}
+    stores.agent = (
+        host,
+        "zeroclaw",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "api_server": {"host": "0.0.0.0", "port": 8642},
+                "gateway": {"host": "0.0.0.0", "port": 41040},
+            },
+        },
+    )
+    _seed_openrouter_provider(stores)
+
+    inputs = build_render_inputs("alpha")
+
+    assert called == [], (
+        f"render must not consult secrets.json for non-hermes agents; "
+        f"got lookups: {called}"
+    )
+    assert inputs.api_server is not None
+    # No inline key, no hydration → empty.
+    assert inputs.api_server.key == ""
+
+
+def test_hermes_api_server_key_propagates_into_rendered_env(
+    hermes_secret_stores,
+):
+    """End-to-end inside the render layer: build_render_inputs +
+    render_hermes together must produce a `.hermes/.env` whose
+    `API_SERVER_KEY=` line carries the bearer hydrated from
+    secrets.json. This is the assertion that fails without the #582
+    fix — and the one that would have caught the regression at the
+    canonical-render layer instead of needing an E2E run."""
+    stores = hermes_secret_stores
+    stores.agent = _hermes_agent_with_api_server(
+        api_server={"enabled": True, "host": "0.0.0.0", "port": 8642},
+    )
+    _seed_openrouter_provider(stores)
+    stores.instance_secrets["host-1:hermes:alpha"] = {
+        "HERMES_API_SERVER_KEY": {"value": VALID_HEX_KEY}
+    }
+
+    inputs = build_render_inputs("alpha")
+    rendered = render_hermes(inputs)
+    env_body = rendered.files[".hermes/.env"]
+
+    assert f"API_SERVER_KEY='{VALID_HEX_KEY}'" in env_body
+    assert "API_SERVER_KEY=''" not in env_body

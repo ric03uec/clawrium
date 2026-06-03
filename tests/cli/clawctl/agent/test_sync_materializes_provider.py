@@ -117,6 +117,12 @@ def test_sync_carries_optional_provider_fields():
         patch("clawrium.core.lifecycle.get_host", return_value=host),
         patch("clawrium.core.providers.storage.get_provider", return_value=rec),
         patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+        # B-NEW-2 (ATX #555 polish round 4): sync_agent now surfaces
+        # registry-incoherence on the post-configure READY transition
+        # as success=False. This test stubs get_host but not the
+        # transition target — patch transition_state explicitly to
+        # exercise the documented success path.
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
     ):
         result = sync_agent("192.168.1.100", "openclaw")
 
@@ -152,6 +158,8 @@ def test_sync_legacy_agent_without_attachment_unchanged():
     with (
         patch("clawrium.core.lifecycle.get_host", return_value=host),
         patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+        # B-NEW-2: see test_sync_carries_optional_provider_fields.
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
     ):
         result = sync_agent("192.168.1.100", "openclaw")
 
@@ -232,6 +240,8 @@ def test_sync_after_detach_preserves_last_known_good_provider():
     with (
         patch("clawrium.core.lifecycle.get_host", return_value=host),
         patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+        # B-NEW-2: see test_sync_carries_optional_provider_fields.
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
     ):
         result = sync_agent("192.168.1.100", "openclaw")
 
@@ -356,6 +366,100 @@ def test_sync_refuses_required_stage_without_declarative_surface():
     assert "identity" in msg
     assert "#523" in msg  # Points at the tracking issue.
     assert "clawctl agent configure" in msg  # Workaround named.
+
+
+@pytest.mark.parametrize("ledger_status", ["complete", "skipped"])
+def test_sync_passes_when_identity_already_terminal_in_ledger(ledger_status):
+    """Issue #577: when the operator has already run
+    `clawctl agent configure <name> --stage identity` and the onboarding
+    ledger records `stages.identity.status` as a terminal value
+    (`complete` or `skipped`), the providers / sync walk must NOT raise
+    the "requires manual identity" gate. The gate should consult the
+    same source `clawctl agent describe` reads, not a stale proxy.
+
+    Behavioral assertions (ATX #577 B2):
+    - `configure_agent` IS invoked — the walk reached the configure step.
+    - `complete_stage` is NOT invoked for identity — the ledger-pass
+      branch fires, not a re-completion that would mask state-machine
+      regressions.
+    - State transitions include the identity state — the walk advances.
+    """
+
+    def can_skip_only_validate(agent_type: str, stage: str) -> bool:
+        return stage == "validate"
+
+    host = {
+        "hostname": "192.168.1.100",
+        "key_id": "test",
+        "agent_name": "xclm",
+        "port": 22,
+        "agents": {
+            "opc-work": {
+                "type": "openclaw",
+                "onboarding": {
+                    "state": "providers",
+                    "stages": {
+                        "providers": {"status": "complete"},
+                        # Operator already terminated identity out-of-band.
+                        "identity": {"status": ledger_status},
+                        "channels": {"status": "pending"},
+                        "validate": {"status": "pending"},
+                    },
+                },
+                "config": {"gateway": {"port": 40000}},
+                "providers": ["local-inx"],
+            }
+        },
+    }
+
+    configure_calls: list[tuple] = []
+    complete_calls: list[tuple] = []
+    transitions: list[str] = []
+
+    def fake_configure(hostname, claw_name, config_data, **kwargs):
+        configure_calls.append((hostname, claw_name))
+        return (True, None)
+
+    def fake_complete(_host, _agent, stage, status, _meta=None):
+        complete_calls.append((stage, status.value))
+        return True
+
+    def fake_transition(_host, _agent, target):
+        transitions.append(target.value)
+        return True
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch(
+            "clawrium.core.providers.storage.get_provider",
+            return_value=_ollama_provider_record(),
+        ),
+        patch("clawrium.core.onboarding.complete_stage", side_effect=fake_complete),
+        patch(
+            "clawrium.core.onboarding.transition_state",
+            side_effect=fake_transition,
+        ),
+        patch(
+            "clawrium.core.onboarding.can_skip_stage",
+            side_effect=can_skip_only_validate,
+        ),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        # Must not raise — the prior identity terminal status in the
+        # ledger is honored. Pre-fix this would raise
+        # "requires manual identity".
+        result = sync_agent("192.168.1.100", "openclaw")
+
+    assert result["success"] is True
+    # configure_agent reached — walk did not abort.
+    assert len(configure_calls) == 1
+    # No re-completion of identity from the walk — ledger-pass branch
+    # took over (`continue`). Stage-status walk for channels/validate
+    # may still call complete_stage with SKIPPED, so we filter narrowly.
+    identity_completes = [c for c in complete_calls if c[0] == "identity"]
+    assert identity_completes == []
+    # Walk advanced through the identity state on its way past the gate.
+    assert "identity" in transitions
 
 
 def test_sync_hermes_real_manifest_configure_fail_does_not_persist_ready():
@@ -664,6 +768,8 @@ def test_sync_optional_field_max_tokens_zero_preserved():
         patch("clawrium.core.lifecycle.get_host", return_value=host),
         patch("clawrium.core.providers.storage.get_provider", return_value=rec),
         patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+        # B-NEW-2: see test_sync_carries_optional_provider_fields.
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
     ):
         result = sync_agent("192.168.1.100", "openclaw")
 

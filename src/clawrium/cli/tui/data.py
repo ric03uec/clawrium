@@ -20,6 +20,29 @@ logger = logging.getLogger(__name__)
 
 AGENT_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
+# Provider names share the agent-key grammar (lowercase, digits, _-).
+_PROVIDER_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+
+
+def _resolve_provider_name(claw_record: dict) -> str | None:
+    """Resolve the attached provider name from tier-1 only.
+
+    The top-level ``providers`` attachment list is the single source of truth
+    for which provider is attached — the same list ``build_render_inputs`` and
+    ``_first_provider`` read. The tier-2 ``config.provider`` render payload is
+    intentionally NOT consulted here; it is read separately for display-only
+    enrichment (default_model / type) that tier-1 does not carry.
+    """
+    attached = claw_record.get("providers")
+    if not isinstance(attached, list) or not attached:
+        return None
+    first = attached[0]
+    if isinstance(first, dict):
+        first = first.get("name")
+    if isinstance(first, str) and first and _PROVIDER_NAME_PATTERN.match(first):
+        return first
+    return None
+
 
 class AgentViewModel(TypedDict):
     agent_key: str
@@ -150,8 +173,14 @@ def get_fleet_data_local(
                 provider_cfg = config.get("provider")
                 if isinstance(provider_cfg, dict):
                     model = provider_cfg.get("default_model", "-")
-                    provider_name = provider_cfg.get("name") or provider_cfg.get("type")
                     provider_type = provider_cfg.get("type")
+                # Tier-1 attachment list is canonical for the provider name;
+                # fall back to the tier-2 render payload only for display.
+                provider_name = _resolve_provider_name(claw_record)
+                if provider_name is None and isinstance(provider_cfg, dict):
+                    provider_name = provider_cfg.get("name") or provider_cfg.get(
+                        "type"
+                    )
                 gateway_cfg = config.get("gateway")
                 if isinstance(gateway_cfg, dict):
                     port_val = gateway_cfg.get("port")
@@ -276,8 +305,14 @@ def get_fleet_data(
                 provider_cfg = config.get("provider")
                 if isinstance(provider_cfg, dict):
                     model = provider_cfg.get("default_model", "-")
-                    provider_name = provider_cfg.get("name") or provider_cfg.get("type")
                     provider_type = provider_cfg.get("type")
+                # Tier-1 attachment list is canonical for the provider name;
+                # fall back to the tier-2 render payload only for display.
+                provider_name = _resolve_provider_name(claw_record)
+                if provider_name is None and isinstance(provider_cfg, dict):
+                    provider_name = provider_cfg.get("name") or provider_cfg.get(
+                        "type"
+                    )
                 gateway_cfg = config.get("gateway")
                 if isinstance(gateway_cfg, dict):
                     port_val = gateway_cfg.get("port")
@@ -424,8 +459,12 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
             provider_cfg = config.get("provider")
             if isinstance(provider_cfg, dict):
                 model = provider_cfg.get("default_model", "-")
-                provider_name = provider_cfg.get("name") or provider_cfg.get("type")
                 provider_type = provider_cfg.get("type")
+            # Tier-1 attachment list is canonical for the provider name;
+            # fall back to the tier-2 render payload only for display.
+            provider_name = _resolve_provider_name(claw_record)
+            if provider_name is None and isinstance(provider_cfg, dict):
+                provider_name = provider_cfg.get("name") or provider_cfg.get("type")
             gateway_cfg = config.get("gateway")
             if isinstance(gateway_cfg, dict):
                 port_val = gateway_cfg.get("port")

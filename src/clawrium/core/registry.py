@@ -1055,6 +1055,50 @@ def check_compatibility(
     }
 
 
+def latest_supported_version(claw_name: str, hardware: dict) -> str | None:
+    """Return the max manifest version compatible with the host's OS+arch.
+
+    This is a *narrower* filter than `check_compatibility`: it considers
+    only `os`, `os_version`, and `arch`, and intentionally ignores the
+    `requirements` block (`min_memory_mb`, `gpu_required`, dependency
+    versions). The intent is to answer "which manifest versions can
+    target this host's platform triple?" for the GUI's "Upgrade
+    available" indicator — a richer compatibility verdict (memory, GPU,
+    dependency depth) is left to `check_compatibility`, which the
+    install / upgrade execution paths already invoke.
+
+    Returns the max compatible `version`, or None if no platform entry
+    matches the host's OS/arch.
+    """
+    try:
+        manifest = load_manifest(claw_name)
+    except ManifestNotFoundError:
+        return None
+
+    versions: list[Version] = []
+    for platform in manifest.get("platforms", []):
+        if platform.get("os") != hardware.get("os"):
+            continue
+        try:
+            if not _version_matches(
+                spec=platform.get("os_version", ""),
+                actual=hardware.get("os_version", ""),
+            ):
+                continue
+        except ValueError:
+            continue
+        if platform.get("arch") != hardware.get("architecture"):
+            continue
+        try:
+            versions.append(Version(platform["version"]))
+        except (InvalidVersion, KeyError):
+            continue
+
+    if not versions:
+        return None
+    return str(max(versions))
+
+
 # ---------------------------------------------------------------------------
 # Hermes version parsing
 #

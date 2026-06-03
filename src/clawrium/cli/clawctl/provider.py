@@ -386,12 +386,16 @@ def get(
 
 
 def _emit_types(output: OutputFormat, *, no_headers: bool) -> None:
+    from clawrium.core.providers.models import get_model_count
+
     rows = [
         {
             "kind": "provider-type",
             "name": ptype,
             "endpoint": (cfg.get("endpoint") or ""),
-            "model_count": (len(cfg["models"]) if cfg.get("models") else 0),
+            "model_count": (
+                0 if ptype == "ollama" else get_model_count(ptype)
+            ),
         }
         for ptype, cfg in sorted(PROVIDER_MODELS.items())
     ]

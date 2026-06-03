@@ -20,7 +20,7 @@ Zhipu AI (ZAI) BigModel platform provides access to GLM (General Language Model)
 | `glm-4.7-flashx` | GLM-4.7-FlashX | 200K |
 | `glm-5` | GLM-5 | 204K |
 | `glm-5.1` | GLM-5.1 | 200K |
-| `glm-5v-turbo` | glm-5v-turbo | 200K |
+| `glm-5v-turbo` | GLM-5V-Turbo | 200K |
 <!-- MODEL-TABLE:END -->
 
 ## Setup

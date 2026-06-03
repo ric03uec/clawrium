@@ -19,6 +19,7 @@ from clawrium.core.memory import (
     _validate_memory_filename,
     delete_memory_files,
     get_memory_info,
+    is_file_writable,
     read_memory_file,
     write_memory_file,
 )
@@ -111,10 +112,11 @@ class TestConstants:
             "SOUL.md",
         }
 
-    def test_zeroclaw_top_level_files_cover_seven_personality_files(self):
-        # Per issue #358 W8, zeroclaw must surface the seven personality MD
+    def test_zeroclaw_top_level_files_cover_six_personality_files(self):
+        # Per issue #358 W8, zeroclaw must surface the six personality MD
         # files rendered by configure (BOOTSTRAP.md is runtime-generated +
-        # self-deleting and must NOT appear here).
+        # self-deleting and must NOT appear here; HEARTBEAT.md removed in
+        # issue #430).
         assert set(MEMORY_TOP_LEVEL_FILES["zeroclaw"]) == {
             "SOUL.md",
             "IDENTITY.md",
@@ -122,9 +124,9 @@ class TestConstants:
             "AGENTS.md",
             "TOOLS.md",
             "MEMORY.md",
-            "HEARTBEAT.md",
         }
         assert "BOOTSTRAP.md" not in MEMORY_TOP_LEVEL_FILES["zeroclaw"]
+        assert "HEARTBEAT.md" not in MEMORY_TOP_LEVEL_FILES["zeroclaw"]
 
 
 # ----- _resolve_openclaw_agent ---------------------------------------------
@@ -2186,3 +2188,42 @@ class TestHermesDeleteAsymmetry:
             ok, err = delete_memory_files("192.168.1.36", "hermes-test", ["MEMORY.md"])
         assert ok is True
         assert err is None
+
+
+# ----- Issue #430: is_file_writable helper -----------------------------------
+
+
+class TestIsFileWritable:
+    """Tests for the is_file_writable helper added in issue #430."""
+
+    def test_zeroclaw_allowlisted_file_is_writable(self):
+        assert is_file_writable("zeroclaw", "SOUL.md") is True
+        assert is_file_writable("zeroclaw", "USER.md") is True
+        assert is_file_writable("zeroclaw", "MEMORY.md") is True
+
+    def test_zeroclaw_heartbeat_not_writable(self):
+        """HEARTBEAT.md removed from allowlist in issue #430."""
+        assert is_file_writable("zeroclaw", "HEARTBEAT.md") is False
+
+    def test_zeroclaw_bootstrap_not_writable(self):
+        assert is_file_writable("zeroclaw", "BOOTSTRAP.md") is False
+
+    def test_zeroclaw_daily_note_is_writable(self):
+        assert is_file_writable("zeroclaw", "memory/2026-05-26.md") is True
+        assert is_file_writable("zeroclaw", "memory/notes.md") is True
+
+    def test_zeroclaw_invalid_daily_note_not_writable(self):
+        """Daily notes must match the memory/<file> pattern."""
+        assert is_file_writable("zeroclaw", "memory/../etc/passwd") is False
+
+    def test_hermes_allowlisted_file_is_writable(self):
+        assert is_file_writable("hermes", "MEMORY.md") is True
+        assert is_file_writable("hermes", "USER.md") is True
+        assert is_file_writable("hermes", "SOUL.md") is True
+
+    def test_hermes_daily_note_not_writable(self):
+        """Hermes does not support daily notes."""
+        assert is_file_writable("hermes", "memory/2026-05-26.md") is False
+
+    def test_unknown_claw_type_not_writable(self):
+        assert is_file_writable("unknown", "SOUL.md") is False

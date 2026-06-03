@@ -66,6 +66,9 @@ export interface AgentDetail extends AgentSummary {
   device_id: string;
   onboarding_step: string;
   gateway_port: number | null;
+  // Max manifest version compatible with this host's hardware. `null`
+  // when the host's os/arch has no matching platform entry. Issue #592.
+  latest_supported_version: string | null;
 }
 
 export interface ActionResponse {
@@ -86,6 +89,15 @@ export interface WebUIResponse {
 // daemon consumes it; another mint call overwrites it.
 export interface PairingCodeResponse {
   pairing_code: string;
+}
+
+// Response from POST /fleet/agents/{key}/connection-token. Returned only
+// by agent types whose dashboard SPA prompts for a long-lived gateway
+// bearer on first open (openclaw). The token is the same install-time
+// bearer persisted in hosts.json — revealing it does not mutate state
+// on either the GUI server or the agent daemon.
+export interface ConnectionTokenResponse {
+  token: string;
 }
 
 // Topology types
@@ -177,9 +189,17 @@ export interface Provider {
   updated_at: string | null;
 }
 
+export interface ModelInfo {
+  id: string;
+  name: string;
+  lab: string;
+  context_window: number;
+  tags: string[];
+}
+
 export interface ProviderTypeInfo {
   endpoint: string | null;
-  models: string[] | null;
+  models: ModelInfo[];
   requires_api_key: boolean;
   requires_endpoint: boolean;
 }

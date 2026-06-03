@@ -72,6 +72,55 @@ Host preparation instructions live in [`docs/host-preparation.md`](docs/host-pre
 
 The website docs MUST follow `docs/host-preparation.md` exactly. Do not edit `website/docs/guides/host-setup.md` directly.
 
+## Changelog & Release Notes
+
+Clawrium tracks every change across every release. There are two layers:
+
+- **Root [`CHANGELOG.md`](CHANGELOG.md)** — the working log for the
+  **current, unreleased version only**. All new work is documented here as
+  it lands, under the `## [Unreleased]` heading.
+- **[`docs/releases/<version>/`](docs/releases/)** — one folder per shipped
+  release, each containing a frozen `CHANGELOG.md`. On every release cut the
+  `itx:release` skill archives the root changelog into a new
+  `docs/releases/<version>/CHANGELOG.md` and then resets the root file to an
+  empty `[Unreleased]` template. The per-version folder may also hold
+  detailed migration instructions for that release.
+
+`docs/releases/` is therefore the single place to read the full history of
+what changed in any release. Do not delete entries from it.
+
+### Update Rules
+
+Update the root `CHANGELOG.md` (under `## [Unreleased]`) as part of the same
+change that introduces the behavior — not as an afterthought:
+
+- **Every new feature** gets an entry under `### Added` with a short, plain
+  description of what it does (one or two lines, user-facing language).
+- **Every behavior change** goes under `### Changed`; **every notable bug
+  fix** goes under `### Fixed`, referencing the issue/PR number where one
+  exists (e.g. `#555`).
+- **Every breaking change** MUST be documented under `### BREAKING`. State
+  what breaks, why, and exactly what operators must do to recover (commands,
+  config edits). If there is no automated migration, say so explicitly and
+  give the manual steps. Breaking changes are non-negotiable to document —
+  an undocumented breaking change is a release blocker.
+- Documentation-only changes go under `### Documentation`.
+
+The `itx:release` skill handles archiving and resetting the changelog at cut
+time; contributors only ever edit the root file's `[Unreleased]` section.
+
+## Hermes Skills
+
+When a Hermes agent (e.g. Maurice) is asked to work on this repository, it MUST load skills from `.hermes/skills/` and treat them as available alongside its built-in skills. Each skill follows the upstream Hermes skill format documented at https://hermes-agent.nousresearch.com/docs/developer-guide/creating-skills.
+
+All Hermes skills shipped from this repository are scoped to the `clawrium` namespace — the `name:` field in their `SKILL.md` frontmatter MUST be prefixed with `clawrium-` (hermes' only documented separator is the hyphen).
+
+Currently available:
+
+| Skill name | Path | Purpose |
+|---|---|---|
+| `clawrium-release-announcements` | `.hermes/skills/release-announcements/` | Daily release blog draft on Blog Pipeline kanban + Discord announcement |
+
 ## Key Concepts
 
 - **Host**: A machine in your network that runs one or more agents
@@ -85,7 +134,8 @@ The website docs MUST follow `docs/host-preparation.md` exactly. Do not edit `we
 
 - Repository: https://github.com/ric03uec/clawrium
 - Project Board: https://github.com/users/ric03uec/projects/1
-- Version: 26.5.4
+- Version: 26.6.0
+- Changelog: [`CHANGELOG.md`](CHANGELOG.md) (current unreleased) · [`docs/releases/`](docs/releases/) (per-release archive)
 
 ## Gateway Token Lifecycle (zeroclaw)
 
@@ -114,7 +164,7 @@ Rules (issue #437):
 
 ## Native Dashboards (issues #478, #491)
 
-Two agent types ship a native web UI today: **hermes** (issue #478) and **zeroclaw** (issue #491). The manifest's `features.web_ui` block is the single gate — `clawctl agent open <name>` and the GUI's **Open Agent UI** button both consult the resolver in `src/clawrium/core/web_ui.py`, which returns `None` for any agent whose manifest does not declare `features.web_ui`.
+Three agent types ship a native web UI today: **hermes** (issue #478), **zeroclaw** (issue #491), and **openclaw**. The manifest's `features.web_ui` block is the single gate — `clawctl agent open <name>` and the GUI's **Open Agent UI** button both consult the resolver in `src/clawrium/core/web_ui.py`, which returns `None` for any agent whose manifest does not declare `features.web_ui`.
 
 **Hermes** (issue #478) runs the dashboard in a separate systemd unit on the agent host:
 
@@ -125,11 +175,13 @@ The hermes dashboard binds `127.0.0.1:<port>` only (`features.web_ui.bind: loopb
 
 **Zeroclaw** (issue #491) does not run a separate dashboard unit — the gateway daemon itself serves the SPA on the same port as `config.gateway.port` (`features.web_ui.bind: wildcard`, port persisted under `gateway.port`). install.py picks the per-instance gateway port in `40000..41999`.
 
-**Auth boundary (both agent types).** There is no in-process auth on the dashboard: the **SSH key Ansible already uses for the host is the auth boundary**. Anyone with shell access to the agent host could reach the dashboard directly, so layering a token wall on top would not raise the security floor. Zeroclaw's `0.0.0.0` bind is an upstream property; this trust model still holds because reachability is gated at the network/SSH layer.
+**Openclaw** uses the same shape as zeroclaw: the SPA is served by `openclaw gateway run` on the same port as `config.gateway.port` (`features.web_ui.bind: wildcard`, port persisted under `gateway.port`). install.py picks the per-instance gateway port in `40000..41999` via the same allocator branch as zeroclaw. Unlike zeroclaw, openclaw is intentionally NOT in `_PAIRING_AGENT_TYPES` (see `gui/routes/fleet.py`) — its WebSocket auth uses the gateway bearer token already persisted under `hosts.json.agents.<name>.config.gateway.auth` (flat string; the nested `.token` form only appears inside `~/.openclaw/openclaw.json` on the agent host). The GUI's **Show Connection Token** button surfaces it via `POST /api/fleet/agents/<name>/connection-token`; the canonical lookup is `_resolve_openclaw_credentials` in `gui/routes/agents.py`, which reads the secrets store first and falls back to the legacy hosts.json field. A dedicated pairing UX for openclaw is a follow-up.
+
+**Auth boundary (hermes / zeroclaw).** There is no in-process auth on the dashboard for hermes or zeroclaw: the **SSH key Ansible already uses for the host is the auth boundary**. Anyone with shell access to the agent host could reach the dashboard directly, so layering a token wall on top would not raise the security floor. Zeroclaw's `0.0.0.0` bind is an upstream property; this trust model still holds because reachability is gated at the network/SSH layer. Openclaw additionally requires the gateway bearer token at the WebSocket handshake — see the openclaw section above.
 
 **Tunnel reuse.** The tunnel manager at `src/clawrium/core/web_ui_tunnel.py` is idempotent — a second invocation for a live tunnel reuses the existing local port (state at `~/.config/clawrium/tunnels/<agent_key>.json`, PID + cmdline-guarded). The GUI auto-reaps tunnels idle > 30 minutes; CLI tunnels close on `Ctrl-C` or process exit. The remote target is always loopback regardless of `bind`: both `BIND_ADDRESS_MAP["loopback"]` and `BIND_ADDRESS_MAP["wildcard"]` resolve to `127.0.0.1`, because the SSH local-forward terminates on the remote loopback interface — reachable for both bind modes.
 
-**No `default_port` in bundled manifests.** Both hermes and zeroclaw manifests omit `features.web_ui.default_port`. install.py always persists a per-instance port at `port_field`; a manifest-wide default would silently collide on hosts running multiple agents of the same type. The resolver surfaces a missing persisted port as "no UI available" rather than inventing one. Third-party manifests may still opt into `default_port` — the schema accepts it.
+**No `default_port` in bundled manifests.** Hermes, zeroclaw, and openclaw manifests all omit `features.web_ui.default_port`. install.py always persists a per-instance port at `port_field`; a manifest-wide default would silently collide on hosts running multiple agents of the same type. The resolver surfaces a missing persisted port as "no UI available" rather than inventing one. Third-party manifests may still opt into `default_port` — the schema accepts it.
 
 ## Tech Stack
 

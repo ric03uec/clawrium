@@ -59,6 +59,15 @@ mcp_servers:
    sanitizer is ever weakened, the YAML parser will still reject any
    slug containing a colon/space/dash because we do not wrap the key. #}
   {{ entry.slug }}:
+    {# B2 (ATX #555 polish): `command` + `args` are MANDATORY for the
+       stdio MCP launcher. Without them the daemon has no way to spawn
+       the mcp-atlassian subprocess and Atlassian integrations
+       silently never start. `--from mcp-atlassian==<ver>` keeps the
+       launched build in lockstep with the playbook's `uv tool install`
+       pin (configure.yaml :: mcp_atlassian_version). Bump both
+       together. #}
+    command: "/home/{{ agent_name }}/.local/bin/uvx"
+    args: ["--from", "mcp-atlassian=={{ mcp_atlassian_version }}", "mcp-atlassian"]
     env:
       JIRA_URL: {{ entry.url | yq }}
       JIRA_USERNAME: {{ entry.email | yq }}

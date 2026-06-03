@@ -31,12 +31,21 @@
    malformed GITHUB_TOKEN containing a literal `\n` could inject e.g.
    `Environment=PATH=/evil`. Strip CR/LF before quoting — github PATs never
    contain newlines so this drops only malicious-or-corrupted input. #}
+{# Round-4 B-NEW-3 (ATX #555 polish): match `render.py:_systemd_quote`
+   exactly — escape `%` → `%%` and `$` → `$$` so systemd's specifier
+   (`%h`, `%n`, `%u`, ...) and variable (`$VAR`) expansion on
+   `Environment=` values does not silently corrupt credentials.
+   OAuth tokens and `%`-encoded enterprise tokens are the live
+   examples. #}
 {%- macro systemd_quote(value) -%}
 "{{ value | string
+   | replace('\x00', '')
    | replace('\r', '')
    | replace('\n', '')
    | replace('\\', '\\\\')
-   | replace('"', '\\"') }}"
+   | replace('"', '\\"')
+   | replace('%', '%%')
+   | replace('$', '$$') }}"
 {%- endmacro -%}
 [Service]
 {# `default({}, true)` (boolean=true) coerces both undefined AND falsy values

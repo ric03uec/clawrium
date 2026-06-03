@@ -538,7 +538,9 @@ Installed Agents (4):
 
 ### upgrade
 
-Upgrade an agent to a newer version.
+Upgrade an agent to the registry's max supported version for the host's
+hardware. Forward-only: there is no `--version` pin and no downgrade
+path — the manifest is the contract.
 
 ```bash
 clawctl agent upgrade <agent-name> [options]
@@ -548,42 +550,43 @@ clawctl agent upgrade <agent-name> [options]
 - `agent-name` - Name of the agent to upgrade
 
 **Options:**
-- `--version <version>` - Upgrade to specific version (default: latest)
-- `--restart` - Restart agent after upgrade (if it was running)
+- `--yes`, `-y` - Skip confirmation prompt
+- `--skip-drift-check` - Bypass the drift pre-flight gate (hidden; escape hatch)
+- `-o`, `--output <fmt>` - Output format: `table` (default) or `json`
 
 **Examples:**
 
 ```bash
-# Upgrade to latest version
+# Upgrade to the manifest's max supported version
 clawctl agent upgrade opc-work
 
-# Upgrade to specific version
-clawctl agent upgrade opc-work --version 2026.5.0
+# Non-interactive
+clawctl agent upgrade opc-work --yes
 
-# Upgrade and restart
-clawctl agent upgrade opc-work --restart
+# JSON output (implies --yes-equivalent: no confirmation prompt)
+clawctl agent upgrade opc-work -o json
 ```
 
-**Output:**
-```
-Agent: opc-work
-Current version: 2026.4.2
-Latest version: 2026.5.1
+**Pre-flight rejection cases:**
 
-Upgrading to v2026.5.1...
-✓ Downloaded package
-✓ Stopped agent
-✓ Installed new version
-✓ Started agent
-✓ Upgrade complete
+1. **Already at max** — exits 0 with `already at latest (<version>)`. No
+   work is performed.
+2. **Downgrade refused** — if the manifest's max is older than the
+   installed version (only possible if entries were removed from the
+   manifest), the command exits non-zero. Restore the manifest entries
+   or reinstall.
+3. **Drift refused** — if any rendered config file differs from the
+   on-host state, the command lists the changed files and exits
+   non-zero. Run `clawctl agent sync` first, or re-run with
+   `--skip-drift-check` to bypass.
+4. **Drift bypass** — `--skip-drift-check` proceeds without comparing
+   rendered vs. on-host files. The upgrade is force-installed in place.
 
-opc-work is now running v2026.5.1
-```
-
-**Note:**
-- Onboarding configuration is preserved during upgrades
-- Secrets and identity files are not affected
-- Agent is stopped during upgrade (use `--restart` to auto-start)
+**Notes:**
+- Onboarding configuration, secrets, and identity files are preserved.
+- For zeroclaw agents, the gateway bearer is rotated as part of the
+  canonical lifecycle (see AGENTS.md §"Gateway Token Lifecycle").
+  Remote `clawctl agent chat` sessions must reconnect after upgrade.
 
 ---
 

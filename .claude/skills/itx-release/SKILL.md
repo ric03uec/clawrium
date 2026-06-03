@@ -26,6 +26,8 @@ Hard-coded list. The skill will edit exactly these and warn if it finds version-
 | `website/docs/installation.md` | `clawrium==<NEW>` and `clm, version <NEW>`. Mirror of `docs/installation.md`; body must stay identical (only the Docusaurus frontmatter and mirror-warning comment at the top differ). |
 | `website/docs/guides/quickstart.md` | `clawrium==<NEW>` |
 | `website/docs/scenarios/101.md` | `clm <NEW>` |
+| `CHANGELOG.md` (root) | Archive the current contents to `docs/releases/<NEW>/CHANGELOG.md`, then reset this file to the empty `[Unreleased]` template. See Phase 1 step 6a. |
+| `docs/releases/<NEW>/CHANGELOG.md` | New per-release archive folder created from the root changelog at cut time. See Phase 1 step 6a. |
 
 Do NOT touch:
 - `docs/agent-support/hermes.md` — that's the hermes upstream agent version, not clawrium.
@@ -70,6 +72,28 @@ Do NOT touch:
 
 6. **Apply edits** to every file in the known set. Use the Edit tool — exact string matches only, no regex sweeps. After each edit, the file's *previous* version string (e.g. `26.5.1`) must no longer appear in that file (verify with grep).
 
+6a. **Archive + reset the changelog**. The root `CHANGELOG.md` is the working
+    log for the just-finished release. Freeze it into a per-version archive,
+    then reset the root to an empty template for the next cycle:
+    ```bash
+    mkdir -p docs/releases/<NEW>
+    cp CHANGELOG.md docs/releases/<NEW>/CHANGELOG.md
+    ```
+    Then edit `docs/releases/<NEW>/CHANGELOG.md`:
+    - Replace the top-of-file "working changelog" preamble with a release-specific
+      header (title `# Release <NEW>`, a note that it is the frozen archive, and a
+      back-link to the root `CHANGELOG.md`).
+    - Rename the `## [Unreleased]` heading to `## [<NEW>]`.
+    - Confirm no `Unreleased` references remain: `grep -ni unreleased docs/releases/<NEW>/CHANGELOG.md`.
+
+    Then reset the root `CHANGELOG.md` to the empty template — keep the
+    `# Changelog` preamble and the `docs/releases/` archive note, drop all
+    shipped entries, and leave a bare `## [Unreleased]` with empty
+    `### BREAKING` / `### Added` / `### Changed` / `### Fixed` /
+    `### Documentation` subsections. Use the existing archived release as the
+    structural reference (see `docs/releases/26.6.0/CHANGELOG.md`, the first
+    one created under this convention).
+
 7. **Stale-mention scan** (warn, don't auto-fix):
    ```bash
    git grep -nE 'clawrium[^a-z]+(==|version )[0-9]+\.[0-9]+\.[0-9]+' \
@@ -80,7 +104,7 @@ Do NOT touch:
 
 8. **Diff-scope guard** (this is the safety net for the "no ATX on release PRs" carve-out — release PRs skip automated review, so the skill must hard-fail if non-mechanical files crept in):
    ```bash
-   KNOWN_SET='^(pyproject\.toml|uv\.lock|AGENTS\.md|docs/installation\.md|website/docs/installation\.md|website/docs/guides/quickstart\.md|website/docs/scenarios/101\.md|CONTRIBUTING\.md|\.claude/skills/itx-release/SKILL\.md|tests/test_demo_assets\.py)$'
+   KNOWN_SET='^(pyproject\.toml|uv\.lock|AGENTS\.md|CHANGELOG\.md|docs/installation\.md|docs/releases/.*|website/docs/installation\.md|website/docs/guides/quickstart\.md|website/docs/scenarios/101\.md|CONTRIBUTING\.md|\.claude/skills/itx-release/SKILL\.md|tests/test_demo_assets\.py)$'
    UNEXPECTED=$(git diff --name-only main...HEAD | grep -vE "$KNOWN_SET" || true)
    if [ -n "$UNEXPECTED" ]; then
      echo "BLOCKED: release branch touches files outside the known set:"
@@ -98,7 +122,7 @@ Do NOT touch:
 
 10. **Commit + push**:
     ```bash
-    git add pyproject.toml uv.lock AGENTS.md docs/installation.md website/docs/
+    git add pyproject.toml uv.lock AGENTS.md CHANGELOG.md docs/releases/ docs/installation.md website/docs/
     git commit -m "chore(release): bump to v<NEW> + sync doc versions"
     git push -u origin release/v<NEW>
     ```
