@@ -1,13 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-vi.mock("next/font/google", () => ({
-  Inter: () => ({
-    variable: "mock-inter-var",
-    className: "mock-inter",
-  }),
-}));
-
 vi.mock("@/styles/globals.css", () => ({}));
 
 vi.mock("./providers", () => ({
@@ -48,7 +41,7 @@ describe("RootLayout", () => {
     expect(child).toHaveTextContent("hello");
   });
 
-  it("applies the Inter font variable on <html>", () => {
+  it("renders the html root with lang=\"en\"", () => {
     const { baseElement } = render(
       <RootLayout>
         <span />
@@ -57,7 +50,7 @@ describe("RootLayout", () => {
 
     const html = baseElement.querySelector("html");
     expect(html).not.toBeNull();
-    expect(html?.className).toContain("mock-inter-var");
+    expect(html?.getAttribute("lang")).toBe("en");
   });
 
   it("exposes the page metadata expected by Next.js", () => {
