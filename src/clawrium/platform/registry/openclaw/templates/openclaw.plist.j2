@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd unit for the openclaw gateway. Counterpart to the systemd unit
+  rendered inline in install.yaml. Shared by install_macos.yaml (Ansible
+  copy) and core/launchd.py (paramiko write) so the two call sites stay
+  in lock-step.
+
+  Why a shell wrapper around `openclaw gateway run`:
+  launchd has no `EnvironmentFile=` analog. On Linux the systemd unit
+  loads `/home/<agent>/.openclaw/env` at unit start; the file contains
+  the provider API keys + the OPENCLAW_GATEWAY_AUTH_TOKEN written by
+  `clawctl agent configure`. To match that source-of-truth contract on
+  macOS without re-rendering the plist on every configure, we wrap the
+  binary in a `bash -lc 'set -a; . <env>; exec <openclaw> ...'` stub.
+  The env file remains the single mutable surface; restart picks up
+  changes transparently.
+
+  Why `system` domain (vs `gui`): matches hermes (gateway.plist.j2) — the
+  unit must persist across user logout and survive reboot. `gui/<uid>`
+  units die when the GUI session ends.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.clawrium.openclaw.{{ agent_name }}</string>
+
+    <key>UserName</key>
+    <string>{{ agent_name }}</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/{{ agent_name }}/workspace</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/{{ agent_name }}</string>
+        <key>PATH</key>
+        <string>/Users/{{ agent_name }}/.openclaw/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-lc</string>
+        <string>set -a; [ -f /Users/{{ agent_name }}/.openclaw/env ] &amp;&amp; . /Users/{{ agent_name }}/.openclaw/env; set +a; exec {{ openclaw_binary | default('/Users/' ~ agent_name ~ '/.openclaw/bin/openclaw') }} gateway run --allow-unconfigured</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/{{ agent_name }}/.openclaw/logs/gateway.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/{{ agent_name }}/.openclaw/logs/gateway.stderr.log</string>
+</dict>
+</plist>

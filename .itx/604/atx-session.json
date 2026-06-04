@@ -1,0 +1,44 @@
+{
+  "issue": 604,
+  "branch": "issue-604-openclaw-macos",
+  "iterations": [
+    {
+      "iter": 1,
+      "task_id": "b7276d6f-bfdb-407f-b6c2-9bcc366bf36e",
+      "rating": "1/5",
+      "blockers": ["B1 exec gather_facts", "B2 plist update gate", "B3 zeroclaw configure_macos (out-of-scope)", "B4 zeroclaw repair-after-start (out-of-scope)", "B5 launchd shlex", "B6 sha256 (pre-existing)", "B7 test coverage"],
+      "fixed_in_iter2": ["B1", "B2", "B5", "B7 (partial)"],
+      "out_of_scope": ["B3", "B4"],
+      "tracked_pre_existing": ["B6"],
+      "cost_usd": 2.77,
+      "duration_ms": 435732,
+      "files_reviewed": 15
+    },
+    {
+      "iter": 2,
+      "rating": "2/5",
+      "blockers": ["B1 remove_service_macos bootout swallowed", "B2 install_service openclaw branch untested", "B3 configure/sync openclaw untested", "B4 start/stop failure paths openclaw", "B5 docs/installation.md", "B6 website mirror"],
+      "fixed_in_iter3": ["B1", "B2", "B3", "B4", "B5", "B6"],
+      "cost_usd": 4.01,
+      "duration_ms": 660600
+    },
+    {
+      "iter": 3,
+      "rating": "2/5",
+      "blockers": [
+        "B1 start uses kickstart -k (FIXED in iter3 commit)",
+        "B2 bootstrap_with_tolerance 'service' substring overmatch — narrow scope",
+        "B3 hermes .env drift precheck missing on macOS — out-of-scope (hermes-specific)",
+        "B4 hermes remove_service_macos coverage gap — out-of-scope (pre-existing)",
+        "B5 substring assertion in restart test — out-of-scope (pre-existing hermes test)",
+        "B6 post-configure error branches untested — accepted, low-risk",
+        "B7 sha256 unconditional — pre-existing intentional follow-up (matches Linux behavior)",
+        "B8 pairing argv form (FIXED in iter3 commit)"
+      ],
+      "cost_usd": 2.92,
+      "duration_ms": 459164
+    }
+  ],
+  "stuck": true,
+  "stuck_reason": "3 iterations exhausted. Remaining blockers from iter3 are: (a) quick wins applied (B1, B8); (b) hermes-specific pre-existing gaps (B3, B4, B5); (c) intentional pre-existing tracked items (B7 sha256, parallels Linux behavior); (d) accepted low-risk paths (B6 unreachable error branches, B2 substring narrowing)."
+}

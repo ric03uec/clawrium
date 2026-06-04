@@ -1,0 +1,101 @@
+---
+# macOS counterpart to exec.yaml. Same shape: discover binary as agent
+# user, validate the resolved path, then run the requested argv from
+# the agent's workspace.
+- hosts: all
+  gather_facts: false
+  vars:
+    per_agent_binary: "/Users/{{ agent_name }}/.openclaw/bin/openclaw"
+    workdir: "/Users/{{ agent_name }}/.openclaw/workspace"
+  tasks:
+    # No OS-family guard here: gather_facts is off (read-only op, latency
+    # matters), so `ansible_os_family` would be undefined. The dispatcher
+    # in core/playbook_resolver.py is the routing source of truth.
+
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Stat per-agent openclaw binary (as agent user)
+      ansible.builtin.stat:
+        path: "{{ per_agent_binary }}"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: per_agent_stat
+
+    - name: Discover openclaw in PATH (as agent user)
+      ansible.builtin.shell: |
+        PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin which openclaw || true
+      args:
+        executable: /bin/bash
+      become: true
+      become_user: "{{ agent_name }}"
+      register: which_result
+      changed_when: false
+      failed_when: false
+
+    - name: Resolve openclaw binary
+      ansible.builtin.set_fact:
+        resolved_binary: >-
+          {{ per_agent_binary
+             if (per_agent_stat.stat.exists
+                 and per_agent_stat.stat.executable | default(false)
+                 and (per_agent_stat.stat.size | default(0)) > 0)
+             else (which_result.stdout | trim) }}
+
+    - name: Fail if openclaw not found
+      ansible.builtin.fail:
+        msg: "openclaw binary not found on host (checked {{ per_agent_binary }} and PATH)"
+      when: (resolved_binary | length) == 0
+
+    - name: Reject `..` segments in resolved binary path
+      ansible.builtin.fail:
+        msg: "Resolved openclaw binary contains '..' path segment"
+      when: ('/../' in resolved_binary)
+            or resolved_binary.endswith('/..')
+            or resolved_binary.startswith('../')
+      no_log: true
+
+    - name: Validate resolved binary path (allowlist)
+      ansible.builtin.fail:
+        msg: "Resolved openclaw binary at unsafe path"
+      when: not (resolved_binary == per_agent_binary
+                 or resolved_binary.startswith('/opt/homebrew/bin/')
+                 or resolved_binary.startswith('/usr/local/bin/')
+                 or resolved_binary.startswith('/usr/bin/'))
+      no_log: true
+
+    - name: Ensure workspace directory exists
+      ansible.builtin.file:
+        path: "{{ workdir }}"
+        state: directory
+      become: true
+      become_user: "{{ agent_name }}"
+
+    - name: Run agent exec command
+      ansible.builtin.command:
+        argv: "{{ [resolved_binary] + cmd_argv }}"
+        chdir: "{{ workdir }}"
+      become: true
+      become_user: "{{ agent_name }}"
+      environment:
+        HOME: "/Users/{{ agent_name }}"
+        PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+      register: exec_result
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Emit stdout
+      ansible.builtin.debug:
+        msg: "EXEC_STDOUT={{ exec_result.stdout | default('') | b64encode }}"
+
+    - name: Emit stderr
+      ansible.builtin.debug:
+        msg: "EXEC_STDERR={{ exec_result.stderr | default('') | b64encode }}"
+
+    - name: Emit rc
+      ansible.builtin.debug:
+        msg: "EXEC_RC={{ exec_result.rc | default(255) }}"

@@ -88,51 +88,77 @@ def install_service(
     agent_name: str,
     *,
     dashboard_port: int | None = None,
+    agent_type: str = "hermes",
 ) -> str:
     """Render and write the gateway plist (and dashboard plist if `dashboard_port`)
     for `agent_name`. Returns the gateway plist path.
 
     Idempotent: re-writing the same content is a no-op. Does NOT bootstrap
-    the units — that's start_agent. Always ensures /Users/<agent>/.hermes/logs
+    the units — that's start_agent. Always ensures the agent's logs dir
     exists so StandardOutPath / StandardErrorPath in the plists resolve.
     """
-    contents = render_plist(agent_name)
-    path = write_plist(client, agent_name, contents)
-    if dashboard_port is not None:
+    if agent_type == "openclaw":
+        template_name = "openclaw.plist.j2"
+        logs_dir = f"/Users/{agent_name}/.openclaw/logs"
+    else:
+        template_name = "gateway.plist.j2"
+        logs_dir = f"/Users/{agent_name}/.hermes/logs"
+
+    contents = render_plist(
+        agent_name, template_name=template_name, agent_type=agent_type
+    )
+    path = write_plist(client, agent_name, contents, agent_type=agent_type)
+    if agent_type == "hermes" and dashboard_port is not None:
         dash_contents = render_plist(
             agent_name,
             template_name="dashboard.plist.j2",
             dashboard_port=dashboard_port,
+            agent_type=agent_type,
         )
-        write_plist(client, agent_name, dash_contents, kind="dashboard")
+        write_plist(
+            client, agent_name, dash_contents, kind="dashboard", agent_type=agent_type
+        )
     # Ensure log dir exists with correct ownership; launchd writes there
-    # as the agent user.
-    _run(
+    # as the agent user. Surface failures — a missing logs dir crashes
+    # the daemon at start with ENOENT on StandardOutPath.
+    rc, out, err = _run(
         client,
-        "sudo mkdir -p /Users/" + shlex.quote(agent_name) + "/.hermes/logs "
-        "&& sudo chown " + shlex.quote(agent_name) + ":staff "
-        "/Users/" + shlex.quote(agent_name) + "/.hermes/logs",
+        f"sudo mkdir -p {shlex.quote(logs_dir)} "
+        f"&& sudo chown {shlex.quote(agent_name)}:staff {shlex.quote(logs_dir)}",
     )
+    if rc != 0:
+        raise RuntimeError(
+            f"install_service: failed to prepare logs dir {logs_dir!r} "
+            f"(rc={rc}): {(err or out).strip()}"
+        )
     return path
 
 
 def _bootstrap(
-    client: paramiko.SSHClient, agent_name: str, *, kind: str = "gateway"
+    client: paramiko.SSHClient,
+    agent_name: str,
+    *,
+    kind: str = "gateway",
+    agent_type: str = "hermes",
 ) -> tuple[int, str, str]:
     """`launchctl bootstrap system <plist>`. Idempotent-ish.
 
     Bootstrap fails (rc=37 or rc=5) if the unit is already loaded; the
     caller treats that case as success. Other non-zero results bubble up.
     """
-    path = plist_path_for(agent_name, kind=kind)
+    path = plist_path_for(agent_name, kind=kind, agent_type=agent_type)
     return _run(client, f"sudo launchctl bootstrap system {shlex.quote(path)}")
 
 
 def _bootout(
-    client: paramiko.SSHClient, agent_name: str, *, kind: str = "gateway"
+    client: paramiko.SSHClient,
+    agent_name: str,
+    *,
+    kind: str = "gateway",
+    agent_type: str = "hermes",
 ) -> tuple[int, str, str]:
     """`launchctl bootout system/<label>`. Tolerates "not loaded"."""
-    label = label_for(agent_name, kind=kind)
+    label = label_for(agent_name, kind=kind, agent_type=agent_type)
     return _run(client, f"sudo launchctl bootout system/{shlex.quote(label)}")
 
 
@@ -142,9 +168,10 @@ def _kickstart(
     *,
     kill: bool = False,
     kind: str = "gateway",
+    agent_type: str = "hermes",
 ) -> tuple[int, str, str]:
     """`launchctl kickstart [-k] system/<label>` — restart in place."""
-    label = label_for(agent_name, kind=kind)
+    label = label_for(agent_name, kind=kind, agent_type=agent_type)
     flag = "-k " if kill else ""
     return _run(client, f"sudo launchctl kickstart {flag}system/{shlex.quote(label)}")
 
@@ -167,7 +194,11 @@ def _dashboard_port_from_host(host: dict, agent_name: str) -> int | None:
 
 
 def _bootstrap_with_tolerance(
-    client: paramiko.SSHClient, agent_name: str, *, kind: str
+    client: paramiko.SSHClient,
+    agent_name: str,
+    *,
+    kind: str,
+    agent_type: str = "hermes",
 ) -> tuple[bool, str | None]:
     """`launchctl bootstrap`, treating any "already loaded" signal as success.
 
@@ -182,13 +213,20 @@ def _bootstrap_with_tolerance(
     The follow-up kickstart confirms whether the daemon is actually
     running.
     """
-    rc, out, err = _bootstrap(client, agent_name, kind=kind)
+    rc, out, err = _bootstrap(client, agent_name, kind=kind, agent_type=agent_type)
     if rc == 0:
         return True, None
     combined = (out + err).lower()
-    already_loaded = any(
-        marker in combined
-        for marker in ("already", "input/output", "file exists", "service")
+    # Explicit (rc, marker) pairs — bare 'service' substring used
+    # previously over-matched malformed-plist errors (e.g. rc=5
+    # 'Service configuration invalid: ...') and silently reported
+    # success. Anything outside this matrix bubbles up as a real failure.
+    already_loaded = (
+        rc == 37
+        or (rc == 17 and "file exists" in combined)
+        or (rc == 5 and "input/output" in combined)
+        or (rc == 149 and "already" in combined)
+        or "service already loaded" in combined
     )
     if already_loaded:
         return True, None
@@ -199,6 +237,7 @@ def start_agent_macos(
     host: dict,
     agent_name: str,
     on_event: Callable[[str, str], None] | None = None,
+    agent_type: str = "hermes",
 ) -> tuple[bool, str | None]:
     """Bootstrap the gateway (and dashboard, if configured) plists into
     launchd's system domain.
@@ -214,30 +253,42 @@ def start_agent_macos(
             on_event(stage, message)
         logger.info("[%s] %s", stage, message)
 
-    dashboard_port = _dashboard_port_from_host(host, agent_name)
+    dashboard_port = (
+        _dashboard_port_from_host(host, agent_name) if agent_type == "hermes" else None
+    )
 
     client = _ssh(host)
     try:
         emit("start", f"installing plists for {agent_name}")
-        install_service(client, agent_name, dashboard_port=dashboard_port)
+        install_service(
+            client, agent_name, dashboard_port=dashboard_port, agent_type=agent_type
+        )
 
         emit("start", f"launchctl bootstrap {agent_name} (gateway)")
-        ok, err = _bootstrap_with_tolerance(client, agent_name, kind="gateway")
+        ok, err = _bootstrap_with_tolerance(
+            client, agent_name, kind="gateway", agent_type=agent_type
+        )
         if not ok:
             return False, err
 
         emit("start", f"launchctl kickstart {agent_name} (gateway)")
-        rc, out, err = _kickstart(client, agent_name, kind="gateway")
+        rc, out, err = _kickstart(
+            client, agent_name, kind="gateway", agent_type=agent_type
+        )
         if rc != 0:
             return False, f"launchctl kickstart (gateway) failed (rc={rc}): {err.strip() or out.strip()}"
 
         if dashboard_port is not None:
             emit("start", f"launchctl bootstrap {agent_name} (dashboard:{dashboard_port})")
-            ok, err = _bootstrap_with_tolerance(client, agent_name, kind="dashboard")
+            ok, err = _bootstrap_with_tolerance(
+                client, agent_name, kind="dashboard", agent_type=agent_type
+            )
             if not ok:
                 return False, err
             emit("start", f"launchctl kickstart {agent_name} (dashboard)")
-            rc, out, err = _kickstart(client, agent_name, kind="dashboard")
+            rc, out, err = _kickstart(
+                client, agent_name, kind="dashboard", agent_type=agent_type
+            )
             if rc != 0:
                 return False, f"launchctl kickstart (dashboard) failed (rc={rc}): {err.strip() or out.strip()}"
 
@@ -250,6 +301,7 @@ def stop_agent_macos(
     host: dict,
     agent_name: str,
     on_event: Callable[[str, str], None] | None = None,
+    agent_type: str = "hermes",
 ) -> tuple[bool, str | None]:
     """`launchctl bootout` for both dashboard (if present) and gateway.
 
@@ -264,11 +316,16 @@ def stop_agent_macos(
             on_event(stage, message)
         logger.info("[%s] %s", stage, message)
 
+    kinds_to_stop = (
+        ("dashboard", "gateway") if agent_type == "hermes" else ("gateway",)
+    )
     client = _ssh(host)
     try:
-        for kind in ("dashboard", "gateway"):
+        for kind in kinds_to_stop:
             emit("stop", f"launchctl bootout {agent_name} ({kind})")
-            rc, out, err = _bootout(client, agent_name, kind=kind)
+            rc, out, err = _bootout(
+                client, agent_name, kind=kind, agent_type=agent_type
+            )
             combined = (out + err).lower()
             # rc=3 "no such process" + rc=113/varied "could not find service"
             # both signal "wasn't loaded" — idempotent stop tolerates them.
@@ -288,6 +345,7 @@ def restart_agent_macos(
     host: dict,
     agent_name: str,
     on_event: Callable[[str, str], None] | None = None,
+    agent_type: str = "hermes",
 ) -> tuple[bool, str | None]:
     """`launchctl kickstart -k system/<label>` for both labels if loaded.
 
@@ -304,7 +362,9 @@ def restart_agent_macos(
             on_event(stage, message)
         logger.info("[%s] %s", stage, message)
 
-    dashboard_port = _dashboard_port_from_host(host, agent_name)
+    dashboard_port = (
+        _dashboard_port_from_host(host, agent_name) if agent_type == "hermes" else None
+    )
     kinds: tuple[str, ...] = (
         ("dashboard", "gateway") if dashboard_port is not None else ("gateway",)
     )
@@ -314,7 +374,9 @@ def restart_agent_macos(
         any_not_loaded = False
         for kind in kinds:
             emit("restart", f"launchctl kickstart -k {agent_name} ({kind})")
-            rc, out, err = _kickstart(client, agent_name, kill=True, kind=kind)
+            rc, out, err = _kickstart(
+                client, agent_name, kill=True, kind=kind, agent_type=agent_type
+            )
             if rc == 0:
                 continue
             combined = (out + err).lower()
@@ -332,14 +394,20 @@ def restart_agent_macos(
         # Fallback: at least one label was missing — full re-bootstrap of
         # both plists. install_service handles dashboard when port is given.
         emit("restart", f"installing plists for {agent_name} (fallback)")
-        install_service(client, agent_name, dashboard_port=dashboard_port)
+        install_service(
+            client, agent_name, dashboard_port=dashboard_port, agent_type=agent_type
+        )
         for kind in kinds:
             emit("restart", f"launchctl bootstrap {agent_name} (fallback {kind})")
-            ok, err = _bootstrap_with_tolerance(client, agent_name, kind=kind)
+            ok, err = _bootstrap_with_tolerance(
+                client, agent_name, kind=kind, agent_type=agent_type
+            )
             if not ok:
                 return False, err
             emit("restart", f"launchctl kickstart {agent_name} (fallback {kind})")
-            rc, out, err = _kickstart(client, agent_name, kind=kind)
+            rc, out, err = _kickstart(
+                client, agent_name, kind=kind, agent_type=agent_type
+            )
             if rc != 0:
                 return False, (
                     f"launchctl kickstart fallback ({kind}) failed (rc={rc}): "
@@ -351,7 +419,10 @@ def restart_agent_macos(
 
 
 def remove_service_macos(
-    host: dict, agent_name: str, on_event: Callable[[str, str], None] | None = None
+    host: dict,
+    agent_name: str,
+    on_event: Callable[[str, str], None] | None = None,
+    agent_type: str = "hermes",
 ) -> tuple[bool, str | None]:
     """bootout + delete plist file. Idempotent."""
 
@@ -360,12 +431,31 @@ def remove_service_macos(
             on_event(stage, message)
         logger.info("[%s] %s", stage, message)
 
+    kinds_to_remove = (
+        ("dashboard", "gateway") if agent_type == "hermes" else ("gateway",)
+    )
     client = _ssh(host)
     try:
-        for kind in ("dashboard", "gateway"):
+        for kind in kinds_to_remove:
             emit("remove", f"bootout {agent_name} ({kind})")
-            _bootout(client, agent_name, kind=kind)  # tolerate not-loaded
-            remove_plist(client, agent_name, kind=kind)
+            rc, out, err = _bootout(
+                client, agent_name, kind=kind, agent_type=agent_type
+            )
+            combined = (out + err).lower()
+            not_loaded = rc != 0 and (
+                "could not find service" in combined
+                or "no such process" in combined
+                or "no such file" in combined
+            )
+            # rc != 0 and not "not loaded" → real bootout failure (e.g.
+            # rc=5 operation not permitted). Bail BEFORE deleting the
+            # plist to avoid orphaning the still-running daemon.
+            if rc != 0 and not not_loaded:
+                return False, (
+                    f"launchctl bootout ({kind}) failed (rc={rc}): "
+                    f"{err.strip() or out.strip()}"
+                )
+            remove_plist(client, agent_name, kind=kind, agent_type=agent_type)
         return True, None
     finally:
         client.close()
@@ -441,7 +531,9 @@ def start_agent(
         )
 
     emit("start", f"Starting {agent_key} on {hostname}...")
-    success, error = start_agent_macos(host, agent_key, on_event=on_event)
+    success, error = start_agent_macos(
+        host, agent_key, on_event=on_event, agent_type=claw_name
+    )
 
     now = _now_iso() if success else None
     if success:
@@ -491,7 +583,9 @@ def stop_agent(
     agent_key, _agent_type, _ = resolved
 
     emit("stop", f"Stopping {agent_key} on {hostname}...")
-    success, error = stop_agent_macos(host, agent_key, on_event=on_event)
+    success, error = stop_agent_macos(
+        host, agent_key, on_event=on_event, agent_type=claw_name
+    )
 
     now = _now_iso() if success else None
     if success:
@@ -545,7 +639,9 @@ def restart_agent(
         raise LifecycleError(f"Agent '{target}' not installed on '{hostname}'")
     agent_key, _agent_type, _ = resolved
 
-    success, error = restart_agent_macos(host, agent_key, on_event=on_event)
+    success, error = restart_agent_macos(
+        host, agent_key, on_event=on_event, agent_type=claw_name
+    )
 
     now = _now_iso() if success else None
     if success:
@@ -614,7 +710,9 @@ def configure_agent(
         return False, f"Agent '{target}' missing after configure"
     agent_key, _agent_type, _ = resolved
 
-    restart_ok, restart_err = restart_agent_macos(host, agent_key, on_event=on_event)
+    restart_ok, restart_err = restart_agent_macos(
+        host, agent_key, on_event=on_event, agent_type=claw_name
+    )
     if not restart_ok:
         return False, f"Post-configure restart failed: {restart_err}"
     return True, None
@@ -641,6 +739,11 @@ def sync_agent(
     from clawrium.core.playbook_resolver import resolve_agent_playbook
 
     macos_playbook = resolve_agent_playbook(claw_name, "configure", "darwin")
+    # ATX iter4 B1: do NOT let _core_sync write state=READY before we
+    # know the post-sync launchctl restart succeeded. Otherwise a
+    # failed restart leaves hosts.json claiming the agent is ready
+    # while the daemon is down — a subsequent `clawctl agent start`
+    # passes the READY guard and meets a stopped service.
     result = _core_sync(
         hostname=hostname,
         claw_name=claw_name,
@@ -648,6 +751,7 @@ def sync_agent(
         workspace_only=workspace_only,
         on_event=on_event,
         playbook_path_override=macos_playbook,
+        defer_state_transition=True,
     )
     if not result.get("success"):
         return result
@@ -659,10 +763,44 @@ def sync_agent(
         return result
 
     agent_key = result.get("agent") or agent_name or claw_name
-    restart_ok, restart_err = restart_agent_macos(host, agent_key, on_event=on_event)
+    restart_ok, restart_err = restart_agent_macos(
+        host, agent_key, on_event=on_event, agent_type=claw_name
+    )
     if not restart_ok:
         result["success"] = False
         result["error"] = f"Post-sync restart failed: {restart_err}"
+        return result
+
+    # Restart succeeded → commit the deferred READY transition. Mirrors
+    # the matrix in _core_sync (InvalidTransitionError is a no-op, the
+    # two registry-missing branches surface as warnings).
+    from clawrium.core.onboarding import (
+        AgentNotFoundError,
+        InvalidTransitionError,
+        OnboardingNotFoundError,
+        OnboardingState,
+        transition_state,
+    )
+
+    try:
+        transition_state(hostname, agent_key, OnboardingState.READY)
+    except InvalidTransitionError as exc:
+        if on_event:
+            on_event(
+                "sync",
+                f"note: skipped state=READY for {agent_key} (mid-walk: {exc!s})",
+            )
+    except (AgentNotFoundError, OnboardingNotFoundError) as exc:
+        result["success"] = False
+        result["error"] = (
+            f"registry record missing for {agent_key} after sync: {exc!s}"
+        )
+    except Exception as exc:
+        result["success"] = False
+        result["error"] = (
+            f"could not write state=READY to hosts.json: {exc!s}. "
+            f"Agent is configured + running; re-run sync to commit state."
+        )
     return result
 
 

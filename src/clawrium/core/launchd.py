@@ -18,6 +18,8 @@ user logout. See gateway.plist.j2 for the rationale.
 from __future__ import annotations
 
 import logging
+import re
+import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,9 +30,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Reverse-DNS label prefix shared by hermes plists. Keep in sync with
-# gateway.plist.j2's <key>Label</key> string. Dashboards (issue #469
-# step 10) append `.dashboard` to this prefix.
+# Reverse-DNS label prefix used by hermes plists. Openclaw uses
+# `ai.clawrium.openclaw` — resolved via `_label_prefix_for(agent_type)`.
+# Keep `LABEL_PREFIX` exported for backwards compatibility (tests, callers).
 LABEL_PREFIX = "ai.clawrium.hermes"
 
 # launchd daemons live in /Library/LaunchDaemons (system domain). The
@@ -38,43 +40,77 @@ LABEL_PREFIX = "ai.clawrium.hermes"
 # which is precisely what we DON'T want — those die on logout.
 LAUNCHD_DAEMONS_DIR = "/Library/LaunchDaemons"
 
-_TEMPLATE_ROOT = (
-    Path(__file__).parent.parent / "platform" / "registry" / "hermes" / "templates"
-)
+_AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
-def _env() -> jinja2.Environment:
-    """Build a Jinja2 env scoped to the hermes templates directory.
+def _validate_agent_name(agent_name: str) -> None:
+    """Defense-in-depth: reject names that would let shell metacharacters
+    reach `sudo install` / `sudo rm` via the exported helpers below.
+    Callers in lifecycle.py already validate at the boundary; this guard
+    closes the gap if a future caller bypasses that path."""
+    if not isinstance(agent_name, str) or not _AGENT_NAME_RE.match(agent_name):
+        raise ValueError(f"invalid agent_name for launchd helpers: {agent_name!r}")
 
-    Cached at module load via the lru_cache decorator below.
-    """
+
+_LABEL_PREFIX_BY_TYPE = {
+    "hermes": "ai.clawrium.hermes",
+    "openclaw": "ai.clawrium.openclaw",
+}
+
+_PLATFORM_REGISTRY = Path(__file__).parent.parent / "platform" / "registry"
+
+# Default template root preserved as `hermes` so existing callers
+# (and `LABEL_PREFIX` consumers) keep working unchanged.
+_TEMPLATE_ROOT = _PLATFORM_REGISTRY / "hermes" / "templates"
+
+
+def _label_prefix_for(agent_type: str) -> str:
+    try:
+        return _LABEL_PREFIX_BY_TYPE[agent_type]
+    except KeyError as exc:
+        raise ValueError(f"unsupported agent_type for launchd: {agent_type!r}") from exc
+
+
+def _env(agent_type: str = "hermes") -> jinja2.Environment:
+    """Build a Jinja2 env scoped to `<agent_type>`'s templates directory."""
+    root = _PLATFORM_REGISTRY / agent_type / "templates"
     return jinja2.Environment(
-        loader=jinja2.FileSystemLoader(str(_TEMPLATE_ROOT)),
+        loader=jinja2.FileSystemLoader(str(root)),
         autoescape=False,
         keep_trailing_newline=True,
         undefined=jinja2.StrictUndefined,
     )
 
 
-def label_for(agent_name: str, *, kind: str = "gateway") -> str:
-    """Return the launchd Label for the gateway/dashboard plist.
+def label_for(
+    agent_name: str, *, kind: str = "gateway", agent_type: str = "hermes"
+) -> str:
+    """Return the launchd Label for the plist.
 
-    `kind="gateway"` → `ai.clawrium.hermes.<agent_name>`.
-    `kind="dashboard"` → `ai.clawrium.hermes.<agent_name>.dashboard`.
+    Hermes (gateway): `ai.clawrium.hermes.<agent_name>`.
+    Hermes (dashboard): `ai.clawrium.hermes.<agent_name>.dashboard`.
+    Openclaw (gateway): `ai.clawrium.openclaw.<agent_name>` (only kind).
     """
+    prefix = _label_prefix_for(agent_type)
+    if agent_type == "openclaw":
+        if kind != "gateway":
+            raise ValueError(f"openclaw does not support plist kind: {kind!r}")
+        return f"{prefix}.{agent_name}"
     if kind == "gateway":
-        return f"{LABEL_PREFIX}.{agent_name}"
+        return f"{prefix}.{agent_name}"
     if kind == "dashboard":
-        return f"{LABEL_PREFIX}.{agent_name}.dashboard"
+        return f"{prefix}.{agent_name}.dashboard"
     raise ValueError(f"unsupported plist kind: {kind!r}")
 
 
-def plist_path_for(agent_name: str, *, kind: str = "gateway") -> str:
-    """Return the absolute path where the plist must live on disk.
-
-    launchd's `bootstrap`/`bootout` ARGV expects this exact path.
-    """
-    return f"{LAUNCHD_DAEMONS_DIR}/{label_for(agent_name, kind=kind)}.plist"
+def plist_path_for(
+    agent_name: str, *, kind: str = "gateway", agent_type: str = "hermes"
+) -> str:
+    """Return the absolute path where the plist must live on disk."""
+    return (
+        f"{LAUNCHD_DAEMONS_DIR}/"
+        f"{label_for(agent_name, kind=kind, agent_type=agent_type)}.plist"
+    )
 
 
 def render_plist(
@@ -82,17 +118,26 @@ def render_plist(
     template_name: str = "gateway.plist.j2",
     *,
     dashboard_port: int | None = None,
+    agent_type: str = "hermes",
+    extra_context: dict | None = None,
 ) -> str:
     """Render `template_name` for `agent_name` into a plist XML string.
 
     Raises jinja2.UndefinedError on missing template vars (StrictUndefined).
-
-    The dashboard template requires a `dashboard_port` — pass it explicitly.
+    The dashboard template requires a `dashboard_port`. Openclaw's
+    template accepts an optional `openclaw_binary` via `extra_context`
+    (defaults to `/Users/<agent>/.openclaw/bin/openclaw` when absent);
+    the Ansible install_macos.yaml path passes the resolved binary
+    explicitly. iter5 W4: validate agent_name here too so direct
+    callers can't bypass the shell-meta guard in write/remove_plist.
     """
-    template = _env().get_template(template_name)
+    _validate_agent_name(agent_name)
+    template = _env(agent_type).get_template(template_name)
     ctx: dict = {"agent_name": agent_name}
     if dashboard_port is not None:
         ctx["dashboard_port"] = dashboard_port
+    if extra_context:
+        ctx.update(extra_context)
     return template.render(**ctx)
 
 
@@ -102,6 +147,7 @@ def write_plist(
     contents: str,
     *,
     kind: str = "gateway",
+    agent_type: str = "hermes",
 ) -> str:
     """Write `contents` to the gateway/dashboard plist path on the remote host.
 
@@ -112,10 +158,11 @@ def write_plist(
     Permissions: launchd ignores plists that aren't 0644 root:wheel. We
     set both explicitly via sudo after the SFTP write.
     """
-    remote_path = plist_path_for(agent_name, kind=kind)
+    _validate_agent_name(agent_name)
+    remote_path = plist_path_for(agent_name, kind=kind, agent_type=agent_type)
     # SFTP first, into /tmp, then sudo-move into place. SFTP itself can't
     # elevate privileges; the move is the privileged step.
-    tmp_path = f"/tmp/{label_for(agent_name, kind=kind)}.plist"
+    tmp_path = f"/tmp/{label_for(agent_name, kind=kind, agent_type=agent_type)}.plist"
     sftp = client.open_sftp()
     try:
         with sftp.file(tmp_path, "w") as remote:
@@ -125,22 +172,27 @@ def write_plist(
 
     _exec_checked(
         client,
-        f"sudo install -m 0644 -o root -g wheel {tmp_path} {remote_path} "
-        f"&& sudo rm -f {tmp_path}",
+        f"sudo install -m 0644 -o root -g wheel {shlex.quote(tmp_path)} "
+        f"{shlex.quote(remote_path)} && sudo rm -f {shlex.quote(tmp_path)}",
         "write_plist",
     )
     return remote_path
 
 
 def remove_plist(
-    client: "paramiko.SSHClient", agent_name: str, *, kind: str = "gateway"
+    client: "paramiko.SSHClient",
+    agent_name: str,
+    *,
+    kind: str = "gateway",
+    agent_type: str = "hermes",
 ) -> None:
     """Remove the gateway/dashboard plist file from /Library/LaunchDaemons.
 
     Idempotent: missing file is not an error.
     """
-    remote_path = plist_path_for(agent_name, kind=kind)
-    _exec_checked(client, f"sudo rm -f {remote_path}", "remove_plist")
+    _validate_agent_name(agent_name)
+    remote_path = plist_path_for(agent_name, kind=kind, agent_type=agent_type)
+    _exec_checked(client, f"sudo rm -f {shlex.quote(remote_path)}", "remove_plist")
 
 
 def _exec_checked(client: "paramiko.SSHClient", cmd: str, what: str) -> None:
