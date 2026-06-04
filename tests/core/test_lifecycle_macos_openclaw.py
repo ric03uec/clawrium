@@ -647,6 +647,207 @@ def test_sync_agent_skips_state_ready_when_restart_fails(monkeypatch):
     assert transitioned == []
 
 
+def test_sync_agent_invalid_transition_is_noop_with_emit(monkeypatch):
+    """iter5 B3: InvalidTransitionError on the deferred READY write
+    must NOT fail the sync — agent is mid-walk and configure/restart
+    already succeeded. on_event receives the skip notice."""
+    from clawrium.core.onboarding import InvalidTransitionError
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle.sync_agent",
+        lambda **kw: {
+            "success": True,
+            "agent": "o1",
+            "host": kw["hostname"],
+            "operation": "sync",
+        },
+    )
+    monkeypatch.setattr(
+        "clawrium.core.hosts.get_host",
+        lambda _h: {
+            "hostname": "x",
+            "os_family": "darwin",
+            "agents": {"o1": {"type": "openclaw", "agent_name": "o1", "config": {}}},
+        },
+    )
+    monkeypatch.setattr(
+        lifecycle_macos, "restart_agent_macos", lambda *a, **k: (True, None)
+    )
+
+    def fake_transition(*_a, **_kw):
+        raise InvalidTransitionError("stuck at PROVIDERS")
+
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state", fake_transition
+    )
+
+    events: list = []
+    result = lifecycle_macos.sync_agent(
+        hostname="x",
+        claw_name="openclaw",
+        agent_name="o1",
+        on_event=lambda stage, msg: events.append((stage, msg)),
+    )
+    assert result["success"] is True
+    assert result.get("error") in (None, "")
+    # The skip notice surfaced to the operator via on_event.
+    assert any("skipped state=READY" in m for _, m in events)
+
+
+def test_sync_agent_agent_not_found_after_restart(monkeypatch):
+    """iter5 B3: AgentNotFoundError on deferred READY write must surface
+    as success=False with a 'registry record missing' diagnostic."""
+    from clawrium.core.onboarding import AgentNotFoundError
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle.sync_agent",
+        lambda **kw: {
+            "success": True,
+            "agent": "o1",
+            "host": kw["hostname"],
+            "operation": "sync",
+        },
+    )
+    monkeypatch.setattr(
+        "clawrium.core.hosts.get_host",
+        lambda _h: {
+            "hostname": "x",
+            "os_family": "darwin",
+            "agents": {"o1": {"type": "openclaw", "agent_name": "o1", "config": {}}},
+        },
+    )
+    monkeypatch.setattr(
+        lifecycle_macos, "restart_agent_macos", lambda *a, **k: (True, None)
+    )
+
+    def fake_transition(*_a, **_kw):
+        raise AgentNotFoundError("o1 vanished")
+
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state", fake_transition
+    )
+
+    result = lifecycle_macos.sync_agent(
+        hostname="x", claw_name="openclaw", agent_name="o1"
+    )
+    assert result["success"] is False
+    assert "registry record missing" in (result["error"] or "")
+
+
+def test_sync_agent_generic_exception_after_restart(monkeypatch):
+    """iter5 B3: bare Exception on the deferred READY write (e.g.
+    PermissionError writing hosts.json) must surface as success=False
+    with re-run guidance."""
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle.sync_agent",
+        lambda **kw: {
+            "success": True,
+            "agent": "o1",
+            "host": kw["hostname"],
+            "operation": "sync",
+        },
+    )
+    monkeypatch.setattr(
+        "clawrium.core.hosts.get_host",
+        lambda _h: {
+            "hostname": "x",
+            "os_family": "darwin",
+            "agents": {"o1": {"type": "openclaw", "agent_name": "o1", "config": {}}},
+        },
+    )
+    monkeypatch.setattr(
+        lifecycle_macos, "restart_agent_macos", lambda *a, **k: (True, None)
+    )
+
+    def fake_transition(*_a, **_kw):
+        raise PermissionError("hosts.json locked")
+
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state", fake_transition
+    )
+
+    result = lifecycle_macos.sync_agent(
+        hostname="x", claw_name="openclaw", agent_name="o1"
+    )
+    assert result["success"] is False
+    assert "re-run sync to commit state" in (result["error"] or "")
+    assert "hosts.json locked" in (result["error"] or "")
+
+
+def test_restart_agent_macos_openclaw_cold_fallback_bootstrap_fails(monkeypatch):
+    """iter5 B4: cold-host fallback — `_bootstrap_with_tolerance`
+    returns False during the fallback bootstrap must propagate as
+    (False, error). Plist is written but bootstrap fails."""
+    monkeypatch.setattr(lifecycle_macos, "install_service", lambda *a, **k: "/p")
+    client = _FakeClient(
+        responses=[
+            (113, "", "Could not find service\n"),  # kickstart -k cold
+            (5, "", "permission denied"),  # bootstrap REAL failure
+        ]
+    )
+    monkeypatch.setattr(lifecycle_macos, "_ssh", lambda _h: client)
+
+    ok, err = lifecycle_macos.restart_agent_macos(
+        {"hostname": "x", "agents": {"o1": {"type": "openclaw", "config": {}}}},
+        "o1",
+        agent_type="openclaw",
+    )
+    assert ok is False
+    assert err and "bootstrap" in err.lower()
+
+
+def test_restart_agent_macos_openclaw_cold_fallback_kickstart_fails(monkeypatch):
+    """iter5 B4: cold-host fallback — kickstart fails after a successful
+    fallback bootstrap must propagate as (False, error)."""
+    monkeypatch.setattr(lifecycle_macos, "install_service", lambda *a, **k: "/p")
+    client = _FakeClient(
+        responses=[
+            (113, "", "Could not find service\n"),  # kickstart -k cold
+            (0, "", ""),  # bootstrap OK
+            (5, "", "kickstart denied"),  # fallback kickstart REAL failure
+        ]
+    )
+    monkeypatch.setattr(lifecycle_macos, "_ssh", lambda _h: client)
+
+    ok, err = lifecycle_macos.restart_agent_macos(
+        {"hostname": "x", "agents": {"o1": {"type": "openclaw", "config": {}}}},
+        "o1",
+        agent_type="openclaw",
+    )
+    assert ok is False
+    assert err and "kickstart fallback" in err
+
+
+def test_render_plist_rejects_invalid_agent_name():
+    """iter5 W4: render_plist must reject shell-meta agent_name even
+    for direct callers (closes the bypass gap above write/remove_plist)."""
+    import pytest
+
+    from clawrium.core.launchd import render_plist
+
+    with pytest.raises(ValueError, match="invalid agent_name"):
+        render_plist("a; rm -rf /", agent_type="openclaw")
+
+
+def test_render_openclaw_plist_uses_openclaw_binary_var():
+    """iter5 B2: when openclaw_binary is provided, the plist exec line
+    must reference it (not the hardcoded per-agent path)."""
+    import plistlib
+
+    from clawrium.core.launchd import render_plist
+
+    rendered = render_plist(
+        "o1",
+        template_name="openclaw.plist.j2",
+        agent_type="openclaw",
+        extra_context={"openclaw_binary": "/usr/local/bin/openclaw"},
+    )
+    parsed = plistlib.loads(rendered.encode())
+    exec_line = parsed["ProgramArguments"][2]
+    assert "/usr/local/bin/openclaw gateway run --allow-unconfigured" in exec_line
+    assert "/Users/o1/.openclaw/bin/openclaw gateway run" not in exec_line
+
+
 def test_launchd_helpers_reject_shell_metacharacter_agent_name():
     """B5: defense-in-depth — agent_name with shell metacharacters must
     be refused by write_plist / remove_plist before any sudo runs."""

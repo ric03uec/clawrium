@@ -18,12 +18,17 @@
         cmd: "launchctl bootout system/ai.clawrium.openclaw.{{ agent_name }}"
       register: openclaw_bootout
       changed_when: openclaw_bootout.rc == 0
+      # Match against stdout+stderr (some launchctl builds emit "not
+      # loaded" markers to stdout), same shape as install_macos.yaml
+      # and start_macos.yaml `failed_when` matrices.
+      vars:
+        _bootout_out: "{{ ((openclaw_bootout.stdout | default('')) ~ (openclaw_bootout.stderr | default('')) | lower) }}"
       failed_when: >
-        openclaw_bootout.rc != 0 and
-        not (
-          'could not find service' in (openclaw_bootout.stderr | default('') | lower) or
-          'no such process' in (openclaw_bootout.stderr | default('') | lower) or
-          'no such file' in (openclaw_bootout.stderr | default('') | lower)
+        openclaw_bootout.rc != 0
+        and not (
+          'could not find service' in _bootout_out or
+          'no such process' in _bootout_out or
+          'no such file' in _bootout_out
         )
 
     - name: Display success message

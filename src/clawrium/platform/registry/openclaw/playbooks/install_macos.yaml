@@ -246,6 +246,12 @@
         force: no
 
     # ----- launchd plist (shared template — see openclaw.plist.j2) -----
+    # `openclaw_binary` is passed in vars so the ProgramArguments string
+    # in the plist points at the SAME binary `openclaw_runtime_binary`
+    # resolved above (per-agent prefix preferred, PATH fallback). Without
+    # this, the plist would hardcode the per-agent path and crash-loop
+    # on hosts where the version-aware skip leaves only the PATH binary
+    # installed.
     - name: Write launchd plist from shared template
       ansible.builtin.template:
         src: "{{ template_path }}/openclaw.plist.j2"
@@ -253,6 +259,8 @@
         owner: root
         group: wheel
         mode: "0644"
+      vars:
+        openclaw_binary: "{{ openclaw_runtime_binary }}"
       register: openclaw_plist_result
 
     # Reload on ANY plist content change, including re-installs of an
@@ -274,22 +282,31 @@
       changed_when: openclaw_bootstrap.rc == 0
       # Tolerate "already loaded" via the same explicit (rc, marker)
       # matrix used in core/lifecycle_macos._bootstrap_with_tolerance.
-      # The bare 'service' substring used previously over-matched
+      # That reference impl concatenates stdout AND stderr before
+      # matching — some macOS versions write the marker to stdout.
+      # The bare 'service' substring used previously also over-matched
       # malformed-plist errors like rc=5 'Service configuration
       # invalid: ...' — those must surface as real failures.
+      vars:
+        _bootstrap_out: "{{ ((openclaw_bootstrap.stdout | default('')) ~ (openclaw_bootstrap.stderr | default('')) | lower) }}"
       failed_when: >
         openclaw_bootstrap.rc != 0
         and not (
           openclaw_bootstrap.rc == 37 or
-          (openclaw_bootstrap.rc == 17 and 'file exists' in (openclaw_bootstrap.stderr | default('') | lower)) or
-          (openclaw_bootstrap.rc == 5  and 'input/output' in (openclaw_bootstrap.stderr | default('') | lower)) or
-          (openclaw_bootstrap.rc == 149 and 'already' in (openclaw_bootstrap.stderr | default('') | lower)) or
-          'service already loaded' in (openclaw_bootstrap.stderr | default('') | lower)
+          (openclaw_bootstrap.rc == 17 and 'file exists' in _bootstrap_out) or
+          (openclaw_bootstrap.rc == 5  and 'input/output' in _bootstrap_out) or
+          (openclaw_bootstrap.rc == 149 and 'already' in _bootstrap_out) or
+          'service already loaded' in _bootstrap_out
         )
 
-    - name: Kickstart openclaw service (ensure running)
+    # Plain `kickstart` (no `-k`): start_macos.yaml documents that the
+    # destructive `-k` form lives ONLY in restart_agent_macos. On a
+    # fresh install bootstrap already kicks the unit; on an idempotent
+    # re-install the daemon is either already running (no-op) or the
+    # prior bootout step here re-bootstrapped it.
+    - name: Kickstart openclaw service (no-op if already running)
       ansible.builtin.command:
-        cmd: "launchctl kickstart -k system/ai.clawrium.openclaw.{{ agent_name }}"
+        cmd: "launchctl kickstart system/ai.clawrium.openclaw.{{ agent_name }}"
       changed_when: true
 
     - name: Wait for gateway port to be listening

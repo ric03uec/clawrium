@@ -43,14 +43,18 @@
       # See install_macos.yaml comment — explicit (rc, marker) matrix
       # matches core/lifecycle_macos._bootstrap_with_tolerance and
       # rejects malformed-plist rc=5 errors instead of swallowing them.
+      # Markers checked against the concatenation of stdout AND stderr
+      # because some macOS versions write status to stdout.
+      vars:
+        _bootstrap_out: "{{ ((openclaw_bootstrap.stdout | default('')) ~ (openclaw_bootstrap.stderr | default('')) | lower) }}"
       failed_when: >
         openclaw_bootstrap.rc != 0
         and not (
           openclaw_bootstrap.rc == 37 or
-          (openclaw_bootstrap.rc == 17 and 'file exists' in (openclaw_bootstrap.stderr | default('') | lower)) or
-          (openclaw_bootstrap.rc == 5  and 'input/output' in (openclaw_bootstrap.stderr | default('') | lower)) or
-          (openclaw_bootstrap.rc == 149 and 'already' in (openclaw_bootstrap.stderr | default('') | lower)) or
-          'service already loaded' in (openclaw_bootstrap.stderr | default('') | lower)
+          (openclaw_bootstrap.rc == 17 and 'file exists' in _bootstrap_out) or
+          (openclaw_bootstrap.rc == 5  and 'input/output' in _bootstrap_out) or
+          (openclaw_bootstrap.rc == 149 and 'already' in _bootstrap_out) or
+          'service already loaded' in _bootstrap_out
         )
 
     # `kickstart` (no `-k`) is a no-op when the service is already

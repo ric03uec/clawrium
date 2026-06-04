@@ -43,7 +43,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-lc</string>
-        <string>set -a; [ -f /Users/{{ agent_name }}/.openclaw/env ] &amp;&amp; . /Users/{{ agent_name }}/.openclaw/env; set +a; exec /Users/{{ agent_name }}/.openclaw/bin/openclaw gateway run --allow-unconfigured</string>
+        <string>set -a; [ -f /Users/{{ agent_name }}/.openclaw/env ] &amp;&amp; . /Users/{{ agent_name }}/.openclaw/env; set +a; exec {{ openclaw_binary | default('/Users/' ~ agent_name ~ '/.openclaw/bin/openclaw') }} gateway run --allow-unconfigured</string>
     </array>
 
     <key>RunAtLoad</key>

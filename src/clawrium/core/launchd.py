@@ -125,8 +125,13 @@ def render_plist(
 
     Raises jinja2.UndefinedError on missing template vars (StrictUndefined).
     The dashboard template requires a `dashboard_port`. Openclaw's
-    template requires `openclaw_binary` (via `extra_context`).
+    template accepts an optional `openclaw_binary` via `extra_context`
+    (defaults to `/Users/<agent>/.openclaw/bin/openclaw` when absent);
+    the Ansible install_macos.yaml path passes the resolved binary
+    explicitly. iter5 W4: validate agent_name here too so direct
+    callers can't bypass the shell-meta guard in write/remove_plist.
     """
+    _validate_agent_name(agent_name)
     template = _env(agent_type).get_template(template_name)
     ctx: dict = {"agent_name": agent_name}
     if dashboard_port is not None:
