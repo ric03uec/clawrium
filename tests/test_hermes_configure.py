@@ -3261,9 +3261,17 @@ class TestHermesMultiProviderHydration:
     def _config_data(self) -> dict:
         # `config.provider` reflects the primary (preserved by lifecycle's
         # overlay branch for back-compat). `config.providers` is the new
-        # multi-attachment list the hermes path emits.
+        # multi-attachment list the hermes path emits. ATX iter-1 B6 (#613):
+        # carry `api_server` here too — the live configure path requires it
+        # and the playbook guard enforces it; the test stub previously hid
+        # this dependency.
         return {
             "gateway": {"host": "127.0.0.1", "port": 8642},
+            "api_server": {
+                "enabled": True,
+                "host": "127.0.0.1",
+                "port": 8642,
+            },
             "provider": {
                 "name": "ant-primary",
                 "type": "anthropic",
@@ -3306,7 +3314,13 @@ class TestHermesMultiProviderHydration:
             }
         }
 
-    def _run(self, tmp_path: Path, config_data: dict, agent_type: str = "hermes"):
+    def _run(
+        self,
+        tmp_path: Path,
+        config_data: dict,
+        api_keys: dict[str, str] | None = None,
+        aws_creds: dict[str, tuple[str, str]] | None = None,
+    ):
         key_path = tmp_path / "key"
         key_path.write_text("k")
         playbook = tmp_path / "configure.yaml"
@@ -3321,11 +3335,17 @@ class TestHermesMultiProviderHydration:
             mock.events = []
             return mock
 
-        api_keys = {"ant-primary": "sk-ant-123", "or-aux": "sk-or-456"}
-        aws_creds = {
-            "bd-aux": ("AKIAEXAMPLE", "wJalrEXAMPLE"),
-        }
+        if api_keys is None:
+            api_keys = {"ant-primary": "sk-ant-123", "or-aux": "sk-or-456"}
+        if aws_creds is None:
+            aws_creds = {"bd-aux": ("AKIAEXAMPLE", "wJalrEXAMPLE")}
 
+        # ATX iter-1 W6 (#613): patch at the source module path because
+        # configure_agent does a deferred `from clawrium.core.providers
+        # import ...` — once the import lands in the function scope the
+        # name resolves against the source module, so this is the correct
+        # patch target. If a future refactor hoists the import to module
+        # scope, switch to `clawrium.core.lifecycle.get_provider_api_key`.
         with (
             patch("clawrium.core.lifecycle.get_host", return_value=self._host()),
             patch(
@@ -3351,7 +3371,7 @@ class TestHermesMultiProviderHydration:
             ),
         ):
             success, error = configure_agent(
-                "test-host", agent_type, config_data, agent_name="hermes-test"
+                "test-host", "hermes", config_data, agent_name="hermes-test"
             )
 
         return success, error, captured
@@ -3385,6 +3405,11 @@ class TestHermesMultiProviderHydration:
         # multi-provider dicts and leave the legacy scalar populated.
         config_data = {
             "gateway": {"host": "127.0.0.1", "port": 8642},
+            "api_server": {
+                "enabled": True,
+                "host": "127.0.0.1",
+                "port": 8642,
+            },
             "provider": {
                 "name": "ant-primary",
                 "type": "anthropic",
@@ -3398,3 +3423,233 @@ class TestHermesMultiProviderHydration:
         assert ansible_vars["provider_api_key"] == "sk-ant-123"
         assert ansible_vars["provider_api_keys"] == {}
         assert ansible_vars["provider_aws_credentials"] == {}
+
+    def test_hermes_empty_providers_list_emits_empty_multi_dicts(
+        self, tmp_path: Path
+    ):
+        # ATX iter-1 W4 (#613): `providers: []` satisfies the isinstance
+        # check and enters the loop with zero iterations — a distinct
+        # branch from "key absent". Pin it.
+        config_data = {
+            "gateway": {"host": "127.0.0.1", "port": 8642},
+            "api_server": {
+                "enabled": True,
+                "host": "127.0.0.1",
+                "port": 8642,
+            },
+            "provider": {
+                "name": "ant-primary",
+                "type": "anthropic",
+                "default_model": "claude-3",
+            },
+            "providers": [],
+        }
+        success, error, captured = self._run(tmp_path, config_data)
+        assert success is True, error
+        ansible_vars = captured["inventory"]["all"]["vars"]
+        assert ansible_vars["provider_api_keys"] == {}
+        assert ansible_vars["provider_aws_credentials"] == {}
+
+    def test_hermes_bedrock_primary_back_compat_aws_scalars(self, tmp_path: Path):
+        # ATX iter-1 B4 (#613): a bedrock primary must continue to populate
+        # the legacy `aws_access_key` / `aws_secret_key` scalars (the AC#2
+        # back-compat invariant for canonical-pipeline templates).
+        config_data = {
+            "gateway": {"host": "127.0.0.1", "port": 8642},
+            "api_server": {
+                "enabled": True,
+                "host": "127.0.0.1",
+                "port": 8642,
+            },
+            "provider": {
+                "name": "bd-primary",
+                "type": "bedrock",
+                "default_model": "anthropic.claude-3-sonnet-20240229-v1:0",
+                "region": "us-west-2",
+            },
+            "providers": [
+                {
+                    "name": "bd-primary",
+                    "type": "bedrock",
+                    "default_model": "anthropic.claude-3-sonnet-20240229-v1:0",
+                    "role": "primary",
+                    "model": "anthropic.claude-3-sonnet-20240229-v1:0",
+                    "region": "us-west-2",
+                }
+            ],
+        }
+        success, error, captured = self._run(
+            tmp_path,
+            config_data,
+            api_keys={},
+            aws_creds={"bd-primary": ("AKIAPRIMARY", "wJalrPRIMARY")},
+        )
+        assert success is True, error
+        ansible_vars = captured["inventory"]["all"]["vars"]
+        # Legacy scalars populated for back-compat.
+        assert ansible_vars["aws_access_key"] == "AKIAPRIMARY"
+        assert ansible_vars["aws_secret_key"] == "wJalrPRIMARY"
+        # Bedrock primary also flows into the multi-provider dict.
+        assert ansible_vars["provider_aws_credentials"] == {
+            "bd-primary": {
+                "access_key": "AKIAPRIMARY",
+                "secret_key": "wJalrPRIMARY",
+                "region": "us-west-2",
+            }
+        }
+        # No API-key path used.
+        assert ansible_vars["provider_api_key"] == ""
+        assert ansible_vars["provider_api_keys"] == {}
+
+    def test_hermes_invalid_provider_name_skipped_not_fatal(self, tmp_path: Path):
+        # ATX iter-1 B2 (#613): a malformed provider name in `providers`
+        # must be skipped (logged) rather than poisoning ansible_vars
+        # dict keys with section-injection / Jinja-marker payloads.
+        bad_name = "bad\nname[SECTION]"
+        config_data = {
+            "gateway": {"host": "127.0.0.1", "port": 8642},
+            "api_server": {
+                "enabled": True,
+                "host": "127.0.0.1",
+                "port": 8642,
+            },
+            "provider": {
+                "name": "ant-primary",
+                "type": "anthropic",
+                "default_model": "claude-3",
+            },
+            "providers": [
+                {
+                    "name": "ant-primary",
+                    "type": "anthropic",
+                    "default_model": "claude-3",
+                    "role": "primary",
+                    "model": "claude-3",
+                },
+                {
+                    "name": bad_name,
+                    "type": "openrouter",
+                    "default_model": "auto",
+                    "role": "vision",
+                    "model": "auto",
+                },
+            ],
+        }
+        success, error, captured = self._run(
+            tmp_path,
+            config_data,
+            api_keys={"ant-primary": "sk-ant-123", bad_name: "sk-bad-should-not-leak"},
+        )
+        assert success is True, error
+        ansible_vars = captured["inventory"]["all"]["vars"]
+        # Bad name never reaches the dict; good name does.
+        assert bad_name not in ansible_vars["provider_api_keys"]
+        assert ansible_vars["provider_api_keys"] == {"ant-primary": "sk-ant-123"}
+
+
+class TestRegionPropagationThroughConfigureAgent:
+    """ATX iter-1 B1 (#613): the bedrock `region` carried on a
+    `config.providers[i]` overlay must flow into
+    `ansible_vars["provider_aws_credentials"][name]["region"]`. The
+    upstream `_build_overlay` change (lifecycle.py ~1249) lands the
+    region on the overlay; this test pins the downstream propagation
+    so the contract stays honored if either side regresses.
+
+    A full `sync_agent` → `_build_overlay` integration test is deferred:
+    `_build_overlay` is a closure inside `sync_agent` and the surrounding
+    setup (onboarding state machine, provider attachment normalization,
+    Ansible mocking) is disproportionate to the one-line copy under test.
+    See the Callouts section of the PR for the deferred follow-up.
+    """
+
+    def test_bedrock_overlay_region_flows_into_ansible_vars(self, tmp_path: Path):
+        config_data = {
+            "gateway": {"host": "127.0.0.1", "port": 8642},
+            "api_server": {"enabled": True, "host": "127.0.0.1", "port": 8642},
+            "provider": {
+                "name": "bd-primary",
+                "type": "bedrock",
+                "default_model": "anthropic.claude-3-sonnet-20240229-v1:0",
+                "region": "eu-central-1",
+            },
+            "providers": [
+                {
+                    "name": "bd-primary",
+                    "type": "bedrock",
+                    "default_model": "anthropic.claude-3-sonnet-20240229-v1:0",
+                    "role": "primary",
+                    "model": "anthropic.claude-3-sonnet-20240229-v1:0",
+                    "region": "eu-central-1",
+                }
+            ],
+        }
+        host = {
+            "hostname": "h",
+            "key_id": "h",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": {
+                        "api_server": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 8642,
+                        }
+                    },
+                }
+            },
+        }
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+
+        captured = {}
+
+        def fake_run(**kwargs):
+            captured["inventory"] = kwargs["inventory"]
+            mock = MagicMock()
+            mock.status = "successful"
+            mock.events = []
+            return mock
+
+        api_server_secrets = {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": "a" * 64,
+                "created_at": "2026-06-04T00:00:00+00:00",
+                "updated_at": "2026-06-04T00:00:00+00:00",
+                "description": "",
+            }
+        }
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch("clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run),
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value=api_server_secrets,
+            ),
+            patch(
+                "clawrium.core.providers.get_provider_aws_credentials",
+                return_value=("AKIAEU", "wJalrEU"),
+            ),
+        ):
+            from clawrium.core.lifecycle import configure_agent as _ca
+
+            success, error = _ca(
+                "h", "hermes", config_data, agent_name="hermes-test"
+            )
+
+        assert success is True, error
+        creds = captured["inventory"]["all"]["vars"]["provider_aws_credentials"]
+        assert creds["bd-primary"]["region"] == "eu-central-1"

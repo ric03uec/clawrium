@@ -1259,6 +1259,14 @@ def sync_agent(
             overlay["context_window"] = provider_record["context_window"]
         if provider_record.get("max_tokens") is not None:
             overlay["max_tokens"] = provider_record["max_tokens"]
+        # ATX iter-1 B1 (#613): propagate bedrock region from the provider
+        # record so the hermes auxiliary-slot AWS_DEFAULT_REGION/templates
+        # render the correct region. Without this the per-attachment
+        # credential dict at configure-time always sees an empty string,
+        # forcing fall-back to us-east-1 even when the operator registered
+        # the provider in a different region.
+        if provider_record.get("region"):
+            overlay["region"] = provider_record["region"]
         return overlay
 
     if attachments and _pa.supports_multi_provider(agent_type):
@@ -2064,11 +2072,34 @@ def configure_agent(
     if _pa.supports_multi_provider(resolved_type) and isinstance(
         config_data.get("providers"), list
     ):
+        from clawrium.core.providers import (
+            InvalidProviderNameError as _IPNE,
+            validate_provider_name as _validate_name,
+        )
+
         for overlay in config_data["providers"]:
             if not isinstance(overlay, dict):
                 continue
             ov_name = overlay.get("name")
             if not isinstance(ov_name, str) or not ov_name:
+                continue
+            # ATX iter-1 B2 (#613): defensive name validation. Provider
+            # records are validated at write time by the CLI, but a
+            # hand-edited hosts.json or future programmatic caller could
+            # bypass that. Section-injection / Jinja-marker names would
+            # otherwise flow into ansible_vars dict keys and downstream
+            # template renders. Skip the entry rather than fail the whole
+            # configure — other attachments may still be hydratable, and
+            # the silent gap is preferable to a hard configure failure.
+            try:
+                _validate_name(ov_name)
+            except _IPNE as exc:
+                logger.warning(
+                    "Skipping per-attachment credential hydration for invalid "
+                    "provider name %r: %s",
+                    ov_name,
+                    exc,
+                )
                 continue
             ov_type = overlay.get("type", "")
             if ov_type == "bedrock":
@@ -2079,10 +2110,27 @@ def configure_agent(
                         "secret_key": sk,
                         "region": overlay.get("region", "") or "",
                     }
+                else:
+                    # ATX iter-1 W1 (#613): surface the gap so operators
+                    # know which provider needs `clawctl provider set-aws-
+                    # credentials` before configure will produce a working
+                    # render.
+                    logger.warning(
+                        "No AWS credentials found in secrets for bedrock "
+                        "provider %r; auxiliary slot will render with empty "
+                        "credentials",
+                        ov_name,
+                    )
             else:
                 key = get_provider_api_key(ov_name) or ""
                 if key:
                     provider_api_keys[ov_name] = key
+                else:
+                    logger.warning(
+                        "No API key found in secrets for provider %r; "
+                        "auxiliary slot will render with empty credential",
+                        ov_name,
+                    )
         if provider_api_keys or provider_aws_credentials:
             emit(
                 "configure",

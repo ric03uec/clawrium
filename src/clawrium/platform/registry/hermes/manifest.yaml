@@ -39,6 +39,10 @@ secrets:
       description: "Anthropic API key"
     - key: OPENAI_API_KEY
       description: "OpenAI API key"
+    - key: AWS_ACCESS_KEY_ID
+      description: "AWS access key ID for Bedrock provider"
+    - key: AWS_SECRET_ACCESS_KEY
+      description: "AWS secret access key for Bedrock provider"
     # Atlassian credentials are NOT listed here: they live in the per-integration
     # credential store (managed via `clawctl integration credentials`) and a single
     # hermes agent may have multiple atlassian integrations (team-a, team-b)

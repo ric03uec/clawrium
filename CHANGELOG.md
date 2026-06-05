@@ -41,6 +41,9 @@ release.
   primary attachment for back-compat with un-migrated canonical
   templates. Zeroclaw/openclaw `ansible_vars` are unchanged. (#613,
   parent #589)
+- Hermes manifest now lists `AWS_ACCESS_KEY_ID` and
+  `AWS_SECRET_ACCESS_KEY` under `secrets.optional` so the configure
+  wizard surfaces them for bedrock attachments. (#613)
 
 ### Changed
 
