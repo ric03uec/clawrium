@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 __all__ = [
     "AgentConfigError",
     "ProviderInputs",
+    "AttachedProviderInputs",
+    "HermesProviderBundle",
     "ChannelInputs",
     "IntegrationInputs",
     "APIServerInputs",
@@ -115,6 +117,41 @@ class ProviderInputs:
 
 
 @dataclass(frozen=True)
+class AttachedProviderInputs:
+    """One provider attachment in a hermes multi-provider bundle.
+
+    Carries the per-attachment role + model so the canonical template can
+    iterate a uniform list across primary and auxiliary slots.
+    """
+
+    name: str
+    type: str
+    role: str
+    model: str
+    endpoint: str = ""
+    region: str = ""
+
+
+@dataclass(frozen=True)
+class HermesProviderBundle:
+    """Hermes-only multi-provider bundle.
+
+    Populated by `build_render_inputs` when `agent_type == "hermes"`.
+    `None` for zeroclaw/openclaw — their renderers never read this field.
+
+    `api_keys` is keyed by provider type (hermes' env-var contract is one
+    `<TYPE>_API_KEY=` per process; same-type collision raises).
+    `aws_credentials` is keyed by provider name (bedrock multi-attach is
+    further constrained by build_render_inputs: at most one bedrock
+    attachment, because hermes emits a single AWS_* triple per process).
+    """
+
+    attachments: tuple[AttachedProviderInputs, ...]
+    api_keys: tuple[tuple[str, str], ...] = ()
+    aws_credentials: tuple[tuple[str, tuple[str, str, str]], ...] = ()
+
+
+@dataclass(frozen=True)
 class ChannelInputs:
     name: str
     type: str
@@ -164,6 +201,10 @@ class RenderInputs:
     integrations: tuple[IntegrationInputs, ...] = ()
     api_server: APIServerInputs | None = None
     gateway: GatewayInputs | None = None
+    # Populated only when agent_type == "hermes". `None` for
+    # zeroclaw/openclaw — their renderers do not read this field, and
+    # `build_render_inputs` skips the multi-provider walk for them.
+    hermes: HermesProviderBundle | None = None
 
 
 @dataclass(frozen=True)
@@ -488,6 +529,137 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
             allow_public_bind=bool(gateway_blob.get("allow_public_bind", True)),
         )
 
+    # --- Hermes multi-provider bundle (hermes-only) ------------------------
+    # Issue #621: the canonical render path was picking only the primary
+    # attachment and dropping every auxiliary slot. Build a per-attachment
+    # view (primary + non-primary) plus deduped credential dicts so the
+    # canonical templates can render `auxiliary.<role>:` blocks and emit
+    # per-aux env vars.
+    #
+    # Gated on `agent_type == "hermes"` — zeroclaw / openclaw enforce a
+    # singleton attachment and their renderers never read `inputs.hermes`.
+    # Bundle stays `None` for those types so the data shape they consume
+    # is unchanged.
+    hermes_bundle: HermesProviderBundle | None = None
+    if agent_type == "hermes":
+        attached: list[AttachedProviderInputs] = []
+        api_keys: dict[str, str] = {}
+        aws_creds: dict[str, tuple[str, str, str]] = {}
+        bedrock_attachment_name: str | None = None
+        for entry in attachments:
+            if not isinstance(entry, dict):
+                # Hermes attachments are list-of-dicts post-normalize;
+                # a non-dict here means provider_attachments.normalize()
+                # regressed. Fail loud rather than silently skipping —
+                # silent skip would render an incomplete hermes config.
+                raise AgentConfigError(
+                    f"agent {agent_name!r} has non-dict provider attachment "
+                    f"{entry!r} after normalization"
+                )
+            entry_name = entry.get("name")
+            if not isinstance(entry_name, str) or not entry_name:
+                raise AgentConfigError(
+                    f"agent {agent_name!r} has a provider attachment with "
+                    f"no name: {entry!r}"
+                )
+            entry_record = get_provider(entry_name)
+            if entry_record is None:
+                raise AgentConfigError(
+                    f"provider {entry_name!r} attached to agent {agent_name!r} "
+                    f"is not registered in providers.json"
+                )
+            entry_type_raw = entry_record.get("type")
+            entry_type = (
+                entry_type_raw.strip()
+                if isinstance(entry_type_raw, str)
+                else ""
+            )
+            if entry_type not in supported:
+                raise AgentConfigError(
+                    f"agent {agent_name!r} (type {agent_type}) does not "
+                    f"support provider type {entry_type!r} (attachment "
+                    f"{entry_name!r}). Supported: {sorted(supported)}"
+                )
+            entry_role = entry.get("role") or ""
+            entry_model = (
+                entry.get("model")
+                or entry_record.get("default_model")
+                or ""
+            )
+            entry_region = entry_record.get("region", "") or ""
+            entry_endpoint = entry_record.get("endpoint", "") or ""
+            if entry_type == "bedrock":
+                ak, sk = get_provider_aws_credentials(entry_name)
+                ak = _clean_secret(ak)
+                sk = _clean_secret(sk)
+                if not ak or not sk:
+                    raise AgentConfigError(
+                        f"bedrock provider {entry_name!r} attached to agent "
+                        f"{agent_name!r} is missing AWS credentials in "
+                        f"secrets.json"
+                    )
+                # Hermes runs one process with one AWS_*_KEY_ID env var.
+                # Multiple bedrock attachments would silently pick the
+                # last-emitted triple. Raise instead.
+                if (
+                    bedrock_attachment_name is not None
+                    and bedrock_attachment_name != entry_name
+                ):
+                    raise AgentConfigError(
+                        f"agent {agent_name!r} has two bedrock provider "
+                        f"attachments ({bedrock_attachment_name!r}, "
+                        f"{entry_name!r}); hermes emits one AWS_* env-var "
+                        f"triple per process. Detach one."
+                    )
+                bedrock_attachment_name = entry_name
+                aws_creds[entry_name] = (ak, sk, entry_region or "us-east-1")
+            elif entry_type in _BEARER_API_KEY_TYPES:
+                key = _clean_secret(get_provider_api_key(entry_name))
+                if not key:
+                    raise AgentConfigError(
+                        f"provider {entry_name!r} (type {entry_type}) "
+                        f"attached to agent {agent_name!r} is missing API "
+                        f"key in secrets.json"
+                    )
+                prior = api_keys.get(entry_type)
+                if prior is not None and prior != key:
+                    raise AgentConfigError(
+                        f"agent {agent_name!r} has two providers of type "
+                        f"{entry_type!r} with different API keys; hermes "
+                        f"emits one {entry_type.upper()}_API_KEY env var "
+                        f"per process and would silently keep one. "
+                        f"Detach one or unify the secret."
+                    )
+                api_keys[entry_type] = key
+            elif entry_type in _LOCAL_ENDPOINT_TYPES:
+                if not entry_endpoint:
+                    raise AgentConfigError(
+                        f"provider {entry_name!r} (type {entry_type}) "
+                        f"attached to agent {agent_name!r} is missing "
+                        f"endpoint in providers.json"
+                    )
+            else:
+                raise AgentConfigError(
+                    f"provider {entry_name!r} has type {entry_type!r} which "
+                    f"is declared supported for agent {agent_type} but has "
+                    f"no credential fetch wired in build_render_inputs"
+                )
+            attached.append(
+                AttachedProviderInputs(
+                    name=entry_name,
+                    type=entry_type,
+                    role=entry_role,
+                    model=entry_model,
+                    endpoint=entry_endpoint,
+                    region=entry_region,
+                )
+            )
+        hermes_bundle = HermesProviderBundle(
+            attachments=tuple(attached),
+            api_keys=tuple(sorted(api_keys.items())),
+            aws_credentials=tuple(sorted(aws_creds.items())),
+        )
+
     return RenderInputs(
         agent_name=agent_name,
         agent_type=agent_type,
@@ -496,6 +668,7 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
         integrations=tuple(integration_inputs),
         api_server=api_server_input,
         gateway=gateway_input,
+        hermes=hermes_bundle,
     )
 
 
@@ -727,10 +900,38 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
             endpoint = endpoint + "/v1"
         ollama_base_url = endpoint
 
+    # Issue #621: hermes multi-provider context. When the caller built
+    # `RenderInputs` via `build_render_inputs`, `inputs.hermes` carries
+    # the full attachment list + per-aux credential dicts. When a test
+    # or legacy caller built `RenderInputs` by hand without populating
+    # `hermes`, synthesize a single-provider bundle from `inputs.provider`
+    # so the templates can always iterate one uniform list. This keeps
+    # single-provider rendering byte-identical to pre-#621.
+    if inputs.hermes is not None:
+        aux_attachments = tuple(
+            a for a in inputs.hermes.attachments if a.role != "primary"
+        )
+        aux_api_keys = {
+            t: k
+            for t, k in dict(inputs.hermes.api_keys).items()
+            if t != ptype
+        }
+        aux_aws_credentials = {
+            n: t
+            for n, t in dict(inputs.hermes.aws_credentials).items()
+            if not (ptype == "bedrock" and n == inputs.provider.name)
+        }
+    else:
+        aux_attachments = ()
+        aux_api_keys = {}
+        aux_aws_credentials = {}
+
     env_body = _render_hermes_template(
         "hermes-env.canonical.j2",
         agent_name=inputs.agent_name,
         provider=inputs.provider,
+        aux_api_keys=aux_api_keys,
+        aux_aws_credentials=aux_aws_credentials,
         api_server=inputs.api_server,
         channels=inputs.channels,
         integrations=integration_views,
@@ -740,6 +941,7 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
         "hermes-config.canonical.yaml.j2",
         agent_name=inputs.agent_name,
         provider=inputs.provider,
+        aux_attachments=aux_attachments,
         ollama_base_url=ollama_base_url,
         atlassian_integrations=atlassian_views,
         mcp_atlassian_version=_HERMES_MCP_ATLASSIAN_VERSION,
