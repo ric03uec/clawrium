@@ -1,10 +1,13 @@
 {
   "session_id": "5024a550-80ef-4f49-9c09-05a7b63fa077",
   "transport": "cli",
-  "commit_sha": "529699d",
-  "iteration": 1,
-  "last_rating": 3,
-  "last_blockers": ["B1", "B2"],
+  "commit_sha": "a138ffa",
+  "iteration": 3,
+  "last_rating": 2,
+  "last_blockers": ["B-NEW-iter3 (fixed without 4th review)", "FE-regression-iter3 (fixed)"],
   "started_at": "2026-06-05T09:16:00Z",
-  "updated_at": "2026-06-05T09:22:30Z"
+  "updated_at": "2026-06-05T10:42:00Z",
+  "pr_url": "https://github.com/ric03uec/clawrium/pull/619",
+  "stuck": true,
+  "note": "Iteration ceiling exhausted. Iter-3 in-scope blockers fixed in-place; further iterations would chase cross-PR items the orchestrator handoff explicitly scoped out (CLI tests from PR #616)."
 }
