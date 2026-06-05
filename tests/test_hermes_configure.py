@@ -3547,6 +3547,49 @@ class TestHermesMultiProviderHydration:
         assert ansible_vars["provider_api_keys"] == {"ant-primary": "sk-ant-123"}
 
 
+class TestBuildProviderOverlayRegion:
+    """ATX iter-2 B1' (#613): `_build_provider_overlay` must copy the
+    bedrock `region` from the provider record into the overlay dict.
+    The previous configure_agent-level test only proved the downstream
+    propagation; reverting the iter-1 B1 line in `_build_provider_overlay`
+    would not have failed it. This test exercises the fix site directly.
+    """
+
+    def test_bedrock_region_copied_from_provider_record(self):
+        from clawrium.core.lifecycle import _build_provider_overlay
+
+        record = {
+            "name": "bd-aux",
+            "type": "bedrock",
+            "endpoint": "",
+            "default_model": "anthropic.claude-3-sonnet-20240229-v1:0",
+            "region": "eu-central-1",
+        }
+        with patch(
+            "clawrium.core.providers.storage.get_provider", return_value=record
+        ):
+            overlay = _build_provider_overlay("bd-aux")
+        assert overlay["region"] == "eu-central-1"
+
+    def test_missing_region_field_omitted_from_overlay(self):
+        # Non-bedrock providers (or bedrock records pre-region) must not
+        # leak a spurious `region` key — downstream templates default the
+        # field, and an empty-string key would mask the default.
+        from clawrium.core.lifecycle import _build_provider_overlay
+
+        record = {
+            "name": "ant",
+            "type": "anthropic",
+            "endpoint": "",
+            "default_model": "claude-3",
+        }
+        with patch(
+            "clawrium.core.providers.storage.get_provider", return_value=record
+        ):
+            overlay = _build_provider_overlay("ant")
+        assert "region" not in overlay
+
+
 class TestRegionPropagationThroughConfigureAgent:
     """ATX iter-1 B1 (#613): the bedrock `region` carried on a
     `config.providers[i]` overlay must flow into

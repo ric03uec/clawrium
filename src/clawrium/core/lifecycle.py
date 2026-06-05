@@ -124,6 +124,45 @@ def _resolve_agent_type(agent_type: str) -> str:
     return ALIAS_TO_CANONICAL.get(agent_type, agent_type)
 
 
+def _build_provider_overlay(provider_name: str) -> dict:
+    """Build a config.provider(s) overlay dict from a registered provider.
+
+    Extracted to module scope (ATX iter-2 B1' on #613) so the per-field
+    copy contract — including the bedrock `region` propagation added in
+    iter-1 B1 — is unit-testable without standing up the full
+    `sync_agent` flow. Used by the `_build_overlay` closure inside
+    `sync_agent`; see comments there for the upstream wiring contract.
+    """
+    provider_record = _provider_storage.get_provider(provider_name)
+    if provider_record is None:
+        raise LifecycleError(
+            f"attached provider '{provider_name}' not registered. "
+            f"Run 'clawctl provider registry get' to list available providers."
+        )
+    overlay = {
+        "name": provider_record.get("name", ""),
+        "type": provider_record.get("type", "ollama"),
+        "endpoint": provider_record.get("endpoint", ""),
+        "default_model": provider_record.get("default_model", ""),
+    }
+    # `is not None` instead of truthy: max_tokens=0 / context_window=0
+    # are meaningful (no-limit signals on some APIs); a falsy check
+    # would silently drop them. ATX iter-1 S1 on #612.
+    if provider_record.get("context_window") is not None:
+        overlay["context_window"] = provider_record["context_window"]
+    if provider_record.get("max_tokens") is not None:
+        overlay["max_tokens"] = provider_record["max_tokens"]
+    # ATX iter-1 B1 (#613): propagate bedrock region from the provider
+    # record so the hermes auxiliary-slot AWS_DEFAULT_REGION/templates
+    # render the correct region. Without this the per-attachment
+    # credential dict at configure-time always sees an empty string,
+    # forcing fall-back to us-east-1 even when the operator registered
+    # the provider in a different region.
+    if provider_record.get("region") is not None:
+        overlay["region"] = provider_record["region"]
+    return overlay
+
+
 def _get_lifecycle_playbook_path(claw_name: str, operation: str) -> Path:
     canonical_name = _resolve_agent_type(claw_name)
     return (
@@ -1240,34 +1279,7 @@ def sync_agent(
     provider_name_for_state: str | None = None
 
     def _build_overlay(provider_name: str) -> dict:
-        provider_record = _provider_storage.get_provider(provider_name)
-        if provider_record is None:
-            raise LifecycleError(
-                f"attached provider '{provider_name}' not registered. "
-                f"Run 'clawctl provider registry get' to list available providers."
-            )
-        overlay = {
-            "name": provider_record.get("name", ""),
-            "type": provider_record.get("type", "ollama"),
-            "endpoint": provider_record.get("endpoint", ""),
-            "default_model": provider_record.get("default_model", ""),
-        }
-        # `is not None` instead of truthy: max_tokens=0 / context_window=0
-        # are meaningful (no-limit signals on some APIs); a falsy check
-        # would silently drop them. ATX iter-1 S1.
-        if provider_record.get("context_window") is not None:
-            overlay["context_window"] = provider_record["context_window"]
-        if provider_record.get("max_tokens") is not None:
-            overlay["max_tokens"] = provider_record["max_tokens"]
-        # ATX iter-1 B1 (#613): propagate bedrock region from the provider
-        # record so the hermes auxiliary-slot AWS_DEFAULT_REGION/templates
-        # render the correct region. Without this the per-attachment
-        # credential dict at configure-time always sees an empty string,
-        # forcing fall-back to us-east-1 even when the operator registered
-        # the provider in a different region.
-        if provider_record.get("region"):
-            overlay["region"] = provider_record["region"]
-        return overlay
+        return _build_provider_overlay(provider_name)
 
     if attachments and _pa.supports_multi_provider(agent_type):
         # Hermes path: build a config.providers list (one overlay per
@@ -1303,6 +1315,14 @@ def sync_agent(
                 provider_overlay = {
                     k: v for k, v in overlay.items() if k not in ("role",)
                 }
+                # ATX iter-2 W2 (#613): the legacy hermes-config.yaml.j2
+                # template reads `config.provider.default_model`, not
+                # `model`. Reflect the per-attachment model override here
+                # so an operator-provided override (`attach --model X`)
+                # actually lands in the rendered config instead of being
+                # silently dropped back to the registry default.
+                if attachment_model:
+                    provider_overlay["default_model"] = attachment_model
                 provider_name_for_state = entry["name"]
     elif attachments:
         # Singleton path (zeroclaw/openclaw). normalize() guarantees
@@ -2094,9 +2114,12 @@ def configure_agent(
             try:
                 _validate_name(ov_name)
             except _IPNE as exc:
+                # ATX iter-2 W5 (#613): %r on both name and exception so a
+                # CR/LF or escape-sequence payload can't spoof additional
+                # log lines via the formatter.
                 logger.warning(
                     "Skipping per-attachment credential hydration for invalid "
-                    "provider name %r: %s",
+                    "provider name %r: %r",
                     ov_name,
                     exc,
                 )

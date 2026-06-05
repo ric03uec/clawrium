@@ -67,7 +67,11 @@ model:
 {% if model_id %}  default: "{{ model_id }}"
 {% endif %}
 bedrock:
-  region: "{{ provider.region | default('us-east-1') }}"
+{# yaml_quote on region so a hand-edited or registry-provided region value
+   containing `"` or `\` cannot break out of the YAML scalar (ATX iter-2 W1
+   on #613 — the upstream `_build_overlay` change now reliably propagates
+   provider_record["region"] into this scalar). #}
+  region: {{ yaml_quote(provider.region | default('us-east-1')) }}
 auxiliary:
   title_generation:
 {# Plain bedrock model ID (no `us.` / `eu.` / `ap.` cross-region inference
