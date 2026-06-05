@@ -14,6 +14,13 @@ vi.mock("@/hooks", () => ({
   useAgentSkills: () => agentSkillsState,
 }));
 
+// Stub the attachments card — its async fetches are exercised in
+// agent-attachments-card.test.tsx and would otherwise dirty the
+// overview-tab tests with act() warnings.
+vi.mock("@/components/providers", () => ({
+  AgentAttachmentsCard: () => null,
+}));
+
 import { OverviewTab } from "./overview-tab";
 
 function makeAgent(overrides: Partial<AgentDetail> = {}): AgentDetail {

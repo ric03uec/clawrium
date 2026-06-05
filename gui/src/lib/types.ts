@@ -229,6 +229,38 @@ export interface ProviderUpdate {
   accelerator_vendor?: AcceleratorVendor;
 }
 
+// Hermes multi-provider attachment row. For singleton agent types the
+// attachments list carries plain strings — the modal collapses those
+// into stub entries with empty role/model before rendering.
+export interface ProviderAttachment {
+  name: string;
+  role: string;
+  model: string;
+}
+
+export interface AgentAttachmentsResponse {
+  agent: string;
+  agent_type: string;
+  supports_multi: boolean;
+  attachments: ProviderAttachment[] | string[];
+  available_roles: string[];
+  primary_attached: boolean;
+  aux_count: number;
+}
+
+export interface AttachmentRequest {
+  agent: string;
+  role?: string | null;
+}
+
+export interface AttachmentResponse {
+  success: boolean;
+  agent: string;
+  name: string;
+  role?: string | null;
+  already_attached?: boolean;
+}
+
 export interface CatalogModel {
   id: string;
   name: string;

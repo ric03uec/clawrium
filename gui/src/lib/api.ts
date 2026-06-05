@@ -107,6 +107,25 @@ export const api = {
   deleteProvider: (name: string) =>
     request<{ success: boolean; name: string }>(`/providers/${name}`, { method: "DELETE" }),
 
+  // Provider <-> agent attachments. Mirrors the CLI surface in
+  // `clawctl agent provider {attach,detach,get}`. For hermes, role
+  // is required on attach; for non-hermes (zeroclaw/openclaw) role is
+  // rejected and the singleton invariant still applies.
+  getAgentAttachments: (agent: string) =>
+    request<AgentAttachmentsResponse>(
+      `/providers/attachments/${encodeURIComponent(agent)}`,
+    ),
+  attachProviderToAgent: (name: string, data: AttachmentRequest) =>
+    request<AttachmentResponse>(
+      `/providers/${encodeURIComponent(name)}/attach`,
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+  detachProviderFromAgent: (name: string, agent: string) =>
+    request<AttachmentResponse>(
+      `/providers/${encodeURIComponent(name)}/attach?agent=${encodeURIComponent(agent)}`,
+      { method: "DELETE" },
+    ),
+
   // Integrations
   getIntegrations: async (): Promise<Integration[]> => {
     const res = await request<IntegrationsResponse>("/integrations");
@@ -291,4 +310,7 @@ import type {
   SkillDetail,
   AgentSkills,
   AgentSkillMutationResponse,
+  AgentAttachmentsResponse,
+  AttachmentRequest,
+  AttachmentResponse,
 } from "./types";

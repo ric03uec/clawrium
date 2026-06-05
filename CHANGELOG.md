@@ -19,6 +19,18 @@ release.
 
 ### Added
 
+- GUI: provider attachments card on the Agent Detail overview tab with
+  an Attach modal that mirrors the CLI semantics for hermes — a role
+  dropdown populated from the shared `VALID_ROLES` enum, pinned to
+  `primary` for the first attach, and filtered to the unfilled auxiliary
+  slots for subsequent attaches. The primary-detach button is disabled
+  while any auxiliary attachment remains. Backend endpoints
+  `POST /api/providers/{name}/attach`,
+  `DELETE /api/providers/{name}/attach?agent=…`, and
+  `GET /api/providers/attachments/{agent}` reuse
+  `core.provider_attachments.validate()` so the GUI and CLI cannot drift.
+  Non-hermes agents reject any `role` value and keep the singleton
+  invariant from #426. (#615, parent #589)
 - `clawctl agent provider attach --role <role>` for hermes agents.
   Required on hermes (`primary` for the first attachment, plus one of
   nine upstream auxiliary slots — `vision`, `web_extract`,

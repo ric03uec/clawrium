@@ -3,6 +3,7 @@
 import { AgentDetail } from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { useAgentSkills } from "@/hooks";
+import { AgentAttachmentsCard } from "@/components/providers";
 
 interface OverviewTabProps {
   agent: AgentDetail;
@@ -16,7 +17,10 @@ export function OverviewTab({ agent, agentKey }: OverviewTabProps) {
 
   return (
     <div className="space-y-4 p-4">
-      {/* Provider attachment */}
+      {/* Provider attachments — actionable list with attach/detach */}
+      <AgentAttachmentsCard agentName={agent.agent_name} />
+
+      {/* Provider attachment summary (legacy single-provider snapshot) */}
       <Card padding="md">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-primary-text">
