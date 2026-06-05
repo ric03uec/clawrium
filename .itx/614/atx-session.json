@@ -1,0 +1,11 @@
+{
+  "session_id": "8c70acbf-b635-4ba3-baa3-d58c38a6641f",
+  "transport": "cli",
+  "commit_sha": "1125ded",
+  "iteration": 1,
+  "last_rating": 2,
+  "last_blockers": ["B1: role not validated against AUXILIARY_SLOTS (YAML key injection on canonical sync)", "B2: no lockstep legacy↔canonical test", "B3: no canonical bedrock-aux test"],
+  "started_at": "2026-06-05T08:15:12Z",
+  "updated_at": "2026-06-05T08:25:37Z",
+  "cost_usd": 3.9054280000000006
+}

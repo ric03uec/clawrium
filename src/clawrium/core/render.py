@@ -376,13 +376,38 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
     # today). Each gets its own credential fetch so the env template can
     # emit one *_API_KEY per unique type and the YAML template can emit a
     # per-attachment `auxiliary.<role>:` block.
+    # ATX iter-1 B1: validate role against the canonical AUXILIARY_SLOTS
+    # tuple. The canonical `agent sync` caller does NOT first call
+    # `provider_attachments.validate()`, so without this check a
+    # hand-edited hosts.json with `"role": "vision:\n  malicious_key"`
+    # would flow straight into a bare YAML key in `auxiliary.<role>:`
+    # and inject arbitrary structure into the rendered config. The
+    # legacy ansible path is already gated by `_pa.validate()` upstream.
+    from clawrium.core.provider_attachments import AUXILIARY_SLOTS
+
     auxiliary_provider_inputs: list[AuxiliaryProviderInputs] = []
+    seen_aux_roles: set[str] = set()
     for entry in attachments:
         if not isinstance(entry, dict):
             continue
         role = entry.get("role", "")
         if not role or role == "primary":
             continue
+        if role not in AUXILIARY_SLOTS:
+            raise AgentConfigError(
+                f"auxiliary attachment on agent {agent_name!r} has invalid "
+                f"role {role!r}; expected one of {sorted(AUXILIARY_SLOTS)}"
+            )
+        # Uniqueness gate. `_pa.validate()` enforces this on the legacy
+        # path; mirror it here so a duplicate-role hosts.json does not
+        # render two `auxiliary.<role>:` keys (PyYAML silently
+        # last-wins) on the canonical sync path.
+        if role in seen_aux_roles:
+            raise AgentConfigError(
+                f"auxiliary attachments on agent {agent_name!r} reuse role "
+                f"{role!r}; each auxiliary slot must appear at most once"
+            )
+        seen_aux_roles.add(role)
         aux_name = entry.get("name") or ""
         if not aux_name:
             continue
@@ -967,6 +992,10 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
         mcp_atlassian_version=_HERMES_MCP_ATLASSIAN_VERSION,
         aux_providers=aux_yaml_views,
         explicit_title_gen=explicit_title_gen,
+        # ATX iter-1 W1: single source of truth — pass the Python map
+        # through to the template rather than maintaining an inline
+        # copy in Jinja.
+        default_title_gen_map=_HERMES_DEFAULT_TITLE_GEN_MODEL,
     )
 
     return RenderedFiles(

@@ -33,7 +33,13 @@
 {% endfor %}
 {# Default `auxiliary.title_generation.model:` per primary type. Ollama is
    intentionally absent — the local model is already cheap, so no remote
-   aux pin (mirrors the canonical-template ollama branch). #}
+   aux pin (mirrors the canonical-template ollama branch).
+   ATX iter-1 W1: this map MUST stay byte-identical with
+   `_HERMES_DEFAULT_TITLE_GEN_MODEL` in `src/clawrium/core/render.py`.
+   The canonical template (`hermes-config.canonical.yaml.j2`) reads
+   that Python constant via a context var; this Ansible-driven template
+   has no easy plumbing for the same threading, so the map is inlined
+   and the rule above is the enforcement contract. #}
 {% set _default_title_gen_map = {
   'openrouter': 'anthropic/claude-haiku-4.5',
   'anthropic': 'claude-haiku-4-5-20251001',
@@ -120,7 +126,12 @@ auxiliary:
   title_generation:
     model: "{{ _default_title_gen_map[provider_type] }}"
 {% endif %}
-{% for _role, _entry in _explicit_aux.items() %}
+{# ATX iter-1 W3: sort by role to match the canonical render path's
+   `auxiliary_provider_inputs.sort(key=lambda p: p.role)` at render.py.
+   Without this lockstep, a `configure` (this template) then `sync`
+   (canonical template) writes different bytes to ~/.hermes/config.yaml
+   for any agent with 2+ auxiliaries. #}
+{% for _role, _entry in _explicit_aux | dictsort %}
 {% set _ptype = _entry.type | default('') %}
 {% set _aux_model = _entry.model | default(_entry.default_model | default('')) %}
   {{ _role }}:

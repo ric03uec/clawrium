@@ -9,14 +9,10 @@
 # Managed by clawrium (clawctl). Re-render with `clawctl agent configure {{ agent_name }}`.
 {# Per-primary-type default `auxiliary.title_generation.model`. An
    explicit `title_generation` attachment in `aux_providers` (#614)
-   shadows this default — see the consolidated `auxiliary:` block below. #}
-{% set _default_title_gen_map = {
-  'openrouter': 'anthropic/claude-haiku-4.5',
-  'anthropic': 'claude-haiku-4-5-20251001',
-  'openai': 'gpt-5-nano',
-  'bedrock': 'anthropic.claude-haiku-4-5-20251001-v1:0'
-} %}
-{% set _emit_default_title_gen = (provider.type in _default_title_gen_map) and (not explicit_title_gen) %}
+   shadows this default — see the consolidated `auxiliary:` block below.
+   ATX iter-1 W1: the map is owned by `_HERMES_DEFAULT_TITLE_GEN_MODEL`
+   in `core/render.py` and threaded in here as `default_title_gen_map`. #}
+{% set _emit_default_title_gen = (provider.type in default_title_gen_map) and (not explicit_title_gen) %}
 {% if provider.type == 'openrouter' %}
 model:
   provider: "openrouter"
@@ -54,7 +50,7 @@ model:
 auxiliary:
 {% if _emit_default_title_gen %}
   title_generation:
-    model: "{{ _default_title_gen_map[provider.type] }}"
+    model: "{{ default_title_gen_map[provider.type] }}"
 {% endif %}
 {% for _aux in aux_providers %}
   {{ _aux.role }}:
