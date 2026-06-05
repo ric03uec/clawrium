@@ -131,6 +131,72 @@ def test_hermes_legacy_list_of_strings_migrates_to_primary():
     assert providers[0]["role"] == "primary"
 
 
+def test_hermes_primary_model_override_lands_in_default_model():
+    """ATX iter-3 B1 (#613): when the primary attachment carries an
+    explicit `--model` override, the rendered `config.provider.default_model`
+    must reflect the override so the legacy hermes-config.yaml.j2 template
+    (which reads default_model, not model) renders the operator's intent.
+    """
+    host = _hermes_host(
+        attachments=[{"name": "anth", "role": "primary", "model": "claude-opus-4-5"}]
+    )
+
+    captured: dict = {}
+
+    def fake_configure(hostname, claw_name, config_data, **kwargs):
+        captured["config_data"] = config_data
+        return (True, None)
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch(
+            "clawrium.core.providers.storage.get_provider",
+            return_value=_provider_record("anth", "anthropic"),
+        ),
+        patch("clawrium.core.onboarding.complete_stage", return_value=True),
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
+        patch("clawrium.core.onboarding.can_skip_stage", return_value=True),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        result = sync_agent("192.168.1.100", "hermes")
+
+    assert result["success"] is True
+    cfg = captured["config_data"]
+    assert cfg["provider"]["default_model"] == "claude-opus-4-5"
+
+
+def test_hermes_primary_no_model_override_keeps_registry_default():
+    """ATX iter-3 B1 inverse (#613): primary attachment with no model
+    override falls back to the registry's `default_model`. Pins the
+    no-op-on-no-override behavior of the W2 fix guard."""
+    host = _hermes_host(
+        attachments=[{"name": "anth", "role": "primary", "model": ""}]
+    )
+
+    captured: dict = {}
+
+    def fake_configure(hostname, claw_name, config_data, **kwargs):
+        captured["config_data"] = config_data
+        return (True, None)
+
+    with (
+        patch("clawrium.core.lifecycle.get_host", return_value=host),
+        patch(
+            "clawrium.core.providers.storage.get_provider",
+            return_value=_provider_record("anth", "anthropic"),
+        ),
+        patch("clawrium.core.onboarding.complete_stage", return_value=True),
+        patch("clawrium.core.onboarding.transition_state", return_value=True),
+        patch("clawrium.core.onboarding.can_skip_stage", return_value=True),
+        patch("clawrium.core.lifecycle.configure_agent", side_effect=fake_configure),
+    ):
+        result = sync_agent("192.168.1.100", "hermes")
+
+    assert result["success"] is True
+    cfg = captured["config_data"]
+    assert cfg["provider"]["default_model"] == "anthropic-default-model"
+
+
 def test_hermes_attachment_model_falls_back_to_provider_default():
     """When the attachment has no `model` override, the rendered
     overlay carries the provider's `default_model`."""

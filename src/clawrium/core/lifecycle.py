@@ -130,8 +130,8 @@ def _build_provider_overlay(provider_name: str) -> dict:
     Extracted to module scope (ATX iter-2 B1' on #613) so the per-field
     copy contract — including the bedrock `region` propagation added in
     iter-1 B1 — is unit-testable without standing up the full
-    `sync_agent` flow. Used by the `_build_overlay` closure inside
-    `sync_agent`; see comments there for the upstream wiring contract.
+    `sync_agent` flow. Called directly from `sync_agent` for both the
+    multi-provider (hermes) and singleton (zeroclaw/openclaw) paths.
     """
     provider_record = _provider_storage.get_provider(provider_name)
     if provider_record is None:
@@ -158,7 +158,11 @@ def _build_provider_overlay(provider_name: str) -> dict:
     # credential dict at configure-time always sees an empty string,
     # forcing fall-back to us-east-1 even when the operator registered
     # the provider in a different region.
-    if provider_record.get("region") is not None:
+    # Truthy guard (not `is not None`) so an empty-string region from a
+    # hand-edited record falls back to the template default rather than
+    # silently overriding it with "". A bedrock region is never validly
+    # the empty string. ATX iter-3 W-new-2 on #613.
+    if provider_record.get("region"):
         overlay["region"] = provider_record["region"]
     return overlay
 
@@ -1278,9 +1282,6 @@ def sync_agent(
     provider_overlays: list[dict] | None = None
     provider_name_for_state: str | None = None
 
-    def _build_overlay(provider_name: str) -> dict:
-        return _build_provider_overlay(provider_name)
-
     if attachments and _pa.supports_multi_provider(agent_type):
         # Hermes path: build a config.providers list (one overlay per
         # attachment, carrying role + per-attachment model) and also
@@ -1301,7 +1302,7 @@ def sync_agent(
                     f"after normalization: {entry!r}. Inspect with "
                     f"'clawctl agent provider get --agent {agent_key}'."
                 )
-            overlay = _build_overlay(entry["name"])
+            overlay = _build_provider_overlay(entry["name"])
             overlay["role"] = entry.get("role", "")
             # Per-attachment model override; falls back to provider's
             # default_model when the attachment didn't specify one.
@@ -1315,14 +1316,17 @@ def sync_agent(
                 provider_overlay = {
                     k: v for k, v in overlay.items() if k not in ("role",)
                 }
-                # ATX iter-2 W2 (#613): the legacy hermes-config.yaml.j2
-                # template reads `config.provider.default_model`, not
-                # `model`. Reflect the per-attachment model override here
-                # so an operator-provided override (`attach --model X`)
-                # actually lands in the rendered config instead of being
-                # silently dropped back to the registry default.
-                if attachment_model:
-                    provider_overlay["default_model"] = attachment_model
+                # ATX iter-2 W2 + iter-3 W-new-4 (#613): the legacy
+                # hermes-config.yaml.j2 template reads
+                # `config.provider.default_model`, not `model`. Reflect
+                # the per-attachment override here so an operator-provided
+                # `attach --model X` actually lands in the rendered
+                # config instead of being silently dropped to the
+                # registry default. Guard on the raw `entry["model"]`
+                # (not the post-fallback `attachment_model`) so the
+                # no-override path remains a true no-op.
+                if entry.get("model"):
+                    provider_overlay["default_model"] = entry["model"]
                 provider_name_for_state = entry["name"]
     elif attachments:
         # Singleton path (zeroclaw/openclaw). normalize() guarantees
@@ -1332,7 +1336,7 @@ def sync_agent(
             raise LifecycleError(
                 f"agent '{agent_key}' provider attachment shape unexpected"
             )
-        provider_overlay = _build_overlay(provider_name)
+        provider_overlay = _build_provider_overlay(provider_name)
         provider_name_for_state = provider_name
 
     onboarding = claw_record.get("onboarding", {})

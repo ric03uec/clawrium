@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
@@ -3570,6 +3571,37 @@ class TestBuildProviderOverlayRegion:
         ):
             overlay = _build_provider_overlay("bd-aux")
         assert overlay["region"] == "eu-central-1"
+
+    def test_empty_string_region_falls_back_to_template_default(self):
+        # ATX iter-3 W-new-2 (#613): a hand-edited provider record with
+        # `region: ""` must fall back to the template default rather than
+        # silently shadowing it with an empty scalar.
+        from clawrium.core.lifecycle import _build_provider_overlay
+
+        record = {
+            "name": "bd-aux",
+            "type": "bedrock",
+            "endpoint": "",
+            "default_model": "anthropic.claude-3-sonnet-20240229-v1:0",
+            "region": "",
+        }
+        with patch(
+            "clawrium.core.providers.storage.get_provider", return_value=record
+        ):
+            overlay = _build_provider_overlay("bd-aux")
+        assert "region" not in overlay
+
+    def test_unregistered_provider_raises_lifecycle_error(self):
+        # ATX iter-3 W-new-1 (#613): the unregistered-provider error
+        # path is the primary motivation for extracting this helper —
+        # pin it directly.
+        from clawrium.core.lifecycle import LifecycleError, _build_provider_overlay
+
+        with patch(
+            "clawrium.core.providers.storage.get_provider", return_value=None
+        ):
+            with pytest.raises(LifecycleError, match="not registered"):
+                _build_provider_overlay("ghost")
 
     def test_missing_region_field_omitted_from_overlay(self):
         # Non-bedrock providers (or bedrock records pre-region) must not
