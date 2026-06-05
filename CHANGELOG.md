@@ -19,6 +19,19 @@ release.
 
 ### Added
 
+- `clawctl agent provider attach --role <role>` for hermes agents.
+  Required on hermes (`primary` for the first attachment, plus one of
+  nine upstream auxiliary slots — `vision`, `web_extract`,
+  `compression`, `session_search`, `skills_hub`, `approval`, `mcp`,
+  `title_generation`, `curator` — for any subsequent attachment).
+  Rejected on `zeroclaw`/`openclaw`. `clawctl agent provider get`
+  renders the additional `role` and `model` columns for hermes; the
+  legacy flat output is unchanged for singleton agents. `clawctl agent
+  provider detach <primary-name>` now refuses to remove the primary
+  attachment while auxiliary attachments remain — detach those first.
+  Singleton agents keep the `single-provider invariant` rejection
+  message verbatim. (#612, parent #589)
+
 ### Changed
 
 ### Fixed
