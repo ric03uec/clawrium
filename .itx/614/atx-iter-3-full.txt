@@ -1,0 +1,4 @@
+To github.com:ric03uec/clawrium.git
+   e7ceae3..70c09df  issue-614-templates-auxiliary -> issue-614-templates-auxiliary
+---
+EXIT=0

@@ -846,15 +846,27 @@ def _build_provider_env_views(
 def _build_aux_yaml_views(
     auxiliary: tuple[AuxiliaryProviderInputs, ...],
 ) -> list[dict]:
-    """Return one dict per non-primary attachment for the YAML template."""
-    return [
-        {
-            "role": aux.role,
-            "type": aux.type,
-            "model": aux.model,
-        }
-        for aux in auxiliary
-    ]
+    """Return one dict per non-primary attachment for the YAML template.
+
+    Sorted alphabetically by role so the canonical render path matches
+    the legacy template's `| dictsort` byte-for-byte. ATX iter-3 W2 on
+    #614 — the prior sort in `build_render_inputs` only fired on the
+    assembly path; a caller of `render_hermes` constructing
+    `RenderInputs` directly would have produced insertion-order output
+    and diverged from the legacy ansible-driven render. The sort
+    belongs to the rendering contract, not the assembly contract.
+    """
+    return sorted(
+        (
+            {
+                "role": aux.role,
+                "type": aux.type,
+                "model": aux.model,
+            }
+            for aux in auxiliary
+        ),
+        key=lambda view: view["role"],
+    )
 
 
 def render_hermes(inputs: RenderInputs) -> RenderedFiles:
@@ -885,12 +897,28 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
     # ollama) would silently render `provider: "auto"` in the YAML
     # auxiliary block and emit no env key — the silent fall-through is
     # inconsistent with render_hermes' stated contract.
+    # ATX iter-3 W1 (#614): also gate aux role against AUXILIARY_SLOTS
+    # on this pure-function API. `build_render_inputs` validates role
+    # earlier (B1, iter-1), but `render_hermes` is callable directly
+    # with hand-built `RenderInputs` — without this loop a caller
+    # could feed `role='vision:\n  injected: evil'` straight into the
+    # `auxiliary.<role>:` bare YAML key. Same injection class as B1.
+    from clawrium.core.provider_attachments import (
+        AUXILIARY_SLOTS as _AUX_SLOTS,
+    )
+
     for _aux in inputs.auxiliary_providers:
         if _aux.type not in _HERMES_SUPPORTED_PROVIDERS:
             raise AgentConfigError(
                 f"render_hermes does not support auxiliary provider type "
                 f"{_aux.type!r} (role {_aux.role!r}). "
                 f"Supported: {sorted(_HERMES_SUPPORTED_PROVIDERS)}"
+            )
+        if _aux.role not in _AUX_SLOTS:
+            raise AgentConfigError(
+                f"render_hermes: auxiliary provider {_aux.name!r} has "
+                f"invalid role {_aux.role!r}; "
+                f"expected one of {sorted(_AUX_SLOTS)}"
             )
 
     # B2 (ATX round 4): duplicate-discord/duplicate-slack guard. The

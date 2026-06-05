@@ -687,22 +687,27 @@ class TestLegacyCanonicalLockstep:
 
     def test_multi_aux_yaml_ordering_matches(self):
         """ATX iter-1 W3: two aux roles render in the same key order in
-        both families (alphabetical by role)."""
+        both families (alphabetical by role).
+        ATX iter-3 W2: feed `web_extract` BEFORE `vision` so an
+        insertion-order-preserving renderer (missing sort) would emit
+        `[title_generation, web_extract, vision]` and fail the absolute
+        ordering check. The fixture order must differ from the expected
+        alphabetical output for the sort contract to be observable."""
         legacy_yaml, _ = _legacy_render(
             "anthropic",
             "claude-opus-4-5",
             aux_specs=[
                 {
-                    "name": "or-v",
-                    "type": "openrouter",
-                    "role": "vision",
-                    "model": "anthropic/claude-opus-4.6",
-                },
-                {
                     "name": "oai-w",
                     "type": "openai",
                     "role": "web_extract",
                     "model": "gpt-4o",
+                },
+                {
+                    "name": "or-v",
+                    "type": "openrouter",
+                    "role": "vision",
+                    "model": "anthropic/claude-opus-4.6",
                 },
             ],
             api_keys={
@@ -717,18 +722,18 @@ class TestLegacyCanonicalLockstep:
             "claude-opus-4-5",
             aux_inputs=(
                 AuxiliaryProviderInputs(
-                    name="or-v",
-                    type="openrouter",
-                    role="vision",
-                    model="anthropic/claude-opus-4.6",
-                    api_key="sk-or",
-                ),
-                AuxiliaryProviderInputs(
                     name="oai-w",
                     type="openai",
                     role="web_extract",
                     model="gpt-4o",
                     api_key="sk-oai",
+                ),
+                AuxiliaryProviderInputs(
+                    name="or-v",
+                    type="openrouter",
+                    role="vision",
+                    model="anthropic/claude-opus-4.6",
+                    api_key="sk-or",
                 ),
             ),
             primary_api_key="sk-ant",
@@ -859,6 +864,16 @@ class TestLegacyCanonicalLockstep:
             ),
             primary_api_key="sk-ant",
         )
+        # ATX iter-3 W3: pin the literal expected key set first so a
+        # dual regression (both families drop a key together) cannot
+        # slip through the equality assertion below.
+        expected_keys = {
+            "ANTHROPIC_API_KEY",
+            "OPENROUTER_API_KEY",
+            "OPENAI_API_KEY",
+            "HERMES_INFERENCE_PROVIDER",
+        }
+        assert expected_keys == self._emitted_env_keys(legacy_env)
         assert self._emitted_env_keys(legacy_env) == self._emitted_env_keys(
             canonical_env
         )
