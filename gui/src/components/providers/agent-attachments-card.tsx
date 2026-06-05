@@ -170,7 +170,10 @@ export function AgentAttachmentsCard({ agentName }: AgentAttachmentsCardProps) {
                   <td className="py-1.5 text-right">
                     {/* Wrap in <span> so the title tooltip stays visible
                         on Firefox/Safari, where disabled buttons swallow
-                        the `title` attribute. */}
+                        the `title` attribute.
+                        TODO(#615-W2): span title is not announced by AT
+                        (NVDA/JAWS/VoiceOver); replace with
+                        aria-describedby + sr-only span — follow-up. */}
                     <span title={detachTitle} className="inline-block">
                       <Button
                         size="sm"

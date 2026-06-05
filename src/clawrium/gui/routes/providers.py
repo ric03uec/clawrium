@@ -561,8 +561,19 @@ async def attach_provider_to_agent(name: str, body: AttachmentRequest):
     # this and bubble up as HTTP 400 via AttachmentError, but a slot
     # conflict is semantically a 409 — surface it before the persist
     # path runs and include the blocking provider in the detail so the
-    # operator can act without an extra GET.
-    if multi and body.role is not None and body.role != PRIMARY_ROLE:
+    # operator can act without an extra GET. Covers both primary and
+    # aux slots so a `role=primary` collision returns 409, not 400.
+    #
+    # W3 (TOCTOU): the slot-conflict and idempotent checks read
+    # `current` outside `update_host`'s lock; concurrent attaches on
+    # the same agent can race and silently clobber each other.
+    # Deferred to a dedicated refactor (#615 follow-up) — the CLI has
+    # the same pattern in `cli/clawctl/agent/provider.py`.
+    # W4 (structured 409 body): detail is a prose string today; the
+    # frontend renders it verbatim. Returning a structured
+    # `{message, conflicting_role, conflicting_provider}` body is
+    # deferred to a follow-up so the GUI doesn't have to parse text.
+    if multi and body.role is not None:
         occupant = next(
             (
                 e
@@ -572,10 +583,13 @@ async def attach_provider_to_agent(name: str, body: AttachmentRequest):
             None,
         )
         if occupant is not None and _attachment_name(occupant) != name:
+            slot_label = (
+                "primary slot" if body.role == PRIMARY_ROLE else f"auxiliary slot {body.role!r}"
+            )
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"hermes auxiliary slot {body.role!r} is already bound "
+                    f"hermes {slot_label} is already bound "
                     f"to {_attachment_name(occupant)!r}; detach first"
                 ),
             )

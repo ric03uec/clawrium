@@ -344,7 +344,7 @@ def test_attach_hermes_different_provider_same_slot_409(monkeypatch):
     """A second provider targeting an already-occupied aux slot is a
     conflict — it must surface as HTTP 409 with the blocking provider
     named, not as a generic 400 from validate(). (ATX iter-2 B3)"""
-    _install_fixture(
+    state = _install_fixture(
         monkeypatch,
         agent_name="sage",
         agent_type="hermes",
@@ -363,6 +363,33 @@ def test_attach_hermes_different_provider_same_slot_409(monkeypatch):
     assert exc.value.status_code == 409
     assert "vision" in exc.value.detail
     assert "openrt" in exc.value.detail
+    # No write must have occurred — pin the state-unchanged invariant
+    # so a future regression that lets the persist path run before the
+    # guard is visible in CI. (ATX iter-3)
+    assert len(state["host"]["agents"]["sage"]["providers"]) == 2
+
+
+def test_attach_hermes_different_provider_primary_slot_409(monkeypatch):
+    """Symmetric to the aux-slot test: a second provider targeting the
+    already-occupied primary slot is a conflict, not a 400. (ATX
+    iter-3 B-NEW)"""
+    state = _install_fixture(
+        monkeypatch,
+        agent_name="sage",
+        agent_type="hermes",
+        providers=[{"name": "anth", "role": "primary", "model": ""}],
+        provider_records={"alt": {"name": "alt", "default_model": "m"}},
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(
+            attach_provider_to_agent(
+                "alt", AttachmentRequest(agent="sage", role="primary")
+            )
+        )
+    assert exc.value.status_code == 409
+    assert "primary" in exc.value.detail
+    assert "anth" in exc.value.detail
+    assert len(state["host"]["agents"]["sage"]["providers"]) == 1
 
 
 def test_available_roles_all_aux_filled_returns_empty():

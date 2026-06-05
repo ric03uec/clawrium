@@ -104,12 +104,17 @@ export function AttachProviderModal({
 
         {supportsMulti && (
           <div>
-            <label
-              htmlFor={roleId}
-              className="block text-xs font-medium text-secondary mb-1"
-            >
-              Role
-            </label>
+            {/* Skip the label when there is no target select to bind to;
+                otherwise `htmlFor` would point at a non-existent element
+                and AT users would focus nothing on activation. */}
+            {!noAvailableRoles && (
+              <label
+                htmlFor={roleId}
+                className="block text-xs font-medium text-secondary mb-1"
+              >
+                Role
+              </label>
+            )}
             {noAvailableRoles ? (
               <p className="text-xs text-amber-700">
                 All auxiliary slots are filled. Detach an attachment to free a slot.

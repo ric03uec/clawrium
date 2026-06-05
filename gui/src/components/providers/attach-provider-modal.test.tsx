@@ -222,6 +222,10 @@ describe("AttachProviderModal — all aux slots filled", () => {
     );
     // Notice is rendered in place of the role select.
     expect(screen.queryByLabelText("Role")).toBeNull();
+    // The orphaned <label htmlFor> must also be absent — otherwise AT
+    // users tabbing into a stale "Role" label would focus nothing.
+    // (ATX iter-3 frontend regression fix.)
+    expect(screen.queryByText("Role")).toBeNull();
     expect(screen.getByText(/auxiliary slots are filled/i)).toBeTruthy();
     expect(screen.getByText("Attach")).toBeDisabled();
   });
