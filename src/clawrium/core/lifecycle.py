@@ -1485,14 +1485,8 @@ def sync_agent(
         # render `auxiliary.<slot>` in hermes-config.yaml.j2 (Phase 3).
         # `config.provider` stays populated above from the primary so
         # existing readers continue to function unchanged in Phase 1.
-        #
-        # TODO(#501 Phase 3): when hermes-config.yaml.j2 renders
-        # `auxiliary.<slot>` per non-primary attachment, configure_agent
-        # must also hydrate per-attachment API keys into ansible_vars.
-        # Today only the primary's `provider_api_key` is loaded
-        # (lifecycle.py configure path), so every auxiliary slot would
-        # render with an empty key. Block the Phase 3 template work on
-        # this hydration to avoid a silent misconfigure at first use.
+        # Issue #613 (subtask 2 of #589): per-attachment API-key
+        # hydration into ansible_vars now lives in configure_agent.
         existing_config = dict(existing_config)
         existing_config["providers"] = provider_overlays
 
@@ -2058,6 +2052,45 @@ def configure_agent(
             if provider_api_key:
                 emit("configure", "Loaded provider API key from secrets")
 
+    # Issue #613 (subtask 2 of #589): per-attachment credential hydration
+    # for hermes multi-provider. Templates (subtask 3) iterate these to
+    # render `auxiliary.<slot>` blocks with each attachment's own key.
+    # The singleton `provider_api_key` / `aws_access_key` / `aws_secret_key`
+    # above stays in place — the primary's credentials must still populate
+    # the legacy scalars so un-migrated canonical-pipeline templates keep
+    # working (back-compat invariant in the acceptance criteria).
+    provider_api_keys: dict[str, str] = {}
+    provider_aws_credentials: dict[str, dict[str, str]] = {}
+    if _pa.supports_multi_provider(resolved_type) and isinstance(
+        config_data.get("providers"), list
+    ):
+        for overlay in config_data["providers"]:
+            if not isinstance(overlay, dict):
+                continue
+            ov_name = overlay.get("name")
+            if not isinstance(ov_name, str) or not ov_name:
+                continue
+            ov_type = overlay.get("type", "")
+            if ov_type == "bedrock":
+                ak, sk = get_provider_aws_credentials(ov_name)
+                if ak and sk:
+                    provider_aws_credentials[ov_name] = {
+                        "access_key": ak,
+                        "secret_key": sk,
+                        "region": overlay.get("region", "") or "",
+                    }
+            else:
+                key = get_provider_api_key(ov_name) or ""
+                if key:
+                    provider_api_keys[ov_name] = key
+        if provider_api_keys or provider_aws_credentials:
+            emit(
+                "configure",
+                f"Loaded per-attachment credentials for "
+                f"{len(provider_api_keys)} API + "
+                f"{len(provider_aws_credentials)} AWS providers",
+            )
+
     # Load channel secrets (Discord bot token)
     discord_bot_token = ""
     try:
@@ -2251,6 +2284,8 @@ def configure_agent(
         "provider_api_key": provider_api_key,
         "aws_access_key": aws_access_key,
         "aws_secret_key": aws_secret_key,
+        "provider_api_keys": provider_api_keys,
+        "provider_aws_credentials": provider_aws_credentials,
         "discord_bot_token": discord_bot_token,
         "slack_bot_token": slack_bot_token,
         "slack_app_token": slack_app_token,

@@ -3231,3 +3231,170 @@ class TestConfigYamlMCPServers:
             "CONFLUENCE_USERNAME",
             "CONFLUENCE_API_TOKEN",
         }
+
+
+class TestHermesMultiProviderHydration:
+    """Issue #613: configure_agent hydrates per-attachment API keys into
+    `provider_api_keys` and AWS creds into `provider_aws_credentials` for
+    hermes, while keeping the legacy singleton vars populated for back-compat.
+    """
+
+    def _host(self) -> dict:
+        return {
+            "hostname": "test-host",
+            "key_id": "test",
+            "agents": {
+                "hermes-test": {
+                    "type": "hermes",
+                    "agent_name": "hermes-test",
+                    "config": {
+                        "api_server": {
+                            "enabled": True,
+                            "host": "127.0.0.1",
+                            "port": 8642,
+                        }
+                    },
+                }
+            },
+        }
+
+    def _config_data(self) -> dict:
+        # `config.provider` reflects the primary (preserved by lifecycle's
+        # overlay branch for back-compat). `config.providers` is the new
+        # multi-attachment list the hermes path emits.
+        return {
+            "gateway": {"host": "127.0.0.1", "port": 8642},
+            "provider": {
+                "name": "ant-primary",
+                "type": "anthropic",
+                "default_model": "claude-3",
+            },
+            "providers": [
+                {
+                    "name": "ant-primary",
+                    "type": "anthropic",
+                    "default_model": "claude-3",
+                    "role": "primary",
+                    "model": "claude-3",
+                },
+                {
+                    "name": "or-aux",
+                    "type": "openrouter",
+                    "default_model": "auto",
+                    "role": "vision",
+                    "model": "auto",
+                },
+                {
+                    "name": "bd-aux",
+                    "type": "bedrock",
+                    "default_model": "anthropic.claude-3-sonnet-20240229-v1:0",
+                    "role": "compression",
+                    "model": "anthropic.claude-3-sonnet-20240229-v1:0",
+                    "region": "us-west-2",
+                },
+            ],
+        }
+
+    def _api_server_secrets(self) -> dict:
+        return {
+            "HERMES_API_SERVER_KEY": {
+                "key": "HERMES_API_SERVER_KEY",
+                "value": "a" * 64,
+                "created_at": "2026-06-04T00:00:00+00:00",
+                "updated_at": "2026-06-04T00:00:00+00:00",
+                "description": "",
+            }
+        }
+
+    def _run(self, tmp_path: Path, config_data: dict, agent_type: str = "hermes"):
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook = tmp_path / "configure.yaml"
+        playbook.write_text("---\n")
+
+        captured = {}
+
+        def fake_run(**kwargs):
+            captured["inventory"] = kwargs["inventory"]
+            mock = MagicMock()
+            mock.status = "successful"
+            mock.events = []
+            return mock
+
+        api_keys = {"ant-primary": "sk-ant-123", "or-aux": "sk-or-456"}
+        aws_creds = {
+            "bd-aux": ("AKIAEXAMPLE", "wJalrEXAMPLE"),
+        }
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=self._host()),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ),
+            patch("clawrium.core.lifecycle.ansible_runner.run", side_effect=fake_run),
+            patch("clawrium.core.lifecycle.update_host", return_value=True),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value=self._api_server_secrets(),
+            ),
+            patch(
+                "clawrium.core.providers.get_provider_api_key",
+                side_effect=lambda name: api_keys.get(name),
+            ),
+            patch(
+                "clawrium.core.providers.get_provider_aws_credentials",
+                side_effect=lambda name: aws_creds.get(name, (None, None)),
+            ),
+        ):
+            success, error = configure_agent(
+                "test-host", agent_type, config_data, agent_name="hermes-test"
+            )
+
+        return success, error, captured
+
+    def test_multi_provider_keys_hydrated_for_hermes(self, tmp_path: Path):
+        success, error, captured = self._run(tmp_path, self._config_data())
+        assert success is True, error
+
+        ansible_vars = captured["inventory"]["all"]["vars"]
+        # Multi-provider dicts present and correctly partitioned by type.
+        assert ansible_vars["provider_api_keys"] == {
+            "ant-primary": "sk-ant-123",
+            "or-aux": "sk-or-456",
+        }
+        assert ansible_vars["provider_aws_credentials"] == {
+            "bd-aux": {
+                "access_key": "AKIAEXAMPLE",
+                "secret_key": "wJalrEXAMPLE",
+                "region": "us-west-2",
+            }
+        }
+        # Back-compat: primary's key also lives in the legacy scalar so
+        # un-migrated canonical templates keep rendering.
+        assert ansible_vars["provider_api_key"] == "sk-ant-123"
+
+    def test_hermes_without_providers_list_emits_empty_multi_dicts(
+        self, tmp_path: Path
+    ):
+        # A hermes agent whose config_data carries only the legacy
+        # singleton `provider` (no `providers` list) must produce empty
+        # multi-provider dicts and leave the legacy scalar populated.
+        config_data = {
+            "gateway": {"host": "127.0.0.1", "port": 8642},
+            "provider": {
+                "name": "ant-primary",
+                "type": "anthropic",
+                "default_model": "claude-3",
+            },
+        }
+        success, error, captured = self._run(tmp_path, config_data)
+        assert success is True, error
+
+        ansible_vars = captured["inventory"]["all"]["vars"]
+        assert ansible_vars["provider_api_key"] == "sk-ant-123"
+        assert ansible_vars["provider_api_keys"] == {}
+        assert ansible_vars["provider_aws_credentials"] == {}

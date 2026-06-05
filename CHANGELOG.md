@@ -31,6 +31,16 @@ release.
   attachment while auxiliary attachments remain — detach those first.
   Singleton agents keep the `single-provider invariant` rejection
   message verbatim. (#612, parent #589)
+- `configure_agent` now hydrates per-attachment provider credentials
+  into `ansible_vars` for hermes: `provider_api_keys` (dict keyed by
+  provider name) carries API keys for non-bedrock attachments, and
+  `provider_aws_credentials` (dict of `{access_key, secret_key,
+  region}` keyed by provider name) carries AWS creds for bedrock
+  attachments. The legacy singleton `provider_api_key` /
+  `aws_access_key` / `aws_secret_key` vars continue to reflect the
+  primary attachment for back-compat with un-migrated canonical
+  templates. Zeroclaw/openclaw `ansible_vars` are unchanged. (#613,
+  parent #589)
 
 ### Changed
 
