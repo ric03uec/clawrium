@@ -96,7 +96,11 @@ def _set_attachments(
     try:
         validate(attachments, agent_type)
     except AttachmentError as exc:
+        # ATX iter-1 B4: explicit early return after emit_error so the
+        # validation gate still keeps `update_host` from running even if
+        # tests (or future callers) patch `emit_error` to a no-op.
         emit_error(str(exc))
+        return False
 
     def updater(h: dict) -> dict:
         agents = h.get("agents", {})
@@ -137,7 +141,7 @@ def attach(
         "--role",
         help=(
             "Attachment role (hermes only). Required on hermes: 'primary' "
-            f"or one of {sorted(AUXILIARY_SLOTS)}. Rejected on non-hermes."
+            f"or one of {', '.join(sorted(AUXILIARY_SLOTS))}. Rejected on non-hermes."
         ),
     ),
 ) -> None:
@@ -167,13 +171,13 @@ def attach(
                 f"agent '{agent}' is a hermes agent; --role is required",
                 hint=(
                     "pass --role primary for the first attachment, "
-                    f"or one of {sorted(AUXILIARY_SLOTS)} for an auxiliary slot"
+                    f"or one of {', '.join(sorted(AUXILIARY_SLOTS))} for an auxiliary slot"
                 ),
             )
         if role not in VALID_ROLES:
             emit_error(
                 f"invalid --role {role!r}",
-                hint=f"expected one of {sorted(VALID_ROLES)}",
+                hint=f"expected one of {', '.join(sorted(VALID_ROLES))}",
             )
     else:
         if role is not None:
