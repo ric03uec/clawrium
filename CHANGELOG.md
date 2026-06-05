@@ -48,5 +48,12 @@ release.
   Same-type collisions with different API keys and multiple bedrock
   attachments now fail loudly at `build_render_inputs` with actionable
   errors. (#621, parent #589)
+- `clawctl agent sync <hermes-agent>` crashed with
+  `ModuleNotFoundError: No module named 'jinja2'` on a fresh
+  `uv tool install clawrium`. `jinja2` was declared only under
+  `[dependency-groups].dev`, which `uv tool install` does not install.
+  Moved `jinja2>=3.0.0` into `[project].dependencies` and added a
+  guard test (`tests/test_runtime_imports.py`) so future drift back
+  to dev-only fails CI. (#620)
 
 ### Documentation
