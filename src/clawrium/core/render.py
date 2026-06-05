@@ -249,6 +249,7 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
         get_integration_credentials,
     )
     from clawrium.core.provider_attachments import (
+        AUXILIARY_SLOTS,
         normalize as normalize_attachments,
     )
     from clawrium.core.providers import (
@@ -377,14 +378,13 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
     # emit one *_API_KEY per unique type and the YAML template can emit a
     # per-attachment `auxiliary.<role>:` block.
     # ATX iter-1 B1: validate role against the canonical AUXILIARY_SLOTS
-    # tuple. The canonical `agent sync` caller does NOT first call
+    # tuple (imported at the top of this function alongside `normalize`).
+    # The canonical `agent sync` caller does NOT first call
     # `provider_attachments.validate()`, so without this check a
     # hand-edited hosts.json with `"role": "vision:\n  malicious_key"`
     # would flow straight into a bare YAML key in `auxiliary.<role>:`
     # and inject arbitrary structure into the rendered config. The
     # legacy ansible path is already gated by `_pa.validate()` upstream.
-    from clawrium.core.provider_attachments import AUXILIARY_SLOTS
-
     auxiliary_provider_inputs: list[AuxiliaryProviderInputs] = []
     seen_aux_roles: set[str] = set()
     for entry in attachments:
@@ -878,6 +878,20 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
             f"render_hermes does not support provider type {ptype!r}. "
             f"Supported: {sorted(_HERMES_SUPPORTED_PROVIDERS)}"
         )
+
+    # ATX iter-2 S3 (#614): mirror the primary-type whitelist on every
+    # auxiliary. Without this guard a caller constructing `RenderInputs`
+    # directly with an unknown aux type (no `bedrock`, no bearer, no
+    # ollama) would silently render `provider: "auto"` in the YAML
+    # auxiliary block and emit no env key — the silent fall-through is
+    # inconsistent with render_hermes' stated contract.
+    for _aux in inputs.auxiliary_providers:
+        if _aux.type not in _HERMES_SUPPORTED_PROVIDERS:
+            raise AgentConfigError(
+                f"render_hermes does not support auxiliary provider type "
+                f"{_aux.type!r} (role {_aux.role!r}). "
+                f"Supported: {sorted(_HERMES_SUPPORTED_PROVIDERS)}"
+            )
 
     # B2 (ATX round 4): duplicate-discord/duplicate-slack guard. The
     # hermes daemon reads DISCORD_BOT_TOKEN / SLACK_BOT_TOKEN as scalar

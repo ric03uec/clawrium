@@ -482,6 +482,90 @@ class TestCanonicalMultiProvider:
         )
         assert set(parsed["auxiliary"].keys()) == {"title_generation"}
 
+    def test_bedrock_primary_plus_bedrock_aux_same_creds_no_warning(self):
+        """ATX iter-2 W-test-bedrock-dedup-uncovered: two bedrock attachments
+        with identical creds emit one AWS triplet and no WARNING comment."""
+        env = render_hermes(
+            _hermes_inputs(
+                ProviderInputs(
+                    name="br-primary",
+                    type="bedrock",
+                    default_model="m",
+                    aws_access_key="AKIA-SAME",
+                    aws_secret_key="secret-SAME",
+                    region="us-east-1",
+                ),
+                auxiliary=(
+                    AuxiliaryProviderInputs(
+                        name="br-aux",
+                        type="bedrock",
+                        role="web_extract",
+                        model="anthropic.claude-haiku-4-5-20251001-v1:0",
+                        aws_access_key="AKIA-SAME",
+                        aws_secret_key="secret-SAME",
+                        region="us-east-1",
+                    ),
+                ),
+            )
+        ).files[".hermes/.env"]
+        assert env.count("AWS_ACCESS_KEY_ID=") == 1
+        assert "AWS_ACCESS_KEY_ID='AKIA-SAME'" in env
+        assert "WARNING:" not in env
+
+    def test_bedrock_primary_plus_bedrock_aux_diff_creds_emits_warning(self):
+        """ATX iter-2 W-test-bedrock-dedup-uncovered: divergent creds → the
+        primary's triplet wins and a WARNING comment is emitted."""
+        env = render_hermes(
+            _hermes_inputs(
+                ProviderInputs(
+                    name="br-primary",
+                    type="bedrock",
+                    default_model="m",
+                    aws_access_key="AKIA-PRIMARY",
+                    aws_secret_key="secret-PRIMARY",
+                    region="us-east-1",
+                ),
+                auxiliary=(
+                    AuxiliaryProviderInputs(
+                        name="br-aux",
+                        type="bedrock",
+                        role="web_extract",
+                        model="anthropic.claude-haiku-4-5-20251001-v1:0",
+                        aws_access_key="AKIA-AUX",
+                        aws_secret_key="secret-AUX",
+                        region="eu-west-1",
+                    ),
+                ),
+            )
+        ).files[".hermes/.env"]
+        assert "AWS_ACCESS_KEY_ID='AKIA-PRIMARY'" in env
+        assert "AKIA-AUX" not in env
+        assert "WARNING: multiple bedrock providers" in env
+
+    def test_unknown_aux_type_raises(self):
+        """ATX iter-2 S3 (#614): render_hermes whitelists aux types
+        mirroring the primary-type guard."""
+        with pytest.raises(AgentConfigError, match="auxiliary provider type"):
+            render_hermes(
+                _hermes_inputs(
+                    ProviderInputs(
+                        name="ant",
+                        type="anthropic",
+                        default_model="m",
+                        api_key="sk",
+                    ),
+                    auxiliary=(
+                        AuxiliaryProviderInputs(
+                            name="weird",
+                            type="zai",
+                            role="vision",
+                            model="x",
+                            api_key="sk",
+                        ),
+                    ),
+                )
+            )
+
 
 # ---------------------------------------------------------------------------
 # Lockstep parity: legacy ↔ canonical for the same logical config
@@ -567,14 +651,20 @@ class TestLegacyCanonicalLockstep:
     produce structurally identical output for the same logical config."""
 
     def _emitted_env_keys(self, env_text: str) -> set[str]:
-        """Set of VAR= identifiers in an env file (ignores values)."""
+        """Set of VAR= identifiers in an env file (ignores values).
+
+        Filters out API_SERVER_* — the legacy template emits these from
+        the `api_server` config block while the canonical pipeline emits
+        them only when `inputs.api_server` is set. The lockstep contract
+        here is over the provider-key surface, not the api-server block.
+        """
         keys: set[str] = set()
         for line in env_text.splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
             head = line.split("=", 1)[0]
-            if head:
+            if head and not head.startswith("API_SERVER_"):
                 keys.add(head)
         return keys
 
@@ -643,9 +733,12 @@ class TestLegacyCanonicalLockstep:
             ),
             primary_api_key="sk-ant",
         )
-        assert list(legacy_yaml["auxiliary"].keys()) == list(
-            canonical_yaml["auxiliary"].keys()
-        )
+        # ATX iter-2 W-test-ordering-absoluteness: pin the alphabetical
+        # contract independently so both families silently agreeing on
+        # wrong order would still fail.
+        expected_order = ["title_generation", "vision", "web_extract"]
+        assert list(legacy_yaml["auxiliary"].keys()) == expected_order
+        assert list(canonical_yaml["auxiliary"].keys()) == expected_order
         assert legacy_yaml["auxiliary"] == canonical_yaml["auxiliary"]
 
     def test_explicit_title_generation_lockstep(self):
@@ -679,6 +772,16 @@ class TestLegacyCanonicalLockstep:
             ),
             primary_api_key="sk-ant",
         )
+        # ATX iter-2 W-test-tg-shadow-independence: explicit operator
+        # intent wins on both sides — verify the override model surfaces
+        # and the per-primary-type default does NOT (a regression where
+        # both families double-emitted the default would still satisfy
+        # mutual equality).
+        for parsed in (legacy_yaml, canonical_yaml):
+            tg = parsed["auxiliary"]["title_generation"]
+            assert tg["provider"] == "openrouter"
+            assert tg["model"] == "openai/gpt-4o-mini"
+            assert "claude-haiku" not in str(tg)
         assert legacy_yaml["auxiliary"] == canonical_yaml["auxiliary"]
 
     def test_env_var_key_set_matches_single_provider(self):
@@ -706,6 +809,58 @@ class TestLegacyCanonicalLockstep:
         assert {"OPENROUTER_API_KEY", "OPENAI_API_KEY"}.isdisjoint(legacy_keys)
         assert {"OPENROUTER_API_KEY", "OPENAI_API_KEY"}.isdisjoint(
             canonical_keys
+        )
+
+    def test_env_var_key_set_matches_multi_provider(self):
+        """ATX iter-2 W-test-env-lockstep-multi: the multi-provider env
+        key set must match across both families."""
+        _, legacy_env = _legacy_render(
+            "anthropic",
+            "p",
+            aux_specs=[
+                {
+                    "name": "or-v",
+                    "type": "openrouter",
+                    "role": "vision",
+                    "model": "anthropic/claude-opus-4.6",
+                },
+                {
+                    "name": "oai-w",
+                    "type": "openai",
+                    "role": "web_extract",
+                    "model": "gpt-4o",
+                },
+            ],
+            api_keys={
+                "primary": "sk-ant",
+                "or-v": "sk-or",
+                "oai-w": "sk-oai",
+            },
+            aws_creds={},
+        )
+        _, canonical_env = _canonical_render(
+            "anthropic",
+            "p",
+            aux_inputs=(
+                AuxiliaryProviderInputs(
+                    name="or-v",
+                    type="openrouter",
+                    role="vision",
+                    model="anthropic/claude-opus-4.6",
+                    api_key="sk-or",
+                ),
+                AuxiliaryProviderInputs(
+                    name="oai-w",
+                    type="openai",
+                    role="web_extract",
+                    model="gpt-4o",
+                    api_key="sk-oai",
+                ),
+            ),
+            primary_api_key="sk-ant",
+        )
+        assert self._emitted_env_keys(legacy_env) == self._emitted_env_keys(
+            canonical_env
         )
 
     def test_same_type_conflict_warning_in_both_families(self):

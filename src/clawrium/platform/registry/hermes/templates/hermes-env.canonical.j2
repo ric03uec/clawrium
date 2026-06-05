@@ -27,7 +27,12 @@ AWS_DEFAULT_REGION={{ _v.region | shq }}
 {% endif %}
 {% endfor %}
 {% for _c in env_conflicts %}
-# WARNING: multiple {{ _c.type }} providers attached with different API keys;
+{# ATX iter-2 W5-canonical: mirror the legacy template's defense-in-depth
+   CR/LF/NUL sanitization. Today render_hermes whitelist-validates
+   provider.type and aux types (see below) before _build_provider_env_views
+   runs, but the filter ensures a future caller of the pure-function API
+   cannot inject a new EnvironmentFile line through this comment. #}
+# WARNING: multiple {{ _c.type | replace('\n', '') | replace('\r', '') | replace('\x00', '') }} providers attached with different API keys;
 # hermes reads one env var per provider type, so only the primary's key
 # above is honored. Detach the conflicting attachment or rotate it to
 # share the primary's key.
