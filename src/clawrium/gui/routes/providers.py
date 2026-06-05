@@ -611,12 +611,18 @@ async def detach_provider_from_agent(name: str, agent: str = Query(...)):
         and target.get("role") == PRIMARY_ROLE
         and len(current) > 1
     ):
+        aux_names = [
+            _attachment_name(e) or ""
+            for e in current
+            if e is not target and _attachment_name(e)
+        ]
+        blocking = ", ".join(aux_names) if aux_names else "(unknown)"
         raise HTTPException(
             status_code=409,
             detail=(
                 f"cannot detach primary provider {name!r} from agent "
                 f"{agent!r} while auxiliary attachments remain; "
-                "detach auxiliary attachments first"
+                f"detach auxiliary attachments first (blocking: {blocking})"
             ),
         )
 

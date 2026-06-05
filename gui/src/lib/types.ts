@@ -242,7 +242,9 @@ export interface AgentAttachmentsResponse {
   agent: string;
   agent_type: string;
   supports_multi: boolean;
-  attachments: ProviderAttachment[] | string[];
+  // Mixed union — hermes returns rich attachment objects, singleton
+  // agent types (zeroclaw/openclaw) return plain provider names.
+  attachments: (ProviderAttachment | string)[];
   available_roles: string[];
   primary_attached: boolean;
   aux_count: number;

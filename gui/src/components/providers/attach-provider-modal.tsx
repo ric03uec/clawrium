@@ -135,7 +135,8 @@ export function AttachProviderModal({
             )}
             {availableRoles.length === 1 && !noAvailableRoles && (
               <p className="mt-1 text-xs text-muted">
-                First attach on a hermes agent must be <code>primary</code>.
+                Only one role is available — this attach will be locked to{" "}
+                <code>{availableRoles[0]}</code>.
               </p>
             )}
           </div>

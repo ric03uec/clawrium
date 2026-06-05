@@ -10,11 +10,7 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import type {
-  AgentAttachmentsResponse,
-  Provider,
-  ProviderAttachment,
-} from "@/lib/types";
+import type { AgentAttachmentsResponse, Provider } from "@/lib/types";
 import { AttachProviderModal } from "./attach-provider-modal";
 
 interface AgentAttachmentsCardProps {
@@ -31,7 +27,7 @@ function rowsFromAttachments(
   data: AgentAttachmentsResponse | null,
 ): RowEntry[] {
   if (!data) return [];
-  return (data.attachments as (string | ProviderAttachment)[]).map((entry) =>
+  return data.attachments.map((entry) =>
     typeof entry === "string"
       ? { name: entry, role: "", model: "" }
       : { name: entry.name, role: entry.role || "", model: entry.model || "" },
@@ -46,6 +42,9 @@ export function AgentAttachmentsCard({ agentName }: AgentAttachmentsCardProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [opError, setOpError] = useState<string | null>(null);
+  // Per-row in-flight guard so a double-click can't fire two concurrent
+  // DELETEs (and race the subsequent refresh on the first one).
+  const [detaching, setDetaching] = useState<string | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -88,12 +87,16 @@ export function AgentAttachmentsCard({ agentName }: AgentAttachmentsCardProps) {
   }
 
   async function handleDetach(providerName: string) {
+    if (detaching) return;
     setOpError(null);
+    setDetaching(providerName);
     try {
       await api.detachProviderFromAgent(providerName, agentName);
       await refresh();
     } catch (e) {
       setOpError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDetaching(null);
     }
   }
 
@@ -165,15 +168,19 @@ export function AgentAttachmentsCard({ agentName }: AgentAttachmentsCardProps) {
                     </td>
                   )}
                   <td className="py-1.5 text-right">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={detachDisabled}
-                      title={detachTitle}
-                      onClick={() => void handleDetach(row.name)}
-                    >
-                      Detach
-                    </Button>
+                    {/* Wrap in <span> so the title tooltip stays visible
+                        on Firefox/Safari, where disabled buttons swallow
+                        the `title` attribute. */}
+                    <span title={detachTitle} className="inline-block">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={detachDisabled || detaching === row.name}
+                        onClick={() => void handleDetach(row.name)}
+                      >
+                        {detaching === row.name ? "Detaching…" : "Detach"}
+                      </Button>
+                    </span>
                   </td>
                 </tr>
               );

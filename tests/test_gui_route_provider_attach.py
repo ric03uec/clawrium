@@ -262,6 +262,61 @@ def test_attach_unknown_provider_404(monkeypatch):
             )
         )
     assert exc.value.status_code == 404
+    assert "ghost" in exc.value.detail
+
+
+def test_attach_hermes_idempotent_same_role_returns_already_attached(monkeypatch):
+    state = _install_fixture(
+        monkeypatch,
+        agent_name="sage",
+        agent_type="hermes",
+        providers=[{"name": "anth", "role": "primary", "model": "m"}],
+        provider_records={"anth": {"name": "anth", "default_model": "m"}},
+    )
+    resp = _run(
+        attach_provider_to_agent(
+            "anth", AttachmentRequest(agent="sage", role="primary")
+        )
+    )
+    assert resp["success"] is True
+    assert resp["already_attached"] is True
+    # State unchanged — still exactly one provider attached.
+    assert state["host"]["agents"]["sage"]["providers"] == [
+        {"name": "anth", "role": "primary", "model": "m"}
+    ]
+
+
+def test_attach_hermes_rebind_without_detach_rejected(monkeypatch):
+    """Re-attaching a provider with a different role must require detach
+    first — silently rebinding would lose track of the operator's
+    intent."""
+    _install_fixture(
+        monkeypatch,
+        agent_name="sage",
+        agent_type="hermes",
+        providers=[{"name": "anth", "role": "primary", "model": "m"}],
+        provider_records={"anth": {"name": "anth", "default_model": "m"}},
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(
+            attach_provider_to_agent(
+                "anth", AttachmentRequest(agent="sage", role="vision")
+            )
+        )
+    assert exc.value.status_code == 409
+    assert "detach" in exc.value.detail.lower()
+
+
+def test_available_roles_all_aux_filled_returns_empty():
+    """Boundary case: every aux slot occupied plus primary → no roles
+    left for a fresh attach. Pins the `→ []` branch in
+    `_available_roles()`."""
+    from clawrium.core.provider_attachments import AUXILIARY_SLOTS
+
+    attachments = [
+        {"name": "anth", "role": "primary", "model": ""},
+    ] + [{"name": f"p-{slot}", "role": slot, "model": ""} for slot in AUXILIARY_SLOTS]
+    assert _available_roles("hermes", attachments) == []
 
 
 # ─── POST /{name}/attach (non-hermes) ───────────────────────────────
@@ -376,3 +431,40 @@ def test_detach_unknown_provider_404(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         _run(detach_provider_from_agent("ghost", agent="sage"))
     assert exc.value.status_code == 404
+    assert "ghost" in exc.value.detail
+
+
+def test_detach_primary_409_lists_blocking_aux_names(monkeypatch):
+    """Operator should see exactly which aux attachments are blocking
+    the primary detach so they can act without an extra GET round-trip
+    — parity with the CLI's `aux_hint` message."""
+    _install_fixture(
+        monkeypatch,
+        agent_name="sage",
+        agent_type="hermes",
+        providers=[
+            {"name": "anth", "role": "primary", "model": "m"},
+            {"name": "openrt", "role": "vision", "model": ""},
+            {"name": "alt", "role": "web_extract", "model": ""},
+        ],
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(detach_provider_from_agent("anth", agent="sage"))
+    assert exc.value.status_code == 409
+    assert "openrt" in exc.value.detail
+    assert "alt" in exc.value.detail
+
+
+def test_detach_non_hermes_singleton_succeeds(monkeypatch):
+    """Exercise the `list[str]` normalize path on the detach surface so
+    a regression in the non-hermes shape doesn't slip through."""
+    state = _install_fixture(
+        monkeypatch,
+        agent_name="wise",
+        agent_type="openclaw",
+        providers=["anth"],
+    )
+    resp = _run(detach_provider_from_agent("anth", agent="wise"))
+    assert resp["success"] is True
+    assert resp["name"] == "anth"
+    assert state["host"]["agents"]["wise"]["providers"] == []
