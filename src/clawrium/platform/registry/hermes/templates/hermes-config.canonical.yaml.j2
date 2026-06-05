@@ -7,48 +7,73 @@
    live dry-run on maurice + espresso close the loop against the live
    daemon. #}
 # Managed by clawrium (clawctl). Re-render with `clawctl agent configure {{ agent_name }}`.
+{# Per-primary-type default `auxiliary.title_generation.model`. An
+   explicit `title_generation` attachment in `aux_providers` (#614)
+   shadows this default — see the consolidated `auxiliary:` block below. #}
+{% set _default_title_gen_map = {
+  'openrouter': 'anthropic/claude-haiku-4.5',
+  'anthropic': 'claude-haiku-4-5-20251001',
+  'openai': 'gpt-5-nano',
+  'bedrock': 'anthropic.claude-haiku-4-5-20251001-v1:0'
+} %}
+{% set _emit_default_title_gen = (provider.type in _default_title_gen_map) and (not explicit_title_gen) %}
 {% if provider.type == 'openrouter' %}
 model:
   provider: "openrouter"
   base_url: "https://openrouter.ai/api/v1"
   default: {{ provider.default_model | yq }}
-auxiliary:
-  title_generation:
-    model: "anthropic/claude-haiku-4.5"
 {% elif provider.type == 'anthropic' %}
 model:
   provider: "anthropic"
   default: {{ provider.default_model | yq }}
-auxiliary:
-  title_generation:
-    model: "claude-haiku-4-5-20251001"
 {% elif provider.type == 'openai' %}
 model:
   provider: "openai"
   default: {{ provider.default_model | yq }}
-auxiliary:
-  title_generation:
-    model: "gpt-5-nano"
 {% elif provider.type == 'bedrock' %}
 model:
   provider: "bedrock"
   default: {{ provider.default_model | yq }}
 bedrock:
   region: {{ (provider.region or 'us-east-1') | yq }}
-auxiliary:
-  title_generation:
-    model: "anthropic.claude-haiku-4-5-20251001-v1:0"
 {% elif provider.type == 'ollama' %}
 {# W5: no auxiliary.title_generation pin for ollama. The primary model
    already runs locally and is cheap — pinning to a remote aux model
-   would defeat the point of running the daemon offline. Mirrors the
-   prior list-of-strings render_hermes ollama branch and is the
-   intentional asymmetry; do not add an aux block here without also
-   verifying it routes to a local model. #}
+   would defeat the point of running the daemon offline. #}
 model:
   provider: "custom"
   base_url: {{ ollama_base_url | yq }}
   default: {{ provider.default_model | yq }}
+{% endif %}
+{# --- Consolidated `auxiliary:` block (#614) ---
+   YAML deep-merge requires a single `auxiliary:` key — emitting the
+   per-primary-type default and per-attachment slots inside one block
+   keeps the parser-visible mapping uncorrupted. The block is suppressed
+   entirely when neither the default applies nor any aux is attached. #}
+{% if _emit_default_title_gen or aux_providers %}
+auxiliary:
+{% if _emit_default_title_gen %}
+  title_generation:
+    model: "{{ _default_title_gen_map[provider.type] }}"
+{% endif %}
+{% for _aux in aux_providers %}
+  {{ _aux.role }}:
+{% if _aux.type == 'openrouter' %}
+    provider: "openrouter"
+{% elif _aux.type == 'anthropic' %}
+    provider: "anthropic"
+{% elif _aux.type == 'openai' %}
+    provider: "openai"
+{% elif _aux.type == 'bedrock' %}
+    provider: "bedrock"
+{% elif _aux.type == 'ollama' %}
+    provider: "custom"
+{% else %}
+    provider: "auto"
+{% endif %}
+{% if _aux.model %}    model: {{ _aux.model | yq }}
+{% endif %}
+{% endfor %}
 {% endif %}
 {% if atlassian_integrations %}
 mcp_servers:

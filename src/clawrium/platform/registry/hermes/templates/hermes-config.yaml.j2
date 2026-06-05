@@ -18,22 +18,41 @@
 {% set model_id = provider.default_model | default('') %}
 {% set endpoint = provider.endpoint | default('') %}
 
-{# --- Provider block ---
-   One block per provider, emitting both main chat model and the lightweight
-   aux model used for hermes' title_generation task (so short conversation
-   titles don't run on the expensive main model). `auxiliary.title_generation
-   .provider` is intentionally omitted — defaults to "auto", which routes the
-   aux task to the main agent's provider client with the model below.
-   For ollama/custom the local model is already cheap, no aux pin.
+{# --- Multi-provider auxiliary slots (#614) ----------------------------
+   `config.providers` (built by lifecycle.sync_agent for hermes) is a list
+   of per-attachment overlays carrying `role`, per-attachment `model`, and
+   per-provider `type`/`endpoint`/`region`. Non-primary entries render
+   into the `auxiliary.<role>:` map below, matching upstream
+   `NousResearch/hermes-agent` `hermes_cli/config.py:716-795`.
+   An explicit `title_generation` attachment shadows the per-primary-type
+   default — operator intent wins. #}
+{% set _providers_list = config.providers | default([]) %}
+{% set _explicit_aux = {} %}
+{% for _p in _providers_list %}
+{% if _p.role and _p.role != 'primary' %}{% if _explicit_aux.update({_p.role: _p}) %}{% endif %}{% endif %}
+{% endfor %}
+{# Default `auxiliary.title_generation.model:` per primary type. Ollama is
+   intentionally absent — the local model is already cheap, so no remote
+   aux pin (mirrors the canonical-template ollama branch). #}
+{% set _default_title_gen_map = {
+  'openrouter': 'anthropic/claude-haiku-4.5',
+  'anthropic': 'claude-haiku-4-5-20251001',
+  'openai': 'gpt-5-nano',
+  'bedrock': 'anthropic.claude-haiku-4-5-20251001-v1:0'
+} %}
+{% set _has_explicit_title_gen = 'title_generation' in _explicit_aux %}
+{% set _emit_default_title_gen = (provider_type in _default_title_gen_map) and (not _has_explicit_title_gen) %}
 
-   Aux model IDs: each provider uses its **native** ID format —
+{# --- Primary `model:` block ---
+   Aux model IDs (per primary type): each provider uses its **native** ID
+   format —
      anthropic → Anthropic API ID (https://docs.claude.com/en/docs/about-claude/models)
      openai → bare OpenAI API ID (https://platform.openai.com/docs/models)
      openrouter → openrouter.ai slug (https://openrouter.ai/models). NB: anthropic
        slugs on OpenRouter use dot version separators ("4.5"), NOT hyphens — verify
        against the model catalog when bumping.
-     bedrock → bedrock.region above governs the regional endpoint; the model ID
-       below uses no cross-region inference prefix so eu/ap regions work.
+     bedrock → bedrock.region governs the regional endpoint; the model ID
+       uses no cross-region inference prefix so eu/ap regions work.
    Hermes validates aux model IDs lazily (at first title-generation call) so a
    wrong ID surfaces as a per-request error in journalctl, not at configure time. #}
 {% if provider_type == 'openrouter' %}
@@ -42,25 +61,16 @@ model:
   base_url: "https://openrouter.ai/api/v1"
 {% if model_id %}  default: "{{ model_id }}"
 {% endif %}
-auxiliary:
-  title_generation:
-    model: "anthropic/claude-haiku-4.5"
 {% elif provider_type == 'anthropic' %}
 model:
   provider: "anthropic"
 {% if model_id %}  default: "{{ model_id }}"
 {% endif %}
-auxiliary:
-  title_generation:
-    model: "claude-haiku-4-5-20251001"
 {% elif provider_type == 'openai' %}
 model:
   provider: "openai"
 {% if model_id %}  default: "{{ model_id }}"
 {% endif %}
-auxiliary:
-  title_generation:
-    model: "gpt-5-nano"
 {% elif provider_type == 'bedrock' %}
 model:
   provider: "bedrock"
@@ -72,12 +82,6 @@ bedrock:
    on #613 — the upstream `_build_overlay` change now reliably propagates
    provider_record["region"] into this scalar). #}
   region: {{ yaml_quote(provider.region | default('us-east-1')) }}
-auxiliary:
-  title_generation:
-{# Plain bedrock model ID (no `us.` / `eu.` / `ap.` cross-region inference
-   prefix) — Bedrock routes within `bedrock.region` above. The cross-region
-   prefix is valid only in specific regions and would 404 in others. #}
-    model: "anthropic.claude-haiku-4-5-20251001-v1:0"
 {% elif provider_type == 'ollama' %}
 model:
   provider: "custom"
@@ -99,6 +103,43 @@ model:
   provider: "auto"
 {% if model_id %}  default: "{{ model_id }}"
 {% endif %}
+{% endif %}
+
+{# --- Single consolidated `auxiliary:` block (#614) ---
+   Emit ONE auxiliary: key so deep-merge sees a single mapping. The block
+   contains (in order):
+     1. The per-primary-type default `title_generation.model` (suppressed
+        when an explicit `title_generation` attachment is present).
+     2. Each non-primary attachment as `auxiliary.<role>: { provider, model }`,
+        with the per-type `provider:` value matching upstream's identifier
+        (custom for ollama, the type name otherwise). #}
+{% set _aux_block_needed = _emit_default_title_gen or (_explicit_aux | length > 0) %}
+{% if _aux_block_needed %}
+auxiliary:
+{% if _emit_default_title_gen %}
+  title_generation:
+    model: "{{ _default_title_gen_map[provider_type] }}"
+{% endif %}
+{% for _role, _entry in _explicit_aux.items() %}
+{% set _ptype = _entry.type | default('') %}
+{% set _aux_model = _entry.model | default(_entry.default_model | default('')) %}
+  {{ _role }}:
+{% if _ptype == 'openrouter' %}
+    provider: "openrouter"
+{% elif _ptype == 'anthropic' %}
+    provider: "anthropic"
+{% elif _ptype == 'openai' %}
+    provider: "openai"
+{% elif _ptype == 'bedrock' %}
+    provider: "bedrock"
+{% elif _ptype == 'ollama' %}
+    provider: "custom"
+{% else %}
+    provider: "auto"
+{% endif %}
+{% if _aux_model %}    model: {{ yaml_quote(_aux_model) }}
+{% endif %}
+{% endfor %}
 {% endif %}
 
 {# --- MCP Servers (from assigned integrations) ---

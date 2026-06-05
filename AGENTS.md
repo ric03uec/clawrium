@@ -162,6 +162,49 @@ Rules (issue #437):
   whenever the bearer is overwritten. The CLI renders it as a yellow
   notice during `configure`/`sync`/`restart`.
 
+## Hermes Multi-Provider Attachments (issue #589)
+
+Hermes is the only agent type today that supports multiple provider
+attachments. The attachment list is stored on the agent record as
+`providers: [{name, role, model}, …]` where exactly one entry has
+`role: "primary"` and additional entries take one of the upstream
+auxiliary slot roles (`vision`, `web_extract`, `compression`,
+`session_search`, `skills_hub`, `approval`, `mcp`, `title_generation`,
+`curator` — see `src/clawrium/core/provider_attachments.py`
+`AUXILIARY_SLOTS`).
+
+**Render flow (`clawctl agent configure` / `clawctl agent sync`).**
+For each attachment, `lifecycle.sync_agent` builds a per-provider
+overlay (`_build_provider_overlay`) and the configure pipeline hydrates
+`provider_api_keys: {name → key}` + `provider_aws_credentials: {name →
+{access_key, secret_key, region}}` from secrets.json. Both template
+families iterate this data:
+
+- `config.yaml` — one consolidated `auxiliary:` block. The per-primary
+  type default `title_generation.model` (e.g. `claude-haiku-4-5-20251001`
+  for anthropic) is emitted UNLESS an explicit `title_generation`
+  attachment exists, in which case operator intent wins. Each
+  non-primary attachment renders as `auxiliary.<role>: {provider, model}`
+  matching `NousResearch/hermes-agent` `hermes_cli/config.py:716-795`.
+- `.env` — one `*_API_KEY` line per **unique provider type** (dedup
+  join key = type). Bedrock keeps the AWS credential triplet.
+  `HERMES_INFERENCE_PROVIDER` still tracks the primary only.
+
+**Same-type-different-key conflict.** Upstream hermes reads a single
+env var per provider type (e.g. there is no per-attachment
+`OPENROUTER_API_KEY_<role>`). When two attachments share a type but
+carry different keys, the templates emit the **primary's** key and
+append a `# WARNING` comment naming the conflicting type. Operators
+must detach the conflict or rotate it to share the primary's key —
+silently dropping one would otherwise leave the operator with no
+signal that one provider half of the fleet is unauthenticated.
+
+**Template lockstep.** Both `hermes-config.yaml.j2` (legacy ansible
+path) and `hermes-config.canonical.yaml.j2` (canonical sync path) must
+render the same `auxiliary:` shape; same for `hermes.env.j2` and
+`hermes-env.canonical.j2`. Until the two-template-family consolidation
+follow-up lands, field changes MUST land in both.
+
 ## Native Dashboards (issues #478, #491)
 
 Three agent types ship a native web UI today: **hermes** (issue #478), **zeroclaw** (issue #491), and **openclaw**. The manifest's `features.web_ui` block is the single gate — `clawctl agent open <name>` and the GUI's **Open Agent UI** button both consult the resolver in `src/clawrium/core/web_ui.py`, which returns `None` for any agent whose manifest does not declare `features.web_ui`.

@@ -115,6 +115,31 @@ class ProviderInputs:
 
 
 @dataclass(frozen=True)
+class AuxiliaryProviderInputs:
+    """One non-primary provider attachment on a hermes agent (#614).
+
+    `role` is one of `provider_attachments.AUXILIARY_SLOTS` (e.g.
+    `vision`, `title_generation`). `model` is the per-attachment
+    override; the renderer reads exactly this field so attachment-time
+    `--model X` reaches the rendered config without further fallback
+    logic at template time.
+
+    Credential fields mirror `ProviderInputs` so a bedrock auxiliary
+    carrying its own AWS triplet is representable. For dedup at env-var
+    emission time the type field is the join key.
+    """
+
+    name: str
+    type: str
+    role: str
+    model: str = ""
+    api_key: str = ""
+    aws_access_key: str = ""
+    aws_secret_key: str = ""
+    region: str = ""
+
+
+@dataclass(frozen=True)
 class ChannelInputs:
     name: str
     type: str
@@ -164,6 +189,11 @@ class RenderInputs:
     integrations: tuple[IntegrationInputs, ...] = ()
     api_server: APIServerInputs | None = None
     gateway: GatewayInputs | None = None
+    # #614: non-primary provider attachments on multi-provider agent
+    # types (hermes only today). Empty tuple for singleton agent types
+    # and for hermes agents with only a primary attached — the renderer
+    # falls through to the existing single-provider path.
+    auxiliary_providers: tuple[AuxiliaryProviderInputs, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -341,6 +371,85 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
         aws_secret_key=aws_secret_key,
     )
 
+    # --- Auxiliary providers (#614) ---------------------------------------
+    # Non-primary attachments on multi-provider agent types (hermes only
+    # today). Each gets its own credential fetch so the env template can
+    # emit one *_API_KEY per unique type and the YAML template can emit a
+    # per-attachment `auxiliary.<role>:` block.
+    auxiliary_provider_inputs: list[AuxiliaryProviderInputs] = []
+    for entry in attachments:
+        if not isinstance(entry, dict):
+            continue
+        role = entry.get("role", "")
+        if not role or role == "primary":
+            continue
+        aux_name = entry.get("name") or ""
+        if not aux_name:
+            continue
+        aux_record = get_provider(aux_name)
+        if aux_record is None:
+            raise AgentConfigError(
+                f"auxiliary provider {aux_name!r} (role {role!r}) attached to "
+                f"agent {agent_name!r} is not registered in providers.json"
+            )
+        raw_aux_type = aux_record.get("type")
+        aux_type = (
+            (raw_aux_type or "").strip() if isinstance(raw_aux_type, str) else ""
+        )
+        if not aux_type:
+            raise AgentConfigError(
+                f"auxiliary provider {aux_name!r} has no type field"
+            )
+        if aux_type not in supported:
+            raise AgentConfigError(
+                f"agent {agent_name!r} (type {agent_type}) does not support "
+                f"auxiliary provider type {aux_type!r}. "
+                f"Supported types for {agent_type}: {sorted(supported)}"
+            )
+        aux_api_key = ""
+        aux_aws_access = ""
+        aux_aws_secret = ""
+        if aux_type == "bedrock":
+            ak, sk = get_provider_aws_credentials(aux_name)
+            ak = _clean_secret(ak)
+            sk = _clean_secret(sk)
+            if not ak or not sk:
+                raise AgentConfigError(
+                    f"bedrock auxiliary provider {aux_name!r} (role {role!r}) is "
+                    f"missing AWS credentials in secrets.json"
+                )
+            aux_aws_access = ak
+            aux_aws_secret = sk
+        elif aux_type in _BEARER_API_KEY_TYPES:
+            key = _clean_secret(get_provider_api_key(aux_name))
+            if not key:
+                raise AgentConfigError(
+                    f"auxiliary provider {aux_name!r} (role {role!r}, type "
+                    f"{aux_type}) is missing API key in secrets.json"
+                )
+            aux_api_key = key
+        elif aux_type in _LOCAL_ENDPOINT_TYPES:
+            if not aux_record.get("endpoint"):
+                raise AgentConfigError(
+                    f"auxiliary provider {aux_name!r} (type {aux_type}) is "
+                    f"missing endpoint in providers.json"
+                )
+        attachment_model = entry.get("model") or aux_record.get("default_model", "")
+        auxiliary_provider_inputs.append(
+            AuxiliaryProviderInputs(
+                name=aux_name,
+                type=aux_type,
+                role=role,
+                model=attachment_model or "",
+                api_key=aux_api_key,
+                aws_access_key=aux_aws_access,
+                aws_secret_key=aux_aws_secret,
+                region=aux_record.get("region", "") or "",
+            )
+        )
+    # Sort by role for byte-determinism. Roles are unique per validate().
+    auxiliary_provider_inputs.sort(key=lambda p: p.role)
+
     # --- Channels ----------------------------------------------------------
     channel_inputs: list[ChannelInputs] = []
     for channel_name in get_agent_channels(hostname, agent_key):
@@ -496,6 +605,7 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
         integrations=tuple(integration_inputs),
         api_server=api_server_input,
         gateway=gateway_input,
+        auxiliary_providers=tuple(auxiliary_provider_inputs),
     )
 
 
@@ -628,6 +738,100 @@ _HERMES_SUPPORTED_INTEGRATIONS = frozenset(
 _HERMES_MCP_ATLASSIAN_VERSION = "0.21.1"
 
 
+# Per-primary-type default `auxiliary.title_generation.model`. Ollama is
+# intentionally absent: the local model is already cheap, so no remote
+# aux pin (mirrors the legacy template and the prior canonical branch).
+_HERMES_DEFAULT_TITLE_GEN_MODEL: dict[str, str] = {
+    "openrouter": "anthropic/claude-haiku-4.5",
+    "anthropic": "claude-haiku-4-5-20251001",
+    "openai": "gpt-5-nano",
+    "bedrock": "anthropic.claude-haiku-4-5-20251001-v1:0",
+}
+
+
+def _build_provider_env_views(
+    primary: ProviderInputs,
+    auxiliary: tuple[AuxiliaryProviderInputs, ...],
+) -> tuple[list[dict], list[dict]]:
+    """Return (per-type env views, conflict notices) for hermes-env.canonical.j2.
+
+    One view per unique provider type across primary + auxiliaries.
+    Primary wins on same-type-different-key collisions; the collision is
+    surfaced as a `# WARNING` line via the conflicts list rather than
+    silently dropped (#614 acceptance criterion).
+
+    Bedrock env-var triplet (access/secret/region) ships in `aws_*`
+    keys so the template can branch the same way it branches today on
+    `provider.type == 'bedrock'`.
+    """
+    views: list[dict] = []
+    seen_type_keys: dict[str, str] = {}
+    conflicts: list[dict] = []
+
+    def _add_view(ptype: str, view: dict, key_for_compare: str) -> None:
+        prior = seen_type_keys.get(ptype)
+        if prior is None:
+            seen_type_keys[ptype] = key_for_compare
+            views.append(view)
+        elif prior != key_for_compare:
+            conflicts.append({"type": ptype})
+
+    if primary.type == "bedrock":
+        _add_view(
+            "bedrock",
+            {
+                "type": "bedrock",
+                "aws_access_key": primary.aws_access_key,
+                "aws_secret_key": primary.aws_secret_key,
+                "region": primary.region or "us-east-1",
+            },
+            primary.aws_access_key + "|" + primary.aws_secret_key,
+        )
+    elif primary.type in _BEARER_API_KEY_TYPES:
+        _add_view(
+            primary.type,
+            {"type": primary.type, "api_key": primary.api_key},
+            primary.api_key,
+        )
+    # ollama: no key emission; HERMES_INFERENCE_PROVIDER='custom' is emitted
+    # by the template branch on provider.type directly.
+
+    for aux in auxiliary:
+        if aux.type == "bedrock":
+            _add_view(
+                "bedrock",
+                {
+                    "type": "bedrock",
+                    "aws_access_key": aux.aws_access_key,
+                    "aws_secret_key": aux.aws_secret_key,
+                    "region": aux.region or "us-east-1",
+                },
+                aux.aws_access_key + "|" + aux.aws_secret_key,
+            )
+        elif aux.type in _BEARER_API_KEY_TYPES:
+            _add_view(
+                aux.type,
+                {"type": aux.type, "api_key": aux.api_key},
+                aux.api_key,
+            )
+
+    return views, conflicts
+
+
+def _build_aux_yaml_views(
+    auxiliary: tuple[AuxiliaryProviderInputs, ...],
+) -> list[dict]:
+    """Return one dict per non-primary attachment for the YAML template."""
+    return [
+        {
+            "role": aux.role,
+            "type": aux.type,
+            "model": aux.model,
+        }
+        for aux in auxiliary
+    ]
+
+
 def render_hermes(inputs: RenderInputs) -> RenderedFiles:
     """Render hermes' on-host config files from canonical inputs.
 
@@ -727,6 +931,22 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
             endpoint = endpoint + "/v1"
         ollama_base_url = endpoint
 
+    # #614: build per-type env-var view for hermes-env.canonical.j2 so the
+    # template emits one `*_API_KEY` line per unique provider type across
+    # primary + auxiliaries. Same-type duplicate keys are not silently
+    # collapsed — the primary's value wins and a `# WARNING` line is
+    # emitted so operators see the upstream one-key-per-type limitation.
+    provider_env_views, env_conflicts = _build_provider_env_views(
+        inputs.provider, inputs.auxiliary_providers
+    )
+    # #614: build per-aux view for the YAML template (one `auxiliary.<role>:`
+    # block per non-primary attachment). An explicit `title_generation`
+    # attachment shadows the per-primary-type default model.
+    aux_yaml_views = _build_aux_yaml_views(inputs.auxiliary_providers)
+    explicit_title_gen = any(
+        v["role"] == "title_generation" for v in aux_yaml_views
+    )
+
     env_body = _render_hermes_template(
         "hermes-env.canonical.j2",
         agent_name=inputs.agent_name,
@@ -735,6 +955,8 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
         channels=inputs.channels,
         integrations=integration_views,
         last_github_token=last_github_token,
+        provider_env_views=provider_env_views,
+        env_conflicts=env_conflicts,
     )
     yaml_body = _render_hermes_template(
         "hermes-config.canonical.yaml.j2",
@@ -743,6 +965,8 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
         ollama_base_url=ollama_base_url,
         atlassian_integrations=atlassian_views,
         mcp_atlassian_version=_HERMES_MCP_ATLASSIAN_VERSION,
+        aux_providers=aux_yaml_views,
+        explicit_title_gen=explicit_title_gen,
     )
 
     return RenderedFiles(
