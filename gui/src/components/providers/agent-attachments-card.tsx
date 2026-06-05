@@ -175,7 +175,7 @@ export function AgentAttachmentsCard({ agentName }: AgentAttachmentsCardProps) {
                       <Button
                         size="sm"
                         variant="ghost"
-                        disabled={detachDisabled || detaching === row.name}
+                        disabled={detachDisabled || !!detaching}
                         onClick={() => void handleDetach(row.name)}
                       >
                         {detaching === row.name ? "Detaching…" : "Detach"}

@@ -153,6 +153,34 @@ def test_attachments_unknown_agent_404(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         _run(list_agent_attachments("missing"))
     assert exc.value.status_code == 404
+    assert "missing" in exc.value.detail
+
+
+def test_attach_hermes_http_all_aux_filled_rejects_via_validate(monkeypatch):
+    """HTTP-level boundary: with all 9 aux slots filled, an attempt to
+    attach a 10th aux provider must fail. The pre-validate conflict
+    check fires first if the operator targets a specific slot; this
+    test pins the path."""
+    from clawrium.core.provider_attachments import AUXILIARY_SLOTS
+
+    providers = [{"name": "anth", "role": "primary", "model": ""}] + [
+        {"name": f"p-{slot}", "role": slot, "model": ""} for slot in AUXILIARY_SLOTS
+    ]
+    _install_fixture(
+        monkeypatch,
+        agent_name="sage",
+        agent_type="hermes",
+        providers=providers,
+        provider_records={"newp": {"name": "newp", "default_model": "m"}},
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(
+            attach_provider_to_agent(
+                "newp", AttachmentRequest(agent="sage", role="vision")
+            )
+        )
+    assert exc.value.status_code == 409
+    assert "vision" in exc.value.detail
 
 
 # ─── POST /{name}/attach (hermes) ───────────────────────────────────
@@ -232,6 +260,8 @@ def test_attach_hermes_aux_after_primary_succeeds(monkeypatch):
 
 
 def test_attach_hermes_duplicate_aux_rejected(monkeypatch):
+    """Pre-validate slot-conflict check returns 409 with the blocking
+    provider named. AttachmentError from validate() is a backstop only."""
     _install_fixture(
         monkeypatch,
         agent_name="sage",
@@ -248,8 +278,7 @@ def test_attach_hermes_duplicate_aux_rejected(monkeypatch):
                 "alt", AttachmentRequest(agent="sage", role="vision")
             )
         )
-    # AttachmentError → HTTP 400
-    assert exc.value.status_code == 400
+    assert exc.value.status_code == 409
     assert "vision" in exc.value.detail
 
 
@@ -289,7 +318,8 @@ def test_attach_hermes_idempotent_same_role_returns_already_attached(monkeypatch
 def test_attach_hermes_rebind_without_detach_rejected(monkeypatch):
     """Re-attaching a provider with a different role must require detach
     first — silently rebinding would lose track of the operator's
-    intent."""
+    intent. The conflicting role (`primary`) must appear in the detail
+    so the operator can act on it directly."""
     _install_fixture(
         monkeypatch,
         agent_name="sage",
@@ -305,6 +335,34 @@ def test_attach_hermes_rebind_without_detach_rejected(monkeypatch):
         )
     assert exc.value.status_code == 409
     assert "detach" in exc.value.detail.lower()
+    # Detail must pin the conflicting role so a refactor that strips
+    # it can't pass silently. (ATX iter-2 B2)
+    assert "primary" in exc.value.detail
+
+
+def test_attach_hermes_different_provider_same_slot_409(monkeypatch):
+    """A second provider targeting an already-occupied aux slot is a
+    conflict — it must surface as HTTP 409 with the blocking provider
+    named, not as a generic 400 from validate(). (ATX iter-2 B3)"""
+    _install_fixture(
+        monkeypatch,
+        agent_name="sage",
+        agent_type="hermes",
+        providers=[
+            {"name": "anth", "role": "primary", "model": "m"},
+            {"name": "openrt", "role": "vision", "model": ""},
+        ],
+        provider_records={"alt": {"name": "alt", "default_model": "x"}},
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(
+            attach_provider_to_agent(
+                "alt", AttachmentRequest(agent="sage", role="vision")
+            )
+        )
+    assert exc.value.status_code == 409
+    assert "vision" in exc.value.detail
+    assert "openrt" in exc.value.detail
 
 
 def test_available_roles_all_aux_filled_returns_empty():

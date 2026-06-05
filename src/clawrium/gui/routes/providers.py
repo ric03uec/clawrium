@@ -557,6 +557,29 @@ async def attach_provider_to_agent(name: str, body: AttachmentRequest):
             ),
         )
 
+    # Different-provider-same-slot conflict. `validate()` would catch
+    # this and bubble up as HTTP 400 via AttachmentError, but a slot
+    # conflict is semantically a 409 — surface it before the persist
+    # path runs and include the blocking provider in the detail so the
+    # operator can act without an extra GET.
+    if multi and body.role is not None and body.role != PRIMARY_ROLE:
+        occupant = next(
+            (
+                e
+                for e in current
+                if isinstance(e, dict) and e.get("role") == body.role
+            ),
+            None,
+        )
+        if occupant is not None and _attachment_name(occupant) != name:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"hermes auxiliary slot {body.role!r} is already bound "
+                    f"to {_attachment_name(occupant)!r}; detach first"
+                ),
+            )
+
     if multi:
         model = ""
         default_model = provider_record.get("default_model")
