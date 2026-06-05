@@ -463,7 +463,7 @@ def test_attach_non_hermes_first_attach_succeeds(monkeypatch):
 
 
 def test_detach_primary_with_aux_remaining_rejected(monkeypatch):
-    _install_fixture(
+    state = _install_fixture(
         monkeypatch,
         agent_name="sage",
         agent_type="hermes",
@@ -476,6 +476,9 @@ def test_detach_primary_with_aux_remaining_rejected(monkeypatch):
         _run(detach_provider_from_agent("anth", agent="sage"))
     assert exc.value.status_code == 409
     assert "auxiliary" in exc.value.detail
+    # State must not have been touched by the rejected detach. (ATX
+    # iter-4 B2: symmetric to the attach-path B3 state assertion.)
+    assert len(state["host"]["agents"]["sage"]["providers"]) == 2
 
 
 def test_detach_primary_when_alone_succeeds(monkeypatch):
@@ -523,7 +526,7 @@ def test_detach_primary_409_lists_blocking_aux_names(monkeypatch):
     """Operator should see exactly which aux attachments are blocking
     the primary detach so they can act without an extra GET round-trip
     — parity with the CLI's `aux_hint` message."""
-    _install_fixture(
+    state = _install_fixture(
         monkeypatch,
         agent_name="sage",
         agent_type="hermes",
@@ -538,6 +541,8 @@ def test_detach_primary_409_lists_blocking_aux_names(monkeypatch):
     assert exc.value.status_code == 409
     assert "openrt" in exc.value.detail
     assert "alt" in exc.value.detail
+    # State unchanged — guard fires before any persist call. (ATX iter-4)
+    assert len(state["host"]["agents"]["sage"]["providers"]) == 3
 
 
 def test_detach_non_hermes_singleton_succeeds(monkeypatch):
@@ -553,3 +558,63 @@ def test_detach_non_hermes_singleton_succeeds(monkeypatch):
     assert resp["success"] is True
     assert resp["name"] == "anth"
     assert state["host"]["agents"]["wise"]["providers"] == []
+
+
+# ─── Persist-failure path (HTTP 500) ────────────────────────────────
+
+
+def _install_fixture_with_failing_persist(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    agent_name: str,
+    agent_type: str,
+    providers: list | None = None,
+    provider_records: dict | None = None,
+):
+    """Variant fixture whose `update_host` mock always returns False so
+    the `_persist_attachments` HTTP 500 path can be exercised. (ATX
+    iter-4 B1)"""
+    state = _install_fixture(
+        monkeypatch,
+        agent_name=agent_name,
+        agent_type=agent_type,
+        providers=providers,
+        provider_records=provider_records,
+    )
+    monkeypatch.setattr(providers_mod, "update_host", lambda *a, **kw: False)
+    return state
+
+
+def test_attach_persist_failure_returns_500(monkeypatch):
+    """If `update_host` returns False (e.g. disk full, lock contention),
+    the attach surface must raise HTTP 500 with a clean detail. The
+    persist-failure branch is otherwise dead code in CI."""
+    _install_fixture_with_failing_persist(
+        monkeypatch,
+        agent_name="sage",
+        agent_type="hermes",
+        provider_records={"anth": {"name": "anth", "default_model": "m"}},
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(
+            attach_provider_to_agent(
+                "anth", AttachmentRequest(agent="sage", role="primary")
+            )
+        )
+    assert exc.value.status_code == 500
+    assert "failed to persist" in exc.value.detail
+
+
+def test_detach_persist_failure_returns_500(monkeypatch):
+    """Same persist-failure semantics on the detach surface — the
+    operator must see a 500 rather than a misleading success."""
+    _install_fixture_with_failing_persist(
+        monkeypatch,
+        agent_name="sage",
+        agent_type="hermes",
+        providers=[{"name": "anth", "role": "primary", "model": "m"}],
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(detach_provider_from_agent("anth", agent="sage"))
+    assert exc.value.status_code == 500
+    assert "failed to persist" in exc.value.detail

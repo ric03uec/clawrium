@@ -582,7 +582,8 @@ async def attach_provider_to_agent(name: str, body: AttachmentRequest):
             ),
             None,
         )
-        if occupant is not None and _attachment_name(occupant) != name:
+        occ_name = _attachment_name(occupant) if occupant is not None else None
+        if occupant is not None and occ_name is not None and occ_name != name:
             slot_label = (
                 "primary slot" if body.role == PRIMARY_ROLE else f"auxiliary slot {body.role!r}"
             )
@@ -590,7 +591,7 @@ async def attach_provider_to_agent(name: str, body: AttachmentRequest):
                 status_code=409,
                 detail=(
                     f"hermes {slot_label} is already bound "
-                    f"to {_attachment_name(occupant)!r}; detach first"
+                    f"to {occ_name!r}; detach first"
                 ),
             )
 

@@ -116,7 +116,7 @@ export function AttachProviderModal({
               </label>
             )}
             {noAvailableRoles ? (
-              <p className="text-xs text-amber-700">
+              <p role="alert" className="text-xs text-amber-700">
                 All auxiliary slots are filled. Detach an attachment to free a slot.
               </p>
             ) : (
