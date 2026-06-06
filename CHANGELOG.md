@@ -36,6 +36,18 @@ release.
 
 ### Fixed
 
+- `clawctl agent sync` on hermes agents with multiple provider
+  attachments now renders one `auxiliary.<role>:` block per non-primary
+  attachment in `~/.hermes/config.yaml`, and emits each non-primary
+  provider's credentials into `~/.hermes/.env` (bearer keys for cloud
+  providers, AWS triple for bedrock). Previously the canonical render
+  path picked only the primary and silently dropped every auxiliary
+  slot, causing hermes to fall back to upstream per-primary-type
+  defaults for aux models. Single-provider hermes rendering is
+  byte-identical; `zeroclaw` and `openclaw` renderers are not touched.
+  Same-type collisions with different API keys and multiple bedrock
+  attachments now fail loudly at `build_render_inputs` with actionable
+  errors. (#621, parent #589)
 - `clawctl agent sync <hermes-agent>` crashed with
   `ModuleNotFoundError: No module named 'jinja2'` on a fresh
   `uv tool install clawrium`. `jinja2` was declared only under
