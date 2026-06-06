@@ -2240,6 +2240,38 @@ def configure_agent(
                 unix_agent_name,
                 exc,
             )
+    elif resolved_type == "hermes":
+        # #622: pre-render canonical hermes config + env via render_hermes
+        # so the playbook can `copy: content:` the bytes instead of
+        # templating server-side. Collapses the dual-render path (legacy
+        # hermes-config.yaml.j2 vs canonical hermes-config.canonical.yaml.j2)
+        # into a single source of truth and unbreaks multi-provider on
+        # `clawctl agent configure` — see #622.
+        from clawrium.core.render import (
+            AgentConfigError,
+            build_render_inputs,
+            render_hermes,
+        )
+
+        try:
+            render_inputs = build_render_inputs(unix_agent_name)
+            rendered = render_hermes(render_inputs)
+            prerendered_files[".hermes/.env"] = rendered.files[".hermes/.env"]
+            prerendered_files[".hermes/config.yaml"] = (
+                rendered.files[".hermes/config.yaml"]
+            )
+        except AgentConfigError as exc:
+            # Loud failure at assembly time: same-type provider conflicts,
+            # >1 bedrock attachment, etc. Nothing pushed to host.
+            return False, f"Hermes render failed: {exc}"
+        except Exception as exc:
+            # ATX iter-1 B1 (#622): match the zeroclaw block's broad
+            # except. TemplateError from a malformed canonical .j2,
+            # KeyError on an unexpected hosts.json shape, IOError on the
+            # importlib.resources read — all must surface as a clean
+            # (False, msg) instead of an unhandled traceback that leaves
+            # the lifecycle state machine half-walked.
+            return False, f"Hermes render failed: {exc}"
 
     # Build Ansible inventory with API key passed directly
     ansible_vars = {
@@ -2257,6 +2289,10 @@ def configure_agent(
         "integrations": integrations_data,
         "prerendered_zeroclaw_config_toml": prerendered_files.get(
             ".zeroclaw/config.toml", ""
+        ),
+        "prerendered_hermes_env": prerendered_files.get(".hermes/.env", ""),
+        "prerendered_hermes_config_yaml": prerendered_files.get(
+            ".hermes/config.yaml", ""
         ),
     }
 

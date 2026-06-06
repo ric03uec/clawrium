@@ -17,6 +17,23 @@ release.
 
 ### BREAKING
 
+- hermes: legacy ansible-side templates
+  `src/clawrium/platform/registry/hermes/templates/hermes-config.yaml.j2`
+  and `hermes.env.j2` have been **removed**. The configure playbook no
+  longer renders them server-side; `~/.hermes/config.yaml` and
+  `~/.hermes/.env` are now produced client-side by `render_hermes`
+  (`src/clawrium/core/render.py`) and deployed via
+  `ansible.builtin.copy`. **Operator action: none** — every `clawctl`
+  command keeps its exact contract, and single-provider rendered output
+  is byte-identical to the previous release. **Downstream / vendor
+  action**: anyone importing or templating against the deleted `.j2`
+  files must switch to calling `render_hermes(build_render_inputs(name))`
+  and reading the `RenderedFiles` dict at `.hermes/config.yaml` /
+  `.hermes/.env`. There is no automated migration; vendored copies of
+  the legacy templates will continue to work standalone but will not
+  receive multi-provider auxiliary-block rendering or any future fix.
+  (#622, parent #589)
+
 ### Added
 
 - `clawctl agent provider attach --role <role>` for hermes agents.
@@ -33,6 +50,16 @@ release.
   message verbatim. (#612, parent #589)
 
 ### Changed
+
+- hermes: `~/.hermes/config.yaml` and `~/.hermes/.env` are now rendered
+  client-side by `clawctl` (via `render_hermes`) and copied to the
+  agent host by the configure playbook, instead of being templated
+  server-side by Ansible. Unifies the rendering path between
+  `clawctl agent configure` and `clawctl agent sync`, so multi-provider
+  attachments now work on both commands (previously only `sync`
+  rendered them correctly). No operator action required; existing
+  CLI commands keep their exact contract, single-provider output is
+  byte-identical. (#622, parent #589)
 
 ### Fixed
 

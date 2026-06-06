@@ -18,11 +18,10 @@
 # bare GITHUB_TOKEN is set to the alphabetically-last github integration
 # for back-compat with skills/CLIs that hard-code that name. `dictsort`
 # makes the choice deterministic regardless of dict insertion order.
-# Mirrors hermes/hermes.env.j2:115-122.
 {# Shell-safe quoting for systemd. systemd Environment= parses the RHS as
    POSIX-shell-like with double-quotes — embedded double quotes and backslashes
-   must be escaped. POSIX-style single-quote escape (used by hermes) does NOT
-   apply here because systemd does its own un-quoting before exposing the value.
+   must be escaped. POSIX-style single-quote escape does NOT apply here
+   because systemd does its own un-quoting before exposing the value.
    See systemd.exec(5) "Environment=".
 
    ATX Round 1 W3 — newline injection defense: per systemd.exec(5), an
@@ -50,7 +49,7 @@
 [Service]
 {# `default({}, true)` (boolean=true) coerces both undefined AND falsy values
    (None, []) to the empty dict — plain `default({})` would let None through
-   and crash on the length call. Mirrors hermes hermes.env.j2:111-114. #}
+   and crash on the length call. #}
 {% set _integrations = integrations | default({}, true) %}
 {% if _integrations | length > 0 %}
 {% for _name, _integration in _integrations | dictsort %}

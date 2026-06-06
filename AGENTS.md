@@ -162,6 +162,25 @@ Rules (issue #437):
   whenever the bearer is overwritten. The CLI renders it as a yellow
   notice during `configure`/`sync`/`restart`.
 
+## Hermes Config Rendering (issue #622)
+
+`~/.hermes/config.yaml` and `~/.hermes/.env` are rendered exclusively
+by `src/clawrium/core/render.py:render_hermes`. Both `clawctl agent
+configure` (via `lifecycle.configure_agent`) and `clawctl agent sync`
+(via `lifecycle_canonical.sync_agent_canonical`) call the same
+renderer; the configure playbook copies the pre-rendered bytes via
+`ansible.builtin.copy`, it does not template them server-side.
+
+To change the on-host shape, edit the canonical templates in
+`src/clawrium/platform/registry/hermes/templates/` (`hermes-config.canonical.yaml.j2`
+and `hermes-env.canonical.j2`) and the `render_hermes` plumbing in
+`core/render.py`. There is no second template path.
+
+Multi-provider attachments (primary + N auxiliary slots) are a
+**hermes-only** feature. Zeroclaw, openclaw, and nemoclaw enforce
+single-provider invariants at the CLI and renderer layers; their
+templates do not iterate `config.providers`.
+
 ## Native Dashboards (issues #478, #491)
 
 Three agent types ship a native web UI today: **hermes** (issue #478), **zeroclaw** (issue #491), and **openclaw**. The manifest's `features.web_ui` block is the single gate — `clawctl agent open <name>` and the GUI's **Open Agent UI** button both consult the resolver in `src/clawrium/core/web_ui.py`, which returns `None` for any agent whose manifest does not declare `features.web_ui`.
