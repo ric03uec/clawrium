@@ -348,51 +348,64 @@ export interface LogsResponse {
   error?: string;
 }
 
-// Skills catalog types
-export type SkillRegistry = "clawrium" | "openclaw" | "hermes" | "zeroclaw";
+// Skills catalog types (#411 — unified vetted+local)
+export type SkillSource = "vetted" | "local";
 
-export type SkillCompatibility = Record<
-  "openclaw" | "hermes" | "zeroclaw",
-  boolean
->;
+export type ClawType = "hermes" | "openclaw" | "zeroclaw";
+
+export type SupportTable = Record<ClawType, boolean>;
 
 export interface SkillSummary {
   ref: string;
-  registry: SkillRegistry;
+  source: SkillSource;
   name: string;
   description: string | null;
   version: string | null;
+  supported_on: SupportTable;
   // True when the backend could load the directory but failed to
-  // parse the skill's metadata. Distinguishes a broken catalog
-  // entry from a legitimately undescribed skill.
+  // parse the skill's metadata.
   degraded?: boolean;
 }
 
 export interface SkillsCatalog {
-  registries: SkillRegistry[];
-  skills: Record<SkillRegistry, SkillSummary[]>;
-  // Present (with a short reason string) when the backend could not
-  // read the catalog directory — e.g. permission denied. The frontend
-  // surfaces this as a banner so empty tabs aren't mistaken for an
-  // empty repo.
+  sources: SkillSource[];
+  supported_on: SupportTable;
+  skills: SkillSummary[];
   error?: string;
 }
 
 export interface SkillDetail {
   ref: string;
-  registry: SkillRegistry;
+  source: SkillSource;
   name: string;
   metadata: Record<string, unknown>;
   body: string;
-  compatibility: SkillCompatibility;
+  supported_on: SupportTable;
 }
 
-// Per-agent skills (Phase 5). Both installed and available rows reuse
-// SkillSummary but allow `registry`/`name` to be null on installed rows
-// when the state file carries a ref that no longer parses.
+export interface SkillCreateInput {
+  name: string;
+  description: string;
+  body: string;
+  version?: string;
+  author?: string;
+  license?: string;
+  tags?: string[];
+}
+
+export interface SkillUpdateInput {
+  description?: string;
+  body?: string;
+  version?: string;
+  author?: string;
+  license?: string;
+  tags?: string[];
+}
+
+// Per-agent skills. installed/available rows.
 export interface AgentSkillRow {
   ref: string;
-  registry: SkillRegistry | null;
+  source: SkillSource | null;
   name: string | null;
   description: string | null;
   version: string | null;

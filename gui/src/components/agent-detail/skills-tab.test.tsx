@@ -56,8 +56,8 @@ function makeAgentSkills(overrides: Partial<AgentSkills> = {}): AgentSkills {
     installed: [],
     available: [
       {
-        ref: "clawrium/tdd",
-        registry: "clawrium",
+        ref: "vetted/tdd",
+        source: "vetted",
         name: "tdd",
         description: "TDD discipline.",
         version: "0.1.0",
@@ -110,8 +110,8 @@ describe("SkillsTab", () => {
     agentSkillsState.data = makeAgentSkills({
       installed: [
         {
-          ref: "clawrium/tdd",
-          registry: "clawrium",
+          ref: "vetted/tdd",
+          source: "vetted",
           name: "tdd",
           description: "TDD discipline.",
           version: "0.1.0",
@@ -119,9 +119,9 @@ describe("SkillsTab", () => {
       ],
     });
     render(<SkillsTab agentKey="tdd-hermes" />);
-    expect(screen.getByText("clawrium/tdd")).toBeInTheDocument();
+    expect(screen.getByText("vetted/tdd")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Remove clawrium\/tdd/ }),
+      screen.getByRole("button", { name: /Remove vetted\/tdd/ }),
     ).toBeInTheDocument();
   });
 
@@ -132,15 +132,15 @@ describe("SkillsTab", () => {
     const modal = screen.getByTestId("modal");
     expect(modal).toBeInTheDocument();
     // The picker shows the available skill that isn't yet installed.
-    expect(modal.textContent).toContain("clawrium/tdd");
+    expect(modal.textContent).toContain("vetted/tdd");
   });
 
   it("hides already-installed skills from the picker", () => {
     agentSkillsState.data = makeAgentSkills({
       installed: [
         {
-          ref: "clawrium/tdd",
-          registry: "clawrium",
+          ref: "vetted/tdd",
+          source: "vetted",
           name: "tdd",
           description: "TDD discipline.",
           version: "0.1.0",
@@ -160,12 +160,12 @@ describe("SkillsTab", () => {
     fireEvent.click(screen.getByRole("button", { name: /Install skill/ }));
     // Per-row picker button is labeled "Install <ref>" (ATX-1 W7).
     fireEvent.click(
-      screen.getByRole("button", { name: /Install clawrium\/tdd/ }),
+      screen.getByRole("button", { name: /Install vetted\/tdd/ }),
     );
     await waitFor(() =>
       expect(installMutation.mutateAsync).toHaveBeenCalledWith({
         agentKey: "tdd-hermes",
-        registry: "clawrium",
+        source: "vetted",
         name: "tdd",
       }),
     );
@@ -177,8 +177,8 @@ describe("SkillsTab", () => {
     agentSkillsState.data = makeAgentSkills({
       installed: [
         {
-          ref: "clawrium/tdd",
-          registry: "clawrium",
+          ref: "vetted/tdd",
+          source: "vetted",
           name: "tdd",
           description: "TDD discipline.",
           version: "0.1.0",
@@ -189,25 +189,25 @@ describe("SkillsTab", () => {
 
     // Step 1: clicking "Remove" must NOT call the mutation.
     fireEvent.click(
-      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+      screen.getByRole("button", { name: /^Remove vetted\/tdd$/ }),
     );
     expect(removeMutation.mutateAsync).not.toHaveBeenCalled();
 
     // The confirm/cancel pair is now rendered, labelled with the ref.
     expect(
       screen.getByRole("group", {
-        name: /Confirm removal of clawrium\/tdd/,
+        name: /Confirm removal of vetted\/tdd/,
       }),
     ).toBeInTheDocument();
 
     // Step 2: confirm.
     fireEvent.click(
-      screen.getByRole("button", { name: /Confirm remove clawrium\/tdd/ }),
+      screen.getByRole("button", { name: /Confirm remove vetted\/tdd/ }),
     );
     await waitFor(() =>
       expect(removeMutation.mutateAsync).toHaveBeenCalledWith({
         agentKey: "tdd-hermes",
-        registry: "clawrium",
+        source: "vetted",
         name: "tdd",
       }),
     );
@@ -217,8 +217,8 @@ describe("SkillsTab", () => {
     agentSkillsState.data = makeAgentSkills({
       installed: [
         {
-          ref: "clawrium/tdd",
-          registry: "clawrium",
+          ref: "vetted/tdd",
+          source: "vetted",
           name: "tdd",
           description: "TDD discipline.",
           version: "0.1.0",
@@ -227,15 +227,15 @@ describe("SkillsTab", () => {
     });
     render(<SkillsTab agentKey="tdd-hermes" />);
     fireEvent.click(
-      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+      screen.getByRole("button", { name: /^Remove vetted\/tdd$/ }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /Cancel remove clawrium\/tdd/ }),
+      screen.getByRole("button", { name: /Cancel remove vetted\/tdd/ }),
     );
     expect(removeMutation.mutateAsync).not.toHaveBeenCalled();
     // Confirmation UI is gone; the original Remove button is back.
     expect(
-      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+      screen.getByRole("button", { name: /^Remove vetted\/tdd$/ }),
     ).toBeInTheDocument();
   });
 
@@ -247,7 +247,7 @@ describe("SkillsTab", () => {
     render(<SkillsTab agentKey="tdd-hermes" />);
     fireEvent.click(screen.getByRole("button", { name: /Install skill/ }));
     fireEvent.click(
-      screen.getAllByRole("button", { name: /Install clawrium\/tdd/ })[0],
+      screen.getAllByRole("button", { name: /Install vetted\/tdd/ })[0],
     );
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(/host unreachable/);
@@ -263,8 +263,8 @@ describe("SkillsTab", () => {
     agentSkillsState.data = makeAgentSkills({
       installed: [
         {
-          ref: "clawrium/tdd",
-          registry: "clawrium",
+          ref: "vetted/tdd",
+          source: "vetted",
           name: "tdd",
           description: "TDD discipline.",
           version: "0.1.0",
@@ -276,10 +276,10 @@ describe("SkillsTab", () => {
       .mockRejectedValue(new Error("ansible timeout"));
     render(<SkillsTab agentKey="tdd-hermes" />);
     fireEvent.click(
-      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+      screen.getByRole("button", { name: /^Remove vetted\/tdd$/ }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /Confirm remove clawrium\/tdd/ }),
+      screen.getByRole("button", { name: /Confirm remove vetted\/tdd/ }),
     );
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(/ansible timeout/);
@@ -287,7 +287,7 @@ describe("SkillsTab", () => {
     // The mutation handler clears `confirming` synchronously when the
     // Confirm button fires, so the resting "Remove" button is back.
     expect(
-      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+      screen.getByRole("button", { name: /^Remove vetted\/tdd$/ }),
     ).toBeInTheDocument();
   });
 
@@ -299,8 +299,8 @@ describe("SkillsTab", () => {
     agentSkillsState.data = makeAgentSkills({
       installed: [
         {
-          ref: "clawrium/tdd",
-          registry: "clawrium",
+          ref: "vetted/tdd",
+          source: "vetted",
           name: "tdd",
           description: "TDD discipline.",
           version: "0.1.0",
@@ -309,15 +309,15 @@ describe("SkillsTab", () => {
     });
     render(<SkillsTab agentKey="tdd-hermes" />);
     fireEvent.click(
-      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+      screen.getByRole("button", { name: /^Remove vetted\/tdd$/ }),
     );
     const confirmBtn = screen.getByRole("button", {
-      name: /Confirm remove clawrium\/tdd/,
+      name: /Confirm remove vetted\/tdd/,
     });
     fireEvent.keyDown(confirmBtn, { key: "Escape" });
     expect(
       screen.queryByRole("group", {
-        name: /Confirm removal of clawrium\/tdd/,
+        name: /Confirm removal of vetted\/tdd/,
       }),
     ).not.toBeInTheDocument();
   });
@@ -329,8 +329,8 @@ describe("SkillsTab", () => {
     agentSkillsState.data = makeAgentSkills({
       installed: [
         {
-          ref: "clawrium/tdd",
-          registry: "clawrium",
+          ref: "vetted/tdd",
+          source: "vetted",
           name: "tdd",
           description: "TDD discipline.",
           version: "0.1.0",
@@ -339,10 +339,10 @@ describe("SkillsTab", () => {
     });
     render(<SkillsTab agentKey="tdd-hermes" />);
     fireEvent.click(
-      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+      screen.getByRole("button", { name: /^Remove vetted\/tdd$/ }),
     );
     const confirmBtn = screen.getByRole("button", {
-      name: /Confirm remove clawrium\/tdd/,
+      name: /Confirm remove vetted\/tdd/,
     });
     await waitFor(() => expect(confirmBtn).toHaveFocus());
   });
@@ -355,8 +355,8 @@ describe("SkillsTab", () => {
     agentSkillsState.data = makeAgentSkills({
       installed: [
         {
-          ref: "clawrium/tdd",
-          registry: "clawrium",
+          ref: "vetted/tdd",
+          source: "vetted",
           name: "tdd",
           description: "TDD discipline.",
           version: "0.1.0",
@@ -365,10 +365,10 @@ describe("SkillsTab", () => {
     });
     const { rerender } = render(<SkillsTab agentKey="tdd-hermes" />);
     fireEvent.click(
-      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+      screen.getByRole("button", { name: /^Remove vetted\/tdd$/ }),
     );
     expect(
-      screen.getByRole("group", { name: /Confirm removal of clawrium\/tdd/ }),
+      screen.getByRole("group", { name: /Confirm removal of vetted\/tdd/ }),
     ).toBeInTheDocument();
 
     // Concurrent install fires — the row disables. The effect must
@@ -377,11 +377,11 @@ describe("SkillsTab", () => {
     rerender(<SkillsTab agentKey="tdd-hermes" />);
     expect(
       screen.queryByRole("group", {
-        name: /Confirm removal of clawrium\/tdd/,
+        name: /Confirm removal of vetted\/tdd/,
       }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /^Remove clawrium\/tdd$/ }),
+      screen.getByRole("button", { name: /^Remove vetted\/tdd$/ }),
     ).toBeDisabled();
   });
 
@@ -392,7 +392,7 @@ describe("SkillsTab", () => {
     fireEvent.click(screen.getByRole("button", { name: /Install skill/ }));
     expect(screen.getByTestId("modal")).toBeInTheDocument();
     fireEvent.click(
-      screen.getAllByRole("button", { name: /Install clawrium\/tdd/ })[0],
+      screen.getAllByRole("button", { name: /Install vetted\/tdd/ })[0],
     );
     await waitFor(() => {
       expect(screen.queryByTestId("modal")).not.toBeInTheDocument();

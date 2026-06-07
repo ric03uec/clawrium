@@ -23,6 +23,9 @@ export {
 export {
   useSkills,
   useSkill,
+  useCreateSkill,
+  useUpdateSkill,
+  useDeleteSkill,
   useAgentSkills,
   useInstallAgentSkill,
   useRemoveAgentSkill,

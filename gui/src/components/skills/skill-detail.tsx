@@ -1,6 +1,6 @@
 "use client";
 
-import type { SkillCompatibility, SkillDetail as SkillDetailData } from "@/lib/types";
+import type { SkillDetail as SkillDetailData, SupportTable } from "@/lib/types";
 
 interface SkillDetailProps {
   skill: SkillDetailData;
@@ -40,9 +40,9 @@ export function SkillDetail({ skill }: SkillDetailProps) {
       <div className="rounded border border-default bg-panel p-3 text-xs text-secondary">
         <h3 className="font-medium text-primary-text mb-2 text-xs">Metadata</h3>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-          <dt className="text-muted">registry</dt>
+          <dt className="text-muted">source</dt>
           <dd>
-            <code>{skill.registry}</code>
+            <code>{skill.source}</code>
           </dd>
           <dt className="text-muted">name</dt>
           <dd>
@@ -72,9 +72,9 @@ export function SkillDetail({ skill }: SkillDetailProps) {
               <dd>{platforms.join(", ")}</dd>
             </>
           ) : null}
-          <dt className="text-muted">compatibility</dt>
+          <dt className="text-muted">supported on</dt>
           <dd>
-            <CompatibilityBadges compatibility={skill.compatibility} />
+            <SupportBadges supported={skill.supported_on} />
           </dd>
         </dl>
       </div>
@@ -84,9 +84,6 @@ export function SkillDetail({ skill }: SkillDetailProps) {
           <h3 className="font-medium text-primary-text mb-2 text-xs">
             SKILL.md
           </h3>
-          {/* `tabIndex={0}` makes the scrollable body reachable via
-              keyboard (WCAG 2.1.1 Level A). Without it, keyboard-only
-              users can't scroll the body when it overflows max-h-96. */}
           <pre
             tabIndex={0}
             aria-label="SKILL.md body, scrollable"
@@ -100,26 +97,15 @@ export function SkillDetail({ skill }: SkillDetailProps) {
   );
 }
 
-function CompatibilityBadges({
-  compatibility,
-}: {
-  compatibility: SkillCompatibility;
-}) {
-  const entries = (Object.entries(compatibility) as [
-    keyof SkillCompatibility,
-    boolean,
-  ][]).sort(([a], [b]) => a.localeCompare(b));
+function SupportBadges({ supported }: { supported: SupportTable }) {
+  const entries = (Object.entries(supported) as [keyof SupportTable, boolean][])
+    .sort(([a], [b]) => a.localeCompare(b));
   return (
     <span className="flex flex-wrap gap-1">
       {entries.map(([claw, ok]) => (
         <span
           key={claw}
-          // line-through carries the same signal as the aria-label so
-          // sighted and screen-reader users agree on compatibility.
-          // WCAG 1.4.1 — never rely on visual presentation alone.
-          // Comma rather than em-dash: NVDA/JAWS verbalize U+2014 as
-          // "em dash" instead of a natural pause.
-          aria-label={ok ? `${claw}, compatible` : `${claw}, incompatible`}
+          aria-label={ok ? `${claw}, supported` : `${claw}, not yet supported`}
           className={`px-1.5 py-0.5 rounded text-xs ${
             ok
               ? "bg-emerald-50 text-emerald-700"

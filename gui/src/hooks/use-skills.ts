@@ -1,9 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { SkillCreateInput, SkillUpdateInput } from "@/lib/types";
 
-// Skills catalog is read from the in-repo filesystem and only changes
-// across a `clm` upgrade. 5 minutes is plenty for a single session and
-// suppresses background refetches on every window focus / modal open.
 const SKILLS_STALE_MS = 5 * 60 * 1000;
 
 export function useSkills() {
@@ -14,12 +12,49 @@ export function useSkills() {
   });
 }
 
-export function useSkill(registry: string | null, name: string | null) {
+export function useSkill(source: string | null, name: string | null) {
   return useQuery({
-    queryKey: ["skill", registry, name],
-    queryFn: () => api.getSkill(registry!, name!),
-    enabled: !!registry && !!name,
+    queryKey: ["skill", source, name],
+    queryFn: () => api.getSkill(source!, name!),
+    enabled: !!source && !!name,
     staleTime: SKILLS_STALE_MS,
+  });
+}
+
+export function useCreateSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SkillCreateInput) => api.createSkill(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["skills"] });
+    },
+  });
+}
+
+interface UpdateSkillVars {
+  name: string;
+  input: SkillUpdateInput;
+}
+
+export function useUpdateSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, input }: UpdateSkillVars) =>
+      api.updateSkill(name, input),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["skills"] });
+      queryClient.invalidateQueries({ queryKey: ["skill", "local", vars.name] });
+    },
+  });
+}
+
+export function useDeleteSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.deleteSkill(name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["skills"] });
+    },
   });
 }
 
@@ -33,15 +68,15 @@ export function useAgentSkills(agentKey: string | null) {
 
 interface AgentSkillMutationVars {
   agentKey: string;
-  registry: string;
+  source: string;
   name: string;
 }
 
 export function useInstallAgentSkill() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ agentKey, registry, name }: AgentSkillMutationVars) =>
-      api.installAgentSkill(agentKey, registry, name),
+    mutationFn: ({ agentKey, source, name }: AgentSkillMutationVars) =>
+      api.installAgentSkill(agentKey, source, name),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({
         queryKey: ["agent-skills", vars.agentKey],
@@ -53,8 +88,8 @@ export function useInstallAgentSkill() {
 export function useRemoveAgentSkill() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ agentKey, registry, name }: AgentSkillMutationVars) =>
-      api.removeAgentSkill(agentKey, registry, name),
+    mutationFn: ({ agentKey, source, name }: AgentSkillMutationVars) =>
+      api.removeAgentSkill(agentKey, source, name),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({
         queryKey: ["agent-skills", vars.agentKey],

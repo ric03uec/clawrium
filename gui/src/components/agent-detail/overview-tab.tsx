@@ -78,7 +78,7 @@ export function OverviewTab({ agent, agentKey }: OverviewTabProps) {
                 className="inline-flex items-center gap-1.5 text-xs bg-panel border border-default rounded-full px-2.5 py-1"
               >
                 <span className="text-primary-text font-medium">
-                  {skill.registry}/{skill.name}
+                  {skill.source}/{skill.name}
                 </span>
                 {skill.version && (
                   <span className="text-muted">v{skill.version}</span>

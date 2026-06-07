@@ -366,7 +366,7 @@ def _list_available_for_agent_type(agent_type: str) -> list[dict[str, object]]:
         return []
     available: list[dict[str, object]] = []
     for ref in refs:
-        if not _is_compatible_for_agent_type(ref.registry, ref.name, agent_type):
+        if not _is_compatible_for_agent_type(ref.source, ref.name, agent_type):
             continue
         description: str | None = None
         version: str | None = None
@@ -386,7 +386,7 @@ def _list_available_for_agent_type(agent_type: str) -> list[dict[str, object]]:
         available.append(
             {
                 "ref": str(ref),
-                "registry": ref.registry,
+                "source": ref.source,
                 "name": ref.name,
                 "description": description,
                 "version": version,
@@ -438,7 +438,7 @@ async def list_agent_skills(agent_key: str):
                 installed.append(
                     {
                         "ref": raw_ref,
-                        "registry": None,
+                        "source": None,
                         "name": None,
                         "description": None,
                         "version": None,
@@ -461,7 +461,7 @@ async def list_agent_skills(agent_key: str):
             installed.append(
                 {
                     "ref": str(ref),
-                    "registry": ref.registry,
+                    "source": ref.source,
                     "name": ref.name,
                     "description": description,
                     "version": version,

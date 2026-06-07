@@ -3,11 +3,9 @@
 import type { SkillSummary } from "@/lib/types";
 import { Card } from "@/components/ui/card";
 
-const REGISTRY_BADGES: Record<string, { label: string; color: string }> = {
-  clawrium: { label: "CLW", color: "bg-blue-100 text-blue-700" },
-  openclaw: { label: "OC", color: "bg-emerald-100 text-emerald-700" },
-  hermes: { label: "HE", color: "bg-violet-100 text-violet-700" },
-  zeroclaw: { label: "ZC", color: "bg-amber-100 text-amber-700" },
+const SOURCE_BADGE: Record<string, { label: string; color: string }> = {
+  vetted: { label: "vetted", color: "bg-blue-100 text-blue-700" },
+  local: { label: "local", color: "bg-emerald-100 text-emerald-700" },
 };
 
 interface SkillCardProps {
@@ -16,11 +14,14 @@ interface SkillCardProps {
 }
 
 export function SkillCard({ skill, onSelect }: SkillCardProps) {
-  const badge =
-    REGISTRY_BADGES[skill.registry] || {
-      label: "??",
-      color: "bg-gray-100 text-gray-700",
-    };
+  const sourceBadge = SOURCE_BADGE[skill.source] ?? {
+    label: skill.source,
+    color: "bg-gray-100 text-gray-700",
+  };
+
+  const supportedClaws = Object.entries(skill.supported_on ?? {})
+    .filter(([, ok]) => ok)
+    .map(([claw]) => claw);
 
   return (
     <Card padding="md">
@@ -31,9 +32,10 @@ export function SkillCard({ skill, onSelect }: SkillCardProps) {
         aria-label={`View skill ${skill.ref}`}
       >
         <div
-          className={`w-10 h-10 rounded-lg flex items-center justify-center text-xs font-bold ${badge.color}`}
+          className={`px-2 py-1 rounded text-xs font-semibold uppercase ${sourceBadge.color}`}
+          aria-label={`Source ${sourceBadge.label}`}
         >
-          {badge.label}
+          {sourceBadge.label}
         </div>
 
         <div className="flex-1 min-w-0">
@@ -63,6 +65,11 @@ export function SkillCard({ skill, onSelect }: SkillCardProps) {
               </span>
             )}
           </p>
+          {supportedClaws.length > 0 ? (
+            <p className="mt-1 text-xs text-muted">
+              Supported on: {supportedClaws.join(", ")}
+            </p>
+          ) : null}
         </div>
       </button>
     </Card>

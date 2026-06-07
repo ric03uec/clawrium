@@ -1,46 +1,38 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { PageHeader } from "@/components/layout";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui";
-import { SkillCard, SkillDetail } from "@/components/skills";
-import { useSkill, useSkills, useInstallAgentSkill } from "@/hooks";
-import { useFleet } from "@/hooks";
-import type { SkillRegistry, SkillSummary } from "@/lib/types";
-
-const REGISTRY_LABELS: Record<SkillRegistry, string> = {
-  clawrium: "Clawrium",
-  openclaw: "OpenClaw",
-  hermes: "Hermes",
-  zeroclaw: "ZeroClaw",
-};
+import { SkillCard, SkillDetail, SkillCreateForm } from "@/components/skills";
+import {
+  useSkill,
+  useSkills,
+  useCreateSkill,
+  useDeleteSkill,
+  useInstallAgentSkill,
+  useFleet,
+} from "@/hooks";
+import type { SkillSummary } from "@/lib/types";
 
 export default function SkillsPage() {
   const { data: catalog, isLoading, error } = useSkills();
-  const [activeRegistry, setActiveRegistry] = useState<SkillRegistry>(
-    "clawrium",
-  );
   const [selected, setSelected] = useState<SkillSummary | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
-  const counts = useMemo(() => {
-    if (!catalog) return {} as Record<SkillRegistry, number>;
-    return Object.fromEntries(
-      Object.entries(catalog.skills).map(([registry, list]) => [
-        registry,
-        list.length,
-      ]),
-    ) as Record<SkillRegistry, number>;
-  }, [catalog]);
-
-  const visibleSkills = catalog?.skills[activeRegistry] ?? [];
+  const skills = catalog?.skills ?? [];
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Skills"
-        description="Browse and install skills onto your agents. Skills add capabilities like TDD workflows, code review, and more."
-      />
+      <div className="flex items-start justify-between gap-4">
+        <PageHeader
+          title="Skills"
+          description="Browse and install skills onto your agents. Vetted skills ship in the repo; local skills are user-owned."
+        />
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          + Create Skill
+        </Button>
+      </div>
 
       {error ? (
         <div
@@ -58,8 +50,7 @@ export default function SkillsPage() {
           className="bg-surface rounded-xl border border-default p-4 text-sm text-status-warning"
         >
           Skills catalog is currently unavailable on the server (likely a
-          filesystem permission issue). Showing empty tabs as a fallback —
-          check the GUI server log for details.
+          filesystem permission issue). Check the GUI server log for details.
         </div>
       ) : null}
 
@@ -70,97 +61,79 @@ export default function SkillsPage() {
         >
           Loading skills catalog...
         </div>
-      ) : catalog ? (
-        <>
-          {/* `role="group"` instead of `<nav>` because these buttons
-              filter the page's already-loaded data, they do not
-              navigate to new URLs. Using <nav> pollutes the landmark
-              menu for AT users with what looks like a navigation
-              region. APG's full Tabs Pattern (tablist + tabpanel +
-              arrow-key roving tabindex) would also work, but is heavy
-              for an in-page filter; `role="group"` carries the same
-              semantic intent without the keyboard contract. */}
-          <div
-            role="group"
-            aria-label="Skill registries"
-            className="flex gap-1 border-b border-default"
-          >
-            {catalog.registries.map((registry) => {
-              const isActive = registry === activeRegistry;
-              const count = counts[registry] ?? 0;
-              const label = REGISTRY_LABELS[registry] ?? registry;
-              return (
-                <button
-                  key={registry}
-                  type="button"
-                  // `aria-current="true"` is the right WAI-ARIA token
-                  // for "this filter is selected"; `"page"` is reserved
-                  // for routing (selected nav item that matches the
-                  // current URL).
-                  aria-current={isActive ? "true" : undefined}
-                  // Use a comma rather than an em-dash — most screen
-                  // readers verbalize U+2014 as "em dash" instead of
-                  // pausing, which mangles the spoken count phrasing.
-                  aria-label={`${label}, ${count} skill${
-                    count === 1 ? "" : "s"
-                  }`}
-                  onClick={() => setActiveRegistry(registry)}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                    isActive
-                      ? "border-primary text-primary"
-                      : "border-transparent text-secondary hover:text-primary"
-                  }`}
-                >
-                  {label}
-                  <span aria-hidden="true" className="ml-2 text-xs text-muted">
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {visibleSkills.length > 0 ? (
-            <div className="space-y-3">
-              {visibleSkills.map((skill) => (
-                <SkillCard
-                  key={skill.ref}
-                  skill={skill}
-                  onSelect={() => setSelected(skill)}
-                />
-              ))}
-            </div>
-          ) : (
-            <EmptyState registry={activeRegistry} />
-          )}
-        </>
-      ) : null}
+      ) : skills.length > 0 ? (
+        <div className="space-y-3">
+          {skills.map((skill) => (
+            <SkillCard
+              key={skill.ref}
+              skill={skill}
+              onSelect={() => setSelected(skill)}
+            />
+          ))}
+        </div>
+      ) : (
+        <EmptyState />
+      )}
 
       <SkillDetailModal
         skill={selected}
         onClose={() => setSelected(null)}
       />
+
+      <CreateSkillModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+      />
     </div>
   );
 }
 
-function EmptyState({ registry }: { registry: SkillRegistry }) {
+function EmptyState() {
   return (
     <div className="bg-surface rounded-xl border border-default p-12 text-center space-y-2">
       <p className="text-sm text-primary-text font-medium">
-        No skills registered under{" "}
-        <code className="bg-panel text-secondary px-1 py-0.5 rounded">
-          {registry}/
-        </code>
+        No skills in the catalog.
       </p>
       <p className="text-xs text-muted">
-        Add one under{" "}
+        Click <strong>+ Create Skill</strong> to author a local skill, or run{" "}
         <code className="bg-panel text-secondary px-1 py-0.5 rounded">
-          skills/{registry}/&lt;name&gt;/
-        </code>{" "}
-        in the clawrium repo.
+          clawctl skill add local/&lt;name&gt;
+        </code>
+        .
       </p>
     </div>
+  );
+}
+
+function CreateSkillModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const createMutation = useCreateSkill();
+  const errorMsg =
+    createMutation.error instanceof Error
+      ? createMutation.error.message
+      : null;
+
+  return (
+    <Modal open={open} onClose={onClose} title="Create local skill">
+      <SkillCreateForm
+        isPending={createMutation.isPending}
+        serverError={errorMsg}
+        onCancel={onClose}
+        onSubmit={(input) => {
+          createMutation.mutate(input, {
+            onSuccess: () => {
+              createMutation.reset();
+              onClose();
+            },
+          });
+        }}
+      />
+    </Modal>
   );
 }
 
@@ -172,11 +145,12 @@ function SkillDetailModal({
   onClose: () => void;
 }) {
   const { data, isLoading, error } = useSkill(
-    skill?.registry ?? null,
+    skill?.source ?? null,
     skill?.name ?? null,
   );
   const { data: fleet } = useFleet();
   const installMutation = useInstallAgentSkill();
+  const deleteMutation = useDeleteSkill();
   const [targetAgent, setTargetAgent] = useState<string>("");
   const [installSuccess, setInstallSuccess] = useState<string | null>(null);
 
@@ -186,16 +160,31 @@ function SkillDetailModal({
     if (!targetAgent || !skill) return;
     setInstallSuccess(null);
     installMutation.mutate(
-      { agentKey: targetAgent, registry: skill.registry, name: skill.name },
+      { agentKey: targetAgent, source: skill.source, name: skill.name },
       {
         onSuccess: () => {
-          setInstallSuccess(
-            `Installed ${skill.ref} on ${targetAgent}`,
-          );
+          setInstallSuccess(`Installed ${skill.ref} on ${targetAgent}`);
           setTargetAgent("");
         },
       },
     );
+  };
+
+  const handleDelete = () => {
+    if (!skill || skill.source !== "local") return;
+    deleteMutation.mutate(skill.name, {
+      onSuccess: () => {
+        onClose();
+      },
+    });
+  };
+
+  const isLocal = skill?.source === "local";
+
+  const agentSupports = (agentType: string): boolean => {
+    if (!data) return false;
+    const flag = data.supported_on[agentType as keyof typeof data.supported_on];
+    return Boolean(flag);
   };
 
   return (
@@ -224,7 +213,6 @@ function SkillDetailModal({
         <>
           <SkillDetail skill={data} />
 
-          {/* Install to Agent section */}
           <div className="mt-4 pt-4 border-t border-default">
             <h3 className="text-xs font-semibold text-primary-text mb-2">
               Install to Agent
@@ -242,18 +230,41 @@ function SkillDetailModal({
                   aria-label="Select agent to install skill on"
                 >
                   <option value="">Select an agent...</option>
-                  {agents.map((agent) => (
-                    <option key={agent.agent_key} value={agent.agent_key}>
-                      {agent.agent_name} ({agent.agent_type})
-                    </option>
-                  ))}
+                  {agents.map((agent) => {
+                    const supported = agentSupports(agent.agent_type);
+                    return (
+                      <option
+                        key={agent.agent_key}
+                        value={agent.agent_key}
+                        disabled={!supported}
+                      >
+                        {agent.agent_name} ({agent.agent_type})
+                        {supported ? "" : " — not yet supported"}
+                      </option>
+                    );
+                  })}
                 </select>
                 <Button
                   size="sm"
                   disabled={
-                    !targetAgent || installMutation.isPending
+                    !targetAgent ||
+                    installMutation.isPending ||
+                    !agentSupports(
+                      agents.find((a) => a.agent_key === targetAgent)
+                        ?.agent_type ?? "",
+                    )
                   }
                   onClick={handleInstall}
+                  title={
+                    !targetAgent
+                      ? "Select an agent"
+                      : !agentSupports(
+                          agents.find((a) => a.agent_key === targetAgent)
+                            ?.agent_type ?? "",
+                        )
+                      ? "Not yet supported on this agent type"
+                      : undefined
+                  }
                 >
                   {installMutation.isPending ? "Installing..." : "Install"}
                 </Button>
@@ -271,6 +282,26 @@ function SkillDetailModal({
               </p>
             ) : null}
           </div>
+
+          {isLocal ? (
+            <div className="mt-4 pt-4 border-t border-default flex items-center justify-between">
+              <p className="text-xs text-muted">
+                Local skills are user-owned and editable.
+              </p>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          ) : (
+            <p className="mt-4 pt-4 border-t border-default text-xs text-muted">
+              Vetted skills are read-only. Submit a PR to update them.
+            </p>
+          )}
         </>
       ) : null}
     </Modal>

@@ -16,15 +16,13 @@ interface SkillsTabProps {
 }
 
 const REGISTRY_BADGES: Record<string, { label: string; color: string }> = {
-  clawrium: { label: "CLW", color: "bg-blue-100 text-blue-700" },
-  openclaw: { label: "OC", color: "bg-emerald-100 text-emerald-700" },
-  hermes: { label: "HE", color: "bg-violet-100 text-violet-700" },
-  zeroclaw: { label: "ZC", color: "bg-amber-100 text-amber-700" },
+  vetted: { label: "VET", color: "bg-blue-100 text-blue-700" },
+  local: { label: "LOC", color: "bg-emerald-100 text-emerald-700" },
 };
 
-function RegistryBadge({ registry }: { registry: string | null }) {
-  const badge = registry
-    ? REGISTRY_BADGES[registry]
+function RegistryBadge({ source }: { source: string | null }) {
+  const badge = source
+    ? REGISTRY_BADGES[source]
     : { label: "??", color: "bg-gray-100 text-gray-700" };
   const safe = badge ?? { label: "??", color: "bg-gray-100 text-gray-700" };
   return (
@@ -127,20 +125,20 @@ export function SkillsTab({ agentKey }: SkillsTabProps) {
     );
   }
 
-  const handleInstall = async (registry: string, name: string) => {
+  const handleInstall = async (source: string, name: string) => {
     setActionError(null);
     try {
-      await installMutation.mutateAsync({ agentKey, registry, name });
+      await installMutation.mutateAsync({ agentKey, source, name });
       setPickerOpen(false);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Install failed");
     }
   };
 
-  const handleRemove = async (registry: string, name: string) => {
+  const handleRemove = async (source: string, name: string) => {
     setActionError(null);
     try {
-      await removeMutation.mutateAsync({ agentKey, registry, name });
+      await removeMutation.mutateAsync({ agentKey, source, name });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Remove failed");
     }
@@ -230,7 +228,7 @@ function InstalledRow({
   disabled,
 }: {
   row: AgentSkillRow;
-  onRemove: (registry: string, name: string) => void;
+  onRemove: (source: string, name: string) => void;
   disabled: boolean;
 }) {
   // ATX-1 B2: remove is destructive (re-running install brings the host
@@ -239,7 +237,7 @@ function InstalledRow({
   // mutation directly. Confirm button carries the skill ref in its
   // accessible name so a screen-reader scan can't conflate two rows.
   const [confirming, setConfirming] = useState(false);
-  const canRemove = !!row.registry && !!row.name;
+  const canRemove = !!row.source && !!row.name;
   // ATX-2 B2a: focus the Confirm button when the row enters the
   // confirming state — without this a keyboard user has no indication
   // that anything happened on the first click.
@@ -256,7 +254,7 @@ function InstalledRow({
 
   return (
     <li className="flex items-start gap-3 px-4 py-3">
-      <RegistryBadge registry={row.registry} />
+      <RegistryBadge source={row.source} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-medium text-primary-text">
@@ -302,7 +300,7 @@ function InstalledRow({
             onClick={() => {
               if (canRemove) {
                 setConfirming(false);
-                onRemove(row.registry!, row.name!);
+                onRemove(row.source!, row.name!);
               }
             }}
             disabled={disabled || !canRemove}
@@ -340,7 +338,7 @@ function SkillPicker({
   pending,
 }: {
   installable: AgentSkillRow[];
-  onPick: (registry: string, name: string) => void;
+  onPick: (source: string, name: string) => void;
   pending: boolean;
 }) {
   if (installable.length === 0) {
@@ -348,7 +346,7 @@ function SkillPicker({
       <p className="py-6 text-center text-sm text-muted">
         No compatible skills available to install. Add one to{" "}
         <code className="bg-surface px-1 rounded">skills/clawrium/</code> or{" "}
-        the matching native registry, then refresh.
+        the matching native source, then refresh.
       </p>
     );
   }
@@ -363,7 +361,7 @@ function SkillPicker({
           key={row.ref}
           className="flex items-start gap-3 px-4 py-3"
         >
-          <RegistryBadge registry={row.registry} />
+          <RegistryBadge source={row.source} />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-medium text-primary-text">
@@ -382,8 +380,8 @@ function SkillPicker({
           <Button
             variant="primary"
             size="sm"
-            onClick={() => row.registry && row.name && onPick(row.registry, row.name)}
-            disabled={pending || !row.registry || !row.name}
+            onClick={() => row.source && row.name && onPick(row.source, row.name)}
+            disabled={pending || !row.source || !row.name}
             aria-label={`Install ${row.ref}`}
           >
             Install
