@@ -42,6 +42,7 @@ const sidebars: SidebarsConfig = {
       collapsed: true,
       items: [
         'skills/intro',
+        'skills/local',
         'skills/authoring',
       ],
     },

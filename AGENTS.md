@@ -47,7 +47,8 @@ clawctl agent exec <agent-name> -- --version
 # Install a skill onto the agent (catalog: skills/)
 clawctl skill registry get
 clawctl skill registry describe clawrium/tdd       # Inspect a skill before installing
-clawctl agent skill attach clawrium/tdd --agent <agent-name>
+clawctl agent skill add <agent-name> --from-template clawrium/tdd
+clawctl agent sync <agent-name>
 
 # Check fleet status
 clawctl agent get
@@ -128,7 +129,7 @@ Currently available:
 - **Agent Type**: The specific AI assistant implementation (e.g., zeroclaw, nemoclaw, openclaw)
 - **Agent Name**: The unique identifier for an installed agent instance
 - **Agent Registry**: Platform-defined agent types with versions, dependencies, and templates
-- **Skill Registry**: A namespace under `skills/` from which skills can be installed onto an agent (`clawrium`, `openclaw`, `hermes`, `zeroclaw`). Skills are referenced as `<skill-registry>/<name>` (e.g. `clawrium/tdd`). Distinct from the Agent Registry.
+- **Skill Registry**: A namespace under bundled `skills/` and the user overlay at `~/.config/clawrium/skills/` from which skill templates can be copied onto an agent (`clawrium`, `openclaw`, `hermes`, `zeroclaw`). Catalog templates are referenced as `<skill-registry>/<name>` (e.g. `clawrium/tdd`); once copied onto an agent, the local desired state stores the bare skill name (e.g. `tdd`). Distinct from the Agent Registry.
 
 ## Resources
 

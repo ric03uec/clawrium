@@ -1,4 +1,4 @@
-"""Materialize a per-agent skill desired-state onto a remote host.
+"""Apply per-agent local skill desired-state onto a remote host.
 
 `apply_state(agent_name)` is the single entry point both the CLI
 (`clm agent skill install/remove`) and (eventually) the GUI call into. It
@@ -6,10 +6,11 @@ is intentionally a tight orchestrator:
 
   1. Resolve `agent_name` → (host record, agent_type) via `core.hosts`.
   2. Read the desired-state file via `core.skills_state.read_state`.
-  3. For each ref, load + validate the skill and check compatibility
-     against the resolved `agent_type`. Failure aborts before any
-     remote I/O happens (no partial-apply states).
-  4. Materialize each skill's SKILL.md into a process-owned staging
+  3. For each bare local skill name, load the already-agent-native
+     `SKILL.md` from the control plane and validate it against the
+     resolved `agent_type`. Failure aborts before any remote I/O happens
+     (no partial-apply states).
+  4. Copy each local SKILL.md byte-for-byte into a process-owned staging
      directory inside the clawrium config tree.
   5. Dispatch to the per-claw `skills_apply.yaml` playbook with the
      staging dir + list of desired names as extravars. The playbook is
@@ -36,8 +37,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import get_agent_by_name
 from clawrium.core.keys import get_host_private_key
@@ -46,11 +45,7 @@ from clawrium.core.skills import (
     NATIVE_REGISTRIES,
     Skill,
     SkillError,
-    check_agent_compatibility,
-    load_skill,
-    materialize_for_claw,
-    parse_skill_ref,
-    validate_skill,
+    load_agent_skill,
 )
 from clawrium.core.skills_state import read_state
 
@@ -108,8 +103,8 @@ class ApplyResult:
         agent_name: The instance name that was applied to.
         agent_type: The resolved claw type.
         hostname: The host the playbook ran against.
-        applied_skills: Sorted list of `<registry>/<name>` refs that
-            now exist on the host (post-apply view).
+        applied_skills: Sorted list of bare local skill names that now
+            exist on the host (post-apply view).
         log_dir: ansible-runner work directory; kept for the user to
             inspect on failure or for the smoke-test transcript.
     """
@@ -162,17 +157,13 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
             "Run `clm agent ps` to find a compatible agent."
         )
 
-    # Validate everything in the desired state BEFORE touching the
-    # remote. A bad ref in the file should not produce a half-applied
-    # host (e.g. some skills installed, then a validation error
-    # aborts the run mid-loop).
-    desired_refs = read_state(agent_name)
+    # Validate everything in the desired state BEFORE touching the remote.
+    # Desired state stores bare per-agent local skill names; the local
+    # SKILL.md files are already materialized for this agent type.
+    desired_names = read_state(agent_name)
     loaded: list[Skill] = []
-    for raw_ref in desired_refs:
-        ref = parse_skill_ref(raw_ref)
-        skill = load_skill(ref)
-        validate_skill(skill)
-        check_agent_compatibility(skill, agent_type)
+    for name in desired_names:
+        skill = load_agent_skill(agent_name, name, agent_type)
         loaded.append(skill)
 
     # Both staging and log-dir creation live inside the `try` so the
@@ -222,7 +213,7 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
         agent_name=agent_name,
         agent_type=agent_type,
         hostname=host.get("hostname", "<unknown>"),
-        applied_skills=[str(skill.ref) for skill in loaded],
+        applied_skills=[skill.ref.name for skill in loaded],
         # log_dir was assigned before _run_apply_playbook ran; on the
         # successful-return path it is always populated.
         log_dir=log_dir if log_dir is not None else Path(""),
@@ -230,7 +221,7 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
 
 
 def _stage_skills(agent_name: str, agent_type: str, skills: list[Skill]) -> Path:
-    """Render every desired skill's SKILL.md into a fresh staging dir.
+    """Copy every desired skill's local SKILL.md into a fresh staging dir.
 
     Layout::
 
@@ -238,7 +229,7 @@ def _stage_skills(agent_name: str, agent_type: str, skills: list[Skill]) -> Path
 
     The staging dir lives under `${clawrium_config}/staging/skills/`
     with 0700 perms so other users on the control machine can't read
-    rendered frontmatter mid-apply. Each apply gets a unique sibling
+    staged frontmatter mid-apply. Each apply gets a unique sibling
     (timestamp + agent name) so concurrent applies don't overwrite each
     other.
     """
@@ -262,35 +253,17 @@ def _stage_skills(agent_name: str, agent_type: str, skills: list[Skill]) -> Path
     # (ATX #382 iter 4 W-new6.)
     try:
         for skill in skills:
-            frontmatter, body = materialize_for_claw(skill, agent_type)
             skill_dir = staging / skill.ref.name
             skill_dir.mkdir(parents=True, exist_ok=True)
             skill_dir.chmod(0o700)
             skill_md_path = skill_dir / "SKILL.md"
-            skill_md_path.write_text(_render_skill_md(frontmatter, body))
+            skill_md_path.write_bytes((skill.path / "SKILL.md").read_bytes())
             os.chmod(skill_md_path, 0o600)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
     return staging
-
-
-def _render_skill_md(frontmatter: dict[str, Any], body: str) -> str:
-    """Serialize a (frontmatter, body) pair into SKILL.md form.
-
-    Uses block-style YAML (`default_flow_style=False`) and preserves
-    insertion order via `sort_keys=False` so the materialized frontmatter
-    reads `name`/`description` first — matches every claw's `skills list`
-    UX (which keys off frontmatter order for the description column).
-    """
-    yaml_block = yaml.safe_dump(
-        frontmatter,
-        default_flow_style=False,
-        sort_keys=False,
-        allow_unicode=True,
-    ).strip()
-    return f"---\n{yaml_block}\n---\n\n{body.lstrip()}"
 
 
 def _make_log_dir(agent_name: str, agent_type: str, host: dict) -> Path:

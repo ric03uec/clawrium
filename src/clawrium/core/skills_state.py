@@ -1,4 +1,4 @@
-"""Desired-state store for per-agent skills.
+"""Desired-state store for per-agent local skills.
 
 Local desired state is the source of truth for which skills are installed
 on each agent. Stored at::
@@ -7,16 +7,17 @@ on each agent. Stored at::
 
 The file is a JSON object with shape::
 
-    {"skills": ["clawrium/tdd", "clawrium/foo"]}
+    {"skills": ["tdd", "my-custom-skill"]}
 
-Entries are always `<registry>/<name>` strings (validated through
-``parse_skill_ref`` before being written), and the list is sorted and
-deduped on every write so the on-disk shape is canonical regardless of
-write order.
+Entries are bare per-agent local skill names. Registry refs such as
+``clawrium/tdd`` are template sources only at add time and are invalid in
+desired state; re-add the skill from template to create the local native
+copy. The list is sorted and deduped on every write so the on-disk shape
+is canonical regardless of write order.
 
-This module never touches a remote host. Materialization onto a host is
-``core/skills.py::apply_state`` — it reads here, calls the per-claw
-``skills_apply.yaml`` playbook, and lets the playbook do the I/O.
+This module never touches a remote host. ``core/skills_apply.py::apply_state``
+reads here, stages the already-agent-native local files as-is, calls the
+per-claw ``skills_apply.yaml`` playbook, and lets the playbook do the I/O.
 """
 
 from __future__ import annotations
@@ -30,11 +31,7 @@ import tempfile
 from pathlib import Path
 
 from clawrium.core.config import get_config_dir
-from clawrium.core.skills import (
-    InvalidSkillRef,
-    SkillRef,
-    parse_skill_ref,
-)
+from clawrium.core.skills import InvalidSkillRef, _NAME_RE
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +63,21 @@ def _validate_agent_name(agent_name: str) -> None:
         )
 
 
+def _validate_skill_name(name: str) -> str:
+    """Validate and return a bare per-agent skill name."""
+    if not isinstance(name, str) or not _NAME_RE.fullmatch(name):
+        if isinstance(name, str) and "/" in name:
+            raise InvalidSkillRef(
+                f"Invalid skill name {name!r}. skills.json now stores bare per-agent "
+                "skill names only. Registry refs are template sources; re-add with "
+                "`clawctl agent skill add <agent> --from-template <registry>/<name>`."
+            )
+        raise InvalidSkillRef(
+            f"Invalid skill name {name!r}. Names must match ^[a-z0-9][a-z0-9_-]*$."
+        )
+    return name
+
+
 def state_file_path(agent_name: str) -> Path:
     """Return the on-disk path for ``agent_name``'s skills state file.
 
@@ -79,15 +91,15 @@ def state_file_path(agent_name: str) -> Path:
 def agent_skills_dir(agent_name: str) -> Path:
     """Return the local directory containing ``agent_name``'s skill files.
 
-    Phase A only exposes the path helper; the desired-state file continues
-    to store registry refs until the issue #411 semantic switch lands.
+    Contains already-agent-native ``SKILL.md`` files. ``skills.json`` only
+    stores the bare directory names under this path.
     """
     _validate_agent_name(agent_name)
     return get_config_dir() / "agents" / agent_name / "skills"
 
 
 def read_state(agent_name: str) -> list[str]:
-    """Return the sorted list of skill refs in ``agent_name``'s state.
+    """Return the sorted list of bare skill names in ``agent_name``'s state.
 
     Missing file → empty list (the "no skills installed" state). A
     malformed file raises ``InvalidSkillRef`` so callers don't silently
@@ -109,24 +121,20 @@ def read_state(agent_name: str) -> list[str]:
         raise InvalidSkillRef(
             f"Skills state file {path}: `skills` must be a list of strings."
         )
-    # Every persisted entry has already passed parse_skill_ref on write,
-    # but re-validating on read catches hand-edited files before they
-    # reach apply_state.
     validated: list[str] = []
     for entry in skills:
-        ref = parse_skill_ref(entry)
-        validated.append(str(ref))
+        validated.append(_validate_skill_name(entry))
     return sorted(set(validated))
 
 
-def write_state(agent_name: str, refs: list[str | SkillRef]) -> list[str]:
-    """Persist ``refs`` as ``agent_name``'s desired state.
+def write_state(agent_name: str, refs: list[str]) -> list[str]:
+    """Persist bare skill names as ``agent_name``'s desired state.
 
-    Each entry is normalized through ``parse_skill_ref`` (so a hand-edited
-    or programmatic mistake — ``http://…``, bare name, unknown registry —
-    raises a stable error class instead of corrupting the file) and the
-    final list is sorted + deduped. Returns the canonicalized list that
-    was written, so callers can compare against the prior state.
+    Each entry is validated through ``_validate_skill_name`` (so registry
+    refs, URLs, paths, uppercase names, spaces, and traversal forms raise
+    a stable error class instead of corrupting the file) and the final
+    list is sorted + deduped. Returns the canonicalized list that was
+    written, so callers can compare against the prior state.
 
     Writes are atomic: content is staged to a sibling ``.tmp`` file and
     renamed into place so a concurrent reader (or a crash mid-write)
@@ -134,8 +142,7 @@ def write_state(agent_name: str, refs: list[str | SkillRef]) -> list[str]:
     """
     canonical: set[str] = set()
     for entry in refs:
-        ref = parse_skill_ref(entry) if isinstance(entry, str) else entry
-        canonical.add(str(ref))
+        canonical.add(_validate_skill_name(entry))
     sorted_refs = sorted(canonical)
 
     path = state_file_path(agent_name)
@@ -176,35 +183,37 @@ def write_state(agent_name: str, refs: list[str | SkillRef]) -> list[str]:
     return sorted_refs
 
 
-def add_skill(agent_name: str, ref: str | SkillRef) -> tuple[list[str], bool]:
-    """Add ``ref`` to ``agent_name``'s state. Returns (new_state, added).
+def add_skill(agent_name: str, name: str) -> tuple[list[str], bool]:
+    """Add bare ``name`` to ``agent_name``'s state. Returns (new_state, added).
 
     ``added`` is True if the ref was not previously present; False on
     no-op. This lets callers report "already installed, applying anyway"
     accurately while still re-running the apply playbook (idempotency +
     drift recovery).
     """
-    parsed = parse_skill_ref(ref) if isinstance(ref, str) else ref
+    parsed = _validate_skill_name(name)
     current = read_state(agent_name)
-    already_present = str(parsed) in current
+    already_present = parsed in current
     if already_present:
         return current, False
-    new_state = sorted({*current, str(parsed)})
+    new_state = sorted({*current, parsed})
     return write_state(agent_name, new_state), True
 
 
-def remove_skill(agent_name: str, ref: str | SkillRef) -> tuple[list[str], bool]:
-    """Remove ``ref`` from ``agent_name``'s state. Returns (new_state, removed).
+def remove_skill(agent_name: str, name: str) -> tuple[list[str], bool]:
+    """Remove bare ``name`` from ``agent_name``'s state.
+
+    Returns (new_state, removed).
 
     ``removed`` is True if the ref was previously present; False on
     no-op. Callers should treat a no-op as user-visible but not an
     error — removing an absent skill is idempotent.
     """
-    parsed = parse_skill_ref(ref) if isinstance(ref, str) else ref
+    parsed = _validate_skill_name(name)
     current = read_state(agent_name)
-    if str(parsed) not in current:
+    if parsed not in current:
         return current, False
-    new_state = [s for s in current if s != str(parsed)]
+    new_state = [s for s in current if s != parsed]
     return write_state(agent_name, new_state), True
 
 

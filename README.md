@@ -114,6 +114,10 @@ clawctl agent configure my-assistant
 clawctl agent start my-assistant
 # → Agent 'my-assistant' started
 
+# Copy a catalog skill into the agent's local state and sync it
+clawctl agent skill add my-assistant --from-template clawrium/tdd
+clawctl agent sync my-assistant
+
 # Check fleet status
 clawctl agent get
 # NAME           TYPE       HOST       PROVIDER    STATUS    AGE

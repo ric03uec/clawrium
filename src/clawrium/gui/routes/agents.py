@@ -10,11 +10,13 @@ import asyncio
 import json
 import logging
 import re
+import shutil
 import shlex
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import yaml
 
 from clawrium.core.keys import get_host_private_key
 from clawrium.gui.routes._common import resolve_agent as _resolve_agent
@@ -46,8 +48,10 @@ from clawrium.core.skills import (
     SkillError,
     SkillNotFound,
     check_agent_compatibility,
+    load_agent_skill,
     list_skills,
     load_skill,
+    materialize_skill_for_agent,
     parse_skill_ref,
 )
 from clawrium.core.skills_apply import (
@@ -58,6 +62,7 @@ from clawrium.core.skills_apply import (
 )
 from clawrium.core.skills_state import (
     add_skill,
+    agent_skills_dir,
     read_state,
     remove_skill,
 )
@@ -398,6 +403,24 @@ def _list_available_for_agent_type(agent_type: str) -> list[dict[str, object]]:
     return available
 
 
+def _render_skill_md(skill) -> str:
+    frontmatter = yaml.safe_dump(
+        skill.skill_md_frontmatter,
+        sort_keys=False,
+        allow_unicode=False,
+    ).strip()
+    body = skill.body.rstrip()
+    return f"---\n{frontmatter}\n---\n\n{body}\n"
+
+
+def _write_agent_local_skill(agent_name: str, skill_name: str, skill) -> bool:
+    target = agent_skills_dir(agent_name) / skill_name
+    existed = target.exists()
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "SKILL.md").write_text(_render_skill_md(skill), encoding="utf-8")
+    return not existed
+
+
 @router.get("/{agent_key}/skills")
 async def list_agent_skills(agent_key: str):
     """List installed skills + available-to-install skills for an agent.
@@ -427,45 +450,30 @@ async def list_agent_skills(agent_key: str):
 
     def _build() -> dict[str, object]:
         try:
-            installed_refs = read_state(agent_name)
+            installed_names = read_state(agent_name)
         except SkillError as error:
             logger.warning("skills state unreadable for %s: %s", agent_name, error)
-            installed_refs = []
+            installed_names = []
         installed: list[dict[str, object]] = []
-        for raw_ref in installed_refs:
-            try:
-                ref = parse_skill_ref(raw_ref)
-            except SkillError:
-                # State file has an entry that no longer validates — show
-                # the bare ref so the user can remove it.
-                installed.append(
-                    {
-                        "ref": raw_ref,
-                        "registry": None,
-                        "name": None,
-                        "description": None,
-                        "version": None,
-                    }
-                )
-                continue
+        for name in installed_names:
             description: str | None = None
             version: str | None = None
             try:
-                skill = load_skill(ref)
+                local_skill = load_agent_skill(agent_name, name, agent_type)
             except SkillError:
-                pass
+                local_skill = None
             else:
-                raw_desc = skill.metadata.get("description")
+                raw_desc = local_skill.skill_md_frontmatter.get("description")
                 if isinstance(raw_desc, str) and raw_desc.strip():
                     description = " ".join(raw_desc.split())
-                raw_ver = skill.metadata.get("version")
+                raw_ver = local_skill.skill_md_frontmatter.get("version")
                 if raw_ver is not None:
                     version = str(raw_ver)
             installed.append(
                 {
-                    "ref": str(ref),
-                    "registry": ref.registry,
-                    "name": ref.name,
+                    "ref": name,
+                    "registry": "local",
+                    "name": name,
                     "description": description,
                     "version": version,
                 }
@@ -498,19 +506,21 @@ def _install_or_remove(
     resolved = _resolve_agent(agent_key)
     if not resolved:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
-    _host_record, _agent_type, agent_record = resolved
+    _host_record, agent_type, agent_record = resolved
     agent_name = agent_record.get("agent_name") or agent_key
 
     raw_ref = f"{registry}/{skill}"
     try:
-        # add_skill / remove_skill both call parse_skill_ref as their
-        # first operation, so a malformed ref short-circuits with 422
-        # before any state mutation. (W4: dropped the redundant pre-call
-        # that ATX flagged as dead code.)
+        ref = parse_skill_ref(raw_ref)
         if action == "install":
-            _new_state, changed = add_skill(agent_name, raw_ref)
+            template = load_skill(ref)
+            local_skill = materialize_skill_for_agent(template, agent_type)
+            wrote = _write_agent_local_skill(agent_name, ref.name, local_skill)
+            _new_state, changed = add_skill(agent_name, ref.name)
+            changed = changed or wrote
         else:
-            _new_state, changed = remove_skill(agent_name, raw_ref)
+            _new_state, changed = remove_skill(agent_name, ref.name)
+            shutil.rmtree(agent_skills_dir(agent_name) / ref.name, ignore_errors=True)
         result = apply_state(agent_name)
     except SkillError as error:
         raise HTTPException(
@@ -521,7 +531,7 @@ def _install_or_remove(
     return {
         "success": True,
         "agent_name": agent_name,
-        "ref": raw_ref,
+        "ref": ref.name,
         "changed": changed,
         "installed": list(result.applied_skills),
     }

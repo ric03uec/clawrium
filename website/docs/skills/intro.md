@@ -7,15 +7,17 @@ keywords: [skills, registry, clawrium, openclaw, hermes, zeroclaw, install]
 # Skills
 
 Clawrium ships a curated **skills catalog** that any agent in your
-fleet can install with one command. A skill is a directory of
+fleet can copy into local agent state with one command. A skill is a directory of
 behaviour-shaping prompts and metadata that the underlying claw
 discovers at runtime — Test-Driven Development discipline, code-review
 guardrails, security-audit playbooks.
 
-Skills are sourced **only** from the in-repo `skills/` tree. There is no
-URL install, no arbitrary-path install, no third-party registry. The
-catalog is the source of truth, and every PR runs a dual-schema
-validator in CI.
+Bundled catalog skills live in the in-repo `skills/` tree. Operators can
+also add user-overlay entries under
+`~/.config/clawrium/skills/<registry>/<name>/` with `clawctl skill add`.
+Both sources use the same registry names and schema validation; overlay
+entries win if they define the same `<registry>/<name>` as bundled
+catalog entries.
 
 ## Quick start
 
@@ -26,14 +28,17 @@ clawctl skill registry get
 # Inspect a skill before installing
 clawctl skill registry describe clawrium/tdd
 
-# Install onto an agent
-clawctl agent skill attach my-agent clawrium/tdd
+# Copy the template into an agent-local skill
+clawctl agent skill add my-agent --from-template clawrium/tdd
+
+# Apply local skill state to the host
+clawctl agent sync my-agent
 
 # List skills installed on an agent
-clawctl agent skill get --agent my-agent
+clawctl agent skill list my-agent
 
 # Remove a skill
-clawctl agent skill detach my-agent clawrium/tdd
+clawctl agent skill remove my-agent tdd
 ```
 
 The web dashboard mirrors the same surface under **Agents → `<agent>`
@@ -52,25 +57,42 @@ schema its descriptor validates against.
 | `hermes`   | only `hermes` agents    | `native/hermes.schema.json`         |
 | `zeroclaw` | only `zeroclaw` agents  | `native/zeroclaw.schema.json`       |
 
-Skills are referenced as `<registry>/<name>` everywhere — CLI args,
-GUI URLs, desired-state files. Bare names (`tdd`) are rejected with a
-hint that suggests the matching `<registry>/<name>`.
+Catalog templates are referenced as `<registry>/<name>` when browsing or
+copying from the catalog. Once copied to an agent, the skill is local to
+that agent and is referenced by its bare name (`tdd`). The desired-state
+file at `~/.config/clawrium/agents/<agent>/skills.json` stores only bare
+local names.
 
 ### `clawrium/` — cross-agent
 
 Use the `clawrium/` registry when the skill is behaviour you want
 available on **every** kind of claw. The normalized `_meta.yaml` shape
-is materialized into each native frontmatter format at install time —
-a single source file ends up on disk as openclaw-shaped SKILL.md on an
-openclaw agent, hermes-shaped on a hermes agent, and zeroclaw-shaped
-(via `zeroclaw skills install`) on a zeroclaw agent.
+is materialized into each native frontmatter format at `clawctl agent
+skill add` time. `clawctl agent sync` later copies the already-native
+local file to the host unchanged.
 
 ### `openclaw/`, `hermes/`, `zeroclaw/` — native
 
 Use a native registry when the skill needs that claw's specific
 frontmatter fields. Native skills are installable **only** on agents
-of the matching type — `clawctl agent skill attach` fails fast if you try
+of the matching type — `clawctl agent skill add` fails fast if you try
 to mix them.
+
+## Local agent state
+
+```text
+~/.config/clawrium/agents/<agent>/skills/<name>/SKILL.md
+~/.config/clawrium/agents/<agent>/skills.json
+```
+
+`skills.json` stores bare local names such as `{"skills": ["tdd"]}`.
+Registry refs such as `"clawrium/tdd"` are invalid desired state. Re-add
+old refs from the template and sync:
+
+```bash
+clawctl agent skill add <agent> --from-template clawrium/tdd
+clawctl agent sync <agent>
+```
 
 ## On-host install path
 
@@ -89,15 +111,18 @@ after install, switch users on the remote host with
 `sudo -u <agent-name> ls /home/<agent-name>/...`.
 :::
 
-Re-running `clawctl agent skill attach` is the drift recovery — the local
-desired-state file at
-`~/.config/clawrium/agents/<agent>/skills.json` is the source of truth,
-and every install/remove re-applies it end-to-end. There is no separate
-`reconcile` command.
+`clawctl agent sync <agent>` is the drift recovery. It reads the bare
+names in `~/.config/clawrium/agents/<agent>/skills.json`, stages each
+local `SKILL.md` byte-for-byte, and applies that state to the host.
 
 ## Troubleshooting
 
-### Install reports success but the file isn't where I expect
+### Add succeeds but the host file is missing
+
+`clawctl agent skill add` writes the local control-plane copy only. Run
+`clawctl agent sync <agent>` to push it to the host.
+
+### Sync reports success but the file isn't where I expect
 
 Common pitfall — the `~` in the on-host paths is the **agent user's**
 home, not yours. When verifying via SSH:

@@ -2,8 +2,9 @@
 
 Use the `clawrium/` registry when the same behaviour should be available
 on every kind of claw (openclaw, hermes, zeroclaw). The skill is
-authored once in a normalized `_meta.yaml` shape; the per-claw apply
-playbooks materialize the right native frontmatter at install time.
+authored once in a normalized `_meta.yaml` shape; `clawctl agent skill
+add` materializes the right native frontmatter when it copies the
+template into an agent-local skill.
 
 This guide walks through adding a new `clawrium/<name>/` skill end to
 end. The CI validator (`scripts/validate_skills.py`) is the contract —
@@ -13,7 +14,7 @@ if your skill passes validation locally, it will pass in CI.
 
 The `<name>` is a lowercase slug (hyphens and underscores both
 allowed). Slug rule (enforced by the validator and by
-`parse_skill_ref`):
+catalog references and local agent skill names):
 
 ```
 ^[a-z0-9][a-z0-9_-]*$
@@ -133,9 +134,13 @@ every claw it claims compatibility with. From a checkout pointing at
 your dev fleet:
 
 ```bash
-clawctl agent skill attach <openclaw-agent> clawrium/<name>
-clawctl agent skill attach <hermes-agent>   clawrium/<name>
-clawctl agent skill attach <zeroclaw-agent> clawrium/<name>
+clawctl agent skill add <openclaw-agent> --from-template clawrium/<name>
+clawctl agent skill add <hermes-agent>   --from-template clawrium/<name>
+clawctl agent skill add <zeroclaw-agent> --from-template clawrium/<name>
+
+clawctl agent sync <openclaw-agent>
+clawctl agent sync <hermes-agent>
+clawctl agent sync <zeroclaw-agent>
 ```
 
 Confirm each agent's native `skills list` shows the new skill.

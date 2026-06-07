@@ -291,26 +291,7 @@ def list_skills(registry: str | None = None) -> list[SkillRef]:
             f"Unknown registry {registry!r}. Allowed: {', '.join(REGISTRIES)}."
         )
 
-    registries: Iterable[str] = (registry,) if registry else REGISTRIES
-
-    root = _catalog_root()
-    refs: list[SkillRef] = []
-    for reg in registries:
-        reg_dir = root / reg
-        if not reg_dir.is_dir():
-            continue
-        names: list[str] = []
-        for entry in reg_dir.iterdir():
-            if not entry.is_dir():
-                continue
-            if not _NAME_RE.match(entry.name):
-                continue
-            if not _has_skill_files(entry, reg):
-                continue
-            names.append(entry.name)
-        for name in sorted(names):
-            refs.append(SkillRef(registry=reg, name=name))
-    return refs
+    return _list_skills_from_roots(registry=registry)
 
 
 def _list_skills_from_roots(registry: str | None = None) -> list[SkillRef]:
@@ -385,9 +366,8 @@ def load_skill(ref: SkillRef | str) -> Skill:
     if isinstance(ref, str):
         ref = parse_skill_ref(ref)
 
-    root = _catalog_root()
-    skill_dir = root / ref.registry / ref.name
-    if not skill_dir.is_dir():
+    skill_dir = _find_catalog_skill_dir(ref)
+    if skill_dir is None:
         raise SkillNotFound(
             f"Skill {ref} not found. Run `clawctl skill registry get` to see "
             "available skills."

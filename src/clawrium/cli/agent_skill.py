@@ -27,8 +27,10 @@ is restored so the user-visible state file matches what the host has.
 from __future__ import annotations
 
 import logging
+import shutil
 
 import typer
+import yaml
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
@@ -45,6 +47,7 @@ from clawrium.core.skills import (
     SkillNotFound,
     check_agent_compatibility,
     load_skill,
+    materialize_skill_for_agent,
     parse_skill_ref,
     validate_skill,
 )
@@ -56,6 +59,7 @@ from clawrium.core.skills_apply import (
 )
 from clawrium.core.skills_state import (
     add_skill,
+    agent_skills_dir,
     read_state,
     remove_skill,
     write_state,
@@ -124,6 +128,41 @@ def _resolve_agent_type(agent_name: str) -> str:
     return agent_type
 
 
+def _render_skill_md(skill) -> str:
+    frontmatter = yaml.safe_dump(
+        skill.skill_md_frontmatter,
+        sort_keys=False,
+        allow_unicode=False,
+    ).strip()
+    body = skill.body.rstrip()
+    return f"---\n{frontmatter}\n---\n\n{body}\n"
+
+
+def _write_local_skill(agent_name: str, skill_name: str, skill) -> tuple[bool, object]:
+    target = agent_skills_dir(agent_name) / skill_name
+    existed = target.exists()
+    target.mkdir(parents=True, exist_ok=True)
+    skill_file = target / "SKILL.md"
+    prior_bytes = skill_file.read_bytes() if skill_file.exists() else None
+    skill_file.write_text(_render_skill_md(skill), encoding="utf-8")
+    return existed, prior_bytes
+
+
+def _restore_local_skill(agent_name: str, skill_name: str, existed: bool, prior_bytes) -> None:
+    target = agent_skills_dir(agent_name) / skill_name
+    if not existed:
+        shutil.rmtree(target, ignore_errors=True)
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    if prior_bytes is None:
+        try:
+            (target / "SKILL.md").unlink()
+        except FileNotFoundError:
+            pass
+        return
+    (target / "SKILL.md").write_bytes(prior_bytes)
+
+
 @agent_skill_app.command(name="list")
 def list_command(
     agent_name: str = typer.Argument(
@@ -151,14 +190,11 @@ def list_command(
         return
 
     table = Table(title=f"Skills on {escape(agent_name)}")
-    table.add_column("Ref", style="cyan", no_wrap=True)
-    table.add_column("Registry", style="green")
+    table.add_column("Name", style="cyan", no_wrap=True)
+    table.add_column("Scope", style="green")
     table.add_column("Name")
-    for ref_str in refs:
-        # Already-validated on write — but parse again so the table is
-        # consistent if a future change ever loosens the writer.
-        ref = parse_skill_ref(ref_str)
-        table.add_row(escape(ref_str), escape(ref.registry), escape(ref.name))
+    for name in refs:
+        table.add_row(escape(name), "local", escape(name))
     console.print(table)
 
 
@@ -184,10 +220,11 @@ def install(
     try:
         # Preflight — no state mutation yet.
         ref = parse_skill_ref(skill_ref)
+        agent_type = _resolve_agent_type(agent_name)
         skill = load_skill(ref)
         validate_skill(skill)
-        agent_type = _resolve_agent_type(agent_name)
         check_agent_compatibility(skill, agent_type)
+        local_skill = materialize_skill_for_agent(skill, agent_type)
     except _USER_FACING_ERRORS as error:
         _exit_with_error(error)
         return
@@ -198,9 +235,13 @@ def install(
     # it isn't.
     try:
         prior_state = read_state(agent_name)
-        _new_state, added = add_skill(agent_name, ref)
+        existed, prior_bytes = _write_local_skill(agent_name, ref.name, local_skill)
+        _new_state, added = add_skill(agent_name, ref.name)
     except _USER_FACING_ERRORS as error:
         _exit_with_error(error)
+        return
+    except Exception as error:
+        _exit_with_error(SkillError(str(error)))
         return
 
     try:
@@ -209,6 +250,7 @@ def install(
         # Roll back the state mutation; the host did not converge.
         try:
             write_state(agent_name, prior_state)
+            _restore_local_skill(agent_name, ref.name, existed, prior_bytes)
         except Exception as rollback_error:
             # Hard rollback failure is rare (the state file just got
             # written successfully one statement above) but it leaves
@@ -240,8 +282,7 @@ def install(
         console.print(
             f"[yellow]{escape(skill_ref)}[/yellow] was already in desired "
             f"state; reconciled host. Skills now installed: "
-            f"{', '.join(escape(r) for r in result.applied_skills) or '(none)'}."
-        )
+            f"{', '.join(escape(r) for r in result.applied_skills) or '(none)'}.")
 
 
 @agent_skill_app.command()
@@ -270,7 +311,14 @@ def remove(
         # SKILL.md may still exist and need pruning).
         ref = parse_skill_ref(skill_ref)
         prior_state = read_state(agent_name)
-        _new_state, removed = remove_skill(agent_name, ref)
+        target = agent_skills_dir(agent_name) / ref.name
+        existed = target.exists()
+        backup = target.with_name(f".{target.name}.clm-remove-backup")
+        if backup.exists():
+            shutil.rmtree(backup, ignore_errors=True)
+        if existed:
+            target.rename(backup)
+        _new_state, removed = remove_skill(agent_name, ref.name)
     except _USER_FACING_ERRORS as error:
         _exit_with_error(error)
         return
@@ -280,6 +328,8 @@ def remove(
     except _USER_FACING_ERRORS as error:
         try:
             write_state(agent_name, prior_state)
+            if existed and backup.exists() and not target.exists():
+                backup.rename(target)
         except Exception as rollback_error:
             logger.warning(
                 "Rollback of %s state failed: %s",
@@ -293,6 +343,9 @@ def remove(
             )
         _exit_with_error(error)
         return
+
+    if backup.exists():
+        shutil.rmtree(backup, ignore_errors=True)
 
     if removed:
         console.print(

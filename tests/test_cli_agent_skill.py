@@ -88,10 +88,10 @@ def test_list_empty_state_shows_hint(monkeypatch):
 
 
 def test_list_renders_table_of_installed_skills():
-    write_state("tdd-hermes", ["clawrium/tdd"])
+    write_state("tdd-hermes", ["tdd"])
     result = runner.invoke(agent_skill_app, ["list", "tdd-hermes"])
     assert result.exit_code == 0, result.output
-    assert "clawrium/tdd" in result.output
+    assert "tdd" in result.output
 
 
 def test_list_rejects_invalid_agent_name():
@@ -110,12 +110,12 @@ def test_install_happy_path_adds_to_state_and_applies(monkeypatch):
     result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 0, result.output
     assert calls == ["tdd-hermes"]
-    assert read_state("tdd-hermes") == ["clawrium/tdd"]
+    assert read_state("tdd-hermes") == ["tdd"]
     assert "Installed" in result.output
 
 
 def test_install_already_present_still_reconciles(monkeypatch):
-    write_state("tdd-hermes", ["clawrium/tdd"])
+    write_state("tdd-hermes", ["tdd"])
     calls = _stub_apply(monkeypatch)
     result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 0, result.output
@@ -323,7 +323,7 @@ def test_install_renders_schema_validation_error(monkeypatch):
 
 
 def test_remove_happy_path(monkeypatch):
-    write_state("tdd-hermes", ["clawrium/tdd"])
+    write_state("tdd-hermes", ["tdd"])
     calls = _stub_apply(monkeypatch, applied=[])
     result = runner.invoke(agent_skill_app, ["remove", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 0, result.output
@@ -356,7 +356,7 @@ def test_state_file_canonicalized_after_install_remove_cycle(monkeypatch):
     runner.invoke(agent_skill_app, ["install", "tdd-hermes", "clawrium/tdd"])
 
     raw = json.loads(state_file_path("tdd-hermes").read_text())
-    assert raw == {"skills": ["clawrium/tdd"]}
+    assert raw == {"skills": ["tdd"]}
 
     runner.invoke(agent_skill_app, ["remove", "tdd-hermes", "clawrium/tdd"])
     raw = json.loads(state_file_path("tdd-hermes").read_text())
@@ -379,7 +379,6 @@ def test_install_rolls_back_state_on_apply_failure(monkeypatch):
     `assert read_state == []` would pass without exercising rollback).
     """
     _stub_agent_resolution(monkeypatch)
-    monkeypatch.setattr(cli_agent_skill, "load_skill", lambda ref: object())
     monkeypatch.setattr(cli_agent_skill, "validate_skill", lambda _skill: None)
     monkeypatch.setattr(
         cli_agent_skill,
@@ -411,7 +410,6 @@ def test_install_rollback_path_actually_runs(monkeypatch):
     skipped `add_skill` on failure would also pass the read-only
     assertion above."""
     _stub_agent_resolution(monkeypatch)
-    monkeypatch.setattr(cli_agent_skill, "load_skill", lambda ref: object())
     monkeypatch.setattr(cli_agent_skill, "validate_skill", lambda _skill: None)
     monkeypatch.setattr(
         cli_agent_skill,
@@ -451,7 +449,7 @@ def test_remove_rolls_back_state_on_apply_failure(monkeypatch):
     """Symmetric: if `apply_state` raises after `remove_skill` drops
     the entry, restore the prior state so the user sees the file
     matches the host."""
-    write_state("tdd-hermes", ["clawrium/tdd"])
+    write_state("tdd-hermes", ["tdd"])
     _stub_agent_resolution(monkeypatch)
     monkeypatch.setattr(
         cli_agent_skill,
@@ -463,18 +461,18 @@ def test_remove_rolls_back_state_on_apply_failure(monkeypatch):
     result = runner.invoke(agent_skill_app, ["remove", "tdd-hermes", "clawrium/tdd"])
     assert result.exit_code == 1
     # Rollback contract: the entry is still there.
-    assert read_state("tdd-hermes") == ["clawrium/tdd"]
+    assert read_state("tdd-hermes") == ["tdd"]
 
 
 def test_install_preflight_failure_does_not_mutate_state(monkeypatch):
     """Bare-name validation lives upstream of `add_skill`; the state
     file must remain at its prior content."""
     _stub_apply(monkeypatch)
-    write_state("tdd-hermes", ["clawrium/tdd"])
+    write_state("tdd-hermes", ["tdd"])
     result = runner.invoke(agent_skill_app, ["install", "tdd-hermes", "bare"])
     assert result.exit_code == 1
     # State unchanged.
-    assert read_state("tdd-hermes") == ["clawrium/tdd"]
+    assert read_state("tdd-hermes") == ["tdd"]
 
 
 def test_install_rollback_failure_surfaces_warning_to_user(monkeypatch):
@@ -484,7 +482,6 @@ def test_install_rollback_failure_surfaces_warning_to_user(monkeypatch):
     verify with `clm agent skill list`. Silent rollback failure
     would leave the state file lying about the host."""
     _stub_agent_resolution(monkeypatch)
-    monkeypatch.setattr(cli_agent_skill, "load_skill", lambda ref: object())
     monkeypatch.setattr(cli_agent_skill, "validate_skill", lambda _skill: None)
     monkeypatch.setattr(
         cli_agent_skill,
@@ -523,7 +520,7 @@ def test_remove_rollback_failure_surfaces_warning_to_user(monkeypatch):
     """Symmetric coverage for the remove path: a `write_state` failure
     during rollback after a failed `apply_state` must surface a yellow
     Warning + verification hint to stderr, not silently log."""
-    write_state("tdd-hermes", ["clawrium/tdd"])
+    write_state("tdd-hermes", ["tdd"])
     _stub_agent_resolution(monkeypatch)
     monkeypatch.setattr(
         cli_agent_skill,

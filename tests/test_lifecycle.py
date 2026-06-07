@@ -2267,7 +2267,7 @@ class TestRemoveClaw:
         playbook_path.write_text("---\n- hosts: all\n")
 
         # Pre-seed the agent state directory with a skills.json
-        write_state("opc-work", ["clawrium/tdd"])
+        write_state("opc-work", ["tdd"])
         agent_state_dir = tmp_path / "clawrium" / "agents" / "opc-work"
         assert agent_state_dir.is_dir()
 

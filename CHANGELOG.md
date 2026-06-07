@@ -17,6 +17,14 @@ release.
 
 ### BREAKING
 
+- Skills desired state now stores **agent-local skill names** instead of
+  registry refs. `~/.config/clawrium/agents/<agent>/skills.json` entries
+  such as `"clawrium/tdd"` are no longer valid; re-add those templates with
+  `clawctl agent skill add <agent> --from-template clawrium/tdd` to create the
+  local `skills/tdd/SKILL.md` copy, then run `clawctl agent sync <agent>`.
+  The old `clawctl agent skill attach|detach|get --agent ...` surface has
+  been removed in favor of `add|remove|list <agent>`. There is no automated
+  migration because registry refs are now template sources only. (#411)
 - hermes: legacy ansible-side templates
   `src/clawrium/platform/registry/hermes/templates/hermes-config.yaml.j2`
   and `hermes.env.j2` have been **removed**. The configure playbook no
@@ -36,6 +44,15 @@ release.
 
 ### Added
 
+- `clawctl agent skill add <agent> --from-template <registry>/<name>` copies a
+  catalog template into the agent-local control-plane skill directory in that
+  agent's native format. `clawctl agent skill add <agent> <path>`, `edit`,
+  `remove`, and `list` manage those local skill files without touching the
+  host until `clawctl agent sync <agent>` is run. (#411)
+- `clawctl skill add <path> --registry <registry>` adds a user overlay skill
+  under `~/.config/clawrium/skills/<registry>/<name>/`; `clawctl skill
+  registry get/describe` now includes overlay entries with overlay copies
+  taking precedence over bundled catalog entries of the same ref. (#411)
 - `clawctl agent provider attach --role <role>` for hermes agents.
   Required on hermes (`primary` for the first attachment, plus one of
   nine upstream auxiliary slots — `vision`, `web_extract`,

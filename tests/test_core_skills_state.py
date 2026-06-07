@@ -1,9 +1,9 @@
 """Tests for the per-agent skills desired-state store.
 
-Covers Phase 2 exit criteria for `core/skills_state.py`:
+Covers the per-agent local skill desired-state store:
 - state file path is XDG-respecting and namespaced by agent name
-- read/write round-trips through `parse_skill_ref` (rejects URLs,
-  bare names, malformed JSON)
+- read/write round-trips bare local skill names and rejects registry refs,
+  URLs, paths, uppercase names, and malformed JSON
 - add/remove are idempotent and report whether the call changed state
 - atomic writes (no `.tmp` left behind on success; concurrent reader
   never sees an empty file)
@@ -16,11 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from clawrium.core.skills import (
-    ExternalSourceBlocked,
-    InvalidSkillRef,
-    MissingRegistryPrefix,
-)
+from clawrium.core.skills import InvalidSkillRef
 from clawrium.core import skills_state
 from clawrium.core.skills_state import (
     add_skill,
@@ -81,13 +77,13 @@ def test_read_state_missing_file_returns_empty():
 
 
 def test_read_state_round_trips_after_write():
-    write_state("hermes-tdd", ["clawrium/tdd"])
-    assert read_state("hermes-tdd") == ["clawrium/tdd"]
+    write_state("hermes-tdd", ["tdd"])
+    assert read_state("hermes-tdd") == ["tdd"]
 
 
 def test_read_state_returns_sorted_deduped():
-    write_state("hermes-tdd", ["clawrium/tdd", "clawrium/tdd"])
-    assert read_state("hermes-tdd") == ["clawrium/tdd"]
+    write_state("hermes-tdd", ["zebra", "tdd", "tdd"])
+    assert read_state("hermes-tdd") == ["tdd", "zebra"]
 
 
 def test_read_state_malformed_json_raises():
@@ -101,7 +97,7 @@ def test_read_state_malformed_json_raises():
 def test_read_state_non_object_root_raises():
     path = state_file_path("hermes-tdd")
     path.parent.mkdir(parents=True)
-    path.write_text(json.dumps(["clawrium/tdd"]))
+    path.write_text(json.dumps(["tdd"]))
     with pytest.raises(InvalidSkillRef, match="must be a JSON object"):
         read_state("hermes-tdd")
 
@@ -109,7 +105,7 @@ def test_read_state_non_object_root_raises():
 def test_read_state_skills_field_must_be_list_of_strings():
     path = state_file_path("hermes-tdd")
     path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"skills": [{"ref": "clawrium/tdd"}]}))
+    path.write_text(json.dumps({"skills": [{"ref": "tdd"}]}))
     with pytest.raises(InvalidSkillRef, match="list of strings"):
         read_state("hermes-tdd")
 
@@ -120,7 +116,15 @@ def test_read_state_revalidates_persisted_entries():
     path = state_file_path("hermes-tdd")
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps({"skills": ["http://evil.example/skill"]}))
-    with pytest.raises(ExternalSourceBlocked):
+    with pytest.raises(InvalidSkillRef, match="Invalid skill name"):
+        read_state("hermes-tdd")
+
+
+def test_read_state_rejects_legacy_registry_ref_with_remediation():
+    path = state_file_path("hermes-tdd")
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"skills": ["clawrium/tdd"]}))
+    with pytest.raises(InvalidSkillRef, match="--from-template"):
         read_state("hermes-tdd")
 
 
@@ -128,30 +132,40 @@ def test_read_state_revalidates_persisted_entries():
 
 
 def test_write_state_creates_parent_dir(tmp_path: Path):
-    write_state("hermes-tdd", ["clawrium/tdd"])
+    write_state("hermes-tdd", ["tdd"])
     parent = tmp_path / "clawrium" / "agents" / "hermes-tdd"
     assert parent.is_dir()
 
 
 def test_write_state_persists_canonical_form():
-    canonical = write_state("hermes-tdd", ["clawrium/tdd", "clawrium/tdd"])
+    canonical = write_state("hermes-tdd", ["zebra", "tdd", "tdd"])
     raw = json.loads(state_file_path("hermes-tdd").read_text())
-    assert canonical == ["clawrium/tdd"]
-    assert raw == {"skills": ["clawrium/tdd"]}
+    assert canonical == ["tdd", "zebra"]
+    assert raw == {"skills": ["tdd", "zebra"]}
 
 
-def test_write_state_rejects_bare_name_in_payload():
-    with pytest.raises(MissingRegistryPrefix):
-        write_state("hermes-tdd", ["tdd"])
+def test_write_state_accepts_bare_name_in_payload():
+    assert write_state("hermes-tdd", ["tdd"]) == ["tdd"]
+
+
+def test_write_state_rejects_registry_ref_in_payload():
+    with pytest.raises(InvalidSkillRef, match="--from-template"):
+        write_state("hermes-tdd", ["clawrium/tdd"])
 
 
 def test_write_state_rejects_url_in_payload():
-    with pytest.raises(ExternalSourceBlocked):
+    with pytest.raises(InvalidSkillRef):
         write_state("hermes-tdd", ["https://example.com/skill.tgz"])
 
 
+@pytest.mark.parametrize("bad", ["", "UPPER", "bad name", "../escape", "tdd/extra"])
+def test_write_state_rejects_invalid_local_names(bad: str):
+    with pytest.raises(InvalidSkillRef):
+        write_state("hermes-tdd", [bad])
+
+
 def test_write_state_leaves_no_tmp_files_on_success(tmp_path: Path):
-    write_state("hermes-tdd", ["clawrium/tdd"])
+    write_state("hermes-tdd", ["tdd"])
     parent = tmp_path / "clawrium" / "agents" / "hermes-tdd"
     leftovers = [p for p in parent.iterdir() if p.name.startswith(".skills.")]
     assert leftovers == []
@@ -167,7 +181,7 @@ def test_write_state_atomic_against_failure(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr(skills_state.os, "replace", boom)
     with pytest.raises(OSError):
-        write_state("hermes-tdd", ["clawrium/tdd"])
+        write_state("hermes-tdd", ["tdd"])
     monkeypatch.setattr(skills_state.os, "replace", real_replace)
 
     parent = tmp_path / "clawrium" / "agents" / "hermes-tdd"
@@ -180,27 +194,32 @@ def test_write_state_atomic_against_failure(monkeypatch, tmp_path: Path):
 
 
 def test_add_skill_returns_added_flag_on_new_entry():
-    state, added = add_skill("hermes-tdd", "clawrium/tdd")
+    state, added = add_skill("hermes-tdd", "tdd")
     assert added is True
-    assert state == ["clawrium/tdd"]
+    assert state == ["tdd"]
 
 
 def test_add_skill_is_idempotent():
-    add_skill("hermes-tdd", "clawrium/tdd")
-    state, added = add_skill("hermes-tdd", "clawrium/tdd")
+    add_skill("hermes-tdd", "tdd")
+    state, added = add_skill("hermes-tdd", "tdd")
     assert added is False
-    assert state == ["clawrium/tdd"]
+    assert state == ["tdd"]
+
+
+def test_add_skill_rejects_registry_ref():
+    with pytest.raises(InvalidSkillRef, match="--from-template"):
+        add_skill("hermes-tdd", "clawrium/tdd")
 
 
 def test_remove_skill_returns_removed_flag():
-    add_skill("hermes-tdd", "clawrium/tdd")
-    state, removed = remove_skill("hermes-tdd", "clawrium/tdd")
+    add_skill("hermes-tdd", "tdd")
+    state, removed = remove_skill("hermes-tdd", "tdd")
     assert removed is True
     assert state == []
 
 
 def test_remove_skill_no_op_when_absent():
-    state, removed = remove_skill("hermes-tdd", "clawrium/tdd")
+    state, removed = remove_skill("hermes-tdd", "tdd")
     assert removed is False
     assert state == []
 
@@ -215,7 +234,7 @@ class TestCleanupAgentState:
         from clawrium.core.skills_state import cleanup_agent_state
 
         # Pre-seed a state directory
-        write_state("hermes-tdd", ["clawrium/tdd"])
+        write_state("hermes-tdd", ["tdd"])
         agent_dir = tmp_path / "clawrium" / "agents" / "hermes-tdd"
         assert agent_dir.is_dir()
 
@@ -260,7 +279,7 @@ class TestCleanupAgentState:
         from clawrium.core import skills_state
         from clawrium.core.skills_state import cleanup_agent_state
 
-        write_state("hermes-tdd", ["clawrium/tdd"])
+        write_state("hermes-tdd", ["tdd"])
 
         def boom(_path):
             raise OSError("permission denied")
@@ -272,7 +291,7 @@ class TestCleanupAgentState:
     def test_idempotent_on_already_removed_directory(self, tmp_path: Path):
         from clawrium.core.skills_state import cleanup_agent_state
 
-        write_state("hermes-tdd", ["clawrium/tdd"])
+        write_state("hermes-tdd", ["tdd"])
         agent_dir = tmp_path / "clawrium" / "agents" / "hermes-tdd"
 
         assert cleanup_agent_state("hermes-tdd") is True

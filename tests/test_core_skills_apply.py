@@ -16,24 +16,21 @@ from unittest.mock import MagicMock
 import json
 
 import pytest
-import yaml
 
 from clawrium.core import skills_apply
 from clawrium.core.skills import (
-    ExternalSourceBlocked,
     IncompatibleSkillRegistry,
     InvalidSkillRef,
-    MissingRegistryPrefix,
     NATIVE_REGISTRIES,
+    materialize_for_claw,
 )
 from clawrium.core.skills_apply import (
     AgentNotFoundError,
     SkillApplyError,
     SkillApplyNotSupported,
     apply_state,
-    materialize_for_claw,
 )
-from clawrium.core.skills_state import state_file_path, write_state
+from clawrium.core.skills_state import agent_skills_dir, state_file_path, write_state
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +85,24 @@ def _patch_runtime(
     return runner_mock
 
 
+def _write_local_skill_state(
+    agent_name: str,
+    *,
+    skill_name: str = "tdd",
+    text: str | None = None,
+) -> str:
+    """Seed bare desired state plus an already-native local SKILL.md."""
+    text = text or (
+        f"---\nname: {skill_name}\ndescription: local native skill\n---\n\n"
+        f"# {skill_name}\nLocal skill body\n"
+    )
+    skill_dir = agent_skills_dir(agent_name) / skill_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(text)
+    write_state(agent_name, [skill_name])
+    return text
+
+
 # ---------------------------- happy-path apply ------------------------------
 
 
@@ -104,13 +119,13 @@ def test_apply_state_hermes_empty_state_runs_playbook(monkeypatch):
     assert extravars["desired_skill_names"] == []
 
 
-def test_apply_state_hermes_stages_and_applies_clawrium_tdd(monkeypatch, tmp_path):
-    write_state("tdd-hermes", ["clawrium/tdd"])
+def test_apply_state_hermes_stages_and_applies_local_tdd(monkeypatch, tmp_path):
+    _write_local_skill_state("tdd-hermes")
     runner = _patch_runtime(monkeypatch)
 
     result = apply_state("tdd-hermes")
 
-    assert result.applied_skills == ["clawrium/tdd"]
+    assert result.applied_skills == ["tdd"]
     _, kwargs = runner.run.call_args
     extravars = kwargs["inventory"]["all"]["vars"]
     assert extravars["desired_skill_names"] == ["tdd"]
@@ -120,10 +135,15 @@ def test_apply_state_hermes_stages_and_applies_clawrium_tdd(monkeypatch, tmp_pat
     assert not staging_dir.exists()
 
 
-def test_apply_state_stages_materialized_skill_md(monkeypatch, tmp_path):
-    """Capture the staging dir mid-run and assert SKILL.md was written
-    with the merged hermes-native frontmatter."""
-    write_state("tdd-hermes", ["clawrium/tdd"])
+def test_apply_state_stages_local_skill_md_bytes_unchanged(monkeypatch, tmp_path):
+    """Sync copies the already-native local SKILL.md without rendering."""
+    original = _write_local_skill_state(
+        "tdd-hermes",
+        text=(
+            "---\ndescription: custom first\nname: tdd\nmetadata:\n"
+            "  hermes:\n    tags:\n      - custom\n---\n\n# Local TDD\n"
+        ),
+    )
 
     captured = {}
 
@@ -138,22 +158,7 @@ def test_apply_state_stages_materialized_skill_md(monkeypatch, tmp_path):
 
     apply_state("tdd-hermes")
 
-    text = captured["text"]
-    assert text.startswith("---\n")
-    frontmatter_block, body = text.split("\n---\n", 1)
-    frontmatter = yaml.safe_load(frontmatter_block[len("---\n") :])
-    # The clawrium/* → hermes materializer must keep name/description
-    # and lift the native.hermes.metadata.hermes.tags override into
-    # the rendered frontmatter.
-    assert frontmatter["name"] == "tdd"
-    assert "description" in frontmatter
-    assert frontmatter.get("metadata", {}).get("hermes", {}).get("tags") == [
-        "tdd",
-        "testing",
-        "discipline",
-        "clawrium",
-    ]
-    assert body.strip().startswith("# TDD")
+    assert captured["text"] == original
 
 
 # ---------------------------- error paths -----------------------------------
@@ -186,7 +191,7 @@ def test_apply_state_unknown_agent_type(monkeypatch):
 
 
 def test_apply_state_missing_ssh_key(monkeypatch):
-    write_state("tdd-hermes", ["clawrium/tdd"])
+    _write_local_skill_state("tdd-hermes")
     _patch_runtime(monkeypatch, ssh_key=None)
     with pytest.raises(SkillApplyError, match="SSH key"):
         apply_state("tdd-hermes")
@@ -525,20 +530,14 @@ def test_apply_state_log_dir_strips_bidi_in_host_alias(monkeypatch, tmp_path):
 
 
 def test_stage_skills_cleans_tempdir_on_partial_failure(monkeypatch, tmp_path):
-    """If `_stage_skills` raises mid-loop (e.g. `write_text` fails on
-    a disk-full simulator), the `mkdtemp` directory it just created
-    must be removed before the exception propagates. Without this,
-    `${clawrium_config}/staging/skills/` accumulates an orphan
-    tempdir on every failure.
-    """
-    write_state("tdd-hermes", ["clawrium/tdd"])
+    """If `_stage_skills` raises mid-loop, its tempdir is removed."""
+    _write_local_skill_state("tdd-hermes")
     _patch_runtime(monkeypatch)
 
-    def boom(_frontmatter, _body):
-        # First skill raises; tempdir has already been created.
+    def boom(_self):
         raise OSError("simulated disk-full during render")
 
-    monkeypatch.setattr(skills_apply, "_render_skill_md", boom)
+    monkeypatch.setattr(Path, "read_bytes", boom)
 
     with pytest.raises(OSError, match="disk-full"):
         apply_state("tdd-hermes")
@@ -557,7 +556,7 @@ def test_apply_state_staging_cleaned_when_log_dir_creation_fails(monkeypatch, tm
     ordering, control-machine `${clawrium_config}/staging/skills/`
     would accumulate orphan tempdirs on partial failures.
     """
-    write_state("tdd-hermes", ["clawrium/tdd"])
+    _write_local_skill_state("tdd-hermes")
     _patch_runtime(monkeypatch)
     monkeypatch.setattr(
         skills_apply,
@@ -579,7 +578,7 @@ def test_apply_state_drift_recovery_reapplies_same_state(monkeypatch):
     again. The playbook is responsible for restoring the file on the
     host if it was manually deleted — apply_state's job is just to
     invoke it idempotently."""
-    write_state("tdd-hermes", ["clawrium/tdd"])
+    _write_local_skill_state("tdd-hermes")
     runner = _patch_runtime(monkeypatch)
 
     apply_state("tdd-hermes")
@@ -611,12 +610,12 @@ def test_apply_state_openclaw_empty_state_runs_playbook(monkeypatch):
 
 
 def test_apply_state_openclaw_stages_and_applies_clawrium_tdd(monkeypatch):
-    write_state("tdd-openclaw", ["clawrium/tdd"])
+    _write_local_skill_state("tdd-openclaw")
     runner = _patch_runtime(monkeypatch, agent_type="openclaw")
 
     result = apply_state("tdd-openclaw")
 
-    assert result.applied_skills == ["clawrium/tdd"]
+    assert result.applied_skills == ["tdd"]
     _, kwargs = runner.run.call_args
     extravars = kwargs["inventory"]["all"]["vars"]
     assert extravars["agent_type"] == "openclaw"
@@ -627,15 +626,14 @@ def test_apply_state_openclaw_stages_and_applies_clawrium_tdd(monkeypatch):
     assert not staging_dir.exists()
 
 
-def test_apply_state_openclaw_materialized_skill_md_has_no_hermes_overrides(
+def test_apply_state_openclaw_stages_local_skill_md_bytes_unchanged(
     monkeypatch,
 ):
-    """When materializing for openclaw, the per-claw override block under
-    `native.hermes` in `_meta.yaml` must NOT bleed into the openclaw
-    frontmatter — only `native.openclaw` (which is `{}` for clawrium/tdd)
-    is lifted. This guards against the materializer applying the wrong
-    claw's overrides."""
-    write_state("tdd-openclaw", ["clawrium/tdd"])
+    """OpenClaw sync stages the local native file byte-for-byte."""
+    original = _write_local_skill_state(
+        "tdd-openclaw",
+        text="---\nname: tdd\ndescription: openclaw custom\n---\n\nbody\n",
+    )
 
     captured = {}
 
@@ -650,14 +648,7 @@ def test_apply_state_openclaw_materialized_skill_md_has_no_hermes_overrides(
 
     apply_state("tdd-openclaw")
 
-    text = captured["text"]
-    frontmatter_block, _ = text.split("\n---\n", 1)
-    frontmatter = yaml.safe_load(frontmatter_block[len("---\n") :])
-    assert frontmatter["name"] == "tdd"
-    # Hermes-specific tags must not be present in the openclaw rendering.
-    assert "metadata" not in frontmatter or "hermes" not in (
-        frontmatter.get("metadata") or {}
-    )
+    assert captured["text"] == original
 
 
 # ---------------------------- zeroclaw dispatch (Phase 3) -------------------
@@ -678,12 +669,12 @@ def test_apply_state_zeroclaw_empty_state_runs_playbook(monkeypatch):
 
 
 def test_apply_state_zeroclaw_stages_and_applies_clawrium_tdd(monkeypatch):
-    write_state("tdd-zeroclaw", ["clawrium/tdd"])
+    _write_local_skill_state("tdd-zeroclaw")
     runner = _patch_runtime(monkeypatch, agent_type="zeroclaw")
 
     result = apply_state("tdd-zeroclaw")
 
-    assert result.applied_skills == ["clawrium/tdd"]
+    assert result.applied_skills == ["tdd"]
     _, kwargs = runner.run.call_args
     extravars = kwargs["inventory"]["all"]["vars"]
     # Source-dirname == slug per Phase 0 contract — the playbook will
@@ -709,7 +700,7 @@ def test_apply_state_drift_recovery_zeroclaw(monkeypatch):
     """Same drift-recovery contract as hermes: re-running install on a
     state that's already set must re-invoke the playbook so the
     playbook's idempotent install-if-missing branch runs."""
-    write_state("tdd-zeroclaw", ["clawrium/tdd"])
+    _write_local_skill_state("tdd-zeroclaw")
     runner = _patch_runtime(monkeypatch, agent_type="zeroclaw")
 
     apply_state("tdd-zeroclaw")
@@ -725,7 +716,7 @@ def test_apply_state_drift_recovery_openclaw(monkeypatch):
     not just hermes/zeroclaw. The playbook is responsible for restoring
     SKILL.md if it was manually deleted on host; apply_state's job is
     just to invoke it idempotently on every install/remove call."""
-    write_state("tdd-openclaw", ["clawrium/tdd"])
+    _write_local_skill_state("tdd-openclaw")
     runner = _patch_runtime(monkeypatch, agent_type="openclaw")
 
     apply_state("tdd-openclaw")
@@ -759,7 +750,7 @@ def _write_raw_state(agent_name: str, skills: list[str]) -> None:
         # Path traversal in name component
         ("clawrium/..", InvalidSkillRef),
         # Path traversal across separator
-        ("../etc/passwd", (InvalidSkillRef, MissingRegistryPrefix)),
+        ("../etc/passwd", InvalidSkillRef),
         # Path-segment-in-name
         ("clawrium/sub/dir", InvalidSkillRef),
         # Shell metacharacters in name
@@ -769,7 +760,7 @@ def _write_raw_state(agent_name: str, skills: list[str]) -> None:
         ("clawrium/tdd`id`", InvalidSkillRef),
         ("clawrium/tdd$(id)", InvalidSkillRef),
         # Backslash / Windows-style path
-        ("clawrium\\tdd", (InvalidSkillRef, MissingRegistryPrefix)),
+        ("clawrium\\tdd", InvalidSkillRef),
         # Null byte
         ("clawrium/tdd\x00", InvalidSkillRef),
         # Bidi-formatting codepoints — the slug regex bans these but
@@ -782,9 +773,9 @@ def _write_raw_state(agent_name: str, skills: list[str]) -> None:
         ("clawrium/tdd⁦inject", InvalidSkillRef),  # LRI
         ("clawrium/tdd⁩trailer", InvalidSkillRef),  # PDI (W-new5)
         # External-source URL forms
-        ("https://evil.example/skill", ExternalSourceBlocked),
-        ("file:///etc/passwd", ExternalSourceBlocked),
-        ("git+ssh://attacker.example/repo.git", ExternalSourceBlocked),
+        ("https://evil.example/skill", InvalidSkillRef),
+        ("file:///etc/passwd", InvalidSkillRef),
+        ("git+ssh://attacker.example/repo.git", InvalidSkillRef),
     ],
 )
 def test_apply_state_rejects_malicious_slugs_before_dispatch(
@@ -807,7 +798,7 @@ def test_apply_state_rejects_malicious_slug_on_openclaw_before_dispatch(monkeypa
     through the openclaw dispatch path so a future refactor that
     short-circuits openclaw's compatibility check can't quietly skip
     the slug rejection step."""
-    _write_raw_state("tdd-openclaw", ["clawrium/../etc/passwd"])
+    _write_raw_state("tdd-openclaw", ["../etc-passwd"])
     runner = _patch_runtime(monkeypatch, agent_type="openclaw")
     with pytest.raises(InvalidSkillRef):
         apply_state("tdd-openclaw")
@@ -820,7 +811,7 @@ def test_apply_state_rejects_malicious_slug_on_zeroclaw_before_dispatch(monkeypa
     `zeroclaw skills install <path>` and `zeroclaw skills remove <slug>`
     on the host — any escape from the slug regex is reachable as a
     command argument."""
-    _write_raw_state("tdd-zeroclaw", ["clawrium/tdd; rm -rf /"])
+    _write_raw_state("tdd-zeroclaw", ["tdd; rm -rf"])
     runner = _patch_runtime(monkeypatch, agent_type="zeroclaw")
     with pytest.raises(InvalidSkillRef):
         apply_state("tdd-zeroclaw")
@@ -946,15 +937,19 @@ def test_make_log_dir_error_does_not_leak_computed_path(monkeypatch, tmp_path):
 
 
 def test_stage_skills_internal_failure_cleans_tempdir(monkeypatch):
-    """W-new6: `_stage_skills` materializes the staging dir via
-    `tempfile.mkdtemp` BEFORE populating it. If `materialize_for_claw`
-    or any subsequent file operation raises mid-loop, the staging dir
-    would leak — `apply_state`'s None-sentinel guard doesn't help
-    because `_stage_skills` hasn't returned yet, so `staging_dir`
-    is still None.
+    """W-new6: `_stage_skills` creates the staging dir before populating it.
+
+    If copying a local SKILL.md raises mid-loop, the staging dir would leak —
+    `apply_state`'s None-sentinel guard doesn't help because `_stage_skills`
+    hasn't returned yet, so `staging_dir` is still None.
 
     The fix wraps the populate loop in try/except so the dir is rmtree'd
     before the exception propagates."""
+    _write_local_skill_state("tdd-hermes")
+    from clawrium.core.skills import load_agent_skill
+
+    skill = load_agent_skill("tdd-hermes", "tdd", "hermes")
+
     captured: list[Path] = []
     original_mkdtemp = skills_apply.tempfile.mkdtemp
 
@@ -965,21 +960,18 @@ def test_stage_skills_internal_failure_cleans_tempdir(monkeypatch):
 
     monkeypatch.setattr(skills_apply.tempfile, "mkdtemp", capture_mkdtemp)
 
-    def boom(_skill, _claw):
-        raise RuntimeError("forced materialize failure")
+    def boom(_self):
+        raise RuntimeError("forced copy failure")
 
-    monkeypatch.setattr(skills_apply, "materialize_for_claw", boom)
+    monkeypatch.setattr(Path, "read_bytes", boom)
 
-    from clawrium.core.skills import load_skill, parse_skill_ref
-
-    skill = load_skill(parse_skill_ref("clawrium/tdd"))
-    with pytest.raises(RuntimeError, match="forced materialize failure"):
+    with pytest.raises(RuntimeError, match="forced copy failure"):
         skills_apply._stage_skills("tdd-hermes", "hermes", [skill])
 
     assert captured, "mkdtemp was never called"
     staging = captured[0]
     assert not staging.exists(), (
-        f"staging tempdir leaked at {staging} when materialize raised — "
+        f"staging tempdir leaked at {staging} when copy raised — "
         "_stage_skills cleanup-on-raise regression"
     )
 
@@ -992,7 +984,7 @@ def test_make_log_dir_failure_cleans_up_staging_dir(monkeypatch, tmp_path):
     Without the None-sentinel guard, the staging dir is materialized
     but never reaches the `try:` block so `finally:` doesn't run.
     """
-    write_state("tdd-hermes", ["clawrium/tdd"])
+    _write_local_skill_state("tdd-hermes")
     runner = _patch_runtime(monkeypatch)
 
     captured: dict[str, Path] = {}

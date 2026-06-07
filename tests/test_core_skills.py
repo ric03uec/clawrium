@@ -206,7 +206,7 @@ def test_catalog_roots_raises_when_neither_root_exists(monkeypatch):
         skills._catalog_roots()
 
 
-def test_public_list_skills_ignores_overlay_until_wired(monkeypatch, tmp_path):
+def test_public_list_skills_includes_overlay(monkeypatch, tmp_path):
     bundled = tmp_path / "bundled"
     overlay = skills._overlay_root()
     bundled.mkdir()
@@ -217,10 +217,10 @@ def test_public_list_skills_ignores_overlay_until_wired(monkeypatch, tmp_path):
 
     refs = list_skills(registry="hermes")
     assert SkillRef("hermes", "bundled-skill") in refs
-    assert SkillRef("hermes", "overlay-only") not in refs
+    assert SkillRef("hermes", "overlay-only") in refs
 
 
-def test_public_load_skill_ignores_overlay_until_wired(monkeypatch, tmp_path):
+def test_public_load_skill_uses_overlay(monkeypatch, tmp_path):
     bundled = tmp_path / "bundled"
     overlay = skills._overlay_root()
     bundled.mkdir()
@@ -232,8 +232,7 @@ def test_public_load_skill_ignores_overlay_until_wired(monkeypatch, tmp_path):
     assert load_skill("hermes/bundled-skill").ref == SkillRef(
         "hermes", "bundled-skill"
     )
-    with pytest.raises(SkillNotFound):
-        load_skill("hermes/overlay-only")
+    assert load_skill("hermes/overlay-only").path == overlay / "hermes" / "overlay-only"
 
 
 def test_list_skills_includes_overlay_only(monkeypatch, tmp_path):

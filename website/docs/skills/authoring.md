@@ -6,10 +6,12 @@ keywords: [skills, authoring, schema, validator, ci, clawrium, openclaw, hermes,
 
 # Authoring Skills
 
-Skills are added by dropping a directory into the in-repo
+Bundled skills are added by dropping a directory into the in-repo
 `skills/<registry>/<name>/` tree, opening a PR, and letting the CI
-validator gate the schema. This page covers both flavours
-side-by-side. The repository
+validator gate the schema. For private reusable templates, use
+`clawctl skill add <path> --registry <registry>` to write a user overlay
+under `~/.config/clawrium/skills/`. This page covers bundled catalog
+authoring; the same schema rules apply to overlay entries. The repository
 [`docs/skills/`](https://github.com/ric03uec/clawrium/tree/main/docs/skills)
 guides go deeper on each.
 
@@ -141,15 +143,17 @@ make test
 
 ## Smoke-test against a real claw
 
-Before merging, exercise the install/list/remove round-trip against a
+Before merging, exercise the add/sync/list/remove round-trip against a
 real agent. For a `clawrium/<name>` skill, this means three agents
 (one per claw); for a `<claw>/<name>` native skill, one agent of the
 matching type.
 
 ```bash
-clawctl agent skill attach <agent> <registry>/<name>
-clawctl agent skill get --agent    <agent>
-clawctl agent skill detach  <agent> <registry>/<name>
+clawctl agent skill add <agent> --from-template <registry>/<name>
+clawctl agent sync <agent>
+clawctl agent skill list <agent>
+clawctl agent skill remove <agent> <name>
+clawctl agent sync <agent>
 ```
 
 The web dashboard's **Agents → `<agent>` → Skills** tab covers the
