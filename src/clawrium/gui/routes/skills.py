@@ -20,7 +20,7 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Path as FastAPIPath
+from fastapi import APIRouter, Body, HTTPException, Path as FastAPIPath
 
 from clawrium.core.skills import (
     SOURCES,
@@ -28,14 +28,22 @@ from clawrium.core.skills import (
     ExternalSourceBlocked,
     InvalidSkillRef,
     MissingSourcePrefix,
+    ReadOnlySource,
     SchemaValidationError,
     SkillError,
+    SkillNameConflict,
+    SkillNameImmutable,
     SkillNotFound,
     SkillRef,
     list_skills,
     load_skill,
     parse_skill_ref,
     validate_skill,
+)
+from clawrium.core.skills_local import (
+    create_local_skill,
+    delete_local_skill,
+    update_local_skill,
 )
 
 # Keys lifted from a skill's raw _meta.yaml (or native SKILL.md
@@ -141,34 +149,14 @@ def _detail(skill_ref: SkillRef) -> dict[str, Any]:
         body = body.encode("utf-8")[:_BODY_MAX_BYTES].decode("utf-8", errors="ignore")
         body += "\n\n... [truncated by GUI — fetch via `clawctl skill registry describe` for full]\n"
 
-    compatibility = _compatibility_map(skill_ref, skill.metadata)
     return {
         "ref": str(skill.ref),
-        "registry": skill.ref.registry,
+        "source": skill.ref.source,
         "name": skill.ref.name,
         "metadata": metadata,
         "body": body,
-        "compatibility": compatibility,
+        "supported_on": dict(SUPPORTED_CLAWS_BY_DEFAULT),
     }
-
-
-def _compatibility_map(ref: SkillRef, metadata: dict[str, Any]) -> dict[str, bool]:
-    """Return a uniform ``{claw: bool}`` shape for the frontend.
-
-    For ``clawrium/*`` we read the ``_meta.yaml.compatibility`` map and
-    coerce missing/non-bool entries to ``False`` (same fail-closed rule
-    as ``check_agent_compatibility``).
-
-    For ``<claw>/*`` we synthesize ``{<claw>: True, <other>: False}`` so
-    the GUI doesn't have to special-case native skills.
-
-    Claw list comes from ``NATIVE_REGISTRIES`` so any future claw
-    (e.g. ``nemoclaw``) added to ``core.skills`` automatically appears
-    in the compatibility map. ``sorted()`` for stable JSON ordering.
-    """
-    # Per-claw support is now global (hardcoded SUPPORTED_CLAWS_BY_DEFAULT),
-    # not per-skill. Return the global support table for every skill.
-    return dict(SUPPORTED_CLAWS_BY_DEFAULT)
 
 
 def _map_error(error: SkillError, ref_str: str) -> HTTPException:
@@ -198,10 +186,18 @@ def _map_error(error: SkillError, ref_str: str) -> HTTPException:
         )
     if isinstance(
         error,
-        (MissingSourcePrefix, ExternalSourceBlocked, InvalidSkillRef),
+        (
+            MissingSourcePrefix,
+            ExternalSourceBlocked,
+            InvalidSkillRef,
+            SkillNameImmutable,
+        ),
     ):
-        # User-supplied ref strings only — no filesystem paths leak here.
         return HTTPException(status_code=422, detail=str(error))
+    if isinstance(error, SkillNameConflict):
+        return HTTPException(status_code=409, detail=str(error))
+    if isinstance(error, ReadOnlySource):
+        return HTTPException(status_code=403, detail=str(error))
     if isinstance(error, SchemaValidationError):
         # `str(error)` includes absolute paths to the offending file and
         # the full jsonschema validation trace. Keep that in the server
@@ -219,54 +215,41 @@ def _map_error(error: SkillError, ref_str: str) -> HTTPException:
 
 @router.get("")
 async def list_skills_route() -> dict[str, Any]:
-    """Catalog listing, grouped by registry.
+    """Unified catalog listing.
 
-    Response shape:
+    Response shape::
 
-    ```
-    {
-      "registries": ["clawrium", "openclaw", "hermes", "zeroclaw"],
-      "skills": {
-        "clawrium": [<summary>, ...],
-        "openclaw": [<summary>, ...],
-        ...
-      }
-    }
-    ```
+        {
+          "sources": ["vetted", "local"],
+          "supported_on": {"hermes": true, "openclaw": false, "zeroclaw": false},
+          "skills": [<summary>, ...],   # flat union, sorted by source then name
+        }
 
-    Empty registries appear as empty lists, not omitted keys — the GUI
-    renders a tab per registry regardless. The ``registries`` echo lets
-    the frontend hold tab order without re-importing the constant.
+    Each summary carries ``source`` and ``supported_on`` so the frontend
+    can render a single flat list with per-card badges (no tabs).
     """
 
     def _build() -> dict[str, Any]:
-        grouped: dict[str, list[dict[str, Any]]] = {
-            source: [] for source in SOURCES
-        }
         try:
             refs = list_skills()
         except (SkillError, OSError) as error:
-            # Catch both SkillError (no catalog dir) and OSError
-            # (permission glitch on the catalog tree). Either way the
-            # GUI should render an empty catalog with all four tabs
-            # rather than a hard 500 — the user can still navigate
-            # away to fix the underlying filesystem issue.
-            #
-            # The `error` field distinguishes this state from a
-            # genuinely empty catalog so the GUI can surface a banner
-            # instead of silently showing four empty tabs.
             logger.warning("skills catalog unavailable: %s", error)
             return {
                 "sources": list(SOURCES),
-                "skills": grouped,
+                "supported_on": dict(SUPPORTED_CLAWS_BY_DEFAULT),
+                "skills": [],
                 "error": "catalog unavailable",
             }
-        for ref in refs:
-            if ref.source not in grouped:
-                logger.warning("skipping ref %s: source not in grouped", ref)
-                continue
-            grouped[ref.source].append(_summarize(ref))
-        return {"sources": list(SOURCES), "skills": grouped}
+        summaries = [_summarize(ref) for ref in refs]
+        # Inject the support table into every card so the frontend
+        # doesn't need to make a separate request for it.
+        for s in summaries:
+            s["supported_on"] = dict(SUPPORTED_CLAWS_BY_DEFAULT)
+        return {
+            "sources": list(SOURCES),
+            "supported_on": dict(SUPPORTED_CLAWS_BY_DEFAULT),
+            "skills": summaries,
+        }
 
     return await asyncio.to_thread(_build)
 
@@ -295,3 +278,132 @@ async def get_skill_route(
     # needed. A bare `await` here keeps the call path clean and lets a
     # truly unhandled exception 500 visibly rather than silently swallow.
     return await asyncio.to_thread(_resolve)
+
+
+# --- Local-source CRUD ---
+
+
+def _coerce_frontmatter(payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Pull (frontmatter, body) out of a JSON request body.
+
+    Accepted shape::
+
+        {
+          "name": "...",
+          "description": "...",
+          "version": "...",          # optional
+          "author": "...",           # optional
+          "license": "...",          # optional
+          "tags": [...],             # optional
+          "platforms": [...],        # optional
+          "body": "markdown body",   # optional
+        }
+
+    Unknown keys are ignored. Validation happens via schema after the
+    file is staged on disk in ``skills_local``.
+    """
+    if not isinstance(payload, dict):
+        raise SchemaValidationError("Request body must be a JSON object.")
+    body = payload.get("body", "")
+    if not isinstance(body, str):
+        raise SchemaValidationError("`body` must be a string.")
+    fm: dict[str, Any] = {}
+    for key in (
+        "name",
+        "description",
+        "version",
+        "license",
+        "author",
+        "tags",
+        "platforms",
+        "prerequisites",
+        "metadata",
+    ):
+        if key in payload and payload[key] is not None:
+            fm[key] = payload[key]
+    return fm, body
+
+
+@router.post("", status_code=201)
+async def create_skill_route(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Create a new local-source skill."""
+
+    def _resolve() -> dict[str, Any]:
+        try:
+            fm, body = _coerce_frontmatter(payload)
+            name = fm.get("name")
+            if not isinstance(name, str) or not name:
+                raise SchemaValidationError("`name` is required.")
+            ref = create_local_skill(name, fm, body)
+            return _detail(ref)
+        except SkillError as error:
+            raise _map_error(error, f"local/{payload.get('name')!r}") from error
+
+    return await asyncio.to_thread(_resolve)
+
+
+@router.put("/local/{name}")
+async def update_skill_route(
+    name: str = FastAPIPath(..., max_length=128),
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
+    """Replace an existing local-source skill. ``name`` is immutable."""
+
+    def _resolve() -> dict[str, Any]:
+        try:
+            fm, body = _coerce_frontmatter(payload)
+            # If the caller sent `name`, it must match the URL slug.
+            if "name" in fm and fm["name"] != name:
+                raise SkillNameImmutable(
+                    f"Cannot change skill name from {name!r} to {fm['name']!r}. "
+                    "Names are immutable."
+                )
+            fm["name"] = name
+            ref = update_local_skill(name, fm, body)
+            return _detail(ref)
+        except SkillError as error:
+            raise _map_error(error, f"local/{name}") from error
+
+    return await asyncio.to_thread(_resolve)
+
+
+@router.put("/vetted/{name}")
+async def update_vetted_skill_route(
+    name: str = FastAPIPath(..., max_length=128),
+) -> dict[str, Any]:
+    """Reject updates to vetted/* — vetted is read-only."""
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"Cannot edit `vetted/{name}`: vetted skills are read-only. "
+            "Submit a PR to change them."
+        ),
+    )
+
+
+@router.delete("/local/{name}", status_code=204)
+async def delete_skill_route(
+    name: str = FastAPIPath(..., max_length=128),
+) -> None:
+    """Delete a local-source skill."""
+
+    def _resolve() -> None:
+        try:
+            delete_local_skill(name)
+        except SkillError as error:
+            raise _map_error(error, f"local/{name}") from error
+
+    await asyncio.to_thread(_resolve)
+
+
+@router.delete("/vetted/{name}", status_code=403)
+async def delete_vetted_skill_route(
+    name: str = FastAPIPath(..., max_length=128),
+) -> None:
+    """Reject deletes against vetted/* — vetted is read-only."""
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"Cannot delete `vetted/{name}`: vetted skills are read-only."
+        ),
+    )
