@@ -43,10 +43,10 @@ from clawrium.core.hosts import get_agent_by_name
 from clawrium.core.keys import get_host_private_key
 from clawrium.core.reset import _sanitize_for_path
 from clawrium.core.skills import (
-    NATIVE_REGISTRIES,
+    ClawNotSupported,
     Skill,
     SkillError,
-    check_agent_compatibility,
+    check_claw_supported,
     load_skill,
     materialize_for_claw,
     parse_skill_ref,
@@ -87,9 +87,9 @@ class AgentNotFoundError(SkillError):
     """Raised when `agent_name` does not resolve to an installed agent."""
 
 
-# Map of agent_type → per-claw skills_apply playbook name. All three
-# native claws are wired as of Phase 3 (#382). Centralizing the dispatch
-# table here avoids scattering claw-type literals through the CLI layer.
+# Map of agent_type → per-claw skills_apply playbook name. The runtime
+# gate is SUPPORTED_CLAWS_BY_DEFAULT (in core.skills) — entries here whose
+# claw is off in that table will not be dispatched.
 _APPLY_PLAYBOOK_BY_CLAW: dict[str, str] = {
     "hermes": "skills_apply.yaml",
     "openclaw": "skills_apply.yaml",
@@ -145,11 +145,10 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
         raise AgentNotFoundError(f"Agent {agent_name!r} not found. Run `clm agent ps`.")
 
     host, agent_type, _agent_record = resolved
-    if agent_type not in NATIVE_REGISTRIES:
-        raise SkillApplyNotSupported(
-            f"Agent {agent_name!r} has unsupported claw type {agent_type!r}. "
-            f"Supported: {', '.join(sorted(NATIVE_REGISTRIES))}."
-        )
+    try:
+        check_claw_supported(agent_type)
+    except ClawNotSupported as error:
+        raise SkillApplyNotSupported(str(error)) from error
     playbook_name = _APPLY_PLAYBOOK_BY_CLAW.get(agent_type)
     if not playbook_name:
         # Operator-facing error text — no plan/phase jargon. Lists the
@@ -172,7 +171,6 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
         ref = parse_skill_ref(raw_ref)
         skill = load_skill(ref)
         validate_skill(skill)
-        check_agent_compatibility(skill, agent_type)
         loaded.append(skill)
 
     # Both staging and log-dir creation live inside the `try` so the

@@ -32,8 +32,17 @@ from pathlib import Path
 from clawrium.core.config import get_config_dir
 from clawrium.core.skills import (
     InvalidSkillRef,
+    SkillError,
     SkillRef,
+    find_skill_by_name,
     parse_skill_ref,
+)
+
+# Legacy source prefixes whose refs are rewritten on first read after
+# upgrade to the unified vetted/local catalog (issue #411). Anything else
+# is dropped with a WARNING.
+_LEGACY_PREFIXES: frozenset[str] = frozenset(
+    {"clawrium", "hermes", "openclaw", "zeroclaw"}
 )
 
 logger = logging.getLogger(__name__)
@@ -98,14 +107,59 @@ def read_state(agent_name: str) -> list[str]:
         raise InvalidSkillRef(
             f"Skills state file {path}: `skills` must be a list of strings."
         )
-    # Every persisted entry has already passed parse_skill_ref on write,
-    # but re-validating on read catches hand-edited files before they
-    # reach apply_state.
+    # Issue #411: one-shot migration of legacy `<old-registry>/<name>` refs
+    # to the unified `vetted/<name>` (or `local/<name>`) shape. Anything we
+    # can't resolve is dropped with a warning rather than failing the read.
     validated: list[str] = []
+    migrated = False
     for entry in skills:
-        ref = parse_skill_ref(entry)
-        validated.append(str(ref))
-    return sorted(set(validated))
+        try:
+            ref = parse_skill_ref(entry)
+            validated.append(str(ref))
+            continue
+        except (InvalidSkillRef, SkillError):
+            pass
+
+        migrated_ref = _migrate_legacy_ref(entry)
+        if migrated_ref is None:
+            logger.warning(
+                "Dropping unrecognized skill ref %r from %s during legacy migration.",
+                entry,
+                path,
+            )
+            migrated = True
+            continue
+        validated.append(str(migrated_ref))
+        migrated = True
+
+    canonical = sorted(set(validated))
+    if migrated:
+        try:
+            write_state(agent_name, canonical)
+        except Exception as error:
+            logger.warning("Could not persist migrated state for %s: %s", agent_name, error)
+    return canonical
+
+
+def _migrate_legacy_ref(entry: str) -> SkillRef | None:
+    """Rewrite a legacy `<old-registry>/<name>` ref to `vetted/<name>` or `local/<name>`.
+
+    Returns None if the entry doesn't look like a legacy ref or the name
+    cannot be found in either source.
+    """
+    if not isinstance(entry, str) or "/" not in entry:
+        return None
+    parts = entry.split("/")
+    if len(parts) != 2:
+        return None
+    old_source, name = parts
+    if old_source not in _LEGACY_PREFIXES:
+        return None
+    try:
+        found = find_skill_by_name(name)
+    except SkillError:
+        found = None
+    return found
 
 
 def write_state(agent_name: str, refs: list[str | SkillRef]) -> list[str]:

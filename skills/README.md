@@ -1,70 +1,60 @@
 # Clawrium Skills Catalog
 
-This directory is the **single source of truth** for skills installable via
-`clm` onto clawrium-managed agents. Skills are organized into four
-**registries** (namespaces). The path layout is hard-wired into
-`src/clawrium/core/skills.py` and validated in CI.
+Skills are markdown documents (`SKILL.md`) with YAML frontmatter that get
+materialized onto agent hosts when you run `clawctl agent skill attach`.
+
+## Two sources
 
 ```
-skills/
-├── _schema/
-│   ├── clawrium.schema.json            # cross-agent normalized shape
-│   └── native/
-│       ├── openclaw.schema.json        # openclaw SKILL.md frontmatter
-│       ├── hermes.schema.json          # hermes SKILL.md frontmatter
-│       └── zeroclaw.schema.json        # zeroclaw SKILL.md frontmatter
-├── clawrium/<name>/                    # normalized, cross-agent
-│   ├── _meta.yaml                      # required, validated against clawrium.schema.json
-│   ├── SKILL.md                        # canonical content (rendered per claw on apply)
-│   └── README.md                       # optional, human-readable docs
-├── openclaw/<name>/                    # native, openclaw-only
-│   └── SKILL.md                        # frontmatter validated against native/openclaw.schema.json
-├── hermes/<name>/                      # native, hermes-only
-│   └── SKILL.md                        # frontmatter validated against native/hermes.schema.json
-└── zeroclaw/<name>/                    # native, zeroclaw-only
-    └── SKILL.md                        # frontmatter validated against native/zeroclaw.schema.json
+vetted/<name>/SKILL.md          ← in-repo, ships in the wheel (this directory)
+~/.config/clawrium/skills/<name>/SKILL.md   ← user-owned, created via `clawctl skill add`
 ```
 
-## Namespace rules
+Both sources use the same flat [agentskills.io](https://agentskills.io)
+format. Skill names are globally unique across both sources — you cannot
+have `vetted/tdd` and `local/tdd` at the same time.
 
-| Registry    | Schema     | Install target            | Notes                                              |
-|-------------|------------|---------------------------|----------------------------------------------------|
-| `clawrium`  | clawrium   | any agent type            | normalized superset; materialized per claw on apply |
-| `openclaw`  | native     | only `openclaw` agents    | raw openclaw SKILL.md, dropped under `~/.openclaw/skills/` |
-| `hermes`    | native     | only `hermes` agents      | raw hermes SKILL.md, dropped under `~/.hermes/skills/clawrium/` |
-| `zeroclaw`  | native     | only `zeroclaw` agents    | staged + installed via `zeroclaw skills install` (audit gate) |
+References use the form `<source>/<name>` (e.g. `vetted/tdd`,
+`local/my-skill`). Bare names are rejected.
 
-## Skill references
+## Editing rules
 
-Skills are referenced as `<registry>/<name>` everywhere — CLI args, GUI URLs,
-desired-state files. Bare names (e.g. `tdd`) are rejected with
-`MissingRegistryPrefix` and a hint that includes the matching registries.
+- **Vetted** skills are read-only at runtime. Changes go through PR review.
+- **Local** skills are created/edited/deleted via `clawctl skill add|edit|remove`
+  or the GUI.
+- The `name` field is immutable — renaming requires delete + re-create.
 
-Non-registry sources (URLs, absolute paths, tarballs) are rejected at the
-`parse_skill_ref` chokepoint with `ExternalSourceBlocked`. The only install
-source for `clm` is this in-repo tree.
+## File format
 
-## Slug rules
+```yaml
+---
+name: my-skill
+description: One-line description.
+version: 0.1.0          # optional
+license: MIT            # optional
+author: you             # optional
+platforms: [linux]      # optional
+tags: [example]         # optional
+prerequisites: {}       # optional
+---
 
-- `<name>` MUST match `^[a-z0-9][a-z0-9_-]*$` (kebab-case, no leading
-  hyphen/underscore).
-- For `clawrium/<name>`, `_meta.yaml`'s `name:` field MUST equal `<name>`
-  (the directory name). The CLI enforces this so that zeroclaw's source-
-  dirname semantics (see `.itx/364/02_PHASE0_FINDINGS.md`) stay consistent
-  with the registry slug.
+# My Skill
 
-## Adding a new skill
+Markdown body of the skill instructions.
+```
 
-1. Pick the right registry.
-   - Cross-agent? Use `clawrium/`.
-   - Native to one claw and uses claw-specific frontmatter fields? Use that
-     claw's namespace.
-2. Create `skills/<registry>/<name>/SKILL.md` (and `_meta.yaml` for
-   `clawrium/`).
-3. Run `clm skill show <registry>/<name>` to confirm the catalog loader
-   accepts it.
-4. CI runs dual-schema validation on every PR; a clawrium-shaped file
-   placed under a native registry (or vice versa) will fail the build.
+Required fields: `name`, `description`. Everything else is optional.
 
-See `docs/skills/authoring-clawrium.md` and
-`docs/skills/authoring-native.md` for full authoring guides (Phase 6).
+## Per-claw support
+
+Skills install on agents whose `agent_type` is listed in
+`SUPPORTED_CLAWS_BY_DEFAULT` in `src/clawrium/core/skills.py`. Currently:
+
+| Claw      | Supported |
+|-----------|-----------|
+| hermes    | yes       |
+| openclaw  | no        |
+| zeroclaw  | no        |
+
+Openclaw and zeroclaw will be re-enabled once their materializers and
+end-to-end tests are wired in follow-up issues.

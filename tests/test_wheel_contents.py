@@ -140,9 +140,9 @@ def test_wheel_includes_all_skill_namespaces(wheel_names: set[str]) -> None:
 
 
 def test_wheel_includes_canonical_skill_file(wheel_names: set[str]) -> None:
-    """Pin the canonical clawrium/tdd SKILL.md path called out in AGENTS.md."""
-    assert "clawrium/_skills/clawrium/tdd/SKILL.md" in wheel_names, (
-        "Wheel is missing the canonical `clawrium/tdd` skill referenced in AGENTS.md."
+    """Pin the canonical vetted/tdd SKILL.md path called out in AGENTS.md."""
+    assert "clawrium/_skills/vetted/tdd/SKILL.md" in wheel_names, (
+        "Wheel is missing the canonical `vetted/tdd` skill referenced in AGENTS.md."
     )
 
 

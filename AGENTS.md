@@ -44,10 +44,10 @@ clawctl agent start <agent-name>
 # Run a command against the agent's native CLI on its host
 clawctl agent exec <agent-name> -- --version
 
-# Install a skill onto the agent (catalog: skills/)
-clawctl skill registry get
-clawctl skill registry describe clawrium/tdd       # Inspect a skill before installing
-clawctl agent skill attach clawrium/tdd --agent <agent-name>
+# Install a skill onto the agent (catalog: skills/vetted/)
+clawctl skill list
+clawctl skill show vetted/tdd                      # Inspect a skill before installing
+clawctl agent skill attach vetted/tdd --agent <agent-name>
 
 # Check fleet status
 clawctl agent get
@@ -79,7 +79,7 @@ The website docs MUST follow `docs/host-preparation.md` exactly. Do not edit `we
 - **Agent Type**: The specific AI assistant implementation (e.g., zeroclaw, nemoclaw, openclaw)
 - **Agent Name**: The unique identifier for an installed agent instance
 - **Agent Registry**: Platform-defined agent types with versions, dependencies, and templates
-- **Skill Registry**: A namespace under `skills/` from which skills can be installed onto an agent (`clawrium`, `openclaw`, `hermes`, `zeroclaw`). Skills are referenced as `<skill-registry>/<name>` (e.g. `clawrium/tdd`). Distinct from the Agent Registry.
+- **Skill Source**: The on-disk location a skill is loaded from. Two sources: `vetted/` (in-repo, ships in the wheel) and `local/` (user-owned, at `~/.config/clawrium/skills/`). Skills are referenced as `<source>/<name>` (e.g. `vetted/tdd`). Skill names are globally unique across both sources. Distinct from the Agent Registry.
 
 ## Resources
 

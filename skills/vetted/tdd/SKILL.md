@@ -1,6 +1,11 @@
 ---
 name: tdd
 description: Drive a red → green → refactor cycle for the active task.
+version: 0.1.0
+license: MIT
+author: clawrium
+platforms: [linux, macos]
+tags: [tdd, testing, discipline, clawrium]
 ---
 
 # TDD — Test-Driven Development
