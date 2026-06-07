@@ -1,8 +1,9 @@
 ---
-# macOS counterpart to configure.yaml. Renders the same templates
-# (hermes.env.j2 + hermes-config.yaml.j2) into /Users/<agent>/.hermes/
-# instead of /home/<agent>/.hermes/, and DOES NOT touch systemd —
-# launchctl lifecycle is owned by core/lifecycle_macos.py.
+# macOS counterpart to configure.yaml. Deploys the pre-rendered
+# canonical hermes config files (from clawrium.core.render.render_hermes —
+# see #622) into /Users/<agent>/.hermes/ instead of /home/<agent>/.hermes/,
+# and DOES NOT touch systemd — launchctl lifecycle is owned by
+# core/lifecycle_macos.py.
 #
 # Intentional differences from configure.yaml beyond paths:
 #   - No re-render of a service unit. The launchd plist (step 6) is
@@ -48,10 +49,11 @@
         group: staff
         mode: "0700"
 
-    # Render ~/.hermes/.env (provider API key + API_SERVER_*)
-    - name: Render ~/.hermes/.env from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/hermes.env.j2"
+    # Deploy ~/.hermes/.env (pre-rendered canonical content from
+    # render_hermes — see #622).
+    - name: Deploy ~/.hermes/.env (pre-rendered canonical content)
+      ansible.builtin.copy:
+        content: "{{ prerendered_hermes_env }}"
         dest: "/Users/{{ agent_name }}/.hermes/.env"
         owner: "{{ agent_name }}"
         group: staff
@@ -59,11 +61,11 @@
         force: yes
       no_log: true
 
-    # Render ~/.hermes/config.yaml (model.provider, model.default,
-    # model.base_url). Hermes deep-merges with DEFAULT_CONFIG.
-    - name: Render ~/.hermes/config.yaml from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/hermes-config.yaml.j2"
+    # Deploy ~/.hermes/config.yaml (pre-rendered canonical content from
+    # render_hermes — see #622). Hermes deep-merges with DEFAULT_CONFIG.
+    - name: Deploy ~/.hermes/config.yaml (pre-rendered canonical content)
+      ansible.builtin.copy:
+        content: "{{ prerendered_hermes_config_yaml }}"
         dest: "/Users/{{ agent_name }}/.hermes/config.yaml"
         owner: "{{ agent_name }}"
         group: staff

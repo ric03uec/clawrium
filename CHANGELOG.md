@@ -17,23 +17,70 @@ release.
 
 ### BREAKING
 
-- **Provider state has a single source of truth.** An agent's provider is
-  now read from exactly one place — the top-level `providers` list on the
-  agent record (tier-1, written by `clawctl agent provider attach` and
-  `clawctl agent configure`). The vestigial `config.providers` field
-  (tier-3) has been removed from the code, and there is **no fallback** to
-  the materialized `config.provider` block (tier-2). If no provider is
-  attached, the render path fails fast with `AgentConfigError` instead of
-  silently resolving from another tier.
-  - **No migration.** This is a hard cutover. Legacy records whose provider
-    lives only in `config.provider` must be repaired by running
-    `clawctl agent provider attach <provider> --agent <name>`, which
-    populates the canonical top-level `providers` list.
+- hermes: legacy ansible-side templates
+  `src/clawrium/platform/registry/hermes/templates/hermes-config.yaml.j2`
+  and `hermes.env.j2` have been **removed**. The configure playbook no
+  longer renders them server-side; `~/.hermes/config.yaml` and
+  `~/.hermes/.env` are now produced client-side by `render_hermes`
+  (`src/clawrium/core/render.py`) and deployed via
+  `ansible.builtin.copy`. **Operator action: none** — every `clawctl`
+  command keeps its exact contract, and single-provider rendered output
+  is byte-identical to the previous release. **Downstream / vendor
+  action**: anyone importing or templating against the deleted `.j2`
+  files must switch to calling `render_hermes(build_render_inputs(name))`
+  and reading the `RenderedFiles` dict at `.hermes/config.yaml` /
+  `.hermes/.env`. There is no automated migration; vendored copies of
+  the legacy templates will continue to work standalone but will not
+  receive multi-provider auxiliary-block rendering or any future fix.
+  (#622, parent #589)
 
 ### Added
 
+- `clawctl agent provider attach --role <role>` for hermes agents.
+  Required on hermes (`primary` for the first attachment, plus one of
+  nine upstream auxiliary slots — `vision`, `web_extract`,
+  `compression`, `session_search`, `skills_hub`, `approval`, `mcp`,
+  `title_generation`, `curator` — for any subsequent attachment).
+  Rejected on `zeroclaw`/`openclaw`. `clawctl agent provider get`
+  renders the additional `role` and `model` columns for hermes; the
+  legacy flat output is unchanged for singleton agents. `clawctl agent
+  provider detach <primary-name>` now refuses to remove the primary
+  attachment while auxiliary attachments remain — detach those first.
+  Singleton agents keep the `single-provider invariant` rejection
+  message verbatim. (#612, parent #589)
+
 ### Changed
 
+- hermes: `~/.hermes/config.yaml` and `~/.hermes/.env` are now rendered
+  client-side by `clawctl` (via `render_hermes`) and copied to the
+  agent host by the configure playbook, instead of being templated
+  server-side by Ansible. Unifies the rendering path between
+  `clawctl agent configure` and `clawctl agent sync`, so multi-provider
+  attachments now work on both commands (previously only `sync`
+  rendered them correctly). No operator action required; existing
+  CLI commands keep their exact contract, single-provider output is
+  byte-identical. (#622, parent #589)
+
 ### Fixed
+
+- `clawctl agent sync` on hermes agents with multiple provider
+  attachments now renders one `auxiliary.<role>:` block per non-primary
+  attachment in `~/.hermes/config.yaml`, and emits each non-primary
+  provider's credentials into `~/.hermes/.env` (bearer keys for cloud
+  providers, AWS triple for bedrock). Previously the canonical render
+  path picked only the primary and silently dropped every auxiliary
+  slot, causing hermes to fall back to upstream per-primary-type
+  defaults for aux models. Single-provider hermes rendering is
+  byte-identical; `zeroclaw` and `openclaw` renderers are not touched.
+  Same-type collisions with different API keys and multiple bedrock
+  attachments now fail loudly at `build_render_inputs` with actionable
+  errors. (#621, parent #589)
+- `clawctl agent sync <hermes-agent>` crashed with
+  `ModuleNotFoundError: No module named 'jinja2'` on a fresh
+  `uv tool install clawrium`. `jinja2` was declared only under
+  `[dependency-groups].dev`, which `uv tool install` does not install.
+  Moved `jinja2>=3.0.0` into `[project].dependencies` and added a
+  guard test (`tests/test_runtime_imports.py`) so future drift back
+  to dev-only fails CI. (#620)
 
 ### Documentation

@@ -23,6 +23,27 @@ HERMES_INFERENCE_PROVIDER='bedrock'
 {% elif provider.type == 'ollama' %}
 HERMES_INFERENCE_PROVIDER='custom'
 {% endif %}
+{# Issue #621: auxiliary provider credentials. `aux_api_keys` is a dict
+   keyed by provider type (already deduped + dedup-vs-primary in
+   render_hermes); each entry emits one `<TYPE>_API_KEY=` line.
+   `aux_aws_credentials` carries non-primary bedrock attachments — when
+   the primary is also bedrock, render_hermes filters it out so we don't
+   double-emit the AWS triple. build_render_inputs enforces at most one
+   bedrock attachment per agent. #}
+{% for ptype, key in aux_api_keys.items() %}
+{% if ptype == 'openrouter' %}
+OPENROUTER_API_KEY={{ key | shq }}
+{% elif ptype == 'anthropic' %}
+ANTHROPIC_API_KEY={{ key | shq }}
+{% elif ptype == 'openai' %}
+OPENAI_API_KEY={{ key | shq }}
+{% endif %}
+{% endfor %}
+{% for name, triple in aux_aws_credentials.items() %}
+AWS_ACCESS_KEY_ID={{ triple[0] | shq }}
+AWS_SECRET_ACCESS_KEY={{ triple[1] | shq }}
+AWS_DEFAULT_REGION={{ triple[2] | shq }}
+{% endfor %}
 {% if api_server is not none %}
 API_SERVER_ENABLED=1
 API_SERVER_HOST={{ api_server.host | shq }}

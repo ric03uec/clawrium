@@ -169,7 +169,7 @@
           pull_rebase:          "{{ item.value.GIT_PULL_REBASE | default('false') }}"
           core_editor:          "{{ item.value.GIT_CORE_EDITOR | default('vim') }}"
 
-    # GitHub CLI authentication block (#422, mirrors hermes configure.yaml).
+    # GitHub CLI authentication block (#422).
     # `gh` is a soft dependency: when absent, the Environment= drop-in above
     # still wires GITHUB_TOKEN so skills calling the GitHub REST API
     # directly continue to work. `changed_when: false` keeps the task

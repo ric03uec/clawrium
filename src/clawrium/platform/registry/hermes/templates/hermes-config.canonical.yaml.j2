@@ -12,32 +12,68 @@ model:
   provider: "openrouter"
   base_url: "https://openrouter.ai/api/v1"
   default: {{ provider.default_model | yq }}
+{% if aux_attachments %}
+auxiliary:
+{% for entry in aux_attachments %}
+  {{ entry.role }}:
+    provider: "{{ entry.type }}"
+    model: {{ entry.model | yq }}
+{% endfor %}
+{% else %}
 auxiliary:
   title_generation:
     model: "anthropic/claude-haiku-4.5"
+{% endif %}
 {% elif provider.type == 'anthropic' %}
 model:
   provider: "anthropic"
   default: {{ provider.default_model | yq }}
+{% if aux_attachments %}
+auxiliary:
+{% for entry in aux_attachments %}
+  {{ entry.role }}:
+    provider: "{{ entry.type }}"
+    model: {{ entry.model | yq }}
+{% endfor %}
+{% else %}
 auxiliary:
   title_generation:
     model: "claude-haiku-4-5-20251001"
+{% endif %}
 {% elif provider.type == 'openai' %}
 model:
   provider: "openai"
   default: {{ provider.default_model | yq }}
+{% if aux_attachments %}
+auxiliary:
+{% for entry in aux_attachments %}
+  {{ entry.role }}:
+    provider: "{{ entry.type }}"
+    model: {{ entry.model | yq }}
+{% endfor %}
+{% else %}
 auxiliary:
   title_generation:
     model: "gpt-5-nano"
+{% endif %}
 {% elif provider.type == 'bedrock' %}
 model:
   provider: "bedrock"
   default: {{ provider.default_model | yq }}
 bedrock:
   region: {{ (provider.region or 'us-east-1') | yq }}
+{% if aux_attachments %}
+auxiliary:
+{% for entry in aux_attachments %}
+  {{ entry.role }}:
+    provider: "{{ entry.type }}"
+    model: {{ entry.model | yq }}
+{% endfor %}
+{% else %}
 auxiliary:
   title_generation:
     model: "anthropic.claude-haiku-4-5-20251001-v1:0"
+{% endif %}
 {% elif provider.type == 'ollama' %}
 {# W5: no auxiliary.title_generation pin for ollama. The primary model
    already runs locally and is cheap — pinning to a remote aux model
@@ -49,6 +85,14 @@ model:
   provider: "custom"
   base_url: {{ ollama_base_url | yq }}
   default: {{ provider.default_model | yq }}
+{% if aux_attachments %}
+auxiliary:
+{% for entry in aux_attachments %}
+  {{ entry.role }}:
+    provider: "{{ entry.type }}"
+    model: {{ entry.model | yq }}
+{% endfor %}
+{% endif %}
 {% endif %}
 {% if atlassian_integrations %}
 mcp_servers:

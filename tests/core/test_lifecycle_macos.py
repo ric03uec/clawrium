@@ -163,8 +163,8 @@ def test_restart_macos_kickstart_when_loaded(monkeypatch):
     # Exactly two kickstart -k commands; no install_service path.
     assert len(client.commands) == 2
     assert all("kickstart -k" in c for c in client.commands)
-    assert "system/ai.clawrium.hermes.h1.dashboard" in client.commands[0]
-    assert "system/ai.clawrium.hermes.h1" in client.commands[1]
+    assert client.commands[0].endswith("system/ai.clawrium.hermes.h1.dashboard")
+    assert client.commands[1].endswith("system/ai.clawrium.hermes.h1")
 
 
 def test_restart_macos_falls_back_to_bootstrap_when_not_loaded(monkeypatch):
@@ -289,7 +289,7 @@ def test_configure_agent_injects_macos_playbook_and_restarts(monkeypatch):
 
     restart_calls: list = []
 
-    def fake_restart(host, agent_name, on_event=None):
+    def fake_restart(host, agent_name, on_event=None, agent_type="hermes"):
         restart_calls.append((host["hostname"], agent_name))
         return True, None
 
@@ -386,7 +386,13 @@ def test_sync_agent_injects_macos_playbook_and_restarts(monkeypatch):
     monkeypatch.setattr(
         lifecycle_macos,
         "restart_agent_macos",
-        lambda host, agent, on_event=None: restart_calls.append((host["hostname"], agent)) or (True, None),
+        lambda host, agent, on_event=None, agent_type="hermes": restart_calls.append((host["hostname"], agent)) or (True, None),
+    )
+    # iter4 B1: lifecycle_macos.sync_agent now owns the READY write,
+    # so the test must stub the real transition_state path.
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state",
+        lambda *a, **kw: None,
     )
 
     result = lifecycle_macos.sync_agent(

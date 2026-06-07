@@ -1,0 +1,81 @@
+---
+# macOS counterpart to start.yaml. launchctl bootstrap + kickstart for
+# the ai.clawrium.openclaw.<agent> launchd unit.
+- hosts: all
+  become: yes
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: start_macos.yaml invoked against non-Darwin host
+      when: ansible_os_family != "Darwin"
+
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Check that agent user exists via dscl
+      ansible.builtin.command: "dscl . -read /Users/{{ agent_name | quote }} UniqueID"
+      register: agent_user_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if openclaw agent user is missing
+      ansible.builtin.fail:
+        msg: "Agent user '{{ agent_name }}' not found. Run 'clawctl agent create --type openclaw' first."
+      when: agent_user_check.rc != 0
+
+    - name: Check that launchd plist exists
+      ansible.builtin.stat:
+        path: "/Library/LaunchDaemons/ai.clawrium.openclaw.{{ agent_name }}.plist"
+      register: openclaw_plist_stat
+
+    - name: Fail if plist is missing
+      ansible.builtin.fail:
+        msg: "OpenClaw launchd plist not installed. Run 'clawctl agent create' first."
+      when: not openclaw_plist_stat.stat.exists
+
+    - name: Bootstrap openclaw launchd unit (idempotent)
+      ansible.builtin.command:
+        cmd: "launchctl bootstrap system /Library/LaunchDaemons/ai.clawrium.openclaw.{{ agent_name }}.plist"
+      register: openclaw_bootstrap
+      changed_when: openclaw_bootstrap.rc == 0
+      # See install_macos.yaml comment — explicit (rc, marker) matrix
+      # matches core/lifecycle_macos._bootstrap_with_tolerance and
+      # rejects malformed-plist rc=5 errors instead of swallowing them.
+      # Markers checked against the concatenation of stdout AND stderr
+      # because some macOS versions write status to stdout.
+      vars:
+        _bootstrap_out: "{{ ((openclaw_bootstrap.stdout | default('')) ~ (openclaw_bootstrap.stderr | default('')) | lower) }}"
+      failed_when: >
+        openclaw_bootstrap.rc != 0
+        and not (
+          openclaw_bootstrap.rc == 37 or
+          (openclaw_bootstrap.rc == 17 and 'file exists' in _bootstrap_out) or
+          (openclaw_bootstrap.rc == 5  and 'input/output' in _bootstrap_out) or
+          (openclaw_bootstrap.rc == 149 and 'already' in _bootstrap_out) or
+          'service already loaded' in _bootstrap_out
+        )
+
+    # `kickstart` (no `-k`) is a no-op when the service is already
+    # running, matching `systemctl start`'s idempotent contract. The
+    # destructive `kickstart -k` lives in restart_agent_macos.
+    - name: Kickstart openclaw service (no-op if already running)
+      ansible.builtin.command:
+        cmd: "launchctl kickstart system/ai.clawrium.openclaw.{{ agent_name }}"
+      changed_when: true
+
+    # Crash-at-launch detection: a daemon that exits within seconds of
+    # `kickstart` would otherwise be reported as a successful start.
+    - name: Wait for gateway port to be listening
+      ansible.builtin.wait_for:
+        port: "{{ config.gateway.port }}"
+        host: "{{ ansible_host }}"
+        timeout: 30
+      delegate_to: localhost
+      become: no
+      when: config is defined and config.gateway is defined and config.gateway.port is defined
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg: "OpenClaw started successfully ({{ agent_name }})"

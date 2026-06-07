@@ -134,7 +134,7 @@ Currently available:
 
 - Repository: https://github.com/ric03uec/clawrium
 - Project Board: https://github.com/users/ric03uec/projects/1
-- Version: 26.6.0
+- Version: 26.6.1
 - Changelog: [`CHANGELOG.md`](CHANGELOG.md) (current unreleased) · [`docs/releases/`](docs/releases/) (per-release archive)
 
 ## Gateway Token Lifecycle (zeroclaw)
@@ -161,6 +161,25 @@ Rules (issue #437):
 - A single `gateway_token_rotated` event is emitted from `lifecycle.py`
   whenever the bearer is overwritten. The CLI renders it as a yellow
   notice during `configure`/`sync`/`restart`.
+
+## Hermes Config Rendering (issue #622)
+
+`~/.hermes/config.yaml` and `~/.hermes/.env` are rendered exclusively
+by `src/clawrium/core/render.py:render_hermes`. Both `clawctl agent
+configure` (via `lifecycle.configure_agent`) and `clawctl agent sync`
+(via `lifecycle_canonical.sync_agent_canonical`) call the same
+renderer; the configure playbook copies the pre-rendered bytes via
+`ansible.builtin.copy`, it does not template them server-side.
+
+To change the on-host shape, edit the canonical templates in
+`src/clawrium/platform/registry/hermes/templates/` (`hermes-config.canonical.yaml.j2`
+and `hermes-env.canonical.j2`) and the `render_hermes` plumbing in
+`core/render.py`. There is no second template path.
+
+Multi-provider attachments (primary + N auxiliary slots) are a
+**hermes-only** feature. Zeroclaw, openclaw, and nemoclaw enforce
+single-provider invariants at the CLI and renderer layers; their
+templates do not iterate `config.providers`.
 
 ## Native Dashboards (issues #478, #491)
 

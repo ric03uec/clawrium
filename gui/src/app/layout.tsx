@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "@/styles/globals.css";
 import { Providers } from "./providers";
 import { AppShell } from "@/components/layout";
 
-const inter = Inter({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-inter",
-});
+// Removed `next/font/google` Inter import: it forced a build-time fetch
+// of `fonts.googleapis.com` which intermittently failed in CI (DNS
+// ENOTFOUND on the macOS runner). The body font stack in
+// `styles/globals.css` already includes the full system-font fallback
+// chain (`-apple-system`, `BlinkMacSystemFont`, ...), so dropping the
+// hosted Inter just falls through to the platform's native UI font.
 
 export const metadata: Metadata = {
   title: "Clawrium",
@@ -26,7 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en">
       <body>
         <Providers>
           <AppShell>{children}</AppShell>

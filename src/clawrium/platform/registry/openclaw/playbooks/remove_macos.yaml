@@ -1,0 +1,57 @@
+---
+# macOS counterpart to remove.yaml. bootout + plist removal + filesystem
+# teardown + dscl user delete.
+- hosts: all
+  become: yes
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: remove_macos.yaml invoked against non-Darwin host
+      when: ansible_os_family != "Darwin"
+
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Bootout openclaw launchd unit (tolerate not-loaded)
+      ansible.builtin.command:
+        cmd: "launchctl bootout system/ai.clawrium.openclaw.{{ agent_name }}"
+      register: openclaw_bootout
+      changed_when: openclaw_bootout.rc == 0
+      failed_when: false
+
+    - name: Remove launchd plist
+      ansible.builtin.file:
+        path: "/Library/LaunchDaemons/ai.clawrium.openclaw.{{ agent_name }}.plist"
+        state: absent
+
+    - name: Remove openclaw runtime prefix
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.openclaw"
+        state: absent
+
+    - name: Remove workspace directory
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/workspace"
+        state: absent
+
+    - name: Check if agent user exists
+      ansible.builtin.command: "dscl . -read /Users/{{ agent_name | quote }} UniqueID"
+      register: agent_user_check
+      changed_when: false
+      failed_when: false
+
+    - name: Delete agent user record via dscl
+      ansible.builtin.command: "dscl . -delete /Users/{{ agent_name }}"
+      when: agent_user_check.rc == 0
+      changed_when: true
+
+    - name: Remove agent home directory
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}"
+        state: absent
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg: "OpenClaw removed successfully ({{ agent_name }})"

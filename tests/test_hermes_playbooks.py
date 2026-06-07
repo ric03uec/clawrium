@@ -515,3 +515,89 @@ def test_hermes_gateway_unit_has_path_in_environment(playbook):
         f"kanban dispatcher's `subprocess.run(['hermes',...])` bare PATH "
         f"lookup resolves the hermes CLI shim."
     )
+
+
+# ---------------------------------------------------------------------------
+# #622 / ATX iter-1 B4: pin the copy-task variable names for the hermes
+# config files. The legacy `template:` tasks for hermes-config.yaml.j2 and
+# hermes.env.j2 were replaced with `ansible.builtin.copy: content:` tasks
+# that consume bytes pre-rendered by `lifecycle.configure_agent` via
+# `render_hermes`. If the var names drift between Python and Ansible, the
+# playbook silently deploys an empty file. These tests close that gap.
+# ---------------------------------------------------------------------------
+
+
+def _hermes_copy_tasks(playbook_text: str) -> dict[str, dict]:
+    """Return {dest_path: copy_block} for every ansible.builtin.copy task
+    that lands a file under `.hermes/`."""
+    out: dict[str, dict] = {}
+    for task in _tasks(playbook_text):
+        copy_block = task.get("ansible.builtin.copy") or task.get("copy")
+        if not isinstance(copy_block, dict):
+            continue
+        dest = copy_block.get("dest", "") or ""
+        if ".hermes/" in dest:
+            out[dest] = copy_block
+    return out
+
+
+@pytest.fixture(params=["configure", "configure_macos"])
+def hermes_configure_playbook_text(request) -> str:
+    return _hermes_playbook(request.param)
+
+
+def test_hermes_config_yaml_copy_reads_prerendered_var(
+    hermes_configure_playbook_text,
+):
+    """The task that lands ~/.hermes/config.yaml MUST be `copy: content:`
+    reading from `{{ prerendered_hermes_config_yaml }}`. Drift here
+    silently deploys an empty file with no Python-side error."""
+    copies = _hermes_copy_tasks(hermes_configure_playbook_text)
+    matches = [
+        block for dest, block in copies.items() if dest.endswith(".hermes/config.yaml")
+    ]
+    assert matches, "no ansible.builtin.copy task lands ~/.hermes/config.yaml"
+    block = matches[0]
+    assert "content" in block, "copy task missing `content:` field"
+    assert (
+        block["content"].strip() == "{{ prerendered_hermes_config_yaml }}"
+    ), f"copy task content var drifted: {block['content']!r}"
+    # mcp_servers block can carry Atlassian credentials inline; mode must
+    # stay 0600 so a stray hosts.json read can't widen the file.
+    assert str(block.get("mode")) == "0600"
+
+
+def test_hermes_env_copy_reads_prerendered_var(
+    hermes_configure_playbook_text,
+):
+    """The task that lands ~/.hermes/.env MUST be `copy: content:` reading
+    from `{{ prerendered_hermes_env }}`."""
+    copies = _hermes_copy_tasks(hermes_configure_playbook_text)
+    matches = [
+        block for dest, block in copies.items() if dest.endswith(".hermes/.env")
+    ]
+    assert matches, "no ansible.builtin.copy task lands ~/.hermes/.env"
+    block = matches[0]
+    assert "content" in block, "copy task missing `content:` field"
+    assert (
+        block["content"].strip() == "{{ prerendered_hermes_env }}"
+    ), f"copy task content var drifted: {block['content']!r}"
+    assert str(block.get("mode")) == "0600"
+
+
+def test_no_legacy_template_tasks_for_hermes_config_or_env(
+    hermes_configure_playbook_text,
+):
+    """Defense-in-depth against a partial revert: no `template:` task may
+    still reference the deleted `hermes-config.yaml.j2` or `hermes.env.j2`."""
+    forbidden = {"hermes-config.yaml.j2", "hermes.env.j2"}
+    for task in _tasks(hermes_configure_playbook_text):
+        tpl_block = task.get("ansible.builtin.template") or task.get("template")
+        if not isinstance(tpl_block, dict):
+            continue
+        src = str(tpl_block.get("src", ""))
+        for needle in forbidden:
+            assert needle not in src, (
+                f"task '{task.get('name')}' still references deleted "
+                f"legacy template {needle}"
+            )

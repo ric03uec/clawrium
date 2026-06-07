@@ -101,12 +101,15 @@
       no_log: true
       notify: Restart hermes service
 
-    # Render ~/.hermes/.env (provider API key + API_SERVER_* + low-priority
-    # provider/model env-var fallback). force: yes overwrites the populated
-    # template .env that hermes' upstream installer drops.
-    - name: Render ~/.hermes/.env from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/hermes.env.j2"
+    # Deploy ~/.hermes/.env (pre-rendered canonical content from
+    # clawrium.core.render.render_hermes — see #622). The canonical
+    # Python renderer owns the single source of truth for the file
+    # contents (including multi-provider auxiliary keys); Ansible just
+    # lays the bytes down. force: yes overwrites the populated template
+    # .env that hermes' upstream installer drops.
+    - name: Deploy ~/.hermes/.env (pre-rendered canonical content)
+      ansible.builtin.copy:
+        content: "{{ prerendered_hermes_env }}"
         dest: "/home/{{ agent_name }}/.hermes/.env"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -115,13 +118,13 @@
       no_log: true
       notify: Restart hermes service
 
-    # Render ~/.hermes/config.yaml (model.provider, model.default,
-    # model.base_url). Hermes deep-merges with DEFAULT_CONFIG so omitted
-    # top-level keys keep their hermes defaults. no_log because mcp_servers
-    # entries now contain the Atlassian API token verbatim.
-    - name: Render ~/.hermes/config.yaml from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/hermes-config.yaml.j2"
+    # Deploy ~/.hermes/config.yaml (pre-rendered canonical content from
+    # render_hermes — see #622). Hermes deep-merges with DEFAULT_CONFIG so
+    # omitted top-level keys keep their hermes defaults. no_log because
+    # mcp_servers entries contain the Atlassian API token verbatim.
+    - name: Deploy ~/.hermes/config.yaml (pre-rendered canonical content)
+      ansible.builtin.copy:
+        content: "{{ prerendered_hermes_config_yaml }}"
         dest: "/home/{{ agent_name }}/.hermes/config.yaml"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -308,7 +311,7 @@
     # --user`. Standalone binary from astral-sh/uv releases avoids pip
     # entirely, respects PEP 668, and keeps the toolchain pinned and
     # checksum-verified. Both `uv` and `uvx` are extracted; the MCP server
-    # invocation in hermes-config.yaml.j2 uses `uvx`.
+    # invocation in the canonical hermes config.yaml render uses `uvx`.
     - name: Fail early if host architecture is unsupported by the uv arch map
       ansible.builtin.fail:
         msg: >-
@@ -377,7 +380,7 @@
         - atlassian_integration_assigned | bool
 
     # No `--wildcards` filter — both `uv` and `uvx` need to land, since
-    # hermes-config.yaml.j2's mcp_servers entry invokes uvx.
+    # the canonical hermes config.yaml's mcp_servers entry invokes uvx.
     - name: Extract uv and uvx binaries to ~/.local/bin/
       ansible.builtin.unarchive:
         src: "/home/{{ agent_name }}/.hermes/tmp/uv-{{ uv_version }}.tar.gz"

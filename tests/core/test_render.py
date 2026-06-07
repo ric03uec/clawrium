@@ -3004,3 +3004,313 @@ def test_hermes_api_server_key_propagates_into_rendered_env(
 
     assert f"API_SERVER_KEY='{VALID_HEX_KEY}'" in env_body
     assert "API_SERVER_KEY=''" not in env_body
+
+
+# ---------------------------------------------------------------------------
+# Issue #621: hermes multi-provider attachment rendering
+# ---------------------------------------------------------------------------
+
+
+from clawrium.core.render import (  # noqa: E402
+    AttachedProviderInputs,
+    HermesProviderBundle,
+)
+
+
+def _hermes_multi_agent_record(providers):
+    return (
+        {"hostname": "host-1"},
+        "hermes",
+        {"agent_name": "wolf", "providers": providers, "config": {}},
+    )
+
+
+def _seed_provider(stores, *, name, ptype, default_model="", region=""):
+    stores.providers[name] = {
+        "name": name,
+        "type": ptype,
+        "default_model": default_model,
+        "region": region,
+    }
+
+
+def _seed_multi_provider_fixture(stores):
+    """[primary anthropic, compression openrouter, title_generation bedrock]."""
+    stores.agent = _hermes_multi_agent_record(
+        [
+            {"name": "anthropic-prod", "role": "primary", "model": ""},
+            {"name": "openrouter-aux", "role": "compression", "model": ""},
+            {
+                "name": "bedrock-mac",
+                "role": "title_generation",
+                "model": "zai.glm-4.7",
+            },
+        ]
+    )
+    _seed_provider(
+        stores,
+        name="anthropic-prod",
+        ptype="anthropic",
+        default_model="claude-sonnet-4-6",
+    )
+    _seed_provider(
+        stores,
+        name="openrouter-aux",
+        ptype="openrouter",
+        default_model="anthropic/claude-haiku-4.5",
+    )
+    _seed_provider(
+        stores,
+        name="bedrock-mac",
+        ptype="bedrock",
+        default_model="claude-haiku-default",
+        region="us-east-1",
+    )
+    stores.provider_api_keys["anthropic-prod"] = "sk-ant-PRIMARY"
+    stores.provider_api_keys["openrouter-aux"] = "sk-or-AUX"
+    stores.provider_aws["bedrock-mac"] = ("AKIA-AUX", "secret-AUX")
+
+
+def test_621_build_render_inputs_multi_provider_hermes_bundle(stores):
+    _seed_multi_provider_fixture(stores)
+    inputs = build_render_inputs("wolf")
+
+    assert inputs.hermes is not None
+    bundle = inputs.hermes
+    assert len(bundle.attachments) == 3
+    names = [a.name for a in bundle.attachments]
+    assert names == ["anthropic-prod", "openrouter-aux", "bedrock-mac"]
+    by_name = {a.name: a for a in bundle.attachments}
+    assert by_name["anthropic-prod"].role == "primary"
+    assert by_name["anthropic-prod"].model == "claude-sonnet-4-6"
+    assert by_name["openrouter-aux"].role == "compression"
+    assert by_name["openrouter-aux"].model == "anthropic/claude-haiku-4.5"
+    assert by_name["bedrock-mac"].role == "title_generation"
+    # Per-attachment model override wins over provider default.
+    assert by_name["bedrock-mac"].model == "zai.glm-4.7"
+
+    # Credentials deduped by type for bearer; per-name for bedrock.
+    api_keys = dict(bundle.api_keys)
+    assert api_keys == {
+        "anthropic": "sk-ant-PRIMARY",
+        "openrouter": "sk-or-AUX",
+    }
+    aws = dict(bundle.aws_credentials)
+    assert aws == {"bedrock-mac": ("AKIA-AUX", "secret-AUX", "us-east-1")}
+
+
+def test_621_render_hermes_multi_provider_yaml_emits_auxiliary_blocks(stores):
+    _seed_multi_provider_fixture(stores)
+    inputs = build_render_inputs("wolf")
+    out = render_hermes(inputs)
+    yaml = out.files[".hermes/config.yaml"]
+
+    # Primary block — anthropic
+    assert 'provider: "anthropic"' in yaml
+    assert "'claude-sonnet-4-6'" in yaml
+
+    # Auxiliary blocks — both aux roles present with attached provider type
+    assert "auxiliary:" in yaml
+    assert "compression:" in yaml
+    assert "title_generation:" in yaml
+    assert 'provider: "openrouter"' in yaml
+    assert 'provider: "bedrock"' in yaml
+    assert "'anthropic/claude-haiku-4.5'" in yaml
+    assert "'zai.glm-4.7'" in yaml
+
+    # Upstream per-primary-type default for title_generation MUST be
+    # suppressed once an explicit aux is attached for that role.
+    assert "claude-haiku-4-5-20251001" not in yaml
+
+
+def test_621_render_hermes_multi_provider_env_emits_aux_credentials(stores):
+    _seed_multi_provider_fixture(stores)
+    inputs = build_render_inputs("wolf")
+    out = render_hermes(inputs)
+    env = out.files[".hermes/.env"]
+
+    # Primary creds via existing single-provider path
+    assert "ANTHROPIC_API_KEY='sk-ant-PRIMARY'" in env
+    assert "HERMES_INFERENCE_PROVIDER='anthropic'" in env
+
+    # Auxiliary creds — openrouter bearer + bedrock AWS triple
+    assert "OPENROUTER_API_KEY='sk-or-AUX'" in env
+    assert "AWS_ACCESS_KEY_ID='AKIA-AUX'" in env
+    assert "AWS_SECRET_ACCESS_KEY='secret-AUX'" in env
+    assert "AWS_DEFAULT_REGION='us-east-1'" in env
+
+
+def test_621_same_type_collision_different_keys_raises(stores):
+    stores.agent = _hermes_multi_agent_record(
+        [
+            {"name": "anthropic-a", "role": "primary", "model": ""},
+            {"name": "anthropic-b", "role": "compression", "model": ""},
+        ]
+    )
+    _seed_provider(stores, name="anthropic-a", ptype="anthropic")
+    _seed_provider(stores, name="anthropic-b", ptype="anthropic")
+    stores.provider_api_keys["anthropic-a"] = "sk-ant-A"
+    stores.provider_api_keys["anthropic-b"] = "sk-ant-B"
+    with pytest.raises(
+        AgentConfigError, match="two providers of type 'anthropic'"
+    ):
+        build_render_inputs("wolf")
+
+
+def test_621_same_type_collision_same_keys_allowed(stores):
+    """Same-type / same-key is harmless: hermes still emits one env var."""
+    stores.agent = _hermes_multi_agent_record(
+        [
+            {"name": "anthropic-a", "role": "primary", "model": ""},
+            {"name": "anthropic-b", "role": "compression", "model": ""},
+        ]
+    )
+    _seed_provider(stores, name="anthropic-a", ptype="anthropic")
+    _seed_provider(stores, name="anthropic-b", ptype="anthropic")
+    stores.provider_api_keys["anthropic-a"] = "sk-ant-SHARED"
+    stores.provider_api_keys["anthropic-b"] = "sk-ant-SHARED"
+    inputs = build_render_inputs("wolf")
+    assert inputs.hermes is not None
+    assert dict(inputs.hermes.api_keys) == {"anthropic": "sk-ant-SHARED"}
+
+
+def test_621_two_bedrock_attachments_raises(stores):
+    stores.agent = _hermes_multi_agent_record(
+        [
+            {"name": "br-a", "role": "primary", "model": ""},
+            {"name": "br-b", "role": "compression", "model": ""},
+        ]
+    )
+    _seed_provider(stores, name="br-a", ptype="bedrock", region="us-east-1")
+    _seed_provider(stores, name="br-b", ptype="bedrock", region="us-west-2")
+    stores.provider_aws["br-a"] = ("AKIA-A", "secret-A")
+    stores.provider_aws["br-b"] = ("AKIA-B", "secret-B")
+    with pytest.raises(
+        AgentConfigError, match="two bedrock provider attachments"
+    ):
+        build_render_inputs("wolf")
+
+
+def test_621_single_provider_hermes_bundle_has_one_attachment(stores):
+    """Single-provider hermes still populates the bundle (one entry, role=primary)."""
+    stores.agent = _hermes_multi_agent_record(
+        [{"name": "or", "role": "primary", "model": ""}]
+    )
+    _seed_provider(
+        stores, name="or", ptype="openrouter", default_model="anthropic/claude-opus-4.7"
+    )
+    stores.provider_api_keys["or"] = "sk-or-1"
+    inputs = build_render_inputs("wolf")
+    assert inputs.hermes is not None
+    assert len(inputs.hermes.attachments) == 1
+    assert inputs.hermes.attachments[0].role == "primary"
+
+
+def test_621_single_provider_hermes_yaml_unchanged(stores):
+    """Single-provider hermes renders the legacy per-primary aux default."""
+    stores.agent = _hermes_multi_agent_record(
+        [{"name": "or", "role": "primary", "model": ""}]
+    )
+    _seed_provider(
+        stores,
+        name="or",
+        ptype="openrouter",
+        default_model="anthropic/claude-opus-4.7",
+    )
+    stores.provider_api_keys["or"] = "sk-or-1"
+    inputs = build_render_inputs("wolf")
+    out = render_hermes(inputs)
+    yaml = out.files[".hermes/config.yaml"]
+    # Upstream per-primary default for title_generation still present
+    # because no explicit aux attached.
+    assert 'model: "anthropic/claude-haiku-4.5"' in yaml
+
+
+def test_621_zeroclaw_build_render_inputs_has_no_hermes_bundle(stores):
+    """build_render_inputs only populates `hermes` for hermes agents."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "zeroclaw",
+        {"agent_name": "z", "providers": ["or"], "config": {}},
+    )
+    _seed_provider(
+        stores, name="or", ptype="openrouter", default_model="x/y"
+    )
+    stores.provider_api_keys["or"] = "sk-or-1"
+    inputs = build_render_inputs("z")
+    assert inputs.hermes is None
+
+
+def test_621_openclaw_build_render_inputs_has_no_hermes_bundle(stores):
+    stores.agent = (
+        {"hostname": "host-1"},
+        "openclaw",
+        {"agent_name": "o", "providers": ["or"], "config": {}},
+    )
+    _seed_provider(
+        stores, name="or", ptype="openrouter", default_model="x/y"
+    )
+    stores.provider_api_keys["or"] = "sk-or-1"
+    inputs = build_render_inputs("o")
+    assert inputs.hermes is None
+
+
+def test_621_zeroclaw_render_ignores_hermes_bundle():
+    """Passing a HermesProviderBundle to render_zeroclaw must not change output."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    with_bundle = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        gateway=base.gateway,
+        hermes=HermesProviderBundle(
+            attachments=(
+                AttachedProviderInputs(
+                    name="extra",
+                    type="anthropic",
+                    role="compression",
+                    model="x",
+                ),
+            ),
+            api_keys=(("anthropic", "sk-ant-x"),),
+        ),
+    )
+    out_base = render_zeroclaw(base)
+    out_with = render_zeroclaw(with_bundle)
+    assert out_base.files == out_with.files
+
+
+def test_621_openclaw_render_ignores_hermes_bundle():
+    base = _baseline_inputs(ptype="openrouter")
+    openclaw_base = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type="openclaw",
+        provider=base.provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tk", bind="lan"),
+    )
+    openclaw_with = RenderInputs(
+        agent_name=openclaw_base.agent_name,
+        agent_type=openclaw_base.agent_type,
+        provider=openclaw_base.provider,
+        channels=openclaw_base.channels,
+        integrations=openclaw_base.integrations,
+        gateway=openclaw_base.gateway,
+        hermes=HermesProviderBundle(
+            attachments=(
+                AttachedProviderInputs(
+                    name="extra",
+                    type="anthropic",
+                    role="compression",
+                    model="x",
+                ),
+            ),
+            api_keys=(("anthropic", "sk-ant-x"),),
+        ),
+    )
+    out_base = render_openclaw(openclaw_base)
+    out_with = render_openclaw(openclaw_with)
+    assert out_base.files == out_with.files

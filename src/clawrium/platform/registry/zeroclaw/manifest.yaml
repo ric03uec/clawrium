@@ -28,7 +28,8 @@ features:
   # (`40000 + hash % 2000`) and `configure.yaml` always persists it under
   # `gateway.port` — a manifest-wide default would silently collide on a
   # host running multiple zeroclaw instances.
-  # Mirrors hermes #478 for `clawctl agent open`.
+  # Surfaces this agent through `clawctl agent open` via the manifest's
+  # features.web_ui resolver in `src/clawrium/core/web_ui.py`.
   web_ui:
     enabled: true
     bind: wildcard
