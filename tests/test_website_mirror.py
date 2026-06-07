@@ -63,18 +63,37 @@ def test_zeroclaw_skills_apply_has_staging_dir_assert():
     assert "'/clawrium/staging/skills/' in staging_dir" in text
 
 
-def test_website_skills_intradoc_links_resolve():
-    """ATX #411 iter-3 New-B6: every relative .md link in a website
-    skills doc must resolve to a file that actually exists."""
+def _scan_intradoc_links(root: Path) -> list[str]:
+    """Walk every .md in `root`, return a list of broken relative-md
+    link descriptors (`filename -> target`).
+
+    Matches both `./foo.md` and bare `foo.md` (without `./`). Strips
+    `#fragment` qualifiers before resolving. (ATX #411 iter-4 W1/W2.)
+    """
     import re
 
-    skills_dir = REPO / "website" / "docs" / "skills"
-    link_re = re.compile(r"\]\((\./[^)\s]+\.md)\)")
+    # Capture group 1 is the file path; group 2 (optional) is the
+    # fragment that we discard.
+    link_re = re.compile(r"\]\(((?:\./)?[^)\s#]+\.md)(?:#[^)]*)?\)")
     failures: list[str] = []
-    for md in skills_dir.glob("*.md"):
+    for md in root.rglob("*.md"):
         text = md.read_text()
         for match in link_re.finditer(text):
             target = (md.parent / match.group(1)).resolve()
             if not target.is_file():
-                failures.append(f"{md.name} -> {match.group(1)}")
+                failures.append(f"{md.relative_to(REPO)} -> {match.group(1)}")
+    return failures
+
+
+def test_website_skills_intradoc_links_resolve():
+    """ATX #411 iter-3 New-B6: every relative .md link in a website
+    skills doc must resolve to a file that actually exists."""
+    failures = _scan_intradoc_links(REPO / "website" / "docs" / "skills")
+    assert not failures, "Broken intra-doc links: " + ", ".join(failures)
+
+
+def test_canonical_skills_intradoc_links_resolve():
+    """ATX #411 iter-4 W3: equivalent scan for the canonical docs tree
+    so a broken link in `docs/skills/` is also caught at `make test`."""
+    failures = _scan_intradoc_links(REPO / "docs" / "skills")
     assert not failures, "Broken intra-doc links: " + ", ".join(failures)

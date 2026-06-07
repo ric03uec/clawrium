@@ -5,6 +5,12 @@ keywords: [skills, authoring, schema, validator, ci, clawrium, openclaw, hermes,
 ---
 # Authoring a vetted skill
 
+<!--
+  Repo-rooted docs live in docs/skills/. The user-facing site mirror
+  lives at website/docs/skills/ and is kept semantically in sync.
+  Update both when changing catalog rules.
+-->
+
 A **vetted** skill ships in the clawrium repo at
 `skills/vetted/<name>/SKILL.md` and gets bundled into the wheel. Every
 agent in the fleet can attach it.
