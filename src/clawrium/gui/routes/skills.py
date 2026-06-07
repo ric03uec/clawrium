@@ -8,7 +8,7 @@ mutates agent state. Per-agent install/remove lives under
 
 Status mapping for ``SkillError`` subclasses:
 
-- ``MissingRegistryPrefix``, ``ExternalSourceBlocked``, ``InvalidSkillRef``
+- ``MissingSourcePrefix``, ``ExternalSourceBlocked``, ``InvalidSkillRef``
   → 422 (request shape is malformed; the user can fix it by retyping)
 - ``SkillNotFound`` → 404 (well-formed ref, no such skill in the catalog)
 - ``SchemaValidationError`` → 422 (catalog file present but invalid; the
@@ -23,11 +23,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Path as FastAPIPath
 
 from clawrium.core.skills import (
-    NATIVE_REGISTRIES,
-    REGISTRIES,
+    SOURCES,
+    SUPPORTED_CLAWS_BY_DEFAULT,
     ExternalSourceBlocked,
     InvalidSkillRef,
-    MissingRegistryPrefix,
+    MissingSourcePrefix,
     SchemaValidationError,
     SkillError,
     SkillNotFound,
@@ -79,7 +79,7 @@ def _summarize(ref: SkillRef) -> dict[str, Any]:
     """
     summary: dict[str, Any] = {
         "ref": str(ref),
-        "registry": ref.registry,
+        "source": ref.source,
         "name": ref.name,
         "description": None,
         "version": None,
@@ -166,13 +166,9 @@ def _compatibility_map(ref: SkillRef, metadata: dict[str, Any]) -> dict[str, boo
     (e.g. ``nemoclaw``) added to ``core.skills`` automatically appears
     in the compatibility map. ``sorted()`` for stable JSON ordering.
     """
-    claws = sorted(NATIVE_REGISTRIES)
-    if ref.registry == "clawrium":
-        raw = metadata.get("compatibility") or {}
-        if not isinstance(raw, dict):
-            raw = {}
-        return {claw: bool(raw.get(claw, False)) for claw in claws}
-    return {claw: (claw == ref.registry) for claw in claws}
+    # Per-claw support is now global (hardcoded SUPPORTED_CLAWS_BY_DEFAULT),
+    # not per-skill. Return the global support table for every skill.
+    return dict(SUPPORTED_CLAWS_BY_DEFAULT)
 
 
 def _map_error(error: SkillError, ref_str: str) -> HTTPException:
@@ -202,7 +198,7 @@ def _map_error(error: SkillError, ref_str: str) -> HTTPException:
         )
     if isinstance(
         error,
-        (MissingRegistryPrefix, ExternalSourceBlocked, InvalidSkillRef),
+        (MissingSourcePrefix, ExternalSourceBlocked, InvalidSkillRef),
     ):
         # User-supplied ref strings only — no filesystem paths leak here.
         return HTTPException(status_code=422, detail=str(error))
@@ -245,7 +241,7 @@ async def list_skills_route() -> dict[str, Any]:
 
     def _build() -> dict[str, Any]:
         grouped: dict[str, list[dict[str, Any]]] = {
-            registry: [] for registry in REGISTRIES
+            source: [] for source in SOURCES
         }
         try:
             refs = list_skills()
@@ -261,36 +257,27 @@ async def list_skills_route() -> dict[str, Any]:
             # instead of silently showing four empty tabs.
             logger.warning("skills catalog unavailable: %s", error)
             return {
-                "registries": list(REGISTRIES),
+                "sources": list(SOURCES),
                 "skills": grouped,
                 "error": "catalog unavailable",
             }
         for ref in refs:
-            if ref.registry not in grouped:
-                # Defensive: a future registry added to REGISTRIES but
-                # not present in the static grouped-dict would KeyError
-                # here without this guard. Cheap and silent on the
-                # happy path.
-                logger.warning("skipping ref %s: registry not in grouped", ref)
+            if ref.source not in grouped:
+                logger.warning("skipping ref %s: source not in grouped", ref)
                 continue
-            grouped[ref.registry].append(_summarize(ref))
-        return {"registries": list(REGISTRIES), "skills": grouped}
+            grouped[ref.source].append(_summarize(ref))
+        return {"sources": list(SOURCES), "skills": grouped}
 
     return await asyncio.to_thread(_build)
 
 
-@router.get("/{registry}/{name}")
+@router.get("/{source}/{name}")
 async def get_skill_route(
-    registry: str = FastAPIPath(..., max_length=64),
+    source: str = FastAPIPath(..., max_length=64),
     name: str = FastAPIPath(..., max_length=128),
 ) -> dict[str, Any]:
-    """Detail view for a single ``<registry>/<name>`` skill.
-
-    Path-param length caps are a framework-layer guard against absurdly
-    long inputs that would otherwise reach `parse_skill_ref` and bloat
-    error messages. Real refs are way under these caps.
-    """
-    raw_ref = f"{registry}/{name}"
+    """Detail view for a single ``<source>/<name>`` skill."""
+    raw_ref = f"{source}/{name}"
 
     def _resolve() -> dict[str, Any]:
         try:

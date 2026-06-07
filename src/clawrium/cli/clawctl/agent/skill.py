@@ -1,19 +1,9 @@
-"""`clawctl agent skill attach|detach|get` — Pattern A per-agent.
+"""`clawctl agent skill attach|detach|get` — per-agent skill management (#411).
 
-Skills are stored differently from providers/channels/integrations:
-the desired-state lives in
-`~/.config/clawrium/agents/<agent>/skills.json` (see
-`clawrium.core.skills_state`), and an Ansible playbook reconciles
-on-host content via `clawrium.core.skills_apply.apply_state`.
-
-This module wraps that machinery with the Pattern A vocabulary:
-
-- `attach <ref> --agent N` ≡ legacy `clm agent skill install`
-- `detach <ref> --agent N` ≡ legacy `clm agent skill remove`
-- `get --agent N` ≡ legacy `clm agent skill list`
-
-The preflight → mutate → apply pattern from `cli/agent_skill.py` is
-preserved verbatim so behaviour is unchanged.
+References use the unified ``<source>/<name>`` grammar
+(``source ∈ {vetted, local}``). Attachment is gated on
+``SUPPORTED_CLAWS_BY_DEFAULT`` — agents whose claw type is off in that
+table reject ``attach`` with ``ClawNotSupported``.
 """
 
 from __future__ import annotations
@@ -32,14 +22,14 @@ from clawrium.cli.output import (
     render_table,
 )
 from clawrium.core.skills import (
+    ClawNotSupported,
     ExternalSourceBlocked,
-    IncompatibleSkillRegistry,
     InvalidSkillRef,
-    MissingRegistryPrefix,
+    MissingSourcePrefix,
     SchemaValidationError,
     SkillError,
     SkillNotFound,
-    check_agent_compatibility,
+    check_claw_supported,
     load_skill,
     parse_skill_ref,
     validate_skill,
@@ -68,10 +58,10 @@ skill_app = typer.Typer(
 
 _USER_FACING_ERRORS: tuple[type[SkillError], ...] = (
     AgentNotFoundError,
+    ClawNotSupported,
     ExternalSourceBlocked,
-    IncompatibleSkillRegistry,
     InvalidSkillRef,
-    MissingRegistryPrefix,
+    MissingSourcePrefix,
     SchemaValidationError,
     SkillApplyError,
     SkillApplyNotSupported,
@@ -86,19 +76,17 @@ def _exit_with_error(error: SkillError) -> None:
 @skill_app.command("attach")
 def attach(
     skill_ref: str = typer.Argument(
-        ..., metavar="REGISTRY/NAME", help="Skill ref (e.g. `clawrium/tdd`)."
+        ..., metavar="SOURCE/NAME", help="Skill ref (e.g. `vetted/tdd`)."
     ),
     agent: str = typer.Option(..., "--agent", help="Agent instance name."),
 ) -> None:
     """Attach a skill to an agent (installs on host via Ansible)."""
-    # Resolve agent up front so a non-existent agent fails before
-    # `add_skill` mutates the desired-state file.
     _host, agent_type, _claw = safe_resolve_agent(agent)
     try:
+        check_claw_supported(agent_type)
         ref = parse_skill_ref(skill_ref)
         skill = load_skill(ref)
         validate_skill(skill)
-        check_agent_compatibility(skill, agent_type)
     except _USER_FACING_ERRORS as exc:
         _exit_with_error(exc)
         return
@@ -132,7 +120,7 @@ def attach(
 
 @skill_app.command("detach")
 def detach(
-    skill_ref: str = typer.Argument(..., metavar="REGISTRY/NAME", help="Skill ref."),
+    skill_ref: str = typer.Argument(..., metavar="SOURCE/NAME", help="Skill ref."),
     agent: str = typer.Option(..., "--agent", help="Agent instance name."),
 ) -> None:
     """Detach a skill from an agent (uninstalls on host via Ansible)."""
@@ -173,7 +161,7 @@ def get(
     no_headers: bool = typer.Option(False, "--no-headers", help="Skip header row."),
 ) -> None:
     """List skills currently attached to an agent (desired state)."""
-    safe_resolve_agent(agent)  # validates agent exists
+    safe_resolve_agent(agent)
     try:
         refs = read_state(agent)
     except _USER_FACING_ERRORS as exc:
@@ -184,14 +172,14 @@ def get(
     for ref_str in refs:
         try:
             ref = parse_skill_ref(ref_str)
-            registry = ref.registry
+            source = ref.source
         except _USER_FACING_ERRORS:
-            registry = ""
+            source = ""
         rows.append(
             {
                 "kind": "skill",
                 "name": ref_str,
-                "registry": registry,
+                "source": source,
                 "agent": agent,
             }
         )
@@ -206,6 +194,6 @@ def get(
         typer.echo(dump_name(rows), nl=False)
         return
 
-    headers = ["NAME", "REGISTRY", "AGENT"]
-    body = [[str(r["name"]), str(r["registry"] or "-"), str(r["agent"])] for r in rows]
+    headers = ["NAME", "SOURCE", "AGENT"]
+    body = [[str(r["name"]), str(r["source"] or "-"), str(r["agent"])] for r in rows]
     typer.echo(render_table(headers, body, no_headers=no_headers), nl=False)

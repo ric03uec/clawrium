@@ -36,16 +36,15 @@ from clawrium.core.secrets import (
     set_instance_secret,
 )
 from clawrium.core.skills import (
-    NATIVE_REGISTRIES,
-    REGISTRIES,
+    SOURCES,
+    ClawNotSupported,
     ExternalSourceBlocked,
-    IncompatibleSkillRegistry,
     InvalidSkillRef,
-    MissingRegistryPrefix,
+    MissingSourcePrefix,
     SchemaValidationError,
     SkillError,
     SkillNotFound,
-    check_agent_compatibility,
+    check_claw_supported,
     list_skills,
     load_skill,
     parse_skill_ref,
@@ -280,10 +279,10 @@ def _skill_error_status(error: SkillError) -> int:
     if isinstance(
         error,
         (
-            MissingRegistryPrefix,
+            MissingSourcePrefix,
             ExternalSourceBlocked,
             InvalidSkillRef,
-            IncompatibleSkillRegistry,
+            ClawNotSupported,
             SchemaValidationError,
         ),
     ):
@@ -345,13 +344,11 @@ def _is_compatible_for_agent_type(reg: str, name: str, agent_type: str) -> bool:
     Loader failures swallow to false so a single bad catalog row
     cannot widen the install picker on the user's screen.
     """
-    if reg not in REGISTRIES:
-        return False
-    if reg in NATIVE_REGISTRIES and reg != agent_type:
+    if reg not in SOURCES:
         return False
     try:
-        skill = load_skill(parse_skill_ref(f"{reg}/{name}"))
-        check_agent_compatibility(skill, agent_type)
+        check_claw_supported(agent_type)
+        load_skill(parse_skill_ref(f"{reg}/{name}"))
     except SkillError:
         return False
     return True

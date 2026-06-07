@@ -1,13 +1,9 @@
-"""`clawctl skill registry` — browse the in-repo skills catalog (legacy backend).
+"""`clm skill` — legacy entrypoint (read-only catalog browse).
 
-Phase 1 surface: `get` (optionally filtered by `--registry`) and `describe`
-(prints metadata + SKILL.md body). Per-agent install/remove lives under
-`clawctl agent skill` and is wired up in Phase 2.
-
-All errors raised by `clawrium.core.skills` are caught here and rendered
-as a single-line `[red]Error:[/red] …` message with a non-zero exit code,
-matching the existing `clawctl agent registry`/`clawctl agent` UX. The catch list is
-explicit — we never swallow `Exception`.
+The active CLI is ``clawctl skill`` (``clawrium.cli.clawctl.skill``).
+This module is preserved so ``clawrium.cli.main:app`` still imports
+cleanly for the test suite. It now wraps the unified vetted+local
+catalog with the new ref grammar.
 """
 
 from __future__ import annotations
@@ -22,14 +18,15 @@ from rich.panel import Panel
 from rich.table import Table
 
 from clawrium.core.skills import (
-    REGISTRIES,
+    SOURCES,
     ExternalSourceBlocked,
     InvalidSkillRef,
-    MissingRegistryPrefix,
+    MissingSourcePrefix,
     SchemaValidationError,
     SkillError,
     SkillNotFound,
     SkillRef,
+    claws_support_map,
     list_skills,
     load_skill,
     parse_skill_ref,
@@ -52,52 +49,48 @@ skill_app = typer.Typer(
 
 
 def _exit_with_error(error: SkillError) -> None:
-    """Render a skill error to stderr and exit non-zero."""
     err_console.print(f"[red]Error:[/red] {escape(str(error))}")
     raise typer.Exit(code=1)
 
 
 @skill_app.command(name="list")
 def list_skills_command(
-    registry: str | None = typer.Option(
+    source: str | None = typer.Option(
         None,
-        "--registry",
-        "-r",
-        help=(f"Filter to a single registry. Valid values: {', '.join(REGISTRIES)}."),
+        "--source",
+        "-s",
+        help=f"Filter to a single source. Valid values: {', '.join(SOURCES)}.",
     ),
 ) -> None:
-    """List skills in the catalog as a registry/name table."""
+    """List skills in the catalog as a source/name table."""
     try:
-        refs = list_skills(registry=registry)
+        refs = list_skills(source=source)
     except (InvalidSkillRef, SkillNotFound) as error:
-        # SkillNotFound is raised by `_catalog_root` when neither the
-        # bundled nor the dev catalog can be located — surface that as
-        # an actionable CLI error rather than a raw traceback.
         _exit_with_error(error)
-        return  # for type-checkers — typer.Exit raises
-
-    if not refs:
-        if registry:
-            console.print(
-                f"No skills registered under `{escape(registry)}/`. "
-                "Add one under "
-                f"[cyan]skills/{escape(registry)}/<name>/[/cyan]."
-            )
-        else:
-            console.print(
-                "No skills in the catalog. "
-                "Add one under [cyan]skills/<registry>/<name>/[/cyan]."
-            )
         return
 
+    if not refs:
+        console.print(
+            "No skills in the catalog. "
+            "Add one with [cyan]clawctl skill add local/<name>[/cyan]."
+        )
+        return
+
+    supported = ", ".join(c for c, ok in claws_support_map().items() if ok) or "(none)"
     table = Table(title="Skills catalog")
     table.add_column("Ref", style="cyan", no_wrap=True)
-    table.add_column("Registry", style="green")
+    table.add_column("Source", style="green")
+    table.add_column("Supported on", style="magenta")
     table.add_column("Description")
 
     for ref in refs:
         description = _short_description(ref)
-        table.add_row(escape(str(ref)), escape(ref.registry), description)
+        table.add_row(
+            escape(str(ref)),
+            escape(ref.source),
+            escape(supported),
+            description,
+        )
 
     console.print(table)
 
@@ -106,8 +99,8 @@ def list_skills_command(
 def show(
     skill_ref: str = typer.Argument(
         ...,
-        metavar="REGISTRY/NAME",
-        help="Skill reference (e.g. `clawrium/tdd`). Bare names are rejected.",
+        metavar="SOURCE/NAME",
+        help="Skill reference (e.g. `vetted/tdd`).",
     ),
 ) -> None:
     """Show metadata + SKILL.md body for one skill."""
@@ -116,7 +109,7 @@ def show(
         skill = load_skill(ref)
         validate_skill(skill)
     except (
-        MissingRegistryPrefix,
+        MissingSourcePrefix,
         InvalidSkillRef,
         ExternalSourceBlocked,
         SkillNotFound,
@@ -131,30 +124,17 @@ def show(
         console.print(escape(description.strip()))
     console.print()
 
+    supported = ", ".join(c for c, ok in claws_support_map().items() if ok) or "(none)"
     metadata_table = Table(title="Metadata", show_header=False, expand=False)
     metadata_table.add_column("Field", style="yellow", no_wrap=True)
     metadata_table.add_column("Value")
-    metadata_table.add_row("registry", escape(skill.ref.registry))
+    metadata_table.add_row("source", escape(skill.ref.source))
     metadata_table.add_row("name", escape(skill.ref.name))
+    metadata_table.add_row("supported_on", escape(supported))
     for key in ("version", "license", "author"):
         value = skill.metadata.get(key)
         if value is not None:
             metadata_table.add_row(key, escape(str(value)))
-
-    platforms = skill.metadata.get("platforms")
-    if isinstance(platforms, list) and platforms:
-        metadata_table.add_row(
-            "platforms", escape(", ".join(str(p) for p in platforms))
-        )
-
-    compatibility = skill.metadata.get("compatibility")
-    if isinstance(compatibility, dict):
-        compat = ", ".join(
-            f"{claw}={'yes' if flag else 'no'}" for claw, flag in compatibility.items()
-        )
-        metadata_table.add_row("compatibility", escape(compat))
-    elif skill.ref.registry in {"openclaw", "hermes", "zeroclaw"}:
-        metadata_table.add_row("compatibility", skill.ref.registry)
 
     console.print(metadata_table)
 
@@ -163,15 +143,6 @@ def show(
 
 
 def _short_description(ref: SkillRef) -> str:
-    """Best-effort one-line description for the `list` table.
-
-    Failures (parse errors, schema mismatches) are degraded to a static
-    `?` so a single bad skill doesn't blow up the whole `list`. The
-    detailed error is surfaced by `clm skill show <ref>`. An empty or
-    missing description also renders as `?` — `?` and blank are
-    visually identical otherwise, and `?` signals "look at me with
-    show" more clearly.
-    """
     try:
         skill = load_skill(ref)
     except SkillError as error:
