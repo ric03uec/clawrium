@@ -111,7 +111,7 @@ skills/                                 # repo root (vetted source)
 
 ## Authoring
 
-- **Vetted skills** — see [Authoring vetted skills](./authoring-clawrium.md).
+- **Vetted skills** — see [Authoring vetted skills](./authoring.md).
 - **Local skills** — author with `clawctl skill add local/<name>` or
   the GUI **+ Create Skill** modal. No PR needed.
 - The native per-claw authoring guide (`authoring-native.md`) is

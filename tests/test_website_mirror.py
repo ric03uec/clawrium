@@ -29,7 +29,7 @@ def _strip_frontmatter(text: str) -> str:
     "canonical,mirror",
     [
         ("docs/skills/index.md", "website/docs/skills/intro.md"),
-        ("docs/skills/authoring-clawrium.md", "website/docs/skills/authoring.md"),
+        ("docs/skills/authoring.md", "website/docs/skills/authoring.md"),
     ],
 )
 def test_website_mirrors_canonical_body(canonical: str, mirror: str):
@@ -61,3 +61,20 @@ def test_zeroclaw_skills_apply_has_staging_dir_assert():
     text = path.read_text()
     assert "Assert staging_dir is a non-empty absolute path" in text
     assert "'/clawrium/staging/skills/' in staging_dir" in text
+
+
+def test_website_skills_intradoc_links_resolve():
+    """ATX #411 iter-3 New-B6: every relative .md link in a website
+    skills doc must resolve to a file that actually exists."""
+    import re
+
+    skills_dir = REPO / "website" / "docs" / "skills"
+    link_re = re.compile(r"\]\((\./[^)\s]+\.md)\)")
+    failures: list[str] = []
+    for md in skills_dir.glob("*.md"):
+        text = md.read_text()
+        for match in link_re.finditer(text):
+            target = (md.parent / match.group(1)).resolve()
+            if not target.is_file():
+                failures.append(f"{md.name} -> {match.group(1)}")
+    assert not failures, "Broken intra-doc links: " + ", ".join(failures)
