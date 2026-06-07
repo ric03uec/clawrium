@@ -27,6 +27,7 @@ from clawrium.core.skills import (
     NATIVE_REGISTRIES,
     REGISTRIES,
     SchemaValidationError,
+    Skill,
     SkillNotFound,
     SkillRef,
     list_agent_skills,
@@ -35,6 +36,7 @@ from clawrium.core.skills import (
     load_skill,
     materialize_skill_for_agent,
     parse_skill_ref,
+    render_skill_md,
     validate_skill,
 )
 from clawrium.core.skills_state import agent_skills_dir
@@ -504,6 +506,38 @@ def test_materialize_skill_for_agent_rejects_explicit_false_compatibility(
     skill = load_skill("clawrium/tdd")
     with pytest.raises(IncompatibleSkillRegistry, match="not compatible"):
         materialize_skill_for_agent(skill, agent_type)
+
+
+def test_render_skill_md_round_trips_frontmatter_and_body():
+    skill = Skill(
+        ref=SkillRef("hermes", "custom"),
+        path=Path("__materialized__"),
+        metadata={"name": "custom", "description": "Tést skill"},
+        body="\n# Custom\n\nBody\n",
+        skill_md_frontmatter={"name": "custom", "description": "Tést skill"},
+    )
+
+    rendered = render_skill_md(skill)
+    body, frontmatter = skills._split_frontmatter(rendered)
+
+    assert rendered.endswith("\n")
+    assert "Tést skill" in rendered
+    assert frontmatter == {"name": "custom", "description": "Tést skill"}
+    assert body == "\n# Custom\n\nBody\n"
+
+
+def test_render_skill_md_handles_empty_body():
+    skill = Skill(
+        ref=SkillRef("hermes", "empty"),
+        path=Path("__materialized__"),
+        metadata={"name": "empty", "description": "Empty"},
+        body="",
+        skill_md_frontmatter={"name": "empty", "description": "Empty"},
+    )
+
+    rendered = render_skill_md(skill)
+
+    assert rendered == "---\nname: empty\ndescription: Empty\n---\n"
 
 
 def test_validate_skill_enforces_slug_invariant(monkeypatch, tmp_path):

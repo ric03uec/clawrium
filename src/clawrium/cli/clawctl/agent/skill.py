@@ -31,7 +31,6 @@ from clawrium.core.skills import (
     IncompatibleSkillRegistry,
     InvalidSkillRef,
     MissingRegistryPrefix,
-    SOURCE_REF_FIELD,
     SchemaValidationError,
     Skill,
     SkillError,
@@ -46,6 +45,7 @@ from clawrium.core.skills import (
     parse_skill_ref,
     render_skill_md,
     validate_skill,
+    with_source_ref,
 )
 from clawrium.core.skills_state import (
     add_skill,
@@ -132,22 +132,6 @@ def _with_name(skill: Skill, name: str) -> Skill:
     return renamed
 
 
-def _with_source_ref(skill: Skill, source_ref: str) -> Skill:
-    frontmatter = dict(skill.skill_md_frontmatter)
-    metadata = dict(skill.metadata)
-    frontmatter[SOURCE_REF_FIELD] = source_ref
-    metadata[SOURCE_REF_FIELD] = source_ref
-    sourced = Skill(
-        ref=skill.ref,
-        path=skill.path,
-        metadata=metadata,
-        body=skill.body,
-        skill_md_frontmatter=frontmatter,
-    )
-    validate_skill(sourced)
-    return sourced
-
-
 def _name_from_skill(skill: Skill, explicit_name: Optional[str]) -> str:
     if explicit_name is not None:
         return _validate_local_name(explicit_name)
@@ -201,7 +185,7 @@ def _resolve_add_input(
         source_ref = parse_skill_ref(from_template)
         source = load_skill(source_ref)
         skill = materialize_skill_for_agent(source, agent_type)
-        skill = _with_source_ref(skill, str(source_ref))
+        skill = with_source_ref(skill, str(source_ref))
     elif path is not None:
         skill = _materialize_path_for_agent(path, agent_type)
     else:

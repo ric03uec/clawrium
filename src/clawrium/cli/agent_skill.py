@@ -42,17 +42,15 @@ from clawrium.core.skills import (
     InvalidSkillRef,
     MissingRegistryPrefix,
     SchemaValidationError,
-    SOURCE_REF_FIELD,
-    Skill,
     SkillError,
     SkillNotFound,
-    SkillRef,
     check_agent_compatibility,
     load_skill,
     materialize_skill_for_agent,
     parse_skill_ref,
     render_skill_md,
     validate_skill,
+    with_source_ref,
 )
 from clawrium.core.skills_apply import (
     AgentNotFoundError,
@@ -131,23 +129,7 @@ def _resolve_agent_type(agent_name: str) -> str:
     return agent_type
 
 
-def _with_source_ref(skill: Skill, source_ref: str) -> Skill:
-    frontmatter = dict(skill.skill_md_frontmatter)
-    metadata = dict(skill.metadata)
-    frontmatter[SOURCE_REF_FIELD] = source_ref
-    metadata[SOURCE_REF_FIELD] = source_ref
-    sourced = Skill(
-        ref=SkillRef(skill.ref.registry, skill.ref.name),
-        path=skill.path,
-        metadata=metadata,
-        body=skill.body,
-        skill_md_frontmatter=frontmatter,
-    )
-    validate_skill(sourced)
-    return sourced
-
-
-def _write_local_skill(agent_name: str, skill_name: str, skill: Skill) -> tuple[bool, object]:
+def _write_local_skill(agent_name: str, skill_name: str, skill) -> tuple[bool, object]:
     target = agent_skills_dir(agent_name) / skill_name
     existed = target.exists()
     target.mkdir(parents=True, exist_ok=True)
@@ -234,7 +216,7 @@ def install(
         validate_skill(skill)
         check_agent_compatibility(skill, agent_type)
         local_skill = materialize_skill_for_agent(skill, agent_type)
-        local_skill = _with_source_ref(local_skill, str(ref))
+        local_skill = with_source_ref(local_skill, str(ref))
     except _USER_FACING_ERRORS as error:
         _exit_with_error(error)
         return

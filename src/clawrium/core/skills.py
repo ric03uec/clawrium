@@ -645,6 +645,23 @@ def render_skill_md(skill: Skill) -> str:
     return f"---\n{frontmatter}\n---\n"
 
 
+def with_source_ref(skill: Skill, source_ref: str) -> Skill:
+    """Return ``skill`` with informational catalog-source metadata attached."""
+    frontmatter = dict(skill.skill_md_frontmatter)
+    metadata = dict(skill.metadata)
+    frontmatter[SOURCE_REF_FIELD] = source_ref
+    metadata[SOURCE_REF_FIELD] = source_ref
+    sourced = Skill(
+        ref=SkillRef(skill.ref.registry, skill.ref.name),
+        path=skill.path,
+        metadata=metadata,
+        body=skill.body,
+        skill_md_frontmatter=frontmatter,
+    )
+    validate_skill(sourced)
+    return sourced
+
+
 def _split_frontmatter(text: str) -> tuple[str, dict[str, Any]]:
     """Split a SKILL.md into (body, frontmatter dict).
 
@@ -775,6 +792,7 @@ __all__ = [
     "materialize_skill_for_agent",
     "render_skill_md",
     "SOURCE_REF_FIELD",
+    "with_source_ref",
 ]
 # Note: `scripts/validate_skills.py` imports a handful of underscored
 # helpers from this module by explicit name (`_NAME_RE`, `_load_schema`,

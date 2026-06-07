@@ -352,9 +352,25 @@ def test_install_502_on_apply_error(monkeypatch):
     assert "/home/op/.config/clawrium/logs" not in str(exc.value.detail)
     assert "/tmp/nope" not in str(exc.value.detail)
     assert "Check server logs" in str(exc.value.detail)
-    # State should still reflect the user's intent — apply failures
-    # don't roll back desired state; the user will retry.
-    assert read_state("tdd-hermes") == ["tdd"]
+    assert read_state("tdd-hermes") == []
+    assert not (agent_skills_dir("tdd-hermes") / "tdd").exists()
+
+
+def test_install_500_on_local_write_error_rolls_back_state(monkeypatch):
+    _stub_resolved(monkeypatch)
+    monkeypatch.setattr(
+        agents_route,
+        "_write_agent_local_skill",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
+    monkeypatch.setattr(agents_route, "apply_state", _raises_if_called("apply_state"))
+
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.install_agent_skill("tdd-hermes", "clawrium", "tdd"))
+
+    assert exc.value.status_code == 500
+    assert read_state("tdd-hermes") == []
+    assert not (agent_skills_dir("tdd-hermes") / "tdd").exists()
 
 
 # ---------- DELETE /api/agents/{agent}/skills/{registry}/{skill} -------------
@@ -403,18 +419,14 @@ def test_remove_422_on_malformed_ref(monkeypatch):
 # ---------- Documented behavior on apply failure ------------------------------
 
 
-def test_state_is_not_rolled_back_on_apply_failure(monkeypatch):
-    """ATX-1 W3 documents the design choice (carried over from the CLI):
-    on apply failure the desired-state mutation is *kept*, so the user
-    can retry the apply without re-typing the ref. This test pins the
-    behavior so any future change to "validate-before-write" is
-    deliberate, not accidental.
-    """
+def test_install_state_is_rolled_back_on_apply_failure(monkeypatch):
+    """Compatibility POST applies inline, so apply failure restores local state."""
     _stub_resolved(monkeypatch)
     _stub_apply(monkeypatch, raises=SkillApplyError("host unreachable"))
     with pytest.raises(HTTPException):
         _run(agents_route.install_agent_skill("tdd-hermes", "clawrium", "tdd"))
-    assert read_state("tdd-hermes") == ["tdd"]
+    assert read_state("tdd-hermes") == []
+    assert not (agent_skills_dir("tdd-hermes") / "tdd").exists()
 
 
 # ---------- _is_compatible_for_agent_type unit tests --------------------------

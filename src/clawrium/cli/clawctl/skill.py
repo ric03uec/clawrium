@@ -147,14 +147,19 @@ def _write_overlay_skill(registry: str, name: str, skill: Skill) -> None:
             f"Skill {registry}/{name} already exists in the user overlay. "
             "Remove or rename it before adding a replacement."
         )
-    target_dir.mkdir(parents=True, exist_ok=False)
     try:
+        target_dir.mkdir(parents=True, exist_ok=False)
         (target_dir / "SKILL.md").write_text(render_skill_md(skill), encoding="utf-8")
         if registry == "clawrium":
             (target_dir / "_meta.yaml").write_text(
                 yaml.safe_dump(dict(skill.metadata), sort_keys=False, allow_unicode=True),
                 encoding="utf-8",
             )
+    except FileExistsError as error:
+        raise InvalidSkillRef(
+            f"Skill {registry}/{name} already exists in the user overlay. "
+            "Remove or rename it before adding a replacement."
+        ) from error
     except Exception:
         shutil.rmtree(target_dir, ignore_errors=True)
         raise

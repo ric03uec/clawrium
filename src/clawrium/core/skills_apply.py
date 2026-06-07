@@ -257,7 +257,12 @@ def _stage_skills(agent_name: str, agent_type: str, skills: list[Skill]) -> Path
             skill_dir.mkdir(parents=True, exist_ok=True)
             skill_dir.chmod(0o700)
             skill_md_path = skill_dir / "SKILL.md"
-            skill_md_path.write_bytes((skill.path / "SKILL.md").read_bytes())
+            try:
+                skill_md_path.write_bytes((skill.path / "SKILL.md").read_bytes())
+            except OSError as error:
+                raise SkillApplyError(
+                    f"Failed to stage local skill {skill.ref.name!r}: {error}"
+                ) from error
             os.chmod(skill_md_path, 0o600)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)

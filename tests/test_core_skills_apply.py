@@ -550,7 +550,7 @@ def test_stage_skills_cleans_tempdir_on_partial_failure(monkeypatch, tmp_path):
 
     monkeypatch.setattr(Path, "read_bytes", boom)
 
-    with pytest.raises(OSError, match="disk-full"):
+    with pytest.raises(SkillApplyError, match="disk-full"):
         apply_state("tdd-hermes")
 
     staging_base = tmp_path / "clawrium" / "staging" / "skills"

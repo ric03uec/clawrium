@@ -56,6 +56,7 @@ from clawrium.core.skills import (
     materialize_skill_for_agent,
     parse_skill_ref,
     render_skill_md,
+    with_source_ref,
 )
 from clawrium.core.skills_apply import (
     AgentNotFoundError,
@@ -406,21 +407,6 @@ def _list_available_for_agent_type(agent_type: str) -> list[dict[str, object]]:
     return available
 
 
-def _skill_with_source_ref(skill: Skill, source_ref: str) -> Skill:
-    frontmatter = dict(skill.skill_md_frontmatter)
-    metadata = dict(skill.metadata)
-    frontmatter[SOURCE_REF_FIELD] = source_ref
-    metadata[SOURCE_REF_FIELD] = source_ref
-    sourced = Skill(
-        ref=SkillRef(skill.ref.registry, skill.ref.name),
-        path=skill.path,
-        metadata=metadata,
-        body=skill.body,
-        skill_md_frontmatter=frontmatter,
-    )
-    return sourced
-
-
 def _source_ref_for_local_skill(local_skill: Skill, name: str) -> SkillRef:
     raw_source = local_skill.skill_md_frontmatter.get(SOURCE_REF_FIELD)
     if isinstance(raw_source, str):
@@ -438,8 +424,29 @@ def _write_agent_local_skill(agent_name: str, skill_name: str, skill: Skill) -> 
     target = agent_skills_dir(agent_name) / skill_name
     if target.exists():
         raise FileExistsError(target)
-    target.mkdir(parents=True, exist_ok=False)
-    (target / "SKILL.md").write_text(render_skill_md(skill), encoding="utf-8")
+    tmp = target.parent / f".{skill_name}.tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True, exist_ok=False)
+    try:
+        (tmp / "SKILL.md").write_text(render_skill_md(skill), encoding="utf-8")
+        tmp.rename(target)
+    except Exception:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+
+
+def _rollback_local_install(agent_name: str, skill_name: str) -> None:
+    target = agent_skills_dir(agent_name) / skill_name
+    shutil.rmtree(target, ignore_errors=True)
+    try:
+        remove_skill(agent_name, skill_name)
+    except Exception as error:  # pragma: no cover - defensive logging only
+        logger.error(
+            "failed to roll back local skill state for %s/%s: %s",
+            agent_name,
+            skill_name,
+            error,
+        )
 
 
 @router.get("/{agent_key}/skills")
@@ -552,12 +559,12 @@ def _install_or_remove(
                 )
             template = load_skill(ref)
             local_skill = materialize_skill_for_agent(template, agent_type)
-            local_skill = _skill_with_source_ref(local_skill, str(ref))
+            local_skill = with_source_ref(local_skill, str(ref))
             _new_state, changed = add_skill(agent_name, ref.name)
             try:
                 _write_agent_local_skill(agent_name, ref.name, local_skill)
             except FileExistsError as error:
-                remove_skill(agent_name, ref.name)
+                _rollback_local_install(agent_name, ref.name)
                 raise HTTPException(
                     status_code=409,
                     detail=(
@@ -566,8 +573,7 @@ def _install_or_remove(
                     ),
                 ) from error
             except OSError as error:
-                remove_skill(agent_name, ref.name)
-                shutil.rmtree(target, ignore_errors=True)
+                _rollback_local_install(agent_name, ref.name)
                 raise HTTPException(
                     status_code=500,
                     detail=f"Failed to persist local skill '{ref.name}'.",
@@ -575,7 +581,12 @@ def _install_or_remove(
         else:
             _new_state, changed = remove_skill(agent_name, ref.name)
             shutil.rmtree(agent_skills_dir(agent_name) / ref.name, ignore_errors=True)
-        result = apply_state(agent_name)
+        try:
+            result = apply_state(agent_name)
+        except SkillError:
+            if action == "install":
+                _rollback_local_install(agent_name, ref.name)
+            raise
     except SkillError as error:
         raise HTTPException(
             status_code=_skill_error_status(error),
