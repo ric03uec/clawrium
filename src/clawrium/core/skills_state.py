@@ -39,6 +39,7 @@ from clawrium.core.skills import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "agent_skills_dir",
     "state_file_path",
     "read_state",
     "write_state",
@@ -73,6 +74,16 @@ def state_file_path(agent_name: str) -> Path:
     """
     _validate_agent_name(agent_name)
     return get_config_dir() / "agents" / agent_name / "skills.json"
+
+
+def agent_skills_dir(agent_name: str) -> Path:
+    """Return the local directory containing ``agent_name``'s skill files.
+
+    Phase A only exposes the path helper; the desired-state file continues
+    to store registry refs until the issue #411 semantic switch lands.
+    """
+    _validate_agent_name(agent_name)
+    return get_config_dir() / "agents" / agent_name / "skills"
 
 
 def read_state(agent_name: str) -> list[str]:

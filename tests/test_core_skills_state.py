@@ -24,6 +24,7 @@ from clawrium.core.skills import (
 from clawrium.core import skills_state
 from clawrium.core.skills_state import (
     add_skill,
+    agent_skills_dir,
     read_state,
     remove_skill,
     state_file_path,
@@ -46,6 +47,11 @@ def test_state_file_path_uses_xdg(tmp_path: Path):
     assert path == tmp_path / "clawrium" / "agents" / "hermes-tdd" / "skills.json"
 
 
+def test_agent_skills_dir_uses_xdg(tmp_path: Path):
+    path = agent_skills_dir("hermes-tdd")
+    assert path == tmp_path / "clawrium" / "agents" / "hermes-tdd" / "skills"
+
+
 @pytest.mark.parametrize(
     "bad",
     [
@@ -60,6 +66,11 @@ def test_state_file_path_uses_xdg(tmp_path: Path):
 def test_state_file_path_rejects_bad_agent_name(bad):
     with pytest.raises(InvalidSkillRef):
         state_file_path(bad)
+
+
+def test_agent_skills_dir_rejects_bad_agent_name():
+    with pytest.raises(InvalidSkillRef):
+        agent_skills_dir("../escape")
 
 
 # ------------------------------- read_state ---------------------------------

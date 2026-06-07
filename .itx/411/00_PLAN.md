@@ -140,10 +140,12 @@ introduced) unions bundled + overlay and tags origin.
     `_load_schema` and `_bare_name_hint`. **Do not change its
     signature.** Adding a sibling helper is cheaper than fanning out
     a return-type change through every existing caller.
-  - Rewrite `list_skills` to iterate `_catalog_roots()` and dedupe
-    on `<registry>/<name>`. Overlay wins on collision; emit a
-    `logger.warning` once per collision per process.
-  - Rewrite `load_skill` to try overlay first, then bundled.
+  - Add private overlay-aware catalog enumeration/lookup helpers that
+    dedupe on `<registry>/<name>`. Overlay wins on collision; emit a
+    `logger.warning` once per collision per process. Phase A must not
+    wire these helpers into public CLI/GUI paths; Phase B wires
+    `list_skills` and `load_skill` to them alongside the user-facing
+    semantic switch.
   - Add `load_agent_skill(agent: str, name: str, agent_type: str) -> Skill`
     and `list_agent_skills(agent: str) -> list[str]`, reading from
     `~/.config/clawrium/agents/<agent>/skills/<name>/`. Agent-local
@@ -152,11 +154,13 @@ introduced) unions bundled + overlay and tags origin.
     The returned `Skill.ref.registry` should be the concrete agent type
     (`hermes`, `openclaw`, or `zeroclaw`), not a synthetic `local`
     registry, so existing native schema validation can be reused.
-  - Add `materialize_skill_for_agent(skill: Skill, agent_type: str) -> tuple[dict, str]`
-    only if needed as a public wrapper around the current
-    `materialize_for_claw` logic. The important invariant is call-site
-    placement: CLI/GUI add paths call it before persisting the
-    per-agent skill; sync/apply does not call it.
+  - Add `materialize_skill_for_agent(skill: Skill, agent_type: str) -> Skill`
+    as an add-time wrapper around the current `materialize_for_claw`
+    logic. It validates the source skill, checks compatibility,
+    materializes to the target native shape, and validates the native
+    result. The important invariant is call-site placement: CLI/GUI add
+    paths call it before persisting the per-agent skill; sync/apply does
+    not call it.
   - `parse_skill_ref` is **unchanged**. Bare names continue to raise
     `MissingRegistryPrefix`. Agent-local lookups go through the new
     `load_agent_skill(agent, name, agent_type)` API; they never flow through
@@ -173,8 +177,10 @@ introduced) unions bundled + overlay and tags origin.
     (`"clawrium/tdd"`) are not valid desired state after this change.
     Document this in the file's module docstring.
   - `read_state` / `write_state` / `add_skill` / `remove_skill`
-    validate names with the existing slug regex and reject any value
-    containing `/`.
+    validate names with the existing `_NAME_RE` slug regex
+    (`^[a-z0-9][a-z0-9_-]*$`). Reject values such as `/`, `..`, empty
+    strings, uppercase names, spaces, and other non-slug forms before
+    any directory creation or state mutation.
   - Add an explicit migration or one-time error strategy for old
     `skills.json` files containing registry refs. Preferred behavior:
     `clawctl agent skill add <agent> --from-template clawrium/tdd`
@@ -204,11 +210,16 @@ introduced) unions bundled + overlay and tags origin.
     1. `--from-template <registry>/<name>` — copy bytes from
        bundled-or-overlay catalog, materialized for the target
        agent's type, into the agent's local dir.
-    2. Positional `PATH` — file (a single `SKILL.md`) or directory
-       (a full skill tree). Validate the input shape, materialize it
-       for the target agent type if it is a normalized `clawrium`
-       shape, then persist the target-agent-native `SKILL.md` into the
-       agent's local dir.
+     2. Positional `PATH` — file (a single `SKILL.md`) or directory
+        (a full skill tree). Validate the input shape, materialize it
+        for the target agent type if it is a normalized `clawrium`
+        shape, then persist the target-agent-native `SKILL.md` into the
+        agent's local dir.
+        - Name derivation rule: if `--name` is omitted, derive the
+          persisted name from validated `SKILL.md` frontmatter `name`,
+          not from `Path(input).name`. Reject invalid or missing
+          frontmatter names with `InvalidSkillRef` before creating any
+          directory. `--name`, when provided, must also pass `_NAME_RE`.
     3. No path and no template — open `$EDITOR` (or `EDITOR` env
        var; fall back to `vi`) on a stub `SKILL.md` in the target
        agent's native format, then persist on save.
