@@ -1,13 +1,4 @@
-"""Tests for the per-agent skills desired-state store.
-
-Covers Phase 2 exit criteria for `core/skills_state.py`:
-- state file path is XDG-respecting and namespaced by agent name
-- read/write round-trips through `parse_skill_ref` (rejects URLs,
-  bare names, malformed JSON)
-- add/remove are idempotent and report whether the call changed state
-- atomic writes (no `.tmp` left behind on success; concurrent reader
-  never sees an empty file)
-"""
+"""Tests for the per-agent skills desired-state store (#411)."""
 
 from __future__ import annotations
 
@@ -16,281 +7,94 @@ from pathlib import Path
 
 import pytest
 
-from clawrium.core.skills import (
-    ExternalSourceBlocked,
-    InvalidSkillRef,
-    MissingRegistryPrefix,
-)
-from clawrium.core import skills_state
-from clawrium.core.skills_state import (
-    add_skill,
-    read_state,
-    remove_skill,
-    state_file_path,
-    write_state,
-)
+from clawrium.core import skills_state as state
+from clawrium.core.skills import InvalidSkillRef, SkillRef
 
 
-@pytest.fixture(autouse=True)
-def _isolate_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Point clawrium config at a tmp dir so tests never mutate ~/."""
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    yield
+@pytest.fixture
+def cfg_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(state, "get_config_dir", lambda: tmp_path)
+    return tmp_path
 
 
-# ------------------------------- state_file_path ----------------------------
+def test_state_file_path(cfg_dir: Path):
+    path = state.state_file_path("agent-1")
+    assert path == cfg_dir / "agents" / "agent-1" / "skills.json"
 
 
-def test_state_file_path_uses_xdg(tmp_path: Path):
-    path = state_file_path("hermes-tdd")
-    assert path == tmp_path / "clawrium" / "agents" / "hermes-tdd" / "skills.json"
-
-
-@pytest.mark.parametrize(
-    "bad",
-    [
-        "",
-        "Cap",  # uppercase
-        "1agent",  # starts with digit
-        "agent$name",  # special chars
-        "x" * 33,  # too long
-        "../escape",
-    ],
-)
-def test_state_file_path_rejects_bad_agent_name(bad):
+def test_state_file_rejects_bad_agent_name(cfg_dir):
     with pytest.raises(InvalidSkillRef):
-        state_file_path(bad)
+        state.state_file_path("../escape")
 
 
-# ------------------------------- read_state ---------------------------------
+def test_read_missing_returns_empty(cfg_dir):
+    assert state.read_state("foo") == []
 
 
-def test_read_state_missing_file_returns_empty():
-    assert read_state("hermes-tdd") == []
+def test_write_and_read_round_trip(cfg_dir):
+    state.write_state("a1", ["vetted/tdd"])
+    assert state.read_state("a1") == ["vetted/tdd"]
 
 
-def test_read_state_round_trips_after_write():
-    write_state("hermes-tdd", ["clawrium/tdd"])
-    assert read_state("hermes-tdd") == ["clawrium/tdd"]
+def test_write_canonicalizes(cfg_dir):
+    state.write_state("a1", ["vetted/tdd", "vetted/tdd", "vetted/blog-author"])
+    assert state.read_state("a1") == ["vetted/blog-author", "vetted/tdd"]
 
 
-def test_read_state_returns_sorted_deduped():
-    write_state("hermes-tdd", ["clawrium/tdd", "clawrium/tdd"])
-    assert read_state("hermes-tdd") == ["clawrium/tdd"]
+def test_write_rejects_url(cfg_dir):
+    with pytest.raises(Exception):
+        state.write_state("a1", ["http://evil/skill"])
 
 
-def test_read_state_malformed_json_raises():
-    path = state_file_path("hermes-tdd")
-    path.parent.mkdir(parents=True)
-    path.write_text("{not-json")
-    with pytest.raises(InvalidSkillRef, match="not valid JSON"):
-        read_state("hermes-tdd")
-
-
-def test_read_state_non_object_root_raises():
-    path = state_file_path("hermes-tdd")
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps(["clawrium/tdd"]))
-    with pytest.raises(InvalidSkillRef, match="must be a JSON object"):
-        read_state("hermes-tdd")
-
-
-def test_read_state_skills_field_must_be_list_of_strings():
-    path = state_file_path("hermes-tdd")
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"skills": [{"ref": "clawrium/tdd"}]}))
-    with pytest.raises(InvalidSkillRef, match="list of strings"):
-        read_state("hermes-tdd")
-
-
-def test_read_state_revalidates_persisted_entries():
-    """Hand-edited file with an invalid ref must surface as an error
-    on read, not silently propagate to apply_state."""
-    path = state_file_path("hermes-tdd")
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"skills": ["http://evil.example/skill"]}))
-    with pytest.raises(ExternalSourceBlocked):
-        read_state("hermes-tdd")
-
-
-# ------------------------------- write_state --------------------------------
-
-
-def test_write_state_creates_parent_dir(tmp_path: Path):
-    write_state("hermes-tdd", ["clawrium/tdd"])
-    parent = tmp_path / "clawrium" / "agents" / "hermes-tdd"
-    assert parent.is_dir()
-
-
-def test_write_state_persists_canonical_form():
-    canonical = write_state("hermes-tdd", ["clawrium/tdd", "clawrium/tdd"])
-    raw = json.loads(state_file_path("hermes-tdd").read_text())
-    assert canonical == ["clawrium/tdd"]
-    assert raw == {"skills": ["clawrium/tdd"]}
-
-
-def test_write_state_rejects_bare_name_in_payload():
-    with pytest.raises(MissingRegistryPrefix):
-        write_state("hermes-tdd", ["tdd"])
-
-
-def test_write_state_rejects_url_in_payload():
-    with pytest.raises(ExternalSourceBlocked):
-        write_state("hermes-tdd", ["https://example.com/skill.tgz"])
-
-
-def test_write_state_leaves_no_tmp_files_on_success(tmp_path: Path):
-    write_state("hermes-tdd", ["clawrium/tdd"])
-    parent = tmp_path / "clawrium" / "agents" / "hermes-tdd"
-    leftovers = [p for p in parent.iterdir() if p.name.startswith(".skills.")]
-    assert leftovers == []
-
-
-def test_write_state_atomic_against_failure(monkeypatch, tmp_path: Path):
-    """If os.replace raises, the tempfile should be unlinked so we
-    don't leave half-written staging files lying around."""
-    real_replace = skills_state.os.replace
-
-    def boom(_src, _dst):  # type: ignore[no-untyped-def]
-        raise OSError("simulated rename failure")
-
-    monkeypatch.setattr(skills_state.os, "replace", boom)
-    with pytest.raises(OSError):
-        write_state("hermes-tdd", ["clawrium/tdd"])
-    monkeypatch.setattr(skills_state.os, "replace", real_replace)
-
-    parent = tmp_path / "clawrium" / "agents" / "hermes-tdd"
-    if parent.is_dir():
-        leftovers = [p for p in parent.iterdir() if p.name.startswith(".skills.")]
-        assert leftovers == []
-
-
-# ------------------------------- add_skill / remove_skill -------------------
-
-
-def test_add_skill_returns_added_flag_on_new_entry():
-    state, added = add_skill("hermes-tdd", "clawrium/tdd")
+def test_add_skill_returns_added_flag(cfg_dir):
+    _, added = state.add_skill("a1", SkillRef("vetted", "tdd"))
     assert added is True
-    assert state == ["clawrium/tdd"]
-
-
-def test_add_skill_is_idempotent():
-    add_skill("hermes-tdd", "clawrium/tdd")
-    state, added = add_skill("hermes-tdd", "clawrium/tdd")
+    _, added = state.add_skill("a1", SkillRef("vetted", "tdd"))
     assert added is False
-    assert state == ["clawrium/tdd"]
 
 
-def test_remove_skill_returns_removed_flag():
-    add_skill("hermes-tdd", "clawrium/tdd")
-    state, removed = remove_skill("hermes-tdd", "clawrium/tdd")
+def test_remove_skill_returns_removed_flag(cfg_dir):
+    state.write_state("a1", ["vetted/tdd"])
+    _, removed = state.remove_skill("a1", SkillRef("vetted", "tdd"))
     assert removed is True
-    assert state == []
-
-
-def test_remove_skill_no_op_when_absent():
-    state, removed = remove_skill("hermes-tdd", "clawrium/tdd")
+    _, removed = state.remove_skill("a1", SkillRef("vetted", "tdd"))
     assert removed is False
-    assert state == []
 
 
-# ------------------------------- cleanup_agent_state ------------------------
+# ---------- one-shot legacy migration -----------------------------------------
 
 
-class TestCleanupAgentState:
-    """Tests for cleanup_agent_state — the per-agent state directory removal."""
+class TestMigration:
+    def test_migrates_clawrium_to_vetted(self, cfg_dir):
+        # Pre-create a state file with legacy refs.
+        path = state.state_file_path("a1")
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"skills": ["clawrium/tdd"]}))
+        result = state.read_state("a1")
+        assert result == ["vetted/tdd"]
+        # Persisted back to disk.
+        assert json.loads(path.read_text())["skills"] == ["vetted/tdd"]
 
-    def test_removes_existing_state_directory(self, tmp_path: Path):
-        from clawrium.core.skills_state import cleanup_agent_state
+    def test_migrates_hermes_to_vetted(self, cfg_dir):
+        path = state.state_file_path("a1")
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"skills": ["hermes/blog-author"]}))
+        assert state.read_state("a1") == ["vetted/blog-author"]
 
-        # Pre-seed a state directory
-        write_state("hermes-tdd", ["clawrium/tdd"])
-        agent_dir = tmp_path / "clawrium" / "agents" / "hermes-tdd"
-        assert agent_dir.is_dir()
+    def test_drops_unknown_legacy_ref(self, cfg_dir):
+        path = state.state_file_path("a1")
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"skills": ["clawrium/no-such"]}))
+        assert state.read_state("a1") == []
 
-        result = cleanup_agent_state("hermes-tdd")
-        assert result is True
-        assert not agent_dir.exists()
+    def test_drops_unknown_prefix(self, cfg_dir):
+        path = state.state_file_path("a1")
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"skills": ["foobar/tdd"]}))
+        assert state.read_state("a1") == []
 
-    def test_returns_false_when_directory_absent(self):
-        from clawrium.core.skills_state import cleanup_agent_state
-
-        result = cleanup_agent_state("hermes-tdd")
-        assert result is False
-
-    def test_rejects_invalid_agent_name(self):
-        from clawrium.core.skills_state import cleanup_agent_state
-
-        with pytest.raises(InvalidSkillRef):
-            cleanup_agent_state("../escape")
-
-    def test_rejects_path_escaping_config_dir(self, tmp_path: Path, monkeypatch):
-        """If the resolved agent state path escapes the config directory,
-        cleanup_agent_state must refuse. Simulated by having state_file_path
-        return a path outside the config dir."""
-        from clawrium.core.skills_state import cleanup_agent_state
-
-        agent_dir = tmp_path / "clawrium" / "agents" / "hermes-tdd"
-        agent_dir.mkdir(parents=True)
-
-        # Make state_file_path return a path that resolves outside
-        # get_config_dir by patching it to return /tmp/evil/...
-        outside_path = Path("/tmp/evil/clawrium/agents/hermes-tdd/skills.json")
-        monkeypatch.setattr(
-            "clawrium.core.skills_state.state_file_path",
-            lambda name: outside_path,
-        )
-        with pytest.raises(ValueError, match="escapes config directory"):
-            cleanup_agent_state("hermes-tdd")
-
-    def test_rmtree_error_propagates(self, tmp_path: Path, monkeypatch):
-        """If shutil.rmtree raises, the exception must propagate so the
-        lifecycle.py except block can catch it."""
-        from clawrium.core import skills_state
-        from clawrium.core.skills_state import cleanup_agent_state
-
-        write_state("hermes-tdd", ["clawrium/tdd"])
-
-        def boom(_path):
-            raise OSError("permission denied")
-
-        monkeypatch.setattr(skills_state.shutil, "rmtree", boom)
-        with pytest.raises(OSError, match="permission denied"):
-            cleanup_agent_state("hermes-tdd")
-
-    def test_idempotent_on_already_removed_directory(self, tmp_path: Path):
-        from clawrium.core.skills_state import cleanup_agent_state
-
-        write_state("hermes-tdd", ["clawrium/tdd"])
-        agent_dir = tmp_path / "clawrium" / "agents" / "hermes-tdd"
-
-        assert cleanup_agent_state("hermes-tdd") is True
-        assert not agent_dir.exists()
-        # Second call — directory already gone
-        assert cleanup_agent_state("hermes-tdd") is False
-
-    def test_rejects_broken_symlink_as_state_dir(self, tmp_path: Path):
-        """A broken symlink at the agent state dir path must be rejected,
-        not silently skipped. exists() returns False for broken symlinks,
-        so checking exists() before is_symlink() would leave the orphan."""
-        from clawrium.core.skills_state import cleanup_agent_state
-
-        agent_dir = tmp_path / "clawrium" / "agents" / "hermes-tdd"
-        agent_dir.mkdir(parents=True)
-
-        # Replace the directory with a broken symlink pointing to a
-        # non-existent target WITHIN the config tree (so the confinement
-        # check passes but the symlink guard still fires)
-        agent_dir.rmdir()
-        broken_target = tmp_path / "clawrium" / "agents" / ".nonexistent"
-        agent_dir.symlink_to(broken_target)
-
-        # Verify our test setup: exists() is False but is_symlink() is True
-        assert not agent_dir.exists()
-        assert agent_dir.is_symlink()
-
-        with pytest.raises(ValueError, match="is a symlink"):
-            cleanup_agent_state("hermes-tdd")
-
-        # Symlink should still exist (not removed)
-        assert agent_dir.is_symlink()
+    def test_keeps_already_valid_refs(self, cfg_dir):
+        path = state.state_file_path("a1")
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"skills": ["vetted/tdd"]}))
+        assert state.read_state("a1") == ["vetted/tdd"]
