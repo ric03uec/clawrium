@@ -1,309 +1,232 @@
-# Issue #411 — Allow adding ad-hoc skills to agents
+# Plan — #411 Allow adding ad-hoc skills to agents
+
+**Issue**: https://github.com/ric03uec/clawrium/issues/411
+**Complexity**: M
+**Status**: planned (this file supersedes the prior planning draft in
+this directory; see git history for the earlier vetted/local model that
+was discarded in favor of the current per-agent + user-registry-overlay
+design)
 
 ## Overview
 
-Today the only way to land a skill on a clawrium-managed agent is to ship it
-in-repo under one of four hard-wired registries (`clawrium/`, `openclaw/`,
-`hermes/`, `zeroclaw/`) and let `clm agent skill attach` install it. Users
-need to author **ad-hoc skills** for their own workflows without sending a PR
-against the clawrium repo.
+Users today can only install skills onto an agent by referencing the bundled
+in-repo catalog (`clm agent skill attach clawrium/tdd --agent <name>`). This
+plan adds two new capabilities while keeping the catalog as-is:
 
-This issue replaces the four-registry catalog with a two-source unified
-catalog:
+1. **Per-agent ad-hoc skills.** A user can add a skill to a specific agent
+   from any of three sources — interactively, from a local file, or from a
+   local directory — and edit it afterwards. The skill is copied into the
+   agent's own config directory and becomes part of the agent.
+2. **Registry-level `clm skill add`.** A user can author a new skill and
+   publish it to the skill registry, picking which agent type (registry
+   namespace) it applies to. This is a separate command with no agent
+   context.
+
+The bundled `skills/` catalog stops being a live reference for on-agent
+installs. It becomes a **template source**: when an agent skill is added
+from a template, the bytes are copied into the agent's local skill dir,
+and from that point on the agent's copy is the source of truth and is
+fully editable.
+
+## Conceptual model
+
+| Concept | Where it lives | Mutable by user? |
+|---|---|---|
+| Bundled registry skill (seed catalog) | repo `skills/<registry>/<name>/` (also bundled into the wheel as `clawrium/_skills/`) | No (read-only) |
+| User registry skill (added via `clm skill add`) | `~/.config/clawrium/skills/<registry>/<name>/` | Yes |
+| Per-agent local skill (added via `clm agent skill add`) | `~/.config/clawrium/agents/<agent>/skills/<name>/` | Yes |
+
+Decision locked in this plan: `clm skill add` writes to the **user
+registry overlay** at `~/.config/clawrium/skills/<registry>/<name>/`. The
+bundled `skills/` directory stays read-only because installed wheels
+cannot be written to. Listing/loading code unions bundled + overlay;
+overlay wins on name collision (with a warning).
+
+Stage / flush model: every command in this plan only mutates local
+state. The single host-side flush is the existing `clm agent sync
+<name>` command, which already calls `apply_state`.
+
+## CLI surface (Option 1 — agent as required positional)
+
+New / changed commands under `clm agent skill`:
 
 ```
-vetted/<name>      ← in-repo, gated by PR review, ships in the wheel
-local/<name>       ← user-owned, stored at ~/.config/clawrium/skills/
+clm agent skill add    <agent-name> [PATH | --from-template <registry>/<name>]
+clm agent skill edit   <agent-name> <skill-name>
+clm agent skill list   <agent-name>
+clm agent skill remove <agent-name> <skill-name>
 ```
 
-Both sources use a single canonical file format that follows the
-[agentskills.io](https://agentskills.io) standard (YAML frontmatter +
-markdown body in `SKILL.md`). Translation to per-claw native frontmatter
-happens inside `materialize_for_claw` and is invisible to the user — the
-"value prop" the issue calls out.
+The existing `attach` / `detach` verbs are **removed** and folded into
+`add` / `remove`:
 
-To bound the blast radius for v1, the per-claw support table starts with
-**hermes only**. Openclaw and zeroclaw are wired off behind a hardcoded
-table and re-enabled in follow-up issues once their materializers are
-re-tested end-to-end.
+- `attach <ref>` becomes `add <agent> --from-template <ref>` — bytes are
+  copied, not referenced.
+- `detach <ref>` becomes `remove <agent> <skill-name>`.
 
-## Target model
+The existing `--agent` flag is removed from every command in the
+`clm agent skill` sub-app. Agent name becomes a required positional
+everywhere, matching `clm agent configure <name>` and `clm agent sync <name>`.
+
+New top-level command:
 
 ```
-                      ┌─────────────────────────────────┐
-                      │     Unified Skill Catalog       │
-                      │  (agentskills.io standard fmt)  │
-                      └────────────┬────────────────────┘
-                                   │
-            ┌──────────────────────┴──────────────────────┐
-            ▼                                             ▼
-   Vetted (in-repo)                              Local (user-owned)
-   skills/vetted/<name>/SKILL.md          ~/.config/clawrium/skills/<name>/SKILL.md
-   gated via PR review                    created by `clm skill add` or GUI
-            │                                             │
-            └──────────────────────┬──────────────────────┘
-                                   ▼
-                   clm agent skill attach <ref> --agent <a>
-                                   │
-                                   ▼
-          materializer renders per-claw SKILL.md → host (existing pipeline)
+clm skill add [PATH | --interactive] \
+              [--registry clawrium|openclaw|hermes|zeroclaw] \
+              [--name <slug>]
 ```
 
-## Decisions (locked)
+Writes to `~/.config/clawrium/skills/<registry>/<name>/`. Prompts for
+registry namespace if not supplied. Validates frontmatter / `_meta.yaml`
+against the existing `skills/_schema/` definitions.
 
-1. **Reference grammar**: `<source>/<name>` where `source ∈ {vetted, local}`.
-   Bare names rejected with `MissingSourcePrefix`.
-2. **Name is the global unique key**: cannot have `vetted/tdd` *and*
-   `local/tdd`. Create rejects with `SkillNameConflict`.
-3. **Name is immutable**: `clm skill edit` and the GUI edit form cannot
-   change `name`. Renaming = delete + re-create.
-4. **Format**: agentskills.io standard `SKILL.md` with YAML frontmatter.
-   `_meta.yaml` is dropped. Required fields: `name`, `description`.
-   Optional: `version`, `license`, `author`, `tags`, `platforms`,
-   `prerequisites`.
-5. **Vetted source is read-only** at runtime. `clm skill edit/remove` on a
-   `vetted/*` ref → `ReadOnlySource`.
-6. **Per-claw support is hardcoded and global**, not per-skill:
-
-   ```python
-   # core/skills.py
-   SUPPORTED_CLAWS_BY_DEFAULT: dict[str, bool] = {
-       "hermes":   True,
-       "openclaw": False,
-       "zeroclaw": False,
-   }
-   ```
-
-   `materialize_for_claw` and `clm agent skill attach` consult this table
-   and raise `ClawNotSupported` for any `False` claw. Openclaw and zeroclaw
-   get flipped on in follow-up issues once their materializers + e2e tests
-   are wired.
-7. **Existing skills migrate to `vetted/`**: the 6 working skills
-   (`clawrium/tdd`, `hermes/blog-author`, `hermes/daily-digest`,
-   `hermes/docs-sync`, `hermes/issue-triage`, `hermes/release-watcher`) are
-   re-authored into the new flat format and moved to `skills/vetted/`.
-   `skills/openclaw/` and `skills/zeroclaw/` are deleted (placeholder
-   READMEs only).
-8. **Desired-state migration is one-shot**: on first read after upgrade,
-   `read_state` rewrites legacy refs (`clawrium/tdd` → `vetted/tdd`,
-   `hermes/blog-author` → `vetted/blog-author`, etc.) and drops anything it
-   doesn't recognise with a warn-log.
-
-## Files to modify / create
-
-### Catalog & schema
-
-- **delete** `skills/clawrium/`, `skills/openclaw/`, `skills/hermes/`,
-  `skills/zeroclaw/`
-- **delete** `skills/_schema/clawrium.schema.json`, `skills/_schema/native/`
-- **create** `skills/_schema/agent-skill.schema.json` — agentskills.io
-  standard
-- **create** `skills/vetted/<name>/SKILL.md` for: `tdd`, `blog-author`,
-  `daily-digest`, `docs-sync`, `issue-triage`, `release-watcher`
-- **modify** `skills/README.md` — rewrite for two-source model
+## Files to modify
 
 ### Core
-
-- **modify** `src/clawrium/core/skills.py`
-  - Rename `REGISTRIES` → `SOURCES = ("vetted", "local")`
-  - Delete `NATIVE_REGISTRIES`, `IncompatibleSkillRegistry`
-  - Rename `MissingRegistryPrefix` → `MissingSourcePrefix`
-  - Add `SkillNameConflict`, `SkillNameImmutable`, `ReadOnlySource`,
-    `ClawNotSupported`
-  - Add `SUPPORTED_CLAWS_BY_DEFAULT` (hermes=True, others=False)
-  - Rewrite `parse_skill_ref` for the new grammar
-  - Add `_local_catalog_root()` returning XDG path
-  - Rewrite `list_skills` / `load_skill` to union both sources and enforce
-    global name uniqueness at load time
-  - Refactor `materialize_for_claw` to consume the flat agentskills format
-    and dispatch through a hardcoded per-claw mapping table, gated on
-    `SUPPORTED_CLAWS_BY_DEFAULT`
-- **modify** `src/clawrium/core/skills_apply.py`
-  - Drop registry/incompat plumbing
-  - Gate dispatch on `SUPPORTED_CLAWS_BY_DEFAULT[claw]` and skill
-    `prerequisites`
-- **create** `src/clawrium/core/skills_local.py`
-  - `create_local_skill(name, frontmatter, body) -> SkillRef`
-  - `update_local_skill(name, frontmatter, body)` (rejects `name` mutation)
-  - `delete_local_skill(name)`
-  - All with schema validation, conflict detection, atomic file writes
-- **modify** `src/clawrium/core/skills_state.py`
-  - One-shot legacy ref migration on `read_state`
+- `src/clawrium/core/skills.py`
+  - Extend `_catalog_root()` / `list_skills()` / `load_skill()` to union
+    bundled catalog + user overlay (`~/.config/clawrium/skills/`).
+  - Treat per-agent local skills as a separate axis; add
+    `load_agent_skill(agent, name)` and `list_agent_skills(agent)`.
+  - Per-agent local skills are universally compatible unless their
+    authored `_meta.yaml.compatibility` says otherwise.
+- `src/clawrium/core/skills_state.py`
+  - Add `agent_skills_root(agent)` helper next to `state_file_path`.
+  - State file shape unchanged — still a list of skill identifiers. For
+    per-agent ad-hoc skills, identifier is the bare skill name (no
+    registry prefix), since the namespace is implicitly `agent-local`.
+- `src/clawrium/core/skills_apply.py`
+  - On apply, ship per-agent local skill bytes from
+    `~/.config/clawrium/agents/<agent>/skills/<name>/` instead of the
+    bundled catalog.
+  - Registry-overlay skills go through the same code path as bundled
+    skills once they exist on disk — the catalog union handles it.
 
 ### CLI
+- `src/clawrium/cli/agent_skill.py`
+  - Remove `attach` / `detach` verbs and the `--agent` flag.
+  - Add `add` / `edit` / `list` / `remove` with agent as required
+    positional.
+  - `add` rollback: if writing the local dir succeeds but state mutation
+    fails, delete the freshly-written dir. Symmetric to the existing
+    preflight → mutate → apply pattern.
+- `src/clawrium/cli/skill.py`
+  - Add top-level `add` command. Prompts (or accepts as flags) for
+    registry namespace and name. Validates against schema before writing.
 
-- **modify** `src/clawrium/cli/skill.py`
-  - Add `add`, `edit`, `remove`
-  - Simplify `list` (new `Source` + `Supported on` columns)
-  - Extend `show` (source badge, supported-claws line)
-  - Drop `--registry` flag
-- **modify** `src/clawrium/cli/agent_skill.py`
-  - Parse new refs
-  - Drop `IncompatibleSkillRegistry` branches
-  - Surface `ClawNotSupported` cleanly on attach
+### GUI
+- `src/clawrium/gui/routes/skills.py` + `gui/routes/agents.py`
+  - Per-agent payload tags each skill with `origin: "local" | "<registry>"`.
+  - New POST endpoints for agent-skill `add` / `edit` / `remove`.
+  - New POST endpoint for registry `add` (top-level).
+- `src/clawrium/gui/frontend/...`
+  - Local-skills section in the per-agent view with Add / Edit / Remove
+    controls mirroring the CLI.
+  - "Add Skill" modal: three input modes (template picker, file upload,
+    raw editor).
+  - Registry browser gains an "Add to registry" entry point that maps
+    to the top-level `clm skill add` semantics.
 
-### GUI backend
-
-- **modify** `src/clawrium/gui/routes/skills.py`
-  - List endpoint returns unioned catalog with `source` and `supported_on`
-  - Add `POST /api/skills`, `PUT /api/skills/{name}`,
-    `DELETE /api/skills/{name}` — vetted is read-only; `name` cannot change
-    on PUT
-
-### GUI frontend
-
-- **modify** `gui/src/app/skills/page.tsx`
-  - Drop `REGISTRY_LABELS`, tab bar, `activeRegistry` state
-  - Render single flat list
-  - Add **+ Create Skill** button → modal
-  - Each card shows source badge + per-claw support badges
-- **create** `gui/src/components/skills/skill-create-form.tsx`
-  - Controlled form for required/optional fields + body textarea
-  - Client-side validation; surfaces 422s from server
-- **modify** `gui/src/components/skills/skill-card.tsx`
-  - Source badge, supported-claw badges
-  - Edit/delete actions gated on `source==='local'`
-- **modify** `gui/src/components/skills/skill-detail.tsx`
-  - Supported-claws line
-  - `name` field read-only in edit mode
-- **create** `gui/src/hooks/use-create-skill.ts`,
-  `use-update-skill.ts`, `use-delete-skill.ts`
-- **modify** `gui/src/lib/types.ts`
-  - Replace `SkillRegistry` union with `SkillSource = 'vetted' | 'local'`
-  - Add `supported_on: Record<ClawType, boolean>`
-
-### Slash command
-
-- **create** `.claude/commands/skill-create.md`
-  - Short prompt: ask user for required fields, draft an
-    agentskills-format `SKILL.md`, run `clm skill add local/<name>
-    --from <tmpfile>`
-
-### Packaging
-
-- **modify** `pyproject.toml`
-  - Update `force-include` to bundle `skills/vetted/` into the wheel as
-    `clawrium/_skills/vetted/`
-
-### Tests
-
-- **rewrite** `tests/core/test_skills*.py`, `tests/cli/test_skill*.py`,
-  `gui/src/components/skills/*.test.tsx`, GUI route tests, for:
-  - new ref grammar
-  - single unioned list shape
-  - global name uniqueness
-  - name immutability on edit
-  - vetted read-only
-  - `ClawNotSupported` for openclaw/zeroclaw
-  - create/edit/delete flows
-  - one-shot desired-state migration
-
-## Execution steps
-
-1. **Schema + catalog migration** — new agentskills schema, move 6 skills
-   into `skills/vetted/`, delete old registries.
-2. **Core refactor** — ref grammar, union loader, `SUPPORTED_CLAWS_BY_DEFAULT`,
-   materializer, `skills_local.py`, one-shot state migration.
-3. **CLI surface** — `add/edit/remove`, updated `list/show`, attach error
-   paths.
-4. **GUI backend** — POST/PUT/DELETE + unioned list endpoint.
-5. **GUI frontend** — drop tabs, add create form, source/support badges.
-6. **Slash command** — `.claude/commands/skill-create.md`.
-7. **Test rewrite** + add the two e2e tests below.
-
-## Acceptance criteria
-
-### AC-1: CLI end-to-end against a Hermes agent
-
-```bash
-clm skill add local/e2e-cli-demo \
-    --description "E2E test skill via CLI" \
-    --body-file /tmp/skill.md
-
-clm skill list | grep -q "local/e2e-cli-demo"
-clm skill show local/e2e-cli-demo                            # exits 0
-
-clm agent skill attach local/e2e-cli-demo --agent <hermes-agent>
-
-clm agent skill get --agent <hermes-agent> | grep -q "local/e2e-cli-demo"
-clm agent exec <hermes-agent> -- ls ~/.hermes/skills/clawrium/ \
-    | grep -q "e2e-cli-demo"
-clm agent exec <hermes-agent> -- cat \
-    ~/.hermes/skills/clawrium/e2e-cli-demo/SKILL.md \
-    | grep -q "E2E test skill via CLI"
-```
-
-**Pass**: every command exits 0, skill file is present on the Hermes host
-with expected frontmatter, `clm agent skill get` lists it.
-
-### AC-2: GUI end-to-end against a Hermes agent
-
-1. Open `/skills`, click **+ Create Skill**.
-2. Fill form: `name=e2e-gui-demo`,
-   `description=E2E test skill via GUI`, small markdown body. Submit.
-3. New card appears in unified list with `local` badge and `hermes ✓`
-   support badge.
-4. Navigate to Hermes agent's page → **Skills** tab → select
-   `local/e2e-gui-demo` → **Install**.
-5. After apply finishes, agent's installed-skills list shows
-   `local/e2e-gui-demo`.
-6. Out-of-band CLI assertion:
-   `clm agent exec <hermes-agent> -- test -f
-   ~/.hermes/skills/clawrium/e2e-gui-demo/SKILL.md` exits 0.
-
-### Negative AC
-
-- `clm agent skill attach local/e2e-cli-demo --agent <openclaw-agent>`
-  exits non-zero with `ClawNotSupported`.
-- GUI install button on openclaw/zeroclaw agents is disabled with a
-  "Not yet supported on this agent type" tooltip.
+### Docs
+- `README.md` — replace `clawctl agent skill attach clawrium/tdd --agent
+  <agent-name>` example with `clm agent skill add <agent-name>
+  --from-template clawrium/tdd`. Add a one-liner for the new top-level
+  `clm skill add`.
+- `AGENTS.md` — update the "Skill Registry" Key Concepts section to
+  describe copy-on-add semantics and the user-overlay path. Update CLI
+  examples.
+- `CONTRIBUTING.md` — if it references skill workflow, update to new
+  grammar.
+- `docs/skills.md` — canonical skill guide. Sections:
+  - Mental model: bundled vs user overlay vs agent-local
+  - Three ways to add a skill to an agent
+  - Editing an on-agent skill
+  - Adding a skill to the registry with `clm skill add`
+  - Flushing changes via `clm agent sync <agent>`
+- `website/docs/skills.md` — verbatim mirror of `docs/skills.md` with
+  Docusaurus frontmatter + mirror-warning HTML comment at top.
+- `CHANGELOG.md` under `[Unreleased]`:
+  - `### Added` — `clm agent skill add/edit/list/remove`, `clm skill add`,
+    GUI "Add Skill" flow.
+  - `### BREAKING` — `clm agent skill attach/detach` and the `--agent`
+    flag are removed. Concrete before/after invocations. Note that
+    existing `skills.json` state files remain readable; only invocations
+    change.
 
 ## Test strategy
 
-- **Unit**: ref parser, union loader, conflict detection, name
-  immutability, one-shot migration, materializer per claw, supported-claw
-  gate.
-- **Integration**: CLI `add → list → show → edit → remove` round-trip;
-  CLI `add → agent skill attach → agent skill get` against a mocked
-  agent; GUI POST/PUT/DELETE through FastAPI test client.
-- **E2E (real Hermes agent)**: AC-1 and AC-2 above. Runs against a
-  pre-provisioned Hermes agent on a host configured in `hosts.json`.
-- **Lint / type**: `make lint`, `make test`, `make test-cov` all green.
-
-## Risks
-
-- **Breaking change**: every existing `<registry>/<name>` ref in user
-  state files becomes invalid. Mitigated by one-shot `read_state`
-  migration.
-- **Openclaw / zeroclaw users**: any existing skill installs on those
-  claws will return `ClawNotSupported` on the next attach attempt. Old
-  installs already on disk are not removed — they just become un-managed
-  until the claw is re-enabled. Calling this out in the PR body and
-  release notes.
-- **GUI form UX**: agentskills format has free-form `prerequisites` —
-  keep the GUI form minimal in v1 (required fields + body), add advanced
-  fields once the surface stabilises.
-- **Per-claw mapping drift**: hardcoded table is the only thing standing
-  between a half-wired claw and a broken install. PR review must treat
-  changes to `SUPPORTED_CLAWS_BY_DEFAULT` as gated.
+- **Unit (core)**: catalog union (bundled + overlay), `load_agent_skill`,
+  `list_agent_skills`, collision rejection, overlay-wins behavior,
+  apply-state routing for per-agent bytes, rollback on add failure.
+- **CLI (Typer `CliRunner`)**: each `add` input mode against a tmp
+  `~/.config/clawrium/`; `edit` opens editor and rewrites file; `remove`
+  removes from state and keeps the local dir; `list` shows the
+  expected origin tags; `clm skill add` writes to the overlay and shows
+  up in subsequent `clm skill list` calls.
+- **GUI**: per-agent route shape with `origin` tag; POST endpoints
+  round-trip; rejects malformed payloads.
+- **Real host**: add a local skill, run `clm agent sync <agent>`, verify
+  it lands on the agent host alongside registry skills. Verify edit ->
+  sync propagates changes. Verify remove -> sync removes from host but
+  keeps the local dir.
 
 ## Subtasks
 
-None — execute as a single PR. Surface is large but tightly coupled
-(grammar → loader → materializer → CLI → GUI), and splitting would force
-intermediate states with broken refs.
+- **A. Core + apply** — catalog union, per-agent loader, apply-state
+  routing, schema reuse, rollback. Unit tests.
+- **B. CLI** — `clm agent skill add/edit/list/remove` (with breaking
+  removal of `attach/detach/--agent`), `clm skill add` top-level command,
+  docs updates (README, AGENTS.md, docs/skills.md, website mirror,
+  CHANGELOG `[Unreleased]` `### Added` + `### BREAKING`).
+- **C. GUI** — backend routes for agent-skill add/edit/remove and
+  registry add; frontend local-skills section, Add Skill modal,
+  Edit/Remove controls.
+
+Dependencies: B and C both depend on A. B and C can land in parallel
+once A is merged.
+
+## Deferred (separate issues)
+
+- **Promote / clone** an agent-local skill back into the registry
+  (`clm skill add --from-agent <agent>/<name>`-style).
+- **AI-assisted skill authoring** (Claude Code slash command or
+  `clm skill draft --prompt`).
+- **Multiple named user registries** (per-team, etc.).
+
+## Risks / known unknowns
+
+- **Apply playbook source path.** The current playbook in
+  `skills_apply.py` assumes a single catalog root. Per-agent dirs and the
+  user overlay need to be wired in without making the playbook
+  source-aware. Likely approach: stage all skills for the agent into a
+  temporary mirror dir that matches the bundled catalog shape, then
+  invoke the playbook against the temp dir. Pinned down in Subtask A.
+- **Name collisions across origins.** `clawrium/tdd` (bundled),
+  `clawrium/tdd` (user overlay), and `tdd` (agent-local) can all
+  coexist. State file only contains the agent-local list; the UI must
+  show origin clearly so users don't think one shadows another.
+- **`skills.json` schema.** Today entries look like `clawrium/tdd`. For
+  per-agent ad-hoc skills, do we use the bare name (`tdd`) or a
+  reserved namespace (`local/tdd`)? Default in this plan: bare name,
+  because the namespace is implicit and the state file is already
+  per-agent. Subtask A locks this in.
 
 ---
+
+<details>
+<summary>Prompt Log</summary>
 
 ## Planning
 
 **Stage**: planning
-**Skill**: /itx:plan-create
-**Timestamp**: 2026-05-29T00:00:00Z
+**Skill**: /itx-plan-create
+**Timestamp**: 2026-06-07T06:15:24Z
 **Model**: claude-opus-4-7
 
 ```prompt
-run /itx:plan-create 411 Now create a plan file, send PR, and wait for me to review the PR. Do not add clauses the root issue or closes four one one in the PR. Just add ref the issue.
+411 ask me any clarifying questions. dont create any files, just plan first.
 ```
 
-**Output**: `.itx/411/00_PLAN.md` (this file).
+**Output**: `.itx/411/00_PLAN.md` and `.itx/411/01_SCAFFOLD.md` capturing per-agent ad-hoc skills, copy-on-add semantics from registry templates, agent-as-positional CLI grammar (Option 1), new top-level `clm skill add` writing to a user overlay, stage-then-`clm agent sync` flush model, GUI scope, docs deliverables, three subtasks (A core+apply / B CLI / C GUI), and deferred follow-ups.
+
+</details>
