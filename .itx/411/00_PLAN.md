@@ -160,7 +160,10 @@ introduced) unions bundled + overlay and tags origin.
     materializes to the target native shape, and validates the native
     result. The important invariant is call-site placement: CLI/GUI add
     paths call it before persisting the per-agent skill; sync/apply does
-    not call it.
+    not call it. The returned `Skill.path` is set to the sentinel
+    `Path("__materialized__")` to signal the skill has no on-disk target
+    yet; Phase B callers must choose the per-agent target path before
+    persisting bytes.
   - `parse_skill_ref` is **unchanged**. Bare names continue to raise
     `MissingRegistryPrefix`. Agent-local lookups go through the new
     `load_agent_skill(agent, name, agent_type)` API; they never flow through
