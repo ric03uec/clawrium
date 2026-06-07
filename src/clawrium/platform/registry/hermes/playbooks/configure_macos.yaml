@@ -133,6 +133,50 @@
         - config.provider.type == 'openai'
         - provider_api_key | default('') | length > 0
 
+    # Verify the API_SERVER block always renders, regardless of provider.
+    # Mirrors configure.yaml:270-276. Uses grep -q rather than lineinfile
+    # check_mode because the latter reports `changed: true` whenever the
+    # matched line differs from the placeholder. The python prerender
+    # already guarantees the key is rendered into the file, so this is
+    # defense-in-depth: any future code path that bypasses the prerender
+    # guard surfaces here as an actionable Ansible failure rather than a
+    # silent broken-token deploy. (#625 W-NEW-5)
+    - name: Verify .env contains API_SERVER_KEY
+      ansible.builtin.command:
+        cmd: grep -q '^API_SERVER_KEY=' "/Users/{{ agent_name }}/.hermes/.env"
+      register: api_server_key_check
+      changed_when: false
+      failed_when: api_server_key_check.rc != 0
+      no_log: true
+
+    # Discord platform verification — only runs when channels.discord.enabled
+    # is true. Confirms the bot token landed in .env and the allowlist guard
+    # is present, since hermes denies every message without one of those.
+    # Mirrors configure.yaml:282-304. (#625 W-NEW-5)
+    - name: Verify .env contains DISCORD_BOT_TOKEN when Discord enabled
+      ansible.builtin.command:
+        cmd: grep -q '^DISCORD_BOT_TOKEN=' "/Users/{{ agent_name }}/.hermes/.env"
+      register: discord_token_check
+      changed_when: false
+      failed_when: discord_token_check.rc != 0
+      no_log: true
+      when:
+        - config.channels is defined
+        - config.channels.discord is defined
+        - config.channels.discord.enabled | default(false)
+
+    - name: Verify .env declares Discord user allowlist when Discord enabled
+      ansible.builtin.command:
+        cmd: grep -qE "^(DISCORD_ALLOWED_USERS=.+|DISCORD_ALLOW_ALL_USERS=true)" "/Users/{{ agent_name }}/.hermes/.env"
+      register: discord_allowlist_check
+      changed_when: false
+      failed_when: discord_allowlist_check.rc != 0
+      no_log: true
+      when:
+        - config.channels is defined
+        - config.channels.discord is defined
+        - config.channels.discord.enabled | default(false)
+
     # launchd restart is NOT triggered from inside this playbook. The
     # orchestrator (core/lifecycle.configure_agent followed by
     # restart_agent) calls into core/lifecycle_macos.restart_agent_macos

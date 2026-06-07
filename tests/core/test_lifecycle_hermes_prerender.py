@@ -478,3 +478,412 @@ def test_configure_agent_hermes_unexpected_render_exception_surfaces_cleanly(
     assert "Hermes render failed" in err
     assert "simulated jinja TemplateError" in err
     assert "inventory" not in hermes_configure_env.captured
+
+
+# ---------------------------------------------------------------------------
+# #625 coverage restoration — lifecycle paths that survived #622's prune of
+# test_hermes_configure.py. Each test names the W-NEW-N gap from ATX iter-2
+# of #622 and lifecycle.py line range it pins.
+# ---------------------------------------------------------------------------
+
+
+def test_configure_agent_rejects_out_of_range_persisted_port_picks_fresh(
+    hermes_configure_env, render_stores, monkeypatch
+):
+    """W-NEW-1 (lifecycle.py:1884-1895). A hand-edited hosts.json with
+    api_server.port=22 must NOT propagate into ansible_vars — the port
+    validator must reject it and `_pick_per_instance_port` must mint a
+    fresh in-window value. Without this, the offending port would land
+    in systemd ExecStart."""
+    _seed_single_provider(render_stores, hermes_configure_env)
+    # Seed the offending port. agent_record reads from host["agents"][k].
+    hermes_configure_env.host["agents"]["alpha"]["config"]["api_server"]["port"] = 22
+
+    # Force the port picker to a deterministic in-window value so the
+    # assertion below isn't sensitive to picker internals.
+    monkeypatch.setattr(
+        "clawrium.core.install._pick_per_instance_port",
+        lambda *_a, **_kw: 8642,
+    )
+
+    ok, err = lifecycle.configure_agent(
+        hostname="host-1",
+        claw_name="hermes",
+        config_data={
+            "provider": {
+                "name": "or",
+                "type": "openrouter",
+                "default_model": "model-x",
+            },
+            "api_server": {
+                "host": "127.0.0.1",
+                "port": 22,
+                "key": "a" * 64,
+            },
+        },
+        agent_name="alpha",
+    )
+    assert ok, f"configure_agent failed: {err}"
+
+    inv = hermes_configure_env.captured["inventory"]
+    pushed_port = inv["all"]["vars"]["config"]["api_server"]["port"]
+    assert 8600 <= pushed_port <= 8699, (
+        f"port {pushed_port!r} escaped the 8600..8699 validation window"
+    )
+    assert pushed_port != 22, "out-of-range port leaked into ansible_vars"
+
+
+def test_configure_agent_migrates_loopback_bind_to_wildcard(
+    hermes_configure_env, render_stores
+):
+    """W-NEW-2 (lifecycle.py:1856-1875). A persisted api_server.host of
+    '127.0.0.1' must be rewritten to '0.0.0.0' before reaching the
+    inventory, otherwise `clm chat <hermes>` from a non-loopback host
+    silently breaks."""
+    _seed_single_provider(render_stores, hermes_configure_env)
+    # Fixture already seeds host='127.0.0.1' on the agent record — explicit
+    # here for readability.
+    hermes_configure_env.host["agents"]["alpha"]["config"]["api_server"]["host"] = (
+        "127.0.0.1"
+    )
+
+    ok, err = lifecycle.configure_agent(
+        hostname="host-1",
+        claw_name="hermes",
+        config_data={
+            "provider": {
+                "name": "or",
+                "type": "openrouter",
+                "default_model": "model-x",
+            },
+            "api_server": {
+                "host": "127.0.0.1",
+                "port": 8642,
+                "key": "a" * 64,
+            },
+        },
+        agent_name="alpha",
+    )
+    assert ok, f"configure_agent failed: {err}"
+
+    inv = hermes_configure_env.captured["inventory"]
+    pushed_host = inv["all"]["vars"]["config"]["api_server"]["host"]
+    assert pushed_host == "0.0.0.0", (
+        f"loopback bind {pushed_host!r} not migrated to wildcard"
+    )
+
+
+def test_configure_agent_loopback_migration_is_idempotent(
+    hermes_configure_env, render_stores
+):
+    """W-NEW-2 idempotency case. After the first configure rewrites
+    host=0.0.0.0, a second configure with the rewritten record must
+    keep emitting 0.0.0.0 and must not error."""
+    _seed_single_provider(render_stores, hermes_configure_env)
+    # Simulate post-migration state: host already 0.0.0.0.
+    hermes_configure_env.host["agents"]["alpha"]["config"]["api_server"]["host"] = (
+        "0.0.0.0"
+    )
+
+    ok, err = lifecycle.configure_agent(
+        hostname="host-1",
+        claw_name="hermes",
+        config_data={
+            "provider": {
+                "name": "or",
+                "type": "openrouter",
+                "default_model": "model-x",
+            },
+            "api_server": {
+                "host": "0.0.0.0",
+                "port": 8642,
+                "key": "a" * 64,
+            },
+        },
+        agent_name="alpha",
+    )
+    assert ok, f"second configure failed: {err}"
+
+    inv = hermes_configure_env.captured["inventory"]
+    assert inv["all"]["vars"]["config"]["api_server"]["host"] == "0.0.0.0"
+
+
+def test_configure_agent_strips_api_server_key_from_persisted_hosts_json(
+    hermes_configure_env, render_stores, monkeypatch
+):
+    """W-NEW-3 (lifecycle.py:2527-2531). The bearer key flows through
+    config_data so the playbook can render it, but the canonical store
+    is secrets.json. The updater closure passed to update_host must
+    strip api_server.key before mutating hosts.json. A regression would
+    persist the bearer to disk on every configure, defeating the B3
+    secrets isolation."""
+    _seed_single_provider(render_stores, hermes_configure_env)
+    # Pre-migrate the fixture record so _migrate_bind at lifecycle.py:1875
+    # does NOT fire. Otherwise update_host is called twice (migration +
+    # main updater) and the bearer-strip closure we care about is the
+    # second one. Pinning host=0.0.0.0 keeps the call count at one and
+    # makes the test independent of call ordering. (ATX iter-1 W-NEW-3
+    # suggestion S1.)
+    hermes_configure_env.host["agents"]["alpha"]["config"]["api_server"]["host"] = (
+        "0.0.0.0"
+    )
+
+    update_host_calls: list[tuple[str, callable]] = []
+
+    def _capture_update_host(hostname, closure):
+        update_host_calls.append((hostname, closure))
+        return True
+
+    monkeypatch.setattr(lifecycle, "update_host", _capture_update_host)
+
+    ok, err = lifecycle.configure_agent(
+        hostname="host-1",
+        claw_name="hermes",
+        config_data={
+            "provider": {
+                "name": "or",
+                "type": "openrouter",
+                "default_model": "model-x",
+            },
+            "api_server": {
+                "host": "0.0.0.0",
+                "port": 8642,
+                "key": "deadbeef" * 8,
+            },
+        },
+        agent_name="alpha",
+    )
+    assert ok, f"configure_agent failed: {err}"
+    assert len(update_host_calls) == 1, (
+        f"expected exactly 1 update_host call (main persist), got "
+        f"{len(update_host_calls)}; migration path leaked an extra call."
+    )
+
+    # Apply the captured closure to a synthetic host shape and assert
+    # the bearer key is absent from the persisted api_server block.
+    _hostname, persist_closure = update_host_calls[0]
+    sample_host = {"hostname": "host-1", "agents": {"alpha": {"config": {}}}}
+    mutated = persist_closure(sample_host)
+    persisted_api_server = mutated["agents"]["alpha"]["config"]["api_server"]
+    assert "key" not in persisted_api_server, (
+        f"bearer key leaked into hosts.json: {persisted_api_server!r}"
+    )
+    # The non-secret fields must still be present so the next configure
+    # can read host/port from hosts.json.
+    assert "host" in persisted_api_server
+    assert "port" in persisted_api_server
+
+
+def test_configure_agent_hydrates_channel_tokens_via_hydrate_helper(
+    hermes_configure_env, render_stores
+):
+    """W-NEW-4 (lifecycle.py:1968-1990). When a hermes agent has
+    discord + slack channel names listed under `agent_record["channels"]`,
+    `_hydrate_channels_from_canonical` must read each via
+    `channels.get_channel` + `channels.get_channel_token` and write the
+    legacy shape `config_data["channels"][<type>]` so the configure
+    playbook + render_hermes can consume it. A regression in the helper
+    produces a silent broken-token deploy.
+
+    Pins BOTH paths the hydration sources feed into ansible_vars:
+      1. config_data["channels"]["discord"|"slack"] populated by the
+         helper directly (asserted on the captured inventory's `config`
+         dict).
+      2. Tokens reach the pre-rendered .env via render_hermes →
+         build_render_inputs (separately mocked via the existing
+         render_stores fixture).
+
+    The two-path assertion makes the test fail if either the helper OR
+    the render pipeline regresses — ATX iter-1 W-NEW-4 flagged that the
+    earlier single-path version (env-only) would have passed even if
+    `_hydrate_channels_from_canonical` were entirely removed.
+    """
+    _seed_single_provider(render_stores, hermes_configure_env)
+
+    # Attach the channel names to the agent record. `_hydrate_channels_from_canonical`
+    # reads from agent_record["channels"] directly (lifecycle.py:1679),
+    # not via get_agent_channels — that's the production contract.
+    hermes_configure_env.host["agents"]["alpha"]["channels"] = [
+        "primary-discord",
+        "ops-slack",
+    ]
+
+    # Discord BOT_TOKEN must be ≥ 50 chars to pass
+    # _hydrate_channels_from_canonical's prefix-length validation
+    # (lifecycle.py:1706). Production discord tokens are ~70-80 chars;
+    # the fixture's 64-char string mirrors that envelope.
+    discord_token = "discord-bot-token-" + ("x" * 50)
+    slack_bot = "xoxb-slack-bot-token-" + ("y" * 24)
+    slack_app = "xapp-slack-app-token-" + ("z" * 24)
+
+    # Seed render_stores once. The fixture's lambdas close over this
+    # dict so a mutation here is visible to BOTH the helper path
+    # (clawrium.core.channels.get_channel / get_channel_token, used by
+    # _hydrate_channels_from_canonical) AND the render path
+    # (build_render_inputs → get_agent_channels). No double-patching:
+    # the fixture's setattr at lines ~133-138 is the single binding.
+    # (ATX iter-2 test-coverage W3.)
+    render_stores["agent_channels"] = ["primary-discord", "ops-slack"]
+    render_stores["channels"]["primary-discord"] = {
+        "name": "primary-discord",
+        "type": "discord",
+        "enabled": True,
+        "config": {"allow_all_users": True},
+    }
+    render_stores["channels"]["ops-slack"] = {
+        "name": "ops-slack",
+        "type": "slack",
+        "enabled": True,
+        "config": {},
+    }
+    render_stores["channel_tokens"][("primary-discord", "BOT_TOKEN")] = discord_token
+    render_stores["channel_tokens"][("ops-slack", "BOT_TOKEN")] = slack_bot
+    render_stores["channel_tokens"][("ops-slack", "APP_TOKEN")] = slack_app
+
+
+    ok, err = lifecycle.configure_agent(
+        hostname="host-1",
+        claw_name="hermes",
+        config_data={
+            "provider": {
+                "name": "or",
+                "type": "openrouter",
+                "default_model": "model-x",
+            },
+            "api_server": {
+                "host": "127.0.0.1",
+                "port": 8642,
+                "key": "a" * 64,
+            },
+        },
+        agent_name="alpha",
+    )
+    assert ok, f"configure_agent failed: {err}"
+
+    inv = hermes_configure_env.captured["inventory"]
+    config = inv["all"]["vars"]["config"]
+    env_body = inv["all"]["vars"]["prerendered_hermes_env"]
+
+    # ── Path 1: _hydrate_channels_from_canonical populated config["channels"].
+    # If the helper regresses to a no-op, these assertions fail before
+    # we even look at the rendered env.
+    assert "channels" in config, (
+        "config.channels not populated by _hydrate_channels_from_canonical"
+    )
+    assert config["channels"]["discord"]["bot_token"] == discord_token, (
+        "discord bot_token not hydrated into config_data via helper"
+    )
+    assert config["channels"]["discord"]["enabled"] is True
+    assert config["channels"]["slack"]["bot_token"] == slack_bot, (
+        "slack bot_token not hydrated into config_data via helper"
+    )
+    assert config["channels"]["slack"]["app_token"] == slack_app, (
+        "slack app_token not hydrated into config_data via helper"
+    )
+
+    # ── Path 2: render_hermes received the channel tokens via
+    # build_render_inputs and wrote them into the pre-rendered .env.
+    assert f"DISCORD_BOT_TOKEN='{discord_token}'" in env_body, (
+        f"discord token missing from rendered .env:\n{env_body}"
+    )
+    assert f"SLACK_BOT_TOKEN='{slack_bot}'" in env_body, (
+        f"slack bot token missing from rendered .env:\n{env_body}"
+    )
+    assert f"SLACK_APP_TOKEN='{slack_app}'" in env_body, (
+        f"slack app token missing from rendered .env:\n{env_body}"
+    )
+
+
+def test_configure_agent_strips_channel_tokens_from_persisted_hosts_json(
+    hermes_configure_env, render_stores, monkeypatch
+):
+    """W-NEW-4 companion (lifecycle.py:2542-2568). Sibling invariant to
+    W-NEW-3: the B3 secret-isolation block in the updater closure must
+    strip `discord.bot_token`, `slack.bot_token`, and `slack.app_token`
+    before persisting to hosts.json. Without this strip, the tokens
+    roundtrip hydrated→persisted→re-hydrated and defeat the secrets.json
+    isolation contract. (ATX iter-2 test-coverage B1.)
+    """
+    _seed_single_provider(render_stores, hermes_configure_env)
+    # Pre-migrate the bind so _migrate_bind doesn't fire and inflate
+    # update_host's call count (same rationale as W-NEW-3).
+    hermes_configure_env.host["agents"]["alpha"]["config"]["api_server"]["host"] = (
+        "0.0.0.0"
+    )
+    # Attach both channel types so the strip branch exercises discord +
+    # slack pop paths.
+    hermes_configure_env.host["agents"]["alpha"]["channels"] = [
+        "primary-discord",
+        "ops-slack",
+    ]
+
+    discord_token = "discord-bot-token-" + ("x" * 50)
+    slack_bot = "xoxb-slack-bot-token-" + ("y" * 24)
+    slack_app = "xapp-slack-app-token-" + ("z" * 24)
+    render_stores["channels"]["primary-discord"] = {
+        "name": "primary-discord",
+        "type": "discord",
+        "enabled": True,
+        "config": {"allow_all_users": True},
+    }
+    render_stores["channels"]["ops-slack"] = {
+        "name": "ops-slack",
+        "type": "slack",
+        "enabled": True,
+        "config": {},
+    }
+    render_stores["channel_tokens"][("primary-discord", "BOT_TOKEN")] = discord_token
+    render_stores["channel_tokens"][("ops-slack", "BOT_TOKEN")] = slack_bot
+    render_stores["channel_tokens"][("ops-slack", "APP_TOKEN")] = slack_app
+    render_stores["agent_channels"] = ["primary-discord", "ops-slack"]
+
+    update_host_calls: list[tuple[str, callable]] = []
+
+    def _capture_update_host(hostname, closure):
+        update_host_calls.append((hostname, closure))
+        return True
+
+    monkeypatch.setattr(lifecycle, "update_host", _capture_update_host)
+
+    ok, err = lifecycle.configure_agent(
+        hostname="host-1",
+        claw_name="hermes",
+        config_data={
+            "provider": {
+                "name": "or",
+                "type": "openrouter",
+                "default_model": "model-x",
+            },
+            "api_server": {
+                "host": "0.0.0.0",
+                "port": 8642,
+                "key": "a" * 64,
+            },
+        },
+        agent_name="alpha",
+    )
+    assert ok, f"configure_agent failed: {err}"
+    assert len(update_host_calls) == 1
+
+    # Apply the captured closure to a synthetic host shape and assert
+    # every token is stripped while non-secret fields survive.
+    _hostname, persist_closure = update_host_calls[0]
+    sample_host = {"hostname": "host-1", "agents": {"alpha": {"config": {}}}}
+    mutated = persist_closure(sample_host)
+    persisted_channels = mutated["agents"]["alpha"]["config"]["channels"]
+
+    # Discord: bot_token stripped, enabled flag preserved.
+    assert "bot_token" not in persisted_channels["discord"], (
+        f"discord bot_token leaked into hosts.json: {persisted_channels['discord']!r}"
+    )
+    assert persisted_channels["discord"].get("enabled") is True
+    # Slack: bot_token + app_token stripped, enabled flag preserved.
+    assert "bot_token" not in persisted_channels["slack"], (
+        f"slack bot_token leaked into hosts.json: {persisted_channels['slack']!r}"
+    )
+    assert "app_token" not in persisted_channels["slack"], (
+        f"slack app_token leaked into hosts.json: {persisted_channels['slack']!r}"
+    )
+    assert persisted_channels["slack"].get("enabled") is True
+    # api_server.key strip continues to hold on the same closure call.
+    assert "key" not in mutated["agents"]["alpha"]["config"]["api_server"]

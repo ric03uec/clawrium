@@ -601,3 +601,95 @@ def test_no_legacy_template_tasks_for_hermes_config_or_env(
                 f"task '{task.get('name')}' still references deleted "
                 f"legacy template {needle}"
             )
+
+
+# ---------------------------------------------------------------------------
+# #625 W-NEW-5: structural pin tests for the post-deploy verification tasks
+# that the macOS playbook learned from configure.yaml:270-304. Parametrized
+# over BOTH playbooks so the Linux side is also pinned — these checks
+# silently breaking in either file produces silent broken-token deploys
+# (see #625 issue body for the user-facing impact). ATX iter-2 test-coverage
+# W2.
+# ---------------------------------------------------------------------------
+
+
+def _task_by_name(playbook_text: str, name: str) -> dict | None:
+    for task in _tasks(playbook_text):
+        if task.get("name") == name:
+            return task
+    return None
+
+
+def test_hermes_configure_verifies_api_server_key_in_env(
+    hermes_configure_playbook_text,
+):
+    """A grep -q '^API_SERVER_KEY=' check on the deployed .env must exist
+    so any future code path bypassing the Python prerender surfaces as
+    a clean Ansible failure rather than a silent broken-key deploy."""
+    task = _task_by_name(
+        hermes_configure_playbook_text, "Verify .env contains API_SERVER_KEY"
+    )
+    assert task is not None, "API_SERVER_KEY verification task missing"
+    cmd_block = task.get("ansible.builtin.command") or task.get("command")
+    assert isinstance(cmd_block, dict), "task must use ansible.builtin.command"
+    cmd = cmd_block.get("cmd", "")
+    assert "grep -q '^API_SERVER_KEY='" in cmd, (
+        f"API_SERVER_KEY grep pattern drifted: {cmd!r}"
+    )
+    # failed_when must fire on non-zero — otherwise the verification
+    # is decorative and the deploy silently succeeds on a missing key.
+    assert task.get("failed_when") == "api_server_key_check.rc != 0", (
+        f"failed_when guard drifted: {task.get('failed_when')!r}"
+    )
+
+
+def test_hermes_configure_verifies_discord_bot_token_when_enabled(
+    hermes_configure_playbook_text,
+):
+    """DISCORD_BOT_TOKEN check must be gated on
+    `config.channels.discord.enabled` and must use grep to assert the
+    key landed in .env. The when-condition is the critical pin — if it
+    drifts (e.g., dropping the enabled guard), the verification still
+    runs on non-Discord agents and fails every configure spuriously;
+    if the enabled clause is dropped from the gate, a broken-token
+    Discord deploy silently succeeds."""
+    task = _task_by_name(
+        hermes_configure_playbook_text,
+        "Verify .env contains DISCORD_BOT_TOKEN when Discord enabled",
+    )
+    assert task is not None, "DISCORD_BOT_TOKEN verification task missing"
+    cmd_block = task.get("ansible.builtin.command") or task.get("command")
+    assert isinstance(cmd_block, dict)
+    assert "grep -q '^DISCORD_BOT_TOKEN='" in cmd_block.get("cmd", "")
+    when = task.get("when")
+    assert isinstance(when, list), f"when must be a list, got {type(when).__name__}"
+    when_str = " ".join(str(c) for c in when)
+    assert "config.channels is defined" in when_str
+    assert "config.channels.discord is defined" in when_str
+    assert "config.channels.discord.enabled" in when_str
+
+
+def test_hermes_configure_verifies_discord_allowlist_when_enabled(
+    hermes_configure_playbook_text,
+):
+    """The allowlist guard is hermes' hard gate against unbounded
+    Discord ingress — without it hermes denies every message. The
+    verification's grep regex must accept either
+    `DISCORD_ALLOWED_USERS=<non-empty>` or `DISCORD_ALLOW_ALL_USERS=true`,
+    and the same when: triple must gate it (otherwise a non-Discord
+    agent fails configure spuriously)."""
+    task = _task_by_name(
+        hermes_configure_playbook_text,
+        "Verify .env declares Discord user allowlist when Discord enabled",
+    )
+    assert task is not None, "Discord allowlist verification task missing"
+    cmd_block = task.get("ansible.builtin.command") or task.get("command")
+    assert isinstance(cmd_block, dict)
+    cmd = cmd_block.get("cmd", "")
+    # The regex must allow either bounded allowlist or allow-all.
+    assert "DISCORD_ALLOWED_USERS=.+" in cmd
+    assert "DISCORD_ALLOW_ALL_USERS=true" in cmd
+    when = task.get("when")
+    assert isinstance(when, list)
+    when_str = " ".join(str(c) for c in when)
+    assert "config.channels.discord.enabled" in when_str

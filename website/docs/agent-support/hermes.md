@@ -60,7 +60,7 @@ Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible 
 | Feature | Status | Notes |
 |---------|:------:|-------|
 | **Local API server** | ✅ | `API_SERVER_ENABLED=1` + `API_SERVER_KEY` in `~/.hermes/.env`, bound to `127.0.0.1:8642` |
-| **Multi-provider** | ✅ | openrouter, anthropic, openai, ollama / custom |
+| **Multi-provider** | ✅ | Up to **10 attachments per agent**: 1 `primary` slot + 9 upstream auxiliary slots (`vision`, `web_extract`, `compression`, `session_search`, `skills_hub`, `approval`, `mcp`, `title_generation`, `curator`). One provider per slot. See [Multi-provider attachments](#multi-provider-attachments). |
 | **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). See [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md). |
 | **Pluggable memory backends** (Holographic / Honcho / Hindsight / Mem0 / Byterover / OpenViking) | 📋 | Deferred. clawctl's `memory` CLI sees only the default markdown backend in this iteration. |
 | **Secrets management** | ✅ | `HERMES_API_SERVER_KEY` persisted in `~/.config/clawrium/secrets.json` (NOT `hosts.json`) under the canonical instance key `<host>:hermes:<agent-name>` (single-colon, 3 components). `secrets.json` is chmod 0600 on creation. Per-agent secrets are isolated by instance key. |
@@ -149,6 +149,68 @@ Hermes deep-merges `config.yaml` with its built-in defaults at load time, so onl
 | `bedrock` | `bedrock` | (omitted; hermes uses boto3 credential chain) | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + `AWS_DEFAULT_REGION` |
 
 After `.env` write, the restart handler enables and starts the systemd unit. The configure playbook probes `http://127.0.0.1:8642/health` with `retries: 20, delay: 3` (≈60s max). `/health` is unauthenticated; `/v1/*` requires the bearer header.
+
+### Multi-provider attachments
+
+Hermes is the only agent type in clawrium that accepts more than one provider attachment. Each hermes agent supports **up to 10 attachments**:
+
+| Slot | Role | Purpose |
+|------|------|---------|
+| 1 | `primary` | The main inference model. Required — the first attachment on a hermes agent **must** use `--role primary`. |
+| 2 | `vision` | Image / multimodal input handling. |
+| 3 | `web_extract` | Extracting structured content from fetched web pages. |
+| 4 | `compression` | Summarising / compressing long context windows. |
+| 5 | `session_search` | Semantic search across past sessions. |
+| 6 | `skills_hub` | Skill discovery and routing. |
+| 7 | `approval` | Action / tool-call approval gating. |
+| 8 | `mcp` | MCP server routing. |
+| 9 | `title_generation` | Generating session / transcript titles. |
+| 10 | `curator` | Memory curation / pruning. |
+
+The slot list comes from upstream `NousResearch/hermes-agent` (`hermes_cli/config.py`) and is mirrored in `src/clawrium/core/provider_attachments.py:AUXILIARY_SLOTS`. `zeroclaw`, `openclaw`, and `nemoclaw` reject `--role` and continue to enforce the single-provider invariant.
+
+#### Attach a primary and an auxiliary
+
+```bash
+# 1. Register the providers (one-time, fleet-wide)
+clawctl provider registry create my-openrouter --type openrouter --api-key <...>
+clawctl provider registry create my-anthropic-haiku --type anthropic --api-key <...>
+
+# 2. Attach them to the agent with explicit roles
+clawctl agent provider attach my-openrouter      --agent <agent-name> --role primary
+clawctl agent provider attach my-anthropic-haiku --agent <agent-name> --role title_generation
+
+# 3. Materialise on the agent host
+clawctl agent sync <agent-name>
+```
+
+#### Invariants
+
+- **`--role` is required on hermes.** Omitting it returns: _"agent '<name>' is a hermes agent; --role is required"_.
+- **One provider per slot.** Re-attaching a different provider to a slot that is already filled is rejected; detach the existing one first.
+- **Primary is required and detached last.** `clawctl agent provider detach <primary-name>` refuses to remove the primary attachment while any auxiliary attachments remain — detach the auxiliaries first. An agent with zero attachments fails to render (`agent '<name>' has no provider attached`).
+- **Same-type collisions fail loudly.** Two attachments of the same provider type (e.g. two `bedrock` slots) with mismatched credentials are rejected at render time rather than silently overwriting the `.env`.
+
+#### Rendered output for multi-provider
+
+With two attachments on an openrouter primary, `~/.hermes/config.yaml` renders as:
+
+```yaml
+model:
+  provider: "openrouter"
+  base_url: "https://openrouter.ai/api/v1"
+  default: "<primary-model>"
+auxiliary:
+  title_generation:
+    provider: "anthropic"
+    model: "claude-haiku-4-5-20251001"
+```
+
+`~/.hermes/.env` carries the bearer key for every cloud-provider attachment (the AWS triple for bedrock). The `ollama` / `custom` provider type does not emit an auxiliary block by itself — local primary models are not paired with a remote aux pin by default; explicit auxiliary attachments are still honoured.
+
+When no auxiliary is attached, the renderer falls back to the upstream per-primary-type default for `title_generation` (e.g. `anthropic/claude-haiku-4.5` for openrouter primaries). The fallback is hermes' own behaviour, not a clawctl invention.
+
+`clawctl agent provider get <agent-name>` renders the `role` and `model` columns for hermes; the legacy flat output is preserved for single-provider agent types.
 
 ### 3. Use the local OpenAI-compatible API
 

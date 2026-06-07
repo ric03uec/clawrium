@@ -186,11 +186,18 @@ macOS user (`/Users/<agent_name>/`), and runs the upstream installer:
 Configure, start, chat — same commands as Linux:
 
 ```bash
-clawctl agent provider attach <provider> --agent <name>
+# On hermes, --role is required (use `primary` for the first attachment;
+# auxiliary slots: vision, web_extract, compression, session_search,
+# skills_hub, approval, mcp, title_generation, curator). On openclaw,
+# omit --role — only one provider per agent is permitted.
+clawctl agent provider attach <provider> --agent <name> [--role primary]
 clawctl agent configure <name> --stage providers --provider <provider>
 clawctl agent start <name>
 clawctl agent chat <name>
 ```
+
+For the full hermes multi-provider model (1 primary + up to 9 auxiliary
+slots), see [Hermes Support Matrix → Multi-provider attachments](agent-support/hermes.md#multi-provider-attachments).
 
 ### Lifecycle differences
 

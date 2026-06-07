@@ -84,3 +84,15 @@ release.
   to dev-only fails CI. (#620)
 
 ### Documentation
+
+- Documented the hermes multi-provider attachment model in the
+  Hermes Support Matrix (`docs/agent-support/hermes.md` and its
+  website mirror): the 1 `primary` + 9 auxiliary slot enumeration,
+  the `clawctl agent provider attach --role <role>` workflow, the
+  per-slot single-provider invariant, the primary-detached-last
+  invariant, and the rendered `auxiliary.<role>:` shape. The macOS
+  install walkthrough (`docs/installation.md` + website mirror)
+  now shows `--role` in the `provider attach` example and links to
+  the new section. Closes documentation drift identified after
+  #612 / #621 / #622 landed multi-provider support in the CLI
+  without updating user-facing docs.
