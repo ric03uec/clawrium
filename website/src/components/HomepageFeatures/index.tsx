@@ -110,9 +110,9 @@ function BeforeAfterSection(): ReactNode {
           <div className={clsx('col col--6', styles.beforeAfterCol)}>
             <Heading as="h3">After: One CLI, all agents</Heading>
             <pre className={styles.asciiDiagram}>
-{`You (laptop + clm CLI)
+{`You (laptop + clawctl CLI)
     │
-    └── clm ────┬── pi-lab ───> openclaw
+    └── clawctl ┬── pi-lab ───> openclaw
                 │
                 ├── nuc-01 ───> openclaw
                 │
@@ -127,7 +127,7 @@ function BeforeAfterSection(): ReactNode {
         <div className={styles.clmPsOutput}>
           <Heading as="h4" className="text--center">See your entire fleet with one command:</Heading>
           <pre className={styles.terminalOutput}>
-{`$ clm ps
+{`$ clawctl agent get
 
 HOST        AGENT          TYPE       STATUS    UPTIME
 ─────────────────────────────────────────────────────────

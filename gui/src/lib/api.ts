@@ -18,6 +18,13 @@ async function request<T>(
     throw new Error(`API error ${res.status}: ${body}`);
   }
 
+  // 204 No Content (e.g. DELETE /api/skills/local/{name}) has no body —
+  // calling res.json() throws SyntaxError. Return null for 204.
+  // (ATX #411 B2.)
+  if (res.status === 204) {
+    return null as T;
+  }
+
   return res.json();
 }
 

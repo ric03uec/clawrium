@@ -495,21 +495,59 @@ def _install_or_remove(
     resolved = _resolve_agent(agent_key)
     if not resolved:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
-    _host_record, _agent_type, agent_record = resolved
+    _host_record, agent_type, agent_record = resolved
     agent_name = agent_record.get("agent_name") or agent_key
 
     raw_ref = f"{registry}/{skill}"
+    # ATX #411 B3: capture prior state and pre-flight ref + claw before any
+    # state-file mutation, then roll back the state file on apply failure.
+    # Without this, a failed apply leaves skills.json claiming a skill is
+    # installed (install path) or removed (detach path) when the host
+    # didn't converge — same bug the CLI explicitly avoids.
     try:
-        # add_skill / remove_skill both call parse_skill_ref as their
-        # first operation, so a malformed ref short-circuits with 422
-        # before any state mutation. (W4: dropped the redundant pre-call
-        # that ATX flagged as dead code.)
+        ref = parse_skill_ref(raw_ref)
+        if action == "install":
+            check_claw_supported(agent_type)
+            load_skill(ref)
+    except SkillError as error:
+        raise HTTPException(
+            status_code=_skill_error_status(error),
+            detail=_skill_error_detail(error),
+        ) from error
+
+    try:
+        prior_state = read_state(agent_name)
+    except SkillError as error:
+        raise HTTPException(
+            status_code=_skill_error_status(error),
+            detail=_skill_error_detail(error),
+        ) from error
+
+    try:
         if action == "install":
             _new_state, changed = add_skill(agent_name, raw_ref)
         else:
             _new_state, changed = remove_skill(agent_name, raw_ref)
+    except SkillError as error:
+        raise HTTPException(
+            status_code=_skill_error_status(error),
+            detail=_skill_error_detail(error),
+        ) from error
+
+    try:
         result = apply_state(agent_name)
     except SkillError as error:
+        # Restore prior state — host did not converge.
+        try:
+            from clawrium.core.skills_state import write_state
+
+            write_state(agent_name, prior_state)
+        except Exception as rollback_error:
+            logger.warning(
+                "Rollback of %s state failed after apply error: %s",
+                agent_name,
+                rollback_error,
+            )
         raise HTTPException(
             status_code=_skill_error_status(error),
             detail=_skill_error_detail(error),

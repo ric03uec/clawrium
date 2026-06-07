@@ -16,6 +16,7 @@ from typing import Any, Optional
 import typer
 import yaml
 
+from clawrium.cli.chat import _CONTROL_AND_BIDI_RE
 from clawrium.cli.clawctl._common import OutputFormat, parse_kv_labels
 from clawrium.cli.output import (
     dump_json,
@@ -206,8 +207,12 @@ def show_command(
     if skill.body:
         typer.echo("")
         typer.echo("Body:")
+        # Sanitize each line: SKILL.md content is author-supplied and could
+        # carry U+202E (RTLO) or other bidi/control codepoints that would
+        # otherwise reach the terminal verbatim (ATX #411 B1).
         for line in skill.body.splitlines():
-            typer.echo(f"  {line}")
+            safe = _CONTROL_AND_BIDI_RE.sub(" ", line)
+            typer.echo(f"  {safe}")
 
 
 def _parse_frontmatter_file(path: Path) -> tuple[dict[str, Any], str]:
