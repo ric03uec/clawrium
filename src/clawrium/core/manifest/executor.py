@@ -67,8 +67,10 @@ def execute_apply(
         agent_res = agent_by_name.get(op.name)
         if not agent_res:
             continue
+        # Resolve spec.host alias to actual hostname via actual state
+        hostname = _resolve_hostname(agent_res.spec.host, actual)
         emit("install", f"agent/{op.name}")
-        err = _install_agent(agent_res, emit=emit)
+        err = _install_agent(agent_res, hostname=hostname, emit=emit)
         if err:
             errors.append(f"agent/{op.name}: {err}")
 
@@ -77,32 +79,36 @@ def execute_apply(
         if op.kind != "agent":
             continue
         agent_res = agent_by_name.get(op.name)
-        if not agent_res:
+        actual_agent = actual.agents.get(op.name)
+        if not agent_res or not actual_agent:
             continue
         emit("upgrade", f"agent/{op.name}  ({op.details})")
-        err = _upgrade_agent(agent_res, emit=emit)
+        err = _upgrade_agent(agent_res, hostname=actual_agent.host, emit=emit)
         if err:
             errors.append(f"agent/{op.name}: {err}")
 
     # 4. Configure provider attachments (new and updated agents)
     provider_attaches = [a for a in cs.attaches if a.resource_kind == "provider"]
     for aop in provider_attaches:
+        actual_agent = actual.agents.get(aop.agent)
         emit("configure", f"agent/{aop.agent}  provider {aop.resource_name!r}")
-        err = _configure_provider(aop.agent, aop.resource_name)
+        err = _configure_provider(aop.agent, aop.resource_name, actual_agent)
         if err:
             errors.append(f"agent/{aop.agent}: {err}")
 
     # 5. Start new agents
     for name in cs.starts:
+        actual_agent = actual.agents.get(name)
         emit("start", f"agent/{name}")
-        err = _start_agent(name)
+        err = _start_agent(name, actual_agent)
         if err:
             errors.append(f"agent/{name}: {err}")
 
     # 6. Restart agents after upgrade
     for name in cs.restarts:
+        actual_agent = actual.agents.get(name)
         emit("restart", f"agent/{name}")
-        err = _restart_agent(name)
+        err = _restart_agent(name, actual_agent)
         if err:
             errors.append(f"agent/{name}: {err}")
 
@@ -124,13 +130,14 @@ def execute_delete(
     for op in cs.deletes:
         if op.kind != "agent":
             continue
+        actual_agent = actual.agents.get(op.name)
         emit("stop", f"agent/{op.name}")
-        err = _stop_agent(op.name)
+        err = _stop_agent(op.name, actual_agent)
         if err:
             errors.append(f"agent/{op.name} (stop): {err}")
 
         emit("delete", f"agent/{op.name}")
-        err = _remove_agent(op.name)
+        err = _remove_agent(op.name, actual_agent)
         if err:
             errors.append(f"agent/{op.name} (delete): {err}")
 
@@ -220,19 +227,28 @@ def _remove_provider(name: str) -> str | None:
     return None
 
 
+# ── internal: helpers ─────────────────────────────────────────────────────────
+
+def _resolve_hostname(spec_host: str, actual: ActualState) -> str:
+    """Resolve a manifest host name/alias to the actual hostname stored in hosts.json."""
+    host_record = actual.hosts.get(spec_host)
+    if host_record:
+        return host_record["hostname"]
+    return spec_host  # may already be the real hostname/IP
+
+
 # ── internal: agent ───────────────────────────────────────────────────────────
 
-def _install_agent(agent_res, emit: Emit) -> str | None:
+def _install_agent(agent_res, hostname: str, emit: Emit) -> str | None:
     from clawrium.core.install import InstallationError, run_installation
 
-    host = agent_res.spec.host
-    if not host:
+    if not hostname:
         return "agent has no host specified"
 
     try:
         run_installation(
             claw_name=agent_res.spec.type,
-            hostname=host,
+            hostname=hostname,
             name=agent_res.metadata.name,
             on_event=lambda stage, msg: emit(stage, f"agent/{agent_res.metadata.name}: {msg}"),
             version_override=agent_res.spec.version,
@@ -244,15 +260,15 @@ def _install_agent(agent_res, emit: Emit) -> str | None:
     return None
 
 
-def _upgrade_agent(agent_res, emit: Emit) -> str | None:
+def _upgrade_agent(agent_res, hostname: str, emit: Emit) -> str | None:
     from clawrium.core.install import InstallationError, run_installation
 
-    if not agent_res.spec.host:
+    if not hostname:
         return "agent has no host specified"
     try:
         run_installation(
             claw_name=agent_res.spec.type,
-            hostname=agent_res.spec.host,
+            hostname=hostname,
             name=agent_res.metadata.name,
             on_event=lambda stage, msg: emit(stage, f"agent/{agent_res.metadata.name}: {msg}"),
             version_override=agent_res.spec.version,
@@ -265,11 +281,19 @@ def _upgrade_agent(agent_res, emit: Emit) -> str | None:
     return None
 
 
-def _restart_agent(name: str) -> str | None:
+def _restart_agent(name: str, actual_agent) -> str | None:
     from clawrium.core.lifecycle import LifecycleError, restart_agent
 
+    if not actual_agent:
+        return f"agent '{name}' not found in fleet state; cannot restart"
     try:
-        restart_agent(name)
+        result = restart_agent(
+            hostname=actual_agent.host,
+            claw_name=actual_agent.type,
+            agent_name=name,
+        )
+        if not result["success"]:
+            return result.get("error") or "unknown error"
     except LifecycleError as exc:
         return str(exc)
     except Exception as exc:
@@ -277,11 +301,21 @@ def _restart_agent(name: str) -> str | None:
     return None
 
 
-def _configure_provider(agent_name: str, provider_name: str) -> str | None:
+def _configure_provider(agent_name: str, provider_name: str, actual_agent) -> str | None:
+    """Attach a provider to an agent via configure playbook."""
     from clawrium.core.lifecycle import LifecycleError, configure_agent
 
+    if not actual_agent:
+        return f"agent '{agent_name}' not found in fleet state; cannot configure"
     try:
-        configure_agent(agent_name, stage="providers", provider_name=provider_name)
+        ok, err = configure_agent(
+            hostname=actual_agent.host,
+            claw_name=actual_agent.type,
+            config_data={"providers": [provider_name]},
+            agent_name=agent_name,
+        )
+        if not ok:
+            return err
     except LifecycleError as exc:
         return str(exc)
     except Exception as exc:
@@ -289,11 +323,19 @@ def _configure_provider(agent_name: str, provider_name: str) -> str | None:
     return None
 
 
-def _start_agent(name: str) -> str | None:
+def _start_agent(name: str, actual_agent) -> str | None:
     from clawrium.core.lifecycle import LifecycleError, start_agent
 
+    if not actual_agent:
+        return f"agent '{name}' not found in fleet state; cannot start"
     try:
-        start_agent(name)
+        result = start_agent(
+            hostname=actual_agent.host,
+            claw_name=actual_agent.type,
+            agent_name=name,
+        )
+        if not result["success"]:
+            return result.get("error") or "unknown error"
     except LifecycleError as exc:
         return str(exc)
     except Exception as exc:
@@ -301,11 +343,19 @@ def _start_agent(name: str) -> str | None:
     return None
 
 
-def _stop_agent(name: str) -> str | None:
+def _stop_agent(name: str, actual_agent) -> str | None:
     from clawrium.core.lifecycle import LifecycleError, stop_agent
 
+    if not actual_agent:
+        return f"agent '{name}' not found in fleet state; cannot stop"
     try:
-        stop_agent(name)
+        result = stop_agent(
+            hostname=actual_agent.host,
+            claw_name=actual_agent.type,
+            agent_name=name,
+        )
+        if not result["success"]:
+            return result.get("error") or "unknown error"
     except LifecycleError as exc:
         return str(exc)
     except Exception as exc:
@@ -313,11 +363,19 @@ def _stop_agent(name: str) -> str | None:
     return None
 
 
-def _remove_agent(name: str) -> str | None:
+def _remove_agent(name: str, actual_agent) -> str | None:
     from clawrium.core.lifecycle import LifecycleError, remove_agent
 
+    if not actual_agent:
+        return f"agent '{name}' not found in fleet state; cannot remove"
     try:
-        remove_agent(name)
+        result = remove_agent(
+            hostname=actual_agent.host,
+            claw_name=actual_agent.type,
+            agent_name=name,
+        )
+        if not result["success"]:
+            return result.get("error") or "unknown error"
     except LifecycleError as exc:
         return str(exc)
     except Exception as exc:
