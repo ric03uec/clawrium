@@ -1,146 +1,141 @@
-# Authoring a `clawrium/` skill
+# Authoring a vetted skill
 
-Use the `clawrium/` registry when the same behaviour should be available
-on every kind of claw (openclaw, hermes, zeroclaw). The skill is
-authored once in a normalized `_meta.yaml` shape; the per-claw apply
-playbooks materialize the right native frontmatter at install time.
+A **vetted** skill ships in the clawrium repo at
+`skills/vetted/<name>/SKILL.md` and gets bundled into the wheel. Every
+agent in the fleet can attach it.
 
-This guide walks through adding a new `clawrium/<name>/` skill end to
-end. The CI validator (`scripts/validate_skills.py`) is the contract —
-if your skill passes validation locally, it will pass in CI.
+Vetted skills follow the same on-disk format as **local** skills (see
+`docs/skills/index.md`). The only difference is location and
+governance: vetted lives in-repo and goes through PR review.
+
+The CI validator (`scripts/validate_skills.py`) is the contract — if
+your skill passes locally, it passes in CI.
 
 ## 1. Pick a name
 
-The `<name>` is a lowercase slug (hyphens and underscores both
-allowed). Slug rule (enforced by the validator and by
-`parse_skill_ref`):
+The `<name>` is a lowercase slug:
 
 ```
 ^[a-z0-9][a-z0-9_-]*$
 ```
 
-The directory name and `_meta.yaml`'s `name:` field MUST be identical.
-This invariant is required for zeroclaw's `skills install`/`remove`
-semantics (the source-dirname is what the native CLI uses on disk —
-see `.itx/364/02_PHASE0_FINDINGS.md`).
+The directory name and the SKILL.md frontmatter `name:` field MUST be
+identical. Names are also **globally unique** across `vetted/` and
+`local/` — a vetted skill cannot share a name with any user's local
+skill.
 
 ## 2. Create the directory
 
 ```
-skills/clawrium/<name>/
-├── _meta.yaml      # required — validated against clawrium.schema.json
-├── SKILL.md        # required — canonical content shipped to every claw
-└── README.md       # optional — human-facing rationale, links
+skills/vetted/<name>/
+  SKILL.md
 ```
 
-## 3. Author `_meta.yaml`
+That's the entire layout. No separate metadata file, no per-claw
+subdirectories. The skill is one self-contained markdown file.
 
-The normalized shape:
+## 3. Write SKILL.md
 
-```yaml
-# skills/clawrium/<name>/_meta.yaml
-name: <name>              # MUST equal the directory name
-description: >-
-  One-line elevator pitch. Surfaces in `clawctl skill registry get` and the GUI.
-version: 0.1.0            # semver (jsonschema-enforced)
-license: MIT              # optional, surfaces in hermes metadata
-author: clawrium          # optional
-platforms: [linux, macos] # optional; informational
-
-# Required. Maps each claw type to whether this skill can run there.
-# `false` makes the install fail closed on that claw, even though
-# clawrium/* is otherwise installable on any agent type.
-compatibility:
-  openclaw: true
-  hermes: true
-  zeroclaw: true
-
-# Optional. Per-claw frontmatter overrides merged verbatim into the
-# native SKILL.md on install. Use this for claw-specific metadata
-# that doesn't belong in the cross-agent normalized shape.
-native:
-  hermes:
-    metadata:
-      hermes:
-        tags: [tdd, testing, discipline]
-  openclaw: {}
-  zeroclaw: {}
-
-# Optional. Surfaced to each claw's runtime so it can warn the user
-# about a missing executable or env var before the skill runs.
-prerequisites:
-  commands: []
-  env: []
-```
-
-Validated against `skills/_schema/clawrium.schema.json`. Unknown
-top-level keys are rejected (`additionalProperties: false`).
-
-## 4. Author `SKILL.md`
-
-The SKILL.md is the canonical content the agent sees. The frontmatter
-at the top of this file is **not** the source of truth — the apply
-playbook re-renders frontmatter from `_meta.yaml` for each claw, and
-the validator does not enforce SKILL.md frontmatter under `clawrium/`.
-By convention, include `name:` and `description:` so the file is
-readable standalone, but the body is what matters:
+`SKILL.md` is a markdown file with YAML frontmatter in the
+[agentskills.io](https://agentskills.io) standard format:
 
 ```markdown
 ---
-name: <name>
-description: One-line elevator pitch.
+name: my-skill
+description: One-line description shown in `clawctl skill list`.
+version: 0.1.0
+author: clawrium
+license: MIT
+tags: [example, docs]
 ---
 
-# Skill body
+# My Skill
 
-Markdown prose, examples, and any inline tool-use hints the claw should
-read at runtime.
+The body is whatever instructions the agent needs at runtime.
+Be concrete: list the steps, the inputs, the expected outputs.
+
+## When to use
+
+…
+
+## Procedure
+
+1. …
+2. …
 ```
+
+### Required frontmatter fields
+
+- `name` — must equal the directory slug.
+- `description` — one short line.
+
+### Optional frontmatter fields
+
+- `version` (semver-like string)
+- `license`
+- `author`
+- `tags` (list of strings)
+- `platforms` (list of strings, e.g. `["linux", "darwin"]`)
+- `prerequisites` (free-form mapping)
+- `metadata` (free-form mapping for skill-specific extras)
+
+## 4. Per-claw materialization
+
+At install time, `materialize_for_claw` (in
+`src/clawrium/core/skills.py`) passes the frontmatter through verbatim
+and dispatches to the per-claw apply playbook. There is currently no
+per-claw shape translation — the agentskills format is what lands on
+disk on the agent host.
+
+Per-claw support is gated by the hardcoded
+`SUPPORTED_CLAWS_BY_DEFAULT` table:
+
+```python
+SUPPORTED_CLAWS_BY_DEFAULT = {
+    "hermes":   True,
+    "openclaw": False,  # follow-up issue
+    "zeroclaw": False,  # follow-up issue
+}
+```
+
+A skill attached to an unsupported claw type raises
+`ClawNotSupported`. You don't declare compatibility per-skill — the
+table is global.
 
 ## 5. Validate locally
 
 ```bash
-python scripts/validate_skills.py
+make lint
+uv run pytest tests/test_vetted_skills_schema.py tests/test_validate_skills_script.py
 ```
 
-Expected output on success:
+The validator checks:
 
-```
-ok: skills catalog at .../skills validates
-```
+- Schema compliance (`skills/_schema/agent-skill.schema.json`).
+- `name` matches the directory slug.
+- No name collision with another vetted skill.
 
-If the validator reports a failure, it prints the file path and the
-specific rule violated. Common ones:
+## 6. Open a PR
 
-| Failure message                          | Fix                                       |
-|------------------------------------------|-------------------------------------------|
-| `must equal directory name`              | Make `_meta.yaml.name` match the dirname  |
-| `missing required _meta.yaml`            | Add the file (clawrium skills require it) |
-| `missing required SKILL.md`              | Add the file alongside `_meta.yaml`       |
-| `failed Clawrium normalized skill (_meta.yaml) validation` | Read the per-field message; usually a typo or wrong type |
-| `violates the slug rule`                 | Rename the directory to lowercase letters, digits, `-`, `_` |
+Open a PR with the new `skills/vetted/<name>/SKILL.md`. CI runs the
+same validator. Once merged, the next clawrium release bundles your
+skill in the wheel and every user gets it on `uv tool upgrade`.
 
-Then run the test suite:
+## Editing an existing vetted skill
+
+- The `name` is immutable. To rename, delete the directory in one PR
+  and add the new name in a separate (or same) PR. There is no
+  `git mv` shortcut at the catalog layer — the desired-state file on
+  every agent references the old name and will be invalidated.
+- Any field other than `name` can be edited freely.
+
+## Local-source authoring (no PR)
+
+If your skill is one-off or experimental, author it as a **local**
+skill instead — no PR required:
 
 ```bash
-make test
+clawctl skill add local/my-skill --description "..." --body-file ./body.md
 ```
 
-## 6. Smoke-test against a real claw
-
-A clawrium-authored skill is only "done" when it installs and runs on
-every claw it claims compatibility with. From a checkout pointing at
-your dev fleet:
-
-```bash
-clawctl agent skill attach <openclaw-agent> clawrium/<name>
-clawctl agent skill attach <hermes-agent>   clawrium/<name>
-clawctl agent skill attach <zeroclaw-agent> clawrium/<name>
-```
-
-Confirm each agent's native `skills list` shows the new skill.
-
-## 7. Open the PR
-
-CI runs the same validator and the fixture-based unit tests. If both
-pass and a maintainer reviews, the skill ships in the next release.
+See `docs/skills/index.md` for the local-source workflow.

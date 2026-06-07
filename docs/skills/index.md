@@ -2,211 +2,127 @@
 
 <!--
   Repo-rooted docs live in docs/skills/. The user-facing site mirror
-  lives at website/docs/skills/ and is a condensed variant: the two
-  trees are kept semantically in sync but are not structurally
-  identical (this file → intro.md; authoring-clawrium.md +
-  authoring-native.md → authoring.md). Update both when changing
-  catalog rules.
+  lives at website/docs/skills/ and is kept semantically in sync.
+  Update both when changing catalog rules.
 -->
 
 Clawrium ships a curated catalog of **skills** that any agent in your
-fleet can install with one command. A skill is a directory of
-behaviour-shaping prompts and metadata that the underlying claw
-discovers at runtime — Test-Driven Development discipline, code-review
-guardrails, security-audit playbooks, and so on.
+fleet can install with one command. A skill is a directory containing
+a single `SKILL.md` file (YAML frontmatter + markdown body in the
+[agentskills.io](https://agentskills.io) standard format) that the
+underlying claw discovers at runtime — Test-Driven Development
+discipline, blog drafting, issue triage, and so on.
 
-Skills are sourced **only** from the in-repo `skills/` tree. There is no
-URL install, no arbitrary path install, no third-party registry. The
-catalog is the source of truth, and CI gates every change against a
-dual-schema validator (see [Authoring guides](#authoring) below).
+Skills come from one of two **sources**:
+
+- **vetted** — shipped in the clawrium repo at `skills/vetted/<name>/`.
+  Read-only at runtime. Changes go through PR review.
+- **local** — user-owned, stored at `~/.config/clawrium/skills/<name>/`.
+  Created/edited/deleted via `clawctl skill add|edit|remove` or the
+  GUI catalog page.
+
+Skill names are **globally unique** across both sources — you cannot
+have both `vetted/tdd` and `local/tdd`. Name is also immutable; rename
+= delete + re-create.
 
 ## Quick start
 
 ```bash
-# Browse the catalog
-clawctl skill registry get
+# Browse the unified catalog
+clawctl skill list
 
 # Inspect a skill before installing
-clawctl skill registry describe clawrium/tdd
+clawctl skill show vetted/tdd
 
-# Install onto an agent
-clawctl agent skill attach my-agent clawrium/tdd
+# Create a local skill
+clawctl skill add local/my-skill --description "..." --body-file ./body.md
 
-# List skills installed on an agent
+# Edit a local skill (name cannot change)
+clawctl skill edit local/my-skill --description "new desc"
+
+# Delete a local skill
+clawctl skill remove local/my-skill
+
+# Attach to an agent
+clawctl agent skill attach vetted/tdd --agent my-agent
+clawctl agent skill attach local/my-skill --agent my-agent
+
+# List skills attached to an agent
 clawctl agent skill get --agent my-agent
 
-# Remove a skill
-clawctl agent skill detach my-agent clawrium/tdd
+# Detach
+clawctl agent skill detach vetted/tdd --agent my-agent
 ```
 
-The GUI mirrors the same surface under `Agents → <agent> → Skills`
-and a top-level `Skills` catalog page.
+The GUI mirrors the same surface under `Skills` (flat list with a
+`+ Create Skill` button) and `Agents → <agent> → Skills` (install
+picker).
 
-## Registries
+## Per-claw support (v1)
 
-The catalog is split into four **registries** (namespaces). The split
-determines which agents can install a given skill and which JSON schema
-its descriptor is validated against.
+Skill attach is gated on a hardcoded per-claw support table:
 
-| Registry   | Install target          | Schema                            |
-|------------|-------------------------|-----------------------------------|
-| `clawrium` | any agent type          | `_schema/clawrium.schema.json`    |
-| `openclaw` | only `openclaw` agents  | `_schema/native/openclaw.schema.json` |
-| `hermes`   | only `hermes` agents    | `_schema/native/hermes.schema.json`   |
-| `zeroclaw` | only `zeroclaw` agents  | `_schema/native/zeroclaw.schema.json` |
+| Claw type | Supported in v1 |
+|-----------|-----------------|
+| `hermes`   | yes |
+| `openclaw` | no (re-enabled in a follow-up issue) |
+| `zeroclaw` | no (re-enabled in a follow-up issue) |
 
-Skills are referenced everywhere as `<registry>/<name>` — CLI args, GUI
-URLs, and desired-state files. Bare names (`tdd`) are rejected with a
-hint that suggests the matching `<registry>/<name>`.
+Attempting `clawctl agent skill attach <ref> --agent <agent>` against
+an unsupported claw raises `ClawNotSupported`. The GUI install picker
+disables agents whose claw type is off in this table with a
+"Not yet supported on this agent type" tooltip.
 
-### When to use `clawrium/`
+This table lives at `SUPPORTED_CLAWS_BY_DEFAULT` in
+`src/clawrium/core/skills.py` and is gated by PR review.
 
-Use the `clawrium/` registry when the skill is behaviour you want
-available on **every** kind of claw. The normalized `_meta.yaml` shape
-is materialized into each native frontmatter format on install — a
-single source file ends up on disk as openclaw-shaped SKILL.md on an
-openclaw agent, hermes-shaped on a hermes agent, and zeroclaw-shaped
-(via `zeroclaw skills install`) on a zeroclaw agent.
+## Reference grammar
 
-### When to use a native registry
+Every skill is referenced as `<source>/<name>`:
 
-Use `openclaw/`, `hermes/`, or `zeroclaw/` when the skill depends on
-that claw's specific frontmatter fields (e.g. hermes-only `metadata`
-keys, openclaw allowed-tools lists). Native skills are installable
-**only** on agents of the matching type. Attempting to install a
-`hermes/<name>` skill on an openclaw agent fails with
-`IncompatibleSkillRegistry`.
+- `source` is one of `vetted`, `local`.
+- `name` matches `^[a-z0-9][a-z0-9_-]*$`.
+
+Bare names (e.g. `tdd`) are rejected with `MissingSourcePrefix`.
+URLs and arbitrary paths are rejected with `ExternalSourceBlocked`.
+
+## On-disk layout
+
+```
+skills/                                 # repo root (vetted source)
+  _schema/
+    agent-skill.schema.json             # agentskills.io standard
+  vetted/
+    tdd/
+      SKILL.md                          # YAML frontmatter + markdown
+    blog-author/
+      SKILL.md
+    ...
+
+~/.config/clawrium/skills/              # local source
+  my-skill/
+    SKILL.md
+```
 
 ## Authoring
 
-| Guide | Use when |
-|-------|----------|
-| [Authoring clawrium skills](authoring-clawrium.md) | Cross-agent skill — works on every claw |
-| [Authoring native skills](authoring-native.md)     | Skill specific to one claw's frontmatter |
+- **Vetted skills** — see [Authoring vetted skills](./authoring-clawrium.md).
+- **Local skills** — author with `clawctl skill add local/<name>` or
+  the GUI **+ Create Skill** modal. No PR needed.
+- The native per-claw authoring guide (`authoring-native.md`) is
+  obsolete in the unified model — all skills now share one format and
+  are translated at install time by `materialize_for_claw`.
 
-Every PR that touches `skills/` runs `scripts/validate_skills.py` in CI
-([skills-validate.yml](https://github.com/ric03uec/clawrium/blob/main/.github/workflows/skills-validate.yml))
-to catch:
+## Desired-state migration
 
-- Slug-rule violations (path-traversal guard).
-- Symlinks inside the catalog.
-- Schema mismatches (a clawrium `_meta.yaml` mis-placed under a native
-  registry, or clawrium-only frontmatter keys in a native SKILL.md).
-- Missing required fields on `_meta.yaml` or SKILL.md frontmatter.
-- The clawrium "directory name == `_meta.yaml.name`" invariant
-  (required for zeroclaw's source-dirname install/remove semantics —
-  see `.itx/364/02_PHASE0_FINDINGS.md`).
+Existing agents whose desired-state file at
+`~/.config/clawrium/agents/<agent>/skills.json` references old
+`<registry>/<name>` refs (e.g. `clawrium/tdd`, `hermes/blog-author`)
+get a **one-shot migration** on first read after upgrade:
 
-Run the same checks locally before pushing:
+- `clawrium/<name>` is rewritten to `vetted/<name>` if the name exists.
+- `hermes/<name>` is rewritten to `vetted/<name>` (same lookup).
+- Anything else (or missing from the catalog) is dropped with a
+  WARNING log line.
 
-```bash
-python scripts/validate_skills.py
-```
-
-## On-host materialization
-
-| Claw     | Install location                              | Mechanism                                  |
-|----------|-----------------------------------------------|--------------------------------------------|
-| openclaw | `~/.openclaw/skills/<name>/SKILL.md`          | file copy (auto-scan)                      |
-| hermes   | `~/.hermes/skills/clawrium/<name>/SKILL.md`   | file copy (auto-scan)                      |
-| zeroclaw | `~/.zeroclaw/workspace/skills/<name>/`        | staged + `zeroclaw skills install` (audit) |
-
-**The `~` above refers to the agent unix user's home**, not the
-operator's home on the control machine. Each agent installed via
-`clawctl agent create` runs as its own dedicated user named after the
-agent (e.g. `tdd-hermes` runs as user `tdd-hermes`, with files under
-`/home/tdd-hermes/`). To SSH-verify after a CLI install, switch users
-on the remote host:
-
-```bash
-# As the management user (typically xclm), drop into the agent user
-sudo -u tdd-hermes ls /home/tdd-hermes/.hermes/skills/clawrium/tdd/
-```
-
-Re-running `clawctl agent skill attach` is the recovery for drift. There
-is no separate `reconcile` command — the local desired-state file at
-`~/.config/clawrium/agents/<agent>/skills.json` is truth, and every
-install/remove re-applies it end-to-end.
-
-## Ownership boundaries
-
-Pruning never touches user-authored or upstream-bundled skills. Each
-claw uses a different marker so a future apply can distinguish
-clawrium-managed dirs from anything else:
-
-| Claw     | Marker                                                                                  |
-|----------|-----------------------------------------------------------------------------------------|
-| openclaw | `.clawrium-managed` sentinel file inside each clawrium-installed skill dir              |
-| hermes   | Implicit — clawrium skills live under the dedicated `~/.hermes/skills/clawrium/` subdir |
-| zeroclaw | `~/.zeroclaw/.clawrium-managed-skills` (newline-separated slugs, outside `skills/`)     |
-
-If you see a clawrium-installed skill that the prune logic is failing
-to recognize, check that its marker is intact.
-
-## Troubleshooting
-
-### `clawctl agent skill attach` reports success but the file isn't where I expect
-
-The `~` in the on-host paths is the **agent user's** home, not yours.
-A common source of confusion when verifying via SSH as the management
-user (`xclm` by default):
-
-```bash
-# Wrong — checking your own home (or the management user's home)
-ssh wolf-i 'ls ~/.hermes/skills/clawrium/tdd/'
-
-# Right — switch to the agent user
-ssh wolf-i 'sudo -u tdd-hermes ls /home/tdd-hermes/.hermes/skills/clawrium/tdd/'
-```
-
-### `clawctl agent delete` doesn't clean up the local skill state
-
-Known limitation: `~/.config/clawrium/agents/<name>/skills.json` is
-left behind when you `clawctl agent delete <name>`. If you re-install
-under the same name later, the leftover state is benign (an empty
-`{"skills": []}` array), but clean it explicitly if you want a clean
-slate:
-
-```bash
-rm -rf ~/.config/clawrium/agents/<name>
-```
-
-### Local end-to-end smoke test
-
-After making a change to a `skills/clawrium/<name>/` or per-claw
-playbook, exercise the full round-trip against a real agent before
-opening a PR:
-
-```bash
-# 1. Install — should report success
-clawctl agent skill attach <agent> clawrium/<name>
-
-# 2. List — should show it
-clawctl agent skill get --agent <agent>
-
-# 3. Verify on host (substitute the agent's unix user)
-ssh <host> "sudo -u <agent-user> ls -la /home/<agent-user>/<claw-skill-path>"
-
-# 4. Idempotent re-install — should report "already in desired state"
-clawctl agent skill attach <agent> clawrium/<name>
-
-# 5. Drift recovery — delete on host, re-install reconverges
-ssh <host> "sudo -u <agent-user> rm -rf /home/<agent-user>/<claw-skill-path>"
-clawctl agent skill attach <agent> clawrium/<name>
-
-# 6. Remove — should clean up and report success
-clawctl agent skill detach <agent> clawrium/<name>
-```
-
-### Local validator exit code
-
-`scripts/validate_skills.py` exits **0 on success, 1 on validation
-failure**. When checking the exit code in a script, do not pipe stdout
-through `tail` / `head` — those overwrite `$?` with the pipe element's
-exit. Use:
-
-```bash
-python scripts/validate_skills.py; echo "exit=$?"
-# or
-python scripts/validate_skills.py > /tmp/out.log; echo "exit=$?"
-```
+Migrations happen automatically; no user action required.
