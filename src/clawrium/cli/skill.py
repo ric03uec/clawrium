@@ -17,6 +17,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
+from clawrium.cli.chat import _CONTROL_AND_BIDI_RE
 from clawrium.core.skills import (
     SOURCES,
     ExternalSourceBlocked,
@@ -118,10 +119,13 @@ def show(
         _exit_with_error(error)
         return
 
+    def _safe(value: object) -> str:
+        return _CONTROL_AND_BIDI_RE.sub(" ", str(value))
+
     console.print(f"\n[bold cyan]{escape(str(skill.ref))}[/bold cyan]")
     description = skill.metadata.get("description", "")
     if isinstance(description, str) and description:
-        console.print(escape(description.strip()))
+        console.print(escape(_safe(description.strip())))
     console.print()
 
     supported = ", ".join(c for c, ok in claws_support_map().items() if ok) or "(none)"
@@ -134,12 +138,16 @@ def show(
     for key in ("version", "license", "author"):
         value = skill.metadata.get(key)
         if value is not None:
-            metadata_table.add_row(key, escape(str(value)))
+            metadata_table.add_row(key, escape(_safe(value)))
 
     console.print(metadata_table)
 
     if skill.body.strip():
-        console.print(Panel(Markdown(skill.body), title="SKILL.md", expand=True))
+        # SKILL.md bodies are catalog-author-supplied; sanitize bidi /
+        # control codepoints before handing the markdown to Rich.
+        # (ATX #411 New-B1a.)
+        safe_body = _CONTROL_AND_BIDI_RE.sub(" ", skill.body)
+        console.print(Panel(Markdown(safe_body), title="SKILL.md", expand=True))
 
 
 def _short_description(ref: SkillRef) -> str:

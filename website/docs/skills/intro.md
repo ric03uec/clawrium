@@ -3,8 +3,7 @@ sidebar_position: 1
 description: Browse and install vetted skills onto any agent in your Clawrium fleet.
 keywords: [skills, registry, clawrium, openclaw, hermes, zeroclaw, install]
 ---
-
-# Skills
+# Skills Catalog
 
 <!--
   Repo-rooted docs live in docs/skills/. The user-facing site mirror

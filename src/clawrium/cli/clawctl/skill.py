@@ -194,16 +194,21 @@ def show_command(
         typer.echo(dump_yaml([row]), nl=False)
         return
 
-    typer.echo(f"Name:         {row['name']}")
+    def _safe(value: object) -> str:
+        return _CONTROL_AND_BIDI_RE.sub(" ", str(value))
+
+    typer.echo(f"Name:         {_safe(row['name'])}")
     typer.echo("Kind:         skill")
-    typer.echo(f"Source:       [{row['source']}]")
-    typer.echo(f"Supported on: {row['supported_on']}")
-    typer.echo(f"Description:  {row['description'] or '-'}")
+    typer.echo(f"Source:       [{_safe(row['source'])}]")
+    typer.echo(f"Supported on: {_safe(row['supported_on'])}")
+    typer.echo(f"Description:  {_safe(row['description']) if row['description'] else '-'}")
+    # Sanitize each metadata key + value: author/version/arbitrary
+    # extension fields are catalog-author-supplied (ATX #411 New-B1b).
     for key in sorted(meta.keys()):
         if key in ("name", "description"):
             continue
         value = meta[key]
-        typer.echo(f"  {key}: {value}")
+        typer.echo(f"  {_safe(key)}: {_safe(value)}")
     if skill.body:
         typer.echo("")
         typer.echo("Body:")

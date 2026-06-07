@@ -3,8 +3,7 @@ sidebar_position: 2
 description: Add a new skill to the Clawrium catalog with the dual-schema validator and CI safety net.
 keywords: [skills, authoring, schema, validator, ci, clawrium, openclaw, hermes, zeroclaw]
 ---
-
-# Authoring Skills
+# Authoring a vetted skill
 
 A **vetted** skill ships in the clawrium repo at
 `skills/vetted/<name>/SKILL.md` and gets bundled into the wheel. Every
