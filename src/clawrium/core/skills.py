@@ -26,6 +26,8 @@ from typing import Any, Iterable
 
 import yaml
 
+from clawrium.core.config import get_config_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +39,8 @@ NATIVE_REGISTRIES: frozenset[str] = frozenset({"openclaw", "hermes", "zeroclaw"}
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 """Slug pattern for `<name>` in `<registry>/<name>` and for directory names."""
+
+_CATALOG_OVERLAY_COLLISIONS_WARNED: set[str] = set()
 
 _EXTERNAL_PREFIXES = (
     "http://",
@@ -141,6 +145,41 @@ def _catalog_root() -> Path:
         f"{bundled} and dev {dev}). "
         "Reinstall with: `uv tool install --force clawrium`."
     )
+
+
+def _overlay_root() -> Path:
+    """Return the user-writable skill overlay root.
+
+    The directory may not exist yet; callers decide whether absence is
+    meaningful for their operation.
+    """
+    return get_config_dir() / "skills"
+
+
+def _catalog_roots() -> list[tuple[str, Path]]:
+    """Return available catalog roots in precedence application order.
+
+    Bundled skills are listed first and the user overlay second so callers
+    that fold by ref can let the overlay win collisions. If neither root is
+    available, preserve the existing `_catalog_root()` `SkillNotFound`
+    failure mode.
+    """
+    roots: list[tuple[str, Path]] = []
+    catalog_error: SkillNotFound | None = None
+    try:
+        roots.append(("bundled", _catalog_root()))
+    except SkillNotFound as error:
+        catalog_error = error
+
+    overlay = _overlay_root()
+    if overlay.is_dir():
+        roots.append(("overlay", overlay))
+
+    if not roots:
+        if catalog_error is not None:
+            raise catalog_error
+        raise SkillNotFound("skills catalog not found.")
+    return roots
 
 
 def parse_skill_ref(raw: str) -> SkillRef:
@@ -252,9 +291,9 @@ def list_skills(registry: str | None = None) -> list[SkillRef]:
             f"Unknown registry {registry!r}. Allowed: {', '.join(REGISTRIES)}."
         )
 
-    root = _catalog_root()
     registries: Iterable[str] = (registry,) if registry else REGISTRIES
 
+    root = _catalog_root()
     refs: list[SkillRef] = []
     for reg in registries:
         reg_dir = root / reg
@@ -272,6 +311,52 @@ def list_skills(registry: str | None = None) -> list[SkillRef]:
         for name in sorted(names):
             refs.append(SkillRef(registry=reg, name=name))
     return refs
+
+
+def _list_skills_from_roots(registry: str | None = None) -> list[SkillRef]:
+    """Enumerate bundled plus overlay roots, with overlay collisions winning.
+
+    Kept private in Phase A so public CLI/GUI behavior does not change
+    before the issue #411 semantic switch wires overlays intentionally.
+    """
+    if registry is not None and registry not in REGISTRIES:
+        raise InvalidSkillRef(
+            f"Unknown registry {registry!r}. Allowed: {', '.join(REGISTRIES)}."
+        )
+
+    registries: Iterable[str] = (registry,) if registry else REGISTRIES
+    refs_by_key: dict[tuple[str, str], SkillRef] = {}
+    paths_by_key: dict[tuple[str, str], Path] = {}
+    for source, root in _catalog_roots():
+        for reg in registries:
+            reg_dir = root / reg
+            if not reg_dir.is_dir():
+                continue
+            for entry in reg_dir.iterdir():
+                if not entry.is_dir():
+                    continue
+                if not _NAME_RE.match(entry.name):
+                    continue
+                if not _has_skill_files(entry, reg):
+                    continue
+                key = (reg, entry.name)
+                if key in refs_by_key and source == "overlay":
+                    collision_key = f"{reg}/{entry.name}"
+                    if collision_key not in _CATALOG_OVERLAY_COLLISIONS_WARNED:
+                        logger.warning(
+                            "User skill overlay %s shadows bundled skill %s at %s",
+                            entry,
+                            collision_key,
+                            paths_by_key[key],
+                        )
+                        _CATALOG_OVERLAY_COLLISIONS_WARNED.add(collision_key)
+                refs_by_key[key] = SkillRef(registry=reg, name=entry.name)
+                paths_by_key[key] = entry
+
+    registry_order = {reg: index for index, reg in enumerate(REGISTRIES)}
+    return sorted(
+        refs_by_key.values(), key=lambda ref: (registry_order[ref.registry], ref.name)
+    )
 
 
 def _has_skill_files(skill_dir: Path, registry: str) -> bool:
@@ -304,8 +389,28 @@ def load_skill(ref: SkillRef | str) -> Skill:
     skill_dir = root / ref.registry / ref.name
     if not skill_dir.is_dir():
         raise SkillNotFound(
-            f"Skill {ref} not found. Run `clm skill list` to see available skills."
+            f"Skill {ref} not found. Run `clawctl skill registry get` to see "
+            "available skills."
         )
+
+    return _load_skill_from_dir(ref, skill_dir)
+
+
+def _find_catalog_skill_dir(ref: SkillRef) -> Path | None:
+    """Return overlay-first directory for a catalog ref, if present."""
+    try:
+        roots = list(reversed(_catalog_roots()))
+    except SkillNotFound:
+        return None
+    for _source, root in roots:
+        skill_dir = root / ref.registry / ref.name
+        if skill_dir.is_dir() and _has_skill_files(skill_dir, ref.registry):
+            return skill_dir
+    return None
+
+
+def _load_skill_from_dir(ref: SkillRef, skill_dir: Path) -> Skill:
+    """Load ``ref`` from a concrete directory without applying catalog lookup."""
 
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.is_file():
@@ -336,6 +441,51 @@ def load_skill(ref: SkillRef | str) -> Skill:
         body=body,
         skill_md_frontmatter=frontmatter,
     )
+
+
+def list_agent_skills(agent: str) -> list[str]:
+    """List local, already-materialized skill names for ``agent``."""
+    from clawrium.core.skills_state import agent_skills_dir
+
+    root = agent_skills_dir(agent)
+    if not root.is_dir():
+        return []
+    names: list[str] = []
+    for entry in root.iterdir():
+        if not entry.is_dir():
+            continue
+        if not _NAME_RE.match(entry.name):
+            continue
+        if (entry / "SKILL.md").is_file():
+            names.append(entry.name)
+    return sorted(names)
+
+
+def load_agent_skill(agent: str, name: str, agent_type: str) -> Skill:
+    """Load an already-materialized local skill for a specific agent.
+
+    Per-agent skills are stored in the target agent's native format, so
+    the returned ref uses the concrete native registry rather than a
+    synthetic `local` registry.
+    """
+    if agent_type not in NATIVE_REGISTRIES:
+        raise InvalidSkillRef(
+            f"Unknown agent type {agent_type!r}. "
+            f"Supported: {', '.join(sorted(NATIVE_REGISTRIES))}."
+        )
+    if not isinstance(name, str) or not _NAME_RE.match(name):
+        raise InvalidSkillRef(
+            f"Invalid skill name {name!r}. Names must match ^[a-z0-9][a-z0-9_-]*$."
+        )
+
+    from clawrium.core.skills_state import agent_skills_dir
+
+    skill_dir = agent_skills_dir(agent) / name
+    if not skill_dir.is_dir():
+        raise SkillNotFound(f"Local skill {name!r} not found for agent {agent!r}.")
+    skill = _load_skill_from_dir(SkillRef(agent_type, name), skill_dir)
+    validate_skill(skill)
+    return skill
 
 
 def validate_skill(skill: Skill) -> None:
@@ -371,14 +521,11 @@ def check_agent_compatibility(skill: Skill, agent_type: str) -> None:
     Compatibility rules (locked in `.itx/364/00_PLAN.md`):
 
     - ``clawrium/<name>``: read the ``compatibility`` map in `_meta.yaml`.
-      **Fail-closed**: missing key OR explicit ``false`` raises
-      ``IncompatibleSkillRegistry``. The catalog author must list each
-      claw they intend to support — silent "absent means anywhere" was
-      rejected during planning because it makes drift hard to debug
-      ("why did install succeed but the skill never run?"). The
-      `clawrium.schema.json` also requires the map (and all three claw
-      entries inside it), so a missing key represents a malformed skill.
-      Unknown agent types fail closed too.
+      A missing claw key defaults to compatible; only an explicit ``false``
+      raises ``IncompatibleSkillRegistry``. Callers that need schema-level
+      guarantees must run ``validate_skill`` before this helper; the public
+      add-time materialization helper does that before checking compatibility.
+      Unknown agent types fail closed.
     - ``<claw>/<name>`` (native): must match ``agent_type`` exactly.
       Cross-claw native installs are a hard error because the SKILL.md
       is already in a per-claw frontmatter shape.
@@ -397,8 +544,10 @@ def check_agent_compatibility(skill: Skill, agent_type: str) -> None:
                 f"got {type(compat).__name__}."
             )
         # Default-true if the claw key is absent (a normalized skill is
-        # meant to run anywhere unless it opts out). Only an explicit
-        # `false` value fails closed. Mirrors the docstring contract.
+        # meant to run anywhere unless it opts out). `validate_skill` enforces
+        # the shipped schema's required compatibility keys before add-time
+        # materialization; this branch remains lenient for legacy direct callers.
+        # Only an explicit `false` value fails closed.
         flag = compat.get(agent_type, True)
         if not flag:
             raise IncompatibleSkillRegistry(
@@ -472,6 +621,30 @@ def materialize_for_claw(skill: Skill, claw: str) -> tuple[dict[str, Any], str]:
                 frontmatter[key] = value
 
     return frontmatter, skill.body
+
+
+def materialize_skill_for_agent(skill: Skill, agent_type: str) -> Skill:
+    """Materialize ``skill`` into ``agent_type``'s native skill shape.
+
+    This is the reusable add-time conversion helper for issue #411. It
+    validates compatibility, converts to native frontmatter/body, then
+    validates the native shape before returning an in-memory ``Skill``.
+    It intentionally does not write to disk.
+    """
+    validate_skill(skill)
+    check_agent_compatibility(skill, agent_type)
+    frontmatter, body = materialize_for_claw(skill, agent_type)
+    native_skill = Skill(
+        ref=SkillRef(agent_type, skill.ref.name),
+        # Materialized skills are not on disk yet. Phase B add/edit callers
+        # must choose the per-agent target dir before persisting bytes.
+        path=Path("__materialized__"),
+        metadata=dict(frontmatter),
+        body=body,
+        skill_md_frontmatter=dict(frontmatter),
+    )
+    validate_skill(native_skill)
+    return native_skill
 
 
 def _split_frontmatter(text: str) -> tuple[str, dict[str, Any]]:
@@ -595,10 +768,13 @@ __all__ = [
     "parse_skill_ref",
     "list_skills",
     "load_skill",
+    "list_agent_skills",
+    "load_agent_skill",
     "validate_skill",
     "check_agent_compatibility",
     "clear_schema_cache",
     "materialize_for_claw",
+    "materialize_skill_for_agent",
 ]
 # Note: `scripts/validate_skills.py` imports a handful of underscored
 # helpers from this module by explicit name (`_NAME_RE`, `_load_schema`,

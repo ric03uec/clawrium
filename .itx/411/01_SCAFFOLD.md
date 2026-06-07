@@ -32,10 +32,13 @@ desired-state semantics or any CLI/GUI surface.
     by `_load_schema` and `_bare_name_hint`. **Do not change its
     signature** — that would fan out to schema resolution and the
     bare-name hint path with no benefit.
-  - Rewrite `list_skills` to iterate `_catalog_roots()` and dedupe
-    on `<registry>/<name>`. Overlay wins on collision; emit a
-    `logger.warning` (once per `(registry, name)` per process).
-  - Rewrite `load_skill` to try overlay first, fall back to bundled.
+  - Add private overlay-aware helpers (for example,
+    `_list_skills_from_roots()` and `_find_catalog_skill_dir()`) that
+    iterate `_catalog_roots()` and dedupe on `<registry>/<name>`.
+    Overlay wins on collision; emit a `logger.warning` (once per
+    `(registry, name)` per process). Public `list_skills` and
+    `load_skill` stay bundled-only until B wires overlays alongside the
+    user-facing semantic switch.
   - Add `load_agent_skill(agent: str, name: str, agent_type: str) -> Skill`.
     Per-agent skills are already materialized for their target agent,
     so the returned `Skill.ref.registry` is the concrete agent type
@@ -43,8 +46,9 @@ desired-state semantics or any CLI/GUI surface.
     `_schema/native/<agent_type>.schema.json`.
   - Add `list_agent_skills(agent: str) -> list[str]` returning
     sorted bare names; empty list if dir absent.
-  - Expose reusable add-time materialization helper if needed, but do
-    not leave materialization in the sync/apply path.
+  - Expose `materialize_skill_for_agent(skill, agent_type) -> Skill`
+    as the reusable add-time materialization helper, but do not leave
+    materialization in the sync/apply path.
   - **Do not change** `parse_skill_ref`. Agent-local lookups go
     through `load_agent_skill(agent, name, agent_type)` directly; they never
     flow through `parse_skill_ref`.
@@ -59,19 +63,29 @@ desired-state semantics or any CLI/GUI surface.
     the new CLI and the semantic switch together.
 
 - Tests:
-  - Catalog union and overlay precedence.
+  - Private catalog union and overlay precedence helpers, without
+    changing public `list_skills` / `load_skill` behavior yet.
   - Agent-native schema validation for hermes/openclaw/zeroclaw sample
     `SKILL.md` files.
   - Add-time materialization helper converts `clawrium/tdd` into valid
     native frontmatter for each supported agent type.
+  - `load_agent_skill` failure paths: missing local skill raises
+    `SkillNotFound`; malformed or schema-invalid `SKILL.md`
+    frontmatter raises `SchemaValidationError`; invalid local names
+    raise `InvalidSkillRef`.
 
 **Exit criteria**
 - `make test` and `make lint` green.
-- Catalog union path covered for: bundled-only, overlay-only,
+- Private catalog union path covered for: bundled-only, overlay-only,
   both-present (overlay wins + warning), neither (existing
-  `SkillNotFound` raised — error class unchanged).
+  `SkillNotFound` raised — error class unchanged). Public
+  `list_skills` / `load_skill` remain bundled-only until B.
 - Materialization helper covered for `hermes`, `openclaw`, and
   `zeroclaw`; each result validates against that agent's native schema.
+- Byte-preservation boundary is documented for B in this scaffold and
+  `.itx/411/00_PLAN.md`: sync/apply must stage already-native local
+  `SKILL.md` bytes unchanged when B switches the desired-state source
+  to per-agent local skills.
 - **No public CLI or GUI behavior change yet** — existing
   `clawctl agent skill attach/detach/get` flows continue to work.
 
@@ -81,6 +95,8 @@ desired-state semantics or any CLI/GUI surface.
 - Any CLI verb changes.
 - Any GUI route or frontend changes.
 - Docs (covered by B).
+- Wiring overlay helpers into `_bare_name_hint`; keep bare-name hints
+  bundled-only until B wires public overlay behavior.
 
 ---
 
@@ -102,7 +118,10 @@ add top-level `clawctl skill add`, and update docs.
     (`"<registry>/<name>"`) are invalid desired state. Document this
     in the module docstring.
   - `read_state` / `write_state` / `add_skill` / `remove_skill`
-    validate safe bare names and reject any value containing `/`.
+    validate safe bare names with `_NAME_RE`
+    (`^[a-z0-9][a-z0-9_-]*$`) and reject `/`, `..`, uppercase, spaces,
+    empty strings, and all non-slug forms before any directory creation
+    or state mutation.
   - Old state files containing registry refs fail with a clear
     operator message to re-add those skills from template. Do not
     silently copy templates during sync.
@@ -136,6 +155,10 @@ add top-level `clawctl skill add`, and update docs.
     - Positional `PATH` — file (a single `SKILL.md`) or directory
       (full skill tree). Validate the input, materialize it for the
       target agent type if needed, then persist native `SKILL.md`.
+      If `--name` is omitted, derive the persisted name from validated
+      `SKILL.md` frontmatter `name`, not from `Path(input).name`.
+      Reject invalid/missing frontmatter names before creating any
+      directory. `--name`, when provided, must also pass `_NAME_RE`.
     - Neither — open `$EDITOR` (or `EDITOR` env var; fall back to
       `vi`) on a stub native `SKILL.md`, persist on save.
   - `add` resolves the agent first to determine `agent_type`. It
@@ -147,8 +170,8 @@ add top-level `clawctl skill add`, and update docs.
     remove or rename the existing skill first.
   - `add` rollback: if `add_skill` fails after the local dir is
     written, delete the dir before returning the error. Symmetric
-    to the existing preflight → mutate → apply pattern at lines
-    97–121 of the pre-change file.
+    to the existing preflight → mutate → apply pattern in the
+    pre-change file.
   - `add` does **not** call `apply_state`. CLI exits after the
     state file is mutated. Use `clawctl agent sync <agent>` to
     flush.

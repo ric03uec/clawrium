@@ -63,6 +63,9 @@ release.
 
 ### Fixed
 
+- `clawctl` skill-not-found guidance now references
+  `clawctl skill registry get` instead of the removed legacy
+  `clm skill list` command. (#411)
 - `clawctl agent sync` on hermes agents with multiple provider
   attachments now renders one `auxiliary.<role>:` block per non-primary
   attachment in `~/.hermes/config.yaml`, and emits each non-primary
