@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pathlib
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -46,6 +47,31 @@ def test_add_rejects_duplicate_local_name(fleet_dir) -> None:
     )
     assert second.exit_code != 0
     assert "already exists" in second.output or "already in desired state" in second.output
+
+
+def test_add_persist_mkdir_race(fleet_dir, tmp_path: Path, monkeypatch) -> None:
+    """except FileExistsError branch in _persist_local_skill (TOCTOU race).
+
+    The pre-check (target_dir.exists()) passes because the directory doesn't
+    exist yet, but mkdir raises FileExistsError simulating a concurrent writer.
+    The handler must still surface InvalidSkillRef as a CLI error.
+    """
+    source = tmp_path / "SKILL.md"
+    source.write_text(
+        "---\nname: race-local\ndescription: Race test\n---\n\n# Body\n"
+    )
+
+    _original_mkdir = pathlib.Path.mkdir
+
+    def _mkdir_race(self, *args, **kwargs):
+        if not kwargs.get("exist_ok", False):
+            raise FileExistsError(f"[Errno 17] File exists: '{self}'")
+        return _original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "mkdir", _mkdir_race)
+    result = runner.invoke(app, ["agent", "skill", "add", "wise-hypatia", str(source)])
+    assert result.exit_code != 0
+    assert "already exists" in result.output
 
 
 def test_add_path_uses_native_skill_format(fleet_dir, tmp_path: Path) -> None:

@@ -604,11 +604,16 @@ async def agent_connection_token(agent_key: str) -> dict[str, Any]:
     # return a stale token and the user would see an opaque 401 in the
     # Control UI. Strip on return to defend against operators who
     # hand-edited the legacy field with trailing whitespace.
+    from clawrium.core.secrets import get_instance_key
     from clawrium.gui.routes.agents import _resolve_openclaw_credentials
 
+    hostname = _host_record.get("hostname", "")
+    agent_name = agent_record.get("agent_name") or agent_record.get("name") or ""
+    host_key = _host_record.get("key_id") or hostname
+    instance_key = get_instance_key(host_key, agent_type, agent_name)
     gateway = (agent_record.get("config") or {}).get("gateway") or {}
     bearer, _ = await asyncio.to_thread(
-        _resolve_openclaw_credentials, agent_key, gateway
+        _resolve_openclaw_credentials, instance_key, gateway
     )
     if not isinstance(bearer, str) or not bearer.strip():
         # No persisted bearer in either source means lifecycle ops have

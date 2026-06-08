@@ -730,6 +730,37 @@ def test_connection_token_prefers_secrets_store_over_legacy_hosts_json(
     assert resp.json() == {"token": "oc_rotated"}
 
 
+def test_connection_token_uses_instance_key_not_raw_agent_key(isolated_config: Path):
+    """_resolve_openclaw_credentials must receive the host:type:name instance key,
+    not the raw agent_key URL param. Passing agent_key directly means
+    get_instance_secrets never matches and always falls back to hosts.json.
+    """
+    from clawrium.core.secrets import get_instance_key
+
+    _seed_hosts(isolated_config, "openclaw", _openclaw_config("oc_bearer"))
+    expected_key = get_instance_key("192.168.1.100", "openclaw", "demo")
+
+    captured: dict = {}
+
+    def _capture(instance_key, gateway):
+        captured["instance_key"] = instance_key
+        return ("oc_bearer", None)
+
+    with (
+        patch("clawrium.core.web_ui.resolve", return_value=_openclaw_resolved()),
+        patch(
+            "clawrium.gui.routes.agents._resolve_openclaw_credentials",
+            side_effect=_capture,
+        ),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/fleet/agents/demo/connection-token")
+
+    assert resp.status_code == 200
+    assert captured["instance_key"] == expected_key
+    assert captured["instance_key"] != "demo"
+
+
 def test_connection_token_get_does_not_leak_bearer(isolated_config: Path):
     """The endpoint is POST-only. The GUI server mounts the SPA on a
     catch-all GET, so a GET to this path falls through to index.html
