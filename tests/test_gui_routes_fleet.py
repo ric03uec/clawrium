@@ -22,6 +22,8 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from clawrium.core.health import ClawStatus
+from clawrium.core.lifecycle import LifecycleError
 from clawrium.core.web_ui import ResolvedUI
 from clawrium.gui.routes import fleet as fleet_mod
 from clawrium.gui.server import app
@@ -776,3 +778,368 @@ def test_connection_token_get_does_not_leak_bearer(isolated_config: Path):
     # Either 405 (route refuses GET) or 200 (SPA fallback). The
     # invariant is that the bearer never appears in the GET body.
     assert "oc_should_not_leak" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by B1–B6 tests
+# ---------------------------------------------------------------------------
+
+def _agent_vm(**overrides) -> dict:
+    """Minimal AgentViewModel dict for mocking fleet data functions."""
+    base: dict = {
+        "agent_key": "demo",
+        "agent_name": "demo",
+        "agent_type": "hermes",
+        "host": "192.168.1.100",
+        "host_alias": "box",
+        "host_os_family": "linux",
+        "version": "2026.5.1",
+        "status": ClawStatus.RUNNING,
+        "model": "claude-sonnet",
+        "uptime": "2h",
+        "missing_secrets": [],
+        "onboarding_step": None,
+        "process_running": True,
+        "health_error": None,
+        "addresses": [],
+        "provider": "anthropic",
+        "provider_type": "anthropic",
+        "cpu_count": 4,
+        "memory_total_mb": 8192,
+        "gateway_port": 45001,
+        "gateway_url": "http://192.168.1.100:45001",
+        "gateway_auth": "secret_bearer_must_not_leak",
+        "device_id": None,
+        "device_private_key": None,
+    }
+    base.update(overrides)
+    return base
+
+
+def _fleet_summary(**overrides) -> dict:
+    base = {"total": 1, "running": 1, "provisioning": 0, "hosts": 1}
+    base.update(overrides)
+    return base
+
+
+# ---------------------------------------------------------------------------
+# B1 — GET /fleet (fleet_overview)
+# ---------------------------------------------------------------------------
+
+
+def test_fleet_overview_returns_agent_list(isolated_config: Path):
+    vm = _agent_vm()
+    with patch(
+        "clawrium.gui.routes.fleet.get_fleet_data_local",
+        return_value=([vm], _fleet_summary()),
+    ):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["summary"]["total"] == 1
+    assert data["summary"]["running"] == 1
+    assert len(data["agents"]) == 1
+    assert data["agents"][0]["agent_key"] == "demo"
+
+
+def test_fleet_overview_host_filter_forwarded(isolated_config: Path):
+    """host query param is forwarded to get_fleet_data_local."""
+    with patch(
+        "clawrium.gui.routes.fleet.get_fleet_data_local",
+        return_value=([], _fleet_summary(total=0, running=0, hosts=0)),
+    ) as mock_fn:
+        with TestClient(app) as client:
+            client.get("/api/fleet?host=box")
+    mock_fn.assert_called_once_with("box")
+
+
+def test_fleet_overview_excludes_gateway_auth(isolated_config: Path):
+    """gateway_auth must never appear in the /fleet response body (W3)."""
+    vm = _agent_vm()
+    with patch(
+        "clawrium.gui.routes.fleet.get_fleet_data_local",
+        return_value=([vm], _fleet_summary()),
+    ):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet")
+    assert "secret_bearer_must_not_leak" not in resp.text
+    assert "gateway_auth" not in resp.json()["agents"][0]
+
+
+# ---------------------------------------------------------------------------
+# B2 — GET /fleet/health (fleet_health)
+# ---------------------------------------------------------------------------
+
+
+def test_fleet_health_returns_health_data(isolated_config: Path):
+    vm = _agent_vm()
+    with patch(
+        "clawrium.gui.routes.fleet.get_fleet_data",
+        return_value=([vm], _fleet_summary()),
+    ):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/health")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["summary"]["total"] == 1
+    assert data["agents"][0]["agent_key"] == "demo"
+    assert data["agents"][0]["process_running"] is True
+
+
+def test_fleet_health_504_on_timeout(isolated_config: Path):
+    with patch(
+        "asyncio.wait_for", side_effect=asyncio.TimeoutError
+    ):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/health")
+    assert resp.status_code == 504
+    assert "timed out" in resp.json()["detail"]
+
+
+def test_fleet_health_semaphore_blocks_concurrent_calls(isolated_config: Path):
+    """_FLEET_HEALTH_SEMAPHORE(2) allows up to 2 concurrent health probes."""
+    import threading
+
+    results = []
+    vm = _agent_vm()
+
+    def _probe():
+        with TestClient(app) as client:
+            r = client.get("/api/fleet/health")
+            results.append(r.status_code)
+
+    with patch(
+        "clawrium.gui.routes.fleet.get_fleet_data",
+        return_value=([vm], _fleet_summary()),
+    ):
+        threads = [threading.Thread(target=_probe) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+    assert all(s == 200 for s in results), results
+
+
+# ---------------------------------------------------------------------------
+# B3 — GET /fleet/agents/{key} (agent_detail)
+# ---------------------------------------------------------------------------
+
+
+def test_agent_detail_404_for_unknown(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with TestClient(app) as client:
+        resp = client.get("/api/fleet/agents/nope")
+    assert resp.status_code == 404
+
+
+def test_agent_detail_success(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    vm = _agent_vm()
+    with (
+        patch("clawrium.gui.routes.fleet.get_agent_detail", return_value=vm),
+        patch(
+            "clawrium.core.registry.latest_supported_version",
+            return_value="2026.6.0",
+        ),
+    ):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/agents/demo")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["agent_key"] == "demo"
+    assert data["latest_supported_version"] == "2026.6.0"
+
+
+def test_agent_detail_hardware_null_coercion(isolated_config: Path):
+    """Regression: hardware=null in hosts.json must not raise — `or {}` coerces it."""
+    hosts = [
+        {
+            "hostname": "192.168.1.100",
+            "alias": "box",
+            "port": 22,
+            "user": "xclm",
+            "hardware": None,
+            "agents": {
+                "demo": {
+                    "type": "hermes",
+                    "agent_name": "demo",
+                    "name": "demo",
+                    "config": {},
+                }
+            },
+        }
+    ]
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+    vm = _agent_vm()
+    with patch("clawrium.gui.routes.fleet.get_agent_detail", return_value=vm):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/agents/demo")
+    assert resp.status_code == 200
+    # latest_supported_version raises on hardware={} with no arch; caught → None
+    assert resp.json()["latest_supported_version"] is None
+
+
+def test_agent_detail_excludes_gateway_auth(isolated_config: Path):
+    """gateway_auth must never appear in the agent_detail response body (W3)."""
+    _seed_hosts(isolated_config, "hermes")
+    vm = _agent_vm()
+    with patch("clawrium.gui.routes.fleet.get_agent_detail", return_value=vm):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/agents/demo")
+    assert "secret_bearer_must_not_leak" not in resp.text
+    assert "gateway_auth" not in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# B4 — POST /agents/{key}/start
+# ---------------------------------------------------------------------------
+
+
+def test_start_agent_404_for_unknown(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with TestClient(app) as client:
+        resp = client.post("/api/agents/nope/start")
+    assert resp.status_code == 404
+
+
+def test_start_agent_success(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.start_agent", return_value={"success": True}
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/start")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["operation"] == "start"
+    assert data["agent"] == "demo"
+
+
+def test_start_agent_lifecycle_error_sanitized(isolated_config: Path):
+    """LifecycleError detail must be path-sanitized before reaching the browser (W1)."""
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.start_agent",
+        side_effect=LifecycleError("failed at /home/user/.config/clawrium/secrets.json"),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/start")
+    assert resp.status_code == 500
+    assert "/home/user/.config" not in resp.json()["detail"]
+    assert "<path>" in resp.json()["detail"]
+
+
+def test_start_agent_generic_exception_uses_safe_message(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.start_agent",
+        side_effect=RuntimeError("internal detail /etc/secrets"),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/start")
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
+
+
+# ---------------------------------------------------------------------------
+# B5 — POST /agents/{key}/stop
+# ---------------------------------------------------------------------------
+
+
+def test_stop_agent_404_for_unknown(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with TestClient(app) as client:
+        resp = client.post("/api/agents/nope/stop")
+    assert resp.status_code == 404
+
+
+def test_stop_agent_success(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.stop_agent", return_value={"success": True}
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/stop")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["operation"] == "stop"
+
+
+def test_stop_agent_lifecycle_error_sanitized(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.stop_agent",
+        side_effect=LifecycleError("failed at /home/user/.config/clawrium/hosts.json"),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/stop")
+    assert resp.status_code == 500
+    assert "/home/user/.config" not in resp.json()["detail"]
+    assert "<path>" in resp.json()["detail"]
+
+
+def test_stop_agent_generic_exception_uses_safe_message(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.stop_agent",
+        side_effect=RuntimeError("boom"),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/stop")
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
+
+
+# ---------------------------------------------------------------------------
+# B6 — POST /agents/{key}/restart
+# ---------------------------------------------------------------------------
+
+
+def test_restart_agent_404_for_unknown(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with TestClient(app) as client:
+        resp = client.post("/api/agents/nope/restart")
+    assert resp.status_code == 404
+
+
+def test_restart_agent_success(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.restart_agent", return_value={"success": True}
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/restart")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["operation"] == "restart"
+
+
+def test_restart_agent_lifecycle_error_sanitized(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.restart_agent",
+        side_effect=LifecycleError("failed at /home/user/.config/clawrium/hosts.json"),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/restart")
+    assert resp.status_code == 500
+    assert "/home/user/.config" not in resp.json()["detail"]
+    assert "<path>" in resp.json()["detail"]
+
+
+def test_restart_agent_generic_exception_uses_safe_message(isolated_config: Path):
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.restart_agent",
+        side_effect=RuntimeError("boom"),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/restart")
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."

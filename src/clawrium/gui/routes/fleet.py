@@ -19,7 +19,6 @@ from clawrium.cli.tui.data import (
     get_agent_detail,
     get_fleet_data,
     get_fleet_data_local,
-    load_hosts_safe,
 )
 from clawrium.core import web_ui as web_ui_module
 from clawrium.core import web_ui_tunnel
@@ -71,7 +70,7 @@ def _host_is_local(host: str) -> bool:
     if not host:
         return False
     candidate = host.strip().lower()
-    if candidate in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+    if candidate in {"localhost", "127.0.0.1", "::1"}:
         return True
     try:
         return ipaddress.ip_address(candidate).is_loopback
@@ -187,40 +186,35 @@ async def fleet_health(host: str | None = None):
 async def agent_detail(agent_key: str, host: str | None = None):
     """Get detailed info for a single agent.
 
-    Searches across all hosts unless host is specified.
+    Searches across all hosts unless host is specified. Uses resolve_agent
+    for consistent HostsFileCorruptedError / ambiguous-name / OSError handling.
     """
-    hosts = await asyncio.to_thread(load_hosts_safe)
+    resolved = await asyncio.to_thread(resolve_agent, agent_key)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+    host_record, _agent_type, _ = resolved
 
-    # Find the agent across hosts
-    for h in hosts:
-        hostname = h.get("hostname", "")
-        alias = h.get("alias", "")
-        if host and hostname != host and alias != host:
-            continue
-        agents = h.get("agents", {})
-        if agent_key in agents:
-            detail = await asyncio.to_thread(get_agent_detail, agent_key, hostname)
-            if detail:
-                payload = _agent_to_dict(detail)
-                # Issue #592: surface the registry-derived max version for
-                # this host's hardware so the overview tab can render an
-                # "upgrade available" indicator. None when the host's
-                # os/arch has no matching platform entry.
-                from clawrium.core.registry import latest_supported_version
+    if host and host_record.get("hostname") != host and host_record.get("alias") != host:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agent_key}' not found on host '{host}'",
+        )
 
-                try:
-                    # `.get("hardware", {})` does NOT fall back when the
-                    # value is explicitly `null` in hosts.json (pre-fact-
-                    # detection hosts). Use `or {}` to coerce. ATX W3
-                    # (issue #592).
-                    payload["latest_supported_version"] = latest_supported_version(
-                        detail["agent_type"], h.get("hardware") or {}
-                    )
-                except Exception:
-                    payload["latest_supported_version"] = None
-                return payload
+    hostname = host_record.get("hostname", "")
+    detail = await asyncio.to_thread(get_agent_detail, agent_key, hostname)
+    if not detail:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
 
-    raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+    payload = _agent_to_dict(detail)
+    from clawrium.core.registry import latest_supported_version
+
+    try:
+        payload["latest_supported_version"] = latest_supported_version(
+            detail["agent_type"], host_record.get("hardware") or {}
+        )
+    except Exception:
+        payload["latest_supported_version"] = None
+    return payload
 
 
 @router.post("/agents/{agent_key}/start")
@@ -246,7 +240,7 @@ async def start_agent_endpoint(agent_key: str):
         }
     except LifecycleError as e:
         logger.error("start_agent failed for %s: %s", agent_key, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_sanitize_health_error(str(e)))
     except Exception as e:
         logger.error("start_agent failed for %s: %s", agent_key, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR)
@@ -275,7 +269,7 @@ async def stop_agent_endpoint(agent_key: str):
         }
     except LifecycleError as e:
         logger.error("stop_agent failed for %s: %s", agent_key, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_sanitize_health_error(str(e)))
     except Exception as e:
         logger.error("stop_agent failed for %s: %s", agent_key, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR)
@@ -304,7 +298,7 @@ async def restart_agent_endpoint(agent_key: str):
         }
     except LifecycleError as e:
         logger.error("restart_agent failed for %s: %s", agent_key, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_sanitize_health_error(str(e)))
     except Exception as e:
         logger.error("restart_agent failed for %s: %s", agent_key, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR)
@@ -653,19 +647,16 @@ async def reap_idle_tunnels(threshold_seconds: float = 1800.0) -> int:
         for key in stale:
             WEB_UI_LAST_ACCESS.pop(key, None)
     for key in stale:
-        # Hold the access-map lock across the close() call. The /web-ui
-        # handler stamps the map only after ensure() returns, so holding
-        # this lock keeps a fresh access stamp from landing mid-close.
-        # ensure() itself uses a different mutex (per-key) and may run
-        # concurrently — that's fine: the worst case is we kill a tunnel
-        # whose ensure() finished but whose handler hadn't stamped yet,
-        # in which case the next /web-ui call rebuilds the tunnel.
+        # Re-check under the lock: a concurrent /web-ui request may have
+        # re-stamped this key between the initial snapshot and now.
         async with _LAST_ACCESS_LOCK:
             if key in WEB_UI_LAST_ACCESS:
                 continue
-            try:
-                await asyncio.to_thread(web_ui_tunnel.close, key)
-                closed += 1
-            except Exception:  # noqa: BLE001
-                logger.debug("reaper close failed for %s", key, exc_info=True)
+        # Lock released before the blocking close() so concurrent /web-ui
+        # handlers are not stalled for the full SIGTERM→SIGKILL teardown.
+        try:
+            await asyncio.to_thread(web_ui_tunnel.close, key)
+            closed += 1
+        except Exception:  # noqa: BLE001
+            logger.debug("reaper close failed for %s", key, exc_info=True)
     return closed

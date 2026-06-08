@@ -51,6 +51,11 @@ async def lifespan(app: FastAPI):
             except Exception:  # noqa: BLE001 — keep the loop alive
                 logger.exception("web-ui reaper iteration failed")
 
+    from concurrent.futures import ThreadPoolExecutor
+
+    fleet._FLEET_HEALTH_EXECUTOR = ThreadPoolExecutor(
+        max_workers=2, thread_name_prefix="fleet-health"
+    )
     task = asyncio.create_task(_reaper_loop(), name="web-ui-reaper")
     try:
         yield
@@ -60,6 +65,10 @@ async def lifespan(app: FastAPI):
             await task
         except (asyncio.CancelledError, Exception):  # noqa: BLE001
             pass
+        fleet._FLEET_HEALTH_EXECUTOR.shutdown(wait=False, cancel_futures=True)
+        fleet._FLEET_HEALTH_EXECUTOR = ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="fleet-health"
+        )
         # close() does a SIGTERM→busy-wait→SIGKILL dance that can block up
         # to ~2 s per tunnel. Run sequentially via asyncio.to_thread so the
         # event loop isn't blocked and uvicorn's graceful-shutdown budget
