@@ -1,15 +1,18 @@
-# Issue #660 — smoke test for SDLC
+# Triaging Plan for Issue #660
 
-## Outcome
-The V4 SDLC pipeline run is recorded in CHANGELOG.md [Unreleased] / ### Internal with one line naming the four agents that touched it.
+## Summary
+Triaging issue #660 involves understanding the requirements, gathering relevant details, and outlining the next steps in resolving the issue.
 
-## Approach
-- Add one `### Internal` line to CHANGELOG.md under `[Unreleased]`
-- Do not change any other file
-- GTM posts the Discord announcement after merge
+## Steps
+1. Analyze the issue as reported.
+2. Identify the root cause or find the necessary information for others to address it.
+3. Offer potential solutions or next action items.
+4. Summarize findings in this plan and tag relevant individuals for review.
 
-## Files
-- CHANGELOG.md
+## Notes
+- Ensure that the issue description is clear and any reproductions steps are detailed properly.
+- Keep the plan concise but informative for the reviewer to understand and act upon the issue effectively.
 
-## Risk
-Agent touches unrelated files or omits the agent attribution.
+## Deliverables
+- [ ] Completed plan document in `.itx/660/00_PLAN.md`.
+- [ ] Open pull request with this plan for review.
