@@ -254,6 +254,61 @@ def test_reaper_closes_idle_tunnels():
     assert "stale" not in fleet_mod.WEB_UI_LAST_ACCESS
 
 
+def test_reaper_skips_close_for_restamped_key():
+    """Key re-stamped between snapshot-pop and re-check must not be closed (TOCTOU guard)."""
+    import time as time_module
+
+    fleet_mod.WEB_UI_LAST_ACCESS["restamped"] = time_module.time() - 3600
+
+    # Simulate concurrent /web-ui re-stamping the key after the reaper pops it:
+    # intercept the second _LAST_ACCESS_LOCK acquire (the per-key re-check)
+    # and re-insert the key so the guard fires.
+    original_lock = fleet_mod._LAST_ACCESS_LOCK
+    acquire_count = [0]
+    real_aenter = original_lock.__class__.__aenter__
+
+    async def _injecting_aenter(self):
+        result = await real_aenter(self)
+        if self is original_lock:
+            acquire_count[0] += 1
+            if acquire_count[0] == 2:
+                fleet_mod.WEB_UI_LAST_ACCESS["restamped"] = time_module.time()
+        return result
+
+    with (
+        patch.object(original_lock.__class__, "__aenter__", _injecting_aenter),
+        patch("clawrium.core.web_ui_tunnel.close") as mock_close,
+    ):
+        count = asyncio.run(fleet_mod.reap_idle_tunnels(threshold_seconds=1800.0))
+
+    assert count == 0
+    mock_close.assert_not_called()
+    assert "restamped" in fleet_mod.WEB_UI_LAST_ACCESS
+
+
+def test_reaper_continues_after_close_failure():
+    """close() raising must not increment count; subsequent stale keys are still processed."""
+    import time as time_module
+
+    fleet_mod.WEB_UI_LAST_ACCESS["bad"] = time_module.time() - 3600
+    fleet_mod.WEB_UI_LAST_ACCESS["good"] = time_module.time() - 3600
+
+    closed: list[str] = []
+
+    def _failing_close(key: str) -> None:
+        if key == "bad":
+            raise OSError("ssh disconnect")
+        closed.append(key)
+
+    with patch("clawrium.core.web_ui_tunnel.close", side_effect=_failing_close):
+        count = asyncio.run(fleet_mod.reap_idle_tunnels(threshold_seconds=1800.0))
+
+    assert count == 1
+    assert "good" in closed
+    assert "bad" not in fleet_mod.WEB_UI_LAST_ACCESS
+    assert "good" not in fleet_mod.WEB_UI_LAST_ACCESS
+
+
 def test_reaper_noop_when_all_fresh():
     import time as time_module
 
@@ -359,6 +414,7 @@ def test_pairing_code_409_when_bearer_blank(isolated_config: Path):
         with TestClient(app) as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
     assert resp.status_code == 409
+    assert "clawctl agent configure" in resp.json()["detail"]
 
 
 def test_pairing_code_502_on_tunnel_failure(isolated_config: Path):
@@ -622,6 +678,23 @@ def test_pairing_code_502_on_non_json_response(isolated_config: Path):
 
     assert resp.status_code == 502
     assert "non-JSON" in resp.json()["detail"]
+
+
+def test_pairing_code_500_on_unexpected_tunnel_exception(isolated_config: Path):
+    """Non-TunnelError from ensure() in pairing-code path → 500 with generic message."""
+    _seed_hosts(isolated_config, "zeroclaw", _zeroclaw_config("zc_bearer"))
+    with (
+        patch("clawrium.core.web_ui.resolve", return_value=_zeroclaw_resolved()),
+        patch(
+            "clawrium.core.web_ui_tunnel.ensure",
+            side_effect=RuntimeError("unexpected internal failure"),
+        ),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/fleet/agents/demo/pairing-code")
+    assert resp.status_code == 500
+    assert "Internal error" in resp.json()["detail"]
+    assert "unexpected internal failure" not in resp.json()["detail"]
 
 
 def test_pairing_code_504_on_upstream_timeout(isolated_config: Path):
@@ -980,6 +1053,8 @@ def test_fleet_health_returns_health_data(isolated_config: Path):
     assert data["summary"]["total"] == 1
     assert data["agents"][0]["agent_key"] == "demo"
     assert data["agents"][0]["process_running"] is True
+    assert "gateway_auth" not in data["agents"][0]
+    assert "secret_bearer_must_not_leak" not in resp.text
 
 
 def test_fleet_health_sanitizes_path_in_health_error(isolated_config: Path):
@@ -1028,6 +1103,7 @@ def test_fleet_health_returns_200_under_concurrent_clients(isolated_config: Path
         for t in threads:
             t.join(timeout=10)
 
+    assert len(results) == 3, f"only {len(results)} threads completed"
     assert all(s == 200 for s in results), results
 
 
@@ -1080,6 +1156,15 @@ def test_agent_detail_success(isolated_config: Path):
     assert data["latest_supported_version"] == "2026.6.0"
     assert captured["hostname"] == "192.168.1.100"
     assert captured["agent_key"] == "demo"
+
+
+def test_agent_detail_404_when_get_agent_detail_returns_none(isolated_config: Path):
+    """Second 404 path: resolve_agent succeeds but get_agent_detail returns None."""
+    _seed_hosts(isolated_config, "hermes")
+    with patch("clawrium.gui.routes.fleet.get_agent_detail", return_value=None):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/agents/demo")
+    assert resp.status_code == 404
 
 
 def test_agent_detail_404_when_host_mismatch(isolated_config: Path):
