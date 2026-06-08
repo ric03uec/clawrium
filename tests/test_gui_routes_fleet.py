@@ -1088,6 +1088,8 @@ def test_agent_detail_404_when_host_mismatch(isolated_config: Path):
     with TestClient(app) as client:
         resp = client.get("/api/fleet/agents/demo?host=wronghost")
     assert resp.status_code == 404
+    assert "demo" in resp.json()["detail"]
+    assert "wronghost" in resp.json()["detail"]
 
 
 def test_agent_detail_hardware_null_coercion(isolated_config: Path):
