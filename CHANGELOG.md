@@ -131,3 +131,4 @@ release.
   the new section. Closes documentation drift identified after
   #612 / #621 / #622 landed multi-provider support in the CLI
   without updating user-facing docs.
+\n## [Unreleased]\n### Added\n- Test: SDLC pipeline smoke TC-1 executed to verify process integrity.
