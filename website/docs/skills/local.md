@@ -84,3 +84,63 @@ clawctl agent skill add my-hermes-agent --from-template hermes/my-hermes-skill
 Overlay entries live under `~/.config/clawrium/skills/<registry>/<name>/`
 and appear in `skill registry get` / `describe`. An overlay entry wins
 over a bundled catalog entry with the same `<registry>/<name>`.
+
+## Using the web UI
+
+The Clawrium GUI surfaces the same per-agent skill lifecycle on the
+**Agent Detail → Skills** tab.
+
+### Adding a skill
+
+Click **Add skill** on the Skills tab to open the add-skill modal. Three
+input modes are available as tabs:
+
+| Tab | What it does |
+|---|---|
+| **From catalog** | Pick any bundled or overlay catalog skill by name and click **Install**. |
+| **From file** | Paste the full contents of a `SKILL.md` file. The skill name is read from the `name:` frontmatter field. |
+| **Inline** | Type a name, description, and optional markdown body directly. |
+
+All three modes write a per-agent local skill immediately, without touching
+the agent host. Click **Sync** (the existing agent Sync control) to flush
+the change to the host.
+
+### Editing an on-agent skill
+
+Only **LOCAL** skills (created via File or Inline mode) show an **Edit**
+button. Click it to open an in-browser editor with the raw `SKILL.md`
+text. Save to update the local copy; Sync to apply on the host.
+
+Catalog-sourced skills (**BUNDLED** or **OVERLAY**) are read-only in the
+editor — remove and re-add them from the catalog picker to update.
+
+### Removing a skill
+
+Click **Remove** on any installed skill row. A confirmation step prevents
+accidental removal. After confirming:
+- The skill is removed from local desired state immediately.
+- The on-host file is pruned on the next **Sync**.
+
+### Adding to the user overlay
+
+To make a skill available across all your agents, click **Add to catalog**
+(top-right of the Skills page) and fill in the registry, name, and
+`SKILL.md` content. The skill appears in the catalog picker with an
+**OVERLAY** origin chip.
+
+### Origin chips
+
+Each installed skill row shows an origin chip:
+
+| Chip | Meaning |
+|---|---|
+| **LOCAL** | Created via File or Inline mode; no source template. |
+| **BUNDLED** | Copied from the bundled in-repo catalog. |
+| **OVERLAY** | Copied from your user overlay catalog. |
+
+### Flushing via Sync
+
+After any add, edit, or remove in the GUI, use the agent's existing
+**Sync** control to apply the changes on the host. The skill endpoints
+do not call `apply_state` automatically — this is by design so you can
+stage multiple changes before a single flush.

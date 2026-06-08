@@ -5,9 +5,11 @@ import { PageHeader } from "@/components/layout";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui";
 import { SkillCard, SkillDetail } from "@/components/skills";
-import { useSkill, useSkills, useInstallAgentSkill } from "@/hooks";
+import { useSkill, useSkills, useInstallAgentSkill, useAddOverlaySkill } from "@/hooks";
 import { useFleet } from "@/hooks";
 import type { SkillRegistry, SkillSummary } from "@/lib/types";
+
+const REGISTRIES: SkillRegistry[] = ["clawrium", "hermes", "openclaw", "zeroclaw"];
 
 const REGISTRY_LABELS: Record<SkillRegistry, string> = {
   clawrium: "Clawrium",
@@ -22,6 +24,7 @@ export default function SkillsPage() {
     "clawrium",
   );
   const [selected, setSelected] = useState<SkillSummary | null>(null);
+  const [addOverlayOpen, setAddOverlayOpen] = useState(false);
 
   const counts = useMemo(() => {
     if (!catalog) return {} as Record<SkillRegistry, number>;
@@ -37,10 +40,20 @@ export default function SkillsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Skills"
-        description="Browse and install skills onto your agents. Skills add capabilities like TDD workflows, code review, and more."
-      />
+      <div className="flex items-start justify-between">
+        <PageHeader
+          title="Skills"
+          description="Browse and install skills onto your agents. Skills add capabilities like TDD workflows, code review, and more."
+        />
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => setAddOverlayOpen(true)}
+          className="mt-1 shrink-0"
+        >
+          Add to catalog
+        </Button>
+      </div>
 
       {error ? (
         <div
@@ -140,7 +153,141 @@ export default function SkillsPage() {
         skill={selected}
         onClose={() => setSelected(null)}
       />
+
+      <AddOverlaySkillModal
+        open={addOverlayOpen}
+        onClose={() => setAddOverlayOpen(false)}
+      />
     </div>
+  );
+}
+
+function AddOverlaySkillModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [registry, setRegistry] = useState<SkillRegistry>("clawrium");
+  const [name, setName] = useState("");
+  const [content, setContent] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+  const addMutation = useAddOverlaySkill();
+
+  const handleClose = () => {
+    setRegistry("clawrium");
+    setName("");
+    setContent("");
+    setLocalError(null);
+    onClose();
+  };
+
+  const handleAdd = async () => {
+    setLocalError(null);
+    if (!name.trim()) {
+      setLocalError("Skill name is required.");
+      return;
+    }
+    if (!content.trim()) {
+      setLocalError("SKILL.md content is required.");
+      return;
+    }
+    try {
+      await addMutation.mutateAsync({ registry, name: name.trim(), content });
+      handleClose();
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Add failed");
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={handleClose}
+      title="Add skill to user overlay"
+      footer={
+        <div className="flex items-center gap-2">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleAdd}
+            disabled={addMutation.isPending || !name.trim() || !content.trim()}
+          >
+            {addMutation.isPending ? "Adding…" : "Add skill"}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={handleClose}>
+            Cancel
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        {localError ? (
+          <div
+            role="alert"
+            className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+          >
+            {localError}
+          </div>
+        ) : null}
+        <p className="text-xs text-muted">
+          Add a skill to your local user overlay. It will appear in the catalog
+          alongside bundled skills and can be installed on any compatible agent.
+        </p>
+        <div>
+          <label
+            className="block text-xs font-medium text-secondary mb-1"
+            htmlFor="overlay-registry"
+          >
+            Registry
+          </label>
+          <select
+            id="overlay-registry"
+            className="w-full rounded-lg border border-default bg-surface px-3 py-2 text-sm text-primary-text focus:outline-none focus:ring-2 focus:ring-accent"
+            value={registry}
+            onChange={(e) => setRegistry(e.target.value as SkillRegistry)}
+          >
+            {REGISTRIES.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label
+            className="block text-xs font-medium text-secondary mb-1"
+            htmlFor="overlay-name"
+          >
+            Name <span className="text-red-500">*</span>
+          </label>
+          <input
+            id="overlay-name"
+            type="text"
+            className="w-full rounded-lg border border-default bg-surface px-3 py-2 text-sm text-primary-text focus:outline-none focus:ring-2 focus:ring-accent"
+            placeholder="my-skill"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <div>
+          <label
+            className="block text-xs font-medium text-secondary mb-1"
+            htmlFor="overlay-content"
+          >
+            SKILL.md content <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            id="overlay-content"
+            className="w-full h-48 rounded-lg border border-default bg-surface p-3 text-sm font-mono text-primary-text resize-y focus:outline-none focus:ring-2 focus:ring-accent"
+            placeholder={"---\nname: my-skill\ndescription: What this skill does\n---\n\n# My Skill\n..."}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+          />
+        </div>
+      </div>
+    </Modal>
   );
 }
 

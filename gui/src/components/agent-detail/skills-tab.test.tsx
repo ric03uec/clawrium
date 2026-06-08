@@ -19,11 +19,26 @@ const removeMutation = {
   mutateAsync: vi.fn(),
   isPending: false,
 };
+const addMutation = {
+  mutateAsync: vi.fn(),
+  isPending: false,
+};
+const editMutation = {
+  mutateAsync: vi.fn(),
+  isPending: false,
+};
+const removeLocalMutation = {
+  mutateAsync: vi.fn(),
+  isPending: false,
+};
 
 vi.mock("@/hooks", () => ({
   useAgentSkills: () => agentSkillsState,
   useInstallAgentSkill: () => installMutation,
   useRemoveAgentSkill: () => removeMutation,
+  useAddAgentSkill: () => addMutation,
+  useEditAgentSkill: () => editMutation,
+  useRemoveLocalAgentSkill: () => removeLocalMutation,
 }));
 
 vi.mock("@/components/ui/modal", () => ({
@@ -128,14 +143,14 @@ describe("SkillsTab", () => {
   it("opens the install picker filtered to compatible skills", () => {
     agentSkillsState.data = makeAgentSkills();
     render(<SkillsTab agentKey="tdd-hermes" />);
-    fireEvent.click(screen.getByRole("button", { name: /Install skill/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add skill/ }));
     const modal = screen.getByTestId("modal");
     expect(modal).toBeInTheDocument();
     // The picker shows the available skill that isn't yet installed.
     expect(modal.textContent).toContain("clawrium/tdd");
   });
 
-  it("hides already-installed skills from the picker", () => {
+  it("hides already-installed skills from the template tab picker", () => {
     agentSkillsState.data = makeAgentSkills({
       installed: [
         {
@@ -148,16 +163,20 @@ describe("SkillsTab", () => {
       ],
     });
     render(<SkillsTab agentKey="tdd-hermes" />);
-    // The Install button disables when nothing is available beyond installed.
+    // Add skill button stays enabled — the multi-mode modal always opens.
     expect(
-      screen.getByRole("button", { name: /Install skill/ }),
-    ).toBeDisabled();
+      screen.getByRole("button", { name: /Add skill/ }),
+    ).not.toBeDisabled();
+    // Open the modal and check the template tab shows empty state
+    fireEvent.click(screen.getByRole("button", { name: /Add skill/ }));
+    const modal = screen.getByTestId("modal");
+    expect(modal.textContent).toContain("No compatible skills");
   });
 
   it("calls install mutation with parsed registry+name", async () => {
     agentSkillsState.data = makeAgentSkills();
     render(<SkillsTab agentKey="tdd-hermes" />);
-    fireEvent.click(screen.getByRole("button", { name: /Install skill/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add skill/ }));
     // Per-row picker button is labeled "Install <ref>" (ATX-1 W7).
     fireEvent.click(
       screen.getByRole("button", { name: /Install clawrium\/tdd/ }),
@@ -245,7 +264,7 @@ describe("SkillsTab", () => {
       .fn()
       .mockRejectedValue(new Error("host unreachable"));
     render(<SkillsTab agentKey="tdd-hermes" />);
-    fireEvent.click(screen.getByRole("button", { name: /Install skill/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add skill/ }));
     fireEvent.click(
       screen.getAllByRole("button", { name: /Install clawrium\/tdd/ })[0],
     );
@@ -389,7 +408,7 @@ describe("SkillsTab", () => {
     // ATX-1 W9: post-install modal-close path was previously uncovered.
     agentSkillsState.data = makeAgentSkills();
     render(<SkillsTab agentKey="tdd-hermes" />);
-    fireEvent.click(screen.getByRole("button", { name: /Install skill/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add skill/ }));
     expect(screen.getByTestId("modal")).toBeInTheDocument();
     fireEvent.click(
       screen.getAllByRole("button", { name: /Install clawrium\/tdd/ })[0],

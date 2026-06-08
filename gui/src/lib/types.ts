@@ -410,12 +410,16 @@ export interface SkillDetail {
 // Per-agent skills (Phase 5). Both installed and available rows reuse
 // SkillSummary but allow `registry`/`name` to be null on installed rows
 // when the state file carries a ref that no longer parses.
+export type SkillOrigin = "local" | "bundled" | "overlay";
+
 export interface AgentSkillRow {
   ref: string;
   registry: SkillRegistry | null;
   name: string | null;
   description: string | null;
   version: string | null;
+  /** Phase C: where this skill came from — local (no template), bundled catalog, or user overlay. */
+  origin?: SkillOrigin;
 }
 
 export interface AgentSkills {
@@ -431,4 +435,15 @@ export interface AgentSkillMutationResponse {
   ref: string;
   changed: boolean;
   installed: string[];
+}
+
+export interface AddLocalSkillResponse {
+  success: boolean;
+  agent_name: string;
+  skill_name: string;
+}
+
+export interface AddOverlaySkillResponse {
+  success: boolean;
+  ref: string;
 }

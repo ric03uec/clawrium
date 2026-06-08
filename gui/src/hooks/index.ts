@@ -27,4 +27,8 @@ export {
   useAgentSkills,
   useInstallAgentSkill,
   useRemoveAgentSkill,
+  useAddAgentSkill,
+  useEditAgentSkill,
+  useRemoveLocalAgentSkill,
+  useAddOverlaySkill,
 } from "./use-skills";

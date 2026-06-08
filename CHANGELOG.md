@@ -65,6 +65,21 @@ release.
   attachment while auxiliary attachments remain — detach those first.
   Singleton agents keep the `single-provider invariant` rejection
   message verbatim. (#612, parent #589)
+- GUI: **Add skill** modal on the Agent Detail → Skills tab with three
+  input modes — **From catalog** (template picker), **From file** (paste
+  raw `SKILL.md`), and **Inline** (name + description + body form). Each
+  mode writes a per-agent local skill without immediately syncing the
+  host. (#411)
+- GUI: **Edit** button on `LOCAL`-origin installed skill rows opens an
+  in-browser `SKILL.md` editor; re-validates the schema before writing.
+  (#411)
+- GUI: origin chips (**LOCAL** / **BUNDLED** / **OVERLAY**) on every
+  installed skill row so the provenance of each skill is visible at a
+  glance. (#411)
+- GUI: **Add to catalog** button on the Skills page writes a skill to the
+  user overlay (`~/.config/clawrium/skills/<registry>/<name>/`) via a new
+  `POST /api/skills` endpoint; the skill appears in the catalog picker
+  immediately. (#411)
 
 ### Changed
 

@@ -49,6 +49,8 @@ from clawrium.core.skills import (
     SkillError,
     SkillNotFound,
     SkillRef,
+    _overlay_root,
+    _split_frontmatter,
     check_agent_compatibility,
     load_agent_skill,
     list_skills,
@@ -56,6 +58,7 @@ from clawrium.core.skills import (
     materialize_skill_for_agent,
     parse_skill_ref,
     render_skill_md,
+    validate_skill,
     with_source_ref,
 )
 from clawrium.core.skills_apply import (
@@ -407,6 +410,19 @@ def _list_available_for_agent_type(agent_type: str) -> list[dict[str, object]]:
     return available
 
 
+def _origin_for_local_skill(local_skill: Skill) -> str:
+    """Return "local", "bundled", or "overlay" based on source metadata."""
+    raw_source = local_skill.skill_md_frontmatter.get(SOURCE_REF_FIELD)
+    if not isinstance(raw_source, str):
+        return "local"
+    try:
+        source_ref = parse_skill_ref(raw_source)
+    except SkillError:
+        return "local"
+    overlay_dir = _overlay_root() / source_ref.registry / source_ref.name
+    return "overlay" if overlay_dir.exists() else "bundled"
+
+
 def _source_ref_for_local_skill(local_skill: Skill, name: str) -> SkillRef:
     raw_source = local_skill.skill_md_frontmatter.get(SOURCE_REF_FIELD)
     if isinstance(raw_source, str):
@@ -486,6 +502,7 @@ async def list_agent_skills(agent_key: str):
         for name in installed_names:
             description: str | None = None
             version: str | None = None
+            origin: str = "local"
             try:
                 local_skill = load_agent_skill(agent_name, name, agent_type)
             except SkillError:
@@ -500,6 +517,7 @@ async def list_agent_skills(agent_key: str):
                 installed_ref = _source_ref_for_local_skill(local_skill, name)
                 registry = installed_ref.registry
                 ref_text = str(installed_ref)
+                origin = _origin_for_local_skill(local_skill)
             if local_skill is None:
                 registry = "local"
                 ref_text = name
@@ -510,6 +528,7 @@ async def list_agent_skills(agent_key: str):
                     "name": name,
                     "description": description,
                     "version": version,
+                    "origin": origin,
                 }
             )
         available = _list_available_for_agent_type(agent_type)
@@ -625,6 +644,239 @@ async def remove_agent_skill(agent_key: str, registry: str, skill: str):
     return await asyncio.to_thread(
         _install_or_remove, agent_key, registry, skill, action="remove"
     )
+
+
+class AddSkillBody(BaseModel):
+    input_mode: str  # "template" | "file" | "inline"
+    # template mode
+    registry: str | None = None
+    name: str | None = None
+    # file mode
+    content: str | None = None
+    # inline mode
+    description: str | None = None
+    body: str | None = None
+
+
+class EditSkillBody(BaseModel):
+    content: str  # full SKILL.md text
+
+
+@router.post("/{agent_key}/skills")
+async def add_agent_skill(agent_key: str, payload: AddSkillBody):
+    """Add a per-agent local skill (template / file / inline).
+
+    Does NOT call apply_state — flush via ``clawctl agent sync`` or the GUI
+    Sync control. Returns immediately after writing local state.
+
+    Input modes:
+    - ``template``: copy and materialize a catalog skill.
+    - ``file``: parse and materialize SKILL.md text provided in ``content``.
+    - ``inline``: build a skill from ``name``, ``description``, and optional ``body``.
+    """
+
+    def _add() -> dict[str, object]:
+        resolved = _resolve_agent(agent_key)
+        if not resolved:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+        _host_record, agent_type, agent_record = resolved
+        agent_name = agent_record.get("agent_name") or agent_key
+
+        try:
+            if payload.input_mode == "template":
+                if not payload.registry or not payload.name:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="template mode requires registry and name",
+                    )
+                raw_ref = f"{payload.registry}/{payload.name}"
+                ref = parse_skill_ref(raw_ref)
+                template = load_skill(ref)
+                skill = materialize_skill_for_agent(template, agent_type)
+                skill = with_source_ref(skill, raw_ref)
+                skill_name = ref.name
+
+            elif payload.input_mode == "file":
+                if not payload.content:
+                    raise HTTPException(
+                        status_code=422, detail="file mode requires content"
+                    )
+                body_text, fm = _split_frontmatter(payload.content)
+                skill_name = payload.name or fm.get("name") or ""
+                if not skill_name:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="skill name missing — provide --name or include name: in frontmatter",
+                    )
+                raw_skill = Skill(
+                    ref=SkillRef(agent_type, skill_name),
+                    path=None,
+                    metadata=fm,
+                    body=body_text,
+                    skill_md_frontmatter=fm,
+                )
+                skill = materialize_skill_for_agent(raw_skill, agent_type)
+
+            elif payload.input_mode == "inline":
+                if not payload.name:
+                    raise HTTPException(
+                        status_code=422, detail="inline mode requires name"
+                    )
+                skill_name = payload.name
+                fm = {
+                    "name": skill_name,
+                    "description": payload.description or "",
+                }
+                raw_skill = Skill(
+                    ref=SkillRef(agent_type, skill_name),
+                    path=None,
+                    metadata=fm,
+                    body=payload.body or "",
+                    skill_md_frontmatter=fm,
+                )
+                skill = materialize_skill_for_agent(raw_skill, agent_type)
+
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"unknown input_mode {payload.input_mode!r}",
+                )
+
+            validate_skill(skill)
+
+            if agent_skills_dir(agent_name) / skill_name:
+                target = agent_skills_dir(agent_name) / skill_name
+                if target.exists() or skill_name in read_state(agent_name):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Local skill '{skill_name}' already exists for agent '{agent_name}'. "
+                            "Remove or rename it first."
+                        ),
+                    )
+
+            add_skill(agent_name, skill_name)
+            try:
+                _write_agent_local_skill(agent_name, skill_name, skill)
+            except FileExistsError as error:
+                _rollback_local_install(agent_name, skill_name)
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Local skill '{skill_name}' already exists for agent '{agent_name}'.",
+                ) from error
+            except OSError as error:
+                _rollback_local_install(agent_name, skill_name)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to persist local skill '{skill_name}'.",
+                ) from error
+
+        except SkillError as error:
+            raise HTTPException(
+                status_code=_skill_error_status(error),
+                detail=_skill_error_detail(error),
+            ) from error
+
+        return {"success": True, "agent_name": agent_name, "skill_name": skill_name}
+
+    return await asyncio.to_thread(_add)
+
+
+@router.put("/{agent_key}/skills/local/{name}")
+async def edit_agent_skill(agent_key: str, name: str, payload: EditSkillBody):
+    """Replace the body of a per-agent local skill.
+
+    Re-validates against the target agent's native schema before writing.
+    Does NOT call apply_state.
+    """
+
+    def _edit() -> dict[str, object]:
+        resolved = _resolve_agent(agent_key)
+        if not resolved:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+        _host_record, agent_type, agent_record = resolved
+        agent_name = agent_record.get("agent_name") or agent_key
+
+        target = agent_skills_dir(agent_name) / name / "SKILL.md"
+        if not target.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Local skill '{name}' not found for agent '{agent_name}'.",
+            )
+
+        try:
+            body_text, fm = _split_frontmatter(payload.content)
+            edited = Skill(
+                ref=SkillRef(agent_type, name),
+                path=None,
+                metadata=fm,
+                body=body_text,
+                skill_md_frontmatter=fm,
+            )
+            skill = materialize_skill_for_agent(edited, agent_type)
+            validate_skill(skill)
+        except SkillError as error:
+            raise HTTPException(
+                status_code=_skill_error_status(error),
+                detail=_skill_error_detail(error),
+            ) from error
+
+        tmp = target.parent / ".SKILL.md.tmp"
+        try:
+            tmp.write_text(render_skill_md(skill), encoding="utf-8")
+            tmp.replace(target)
+        except OSError as error:
+            tmp.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to write local skill '{name}'.",
+            ) from error
+
+        return {"success": True, "agent_name": agent_name, "skill_name": name}
+
+    return await asyncio.to_thread(_edit)
+
+
+@router.delete("/{agent_key}/skills/local/{name}")
+async def delete_local_agent_skill(agent_key: str, name: str):
+    """Remove a per-agent local skill from state and disk.
+
+    Does NOT call apply_state — the skill file is still on the agent host
+    until the next ``clawctl agent sync``.
+    """
+
+    def _delete() -> dict[str, object]:
+        resolved = _resolve_agent(agent_key)
+        if not resolved:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+        _host_record, _agent_type, agent_record = resolved
+        agent_name = agent_record.get("agent_name") or agent_key
+
+        try:
+            current = read_state(agent_name)
+        except SkillError as error:
+            raise HTTPException(
+                status_code=500, detail="Failed to read skill state."
+            ) from error
+
+        if name not in current:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Local skill '{name}' not found in desired state for '{agent_name}'.",
+            )
+
+        try:
+            remove_skill(agent_name, name)
+        except SkillError as error:
+            raise HTTPException(
+                status_code=_skill_error_status(error),
+                detail=_skill_error_detail(error),
+            ) from error
+
+        shutil.rmtree(agent_skills_dir(agent_name) / name, ignore_errors=True)
+        return {"success": True, "agent_name": agent_name, "skill_name": name}
+
+    return await asyncio.to_thread(_delete)
 
 
 # --- Internal helpers ---

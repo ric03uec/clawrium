@@ -18,9 +18,11 @@ Status mapping for ``SkillError`` subclasses:
 
 import asyncio
 import logging
+import shutil
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Path as FastAPIPath
+from pydantic import BaseModel
 
 from clawrium.core.skills import (
     NATIVE_REGISTRIES,
@@ -29,12 +31,16 @@ from clawrium.core.skills import (
     InvalidSkillRef,
     MissingRegistryPrefix,
     SchemaValidationError,
+    Skill,
     SkillError,
     SkillNotFound,
     SkillRef,
+    _overlay_root,
+    _split_frontmatter,
     list_skills,
     load_skill,
     parse_skill_ref,
+    render_skill_md,
     validate_skill,
 )
 
@@ -308,3 +314,80 @@ async def get_skill_route(
     # needed. A bare `await` here keeps the call path clean and lets a
     # truly unhandled exception 500 visibly rather than silently swallow.
     return await asyncio.to_thread(_resolve)
+
+
+class AddOverlaySkillBody(BaseModel):
+    registry: str
+    name: str
+    content: str  # full SKILL.md text
+
+
+@router.post("")
+async def add_overlay_skill(payload: AddOverlaySkillBody) -> dict[str, Any]:
+    """Write a skill to the user overlay catalog.
+
+    Validates against the per-registry schema; rejects 422 on schema
+    failure and 409 on existing overlay collision.
+    """
+
+    def _write() -> dict[str, Any]:
+        if payload.registry not in REGISTRIES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown registry {payload.registry!r}. Must be one of {sorted(REGISTRIES)}.",
+            )
+
+        target_dir = _overlay_root() / payload.registry / payload.name
+        if target_dir.exists():
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Skill {payload.registry}/{payload.name} already exists in the user overlay. "
+                    "Remove or rename it before adding a replacement."
+                ),
+            )
+
+        try:
+            body_text, fm = _split_frontmatter(payload.content)
+        except Exception as error:
+            raise HTTPException(
+                status_code=422, detail=f"Failed to parse SKILL.md: {error}"
+            ) from error
+
+        fm.setdefault("name", payload.name)
+        skill = Skill(
+            ref=SkillRef(payload.registry, payload.name),
+            path=None,
+            metadata=fm,
+            body=body_text,
+            skill_md_frontmatter=fm,
+        )
+
+        try:
+            validate_skill(skill)
+        except SkillError as error:
+            raise HTTPException(
+                status_code=422, detail=str(error)
+            ) from error
+
+        tmp_dir = target_dir.parent / f".{payload.name}.tmp"
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        try:
+            tmp_dir.mkdir(parents=True, exist_ok=False)
+            (tmp_dir / "SKILL.md").write_text(render_skill_md(skill), encoding="utf-8")
+            tmp_dir.rename(target_dir)
+        except FileExistsError as error:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=409,
+                detail=f"Skill {payload.registry}/{payload.name} already exists in the user overlay.",
+            ) from error
+        except OSError as error:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=500, detail="Failed to write skill to overlay."
+            ) from error
+
+        return {"success": True, "ref": f"{payload.registry}/{payload.name}"}
+
+    return await asyncio.to_thread(_write)

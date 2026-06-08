@@ -540,3 +540,210 @@ def _raises_if_called(label: str):
         raise AssertionError(f"{label} should not have been called")
 
     return _raise
+
+
+# ---------- Phase C: GET with origin tag ------------------------------------
+
+
+def test_list_installed_skill_has_origin_tag(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+    _write_local_skill("tdd-hermes", "tdd")
+
+    result = _run(agents_route.list_agent_skills("tdd-hermes"))
+
+    tdd_row = result["installed"][0]
+    # x-clawrium-source points at clawrium/tdd in the bundled catalog
+    assert tdd_row["origin"] in {"local", "bundled", "overlay"}
+
+
+def test_list_local_skill_without_source_tag_has_origin_local(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+    # Write a skill WITHOUT x-clawrium-source — should be "local"
+    skill_dir = agent_skills_dir("tdd-hermes") / "custom"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: custom\ndescription: No source\n---\n\nBody\n",
+        encoding="utf-8",
+    )
+    from clawrium.core.skills_state import write_state
+    write_state("tdd-hermes", ["custom"])
+
+    result = _run(agents_route.list_agent_skills("tdd-hermes"))
+    row = result["installed"][0]
+    assert row["origin"] == "local"
+
+
+# ---------- Phase C: POST /{agent_key}/skills --------------------------------
+
+
+def test_add_skill_template_mode_happy_path(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+
+    body = agents_route.AddSkillBody(
+        input_mode="template", registry="clawrium", name="tdd"
+    )
+    result = _run(agents_route.add_agent_skill("tdd-hermes", body))
+
+    assert result["success"] is True
+    assert result["skill_name"] == "tdd"
+    assert (agent_skills_dir("tdd-hermes") / "tdd" / "SKILL.md").exists()
+    assert "tdd" in read_state("tdd-hermes")
+
+
+def test_add_skill_template_mode_409_on_duplicate(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+    _write_local_skill("tdd-hermes", "tdd")
+
+    body = agents_route.AddSkillBody(
+        input_mode="template", registry="clawrium", name="tdd"
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.add_agent_skill("tdd-hermes", body))
+    assert exc.value.status_code == 409
+
+
+def test_add_skill_file_mode_happy_path(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+
+    content = "---\nname: file-skill\ndescription: From file\n---\n\n# Body\n"
+    body = agents_route.AddSkillBody(input_mode="file", content=content)
+    result = _run(agents_route.add_agent_skill("tdd-hermes", body))
+
+    assert result["success"] is True
+    assert result["skill_name"] == "file-skill"
+
+
+def test_add_skill_file_mode_422_when_content_missing(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+
+    body = agents_route.AddSkillBody(input_mode="file")
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.add_agent_skill("tdd-hermes", body))
+    assert exc.value.status_code == 422
+
+
+def test_add_skill_inline_mode_happy_path(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+
+    body = agents_route.AddSkillBody(
+        input_mode="inline",
+        name="my-inline",
+        description="Inline test",
+        body="# Hello",
+    )
+    result = _run(agents_route.add_agent_skill("tdd-hermes", body))
+
+    assert result["success"] is True
+    assert result["skill_name"] == "my-inline"
+    assert (agent_skills_dir("tdd-hermes") / "my-inline" / "SKILL.md").exists()
+
+
+def test_add_skill_inline_mode_422_without_name(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+
+    body = agents_route.AddSkillBody(input_mode="inline", description="No name")
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.add_agent_skill("tdd-hermes", body))
+    assert exc.value.status_code == 422
+
+
+def test_add_skill_404_when_agent_not_found(monkeypatch):
+    _stub_resolved(monkeypatch, resolved=False)
+
+    body = agents_route.AddSkillBody(
+        input_mode="template", registry="clawrium", name="tdd"
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.add_agent_skill("ghost", body))
+    assert exc.value.status_code == 404
+
+
+def test_add_skill_unknown_mode_422(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+
+    body = agents_route.AddSkillBody(input_mode="magic")
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.add_agent_skill("tdd-hermes", body))
+    assert exc.value.status_code == 422
+
+
+def test_add_skill_local_prefix_never_dispatches_to_registry_route(monkeypatch):
+    """registry=='local' must route to add_agent_skill, not install_agent_skill."""
+    _stub_resolved(monkeypatch, agent_type="hermes")
+    install_called = []
+    monkeypatch.setattr(agents_route, "apply_state", _raises_if_called("apply_state"))
+
+    # Calling install with registry="local" uses the compat route and would
+    # fail because "local" is not a valid SkillRef prefix. The new local
+    # DELETE route's name argument must always be a bare name.
+    content = "---\nname: bare\ndescription: test\n---\n\nBody\n"
+    body = agents_route.AddSkillBody(input_mode="file", content=content)
+    result = _run(agents_route.add_agent_skill("tdd-hermes", body))
+    assert result["skill_name"] == "bare"
+    assert not install_called
+
+
+# ---------- Phase C: PUT /{agent_key}/skills/local/{name} -------------------
+
+
+def test_edit_local_skill_happy_path(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+    _write_local_skill("tdd-hermes", "tdd")
+
+    new_content = "---\nname: tdd\ndescription: Edited\n---\n\nNew body\n"
+    body = agents_route.EditSkillBody(content=new_content)
+    result = _run(agents_route.edit_agent_skill("tdd-hermes", "tdd", body))
+
+    assert result["success"] is True
+    written = (agent_skills_dir("tdd-hermes") / "tdd" / "SKILL.md").read_text()
+    assert "Edited" in written
+
+
+def test_edit_local_skill_404_when_not_on_disk(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+
+    body = agents_route.EditSkillBody(content="---\nname: ghost\n---\n\n")
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.edit_agent_skill("tdd-hermes", "ghost", body))
+    assert exc.value.status_code == 404
+
+
+def test_edit_local_skill_422_on_schema_invalid(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+    _write_local_skill("tdd-hermes", "tdd")
+
+    # Missing description → schema validation should fail
+    body = agents_route.EditSkillBody(content="---\nname: tdd\n---\n\n")
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.edit_agent_skill("tdd-hermes", "tdd", body))
+    assert exc.value.status_code in {422, 400}
+
+
+# ---------- Phase C: DELETE /{agent_key}/skills/local/{name} ----------------
+
+
+def test_delete_local_skill_happy_path(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+    _write_local_skill("tdd-hermes", "tdd")
+
+    result = _run(agents_route.delete_local_agent_skill("tdd-hermes", "tdd"))
+
+    assert result["success"] is True
+    assert "tdd" not in read_state("tdd-hermes")
+    assert not (agent_skills_dir("tdd-hermes") / "tdd").exists()
+
+
+def test_delete_local_skill_404_when_not_in_state(monkeypatch):
+    _stub_resolved(monkeypatch, agent_type="hermes")
+
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.delete_local_agent_skill("tdd-hermes", "missing"))
+    assert exc.value.status_code == 404
+
+
+def test_delete_local_skill_404_when_agent_not_found(monkeypatch):
+    _stub_resolved(monkeypatch, resolved=False)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(agents_route.delete_local_agent_skill("ghost", "tdd"))
+    assert exc.value.status_code == 404

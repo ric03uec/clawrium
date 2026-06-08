@@ -256,6 +256,40 @@ export const api = {
       )}/${encodeURIComponent(name)}`,
       { method: "DELETE" },
     ),
+
+  // Phase C: per-agent local skill lifecycle
+  addAgentSkill: (
+    key: string,
+    payload: {
+      input_mode: "template" | "file" | "inline";
+      registry?: string;
+      name?: string;
+      content?: string;
+      description?: string;
+      body?: string;
+    },
+  ) =>
+    request<AddLocalSkillResponse>(
+      `/agents/${encodeURIComponent(key)}/skills`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+  editAgentSkill: (key: string, name: string, content: string) =>
+    request<AddLocalSkillResponse>(
+      `/agents/${encodeURIComponent(key)}/skills/local/${encodeURIComponent(name)}`,
+      { method: "PUT", body: JSON.stringify({ content }) },
+    ),
+  removeLocalAgentSkill: (key: string, name: string) =>
+    request<AddLocalSkillResponse>(
+      `/agents/${encodeURIComponent(key)}/skills/local/${encodeURIComponent(name)}`,
+      { method: "DELETE" },
+    ),
+
+  // Phase C: user overlay catalog write
+  addOverlaySkill: (registry: string, name: string, content: string) =>
+    request<AddOverlaySkillResponse>("/skills", {
+      method: "POST",
+      body: JSON.stringify({ registry, name, content }),
+    }),
 };
 
 // Type imports (re-exported from types.ts for convenience)
@@ -291,4 +325,6 @@ import type {
   SkillDetail,
   AgentSkills,
   AgentSkillMutationResponse,
+  AddLocalSkillResponse,
+  AddOverlaySkillResponse,
 } from "./types";

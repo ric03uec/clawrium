@@ -481,3 +481,59 @@ def _build_catalog_with_bad_clawrium_meta(tmp_path: Path) -> Path:
         "---\nname: wrong\ndescription: same\n---\nbody\n"
     )
     return root
+
+
+# ---------- Phase C: POST /api/skills (overlay write) -----------------------
+
+
+@pytest.fixture()
+def _isolate_overlay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Per-test XDG_CONFIG_HOME so overlay writes don't escape."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+
+def test_add_overlay_skill_happy_path(_isolate_overlay):
+    body = skills_route.AddOverlaySkillBody(
+        registry="hermes",
+        name="gui-skill",
+        content="---\nname: gui-skill\ndescription: GUI test\n---\n\n# Body\n",
+    )
+    result = _run(skills_route.add_overlay_skill(body))
+    assert result["success"] is True
+    assert result["ref"] == "hermes/gui-skill"
+
+
+def test_add_overlay_skill_409_on_collision(_isolate_overlay):
+    body = skills_route.AddOverlaySkillBody(
+        registry="hermes",
+        name="gui-skill",
+        content="---\nname: gui-skill\ndescription: First\n---\n\n# First\n",
+    )
+    _run(skills_route.add_overlay_skill(body))
+
+    with pytest.raises(HTTPException) as exc:
+        _run(skills_route.add_overlay_skill(body))
+    assert exc.value.status_code == 409
+
+
+def test_add_overlay_skill_422_unknown_registry(_isolate_overlay):
+    body = skills_route.AddOverlaySkillBody(
+        registry="bogus",
+        name="skill",
+        content="---\nname: skill\ndescription: x\n---\n\n",
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(skills_route.add_overlay_skill(body))
+    assert exc.value.status_code == 422
+
+
+def test_add_overlay_skill_422_schema_invalid(_isolate_overlay):
+    # Missing description field — fails schema validation for hermes
+    body = skills_route.AddOverlaySkillBody(
+        registry="hermes",
+        name="broken",
+        content="---\nname: broken\n---\n\n# No description\n",
+    )
+    with pytest.raises(HTTPException) as exc:
+        _run(skills_route.add_overlay_skill(body))
+    assert exc.value.status_code == 422

@@ -62,3 +62,72 @@ export function useRemoveAgentSkill() {
     },
   });
 }
+
+export function useAddAgentSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      agentKey,
+      payload,
+    }: {
+      agentKey: string;
+      payload: Parameters<typeof api.addAgentSkill>[1];
+    }) => api.addAgentSkill(agentKey, payload),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-skills", vars.agentKey],
+      });
+    },
+  });
+}
+
+export function useEditAgentSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      agentKey,
+      name,
+      content,
+    }: {
+      agentKey: string;
+      name: string;
+      content: string;
+    }) => api.editAgentSkill(agentKey, name, content),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-skills", vars.agentKey],
+      });
+    },
+  });
+}
+
+export function useRemoveLocalAgentSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentKey, name }: { agentKey: string; name: string }) =>
+      api.removeLocalAgentSkill(agentKey, name),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-skills", vars.agentKey],
+      });
+    },
+  });
+}
+
+export function useAddOverlaySkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      registry,
+      name,
+      content,
+    }: {
+      registry: string;
+      name: string;
+      content: string;
+    }) => api.addOverlaySkill(registry, name, content),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["skills"] });
+    },
+  });
+}
