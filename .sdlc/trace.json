@@ -1,0 +1,164 @@
+{
+  "goal": "A 4-agent hermes SDLC pipeline on wolf-i that autonomously covers the full delivery lifecycle for ric03uec/clawrium: issue sourcing → triage → code execution → GTM announcement. Triggered by a human orchestrator via Discord. One working end-to-end flow (TC-1 through TC-4) is the MVP.",
+
+  "agents": {
+    "clawrium-maurice": { "role": "Sourcing / PM — monitors upstream repos, files GH issues on new features", "channel": "#qna (1494198125223612427)", "provider": "clm-openrouter" },
+    "clawrium-triage":  { "role": "Triage — labels issues, drafts plan, marks planned; adds agent-ready for xs/s complexity", "channel": "#triage (1513395156852674590)", "provider": "clm-openrouter" },
+    "clawrium-exec":    { "role": "Execution — one issue at a time, branch only, validate-before-PR, full test suite", "channel": "#coder-fleet (1506153398117077092)", "provider": "clm-openrouter" },
+    "clawrium-gtm":     { "role": "GTM — announces merged PRs to #announcements, updates CHANGELOG, blogs, daily digest", "channel": "#announcements (1494197384094416906)", "provider": "clm-openrouter" }
+  },
+
+  "skill_assignments": {
+    "clawrium-maurice": {
+      "skills": ["upstream-hermes", "upstream-zeroclaw", "upstream-openclaw"],
+      "contract": "File issue only if (1) new upstream feature AND (2) not already tracked in ric03uec/clawrium. No approval gate."
+    },
+    "clawrium-triage": {
+      "skills": ["sdlc-triage"],
+      "contract": "Assign agent-ready if complexity:xs or complexity:s. Do NOT assign agent-ready for m/l/xl or unknown complexity."
+    },
+    "clawrium-exec": {
+      "skills": ["sdlc-exec", "validate"],
+      "contract": "Only pick issues with BOTH agent-ready AND planned AND complexity xs/s. One issue at a time. Always branch. validate skill confirms DoD before PR. Run full make test + make lint before PR."
+    },
+    "clawrium-gtm": {
+      "skills": ["announcements", "blog-author", "daily-digest"],
+      "contract": "Post to #announcements only. Update CHANGELOG [Unreleased] for user-visible changes. Draft blog posts. Daily digest of shipped work."
+    }
+  },
+
+  "soul_md_rules": {
+    "char_limit": 2000,
+    "must_include": ["repo URL", "project board URL", "version", "label taxonomy summary", "pipeline position", "skills list", "hard rules", "Discord channel ID"]
+  },
+
+  "phases": [
+    {
+      "id": "P1",
+      "name": "Planning & Specs",
+      "status": "done",
+      "steps": [
+        { "id": "P1.1", "status": "done", "what": "SDLC architecture diagram and agent roles defined" },
+        { "id": "P1.2", "status": "done", "what": "SOUL.md written for each agent (.sdlc/<agent>/SOUL.md) — NEEDS REWRITE to 2,000 chars with full context" },
+        { "id": "P1.3", "status": "done", "what": "Custom skill specs written: sdlc-triage, sdlc-exec, sdlc-announce (.sdlc/<agent>/skills/) — NEEDS REWRITE per redesign" },
+        { "id": "P1.4", "status": "done", "what": "LABELS.md taxonomy written to repo root" },
+        { "id": "P1.5", "status": "done", "what": "9 missing labels created in repo (type:test, type:chore, area:*) — 42 labels total" },
+        { "id": "P1.6", "status": "done", "what": "Discord bot applications created: clawrium-triage (app 1513396227809476728), clawrium-gtm (app 1513396778165080064)" },
+        { "id": "P1.7", "status": "done", "what": "Discord channel records registered in clawctl: discord-clawrium-triage, discord-clawrium-exec, discord-clawrium-gtm" },
+        { "id": "P1.8", "status": "done", "what": "DISCORD_SETUP.md written for triage and gtm agents (.sdlc/<agent>/DISCORD_SETUP.md)" },
+        { "id": "P1.9", "status": "done", "what": "ATX security review passed (W1 secret migration, W2 gh auth, W3 comment disclosure all fixed)" },
+        { "id": "P1.10", "status": "done", "what": "PLAN.md and trace.json updated with redesigned skill assignments, triage contract, exec rules, GTM skill rename" }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "Agent Creation & Configuration",
+      "status": "partial",
+      "steps": [
+        { "id": "P2.1", "status": "done", "what": "clawrium-triage created, provider=clm-openrouter, Discord attached, started (ready)" },
+        { "id": "P2.2", "status": "done", "what": "clawrium-exec created, provider=clm-openrouter, Discord attached, started (ready)" },
+        { "id": "P2.3", "status": "done", "what": "clawrium-gtm created, provider=clm-openrouter, Discord attached, started (ready)" },
+        { "id": "P2.4", "status": "done", "what": "clawrium-maurice created, provider=clm-openrouter, Discord (discord-maurice) attached, started (ready)" },
+        { "id": "P2.5", "status": "done", "what": "Old 'maurice' agent deleted" },
+        { "id": "P2.6", "status": "done", "what": "Previous wrong skills detached: all 5 from clawrium-maurice (release-watcher, issue-triage, daily-digest, docs-sync, blog-author), issue-triage from clawrium-triage, docs-sync from clawrium-gtm" },
+        {
+          "id": "P2.7",
+          "status": "done",
+          "what": "SOUL.md rewritten and pushed to all 4 agents (2,000 char limit: maurice=1641, triage=1681, exec=1937, gtm=1661). Pushed via clawctl agent memory edit --from-file."
+        },
+        {
+          "id": "P2.8",
+          "status": "done",
+          "what": "9 custom skills written, installed into clawrium _skills/ bundled catalog, and attached to agents. Skills: upstream-hermes/zeroclaw/openclaw (maurice), sdlc-triage (triage), sdlc-exec+validate (exec), announcements+blog-author+daily-digest (gtm). All agents synced and ready.",
+          "note": "Skills delivered via bundled _skills/ in installed clawctl package (overlay not supported in installed v26.6.1). Source of truth remains .sdlc/<agent>/skills/. On clawctl upgrade, re-copy to new package path."
+        },
+        { "id": "P2.9", "status": "pending", "what": "Commit LABELS.md to repo and merge — triage agent reads it at runtime", "cmd": "git add LABELS.md && git commit && gh pr create" },
+        { "id": "P2.10", "status": "blocked", "what": "Delete clawrium-d01 (zeroclaw) — blocked: dbus-daemon PID 239583 requires sudo to kill on wolf-i", "cmd": "ssh wolf-i 'sudo pkill -9 -u clawrium-d01 && sudo userdel -r clawrium-d01'; clawctl agent delete clawrium-d01 --yes" }
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "End-to-End Smoke Test",
+      "status": "not_started",
+      "prereqs": ["P2.7", "P2.8", "P2.9"],
+      "steps": [
+        {
+          "id": "TC-1",
+          "status": "not_started",
+          "actor": "clawrium-maurice",
+          "trigger": "human orchestrator via #qna",
+          "what": "Create test issue titled 'test: sdlc pipeline smoke TC-1' with labels: agent-created, type:test, complexity:xs, needs-triage",
+          "pass": "gh issue view <N> shows all 4 labels",
+          "prompt": "@clawrium-maurice Create a test issue titled 'test: sdlc pipeline smoke TC-1'. Labels: agent-created, type:test, complexity:xs, needs-triage."
+        },
+        {
+          "id": "TC-2",
+          "status": "not_started",
+          "actor": "clawrium-triage",
+          "trigger": "human orchestrator via #triage",
+          "what": "Triage issue #N: apply area label, remove needs-triage, add planned; add agent-ready (xs → allowed by contract), open PR with .itx/N/00_PLAN.md",
+          "pass": "planned label on issue, triage PR open, plan file not empty; agent-ready set (xs complexity)",
+          "prompt": "@clawrium-triage Triage issue #<N>"
+        },
+        {
+          "id": "TC-2-gate",
+          "status": "not_started",
+          "actor": "human",
+          "what": "Merge triage PR. Confirm agent-ready label is set on issue #N (triage should have set it for xs)."
+        },
+        {
+          "id": "TC-3",
+          "status": "not_started",
+          "actor": "clawrium-exec",
+          "trigger": "human orchestrator via #coder-fleet",
+          "what": "Execute issue #N: branch exec/<N>-smoke, add one-liner to CHANGELOG.md [Unreleased], run make test, validate skill confirms DoD, open PR exec/<N>-smoke",
+          "pass": "PR open on GitHub, make test passes, PR links issue with Closes #N",
+          "prompt": "@clawrium-exec Execute issue #<N>. Add a one-liner to CHANGELOG.md [Unreleased] as the implementation. Run make test. Open a PR."
+        },
+        {
+          "id": "TC-3-gate",
+          "status": "not_started",
+          "actor": "human",
+          "what": "Review and merge exec PR #P."
+        },
+        {
+          "id": "TC-4",
+          "status": "not_started",
+          "actor": "clawrium-gtm",
+          "trigger": "human orchestrator via #announcements",
+          "what": "Announce merged PR #P in #announcements. Update CHANGELOG.md [Unreleased] if not already updated.",
+          "pass": "Discord message visible in #announcements, CHANGELOG updated",
+          "prompt": "@clawrium-gtm PR #<P> was merged for issue #<N>. Announce it."
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "Automation (follow-up)",
+      "status": "not_started",
+      "steps": [
+        { "id": "P4.1", "status": "not_started", "what": "Add cron schedule to clawrium-triage: poll issues with needs-triage every 10 minutes" },
+        { "id": "P4.2", "status": "not_started", "what": "Add GitHub webhook or cron to trigger clawrium-gtm on PR merge (remove manual step)" },
+        { "id": "P4.3", "status": "not_started", "what": "Add cron schedule to clawrium-maurice: daily upstream monitoring runs" }
+      ]
+    },
+    {
+      "id": "P5",
+      "name": "Per-Role Model Assignment (follow-up)",
+      "status": "not_started",
+      "steps": [
+        { "id": "P5.1", "status": "not_started", "what": "clawrium-maurice → GLM 5.1 (already available via clawrium-glm51 provider)" },
+        { "id": "P5.2", "status": "not_started", "what": "clawrium-triage → Kimi K2 (new provider needed)" },
+        { "id": "P5.3", "status": "not_started", "what": "clawrium-exec → Claude (new provider needed)" },
+        { "id": "P5.4", "status": "not_started", "what": "clawrium-gtm → Deepseek (new provider needed)" }
+      ]
+    }
+  ],
+
+  "immediate_next_steps": [
+    "P2.9 — Commit and merge LABELS.md (triage reads it at runtime)",
+    "P3/TC-1 — Run first smoke test step via Discord (all agents ready)"
+  ],
+
+  "updated_at": "2026-06-07"
+}
