@@ -138,3 +138,4 @@ release.
 ### Internal
 
 - Smoke test V2 — pipeline validation (#646)
+- V4 SDLC smoke test ran end-to-end: clawrium-maurice filed the issue, clawrium-triage labeled and planned, clawrium-exec implemented this entry, clawrium-gtm announced. (#660)
