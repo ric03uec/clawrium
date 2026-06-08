@@ -120,6 +120,9 @@ release.
 
 ### Documentation
 
+- Added user-facing and engineering docs for per-agent local skills
+  (`docs/local-skills.md` + website mirror at
+  `website/docs/guides/local-skills.md`). Closes #653, refs #411.
 - Documented the hermes multi-provider attachment model in the
   Hermes Support Matrix (`docs/agent-support/hermes.md` and its
   website mirror): the 1 `primary` + 9 auxiliary slot enumeration,
