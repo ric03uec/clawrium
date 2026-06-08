@@ -1,1 +1,2 @@
 - V7 SDLC smoke test ran end-to-end with clawrium-maurice (issue prep), clawrium-triage (plan #674 merged), clawrium-exec (this PR), clawrium-gtm (announcement). (#669)
+- V8 SDLC smoke test ran end-to-end with clawrium-maurice (issue prep), clawrium-triage (plan #680 merged), clawrium-exec (this PR), clawrium-gtm (announcement). (#677)
