@@ -4,13 +4,10 @@
 The per-agent local skills feature is documented in both the `docs/` and `website/docs/` directories.
 
 ## Approach
-- Add comprehensive documentation in the `docs/` directory.
-- Update the `website/docs/` directory with relevant information about the feature.
-- Ensure changes are reflected in `CHANGELOG.md`.
+- Comprehensive documentation will be added under the `docs/` directory.
+- Relevant information about the feature will be updated in the `website/docs/` directory.
+- Ensure documentation updates are reflected in `CHANGELOG.md`.
+- Work will be verified by a peer to ensure accuracy.
 
-## Files Likely Touched
-- docs/some-specific-file.md
-- website/docs/some-specific-page.md
-
-## Risk
-Changes are primarily documentation and unlikely to affect system functionality, but there is a risk of introducing errors through omissions or inaccuracies.
+## Complexity
+- Extra Small: Documentation updates do not require system behavior changes.
