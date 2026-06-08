@@ -1083,25 +1083,20 @@ def test_fleet_health_504_on_timeout(isolated_config: Path):
 
 def test_fleet_health_returns_200_under_concurrent_clients(isolated_config: Path):
     """Three concurrent clients all get 200 — smoke-tests basic concurrency."""
-    import threading
+    from concurrent.futures import ThreadPoolExecutor as _TPE
 
-    results = []
     vm = _agent_vm()
 
-    def _probe():
+    def _probe() -> int:
         with TestClient(app) as client:
-            r = client.get("/api/fleet/health")
-            results.append(r.status_code)
+            return client.get("/api/fleet/health").status_code
 
     with patch(
         "clawrium.gui.routes.fleet.get_fleet_data",
         return_value=([vm], _fleet_summary()),
     ):
-        threads = [threading.Thread(target=_probe) for _ in range(3)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=10)
+        with _TPE(max_workers=3) as executor:
+            results = [f.result(timeout=15) for f in [executor.submit(_probe) for _ in range(3)]]
 
     assert len(results) == 3, f"only {len(results)} threads completed"
     assert all(s == 200 for s in results), results
