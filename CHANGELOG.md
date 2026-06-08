@@ -140,3 +140,5 @@ release.
 - Smoke test V2 — pipeline validation (#646)
 - V4 SDLC smoke test ran end-to-end: clawrium-maurice filed the issue, clawrium-triage labeled and planned, clawrium-exec implemented this entry, clawrium-gtm announced. (#660)
 - V5 SDLC smoke test ran end-to-end with clawrium-maurice (issue prep), clawrium-triage (plan #670 merged), clawrium-exec (this PR), clawrium-gtm (announcement). (#667)
+- V6 SDLC smoke test ran end-to-end with clawrium-maurice (issue prep), clawrium-triage (plan #672 merged), clawrium-exec (this PR), clawrium-gtm (announcement). (#668)
+- V6 SDLC smoke test ran end-to-end with clawrium-maurice (issue prep), clawrium-triage (plan #672 merged), clawrium-exec (this PR), clawrium-gtm (announcement). (#668)
