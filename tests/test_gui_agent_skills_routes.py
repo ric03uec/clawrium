@@ -726,11 +726,11 @@ def test_edit_local_skill_422_on_schema_invalid(monkeypatch):
     _stub_resolved(monkeypatch, agent_type="hermes")
     _write_local_skill("tdd-hermes", "tdd")
 
-    # Missing description → schema validation should fail
+    # Missing description → _skill_error_status(SchemaValidationError) → 422
     body = agents_route.EditSkillBody(content="---\nname: tdd\n---\n\n")
     with pytest.raises(HTTPException) as exc:
         _run(agents_route.edit_agent_skill("tdd-hermes", "tdd", body))
-    assert exc.value.status_code in {422, 400}
+    assert exc.value.status_code == 422
 
 
 # ---------- Phase C: DELETE /{agent_key}/skills/local/{name} ----------------
@@ -809,7 +809,8 @@ def test_get_local_skill_returns_content(monkeypatch):
 
     result = _run(agents_route.get_local_agent_skill("tdd-hermes", "tdd"))
     assert result["skill_name"] == "tdd"
-    assert "SKILL.md" in result["content"] or "name: tdd" in result["content"]
+    assert "name: tdd" in result["content"]
+    assert "description:" in result["content"]
 
 
 def test_get_local_skill_404_when_not_on_disk(monkeypatch):

@@ -329,17 +329,20 @@ function EditSkillModal({
 
   useEffect(() => {
     if (!open || !skillName) return;
+    let cancelled = false;
     setContent("");
     setFetchError(null);
     setLocalError(null);
     setFetchLoading(true);
     api
       .getLocalAgentSkill(agentKey, skillName)
-      .then((res) => setContent(res.content))
-      .catch((err) =>
-        setFetchError(err instanceof Error ? err.message : "Failed to load skill"),
-      )
-      .finally(() => setFetchLoading(false));
+      .then((res) => { if (!cancelled) setContent(res.content); })
+      .catch((err) => {
+        if (!cancelled)
+          setFetchError(err instanceof Error ? err.message : "Failed to load skill");
+      })
+      .finally(() => { if (!cancelled) setFetchLoading(false); });
+    return () => { cancelled = true; };
   }, [open, agentKey, skillName]);
 
   const handleSave = async () => {
