@@ -204,6 +204,34 @@ def test_web_ui_reports_tunnel_failure_as_unavailable(isolated_config: Path):
     assert "ssh failed" in body["reason"]
 
 
+def test_web_ui_returns_unavailable_on_unexpected_tunnel_exception(
+    isolated_config: Path,
+):
+    """Non-TunnelError exception from ensure() → available:false with generic reason."""
+    _seed_hosts(isolated_config, "hermes")
+    resolved = ResolvedUI(
+        host="192.168.1.100",
+        remote_port=9119,
+        bind="loopback",
+        ssh_config={"user": "xclm"},
+    )
+    with (
+        patch("clawrium.core.web_ui.resolve", return_value=resolved),
+        patch(
+            "clawrium.core.web_ui_tunnel.ensure",
+            side_effect=RuntimeError("unexpected internal failure"),
+        ),
+    ):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/agents/demo/web-ui")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["available"] is False
+    assert body["local_url"] is None
+    assert "Internal error" in body["reason"]
+    assert "unexpected internal failure" not in body["reason"]
+
+
 def test_reaper_closes_idle_tunnels():
     """reap_idle_tunnels() must call web_ui_tunnel.close() for stale entries."""
     import time as time_module
@@ -389,6 +417,7 @@ def test_pairing_code_success(isolated_config: Path):
     assert resp.json() == {"pairing_code": "508333"}
     assert captured["url"] == "http://127.0.0.1:39211/api/pairing/initiate"
     assert captured["headers"] == {"Authorization": "Bearer zc_bearer"}
+    assert captured["timeout"] == 10.0
 
 
 def test_pairing_code_409_on_daemon_401(isolated_config: Path):
@@ -527,6 +556,72 @@ def test_pairing_code_502_on_empty_code(isolated_config: Path):
 
     assert resp.status_code == 502
     assert "empty pairing code" in resp.json()["detail"].lower()
+
+
+def test_pairing_code_502_on_http_error(isolated_config: Path):
+    """httpx.HTTPError (non-timeout, e.g. ConnectError) → 502."""
+    import httpx
+
+    _seed_hosts(isolated_config, "zeroclaw", _zeroclaw_config("zc_bearer"))
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, headers=None):
+            raise httpx.ConnectError("connection refused")
+
+    with (
+        patch("clawrium.core.web_ui.resolve", return_value=_zeroclaw_resolved()),
+        patch("clawrium.core.web_ui_tunnel.ensure", return_value=39211),
+        patch("httpx.AsyncClient", _FakeClient),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/fleet/agents/demo/pairing-code")
+
+    assert resp.status_code == 502
+    assert "Could not reach the agent daemon" in resp.json()["detail"]
+
+
+def test_pairing_code_502_on_non_json_response(isolated_config: Path):
+    """resp.json() raising ValueError → 502 'non-JSON pairing response'."""
+    _seed_hosts(isolated_config, "zeroclaw", _zeroclaw_config("zc_bearer"))
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            raise ValueError("not valid JSON")
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, headers=None):
+            return _FakeResp()
+
+    with (
+        patch("clawrium.core.web_ui.resolve", return_value=_zeroclaw_resolved()),
+        patch("clawrium.core.web_ui_tunnel.ensure", return_value=39211),
+        patch("httpx.AsyncClient", _FakeClient),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/fleet/agents/demo/pairing-code")
+
+    assert resp.status_code == 502
+    assert "non-JSON" in resp.json()["detail"]
 
 
 def test_pairing_code_504_on_upstream_timeout(isolated_config: Path):
@@ -898,8 +993,7 @@ def test_fleet_health_sanitizes_path_in_health_error(isolated_config: Path):
             resp = client.get("/api/fleet/health")
     assert resp.status_code == 200
     agent = resp.json()["agents"][0]
-    assert "/home/user/.config" not in agent["health_error"]
-    assert "<path>" in agent["health_error"]
+    assert agent["health_error"] == "<path>: permission denied"
 
 
 def test_fleet_health_504_on_timeout(isolated_config: Path):
@@ -912,8 +1006,8 @@ def test_fleet_health_504_on_timeout(isolated_config: Path):
     assert "timed out" in resp.json()["detail"]
 
 
-def test_fleet_health_semaphore_blocks_concurrent_calls(isolated_config: Path):
-    """_FLEET_HEALTH_SEMAPHORE(2) allows up to 2 concurrent health probes."""
+def test_fleet_health_returns_200_under_concurrent_clients(isolated_config: Path):
+    """Three concurrent clients all get 200 — smoke-tests basic concurrency."""
     import threading
 
     results = []
@@ -937,6 +1031,18 @@ def test_fleet_health_semaphore_blocks_concurrent_calls(isolated_config: Path):
     assert all(s == 200 for s in results), results
 
 
+def test_fleet_health_host_filter_forwarded(isolated_config: Path):
+    """?host= query param is forwarded to get_fleet_data on /fleet/health."""
+    with patch(
+        "clawrium.gui.routes.fleet.get_fleet_data",
+        return_value=([], _fleet_summary(total=0, running=0, hosts=0)),
+    ) as mock_fn:
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/health?host=box")
+    assert resp.status_code == 200
+    mock_fn.assert_called_once_with("box")
+
+
 # ---------------------------------------------------------------------------
 # B3 — GET /fleet/agents/{key} (agent_detail)
 # ---------------------------------------------------------------------------
@@ -955,6 +1061,7 @@ def test_agent_detail_success(isolated_config: Path):
     captured: dict = {}
 
     def _capture_detail(agent_key, hostname):
+        captured["agent_key"] = agent_key
         captured["hostname"] = hostname
         return vm
 
@@ -972,6 +1079,15 @@ def test_agent_detail_success(isolated_config: Path):
     assert data["agent_key"] == "demo"
     assert data["latest_supported_version"] == "2026.6.0"
     assert captured["hostname"] == "192.168.1.100"
+    assert captured["agent_key"] == "demo"
+
+
+def test_agent_detail_404_when_host_mismatch(isolated_config: Path):
+    """?host=wronghost for a known agent returns 404 (not 200 with wrong host data)."""
+    _seed_hosts(isolated_config, "hermes")
+    with TestClient(app) as client:
+        resp = client.get("/api/fleet/agents/demo?host=wronghost")
+    assert resp.status_code == 404
 
 
 def test_agent_detail_hardware_null_coercion(isolated_config: Path):
