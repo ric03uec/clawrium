@@ -887,6 +887,21 @@ def test_fleet_health_returns_health_data(isolated_config: Path):
     assert data["agents"][0]["process_running"] is True
 
 
+def test_fleet_health_sanitizes_path_in_health_error(isolated_config: Path):
+    """_sanitize_health_error regex branch must run when health_error contains a path."""
+    vm = _agent_vm(health_error="/home/user/.config/clawrium/secrets.json: permission denied")
+    with patch(
+        "clawrium.gui.routes.fleet.get_fleet_data",
+        return_value=([vm], _fleet_summary()),
+    ):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/health")
+    assert resp.status_code == 200
+    agent = resp.json()["agents"][0]
+    assert "/home/user/.config" not in agent["health_error"]
+    assert "<path>" in agent["health_error"]
+
+
 def test_fleet_health_504_on_timeout(isolated_config: Path):
     with patch(
         "asyncio.wait_for", side_effect=asyncio.TimeoutError
@@ -937,8 +952,14 @@ def test_agent_detail_404_for_unknown(isolated_config: Path):
 def test_agent_detail_success(isolated_config: Path):
     _seed_hosts(isolated_config, "hermes")
     vm = _agent_vm()
+    captured: dict = {}
+
+    def _capture_detail(agent_key, hostname):
+        captured["hostname"] = hostname
+        return vm
+
     with (
-        patch("clawrium.gui.routes.fleet.get_agent_detail", return_value=vm),
+        patch("clawrium.gui.routes.fleet.get_agent_detail", side_effect=_capture_detail),
         patch(
             "clawrium.core.registry.latest_supported_version",
             return_value="2026.6.0",
@@ -950,6 +971,7 @@ def test_agent_detail_success(isolated_config: Path):
     data = resp.json()
     assert data["agent_key"] == "demo"
     assert data["latest_supported_version"] == "2026.6.0"
+    assert captured["hostname"] == "192.168.1.100"
 
 
 def test_agent_detail_hardware_null_coercion(isolated_config: Path):
