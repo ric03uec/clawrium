@@ -3175,6 +3175,7 @@ def test_621_same_type_collision_same_keys_allowed(stores):
 
 
 def test_621_two_bedrock_attachments_raises(stores):
+    """Two bedrock attachments with *different* credentials must raise."""
     stores.agent = _hermes_multi_agent_record(
         [
             {"name": "br-a", "role": "primary", "model": ""},
@@ -3189,6 +3190,67 @@ def test_621_two_bedrock_attachments_raises(stores):
         AgentConfigError, match="two bedrock provider attachments"
     ):
         build_render_inputs("wolf")
+
+
+def test_621_two_bedrock_attachments_same_creds_allowed(stores):
+    """Two bedrock attachments that share the same AWS credentials are allowed.
+
+    Hermes emits one AWS_* triple for the shared identity; both slots use it.
+    The bundle must contain one aws_credentials entry per provider name so the
+    template can reference each slot individually.
+    """
+    stores.agent = _hermes_multi_agent_record(
+        [
+            {"name": "br-primary", "role": "primary", "model": "zai.glm-5"},
+            {"name": "br-nova-lite", "role": "web_extract", "model": "amazon.nova-lite-v1:0"},
+            {"name": "br-nova-micro", "role": "compression", "model": "amazon.nova-micro-v1:0"},
+            {"name": "br-glm-flash", "role": "title_generation", "model": "zai.glm-4.7-flash"},
+        ]
+    )
+    for name in ("br-primary", "br-nova-lite", "br-nova-micro", "br-glm-flash"):
+        _seed_provider(stores, name=name, ptype="bedrock", region="us-east-1")
+        stores.provider_aws[name] = ("AKIA-SHARED", "secret-SHARED")
+
+    inputs = build_render_inputs("wolf")
+
+    assert inputs.hermes is not None
+    # All four attachments must be present
+    roles = {a.role for a in inputs.hermes.attachments}
+    assert roles == {"primary", "web_extract", "compression", "title_generation"}
+    # aws_credentials has an entry for each provider name
+    creds = dict(inputs.hermes.aws_credentials)
+    assert set(creds.keys()) == {
+        "br-primary", "br-nova-lite", "br-nova-micro", "br-glm-flash"
+    }
+    # All share the same (ak, sk)
+    assert all(v[:2] == ("AKIA-SHARED", "secret-SHARED") for v in creds.values())
+
+
+def test_621_two_bedrock_attachments_same_creds_no_dup_aws_env(stores):
+    """render_hermes must NOT emit duplicate AWS_* env vars when multiple
+    bedrock attachments share the same credentials as the primary.
+
+    The .env must contain exactly one AWS_ACCESS_KEY_ID line.
+    """
+    stores.agent = _hermes_multi_agent_record(
+        [
+            {"name": "br-primary", "role": "primary", "model": "zai.glm-5"},
+            {"name": "br-aux", "role": "compression", "model": "amazon.nova-micro-v1:0"},
+        ]
+    )
+    for name in ("br-primary", "br-aux"):
+        _seed_provider(stores, name=name, ptype="bedrock", region="us-east-1")
+        stores.provider_aws[name] = ("AKIA-SHARED", "secret-SHARED")
+
+    inputs = build_render_inputs("wolf")
+    out = render_hermes(inputs)
+    env_content = out.files[".hermes/.env"]
+
+    ak_lines = [ln for ln in env_content.splitlines() if "AWS_ACCESS_KEY_ID" in ln]
+    assert len(ak_lines) == 1, (
+        f"Expected exactly one AWS_ACCESS_KEY_ID in .env, found {len(ak_lines)}:\n"
+        + "\n".join(ak_lines)
+    )
 
 
 def test_621_single_provider_hermes_bundle_has_one_attachment(stores):

@@ -141,9 +141,9 @@ class HermesProviderBundle:
 
     `api_keys` is keyed by provider type (hermes' env-var contract is one
     `<TYPE>_API_KEY=` per process; same-type collision raises).
-    `aws_credentials` is keyed by provider name (bedrock multi-attach is
-    further constrained by build_render_inputs: at most one bedrock
-    attachment, because hermes emits a single AWS_* triple per process).
+    `aws_credentials` is keyed by provider name (multiple bedrock attachments
+    are allowed when all share the same AWS credentials; mismatched credentials
+    are rejected at render time).
     """
 
     attachments: tuple[AttachedProviderInputs, ...]
@@ -599,20 +599,26 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
                         f"secrets.json"
                     )
                 # Hermes runs one process with one AWS_*_KEY_ID env var.
-                # Multiple bedrock attachments would silently pick the
-                # last-emitted triple. Raise instead.
-                if (
-                    bedrock_attachment_name is not None
-                    and bedrock_attachment_name != entry_name
-                ):
+                # Multiple bedrock attachments with *different* credentials
+                # would silently overwrite each other's triple — reject that.
+                # Multiple bedrock attachments that share the same credentials
+                # are fine: hermes emits one triple and all bedrock slots use it.
+                prior_creds = (
+                    aws_creds[bedrock_attachment_name]
+                    if bedrock_attachment_name is not None
+                    else None
+                )
+                new_creds = (ak, sk, entry_region or "us-east-1")
+                if prior_creds is not None and prior_creds[:2] != new_creds[:2]:
                     raise AgentConfigError(
                         f"agent {agent_name!r} has two bedrock provider "
                         f"attachments ({bedrock_attachment_name!r}, "
-                        f"{entry_name!r}); hermes emits one AWS_* env-var "
-                        f"triple per process. Detach one."
+                        f"{entry_name!r}) with different AWS credentials; "
+                        f"hermes emits one AWS_* env-var triple per process. "
+                        f"Detach one or unify the secret."
                     )
                 bedrock_attachment_name = entry_name
-                aws_creds[entry_name] = (ak, sk, entry_region or "us-east-1")
+                aws_creds[entry_name] = new_creds
             elif entry_type in _BEARER_API_KEY_TYPES:
                 key = _clean_secret(get_provider_api_key(entry_name))
                 if not key:
@@ -916,10 +922,16 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
             for t, k in dict(inputs.hermes.api_keys).items()
             if t != ptype
         }
+        # When the primary provider is bedrock, validation (build_render_inputs)
+        # guarantees all other bedrock attachments share the same credentials.
+        # The primary's AWS_* triple already covers them all, so exclude every
+        # bedrock entry from the aux set to avoid duplicate env-var emission.
+        # When the primary is not bedrock, aux bedrock entries need their own
+        # triple and are included as-is.
         aux_aws_credentials = {
             n: t
             for n, t in dict(inputs.hermes.aws_credentials).items()
-            if not (ptype == "bedrock" and n == inputs.provider.name)
+            if ptype != "bedrock"
         }
     else:
         aux_attachments = ()
