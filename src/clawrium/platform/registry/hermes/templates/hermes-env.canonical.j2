@@ -27,9 +27,9 @@ HERMES_INFERENCE_PROVIDER='custom'
    keyed by provider type (already deduped + dedup-vs-primary in
    render_hermes); each entry emits one `<TYPE>_API_KEY=` line.
    `aux_aws_credentials` carries non-primary bedrock attachments — when
-   the primary is also bedrock, render_hermes filters it out so we don't
-   double-emit the AWS triple. build_render_inputs enforces at most one
-   bedrock attachment per agent. #}
+   the primary is also bedrock, render_hermes drops all aux bedrock
+   entries because build_render_inputs guarantees they share the
+   primary's (ak, sk, region) triple. #}
 {% for ptype, key in aux_api_keys.items() %}
 {% if ptype == 'openrouter' %}
 OPENROUTER_API_KEY={{ key | shq }}

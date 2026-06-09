@@ -3192,6 +3192,29 @@ def test_621_two_bedrock_attachments_raises(stores):
         build_render_inputs("wolf")
 
 
+def test_621_two_bedrock_attachments_same_creds_different_region_raises(stores):
+    """Same AWS creds but divergent regions must raise.
+
+    Hermes emits one `bedrock.region` / `AWS_DEFAULT_REGION` per process,
+    so a region mismatch would be silently lost. Reject upfront.
+    """
+    stores.agent = _hermes_multi_agent_record(
+        [
+            {"name": "br-a", "role": "primary", "model": ""},
+            {"name": "br-b", "role": "compression", "model": ""},
+        ]
+    )
+    _seed_provider(stores, name="br-a", ptype="bedrock", region="us-east-1")
+    _seed_provider(stores, name="br-b", ptype="bedrock", region="us-west-2")
+    stores.provider_aws["br-a"] = ("AKIA-SHARED", "secret-SHARED")
+    stores.provider_aws["br-b"] = ("AKIA-SHARED", "secret-SHARED")
+    with pytest.raises(
+        AgentConfigError,
+        match="different AWS credentials or region",
+    ):
+        build_render_inputs("wolf")
+
+
 def test_621_two_bedrock_attachments_same_creds_allowed(stores):
     """Two bedrock attachments that share the same AWS credentials are allowed.
 
