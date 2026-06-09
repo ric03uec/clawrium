@@ -111,3 +111,11 @@ app.add_typer(integration_app, name="integration")
 app.add_typer(skill_app, name="skill")
 app.add_typer(mcp_app, name="mcp")
 
+# Declarative fleet management verbs: apply / diff / delete -f
+from clawrium.cli.clawctl.apply import apply as _apply_cmd  # noqa: E402
+from clawrium.cli.clawctl.diff import diff as _diff_cmd  # noqa: E402
+from clawrium.cli.clawctl.delete_file import delete_file as _delete_file_cmd  # noqa: E402
+
+app.command(name="apply", help="Apply a fleet manifest (declarative reconciliation).")(_apply_cmd)
+app.command(name="diff", help="Preview changes a fleet manifest would make.")(_diff_cmd)
+app.command(name="delete", help="Delete resources declared in a fleet manifest.")(_delete_file_cmd)

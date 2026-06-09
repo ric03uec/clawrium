@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["AgentExecError", "SUPPORTED_CLAW_TYPES", "run_agent_exec"]
 
-SUPPORTED_CLAW_TYPES: frozenset[str] = frozenset({"hermes", "zeroclaw", "openclaw"})
+SUPPORTED_CLAW_TYPES: frozenset[str] = frozenset({"ethos", "hermes", "zeroclaw", "openclaw"})
 
 _REGISTRY_DIR = Path(__file__).parent.parent / "platform" / "registry"
 
