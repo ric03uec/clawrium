@@ -38,9 +38,15 @@ export function EditProviderModal({
   const [showKey, setShowKey] = useState(false);
   const [acceleratorVendor, setAcceleratorVendor] =
     useState<AcceleratorVendor>(initialAccelerator);
+  const [awsAccessKey, setAwsAccessKey] = useState("");
+  const [awsSecretKey, setAwsSecretKey] = useState("");
+  const [showAwsAccess, setShowAwsAccess] = useState(false);
+  const [showAwsSecret, setShowAwsSecret] = useState(false);
+  const [region, setRegion] = useState(provider.region || "");
 
   const typeInfo = providerTypes[provider.type];
   const isLocalInference = provider.type === "ollama";
+  const isBedrock = provider.type === "bedrock";
   const availableModels: ModelInfo[] = useMemo(() => {
     if (isLocalInference) {
       return (provider.available_models ?? []).map((id) => ({
@@ -58,15 +64,25 @@ export function EditProviderModal({
   const modelId = `${idPrefix}-model`;
   const endpointId = `${idPrefix}-endpoint`;
   const apiKeyId = `${idPrefix}-apikey`;
+  const awsAccessKeyId = `${idPrefix}-aws-access-key`;
+  const awsSecretKeyId = `${idPrefix}-aws-secret-key`;
+  const regionId = `${idPrefix}-region`;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const update: ProviderUpdate = {};
     if (model !== (provider.default_model || "")) update.default_model = model;
-    if (endpoint !== (provider.endpoint || "")) update.endpoint = endpoint;
-    if (apiKey) update.api_key = apiKey;
+    if (!isBedrock && endpoint !== (provider.endpoint || "")) {
+      update.endpoint = endpoint;
+    }
+    if (!isBedrock && apiKey) update.api_key = apiKey;
     if (isLocalInference && acceleratorVendor !== initialAccelerator) {
       update.accelerator_vendor = acceleratorVendor;
+    }
+    if (isBedrock) {
+      if (region !== (provider.region || "")) update.region = region;
+      if (awsAccessKey) update.aws_access_key_id = awsAccessKey;
+      if (awsSecretKey) update.aws_secret_access_key = awsSecretKey;
     }
     onSave(update);
   }
@@ -77,6 +93,11 @@ export function EditProviderModal({
     setApiKey("");
     setShowKey(false);
     setAcceleratorVendor(initialAccelerator);
+    setAwsAccessKey("");
+    setAwsSecretKey("");
+    setShowAwsAccess(false);
+    setShowAwsSecret(false);
+    setRegion(provider.region || "");
     onClose();
   }
 
@@ -166,26 +187,111 @@ export function EditProviderModal({
           </div>
         )}
 
-        {/* Endpoint */}
-        <div>
-          <label
-            htmlFor={endpointId}
-            className="block text-xs font-medium text-secondary mb-1"
-          >
-            Endpoint
-          </label>
-          <input
-            id={endpointId}
-            type="text"
-            value={endpoint}
-            onChange={(e) => setEndpoint(e.target.value)}
-            placeholder="https://..."
-            className="w-full px-3 py-2 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary font-mono"
-          />
-        </div>
+        {/* Bedrock-specific fields */}
+        {isBedrock && (
+          <>
+            <div>
+              <label
+                htmlFor={regionId}
+                className="block text-xs font-medium text-secondary mb-1"
+              >
+                Region
+              </label>
+              <input
+                id={regionId}
+                type="text"
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                placeholder="us-east-1"
+                pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
+                title="Lowercase letters, digits, and hyphens (AWS region format, e.g. us-east-1)"
+                required
+                className="w-full px-3 py-2 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary font-mono"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor={awsAccessKeyId}
+                className="block text-xs font-medium text-secondary mb-1"
+              >
+                AWS Access Key ID{" "}
+                {provider.has_aws_credentials && (
+                  <span className="text-muted">(leave blank to keep current)</span>
+                )}
+              </label>
+              <div className="relative">
+                <input
+                  id={awsAccessKeyId}
+                  type={showAwsAccess ? "text" : "password"}
+                  value={awsAccessKey}
+                  onChange={(e) => setAwsAccessKey(e.target.value)}
+                  placeholder={
+                    provider.has_aws_credentials ? "AKIA••••••" : "AKIA..."
+                  }
+                  className="w-full px-3 py-2 pr-10 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAwsAccess(!showAwsAccess)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-secondary text-xs"
+                >
+                  {showAwsAccess ? "hide" : "show"}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label
+                htmlFor={awsSecretKeyId}
+                className="block text-xs font-medium text-secondary mb-1"
+              >
+                AWS Secret Access Key{" "}
+                {provider.has_aws_credentials && (
+                  <span className="text-muted">(leave blank to keep current)</span>
+                )}
+              </label>
+              <div className="relative">
+                <input
+                  id={awsSecretKeyId}
+                  type={showAwsSecret ? "text" : "password"}
+                  value={awsSecretKey}
+                  onChange={(e) => setAwsSecretKey(e.target.value)}
+                  placeholder={provider.has_aws_credentials ? "••••••••••" : ""}
+                  className="w-full px-3 py-2 pr-10 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAwsSecret(!showAwsSecret)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-secondary text-xs"
+                >
+                  {showAwsSecret ? "hide" : "show"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Endpoint (not for bedrock — endpoint is region-derived) */}
+        {!isBedrock && (
+          <div>
+            <label
+              htmlFor={endpointId}
+              className="block text-xs font-medium text-secondary mb-1"
+            >
+              Endpoint
+            </label>
+            <input
+              id={endpointId}
+              type="text"
+              value={endpoint}
+              onChange={(e) => setEndpoint(e.target.value)}
+              placeholder="https://..."
+              className="w-full px-3 py-2 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary font-mono"
+            />
+          </div>
+        )}
 
         {/* API Key */}
-        {typeInfo?.requires_api_key && (
+        {!isBedrock && typeInfo?.requires_api_key && (
           <div>
             <label
               htmlFor={apiKeyId}

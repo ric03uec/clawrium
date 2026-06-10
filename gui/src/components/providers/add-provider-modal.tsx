@@ -33,6 +33,11 @@ export function AddProviderModal({
   const [showKey, setShowKey] = useState(false);
   const [acceleratorVendor, setAcceleratorVendor] =
     useState<AcceleratorVendor>("nvidia");
+  const [awsAccessKey, setAwsAccessKey] = useState("");
+  const [awsSecretKey, setAwsSecretKey] = useState("");
+  const [showAwsAccess, setShowAwsAccess] = useState(false);
+  const [showAwsSecret, setShowAwsSecret] = useState(false);
+  const [region, setRegion] = useState("");
 
   const idPrefix = useId();
   const nameId = `${idPrefix}-name`;
@@ -40,10 +45,15 @@ export function AddProviderModal({
   const modelId = `${idPrefix}-model`;
   const apiKeyId = `${idPrefix}-apikey`;
   const endpointId = `${idPrefix}-endpoint`;
+  const awsAccessKeyId = `${idPrefix}-aws-access-key`;
+  const awsSecretKeyId = `${idPrefix}-aws-secret-key`;
+  const regionId = `${idPrefix}-region`;
 
   const typeInfo = type ? providerTypes[type] : null;
   const availableModels = typeInfo?.models || [];
   const autoEndpoint = typeInfo?.endpoint || "";
+  const isBedrock = type === "bedrock";
+  const defaultRegion = typeInfo?.default_region || "us-east-1";
 
   function handleTypeChange(newType: string) {
     setType(newType);
@@ -54,11 +64,31 @@ export function AddProviderModal({
     } else {
       setEndpoint("");
     }
+    if (newType === "bedrock") {
+      setRegion(info?.default_region || "us-east-1");
+      setApiKey("");
+    } else {
+      setRegion("");
+      setAwsAccessKey("");
+      setAwsSecretKey("");
+    }
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim() || !type) return;
+    if (isBedrock) {
+      if (!awsAccessKey || !awsSecretKey) return;
+      onSave({
+        name: name.trim(),
+        type,
+        default_model: model || undefined,
+        aws_access_key_id: awsAccessKey,
+        aws_secret_access_key: awsSecretKey,
+        region: (region || defaultRegion).trim() || defaultRegion,
+      });
+      return;
+    }
     onSave({
       name: name.trim(),
       type,
@@ -77,6 +107,11 @@ export function AddProviderModal({
     setEndpoint("");
     setShowKey(false);
     setAcceleratorVendor("nvidia");
+    setAwsAccessKey("");
+    setAwsSecretKey("");
+    setShowAwsAccess(false);
+    setShowAwsSecret(false);
+    setRegion("");
     onClose();
   }
 
@@ -181,8 +216,96 @@ export function AddProviderModal({
           </div>
         )}
 
+        {/* AWS credentials (bedrock) */}
+        {isBedrock && (
+          <>
+            <div>
+              <label
+                htmlFor={awsAccessKeyId}
+                className="block text-xs font-medium text-secondary mb-1"
+              >
+                AWS Access Key ID
+              </label>
+              <div className="relative">
+                <input
+                  id={awsAccessKeyId}
+                  type={showAwsAccess ? "text" : "password"}
+                  value={awsAccessKey}
+                  onChange={(e) => setAwsAccessKey(e.target.value)}
+                  placeholder="AKIA..."
+                  autoComplete="off"
+                  className="w-full px-3 py-2 pr-10 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary font-mono"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAwsAccess(!showAwsAccess)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-secondary text-xs"
+                >
+                  {showAwsAccess ? "hide" : "show"}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label
+                htmlFor={awsSecretKeyId}
+                className="block text-xs font-medium text-secondary mb-1"
+              >
+                AWS Secret Access Key
+              </label>
+              <div className="relative">
+                <input
+                  id={awsSecretKeyId}
+                  type={showAwsSecret ? "text" : "password"}
+                  value={awsSecretKey}
+                  onChange={(e) => setAwsSecretKey(e.target.value)}
+                  placeholder="••••••••••••••••••••••••"
+                  autoComplete="off"
+                  className="w-full px-3 py-2 pr-10 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary font-mono"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAwsSecret(!showAwsSecret)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-secondary text-xs"
+                >
+                  {showAwsSecret ? "hide" : "show"}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label
+                htmlFor={regionId}
+                className="block text-xs font-medium text-secondary mb-1"
+              >
+                Region
+              </label>
+              <input
+                id={regionId}
+                type="text"
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                placeholder={defaultRegion}
+                pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
+                title="Lowercase letters, digits, and hyphens (AWS region format, e.g. us-east-1)"
+                className="w-full px-3 py-2 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary font-mono"
+              />
+              <p className="mt-1 text-[11px] text-muted">
+                Free text. Defaults to {defaultRegion}.
+              </p>
+            </div>
+            <div className="text-xs text-muted">
+              Endpoint:{" "}
+              <span className="font-mono">
+                https://bedrock-runtime.{region || defaultRegion}.amazonaws.com
+              </span>{" "}
+              (auto-configured)
+            </div>
+          </>
+        )}
+
         {/* API Key */}
-        {typeInfo?.requires_api_key && (
+        {!isBedrock && typeInfo?.requires_api_key && (
           <div>
             <label
               htmlFor={apiKeyId}

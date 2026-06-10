@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
-  ProviderCard,
+  ProvidersTable,
   AddProviderModal,
   EditProviderModal,
   ModelCatalog,
@@ -20,6 +20,8 @@ import {
 import { useFleet } from "@/hooks/use-fleet";
 import type { Provider, ProviderCreate, ProviderUpdate } from "@/lib/types";
 
+type TabId = "configured" | "registry";
+
 export default function ProvidersPage() {
   const { data: providers, isLoading } = useProviders();
   const { data: providerTypes } = useProviderTypes();
@@ -28,6 +30,7 @@ export default function ProvidersPage() {
   const updateMutation = useUpdateProvider();
   const deleteMutation = useDeleteProvider();
 
+  const [tab, setTab] = useState<TabId>("configured");
   const [showAdd, setShowAdd] = useState(false);
   const [editProvider, setEditProvider] = useState<Provider | null>(null);
   const [removeProvider, setRemoveProvider] = useState<Provider | null>(null);
@@ -66,6 +69,8 @@ export default function ProvidersPage() {
     });
   }
 
+  const providerCount = providers?.length ?? 0;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -73,47 +78,63 @@ export default function ProvidersPage() {
         description="Configure LLM providers once, apply them across your fleet. Each provider can power multiple agents."
       />
 
-      {/* Provider list */}
-      {isLoading ? (
-        <div className="bg-surface rounded-xl border border-default p-8 text-center text-muted text-sm">
-          Loading providers...
-        </div>
-      ) : providers && providers.length > 0 ? (
-        <div className="bg-surface rounded-xl border border-default p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-primary-text">
-              Configured Providers ({providers.length})
-            </h2>
+      <div className="bg-surface rounded-xl border border-default">
+        <div className="flex items-center justify-between border-b border-default px-2">
+          <nav className="flex" aria-label="Providers tabs">
+            <TabButton
+              active={tab === "configured"}
+              onClick={() => setTab("configured")}
+            >
+              Configured {providerCount > 0 ? `(${providerCount})` : ""}
+            </TabButton>
+            <TabButton
+              active={tab === "registry"}
+              onClick={() => setTab("registry")}
+            >
+              Registry
+            </TabButton>
+          </nav>
+          {tab === "configured" && (
             <Button variant="primary" onClick={() => setShowAdd(true)}>
               + Add Provider
             </Button>
-          </div>
-          <div className="space-y-3">
-            {providers.map((p) => (
-              <ProviderCard
-                key={p.name}
-                provider={p}
-                usedBy={providerUsage[p.name] || []}
-                onEdit={() => setEditProvider(p)}
-                onRemove={() => setRemoveProvider(p)}
+          )}
+        </div>
+
+        <div className="p-4">
+          {tab === "configured" ? (
+            isLoading ? (
+              <div className="p-8 text-center text-muted text-sm">
+                Loading providers...
+              </div>
+            ) : providers && providers.length > 0 ? (
+              <ProvidersTable
+                providers={providers}
+                usage={providerUsage}
+                onEdit={setEditProvider}
+                onRemove={setRemoveProvider}
               />
-            ))}
-          </div>
+            ) : (
+              <div className="p-12 text-center">
+                <p className="text-sm text-muted mb-3">
+                  No providers configured yet — add one or browse the Registry
+                  tab.
+                </p>
+                <Button variant="primary" onClick={() => setShowAdd(true)}>
+                  + Add your first provider
+                </Button>
+              </div>
+            )
+          ) : (
+            <ModelCatalog />
+          )}
         </div>
-      ) : (
-        <div className="bg-surface rounded-xl border border-default p-12 text-center">
-          <p className="text-sm text-muted mb-3">No providers configured yet</p>
-          <Button variant="primary" onClick={() => setShowAdd(true)}>
-            + Add your first provider
-          </Button>
-        </div>
-      )}
+      </div>
 
-      {/* Model Catalog */}
-      <ModelCatalog />
-
-      {/* Add Provider Modal */}
-      {providerTypes && (
+      {/* Add Provider Modal — conditionally mounted so closing the modal
+          discards any partially-entered AWS credentials and starts fresh
+          on the next open. */}
+      {showAdd && providerTypes && (
         <AddProviderModal
           open={showAdd}
           onClose={() => setShowAdd(false)}
@@ -144,7 +165,7 @@ export default function ProvidersPage() {
         <div className="space-y-4">
           <p className="text-sm text-secondary">
             Are you sure you want to remove <strong>{removeProvider?.name}</strong>?
-            This will also remove its stored API key.
+            This will also remove its stored credentials.
           </p>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setRemoveProvider(null)}>
@@ -161,5 +182,27 @@ export default function ProvidersPage() {
         </div>
       </Modal>
     </div>
+  );
+}
+
+interface TabButtonProps {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}
+
+function TabButton({ active, onClick, children }: TabButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+        active
+          ? "border-primary text-primary"
+          : "border-transparent text-muted hover:text-secondary hover:border-gray-300"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

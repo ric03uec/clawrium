@@ -185,6 +185,8 @@ export interface Provider {
   available_models: string[] | null;
   has_api_key: boolean;
   accelerator_vendor: AcceleratorVendor | null;
+  region?: string | null;
+  has_aws_credentials?: boolean;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -202,6 +204,8 @@ export interface ProviderTypeInfo {
   models: ModelInfo[];
   requires_api_key: boolean;
   requires_endpoint: boolean;
+  requires_aws_credentials?: boolean;
+  default_region?: string | null;
 }
 
 export type ProviderTypesMap = Record<string, ProviderTypeInfo>;
@@ -220,6 +224,9 @@ export interface ProviderCreate {
   default_model?: string;
   api_key?: string;
   accelerator_vendor?: AcceleratorVendor;
+  aws_access_key_id?: string;
+  aws_secret_access_key?: string;
+  region?: string;
 }
 
 export interface ProviderUpdate {
@@ -227,6 +234,9 @@ export interface ProviderUpdate {
   default_model?: string;
   api_key?: string;
   accelerator_vendor?: AcceleratorVendor;
+  aws_access_key_id?: string;
+  aws_secret_access_key?: string;
+  region?: string;
 }
 
 export interface CatalogModel {
