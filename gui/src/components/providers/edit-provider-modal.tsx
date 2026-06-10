@@ -203,6 +203,9 @@ export function EditProviderModal({
                 value={region}
                 onChange={(e) => setRegion(e.target.value)}
                 placeholder="us-east-1"
+                pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
+                title="Lowercase letters, digits, and hyphens (AWS region format, e.g. us-east-1)"
+                required
                 className="w-full px-3 py-2 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary font-mono"
               />
             </div>

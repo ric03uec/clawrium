@@ -767,3 +767,109 @@ def test_update_api_key_storage_failure_returns_sanitized_500(monkeypatch):
         asyncio.run(update_provider_endpoint("p", body))
     assert exc_info.value.status_code == 500
     assert "/var/keyring" not in str(exc_info.value.detail)
+
+
+# ─── iter4: partial-write protection (PUT cross-field validation) ───
+
+
+def test_update_bedrock_api_key_does_not_persist_default_model(monkeypatch):
+    """Mismatched-family 400 must NOT leave a half-mutated record behind."""
+    existing = {
+        "name": "aws-prod",
+        "type": "bedrock",
+        "default_model": "claude-sonnet-4-6",
+    }
+    monkeypatch.setattr(providers_mod, "get_provider", lambda name: existing)
+    update_calls: list = []
+
+    def fake_update(name, updater):
+        update_calls.append(name)
+
+    monkeypatch.setattr(providers_mod, "update_provider", fake_update)
+
+    body = ProviderUpdate(default_model="claude-opus-4-7", api_key="sk-leak")
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(update_provider_endpoint("aws-prod", body))
+    assert exc_info.value.status_code == 400
+    # The write must not have run.
+    assert update_calls == []
+
+
+def test_update_bedrock_rejects_endpoint_override(monkeypatch):
+    """Bedrock endpoint is region-derived; explicit override is rejected."""
+    existing = {"name": "aws-prod", "type": "bedrock"}
+    monkeypatch.setattr(providers_mod, "get_provider", lambda name: existing)
+    monkeypatch.setattr(providers_mod, "update_provider", lambda *a, **kw: True)
+    body = ProviderUpdate(endpoint="https://evil.example/")
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(update_provider_endpoint("aws-prod", body))
+    assert exc_info.value.status_code == 400
+    assert "region" in str(exc_info.value.detail).lower()
+
+
+# ─── iter4: default_model character-set validation ─────────────────
+
+
+def test_create_rejects_default_model_with_control_chars(monkeypatch):
+    """default_model is interpolated into env templates; control chars rejected."""
+    _capture_add_provider(monkeypatch)
+    monkeypatch.setattr(providers_mod, "set_provider_api_key", lambda *a, **kw: True)
+    body = ProviderCreate(
+        name="cloud",
+        type="openai",
+        api_key="sk",
+        default_model="gpt-4o‮\nLEAK",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(create_provider(body))
+    assert exc_info.value.status_code == 400
+
+
+def test_create_accepts_legitimate_default_model_names(monkeypatch):
+    """Real model IDs from the catalog must pass the character-set guard."""
+    captured = _capture_add_provider(monkeypatch)
+    monkeypatch.setattr(providers_mod, "set_provider_api_key", lambda *a, **kw: True)
+    for model in (
+        "gpt-4o",
+        "claude-opus-4-7",
+        "anthropic/claude-3.5-sonnet",
+        "meta-llama/Llama-3.1-70B-Instruct:free",
+    ):
+        body = ProviderCreate(
+            name="p", type="openai", api_key="sk", default_model=model
+        )
+        asyncio.run(create_provider(body))
+        assert captured["provider"]["default_model"] == model
+
+
+def test_update_rejects_invalid_default_model(monkeypatch):
+    existing = {"name": "p", "type": "openai"}
+    monkeypatch.setattr(providers_mod, "get_provider", lambda name: existing)
+    monkeypatch.setattr(providers_mod, "update_provider", lambda *a, **kw: True)
+    body = ProviderUpdate(default_model="bad\x00model")
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(update_provider_endpoint("p", body))
+    assert exc_info.value.status_code == 400
+
+
+# ─── iter4: length caps on credentials ─────────────────────────────
+
+
+def test_pydantic_caps_oversized_aws_secret():
+    """Multi-MB secret payloads are rejected at the schema layer."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ProviderCreate(
+            name="p",
+            type="bedrock",
+            aws_access_key_id="AKIA",
+            aws_secret_access_key="x" * 1000,
+        )
+
+
+def test_pydantic_caps_oversized_api_key():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ProviderCreate(name="p", type="openai", api_key="x" * 10000)

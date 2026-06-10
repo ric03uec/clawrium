@@ -10,7 +10,7 @@ import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from clawrium.core.providers.models import (
     load_model_catalog,
@@ -132,30 +132,64 @@ def _resolve_accelerator_vendor(provider: dict) -> str | None:
     return None
 
 
+# Length caps prevent multi-MB credential payloads and bound any value
+# that flows into rendered templates (env files, URL fragments).
+_API_KEY_MAX = 512
+_AWS_ACCESS_KEY_MAX = 128
+_AWS_SECRET_KEY_MAX = 256
+_REGION_MAX = 32
+_ENDPOINT_MAX = 512
+_DEFAULT_MODEL_MAX = 128
+
+# `default_model` is interpolated verbatim into hermes / openclaw env
+# templates; constrain it to a printable-ASCII subset that mirrors model
+# IDs in the catalog. Catches bidi/control-character injection without
+# rejecting legitimate model names.
+_DEFAULT_MODEL_PATTERN = re.compile(r"^[A-Za-z0-9._:/+\- @]{1,128}$")
+
+
+def _validate_default_model(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not _DEFAULT_MODEL_PATTERN.match(value):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid default_model. Must be 1–128 printable ASCII "
+                "characters (letters, digits, `._:/+- @`)."
+            ),
+        )
+    return value
+
+
 class ProviderCreate(BaseModel):
     """Request body for creating a provider."""
 
     name: str
     type: str
-    endpoint: str | None = None
-    default_model: str | None = None
-    api_key: str | None = None
+    endpoint: str | None = Field(default=None, max_length=_ENDPOINT_MAX)
+    default_model: str | None = Field(default=None, max_length=_DEFAULT_MODEL_MAX)
+    api_key: str | None = Field(default=None, max_length=_API_KEY_MAX)
     accelerator_vendor: AcceleratorVendor | None = None
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
-    region: str | None = None
+    aws_access_key_id: str | None = Field(default=None, max_length=_AWS_ACCESS_KEY_MAX)
+    aws_secret_access_key: str | None = Field(
+        default=None, max_length=_AWS_SECRET_KEY_MAX
+    )
+    region: str | None = Field(default=None, max_length=_REGION_MAX)
 
 
 class ProviderUpdate(BaseModel):
     """Request body for updating a provider."""
 
-    default_model: str | None = None
-    endpoint: str | None = None
-    api_key: str | None = None
+    default_model: str | None = Field(default=None, max_length=_DEFAULT_MODEL_MAX)
+    endpoint: str | None = Field(default=None, max_length=_ENDPOINT_MAX)
+    api_key: str | None = Field(default=None, max_length=_API_KEY_MAX)
     accelerator_vendor: AcceleratorVendor | None = None
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
-    region: str | None = None
+    aws_access_key_id: str | None = Field(default=None, max_length=_AWS_ACCESS_KEY_MAX)
+    aws_secret_access_key: str | None = Field(
+        default=None, max_length=_AWS_SECRET_KEY_MAX
+    )
+    region: str | None = Field(default=None, max_length=_REGION_MAX)
 
 
 @router.get("")
@@ -260,6 +294,7 @@ async def create_provider(body: ProviderCreate):
         validate_provider_type(body.type)
     except (InvalidProviderNameError, InvalidProviderTypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+    _validate_default_model(body.default_model)
 
     # Determine endpoint
     endpoint = body.endpoint
@@ -363,9 +398,14 @@ async def update_provider_endpoint(name: str, body: ProviderUpdate):
     if not provider:
         raise HTTPException(status_code=404, detail=f"Provider '{name}' not found")
 
+    # All schema validation runs before any write so a 400 on cross-field
+    # checks cannot leave the provider record half-mutated.
+    ptype = provider.get("type")
+    _validate_default_model(body.default_model)
+
     # AWS fields are bedrock-only; reject up-front rather than silently
     # dropping them on a non-bedrock provider.
-    if provider.get("type") != "bedrock" and (
+    if ptype != "bedrock" and (
         body.aws_access_key_id is not None
         or body.aws_secret_access_key is not None
         or body.region is not None
@@ -391,6 +431,21 @@ async def update_provider_endpoint(name: str, body: ProviderUpdate):
                 "aws_access_key_id and aws_secret_access_key must be "
                 "non-empty when provided."
             ),
+        )
+    # Bedrock endpoint is derived from `region`; an endpoint override on
+    # a bedrock provider would silently diverge from the credentials and
+    # is rejected.
+    if ptype == "bedrock" and body.endpoint is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Bedrock endpoint is derived from `region`; pass `region` instead.",
+        )
+    # api_key is rejected on bedrock here (before write) so the same 400
+    # doesn't fire after the non-credential updates have already landed.
+    if ptype == "bedrock" and body.api_key is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Bedrock uses AWS credentials, not an API key.",
         )
 
     updates: dict[str, Any] = {}
@@ -425,15 +480,10 @@ async def update_provider_endpoint(name: str, body: ProviderUpdate):
         await asyncio.to_thread(update_provider, name, _apply)
 
     # Update credentials. For bedrock, allow rotating either AWS key
-    # independently (paired with the existing counterpart) but reject the
-    # api_key field outright. For everything else, the api_key path is
-    # unchanged.
-    if provider.get("type") == "bedrock":
-        if body.api_key is not None:
-            raise HTTPException(
-                status_code=400,
-                detail="Bedrock uses AWS credentials, not an API key.",
-            )
+    # independently (paired with the existing counterpart); api_key on
+    # bedrock and AWS fields on non-bedrock were already rejected above
+    # before any write happened.
+    if ptype == "bedrock":
         if body.aws_access_key_id or body.aws_secret_access_key:
             try:
                 existing_access, existing_secret = get_provider_aws_credentials(
