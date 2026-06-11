@@ -16,10 +16,10 @@ export function useProviderTypes() {
   });
 }
 
-export function useModelCatalog(provider?: string, search?: string) {
+export function useModelCatalog(provider?: string, search?: string, limit?: number) {
   return useQuery({
-    queryKey: ["model-catalog", provider, search],
-    queryFn: () => api.getModelCatalog(provider, search),
+    queryKey: ["model-catalog", provider, search, limit],
+    queryFn: () => api.getModelCatalog(provider, search, limit),
   });
 }
 

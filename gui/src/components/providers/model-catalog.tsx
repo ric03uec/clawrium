@@ -1,120 +1,208 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Card } from "@/components/ui/card";
-import { useModelCatalog } from "@/hooks/use-providers";
+import { useState, useMemo, useEffect } from "react";
+import {
+  useProviderTypes,
+  useModelCatalog,
+} from "@/hooks/use-providers";
+
+const PAGE_SIZE = 50;
 
 export function ModelCatalog() {
+  const { data: providerTypes, isLoading: typesLoading } = useProviderTypes();
+  const [selected, setSelected] = useState<string>("__all__");
   const [search, setSearch] = useState("");
-  const [filterProvider, setFilterProvider] = useState<string>("");
+  const [page, setPage] = useState(1);
 
-  // Fetch the catalog with the server-side search when provided
-  const { data: models, isLoading } = useModelCatalog(
-    filterProvider || undefined,
-    search.length >= 2 ? search : undefined
+  const typeEntries = useMemo(() => {
+    if (!providerTypes) return [];
+    return Object.entries(providerTypes).sort((a, b) =>
+      a[0].localeCompare(b[0]),
+    );
+  }, [providerTypes]);
+
+  const totalAllModels = useMemo(
+    () =>
+      typeEntries.reduce(
+        (sum, [, info]) => sum + (info.models?.length ?? 0),
+        0,
+      ),
+    [typeEntries],
   );
 
-  // Client-side filtering for short search terms
-  const filteredModels = useMemo(() => {
+  // Reset page + search when provider changes
+  useEffect(() => {
+    setPage(1);
+    setSearch("");
+  }, [selected]);
+
+  const isAll = selected === "__all__";
+  const isOllama = selected === "ollama";
+  const { data: models, isLoading: modelsLoading } = useModelCatalog(
+    isAll || isOllama ? undefined : selected,
+    undefined,
+    isAll ? 500 : undefined,
+  );
+
+  const filtered = useMemo(() => {
     if (!models) return [];
-    if (search.length >= 2) return models; // Already filtered server-side
-    if (search.length === 1) {
-      return models.filter(
-        (m) =>
-          m.id.toLowerCase().includes(search.toLowerCase()) ||
-          m.name.toLowerCase().includes(search.toLowerCase())
-      );
-    }
-    return models;
+    const q = search.trim().toLowerCase();
+    if (!q) return models;
+    return models.filter(
+      (m) =>
+        m.id.toLowerCase().includes(q) ||
+        (m.name && m.name.toLowerCase().includes(q)),
+    );
   }, [models, search]);
 
-  // Get unique providers for filter dropdown
-  const providers = useMemo(() => {
-    if (!models) return [];
-    return [...new Set(models.map((m) => m.provider_type))].sort();
-  }, [models]);
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const visible = filtered.slice(start, start + PAGE_SIZE);
+
+  if (typesLoading) {
+    return (
+      <div className="py-8 text-center text-sm text-muted">
+        Loading registry...
+      </div>
+    );
+  }
 
   return (
-    <Card padding="md">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold text-primary-text">Model Catalog</h2>
-        <div className="flex gap-2">
-          <select
-            value={filterProvider}
-            onChange={(e) => setFilterProvider(e.target.value)}
-            className="px-2 py-1.5 text-xs border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
-          >
-            <option value="">All Providers</option>
-            {providers.map((p) => (
-              <option key={p} value={p}>
-                {p}
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-2">
+        <select
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+          className="px-3 py-1.5 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+        >
+          <option value="__all__">All providers ({totalAllModels} models)</option>
+          {typeEntries.map(([ptype, info]) => {
+            const count = info.models?.length ?? 0;
+            const countLabel =
+              ptype === "ollama"
+                ? "per-host"
+                : count > 0
+                  ? `${count} models`
+                  : "—";
+            return (
+              <option key={ptype} value={ptype}>
+                {ptype} ({countLabel})
               </option>
-            ))}
-          </select>
+            );
+          })}
+        </select>
+        {!isOllama && (
           <input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
             placeholder="Search models..."
-            className="w-48 px-3 py-1.5 text-xs border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="w-64 px-3 py-1.5 text-sm border border-default rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
-        </div>
+        )}
       </div>
 
-      {isLoading ? (
-        <div className="py-8 text-center text-sm text-muted">Loading catalog...</div>
+      {isOllama ? (
+        <div className="py-8 text-center text-sm text-muted">
+          Models are discovered per-host from the Ollama daemon. See the
+          configured Ollama provider in the Configured tab.
+        </div>
+      ) : modelsLoading ? (
+        <div className="py-8 text-center text-sm text-muted">
+          Loading models...
+        </div>
       ) : (
-        <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-white">
-              <tr className="border-b border-default text-left text-muted">
-                <th className="py-2 px-2 font-medium">Provider</th>
-                <th className="py-2 px-2 font-medium">Model</th>
-                <th className="py-2 px-2 font-medium">Context</th>
-                <th className="py-2 px-2 font-medium">Tags</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredModels.slice(0, 100).map((model) => (
-                <tr key={`${model.provider_type}-${model.id}`} className="border-b border-default/50 hover:bg-surface">
-                  <td className="py-1.5 px-2 text-secondary">{model.provider_type}</td>
-                  <td className="py-1.5 px-2 font-medium text-primary-text font-mono">
-                    {model.id}
-                  </td>
-                  <td className="py-1.5 px-2 text-secondary">
-                    {formatContext(model.context_window)}
-                  </td>
-                  <td className="py-1.5 px-2">
-                    <div className="flex gap-1 flex-wrap">
-                      {model.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="px-1.5 py-0.5 bg-surface text-muted rounded text-[10px]"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-default text-left">
+                  {isAll && (
+                    <th className="pb-3 pr-4 font-medium text-muted">Provider</th>
+                  )}
+                  <th className="pb-3 pr-4 font-medium text-muted">Model</th>
+                  <th className="pb-3 pr-4 font-medium text-muted">Context</th>
+                  <th className="pb-3 font-medium text-muted">Tags</th>
                 </tr>
-              ))}
-              {filteredModels.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="py-6 text-center text-muted">
-                    No models found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          {filteredModels.length > 100 && (
-            <div className="py-2 text-center text-xs text-muted">
-              Showing 100 of {filteredModels.length} models
+              </thead>
+              <tbody>
+                {visible.map((model) => (
+                  <tr
+                    key={`${model.provider_type}-${model.id}`}
+                    className="border-b border-default last:border-0 hover:bg-surface"
+                  >
+                    {isAll && (
+                      <td className="py-3 pr-4 text-secondary">
+                        {model.provider_type}
+                      </td>
+                    )}
+                    <td className="py-3 pr-4 font-medium text-primary-text font-mono">
+                      {model.id}
+                    </td>
+                    <td className="py-3 pr-4 text-secondary">
+                      {formatContext(model.context_window)}
+                    </td>
+                    <td className="py-3">
+                      <div className="flex gap-1 flex-wrap">
+                        {model.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="px-1.5 py-0.5 bg-surface text-muted rounded text-[10px]"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {visible.length === 0 && (
+                  <tr>
+                    <td colSpan={isAll ? 4 : 3} className="py-6 text-center text-muted">
+                      No models found
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {total > 0 && (
+            <div className="flex items-center justify-between text-xs text-muted">
+              <span>
+                Showing {start + 1}–{Math.min(start + PAGE_SIZE, total)} of{" "}
+                {total}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="px-2 py-1 border border-default rounded disabled:opacity-40 hover:bg-surface"
+                >
+                  ‹ Prev
+                </button>
+                <span>
+                  Page {currentPage}/{totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="px-2 py-1 border border-default rounded disabled:opacity-40 hover:bg-surface"
+                >
+                  Next ›
+                </button>
+              </div>
             </div>
           )}
-        </div>
+        </>
       )}
-    </Card>
+    </div>
   );
 }
 

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/layout";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import {
   ProvidersTable,
@@ -78,58 +79,56 @@ export default function ProvidersPage() {
         description="Configure LLM providers once, apply them across your fleet. Each provider can power multiple agents."
       />
 
-      <div className="bg-surface rounded-xl border border-default">
-        <div className="flex items-center justify-between border-b border-default px-2">
-          <nav className="flex" aria-label="Providers tabs">
-            <TabButton
-              active={tab === "configured"}
-              onClick={() => setTab("configured")}
-            >
-              Configured {providerCount > 0 ? `(${providerCount})` : ""}
-            </TabButton>
-            <TabButton
-              active={tab === "registry"}
-              onClick={() => setTab("registry")}
-            >
-              Registry
-            </TabButton>
-          </nav>
-          {tab === "configured" && (
-            <Button variant="primary" onClick={() => setShowAdd(true)}>
-              + Add Provider
-            </Button>
-          )}
-        </div>
-
-        <div className="p-4">
-          {tab === "configured" ? (
-            isLoading ? (
-              <div className="p-8 text-center text-muted text-sm">
-                Loading providers...
-              </div>
-            ) : providers && providers.length > 0 ? (
-              <ProvidersTable
-                providers={providers}
-                usage={providerUsage}
-                onEdit={setEditProvider}
-                onRemove={setRemoveProvider}
-              />
-            ) : (
-              <div className="p-12 text-center">
-                <p className="text-sm text-muted mb-3">
-                  No providers configured yet — add one or browse the Registry
-                  tab.
-                </p>
-                <Button variant="primary" onClick={() => setShowAdd(true)}>
-                  + Add your first provider
-                </Button>
-              </div>
-            )
-          ) : (
-            <ModelCatalog />
-          )}
-        </div>
+      <div className="flex items-center justify-between border-b border-default">
+        <nav className="flex" aria-label="Providers tabs">
+          <TabButton
+            active={tab === "configured"}
+            onClick={() => setTab("configured")}
+          >
+            Configured {providerCount > 0 ? `(${providerCount})` : ""}
+          </TabButton>
+          <TabButton
+            active={tab === "registry"}
+            onClick={() => setTab("registry")}
+          >
+            Registry
+          </TabButton>
+        </nav>
+        {tab === "configured" && (
+          <Button variant="primary" onClick={() => setShowAdd(true)}>
+            + Add model provider
+          </Button>
+        )}
       </div>
+
+      <Card padding="md">
+        {tab === "configured" ? (
+          isLoading ? (
+            <div className="py-8 text-center text-muted text-sm">
+              Loading providers...
+            </div>
+          ) : providers && providers.length > 0 ? (
+            <ProvidersTable
+              providers={providers}
+              usage={providerUsage}
+              onEdit={setEditProvider}
+              onRemove={setRemoveProvider}
+            />
+          ) : (
+            <div className="py-12 text-center">
+              <p className="text-sm text-muted mb-3">
+                No providers configured yet — add one or browse the Registry
+                tab.
+              </p>
+              <Button variant="primary" onClick={() => setShowAdd(true)}>
+                + Add model provider
+              </Button>
+            </div>
+          )
+        ) : (
+          <ModelCatalog />
+        )}
+      </Card>
 
       {/* Add Provider Modal — conditionally mounted so closing the modal
           discards any partially-entered AWS credentials and starts fresh
