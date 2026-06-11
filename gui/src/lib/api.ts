@@ -92,10 +92,11 @@ export const api = {
     const res = await request<ProviderTypesResponse>("/providers/types");
     return res.types;
   },
-  getModelCatalog: async (provider?: string, search?: string): Promise<CatalogModel[]> => {
+  getModelCatalog: async (provider?: string, search?: string, limit?: number): Promise<CatalogModel[]> => {
     const params = new URLSearchParams();
     if (provider) params.set("provider", provider);
     if (search) params.set("search", search);
+    if (limit) params.set("limit", String(limit));
     const qs = params.toString();
     const res = await request<CatalogResponse>(`/providers/catalog${qs ? `?${qs}` : ""}`);
     return res.models;

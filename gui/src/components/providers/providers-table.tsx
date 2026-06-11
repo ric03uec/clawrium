@@ -25,16 +25,16 @@ export function ProvidersTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-default text-left text-muted">
-            <th className="py-2 px-2 font-medium w-8"></th>
-            <th className="py-2 px-2 font-medium">Provider</th>
-            <th className="py-2 px-2 font-medium">Type</th>
-            <th className="py-2 px-2 font-medium">Default Model</th>
-            <th className="py-2 px-2 font-medium">Used by</th>
-            <th className="py-2 px-2 font-medium">Created</th>
-            <th className="py-2 px-2 font-medium text-right">Actions</th>
+          <tr className="border-b border-default text-left">
+            <th className="pb-3 pr-4 font-medium text-muted w-8"></th>
+            <th className="pb-3 pr-4 font-medium text-muted">Provider</th>
+            <th className="pb-3 pr-4 font-medium text-muted">Type</th>
+            <th className="pb-3 pr-4 font-medium text-muted">Default Model</th>
+            <th className="pb-3 pr-4 font-medium text-muted">Used by</th>
+            <th className="pb-3 pr-4 font-medium text-muted">Created</th>
+            <th className="pb-3 font-medium text-muted text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -89,8 +89,8 @@ function ProviderRow({
 
   return (
     <>
-      <tr className="border-b border-default/50 hover:bg-surface">
-        <td className="py-2 px-2 align-middle">
+      <tr className="border-b border-default last:border-0 hover:bg-surface">
+        <td className="py-3 pr-4 align-middle">
           <button
             type="button"
             onClick={onToggle}
@@ -100,17 +100,17 @@ function ProviderRow({
             {expanded ? "▾" : "▸"}
           </button>
         </td>
-        <td className="py-2 px-2">
+        <td className="py-3 pr-4">
           <div className="flex items-center gap-2">
             {brandIcon}
-            <span className="font-medium text-primary-text">{provider.name}</span>
+            <span className="font-medium text-primary">{provider.name}</span>
           </div>
         </td>
-        <td className="py-2 px-2 text-secondary">{provider.type}</td>
-        <td className="py-2 px-2 text-secondary font-mono">
+        <td className="py-3 pr-4 text-secondary">{provider.type}</td>
+        <td className="py-3 pr-4 text-secondary font-mono text-xs">
           {provider.default_model || "—"}
         </td>
-        <td className="py-2 px-2 text-secondary">
+        <td className="py-3 pr-4 text-secondary">
           {usedBy.length > 0 ? (
             usedBy.join(", ")
           ) : (
@@ -119,10 +119,10 @@ function ProviderRow({
             </span>
           )}
         </td>
-        <td className="py-2 px-2 text-muted whitespace-nowrap">
+        <td className="py-3 pr-4 text-muted whitespace-nowrap">
           {formatDate(provider.created_at)}
         </td>
-        <td className="py-2 px-2 text-right whitespace-nowrap">
+        <td className="py-3 text-right whitespace-nowrap">
           <Button variant="ghost" size="sm" onClick={onEdit}>
             Edit
           </Button>
@@ -132,9 +132,9 @@ function ProviderRow({
         </td>
       </tr>
       {expanded && (
-        <tr className="border-b border-default/50 bg-surface/50">
+        <tr className="border-b border-default bg-surface/50">
           <td></td>
-          <td colSpan={6} className="py-3 px-2">
+          <td colSpan={6} className="py-3 pr-4">
             <dl className="grid grid-cols-[140px_1fr] gap-y-1 text-xs">
               {provider.endpoint && (
                 <>
