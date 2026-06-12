@@ -5,7 +5,6 @@ import {
   MetricsRow,
   UsageChart,
   StatusChart,
-  AgentTable,
 } from "@/components/dashboard";
 
 export default function DashboardPage() {
@@ -16,10 +15,8 @@ export default function DashboardPage() {
         description="Fleet overview and usage metrics"
       />
 
-      {/* Metrics cards row */}
       <MetricsRow />
 
-      {/* Charts row: Usage chart (wider) + Status chart (narrower) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <UsageChart />
@@ -28,9 +25,6 @@ export default function DashboardPage() {
           <StatusChart />
         </div>
       </div>
-
-      {/* Agent table */}
-      <AgentTable />
     </div>
   );
 }

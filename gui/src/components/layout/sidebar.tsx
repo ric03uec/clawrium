@@ -10,18 +10,39 @@ interface NavItem {
   label: string;
   href: string;
   disabled?: boolean;
-  badge?: string;
+  upvoteUrl?: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/" },
+  { label: "Agents", href: "/agents" },
   { label: "Topology", href: "/topology" },
   { label: "Providers", href: "/providers" },
   { label: "Skills", href: "/skills" },
-  { label: "MCPs", href: "/mcps", disabled: true, badge: "Coming soon" },
   { label: "Integrations", href: "/integrations" },
+  {
+    label: "MCPs",
+    href: "/mcps",
+    disabled: true,
+    upvoteUrl: "https://github.com/ric03uec/clawrium/issues/698",
+  },
+  {
+    label: "Scheduled Jobs",
+    href: "/scheduled-jobs",
+    disabled: true,
+    upvoteUrl: "https://github.com/ric03uec/clawrium/issues/699",
+  },
+  {
+    label: "Agent Builder",
+    href: "/agent-builder",
+    disabled: true,
+    upvoteUrl: "https://github.com/ric03uec/clawrium/issues/700",
+  },
   { label: "Settings", href: "/settings" },
 ];
+
+const COMING_SOON_TOOLTIP =
+  "Coming soon — this feature is on our roadmap. Upvote on GitHub to bump priority.";
 
 function isItemActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
@@ -85,17 +106,52 @@ export function Sidebar() {
 
           if (item.disabled) {
             return (
-              <span
+              <div
                 key={item.href}
-                className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-muted border-l-[3px] border-transparent cursor-default"
+                className="flex items-center justify-between gap-2 px-5 py-2.5 text-sm font-medium border-l-[3px] border-transparent"
               >
-                {item.label}
-                {item.badge && (
-                  <span className="text-[10px] font-semibold uppercase tracking-wide bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">
-                    {item.badge}
-                  </span>
+                <span className="flex items-center gap-1.5 text-muted cursor-default">
+                  {item.label}
+                  <button
+                    type="button"
+                    title={COMING_SOON_TOOLTIP}
+                    aria-label={`${item.label} — coming soon (more info)`}
+                    className="inline-flex items-center justify-center h-4 w-4 rounded-full text-muted hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 16 16"
+                      className="h-3.5 w-3.5"
+                      fill="currentColor"
+                    >
+                      <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 12.5A5.5 5.5 0 118 2.5a5.5 5.5 0 010 11zM7.25 7h1.5v5h-1.5V7zM8 4.25a.9.9 0 110 1.8.9.9 0 010-1.8z" />
+                    </svg>
+                  </button>
+                </span>
+                {item.upvoteUrl && (
+                  <a
+                    href={item.upvoteUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    aria-label={`Upvote ${item.label} on GitHub`}
+                    className="inline-flex items-center gap-0.5 text-xs font-medium text-secondary hover:text-primary hover:underline transition-colors"
+                  >
+                    Upvote
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 12 12"
+                      className="h-2.5 w-2.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M3 9l6-6M5 3h4v4" />
+                    </svg>
+                  </a>
                 )}
-              </span>
+              </div>
             );
           }
 

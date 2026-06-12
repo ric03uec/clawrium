@@ -3,6 +3,8 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useAgent } from "@/hooks";
+import { PageHeader } from "@/components/layout";
+import { AgentTable } from "@/components/dashboard";
 import {
   AgentHeader,
   AgentMetrics,
@@ -17,21 +19,31 @@ import {
   LogsTab,
 } from "@/components/agent-detail";
 
-function AgentDetailContent() {
+function AgentsRouter() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const key = searchParams.get("key");
   const [activeTab, setActiveTab] = useState<TabId>("overview");
 
-  if (!key) {
-    return (
-      <div className="bg-surface rounded-xl border border-default p-12 text-center text-muted">
-        No agent selected. Select an agent from the Dashboard.
-      </div>
-    );
-  }
+  if (!key) return <AgentsListView />;
+  return (
+    <AgentDetailView
+      agentKey={key}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+    />
+  );
+}
 
-  return <AgentDetailView agentKey={key} activeTab={activeTab} onTabChange={setActiveTab} />;
+function AgentsListView() {
+  return (
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Agents"
+        description="All agents across your fleet"
+      />
+      <AgentTable />
+    </div>
+  );
 }
 
 function AgentDetailView({
@@ -61,10 +73,10 @@ function AgentDetailView({
       <div className="bg-surface rounded-xl border border-default p-12 text-center text-muted">
         <p className="mb-4">Agent not found or unreachable.</p>
         <button
-          onClick={() => router.push("/")}
+          onClick={() => router.push("/agents")}
           className="text-primary hover:underline text-sm"
         >
-          Back to Dashboard
+          Back to Agents
         </button>
       </div>
     );
@@ -72,25 +84,21 @@ function AgentDetailView({
 
   return (
     <div className="space-y-4">
-      {/* Breadcrumb */}
       <div className="text-sm text-muted">
-        <button onClick={() => router.push("/")} className="hover:text-primary">
-          Dashboard
+        <button onClick={() => router.push("/agents")} className="hover:text-primary">
+          Agents
         </button>
         <span className="mx-2">/</span>
         <span className="text-primary-text">{agent.agent_name}</span>
       </div>
 
-      {/* Header — keyed on agent_key so local state (revealed connection
-          token, copied flags, pairing-code mutation result) does not leak
-          across agents when the user switches via the search-param-only
-          route change. */}
+      {/* key={agent.agent_key}: local state (revealed token, copied flags,
+          pairing-code mutation result) must not leak across agents when the
+          user switches via the search-param-only route change. */}
       <AgentHeader key={agent.agent_key} agent={agent} />
 
-      {/* Metrics */}
       <AgentMetrics agent={agent} />
 
-      {/* Tab content */}
       <div className="bg-white rounded-xl border border-default shadow-sm overflow-hidden">
         <TabNav active={activeTab} onChange={onTabChange} />
         <div className="min-h-[500px]">
@@ -111,10 +119,10 @@ function AgentDetailView({
   );
 }
 
-export default function AgentDetailPage() {
+export default function AgentsPage() {
   return (
     <Suspense fallback={<div className="text-muted">Loading...</div>}>
-      <AgentDetailContent />
+      <AgentsRouter />
     </Suspense>
   );
 }
