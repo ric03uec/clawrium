@@ -6,6 +6,8 @@ tags: [release]
 
 Managing your AI providers is now more organized. The Providers page has been split to separate active configurations from global discovery.
 
+<!-- truncate -->
+
 ## Provider page restructure
 
 The Providers page now uses a two-tab layout. You can switch between your active configurations and the global registry. This removes the clutter of having everything on one long page. It helps you focus on managing your current setup without distractions. Now, configuring a provider and browsing supported models are distinct actions. This structure makes the interface more intuitive for team leads managing multiple keys.
