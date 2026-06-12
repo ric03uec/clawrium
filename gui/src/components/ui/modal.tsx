@@ -28,14 +28,26 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
     }
   }, [open]);
 
+  // Keep latest onClose in a ref so the listener registers once per mount
+  // even when parents pass a new closure each render. Re-subscribing on
+  // every render (deps: [onClose]) is wasteful and was flagged in review.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Deps must include `open` so the listener re-attaches each time the
+  // dialog mounts. `if (!open) return null` (below) means dialogRef is
+  // null on the open=false renders; the effect needs to re-run after the
+  // open=true transition commits and the <dialog> enters the DOM.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
 
-    const handleClose = () => onClose();
+    const handleClose = () => onCloseRef.current();
     dialog.addEventListener("close", handleClose);
     return () => dialog.removeEventListener("close", handleClose);
-  }, [onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -60,6 +72,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
             {title}
           </h2>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close dialog"
             className="text-muted hover:text-secondary p-1 rounded"
