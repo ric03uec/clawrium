@@ -186,7 +186,7 @@ clawctl agent sync <agent-name>
 
 #### Invariants
 
-- **`--role` is required on hermes.** Omitting it returns: _"agent '<name>' is a hermes agent; --role is required"_.
+- **`--role` is required on hermes.** Omitting it returns: _"agent `<name>` is a hermes agent; --role is required"_.
 - **One provider per slot.** Re-attaching a different provider to a slot that is already filled is rejected; detach the existing one first.
 - **Primary is required and detached last.** `clawctl agent provider detach <primary-name>` refuses to remove the primary attachment while any auxiliary attachments remain — detach the auxiliaries first. An agent with zero attachments fails to render (`agent '<name>' has no provider attached`).
 - **Same-type collisions fail loudly.** Two attachments of the same provider type (e.g. two `bedrock` slots) with mismatched credentials are rejected at render time rather than silently overwriting the `.env`.
