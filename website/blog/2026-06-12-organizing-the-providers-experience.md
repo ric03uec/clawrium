@@ -35,7 +35,7 @@ Related: [#694](https://github.com/ric03uec/clawrium/issues/694), [#696](https:/
 ## Validation Metrics
 
 These are the automated validation metrics for the features described
-above. Numbers aggregate every [ATX](https://github.com/ric03uec/atx)
+above. Numbers aggregate every [ATX](https://github.com/atx-ci)
 review iteration across the PRs that shipped these changes. ATX is
 the multi-agent code review system that runs against every PR; the
 metrics below reflect its work.
@@ -47,5 +47,5 @@ metrics below reflect its work.
 | Blocking issues resolved | 17 |
 | Total review cost | ~$8.52 |
 | Total review time | ~21 min |
-| Models used by [ATX](https://github.com/ric03uec/atx) | _Not exposed per agent today; see [#704](https://github.com/ric03uec/clawrium/issues/704)_ |
+| Models used by [ATX](https://github.com/atx-ci) | _Not exposed per agent today; see [#704](https://github.com/ric03uec/clawrium/issues/704)_ |
 | Models used by gtm pipeline | gather: `qwen3-coder:30b-128k` · writer: `gemma4:31b` · reviewer: `qwen3-coder:30b-128k` |
