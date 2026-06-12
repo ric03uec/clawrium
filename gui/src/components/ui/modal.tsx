@@ -28,14 +28,22 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
     }
   }, [open]);
 
+  // Keep latest onClose in a ref so the listener registers once per mount
+  // even when parents pass a new closure each render. Re-subscribing on
+  // every render (deps: [onClose]) is wasteful and was flagged in review.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
 
-    const handleClose = () => onClose();
+    const handleClose = () => onCloseRef.current();
     dialog.addEventListener("close", handleClose);
     return () => dialog.removeEventListener("close", handleClose);
-  }, [onClose]);
+  }, []);
 
   if (!open) return null;
 

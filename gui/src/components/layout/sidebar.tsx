@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ExternalLinkRows } from "./external-links";
 import { ComingSoonModal } from "./coming-soon-modal";
@@ -76,6 +76,20 @@ export function Sidebar() {
   const pathname = usePathname();
   const [version, setVersion] = useState<string | null>(null);
   const [openStub, setOpenStub] = useState<NavStubItem | null>(null);
+  // Holds the button that opened the modal, so we can return focus to it
+  // when the modal closes (WCAG 2.4.3 — keyboard users would otherwise
+  // drop to <body> and lose their place in the nav).
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  const closeStub = useCallback(() => {
+    // Capture the trigger before clearing state so subsequent renders
+    // can't race the ref. focus() is safe to call synchronously: by the
+    // time the dialog's 'close' event fires, the browser has already
+    // released focus to <body>.
+    const trigger = triggerRef.current;
+    setOpenStub(null);
+    if (trigger) trigger.focus();
+  }, []);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -146,7 +160,11 @@ export function Sidebar() {
               <button
                 key={item.label}
                 type="button"
-                onClick={() => setOpenStub(item)}
+                aria-label={`${item.label} — coming soon`}
+                onClick={(e) => {
+                  triggerRef.current = e.currentTarget;
+                  setOpenStub(item);
+                }}
                 className={stubRowClasses}
               >
                 {item.label}
@@ -195,7 +213,7 @@ export function Sidebar() {
 
       <ComingSoonModal
         open={openStub !== null}
-        onClose={() => setOpenStub(null)}
+        onClose={closeStub}
         featureName={openStub?.label ?? ""}
         body={openStub?.body ?? ""}
         upvoteUrl={openStub?.upvoteUrl ?? ""}

@@ -1,4 +1,11 @@
-import { render, screen, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  act,
+  within,
+  fireEvent,
+} from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Sidebar } from "./sidebar";
 
@@ -7,6 +14,28 @@ const pathnameRef = { current: "/" };
 vi.mock("next/navigation", () => ({
   usePathname: () => pathnameRef.current,
 }));
+
+// jsdom does not implement HTMLDialogElement.showModal / close. The stub
+// flips an "open" attribute so role="dialog" queries work the same way
+// browsers expose it. Mirrors the shim in modal.test.tsx; needed here so
+// tests that open the ComingSoonModal don't throw "Not implemented".
+beforeEach(() => {
+  if (!HTMLDialogElement.prototype.showModal) {
+    HTMLDialogElement.prototype.showModal = function showModal(
+      this: HTMLDialogElement,
+    ) {
+      this.setAttribute("open", "");
+    };
+  }
+  if (!HTMLDialogElement.prototype.close) {
+    HTMLDialogElement.prototype.close = function close(
+      this: HTMLDialogElement,
+    ) {
+      this.removeAttribute("open");
+      this.dispatchEvent(new Event("close"));
+    };
+  }
+});
 
 vi.mock("next/link", () => ({
   default: ({
@@ -212,5 +241,126 @@ describe("Sidebar", () => {
     // setVersion('') would render an empty <span>; the suppression branch must
     // leave version as null so the placeholder space renders instead.
     expect(screen.queryByText(/^v/)).not.toBeInTheDocument();
+  });
+
+  // W2: previous ordering test passed only because the footer follows the
+  // main nav in DOM order. The semantic guarantee is that Settings lives
+  // OUTSIDE the main-nav landmark — that's what we lock in here.
+  it("renders Settings outside the main-nav landmark", async () => {
+    await renderAndFlush();
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(
+      within(nav).queryByRole("link", { name: "Settings" }),
+    ).toBeNull();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  // W3: Settings active state — covers the footer Link's aria-current
+  // wiring on exact match, nested path, and negative.
+  it("marks footer Settings link as current on /settings", async () => {
+    pathnameRef.current = "/settings";
+    await renderAndFlush();
+    expect(
+      screen.getByRole("link", { name: "Settings" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("marks footer Settings link as current on nested /settings/profile", async () => {
+    pathnameRef.current = "/settings/profile";
+    await renderAndFlush();
+    expect(
+      screen.getByRole("link", { name: "Settings" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("does not mark footer Settings link as current on root path", async () => {
+    pathnameRef.current = "/";
+    await renderAndFlush();
+    expect(
+      screen.getByRole("link", { name: "Settings" }),
+    ).not.toHaveAttribute("aria-current");
+  });
+
+  // W4: Stub rows render as <button> (not <a>) and clicking them opens
+  // the ComingSoonModal with the matching feature name + upvote URL.
+  it("renders MCPs / Scheduled Jobs / Agent Builder as buttons, not links", async () => {
+    await renderAndFlush();
+    for (const label of ["MCPs", "Scheduled Jobs", "Agent Builder"]) {
+      expect(
+        screen.getByRole("button", { name: `${label} — coming soon` }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: label })).toBeNull();
+    }
+  });
+
+  it("clicking MCPs opens the coming-soon modal targeting issue #698", async () => {
+    await renderAndFlush();
+    fireEvent.click(
+      screen.getByRole("button", { name: "MCPs — coming soon" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("MCPs — coming soon")).toBeVisible();
+    const upvote = within(dialog).getByRole("link", {
+      name: "Upvote MCPs on GitHub",
+    });
+    expect(upvote).toHaveAttribute(
+      "href",
+      "https://github.com/ric03uec/clawrium/issues/698",
+    );
+  });
+
+  it("clicking Scheduled Jobs opens the modal targeting issue #699", async () => {
+    await renderAndFlush();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Scheduled Jobs — coming soon" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("Scheduled Jobs — coming soon"),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByRole("link", {
+        name: "Upvote Scheduled Jobs on GitHub",
+      }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/ric03uec/clawrium/issues/699",
+    );
+  });
+
+  it("clicking Agent Builder opens the modal targeting issue #700", async () => {
+    await renderAndFlush();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Agent Builder — coming soon" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("Agent Builder — coming soon"),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByRole("link", {
+        name: "Upvote Agent Builder on GitHub",
+      }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/ric03uec/clawrium/issues/700",
+    );
+  });
+
+  // W1: closing the modal must restore focus to the button that opened it
+  // (WCAG 2.4.3). Sidebar refocuses synchronously in closeStub. We trigger
+  // close via the modal's ✕ button (a React onClick path), since that
+  // matches how a real user clicks Close / X — and unlike a raw
+  // dialog.dispatchEvent('close'), it goes through act() automatically.
+  it("restores focus to the triggering stub button on modal close", async () => {
+    await renderAndFlush();
+    const trigger = screen.getByRole("button", {
+      name: "MCPs — coming soon",
+    });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog");
+    const closeX = within(dialog).getByRole("button", { name: "Close dialog" });
+    fireEvent.click(closeX);
+    expect(document.activeElement).toBe(trigger);
   });
 });
