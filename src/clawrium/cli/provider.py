@@ -12,6 +12,7 @@ from clawrium.core.providers import (
     PROVIDER_MODELS,
     add_provider,
     CatalogLoadError,
+    fetch_litellm_models,
     fetch_ollama_models,
     get_model_ids_for_provider,
     get_models_for_provider,
@@ -27,13 +28,16 @@ from clawrium.core.providers import (
     set_provider_api_key,
     set_provider_aws_credentials,
     update_provider,
+    validate_litellm_url,
     validate_ollama_url,
     validate_provider_name,
     validate_provider_type,
     DuplicateProviderError,
+    InvalidLiteLLMUrlError,
     InvalidOllamaUrlError,
     InvalidProviderNameError,
     InvalidProviderTypeError,
+    LiteLLMConnectionError,
     OllamaConnectionError,
     ProvidersFileCorruptedError,
 )
@@ -277,7 +281,7 @@ def add(
         ...,
         "--type",
         "-t",
-        help="Provider type (openai, anthropic, openrouter, bedrock, vertex, zai, ollama)",
+        help="Provider type (openai, anthropic, openrouter, bedrock, vertex, zai, ollama, litellm)",
     ),
     model: Optional[str] = typer.Option(
         None,
@@ -289,7 +293,7 @@ def add(
         None,
         "--url",
         "-u",
-        help="Server URL (required for Ollama)",
+        help="Server URL (required for Ollama and LiteLLM)",
     ),
     force: bool = typer.Option(
         False,
@@ -303,10 +307,11 @@ def add(
     API keys are collected securely via interactive prompt (not visible in process listing).
 
     Examples:
-        clm provider add myopenai --type openai
-        clm provider add local-llm --type ollama --url http://myserver.example.com:11434
-        clm provider add work-claude --type anthropic --model claude-sonnet-4-20250514
-        clm provider add custom --type openai --model my-custom-model --force
+        clawctl provider add myopenai --type openai
+        clawctl provider add local-llm --type ollama --url http://myserver.example.com:11434
+        clawctl provider add work-claude --type anthropic --model claude-sonnet-4-20250514
+        clawctl provider add custom --type openai --model my-custom-model --force
+        clawctl provider add inx-litellm --type litellm --url http://192.168.1.17:4000 --model gemma4:31b
     """
     # Validate provider name
     try:
@@ -404,6 +409,68 @@ def add(
 
         # Ollama doesn't require credentials
         credentials_to_store = None
+
+    elif provider_type == "litellm":
+        # LiteLLM is an OpenAI-compatible proxy: free-form URL + bearer key + model.
+        if not url:
+            console.print(
+                "[red]Error:[/red] --url is required for litellm providers "
+                "(e.g. http://192.168.1.17:4000)"
+            )
+            raise typer.Exit(code=1)
+
+        if not model:
+            console.print(
+                "[red]Error:[/red] --model is required for litellm providers "
+                "(the model ID served by the proxy)"
+            )
+            raise typer.Exit(code=1)
+
+        try:
+            url = validate_litellm_url(url)
+        except InvalidLiteLLMUrlError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+        api_key = typer.prompt("LiteLLM master key", hide_input=True)
+        if not api_key:
+            console.print("[red]Error:[/red] API key is required")
+            raise typer.Exit(code=1)
+
+        console.print(f"Probing LiteLLM proxy at {rich_escape(url)}...")
+        available_models: list[str] = []
+        try:
+            available_models = fetch_litellm_models(url, api_key)
+        except LiteLLMConnectionError as e:
+            console.print(
+                f"[yellow]Warning:[/yellow] could not list models from proxy: {e}"
+            )
+            console.print(
+                "[dim]Provider will be created without an available_models cache; "
+                "use 'clawctl provider refresh' once the proxy is reachable.[/dim]"
+            )
+
+        if available_models:
+            console.print(
+                f"[green]Found {len(available_models)} models on proxy[/green]"
+            )
+            if model not in available_models:
+                console.print(
+                    f"[yellow]Warning:[/yellow] '{rich_escape(model)}' was not "
+                    "in the proxy's /v1/models response; saving anyway."
+                )
+
+        now = datetime.now(timezone.utc).isoformat()
+        provider_record = {
+            "name": name,
+            "type": provider_type,
+            "endpoint": url,
+            "default_model": model,
+            "available_models": available_models,
+            "created_at": now,
+            "updated_at": now,
+        }
+        credentials_to_store = ("api_key", api_key)
 
     elif provider_type == "bedrock":
         # Bedrock requires AWS Access Key and Secret Key (not API key)
@@ -574,7 +641,7 @@ def list_providers() -> None:
 
     if not providers:
         console.print(
-            "No providers configured. Use 'clm provider add' to add a provider."
+            "No providers configured. Use 'clawctl provider add' to add a provider."
         )
         return
 
@@ -604,6 +671,14 @@ def list_providers() -> None:
         # For Ollama, show endpoint instead of masked key
         if provider_type == "ollama":
             key_display = rich_escape(provider.get("endpoint", "-"))
+        elif provider_type == "litellm":
+            api_key = get_provider_api_key(provider_name)
+            endpoint = provider.get("endpoint", "-")
+            key_display = (
+                f"{rich_escape(endpoint)} ({_mask_api_key(api_key)})"
+                if endpoint
+                else _mask_api_key(api_key)
+            )
         elif provider_type == "bedrock":
             # For Bedrock, show masked AWS Access Key
             access_key, secret_key = get_provider_aws_credentials(provider_name)
@@ -640,7 +715,7 @@ def edit(
         None,
         "--url",
         "-u",
-        help="New server URL (Ollama only)",
+        help="New server URL (Ollama and LiteLLM only)",
     ),
     update_key: bool = typer.Option(
         False,
@@ -651,9 +726,10 @@ def edit(
     """Edit an existing provider configuration.
 
     Examples:
-        clm provider edit myopenai --model gpt-4o-mini
-        clm provider edit local-llm --url http://newserver.example.com:11434
-        clm provider edit myopenai --update-key
+        clawctl provider edit myopenai --model gpt-4o-mini
+        clawctl provider edit local-llm --url http://newserver.example.com:11434
+        clawctl provider edit inx-litellm --url http://192.168.1.17:4000 --update-key
+        clawctl provider edit myopenai --update-key
     """
     # Check provider exists
     try:
@@ -673,9 +749,11 @@ def edit(
         )
         raise typer.Exit(code=0)
 
-    # Validate URL only makes sense for Ollama
-    if url and provider.get("type") != "ollama":
-        console.print("[red]Error:[/red] --url is only valid for Ollama providers")
+    # Validate URL only makes sense for endpoint-backed providers
+    if url and provider.get("type") not in ("ollama", "litellm"):
+        console.print(
+            "[red]Error:[/red] --url is only valid for Ollama and LiteLLM providers"
+        )
         raise typer.Exit(code=1)
 
     # For Ollama with new URL, validate and refresh models
@@ -695,6 +773,33 @@ def edit(
         except OllamaConnectionError as e:
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(code=1)
+
+    # For LiteLLM with new URL, validate and refresh models using the stored key
+    if url and provider.get("type") == "litellm":
+        try:
+            url = validate_litellm_url(url)
+        except InvalidLiteLLMUrlError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+        existing_key = get_provider_api_key(name)
+        if not existing_key:
+            console.print(
+                "[yellow]Warning:[/yellow] no stored API key for this provider; "
+                "skipping model refresh. Use --update-key to set one."
+            )
+        else:
+            console.print(f"Connecting to LiteLLM proxy at {rich_escape(url)}...")
+            try:
+                available_models = fetch_litellm_models(url, existing_key)
+                console.print(
+                    f"[green]Found {len(available_models)} models[/green]"
+                )
+            except LiteLLMConnectionError as e:
+                console.print(
+                    f"[yellow]Warning:[/yellow] could not list models: {e}"
+                )
+                available_models = None
 
     # Handle credential update for non-Ollama providers
     if update_key:
@@ -733,7 +838,7 @@ def edit(
     def apply_updates(p: dict) -> dict:
         if model is not None:
             p["default_model"] = model
-        if url is not None and p.get("type") == "ollama":
+        if url is not None and p.get("type") in ("ollama", "litellm"):
             p["endpoint"] = url
             if available_models is not None:
                 p["available_models"] = available_models
@@ -760,8 +865,8 @@ def remove(
     """Remove a provider configuration.
 
     Examples:
-        clm provider remove myopenai
-        clm provider remove old-provider --force
+        clawctl provider remove myopenai
+        clawctl provider remove old-provider --force
     """
     # Check provider exists
     try:
@@ -874,9 +979,9 @@ def types(
     """List supported provider types or show details for a specific type.
 
     Examples:
-        clm provider types                    # List all provider types
-        clm provider types openai models      # List models for OpenAI
-        clm provider types openrouter models  # List models grouped by lab
+        clawctl provider types                    # List all provider types
+        clawctl provider types openai models      # List models for OpenAI
+        clawctl provider types openrouter models  # List models grouped by lab
     """
     if provider_type is None:
         # No args: list all types
@@ -894,7 +999,7 @@ def types(
             raise typer.Exit(code=1)
         console.print("Available actions:")
         console.print(
-            f"  clm provider types {provider_type} models  # List available models"
+            f"  clawctl provider types {provider_type} models  # List available models"
         )
         return
 
@@ -910,14 +1015,16 @@ def types(
 
 @provider_app.command()
 def refresh(
-    name: str = typer.Argument(..., help="Ollama provider name to refresh"),
+    name: str = typer.Argument(..., help="Provider name to refresh (Ollama or LiteLLM)"),
 ) -> None:
-    """Refresh available models from an Ollama server.
+    """Refresh available models from an endpoint-backed provider.
 
-    Re-fetches the model list from the Ollama server and updates the saved configuration.
+    Re-fetches the model list and updates the saved configuration. Works for
+    Ollama (hits /api/tags) and LiteLLM (hits /v1/models with bearer auth).
 
     Examples:
-        clm provider refresh local-llm
+        clawctl provider refresh local-llm
+        clawctl provider refresh inx-litellm
     """
     # Check provider exists
     try:
@@ -930,11 +1037,13 @@ def refresh(
         console.print(f"[red]Error:[/red] Provider '{name}' not found")
         raise typer.Exit(code=1)
 
-    if provider.get("type") != "ollama":
+    ptype = provider.get("type")
+    if ptype not in ("ollama", "litellm"):
         console.print(
-            "[yellow]Warning:[/yellow] 'refresh' only applies to Ollama providers"
+            "[yellow]Warning:[/yellow] 'refresh' only applies to Ollama and "
+            "LiteLLM providers"
         )
-        console.print(f"Provider '{name}' is type '{provider.get('type')}'")
+        console.print(f"Provider '{name}' is type '{ptype}'")
         raise typer.Exit(code=0)
 
     endpoint = provider.get("endpoint")
@@ -942,12 +1051,27 @@ def refresh(
         console.print(f"[red]Error:[/red] Provider '{name}' has no endpoint configured")
         raise typer.Exit(code=1)
 
-    console.print(f"Connecting to Ollama server at {rich_escape(endpoint)}...")
-    try:
-        available_models = fetch_ollama_models(endpoint)
-    except OllamaConnectionError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(code=1)
+    if ptype == "ollama":
+        console.print(f"Connecting to Ollama server at {rich_escape(endpoint)}...")
+        try:
+            available_models = fetch_ollama_models(endpoint)
+        except OllamaConnectionError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
+    else:  # litellm
+        api_key = get_provider_api_key(name)
+        if not api_key:
+            console.print(
+                f"[red]Error:[/red] Provider '{name}' has no stored API key. "
+                "Use 'clawctl provider edit --update-key' to set one."
+            )
+            raise typer.Exit(code=1)
+        console.print(f"Connecting to LiteLLM proxy at {rich_escape(endpoint)}...")
+        try:
+            available_models = fetch_litellm_models(endpoint, api_key)
+        except LiteLLMConnectionError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(code=1)
 
     console.print(f"[green]Found {len(available_models)} models[/green]")
 

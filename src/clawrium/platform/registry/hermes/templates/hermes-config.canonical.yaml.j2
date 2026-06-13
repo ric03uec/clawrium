@@ -16,8 +16,15 @@ model:
 auxiliary:
 {% for entry in aux_attachments %}
   {{ entry.role }}:
+{% if entry.type == 'litellm' %}
+    provider: "custom"
+    base_url: {{ entry.base_url | yq }}
+    api_key: {{ entry.api_key | yq }}
+    model: {{ entry.model | yq }}
+{% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}
+{% endif %}
 {% endfor %}
 {% else %}
 auxiliary:
@@ -32,8 +39,15 @@ model:
 auxiliary:
 {% for entry in aux_attachments %}
   {{ entry.role }}:
+{% if entry.type == 'litellm' %}
+    provider: "custom"
+    base_url: {{ entry.base_url | yq }}
+    api_key: {{ entry.api_key | yq }}
+    model: {{ entry.model | yq }}
+{% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}
+{% endif %}
 {% endfor %}
 {% else %}
 auxiliary:
@@ -48,8 +62,15 @@ model:
 auxiliary:
 {% for entry in aux_attachments %}
   {{ entry.role }}:
+{% if entry.type == 'litellm' %}
+    provider: "custom"
+    base_url: {{ entry.base_url | yq }}
+    api_key: {{ entry.api_key | yq }}
+    model: {{ entry.model | yq }}
+{% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}
+{% endif %}
 {% endfor %}
 {% else %}
 auxiliary:
@@ -66,8 +87,15 @@ bedrock:
 auxiliary:
 {% for entry in aux_attachments %}
   {{ entry.role }}:
+{% if entry.type == 'litellm' %}
+    provider: "custom"
+    base_url: {{ entry.base_url | yq }}
+    api_key: {{ entry.api_key | yq }}
+    model: {{ entry.model | yq }}
+{% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}
+{% endif %}
 {% endfor %}
 {% else %}
 auxiliary:
@@ -89,8 +117,43 @@ model:
 auxiliary:
 {% for entry in aux_attachments %}
   {{ entry.role }}:
+{% if entry.type == 'litellm' %}
+    provider: "custom"
+    base_url: {{ entry.base_url | yq }}
+    api_key: {{ entry.api_key | yq }}
+    model: {{ entry.model | yq }}
+{% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% elif provider.type == 'litellm' %}
+{# LiteLLM: OpenAI-compatible proxy. Same `provider: "custom"` shape as
+   the ollama bypass plus an inline `api_key:` field — hermes' custom
+   provider reads the bearer from the YAML, NOT from `<NAME>_API_KEY=`
+   in `.env` (verified against the upstream docs:
+   https://hermes-agent.nousresearch.com/docs/integrations/providers#litellm-proxy--multi-provider-gateway).
+   No auxiliary.title_generation pin — like ollama, the proxy may front
+   local models; pinning to a remote default would defeat that use case. #}
+model:
+  provider: "custom"
+  base_url: {{ litellm_base_url | yq }}
+  api_key: {{ provider.api_key | yq }}
+  default: {{ provider.default_model | yq }}
+{% if aux_attachments %}
+auxiliary:
+{% for entry in aux_attachments %}
+  {{ entry.role }}:
+{% if entry.type == 'litellm' %}
+    provider: "custom"
+    base_url: {{ entry.base_url | yq }}
+    api_key: {{ entry.api_key | yq }}
+    model: {{ entry.model | yq }}
+{% else %}
+    provider: "{{ entry.type }}"
+    model: {{ entry.model | yq }}
+{% endif %}
 {% endfor %}
 {% endif %}
 {% endif %}

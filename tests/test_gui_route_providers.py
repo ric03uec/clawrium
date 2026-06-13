@@ -264,10 +264,10 @@ def test_provider_types_returns_rich_model_metadata():
     result = asyncio.run(providers_mod.provider_types())
     types = result["types"]
 
-    # All seven provider types are present
+    # All eight provider types are present
     assert set(types.keys()) == {
         "openai", "anthropic", "openrouter", "bedrock",
-        "vertex", "zai", "ollama",
+        "vertex", "zai", "ollama", "litellm",
     }
 
     # Cloud providers carry catalog-shaped models

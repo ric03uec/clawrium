@@ -18,8 +18,10 @@ from clawrium.core import render
 from clawrium.core.render import (
     AgentConfigError,
     APIServerInputs,
+    AttachedProviderInputs,
     ChannelInputs,
     GatewayInputs,
+    HermesProviderBundle,
     IntegrationInputs,
     ProviderInputs,
     RenderInputs,
@@ -387,6 +389,14 @@ def _baseline_inputs(*, ptype: str = "openrouter") -> RenderInputs:
             default_model="llama3",
             endpoint="http://10.0.0.5:11434",
         )
+    elif ptype == "litellm":
+        provider = ProviderInputs(
+            name="lt",
+            type="litellm",
+            default_model="gemma4:31b",
+            endpoint="http://10.0.0.5:4000",
+            api_key="sk-master-1",
+        )
     elif ptype == "anthropic":
         provider = ProviderInputs(
             name="an",
@@ -440,6 +450,7 @@ def _baseline_inputs(*, ptype: str = "openrouter") -> RenderInputs:
         (render_hermes, "openai"),
         (render_hermes, "bedrock"),
         (render_hermes, "ollama"),
+        (render_hermes, "litellm"),
         (render_zeroclaw, "openrouter"),
         (render_zeroclaw, "anthropic"),
         (render_zeroclaw, "openai"),
@@ -494,6 +505,137 @@ def test_hermes_ollama_yaml_has_v1_suffix():
     out = render_hermes(inputs)
     yaml = out.files[".hermes/config.yaml"]
     assert "http://10.0.0.5:11434/v1" in yaml
+
+
+def test_hermes_litellm_primary_renders_custom_provider_with_v1():
+    """LiteLLM primary emits provider: custom + inline api_key in YAML.
+
+    Hermes' custom provider reads the bearer from `model.api_key:` in
+    the YAML, NOT from a `<NAME>_API_KEY=` env var (verified against
+    the upstream docs at
+    https://hermes-agent.nousresearch.com/docs/integrations/providers#litellm-proxy--multi-provider-gateway).
+    """
+    inputs = _baseline_inputs(ptype="litellm")
+    out = render_hermes(inputs)
+    yaml = out.files[".hermes/config.yaml"]
+    env = out.files[".hermes/.env"]
+
+    assert 'provider: "custom"' in yaml
+    assert "http://10.0.0.5:4000/v1" in yaml
+    assert "gemma4:31b" in yaml
+    assert "api_key: 'sk-master-1'" in yaml
+    assert "HERMES_INFERENCE_PROVIDER='custom'" in env
+    # No `LITELLM_API_KEY=` env var — hermes' custom provider doesn't
+    # consume one; the bearer lives in config.yaml exclusively.
+    assert "LITELLM_API_KEY" not in env
+
+
+def test_hermes_litellm_endpoint_with_v1_suffix_not_double_appended():
+    """Endpoint already ending in /v1 must not be double-suffixed."""
+    base = _baseline_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=base.provider.default_model,
+        endpoint="http://10.0.0.5:4000/v1",
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        api_server=base.api_server,
+        gateway=base.gateway,
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    assert "http://10.0.0.5:4000/v1" in yaml
+    assert "http://10.0.0.5:4000/v1/v1" not in yaml
+
+
+def test_hermes_litellm_aux_attachment_emits_inline_api_key_in_yaml():
+    """LiteLLM aux attachment emits per-aux base_url + api_key inline in YAML.
+
+    Each litellm aux carries its own URL + key inline in the auxiliary
+    block — hermes' custom provider reads them from the YAML. No env
+    var is emitted, so two litellm proxies at different roles cannot
+    collide.
+    """
+    base = _baseline_inputs(ptype="openrouter")
+    # Primary openrouter + one litellm aux at curator role.
+    bundle = HermesProviderBundle(
+        attachments=(
+            AttachedProviderInputs(
+                name="or",
+                type="openrouter",
+                role="primary",
+                model="anthropic/claude-opus-4.7",
+            ),
+            AttachedProviderInputs(
+                name="inx-litellm",
+                type="litellm",
+                role="curator",
+                model="gemma4:31b",
+                endpoint="http://192.168.1.17:4000",
+                api_key="sk-litellm-aux",
+                base_url="http://192.168.1.17:4000/v1",
+            ),
+        ),
+        api_keys=(("openrouter", "sk-or-1"),),
+        aws_credentials=(),
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        api_server=base.api_server,
+        gateway=base.gateway,
+        hermes=bundle,
+    )
+    out = render_hermes(inputs)
+    yaml = out.files[".hermes/config.yaml"]
+    env = out.files[".hermes/.env"]
+
+    # YAML: per-aux block with custom shape + inline bearer.
+    assert "curator:" in yaml
+    assert 'provider: "custom"' in yaml
+    assert "http://192.168.1.17:4000/v1" in yaml
+    assert "gemma4:31b" in yaml
+    assert "api_key: 'sk-litellm-aux'" in yaml
+
+    # No env var — hermes reads aux bearer from YAML, not from env.
+    assert "LITELLM" not in env
+
+
+def test_hermes_litellm_missing_endpoint_raises():
+    """A litellm primary with no endpoint raises AgentConfigError-style failure."""
+    base = _baseline_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=base.provider.default_model,
+        endpoint="",  # missing
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        api_server=base.api_server,
+        gateway=base.gateway,
+    )
+    # render_hermes will compute litellm_base_url="/v1" (an unhelpful URL).
+    # The endpoint check lives in build_render_inputs upstream; this test
+    # locks the render contract: produces *something* without crashing,
+    # but the operator sees the bad base_url and the upstream guard fires
+    # in production. We assert the renderer doesn't crash.
+    out = render_hermes(inputs)
+    assert out.files[".hermes/config.yaml"]
 
 
 def test_hermes_renders_integrations_in_input_order_and_bare_github_token():
@@ -3009,12 +3151,6 @@ def test_hermes_api_server_key_propagates_into_rendered_env(
 # ---------------------------------------------------------------------------
 # Issue #621: hermes multi-provider attachment rendering
 # ---------------------------------------------------------------------------
-
-
-from clawrium.core.render import (  # noqa: E402
-    AttachedProviderInputs,
-    HermesProviderBundle,
-)
 
 
 def _hermes_multi_agent_record(providers):

@@ -45,13 +45,16 @@ from clawrium.cli.output import (
 )
 from clawrium.core.providers.storage import (
     DuplicateProviderError,
+    InvalidLiteLLMUrlError,
     InvalidOllamaUrlError,
     InvalidProviderNameError,
     InvalidProviderTypeError,
+    LiteLLMConnectionError,
     OllamaConnectionError,
     ProvidersFileCorruptedError,
     PROVIDER_MODELS,
     add_provider,
+    fetch_litellm_models,
     fetch_ollama_models,
     get_provider,
     get_provider_api_key,
@@ -63,6 +66,7 @@ from clawrium.core.providers.storage import (
     set_provider_api_key,
     set_provider_aws_credentials,
     update_provider,
+    validate_litellm_url,
     validate_ollama_url,
     validate_provider_name,
     validate_provider_type,
@@ -226,6 +230,11 @@ def create(
     ollama_url: Optional[str] = typer.Option(
         None, "--ollama-url", help="Ollama server URL (Ollama)."
     ),
+    litellm_url: Optional[str] = typer.Option(
+        None,
+        "--litellm-url",
+        help="LiteLLM (OpenAI-compatible) proxy URL (LiteLLM).",
+    ),
 ) -> None:
     """Register a provider non-interactively when flags are supplied."""
     try:
@@ -275,6 +284,48 @@ def create(
             add_provider(record)
         except DuplicateProviderError as exc:
             emit_error(str(exc))
+        typer.echo(f"provider/{name}: created (type={provider_type})")
+        return
+
+    if provider_type == "litellm":
+        require_flag(litellm_url, flag="--litellm-url")
+        if not model:
+            emit_error(
+                "missing required flag --model",
+                hint="LiteLLM providers require an explicit model id",
+            )
+        try:
+            litellm_url = validate_litellm_url(litellm_url or "")
+        except InvalidLiteLLMUrlError as exc:
+            emit_error(str(exc))
+        resolved_key = _resolve_api_key(api_key, api_key_stdin)
+        if not resolved_key:
+            emit_error("API key is required")
+        # Probe /v1/models. Failure is non-fatal: the proxy may be off
+        # at create-time; operators can rerun `provider registry
+        # refresh` once it's up.
+        try:
+            available = fetch_litellm_models(litellm_url, resolved_key)
+        except LiteLLMConnectionError as exc:
+            typer.echo(
+                f"warning: could not list models from proxy: {exc}",
+                err=True,
+            )
+            available = []
+        record = {
+            "name": name,
+            "type": provider_type,
+            "endpoint": litellm_url,
+            "default_model": model,
+            "available_models": available,
+            "created_at": now,
+            "updated_at": now,
+        }
+        try:
+            add_provider(record)
+        except DuplicateProviderError as exc:
+            emit_error(str(exc))
+        set_provider_api_key(name, resolved_key)
         typer.echo(f"provider/{name}: created (type={provider_type})")
         return
 
@@ -509,17 +560,34 @@ def edit(
     ollama_url: Optional[str] = typer.Option(
         None, "--ollama-url", help="New Ollama server URL (Ollama)."
     ),
+    litellm_url: Optional[str] = typer.Option(
+        None,
+        "--litellm-url",
+        help="New LiteLLM proxy URL (LiteLLM).",
+    ),
 ) -> None:
     """Edit an existing provider record."""
     record = _safe_get_provider(name)
     ptype = record.get("type")
 
     if not any(
-        [model, api_key, api_key_stdin, access_key, secret_key, region, ollama_url]
+        [
+            model,
+            api_key,
+            api_key_stdin,
+            access_key,
+            secret_key,
+            region,
+            ollama_url,
+            litellm_url,
+        ]
     ):
         emit_error(
             "no changes specified",
-            hint="pass --model / --api-key / --access-key / --secret-key / --region / --ollama-url",
+            hint=(
+                "pass --model / --api-key / --access-key / --secret-key / "
+                "--region / --ollama-url / --litellm-url"
+            ),
         )
 
     available: Optional[list[str]] = None
@@ -534,6 +602,29 @@ def edit(
             available = fetch_ollama_models(ollama_url)
         except OllamaConnectionError as exc:
             emit_error(str(exc))
+
+    if litellm_url is not None:
+        if ptype != "litellm":
+            emit_error("--litellm-url only valid for litellm providers")
+        try:
+            litellm_url = validate_litellm_url(litellm_url)
+        except InvalidLiteLLMUrlError as exc:
+            emit_error(str(exc))
+        # Re-probe /v1/models using the new key (if supplied) or the
+        # currently-stored one. Probe failure surfaces as a warning so
+        # an `edit` doesn't fail just because the proxy is offline.
+        probe_key = (
+            api_key if api_key else (None if api_key_stdin else get_provider_api_key(name))
+        )
+        if probe_key:
+            try:
+                available = fetch_litellm_models(litellm_url, probe_key)
+            except LiteLLMConnectionError as exc:
+                typer.echo(
+                    f"warning: could not list models from proxy: {exc}",
+                    err=True,
+                )
+                available = None
 
     new_api_key: Optional[str] = None
     if api_key or api_key_stdin:
@@ -559,6 +650,10 @@ def edit(
             p["endpoint"] = ollama_url
             if available is not None:
                 p["available_models"] = available
+        if litellm_url is not None:
+            p["endpoint"] = litellm_url
+            if available is not None:
+                p["available_models"] = available
         if region:
             p["region"] = region
         p["updated_at"] = _now_iso()
@@ -582,22 +677,42 @@ def edit(
 
 @provider_registry_app.command("refresh")
 def refresh(
-    name: str = typer.Argument(..., help="Ollama provider name to refresh."),
+    name: str = typer.Argument(
+        ..., help="Endpoint-backed provider name (ollama or litellm) to refresh."
+    ),
 ) -> None:
-    """Refresh available models from an Ollama server."""
+    """Refresh available models from an endpoint-backed provider.
+
+    Works for Ollama (hits /api/tags) and LiteLLM (hits /v1/models with
+    the stored bearer key).
+    """
     record = _safe_get_provider(name)
-    if record.get("type") != "ollama":
+    ptype = record.get("type")
+    if ptype not in ("ollama", "litellm"):
         emit_error(
-            f"refresh only applies to ollama providers (got {record.get('type')!r})",
+            f"refresh only applies to ollama/litellm providers (got {ptype!r})",
             hint="this is a no-op for cloud providers",
         )
     endpoint = record.get("endpoint")
     if not endpoint:
         emit_error(f"provider {name!r} has no endpoint configured")
-    try:
-        available = fetch_ollama_models(endpoint)
-    except OllamaConnectionError as exc:
-        emit_error(str(exc))
+
+    if ptype == "ollama":
+        try:
+            available = fetch_ollama_models(endpoint)
+        except OllamaConnectionError as exc:
+            emit_error(str(exc))
+    else:  # litellm
+        stored_key = get_provider_api_key(name)
+        if not stored_key:
+            emit_error(
+                f"provider {name!r} has no stored API key",
+                hint=f"clawctl provider registry edit {name} --api-key …",
+            )
+        try:
+            available = fetch_litellm_models(endpoint, stored_key)
+        except LiteLLMConnectionError as exc:
+            emit_error(str(exc))
 
     def apply(p: dict) -> dict:
         p["available_models"] = available

@@ -27,8 +27,10 @@ __all__ = [
     "validate_provider_name",
     "validate_provider_type",
     "validate_ollama_url",
+    "validate_litellm_url",
     "get_models_for_type",
     "fetch_ollama_models",
+    "fetch_litellm_models",
     "get_provider_instance_key",
     "set_provider_api_key",
     "get_provider_api_key",
@@ -42,6 +44,8 @@ __all__ = [
     "InvalidProviderNameError",
     "OllamaConnectionError",
     "InvalidOllamaUrlError",
+    "LiteLLMConnectionError",
+    "InvalidLiteLLMUrlError",
 ]
 
 PROVIDERS_FILE = "providers.json"
@@ -88,6 +92,11 @@ PROVIDER_MODELS: dict[str, dict] = {
         "requires_api_key": False,
         "requires_endpoint": True,
     },
+    "litellm": {
+        "endpoint": None,  # User-provided (OpenAI-compatible proxy)
+        "requires_api_key": True,
+        "requires_endpoint": True,
+    },
 }
 
 
@@ -123,6 +132,18 @@ class OllamaConnectionError(Exception):
 
 class InvalidOllamaUrlError(Exception):
     """Raised when Ollama URL is invalid or points to a restricted address."""
+
+    pass
+
+
+class LiteLLMConnectionError(Exception):
+    """Raised when connection to LiteLLM server fails."""
+
+    pass
+
+
+class InvalidLiteLLMUrlError(Exception):
+    """Raised when LiteLLM URL is invalid or points to a restricted address."""
 
     pass
 
@@ -283,6 +304,28 @@ def validate_ollama_url(url: str) -> str:
     return url
 
 
+def validate_litellm_url(url: str) -> str:
+    """Validate LiteLLM proxy URL for security.
+
+    LiteLLM is an OpenAI-compatible proxy that is typically self-hosted on a
+    local network, so the same trust model as Ollama applies: only cloud
+    metadata endpoints are blocked; private and loopback addresses are allowed.
+
+    Args:
+        url: URL to validate.
+
+    Returns:
+        Normalized URL (trailing slash removed).
+
+    Raises:
+        InvalidLiteLLMUrlError: If URL is invalid or points to a restricted address.
+    """
+    try:
+        return validate_ollama_url(url)
+    except InvalidOllamaUrlError as e:
+        raise InvalidLiteLLMUrlError(str(e))
+
+
 def get_models_for_type(provider_type: str) -> list[str] | None:
     """Get available model IDs for a provider type.
 
@@ -290,13 +333,14 @@ def get_models_for_type(provider_type: str) -> list[str] | None:
         provider_type: Provider type to get models for.
 
     Returns:
-        List of model ID strings, or None for dynamic providers (like Ollama).
+        List of model ID strings, or None for dynamic providers (like Ollama,
+        LiteLLM).
 
     Raises:
         InvalidProviderTypeError: If type is not valid.
     """
     validate_provider_type(provider_type)
-    if provider_type == "ollama":
+    if provider_type in ("ollama", "litellm"):
         return None
     from clawrium.core.providers.models import (
         ProviderNotFoundError,
@@ -359,6 +403,65 @@ def fetch_ollama_models(endpoint: str, timeout: int = 10) -> list[str]:
         raise OllamaConnectionError(f"Ollama server returned error: {status}")
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         raise OllamaConnectionError(f"Invalid response from Ollama server: {e}")
+
+
+def fetch_litellm_models(
+    endpoint: str, api_key: str, timeout: int = 10
+) -> list[str]:
+    """Fetch available models from a LiteLLM (OpenAI-compatible) proxy.
+
+    Args:
+        endpoint: Base URL of the proxy (e.g., http://192.168.1.17:4000).
+                  Must be validated with validate_litellm_url() first.
+        api_key: Bearer token to authenticate against the proxy.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        List of model IDs reported by the proxy's /v1/models endpoint.
+
+    Raises:
+        LiteLLMConnectionError: If connection fails or response is invalid.
+    """
+    endpoint = endpoint.rstrip("/")
+    url = f"{endpoint}/v1/models"
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=timeout,
+            allow_redirects=False,
+            verify=True,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        # OpenAI shape: {"data": [{"id": "model-id", ...}, ...]}
+        models = data.get("data", [])
+        if not isinstance(models, list):
+            raise LiteLLMConnectionError(
+                "Invalid response from LiteLLM server: expected 'data' to be a list"
+            )
+
+        return [
+            m.get("id", "") for m in models if isinstance(m, dict) and m.get("id")
+        ]
+
+    except requests.exceptions.ConnectionError:
+        raise LiteLLMConnectionError(
+            f"Could not connect to LiteLLM server at {endpoint}. "
+            "Ensure the proxy is running."
+        )
+    except requests.exceptions.Timeout:
+        raise LiteLLMConnectionError(
+            f"Connection to LiteLLM server at {endpoint} timed out."
+        )
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else "unknown"
+        raise LiteLLMConnectionError(f"LiteLLM server returned error: {status}")
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise LiteLLMConnectionError(f"Invalid response from LiteLLM server: {e}")
 
 
 # Provider API key storage using secrets module

@@ -16,8 +16,10 @@ from clawrium.core.providers import (
     validate_provider_name,
     validate_provider_type,
     validate_ollama_url,
+    validate_litellm_url,
     get_models_for_type,
     fetch_ollama_models,
+    fetch_litellm_models,
     get_provider_instance_key,
     set_provider_api_key,
     get_provider_api_key,
@@ -31,6 +33,8 @@ from clawrium.core.providers import (
     InvalidProviderTypeError,
     OllamaConnectionError,
     InvalidOllamaUrlError,
+    LiteLLMConnectionError,
+    InvalidLiteLLMUrlError,
 )
 
 
@@ -310,6 +314,146 @@ class TestOllamaDiscovery:
             call_kwargs = mock_get.call_args[1]
             assert call_kwargs.get("allow_redirects") is False
             assert call_kwargs.get("verify") is True
+
+
+class TestFetchLiteLLMModels:
+    """Tests for LiteLLM model discovery."""
+
+    def test_fetch_litellm_models_success(self):
+        """fetch_litellm_models returns model IDs on success."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": [
+                {"id": "gpt-4o", "object": "model"},
+                {"id": "gemma4:31b", "object": "model"},
+            ]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch(
+            "clawrium.core.providers.storage.requests.get",
+            return_value=mock_response,
+        ):
+            models = fetch_litellm_models("http://example.com:4000", "sk-master")
+
+        assert models == ["gpt-4o", "gemma4:31b"]
+
+    def test_fetch_litellm_models_sends_bearer_auth(self):
+        """fetch_litellm_models sends Authorization: Bearer header."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": []}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch(
+            "clawrium.core.providers.storage.requests.get",
+            return_value=mock_response,
+        ) as mock_get:
+            fetch_litellm_models("http://example.com:4000", "sk-master-key")
+            kwargs = mock_get.call_args[1]
+            headers = kwargs.get("headers") or {}
+            assert headers.get("Authorization") == "Bearer sk-master-key"
+
+    def test_fetch_litellm_models_uses_v1_models_endpoint(self):
+        """fetch_litellm_models targets the OpenAI /v1/models path."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": []}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch(
+            "clawrium.core.providers.storage.requests.get",
+            return_value=mock_response,
+        ) as mock_get:
+            fetch_litellm_models("http://example.com:4000/", "sk-master")
+            url = mock_get.call_args[0][0]
+            assert url == "http://example.com:4000/v1/models"
+
+    def test_fetch_litellm_models_empty_data(self):
+        """fetch_litellm_models returns empty list when data is empty."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": []}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch(
+            "clawrium.core.providers.storage.requests.get",
+            return_value=mock_response,
+        ):
+            models = fetch_litellm_models("http://example.com:4000", "sk")
+        assert models == []
+
+    def test_fetch_litellm_models_connection_error(self):
+        """fetch_litellm_models raises LiteLLMConnectionError on connect fail."""
+        import requests
+
+        with patch(
+            "clawrium.core.providers.storage.requests.get",
+            side_effect=requests.exceptions.ConnectionError("refused"),
+        ):
+            with pytest.raises(LiteLLMConnectionError) as exc:
+                fetch_litellm_models("http://example.com:4000", "sk")
+            assert "could not connect" in str(exc.value).lower()
+
+    def test_fetch_litellm_models_timeout(self):
+        """fetch_litellm_models raises LiteLLMConnectionError on timeout."""
+        import requests
+
+        with patch(
+            "clawrium.core.providers.storage.requests.get",
+            side_effect=requests.exceptions.Timeout("slow"),
+        ):
+            with pytest.raises(LiteLLMConnectionError) as exc:
+                fetch_litellm_models("http://example.com:4000", "sk")
+            assert "timed out" in str(exc.value).lower()
+
+    def test_fetch_litellm_models_http_error(self):
+        """fetch_litellm_models raises LiteLLMConnectionError on HTTP error."""
+        import requests
+
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            response=mock_response
+        )
+
+        with patch(
+            "clawrium.core.providers.storage.requests.get",
+            return_value=mock_response,
+        ):
+            with pytest.raises(LiteLLMConnectionError) as exc:
+                fetch_litellm_models("http://example.com:4000", "sk")
+            assert "401" in str(exc.value)
+
+    def test_fetch_litellm_models_invalid_data_shape(self):
+        """fetch_litellm_models raises when 'data' is not a list."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": "not-a-list"}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch(
+            "clawrium.core.providers.storage.requests.get",
+            return_value=mock_response,
+        ):
+            with pytest.raises(LiteLLMConnectionError) as exc:
+                fetch_litellm_models("http://example.com:4000", "sk")
+            assert "expected 'data' to be a list" in str(exc.value)
+
+
+class TestValidateLiteLLMUrl:
+    """Tests for LiteLLM URL validation."""
+
+    def test_accepts_private_endpoint(self):
+        """Private LAN URLs are allowed (LiteLLM is typically self-hosted)."""
+        normalized = validate_litellm_url("http://192.168.1.17:4000/")
+        assert normalized == "http://192.168.1.17:4000"
+
+    def test_rejects_metadata_endpoint(self):
+        """169.254.169.254 is blocked (cloud metadata SSRF)."""
+        with pytest.raises(InvalidLiteLLMUrlError):
+            validate_litellm_url("http://169.254.169.254")
+
+    def test_rejects_bad_scheme(self):
+        """Only http/https are accepted."""
+        with pytest.raises(InvalidLiteLLMUrlError):
+            validate_litellm_url("ftp://example.com")
 
 
 class TestProviderApiKeyStorage:
@@ -631,6 +775,7 @@ class TestProviderModelsConstant:
             "vertex",
             "zai",
             "ollama",
+            "litellm",
         }
         assert set(PROVIDER_MODELS.keys()) == expected
 

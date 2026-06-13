@@ -59,13 +59,28 @@ __all__ = [
 # extends the schema with a credential-kind field.
 _BEARER_API_KEY_TYPES = frozenset({"openrouter", "anthropic", "openai", "zai"})
 _LOCAL_ENDPOINT_TYPES = frozenset({"ollama"})
+# Providers that require BOTH a free-form endpoint AND a bearer API key.
+# LiteLLM is the canonical case: an OpenAI-compatible proxy whose URL is
+# operator-supplied (like ollama) and whose master key is required for
+# every /v1 call (like openrouter/openai). Keeping these distinct from
+# `_BEARER_API_KEY_TYPES` lets `build_render_inputs` raise on both a
+# missing key and a missing endpoint with a single targeted message.
+_BEARER_API_KEY_WITH_ENDPOINT_TYPES = frozenset({"litellm"})
 
 # Per-agent-type supported provider sets. `build_render_inputs` checks
 # this so a hermes agent attached to a zai-only provider fails up-front
 # instead of crashing later inside `render_hermes`. The membership
 # matches the renderer dispatch tables further below.
+#
+# `litellm` is hermes-only in this revision. Wiring zeroclaw/openclaw
+# would require validating that those renderers' "custom"/OpenAI-shape
+# branches accept a free-form base_url + per-aux key pattern; that
+# expansion belongs in a follow-up after the hermes E2E verifies the
+# render shape end to end (#705).
 _AGENT_TYPE_PROVIDER_SUPPORT: dict[str, frozenset[str]] = {
-    "hermes": frozenset({"openrouter", "anthropic", "openai", "bedrock", "ollama"}),
+    "hermes": frozenset(
+        {"openrouter", "anthropic", "openai", "bedrock", "ollama", "litellm"}
+    ),
     "zeroclaw": frozenset({"openrouter", "anthropic", "openai", "ollama"}),
     "openclaw": frozenset(
         {"openrouter", "anthropic", "openai", "bedrock", "ollama", "zai"}
@@ -122,6 +137,12 @@ class AttachedProviderInputs:
 
     Carries the per-attachment role + model so the canonical template can
     iterate a uniform list across primary and auxiliary slots.
+
+    `api_key` and `base_url` are populated for `litellm` aux attachments
+    (every litellm proxy can have a distinct URL + key, so per-type
+    dedup as used for openrouter/anthropic/openai/zai doesn't fit).
+    Both stay empty for every other type — the template branches on
+    `entry.type` and only reads them in the litellm branch.
     """
 
     name: str
@@ -130,6 +151,8 @@ class AttachedProviderInputs:
     model: str
     endpoint: str = ""
     region: str = ""
+    api_key: str = ""
+    base_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -347,6 +370,21 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
         aws_access_key = ak
         aws_secret_key = sk
     elif provider_type in _BEARER_API_KEY_TYPES:
+        key = _clean_secret(get_provider_api_key(primary_name))
+        if not key:
+            raise AgentConfigError(
+                f"provider {primary_name!r} (type {provider_type}) is missing "
+                f"API key in secrets.json"
+            )
+        api_key = key
+    elif provider_type in _BEARER_API_KEY_WITH_ENDPOINT_TYPES:
+        # litellm: free-form proxy URL + bearer master key. Both are
+        # required; neither has a sensible default.
+        if not provider_record.get("endpoint"):
+            raise AgentConfigError(
+                f"provider {primary_name!r} (type {provider_type}) is missing "
+                f"endpoint in providers.json"
+            )
         key = _clean_secret(get_provider_api_key(primary_name))
         if not key:
             raise AgentConfigError(
@@ -589,6 +627,8 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
             )
             entry_region = entry_record.get("region", "") or ""
             entry_endpoint = entry_record.get("endpoint", "") or ""
+            entry_api_key = ""
+            entry_base_url = ""
             if entry_type == "bedrock":
                 ak, sk = get_provider_aws_credentials(entry_name)
                 ak = _clean_secret(ak)
@@ -638,6 +678,32 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
                         f"Detach one or unify the secret."
                     )
                 api_keys[entry_type] = key
+            elif entry_type in _BEARER_API_KEY_WITH_ENDPOINT_TYPES:
+                # litellm aux: per-attachment URL AND per-attachment key.
+                # Two litellm providers attached at different roles can
+                # point at different proxies, so dedup-by-type would lose
+                # information. The per-attachment api_key rides on
+                # `AttachedProviderInputs.api_key` and is emitted as
+                # `LITELLM_<ROLE_UPPER>_API_KEY` by the env template.
+                if not entry_endpoint:
+                    raise AgentConfigError(
+                        f"provider {entry_name!r} (type {entry_type}) "
+                        f"attached to agent {agent_name!r} is missing "
+                        f"endpoint in providers.json"
+                    )
+                entry_api_key = _clean_secret(get_provider_api_key(entry_name))
+                if not entry_api_key:
+                    raise AgentConfigError(
+                        f"provider {entry_name!r} (type {entry_type}) "
+                        f"attached to agent {agent_name!r} is missing API "
+                        f"key in secrets.json"
+                    )
+                # Normalize the proxy URL to its /v1 suffix once at
+                # assembly time so the template never touches strings.
+                stripped = entry_endpoint.rstrip("/")
+                entry_base_url = (
+                    stripped if stripped.endswith("/v1") else stripped + "/v1"
+                )
             elif entry_type in _LOCAL_ENDPOINT_TYPES:
                 if not entry_endpoint:
                     raise AgentConfigError(
@@ -659,6 +725,8 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
                     model=entry_model,
                     endpoint=entry_endpoint,
                     region=entry_region,
+                    api_key=entry_api_key,
+                    base_url=entry_base_url,
                 )
             )
         hermes_bundle = HermesProviderBundle(
@@ -793,7 +861,7 @@ def _integration_slug(name: str) -> str:
 
 
 _HERMES_SUPPORTED_PROVIDERS = frozenset(
-    {"openrouter", "anthropic", "openai", "bedrock", "ollama"}
+    {"openrouter", "anthropic", "openai", "bedrock", "ollama", "litellm"}
 )
 _HERMES_SUPPORTED_CHANNELS = frozenset({"discord", "slack"})
 _HERMES_SUPPORTED_INTEGRATIONS = frozenset(
@@ -907,6 +975,17 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
             endpoint = endpoint + "/v1"
         ollama_base_url = endpoint
 
+    # LiteLLM uses the same hermes `provider: "custom"` render shape as
+    # ollama (OpenAI-compatible /v1 endpoint) but additionally carries a
+    # bearer API key. The base_url normalization is identical: ensure the
+    # trailing `/v1` so the daemon hits `/v1/chat/completions`.
+    litellm_base_url = ""
+    if ptype == "litellm":
+        endpoint = inputs.provider.endpoint.rstrip("/")
+        if not endpoint.endswith("/v1"):
+            endpoint = endpoint + "/v1"
+        litellm_base_url = endpoint
+
     # Issue #621: hermes multi-provider context. When the caller built
     # `RenderInputs` via `build_render_inputs`, `inputs.hermes` carries
     # the full attachment list + per-aux credential dicts. When a test
@@ -952,6 +1031,7 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
         provider=inputs.provider,
         aux_attachments=aux_attachments,
         ollama_base_url=ollama_base_url,
+        litellm_base_url=litellm_base_url,
         atlassian_integrations=atlassian_views,
         mcp_atlassian_version=_HERMES_MCP_ATLASSIAN_VERSION,
     )

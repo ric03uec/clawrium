@@ -22,6 +22,11 @@ AWS_DEFAULT_REGION={{ (provider.region or 'us-east-1') | shq }}
 HERMES_INFERENCE_PROVIDER='bedrock'
 {% elif provider.type == 'ollama' %}
 HERMES_INFERENCE_PROVIDER='custom'
+{% elif provider.type == 'litellm' %}
+{# LiteLLM's bearer key lives inline in `config.yaml` under
+   `model.api_key:` — see the hermes-config canonical template. No env
+   var is emitted; hermes' custom provider doesn't consume one. #}
+HERMES_INFERENCE_PROVIDER='custom'
 {% endif %}
 {# Issue #621: auxiliary provider credentials. `aux_api_keys` is a dict
    keyed by provider type (already deduped + dedup-vs-primary in

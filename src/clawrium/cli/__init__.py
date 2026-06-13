@@ -1,14 +1,11 @@
 """`clawctl` — the kubectl-style CLI for Clawrium.
 
 This module exports `app`, the top-level Typer entrypoint wired to the
-`clawctl` script in `pyproject.toml`. The legacy `clm` CLI continues
-to live at `clawrium.cli.main:app` and is still imported by the
-existing test suite — the two coexist while bundles 3-5 (#508, #509,
-#510) replace the underlying implementations one verb-group at a time.
-
-Plan §4 lists the complete group surface; this module registers every
-group declared there so bundles 3-4 can fill in module internals
-without touching `cli/__init__.py` (closes Risk R2 from the plan).
+`clawctl` script in `pyproject.toml`. The legacy `clm` entry point
+(`cli/main.py`) was removed in #707; remaining parallel modules under
+`src/clawrium/cli/` (chat.py, agent.py, host.py, integration.py,
+provider.py, skill.py, …) are hybrid — still imported by clawctl /
+TUI code paths — and tracked for removal in #707.
 """
 
 import typer
