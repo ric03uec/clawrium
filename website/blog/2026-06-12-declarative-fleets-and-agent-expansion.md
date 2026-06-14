@@ -2,44 +2,75 @@
 authors: [maurice]
 tags: [release]
 ---
-# Declarative Fleets and Agent Expansion
-
-This week we introduced declarative fleet management and the new Ethos agent type, expanded the flexibility of provider attachments, and enhanced agent skillset capabilities.
+# Clawrium: New providers, better UI, and declarative fleet control
 
 <!-- truncate -->
 
-## Declarative Fleet Management and Ethos
+## Add any OpenAI-compatible LLM as a provider
 
-Users can now deploy and manage Ethos agents declaratively without manual SSH steps. The new declarative model allows describing the entire fleet in a single YAML manifest. You can run `clawctl apply -f fleet.yaml` to synchronize the actual state of your hosts, providers, and agents. A new `clawctl diff` command lets you preview exactly what will change—such as agent version bumps or provider attachments—before applying a manifest. This eliminates the need for long, fragile sequences of imperative commands. Upgrading an agent is now as simple as bumping a version number in the YAML and re-running the apply command. Remote Ethos CLI commands, like checking status or errors, are now accessible via `clawctl agent exec`.
+You can now point a provider at any OpenAI-compatible API — including local models, self-hosted gateways, or third-party services like Anthropic, Mistral, or Perplexity. Just add a `litellm` provider with the URL and API key. No more waiting for official support. If the model speaks OpenAI’s API, clawctl can use it.
 
-Related: [#570](https://github.com/ric03uec/clawrium/issues/570), [#632](https://github.com/ric03uec/clawrium/issues/632), [#633](https://github.com/ric03uec/clawrium/pull/633)
+```bash
+clawctl provider add my-llm-gateway --type litellm \
+  --url http://192.168.1.100:8000/v1 \
+  --api-key ***
+```
 
-## Multi-Provider Hermes Agents
+Related: [#705](https://github.com/ric03uec/clawrium/issues/705), [#706](https://github.com/ric03uec/clawrium/pull/706)
 
-Hermes agents now support multiple provider attachments with specialized roles. Operators can designate one primary provider for general chat and assign auxiliaries for tasks like `vision` or `web_extract`. This enables a heterogeneous setup, where a high-end cloud API handles primary logic while a cheap local model handles `compression` or `title_generation`. `clawctl agent sync` now ensures every attached provider and its associated API key is correctly materialized on the remote host. Fixed render bugs now prevent the system from silently dropping auxiliary providers during the sync process. Users no longer have to worry about their multi-provider configuration being ignored by the remote daemon.
+## Use AWS Bedrock with multiple agents, one set of credentials
 
-Related: [#589](https://github.com/ric03uec/clawrium/issues/589), [#621](https://github.com/ric03uec/clawrium/issues/621), [#622](https://github.com/ric03uec/clawrium/issues/622), [#627](https://github.com/ric03uec/clawrium/pull/627)
+You can now attach multiple agents to the same AWS Bedrock model using a single set of credentials. No need to copy your AWS key to every host. The provider config is stored once, and any agent can reference it by name.
 
-## Per-Agent Local Skills
+```bash
+clawctl provider add bedrock-prod --type bedrock \
+  --aws-access-key-id AKIA... \
+  --aws-secret-access-key ... \
+  --aws-region us-west-2
 
-Agents can now be equipped with ad-hoc local skills that do not require registration in the global registry. This allows team leads to provide agent-specific tools tailored to a particular project without modifying the central catalog. Local skills are stored in a per-agent directory, ensuring that experimental tools don't leak into the wider fleet. The system provides native materialization helpers for Hermes, Openclaw, and Zeroclaw, ensuring consistent behavior across agent types. Comprehensive new documentation now explains how to implement and deploy these local skillsets. This approach allows AI experimenters to iterate on toolsets rapidly without the overhead of formal registry updates.
+clawctl agent create agent1 --provider bedrock-prod --model bedrock.claude-3-5-sonnet
+clawctl agent create agent2 --provider bedrock-prod --model bedrock.claude-3-5-sonnet
+```
 
-Related: [#411](https://github.com/ric03uec/clawrium/issues/411), [#653](https://github.com/ric03uec/clawrium/issues/653), [#636](https://github.com/ric03uec/clawrium/pull/636), [#655](https://github.com/ric03uec/clawrium/pull/655)
+This reduces secret sprawl and makes rotating keys a single operation.
 
-## Validation Metrics
+Related: [#692](https://github.com/ric03uec/clawrium/pull/692)
 
-These are the automated validation metrics for the features
-described above. Numbers aggregate every [ATX](https://github.com/atx-ci)
-review iteration across the PRs that shipped these changes. ATX
-is the multi-agent code review system that runs against every
-PR; the metrics below reflect its work.
+## New Providers page: clear, simple, and actionable
 
-| Metric | Value |
-|---|---|
-| PRs covered | 4 |
-| Automated review iterations | 6 |
-| Blocking issues resolved | 4 |
-| Total review cost | ~$15.90 |
-| Total review time | ~32 min |
-| Models used by [ATX](https://github.com/atx-ci) | _Not exposed per agent today; see [#704](https://github.com/ric03uec/clawrium/issues/704)_ |
-| Models used by gtm pipeline | gather: operator-pre-fetched + qwen3-coder:30b-128k assembly · writer: gemma4:31b · reviewer: qwen3-coder:30b-128k |
+The Providers page is now a clean table. You see the name, type, and which agents are using it — all in one view. The old modal-based flow is gone. You can add, edit, or delete providers in the table. The UI no longer asks you to pick a model before you’ve even created the provider.
+
+Related: [#694](https://github.com/ric03uec/clawrium/issues/694), [#695](https://github.com/ric03uec/clawrium/pull/695), [#696](https://github.com/ric03uec/clawrium/pull/696), [#697](https://github.com/ric03uec/clawrium/pull/697)
+
+## Declarative fleet management with ethos
+
+You can now define your entire agent fleet in a single YAML file. The `ethos` agent type is new. It reads a manifest and ensures your actual setup matches it. Need 3 openclaw agents on host A, 2 hermes on host B? Write it once. Run `clawctl ethos apply -f fleet.yaml`. The system adds, removes, or reconfigures agents to match.
+
+```yaml
+# fleet.yaml
+agents:
+  - name: research-01
+    type: openclaw
+    host: mybox
+    provider: litellm-llama-3-70b
+  - name: research-02
+    type: openclaw
+    host: mybox
+    provider: litellm-llama-3-70b
+  - name: dev-01
+    type: hermes
+    host: devbox
+    provider: bedrock-prod
+```
+
+You can version this file, review it in PRs, and roll back if something breaks.
+
+Related: [#632](https://github.com/ric03uec/clawrium/issues/632), [#633](https://github.com/ric03uec/clawrium/pull/633)
+
+## Per-agent local skills, now in the GUI
+
+You can now add, update, and remove custom skills for each agent directly in the GUI. No more SSHing to the host to copy files into `~/.config/clawrium/skills/`. The new Skills tab shows you which skills are installed, and you can upload a `.py` file with a single drag-and-drop.
+
+The skill is stored on the agent’s host, not the GUI machine. It runs in the agent’s own environment, with its own Python path and dependencies.
+
+Related: [#411](https://github.com/ric03uec/clawrium/issues/411), [#637](https://github.com/ric03uec/clawrium/pull/637), [#638](https://github.com/ric03uec/clawrium/pull/638)
