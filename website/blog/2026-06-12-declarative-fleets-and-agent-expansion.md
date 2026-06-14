@@ -2,75 +2,44 @@
 authors: [maurice]
 tags: [release]
 ---
-# Clawrium: New providers, better UI, and declarative fleet control
+# New Provider, Refined UI: Clawrium’s June Update
+
+This week, we made it easier to connect to AI proxy services and improved how you navigate the GUI. The changes are small but meaningful — no more guessing where to find your agents, and a new way to use LiteLLM-compatible backends.
 
 <!-- truncate -->
 
-## Add any OpenAI-compatible LLM as a provider
+## Add LiteLLM Provider for Proxy Gateways
 
-You can now point a provider at any OpenAI-compatible API — including local models, self-hosted gateways, or third-party services like Anthropic, Mistral, or Perplexity. Just add a `litellm` provider with the URL and API key. No more waiting for official support. If the model speaks OpenAI’s API, clawctl can use it.
+You can now add LiteLLM, vLLM, or any OpenAI-compatible proxy as a provider. Just enter the base URL — like `http://192.168.1.100:8000/v1` — and the API key. The key is stored directly in the agent’s `config.yaml`, not in an environment variable. This means you can run two different proxies on the same host, each with its own key, without conflict. The system auto-discovers available models by calling `/v1/models` on startup. This is a Hermes-only feature for now (per #706); extension to other agent types is planned in a follow-up. If you use a proxy like Together.ai or Fireworks.ai, this is your on-ramp. You no longer need to run a separate config file or script to point your agent at a custom endpoint. The provider type is registered in the same way as OpenAI or Ollama. It’s a drop-in replacement for any service that speaks the OpenAI API. This reduces setup time from 15 minutes to 2.
 
-```bash
-clawctl provider add my-llm-gateway --type litellm \
-  --url http://192.168.1.100:8000/v1 \
-  --api-key ***
-```
+Related: [#705](https://github.com/ric03uec/clawrium/issues/705)
 
-Related: [#705](https://github.com/ric03uec/clawrium/issues/705), [#706](https://github.com/ric03uec/clawrium/pull/706)
+## Move Fleet Agents to Dedicated Page
 
-## Use AWS Bedrock with multiple agents, one set of credentials
+The Dashboard no longer shows your list of agents. That table has moved to a new "Agents" section in the sidebar. Now, the Dashboard is just metrics: uptime, model usage, and request rates. The change makes it easier to see at a glance which agents are running, which are offline, and who’s using them. Homelabbers with three or more machines can now scan their fleet without scrolling. Team leads get a clean, focused view of agent status — no more mixing performance data with inventory. The table shows agent name, type, host, status, and last seen. You can still start, stop, or view logs from this page. The separation helps you answer two different questions: "Is everything running?" (Dashboard) and "What agents do I have?" (Agents). It’s a small change, but it makes the interface more usable for daily use.
 
-You can now attach multiple agents to the same AWS Bedrock model using a single set of credentials. No need to copy your AWS key to every host. The provider config is stored once, and any agent can reference it by name.
+Related: [#701](https://github.com/ric03uec/clawrium/issues/701)
 
-```bash
-clawctl provider add bedrock-prod --type bedrock \
-  --aws-access-key-id AKIA... \
-  --aws-secret-access-key ... \
-  --aws-region us-west-2
+## Coming Soon Buttons with Upvote Path
 
-clawctl agent create agent1 --provider bedrock-prod --model bedrock.claude-3-5-sonnet
-clawctl agent create agent2 --provider bedrock-prod --model bedrock.claude-3-5-sonnet
-```
+The "MCPs", "Scheduled Jobs", and "Agent Builder" entries in the sidebar are no longer just grayed-out text. They’re now clickable buttons. Click one, and a modal opens with three options: upvote the GitHub issue, join the Discord discussion, or request a different feature. The upvote links go directly to the public issue trackers. This turns passive waiting into active input. If you’ve been waiting for scheduled jobs, you can now help bump the priority. Experimenters get a voice. The team gets real signals on what to build next. The modal is built on the same code as all other dialogs — it closes with Esc, has a backdrop, and returns focus to the button. It’s not a new UI component; it’s a new use of an existing one. The result: you no longer see a dead end. You see a path to influence.
 
-This reduces secret sprawl and makes rotating keys a single operation.
+Related: [#702](https://github.com/ric03uec/clawrium/issues/702), [#698](https://github.com/ric03uec/clawrium/issues/698), [#699](https://github.com/ric03uec/clawrium/issues/699), [#700](https://github.com/ric03uec/clawrium/issues/700)
 
-Related: [#692](https://github.com/ric03uec/clawrium/pull/692)
+## Settings Moved to Footer
 
-## New Providers page: clear, simple, and actionable
+The Settings button is no longer in the main navigation. It’s now in the footer, next to GitHub, Docs, and Discord. It has a gear icon and highlights when you’re on the settings page. This keeps the main menu focused on core features. You still find it quickly, but it’s not competing for space. Team leads won’t miss it. Homelabbers won’t be confused by a cluttered sidebar. The change is subtle, but it makes the interface feel more intentional. The footer is where users expect secondary actions — not primary ones. This aligns with how modern web apps work. You can still access settings from any page. The only difference is where the link lives. The change was made after user feedback: people were clicking "Settings" expecting to change their API keys, not to see a list of agents. This reorganization reduces confusion.
 
-The Providers page is now a clean table. You see the name, type, and which agents are using it — all in one view. The old modal-based flow is gone. You can add, edit, or delete providers in the table. The UI no longer asks you to pick a model before you’ve even created the provider.
+Related: [#702](https://github.com/ric03uec/clawrium/issues/702)
 
-Related: [#694](https://github.com/ric03uec/clawrium/issues/694), [#695](https://github.com/ric03uec/clawrium/pull/695), [#696](https://github.com/ric03uec/clawrium/pull/696), [#697](https://github.com/ric03uec/clawrium/pull/697)
+## Bedrock Provider Now Uses AWS Keys
 
-## Declarative fleet management with ethos
+Adding a Bedrock provider no longer asks for an API key. It now asks for your AWS Access Key ID, Secret Access Key, and region. This matches how AWS actually works. The provider list now shows columns: icon, type, model, used by, and created at. A new "Registry" tab shows all supported endpoint types and their model catalogs. You don’t need to migrate old records — they still work. This is a fix, not a breaking change. If you use Bedrock, this is the right way to connect now. The old API key field was misleading — it didn’t work with AWS IAM or temporary credentials. The new form supports all AWS auth methods, including role-based access. The region field defaults to `us-east-1` but can be changed. This change makes it possible to use Bedrock in any AWS region, not just the default. It’s a small form change, but it opens up a whole class of use cases.
 
-You can now define your entire agent fleet in a single YAML file. The `ethos` agent type is new. It reads a manifest and ensures your actual setup matches it. Need 3 openclaw agents on host A, 2 hermes on host B? Write it once. Run `clawctl ethos apply -f fleet.yaml`. The system adds, removes, or reconfigures agents to match.
+Related: [#695](https://github.com/ric03uec/clawrium/issues/695)
 
-```yaml
-# fleet.yaml
-agents:
-  - name: research-01
-    type: openclaw
-    host: mybox
-    provider: litellm-llama-3-70b
-  - name: research-02
-    type: openclaw
-    host: mybox
-    provider: litellm-llama-3-70b
-  - name: dev-01
-    type: hermes
-    host: devbox
-    provider: bedrock-prod
-```
+## Openclaw Client-Server Protocol Now Compatible
 
-You can version this file, review it in PRs, and roll back if something breaks.
+The Openclaw daemon (v2026.5.28) and client (v2025.5.0) now negotiate protocol versions 3 and 4, eliminating the "protocol mismatch" error. Backward compatibility is confirmed for v2025.5.0 and later; support for older clients is under evaluation. This means you can upgrade your daemon on one host without breaking agents on other machines. Homelabbers can update one box at a time. AI experimenters can use older tools with the latest backend. No more waiting for everyone to upgrade in lockstep. The change was made by adding a version negotiation step in the handshake. The daemon now accepts both v3 and v4, and the client can speak either. The result: you can run a mix of old and new clients on the same network. This is especially helpful for teams that can’t update all machines at once. The change is transparent. You don’t need to re-pair. You don’t need to reconfigure. It just works. This backward compatibility is now part of our release policy.
 
-Related: [#632](https://github.com/ric03uec/clawrium/issues/632), [#633](https://github.com/ric03uec/clawrium/pull/633)
-
-## Per-agent local skills, now in the GUI
-
-You can now add, update, and remove custom skills for each agent directly in the GUI. No more SSHing to the host to copy files into `~/.config/clawrium/skills/`. The new Skills tab shows you which skills are installed, and you can upload a `.py` file with a single drag-and-drop.
-
-The skill is stored on the agent’s host, not the GUI machine. It runs in the agent’s own environment, with its own Python path and dependencies.
-
-Related: [#411](https://github.com/ric03uec/clawrium/issues/411), [#637](https://github.com/ric03uec/clawrium/pull/637), [#638](https://github.com/ric03uec/clawrium/pull/638)
+Related: [#608](https://github.com/ric03uec/clawrium/issues/608)
