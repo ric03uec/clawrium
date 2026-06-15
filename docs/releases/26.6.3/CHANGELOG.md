@@ -1,6 +1,6 @@
-# Release 26.6.2
+# Release 26.6.3
 
-Archived changelog for the **26.6.2** release. This is the frozen record of
+Archived changelog for the **26.6.3** release. This is the frozen record of
 everything that shipped in this version; the working changelog for the next
 release lives at the repository root in [`CHANGELOG.md`](../../../CHANGELOG.md).
 
@@ -9,21 +9,26 @@ calendar versioning convention: `YY.M.PATCH`.
 
 ### Curation at release cut
 
-This archive is not a verbatim copy of the working `CHANGELOG.md` at the
-time of the cut — two curation decisions were applied:
+This archive bundles two layers of curation:
 
-- **Added** to this archive (was missing from the working log when the
-  cut began): #697 (GUI Providers page UX follow-ups). This was a
-  documentation gap, not a behavioural change to ship.
-- **Omitted** from this archive (were in the working log but do not
-  belong in user-facing release notes): the V7–V11 SDLC smoke-test
-  entries (#669, #677, #678, #679, #682). They remain visible in the git
-  history and on the PR list.
+- **Replaces the never-shipped `v26.6.2` release.** A `v26.6.2` tag was
+  cut and a GitHub release was published, but the publish workflow
+  failed at the test step (test-isolation race in
+  `gui/routes/fleet.py`). No artifact ever reached PyPI. The tag name
+  was burned by GitHub's immutable-releases policy, so this content
+  ships as `26.6.3` with the test fix folded in (#710).
+- **Working-log curation at the original cut**: #697 (GUI Providers page
+  UX follow-ups) was added to this archive even though the working
+  `CHANGELOG.md` at cut time omitted it — that was a documentation gap,
+  not a behavioural change. The V7–V11 SDLC smoke-test entries (#669,
+  #677, #678, #679, #682) were omitted from this archive; they live in
+  git history and the PR list and do not belong in user-facing release
+  notes.
 
 Future releases should keep the working log strictly synchronised so the
 working-log → archive diff is purely a heading rename.
 
-## [26.6.2]
+## [26.6.3]
 
 ### BREAKING
 
@@ -81,5 +86,15 @@ working-log → archive diff is purely a heading rename.
   triggering button (WCAG 2.4.3). (#702)
 
 ### Fixed
+
+- Test-isolation race in the GUI's fleet-health route surfaced after the
+  pytest collection order shifted in 26.6.2-prep. The module-level
+  `asyncio.Semaphore` latched to whichever event loop touched it first,
+  so subsequent tests on a different loop crashed with "is bound to a
+  different event loop"; the lifespan-managed `ThreadPoolExecutor` was
+  shut down on every lifespan exit, racing concurrent TestClient
+  lifespans into "cannot schedule new futures after shutdown". Both
+  resources are now lazy per-loop / process-singleton with no
+  lifespan-driven shutdown. (#710)
 
 ### Documentation
