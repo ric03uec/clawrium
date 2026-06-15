@@ -1,0 +1,79 @@
+.rail {
+  position: sticky;
+  top: calc(var(--ifm-navbar-height) + 2rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  font-size: 0.9rem;
+}
+
+.section {
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  padding-top: 1rem;
+}
+
+.section:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.heading {
+  font-size: var(--ifm-h3-font-size);
+  font-weight: var(--ifm-font-weight-bold);
+  margin-bottom: 0.5rem;
+}
+
+.blurb {
+  color: var(--ifm-color-emphasis-800);
+  line-height: 1.45;
+  margin-bottom: 0;
+}
+
+.tagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.tagPill {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-color-emphasis-800);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.tagPill:hover {
+  background: var(--ifm-color-primary);
+  color: var(--ifm-color-emphasis-0);
+  text-decoration: none;
+}
+
+.linkList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.linkList a {
+  color: var(--ifm-color-emphasis-800);
+  text-decoration: none;
+}
+
+.linkList a:hover {
+  color: var(--ifm-color-primary);
+}
+
+@media (max-width: 996px) {
+  .rail {
+    position: static;
+  }
+}
