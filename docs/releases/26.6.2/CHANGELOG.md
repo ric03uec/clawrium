@@ -7,6 +7,22 @@ release lives at the repository root in [`CHANGELOG.md`](../../../CHANGELOG.md).
 Versions follow [SemVer](https://semver.org/), and the project tracks a
 calendar versioning convention: `YY.M.PATCH`.
 
+### Curation at release cut
+
+This archive is not a verbatim copy of the working `CHANGELOG.md` at the
+time of the cut — two curation decisions were applied:
+
+- **Added** to this archive (was missing from the working log when the
+  cut began): #697 (GUI Providers page UX follow-ups). This was a
+  documentation gap, not a behavioural change to ship.
+- **Omitted** from this archive (were in the working log but do not
+  belong in user-facing release notes): the V7–V11 SDLC smoke-test
+  entries (#669, #677, #678, #679, #682). They remain visible in the git
+  history and on the PR list.
+
+Future releases should keep the working log strictly synchronised so the
+working-log → archive diff is purely a heading rename.
+
 ## [26.6.2]
 
 ### BREAKING
@@ -19,6 +35,9 @@ calendar versioning convention: `YY.M.PATCH`.
   - The same cleanup removed 21 legacy test files. Out-of-tree
     integrations that targeted `src/clawrium/cli/main.py` must be
     re-pointed at `src/clawrium/cli/clawctl/`.
+  - **No compatibility shim.** If you cannot migrate immediately, pin
+    `clawrium==26.6.1` (the last release that ships the `clm` entry
+    point) until your scripts and aliases are updated.
 
 ### Added
 
