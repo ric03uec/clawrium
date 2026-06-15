@@ -38,14 +38,38 @@ router = APIRouter(prefix="/api", tags=["fleet"])
 # Cap concurrent SSH probe sweeps. Each /fleet/health call dispatches one
 # ansible-runner subprocess per agent, so a tight polling loop can
 # exhaust fd / thread-pool limits on small homelab hardware.
-_FLEET_HEALTH_SEMAPHORE = asyncio.Semaphore(2)
 _FLEET_HEALTH_TIMEOUT_S = 60.0
 # Dedicated thread pool so a leaked / still-running SSH thread (asyncio
 # can't actually cancel a sync function past `wait_for`) cannot starve
 # the default executor that backs every other `asyncio.to_thread` site.
-_FLEET_HEALTH_EXECUTOR = ThreadPoolExecutor(
-    max_workers=2, thread_name_prefix="fleet-health"
-)
+#
+# Both the semaphore and executor are lazy-initialized rather than
+# bound at module import. `asyncio.Semaphore` latches to the event loop
+# active on first use, so a module-level instance breaks under pytest
+# (each TestClient spins up a fresh loop). The executor is rebound by
+# the FastAPI lifespan in `gui/server.py`, but tests that hit the route
+# outside the lifespan, or after the lifespan has shut down, can race
+# against a stale handle. The accessors below give us per-loop
+# semaphores and a "recreate-if-shutdown" executor.
+_FLEET_HEALTH_EXECUTOR: ThreadPoolExecutor | None = None
+
+
+def _get_fleet_health_semaphore() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    sem = getattr(loop, "_clawrium_fleet_sem", None)
+    if sem is None:
+        sem = asyncio.Semaphore(2)
+        loop._clawrium_fleet_sem = sem  # type: ignore[attr-defined]
+    return sem
+
+
+def _get_fleet_health_executor() -> ThreadPoolExecutor:
+    global _FLEET_HEALTH_EXECUTOR
+    if _FLEET_HEALTH_EXECUTOR is None or _FLEET_HEALTH_EXECUTOR._shutdown:
+        _FLEET_HEALTH_EXECUTOR = ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="fleet-health"
+        )
+    return _FLEET_HEALTH_EXECUTOR
 
 # Strip absolute filesystem paths from error strings before sending them
 # to the browser. Some `HealthResult.error` strings constructed inside
@@ -146,10 +170,12 @@ async def fleet_health(host: str | None = None):
     fleet overview has rendered.
     """
     loop = asyncio.get_running_loop()
-    async with _FLEET_HEALTH_SEMAPHORE:
+    async with _get_fleet_health_semaphore():
         try:
             agents, summary = await asyncio.wait_for(
-                loop.run_in_executor(_FLEET_HEALTH_EXECUTOR, get_fleet_data, host),
+                loop.run_in_executor(
+                    _get_fleet_health_executor(), get_fleet_data, host
+                ),
                 timeout=_FLEET_HEALTH_TIMEOUT_S,
             )
         except asyncio.TimeoutError as e:
