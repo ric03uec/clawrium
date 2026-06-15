@@ -11,9 +11,7 @@
 
 - [ ] Tags in post frontmatter exist in `website/blog/tags.yml`
 - [ ] `<!-- truncate -->` marker present after the intro paragraph
-- [ ] `## Validation Metrics` block present at the end of the post
-- [ ] Body word count in 280–400 range
-- [ ] Each `##` block has 4–10 sentences
+- [ ] Body word count in 1000–1200 range
 - [ ] Each `##` block ends with a `Related:` line
 - [ ] Ran `cd website && npm run build` locally and build returned `SUCCESS`
 

@@ -1,0 +1,39 @@
+{
+  "parent": 589,
+  "tmux_session": "clawrium-issue-589",
+  "atx_transport": "cli",
+  "stack_order": [
+    {
+      "issue": 612,
+      "branch": "issue-612-cli-role-flag",
+      "worktree": "/home/devashish/workspace/ric03uec/clawrium-issue-612",
+      "pr_base": "main",
+      "status": "merged",
+      "pr": 616
+    },
+    {
+      "issue": 613,
+      "branch": "issue-613-lifecycle-hydration",
+      "worktree": "/home/devashish/workspace/ric03uec/clawrium-issue-613",
+      "pr_base": "issue-612-cli-role-flag",
+      "status": "merged",
+      "pr": 617
+    },
+    {
+      "issue": 614,
+      "branch": "issue-614-templates-auxiliary",
+      "worktree": "/home/devashish/workspace/ric03uec/clawrium-issue-614",
+      "pr_base": "issue-613-lifecycle-hydration",
+      "status": "merged",
+      "pr": 618
+    },
+    {
+      "issue": 615,
+      "branch": "issue-615-gui-role-selector",
+      "worktree": "/home/devashish/workspace/ric03uec/clawrium-issue-615",
+      "pr_base": "issue-614-templates-auxiliary",
+      "status": "merged",
+      "pr": 619
+    }
+  ]
+}
