@@ -1,3 +1,7 @@
+// Full eject (not a @theme-original wrapper): upstream BlogListPage instantiates
+// BlogLayout internally without exposing the `toc` slot, so the only way to mount
+// a right rail on the listing is to re-implement the page body. Re-sync this file
+// from @docusaurus/theme-classic on every minor bump.
 import React, {type ReactNode} from 'react';
 import clsx from 'clsx';
 
