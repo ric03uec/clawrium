@@ -3660,18 +3660,35 @@ def test_openclaw_litellm_baseurl_normalization(endpoint_in, expected_base_url):
     assert blob["models"]["providers"]["lt"]["baseUrl"] == expected_base_url
 
 
-def test_openclaw_litellm_missing_endpoint_raises():
-    """#723 ATX W4: render_openclaw must raise AgentConfigError for a
-    litellm provider with an empty endpoint, rather than silently
-    emitting `baseUrl: "/v1"` (a relative URL the openclaw daemon
-    would interpret against its own host). Mirrors hermes' equivalent
-    guard at `test_render.py:test_hermes_litellm_missing_endpoint_raises`."""
+@pytest.mark.parametrize(
+    "endpoint_in",
+    [
+        "",
+        # Iter-3 ATX follow-up: the iter-2 guard checked
+        # `if not provider.endpoint` BEFORE strip/rstrip, so these
+        # inputs slipped through and produced `baseUrl: "/v1"`. Pin
+        # the fix that hoists normalization above the guard.
+        "   ",
+        "\n",
+        "\t",
+        "/",
+        "//",
+        "  /  ",
+    ],
+)
+def test_openclaw_litellm_empty_or_whitespace_endpoint_raises(endpoint_in):
+    """#723 ATX W4 (+ iter-3 follow-up): render_openclaw must raise
+    AgentConfigError for a litellm provider whose endpoint normalizes
+    to empty — including whitespace-only or bare-slash inputs — rather
+    than silently emitting `baseUrl: "/v1"` (a relative URL the
+    openclaw daemon would interpret against its own host).
+    """
     base = _baseline_inputs(ptype="litellm")
     provider = ProviderInputs(
         name=base.provider.name,
         type=base.provider.type,
         default_model=base.provider.default_model,
-        endpoint="",
+        endpoint=endpoint_in,
         api_key=base.provider.api_key,
     )
     inputs = RenderInputs(
@@ -3686,14 +3703,29 @@ def test_openclaw_litellm_missing_endpoint_raises():
         render_openclaw(inputs)
 
 
-def test_openclaw_litellm_provider_name_with_slash_raises():
-    """#723 ATX W3: a provider name containing `/` would silently
-    produce ambiguous routing (`foo/bar/model` tokenizes as
-    provider=`foo`, model=`bar/model` on openclaw's `<name>/<model>`
-    scheme). Reject at the render layer with a clear remediation."""
+@pytest.mark.parametrize(
+    "bad_name",
+    [
+        # Iter-2 case: `/` would tokenize as <provider>/<rest>.
+        "foo/bar",
+        # Iter-3 ATX follow-up cases: whitespace + control chars +
+        # backslash also corrupt the daemon's routing scheme or
+        # produce malformed JSON keys.
+        "foo bar",
+        "foo\tbar",
+        "foo\nbar",
+        "foo\\bar",
+        "foo\x01bar",
+    ],
+)
+def test_openclaw_litellm_provider_name_with_bad_chars_raises(bad_name):
+    """#723 ATX W3 (+ iter-3 follow-up): a provider name containing
+    `/`, `\\`, whitespace, or control chars would corrupt routing on
+    openclaw's `<name>/<model>` scheme or produce malformed JSON keys.
+    Reject at the render layer with a clear remediation."""
     base = _baseline_inputs(ptype="litellm")
     provider = ProviderInputs(
-        name="foo/bar",
+        name=bad_name,
         type="litellm",
         default_model=base.provider.default_model,
         endpoint=base.provider.endpoint,
@@ -3707,7 +3739,7 @@ def test_openclaw_litellm_provider_name_with_slash_raises():
         integrations=(),
         gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tkn", bind="lan"),
     )
-    with pytest.raises(AgentConfigError, match="must not contain '/'"):
+    with pytest.raises(AgentConfigError, match="must not contain"):
         render_openclaw(inputs)
 
 

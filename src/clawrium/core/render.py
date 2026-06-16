@@ -1566,36 +1566,47 @@ def _render_openclaw_json(
 
     # 5. models.providers.<provider-name> — litellm only.
     if provider.type == "litellm":
-        # W4 (#723 ATX): defense-in-depth empty-endpoint guard. The
-        # `build_render_inputs` path already raises for litellm without
-        # an endpoint, but a future caller that bypasses assembly (e.g.
-        # a manifest-driven path) would otherwise silently emit
-        # `baseUrl: "/v1"` — a relative URL the openclaw daemon would
-        # interpret against its own host.
-        if not provider.endpoint:
-            raise AgentConfigError(
-                f"render_openclaw: litellm provider {provider.name!r} "
-                f"requires a non-empty endpoint"
-            )
         # W3 (#723 ATX): the provider name is used both as a JSON key in
         # `models.providers.<name>` AND as a routing prefix in
-        # `<name>/<model>`. A name containing `/` would silently produce
-        # ambiguous routing (`foo/bar/qwen3` → tokenizes as
-        # provider=`foo`, model=`bar/qwen3`). Reject early; the message
-        # points at the canonical fix surface.
-        if "/" in provider.name:
+        # `<name>/<model>`. A name containing `/`, whitespace, control
+        # chars, or backslash would silently corrupt the daemon's
+        # routing tokenizer or produce malformed JSON keys. Reject
+        # early; the message points at the canonical fix surface.
+        # Iteration 3 follow-up (ATX): the iter-2 check only covered
+        # `/`; whitespace and control chars also break tokenization.
+        bad_chars = [
+            c
+            for c in provider.name
+            if c == "/" or c == "\\" or c.isspace() or ord(c) < 0x20
+        ]
+        if bad_chars:
             raise AgentConfigError(
                 f"render_openclaw: litellm provider name "
-                f"{provider.name!r} must not contain '/' (used as a "
-                f"routing prefix in agents.defaults.model.primary). "
+                f"{provider.name!r} must not contain '/', '\\\\', "
+                f"whitespace, or control characters "
+                f"(used as a routing prefix in "
+                f"agents.defaults.model.primary). "
                 f"Recreate with `clawctl provider registry create "
                 f"<safe-name> --type litellm`."
             )
-        # W1 (#723 ATX): mirror hermes' normalization byte-for-byte —
-        # `rstrip('/')` BEFORE the endswith check, and `.strip()` first
-        # so a stray newline from providers.json doesn't survive into
-        # the JSON. Hermes equivalent: render.py:985-987.
+        # W1 + W4 (#723 ATX): normalization first, guard second. The
+        # iter-2 fix added `.strip()` here to defend against newlines
+        # surviving from providers.json — that extends hermes' simpler
+        # `rstrip('/')` normalization at render.py:985-987 with an
+        # additional whitespace defence rather than literal byte-for-byte
+        # parity (an iter-2 reviewer flagged the parity claim was
+        # false; corrected here). The empty-endpoint guard sits BELOW
+        # normalization so whitespace-only / bare-slash inputs ('   ',
+        # '/', '\\n') are caught — the iter-2 implementation checked
+        # `if not provider.endpoint` before strip+rstrip and let those
+        # cases through with `baseUrl: "/v1"`.
         base_url = provider.endpoint.strip().rstrip("/")
+        if not base_url:
+            raise AgentConfigError(
+                f"render_openclaw: litellm provider {provider.name!r} "
+                f"requires a non-empty endpoint "
+                f"(got {provider.endpoint!r})"
+            )
         if not base_url.endswith("/v1"):
             base_url = base_url + "/v1"
         model_name = provider.default_model

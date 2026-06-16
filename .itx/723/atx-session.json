@@ -1,19 +1,39 @@
 {
   "session_id": "234be2b6-dc25-461b-8969-e6f2a22488e1",
   "transport": "cli",
-  "commit_sha": "7a293ff",
-  "iteration": 1,
-  "last_rating": 3,
-  "last_blockers": ["W1", "W2", "W3"],
-  "non_blocking": ["W4", "W5", "W6", "S1", "S2"],
-  "test_gaps": [
-    "parametrized baseUrl edge cases (incl. /v1/ trailing slash)",
-    "byte-lock for non-litellm openclaw.json across all 7 provider types",
-    "negative-path: missing endpoint, prefix idempotency, /-in-name rejection",
-    "CLI test: tighten assertion to pin provider name in output"
+  "iterations": [
+    {
+      "iteration": 1,
+      "commit_sha": "7a293ff",
+      "rating": 3,
+      "review_cost_usd": 3.45,
+      "duration_ms": 534930,
+      "blocking_warnings": ["W1", "W2", "W3"],
+      "non_blocking": ["W4", "W5", "W6", "S1", "S2"],
+      "specialists_completed": ["leader", "render-engine", "security-reviewer", "test-coverage"],
+      "blocking_field": false
+    },
+    {
+      "iteration": 2,
+      "commit_sha": "cac1046",
+      "rating": 4,
+      "review_cost_usd": 5.35,
+      "duration_ms": 697033,
+      "blocking_warnings": [],
+      "render_engine_followups": [
+        "W4-followup: empty-endpoint guard fires before strip/rstrip — whitespace/bare-slash slipped through",
+        "W1-followup: 'byte-for-byte hermes parity' comment is false (openclaw now has extra .strip())",
+        "W3-followup: only / rejected in provider.name; whitespace/control chars also break routing",
+        "S-suggestion: int() of context_window can raise bare ValueError",
+        "S-suggestion: S1 comment doesn't reference render_diff.py"
+      ],
+      "blocking_field": false,
+      "cleared_threshold": true
+    }
   ],
+  "iter3_polish_commit": "applied without requesting iter3 review — rating 4/5 already cleared; iter-3 fixes addressed real correctness bug (W4-followup) + comment honesty (W1-followup) + extended bad-char check (W3-followup) + 13 new parametrize cases",
+  "last_rating": 4,
+  "last_blockers": [],
   "started_at": "2026-06-15T21:50:54-07:00",
-  "updated_at": "2026-06-15T21:59:49-07:00",
-  "review_cost_usd": 3.45,
-  "duration_ms": 534930
+  "updated_at": "2026-06-15T22:20:00-07:00"
 }
