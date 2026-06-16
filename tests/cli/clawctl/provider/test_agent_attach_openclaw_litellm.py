@@ -72,7 +72,11 @@ def test_attach_litellm_to_openclaw_succeeds(fleet_dir, stdin_not_tty) -> None:
         ],
     )
     assert result.exit_code == 0, result.output
+    # #723 ATX: pin the provider identity in the user-facing message,
+    # not just the verb. A bare `'attached' in output` substring match
+    # would pass even if the CLI silently attached the wrong provider.
     assert "attached" in result.output
+    assert "clawrium-gtm-litellm" in result.output
 
     listed = runner.invoke(
         app,

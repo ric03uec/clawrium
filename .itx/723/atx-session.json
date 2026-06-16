@@ -1,0 +1,19 @@
+{
+  "session_id": "234be2b6-dc25-461b-8969-e6f2a22488e1",
+  "transport": "cli",
+  "commit_sha": "7a293ff",
+  "iteration": 1,
+  "last_rating": 3,
+  "last_blockers": ["W1", "W2", "W3"],
+  "non_blocking": ["W4", "W5", "W6", "S1", "S2"],
+  "test_gaps": [
+    "parametrized baseUrl edge cases (incl. /v1/ trailing slash)",
+    "byte-lock for non-litellm openclaw.json across all 7 provider types",
+    "negative-path: missing endpoint, prefix idempotency, /-in-name rejection",
+    "CLI test: tighten assertion to pin provider name in output"
+  ],
+  "started_at": "2026-06-15T21:50:54-07:00",
+  "updated_at": "2026-06-15T21:59:49-07:00",
+  "review_cost_usd": 3.45,
+  "duration_ms": 534930
+}

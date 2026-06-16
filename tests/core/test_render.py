@@ -3612,10 +3612,31 @@ def test_openclaw_litellm_writes_models_providers_block():
     assert blob["agents"]["defaults"]["model"]["primary"] == "lt/gemma4:31b"
 
 
-def test_openclaw_litellm_baseurl_with_v1_suffix_not_double_appended():
-    """#723: endpoint already ending in `/v1` must not be double-suffixed.
-    Mirrors hermes' litellm normalization invariant (see
-    test_hermes_litellm_endpoint_with_v1_suffix_not_double_appended)."""
+@pytest.mark.parametrize(
+    "endpoint_in,expected_base_url",
+    [
+        # No /v1 suffix → appended.
+        ("http://h:4000", "http://h:4000/v1"),
+        # Trailing slash, no /v1 → rstrip + append.
+        ("http://h:4000/", "http://h:4000/v1"),
+        # /v1 already present → unchanged.
+        ("http://h:4000/v1", "http://h:4000/v1"),
+        # /v1/ with trailing slash → rstrip BEFORE endswith check (W1
+        # locks the hermes-parity bug ATX flagged: an earlier impl that
+        # checked `rstrip('/').endswith('/v1')` but assigned only inside
+        # the branch would leak the trailing slash into openclaw.json).
+        ("http://h:4000/v1/", "http://h:4000/v1"),
+        # Whitespace surviving from providers.json → strip().
+        ("  http://h:4000  ", "http://h:4000/v1"),
+        ("http://h:4000/v1\n", "http://h:4000/v1"),
+    ],
+)
+def test_openclaw_litellm_baseurl_normalization(endpoint_in, expected_base_url):
+    """#723 ATX W1: pin baseUrl normalization across all the input shapes
+    that have surfaced operationally. Mirrors hermes' equivalent at
+    `render.py:985-987` byte-for-byte. Pre-iteration the renderer
+    silently leaked a trailing slash for the `/v1/` input — this
+    parametrize locks the fix."""
     import json
 
     base = _baseline_inputs(ptype="litellm")
@@ -3623,7 +3644,7 @@ def test_openclaw_litellm_baseurl_with_v1_suffix_not_double_appended():
         name=base.provider.name,
         type=base.provider.type,
         default_model=base.provider.default_model,
-        endpoint=base.provider.endpoint + "/v1",
+        endpoint=endpoint_in,
         api_key=base.provider.api_key,
     )
     inputs = RenderInputs(
@@ -3636,25 +3657,238 @@ def test_openclaw_litellm_baseurl_with_v1_suffix_not_double_appended():
     )
     body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
     blob = json.loads(body)
-    assert blob["models"]["providers"]["lt"]["baseUrl"] == "http://10.0.0.5:4000/v1"
+    assert blob["models"]["providers"]["lt"]["baseUrl"] == expected_base_url
 
 
-def test_openclaw_non_litellm_does_not_emit_models_block():
+def test_openclaw_litellm_missing_endpoint_raises():
+    """#723 ATX W4: render_openclaw must raise AgentConfigError for a
+    litellm provider with an empty endpoint, rather than silently
+    emitting `baseUrl: "/v1"` (a relative URL the openclaw daemon
+    would interpret against its own host). Mirrors hermes' equivalent
+    guard at `test_render.py:test_hermes_litellm_missing_endpoint_raises`."""
+    base = _baseline_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=base.provider.default_model,
+        endpoint="",
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type="openclaw",
+        provider=provider,
+        channels=(),
+        integrations=(),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tkn", bind="lan"),
+    )
+    with pytest.raises(AgentConfigError, match="non-empty endpoint"):
+        render_openclaw(inputs)
+
+
+def test_openclaw_litellm_provider_name_with_slash_raises():
+    """#723 ATX W3: a provider name containing `/` would silently
+    produce ambiguous routing (`foo/bar/model` tokenizes as
+    provider=`foo`, model=`bar/model` on openclaw's `<name>/<model>`
+    scheme). Reject at the render layer with a clear remediation."""
+    base = _baseline_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name="foo/bar",
+        type="litellm",
+        default_model=base.provider.default_model,
+        endpoint=base.provider.endpoint,
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type="openclaw",
+        provider=provider,
+        channels=(),
+        integrations=(),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tkn", bind="lan"),
+    )
+    with pytest.raises(AgentConfigError, match="must not contain '/'"):
+        render_openclaw(inputs)
+
+
+def test_openclaw_litellm_prefix_is_idempotent_when_default_model_already_prefixed():
+    """#723 ATX (test-coverage gap): the prefix-prepend branch must be
+    idempotent. If providers.json already carries
+    `default_model = "lt/gemma4:31b"` (operator-supplied or re-rendered
+    from a previous run), the result must NOT be `lt/lt/gemma4:31b`.
+    The guard at render_openclaw lives in the `not model_id.startswith(prefix)`
+    check — pin it explicitly."""
+    import json
+
+    base = _baseline_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model="lt/gemma4:31b",  # already prefixed
+        endpoint=base.provider.endpoint,
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type="openclaw",
+        provider=provider,
+        channels=(),
+        integrations=(),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tkn", bind="lan"),
+    )
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    blob = json.loads(body)
+    assert blob["agents"]["defaults"]["model"]["primary"] == "lt/gemma4:31b"
+
+
+def test_openclaw_litellm_honors_context_window_and_max_tokens_overrides():
+    """#723 ATX W2: provider record's `context_window` / `max_tokens`
+    fields, when populated, override the renderer defaults. Pins the
+    operator-override path so the next reviewer trusts the contract."""
+    import json
+
+    base = _baseline_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=base.provider.default_model,
+        endpoint=base.provider.endpoint,
+        api_key=base.provider.api_key,
+        context_window=200000,
+        max_tokens=8192,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type="openclaw",
+        provider=provider,
+        channels=(),
+        integrations=(),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tkn", bind="lan"),
+    )
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    blob = json.loads(body)
+    model_entry = blob["models"]["providers"]["lt"]["models"][0]
+    assert model_entry["contextWindow"] == 200000
+    assert model_entry["maxTokens"] == 8192
+
+
+def test_openclaw_litellm_context_window_default_when_unset():
+    """#723 ATX W2: when provider record carries no `context_window`/
+    `max_tokens`, the renderer falls back to the issue-spec defaults
+    (65536/16384, tuned for vLLM's Qwen3-Next default --max-model-len)."""
+    import json
+
+    inputs = _openclaw_inputs(ptype="litellm")
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    blob = json.loads(body)
+    model_entry = blob["models"]["providers"]["lt"]["models"][0]
+    assert model_entry["contextWindow"] == 65536
+    assert model_entry["maxTokens"] == 16384
+
+
+def test_provider_inputs_secret_fields_redacted_in_repr():
+    """#723 ATX W5: bearer / AWS credentials must not appear in the
+    dataclass repr — a pytest --showlocals or stray log line would
+    otherwise echo cleartext. Matches FileDiff's hardening pattern in
+    core/render_diff.py."""
+    p = ProviderInputs(
+        name="lt",
+        type="litellm",
+        endpoint="http://h:4000",
+        default_model="m",
+        api_key="sk-master-do-not-leak-ABCDEFG",
+        aws_access_key="AKIA-DO-NOT-LEAK",
+        aws_secret_key="aws-secret-do-not-leak",
+    )
+    r = repr(p)
+    assert "sk-master-do-not-leak-ABCDEFG" not in r
+    assert "AKIA-DO-NOT-LEAK" not in r
+    assert "aws-secret-do-not-leak" not in r
+    # The non-secret fields are still useful for debugging.
+    assert "lt" in r
+    assert "litellm" in r
+    assert "http://h:4000" in r
+
+
+def test_attached_provider_inputs_api_key_redacted_in_repr():
+    """#723 ATX W5: same hardening on AttachedProviderInputs.api_key —
+    used by hermes' aux-litellm attachments."""
+    a = AttachedProviderInputs(
+        name="lt-aux",
+        type="litellm",
+        role="vision",
+        model="m",
+        api_key="sk-aux-do-not-leak-XYZ",
+        base_url="http://h:4000/v1",
+    )
+    r = repr(a)
+    assert "sk-aux-do-not-leak-XYZ" not in r
+    assert "lt-aux" in r
+
+
+@pytest.mark.parametrize(
+    "ptype",
+    ["openrouter", "anthropic", "openai", "bedrock", "ollama", "zai"],
+)
+def test_openclaw_non_litellm_does_not_emit_models_block(ptype):
     """#723: only litellm writes `models.providers`. The other openclaw
     provider types route via OPENCLAW_DEFAULT_MODEL env-var only — a
     stray `models` key in `openclaw.json` would shadow the daemon's
     built-in provider table for openrouter/anthropic/openai/bedrock/zai
-    and break those agents."""
+    and break those agents.
+
+    Parametrized (#723 ATX): a `for ptype in ...` loop lost per-case
+    pytest report granularity — a failure on `zai` reported the whole
+    test red without naming the offending ptype.
+    """
     import json
 
-    for ptype in ("openrouter", "anthropic", "openai", "bedrock", "ollama", "zai"):
-        inputs = _openclaw_inputs(ptype=ptype)
-        body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
-        blob = json.loads(body)
-        assert "models" not in blob, (
-            f"openclaw + {ptype} must not write models.providers; "
-            f"only litellm uses that path"
-        )
+    inputs = _openclaw_inputs(ptype=ptype)
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    blob = json.loads(body)
+    assert "models" not in blob, (
+        f"openclaw + {ptype} must not write models.providers; "
+        f"only litellm uses that path"
+    )
+
+
+@pytest.mark.parametrize(
+    "ptype",
+    ["openrouter", "anthropic", "openai", "bedrock", "ollama", "zai"],
+)
+def test_openclaw_non_litellm_json_top_level_keys_match_baseline(ptype):
+    """#723 ATX (test-coverage gap): the `_render_openclaw_json` signature
+    refactor (now accepts full ProviderInputs vs just the prefixed model
+    id) widened the surface — pin that non-litellm rendered JSON
+    top-level key sets are byte-identical to the baseline shape
+    (no surprise `models` block, no key reordering at the top level).
+    Complements the existing `_OPENCLAW_JSON_BYTE_LOCK` for openrouter.
+    """
+    import json
+
+    inputs = _openclaw_inputs(ptype=ptype)
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    blob = json.loads(body)
+    assert set(blob.keys()) == {
+        "agents",
+        "gateway",
+        "session",
+        "tools",
+        "channels",
+        "browser",
+        "env",
+    }, f"openclaw + {ptype} top-level keys drifted: {sorted(blob.keys())}"
+    # gateway baseline preserved (modulo managed port/bind/auth which
+    # the test fixture sets explicitly).
+    assert blob["gateway"]["mode"] == "local"
+    assert blob["gateway"]["reload"] == {"mode": "hybrid", "debounceMs": 300}
+    # agents.defaults skeleton preserved.
+    assert blob["agents"]["defaults"]["workspace"] == "~/.openclaw/workspace"
+    assert blob["agents"]["defaults"]["imageMaxDimensionPx"] == 1200
+    assert blob["agents"]["defaults"]["sandbox"] == {
+        "mode": "off",
+        "scope": "session",
+    }
 
 
 def test_openclaw_litellm_preserves_unmanaged_baseline_keys():

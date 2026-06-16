@@ -165,6 +165,20 @@ def _diff_removes_secrets(diff: FileDiff) -> set[str]:
     # positives. The matrix test asserts this — if a future renderer
     # starts emitting bare secrets to e.g. `config.toml`, this branch
     # must extend.
+    #
+    # NOTE (#723 ATX W6): openclaw's `models.providers.<name>.apiKey`
+    # in `.openclaw/openclaw.json` is the first JSON-body inline
+    # secret in the canonical pipeline. It is intentionally NOT
+    # covered by this guard — a provider swap (litellm → ollama)
+    # legitimately drops the litellm block AND its `apiKey`, and a
+    # JSON-aware guard would falsely block the operator on every
+    # such swap. The boundary is enforced upstream instead:
+    # `build_render_inputs` raises `AgentConfigError` if the secret
+    # is missing in `secrets.json`, so a missing-bearer regression
+    # cannot reach this guard in the first place. If a future
+    # provider type carries a JSON-inline secret that should survive
+    # cross-provider transitions, extend the guard rather than
+    # papering over with `force=True`.
     if not diff.path.endswith(".env"):
         return set()
     host_keys = _extract_secret_keys(diff.remote_body)

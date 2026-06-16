@@ -127,9 +127,22 @@ class ProviderInputs:
     endpoint: str = ""
     default_model: str = ""
     region: str = ""
-    api_key: str = ""
-    aws_access_key: str = ""
-    aws_secret_key: str = ""
+    # Secret fields use `repr=False` so an exception traceback / pytest
+    # --showlocals / logging.debug(provider) never echoes the bearer.
+    # `FileDiff.remote_body` in core/render_diff.py uses the same
+    # hardening for the same reason. #723 ATX W5.
+    api_key: str = field(default="", repr=False)
+    aws_access_key: str = field(default="", repr=False)
+    aws_secret_key: str = field(default="", repr=False)
+    # Optional model-shape overrides used by the litellm branch of
+    # `_render_openclaw_json` (#723 ATX W2). Operator-supplied via
+    # provider record (`context_window` / `max_tokens` fields in
+    # providers.json). 0 means "renderer picks default". LiteLLM proxies
+    # front everything from 4K-context models to 256K — hard-coding any
+    # single value silently truncates or wastes capacity for whichever
+    # operator's model doesn't match.
+    context_window: int = 0
+    max_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -152,7 +165,8 @@ class AttachedProviderInputs:
     model: str
     endpoint: str = ""
     region: str = ""
-    api_key: str = ""
+    # See ProviderInputs.api_key — same repr-leak rationale.
+    api_key: str = field(default="", repr=False)
     base_url: str = ""
 
 
@@ -420,6 +434,12 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
         api_key=api_key,
         aws_access_key=aws_access_key,
         aws_secret_key=aws_secret_key,
+        # Optional model-shape overrides (#723 ATX W2). Mirrors what the
+        # legacy ollama playbook template already accepted at
+        # `openclaw.json.j2:132-133`; surfaced through ProviderInputs so
+        # `_render_openclaw_json`'s litellm branch can honor them.
+        context_window=int(provider_record.get("context_window") or 0),
+        max_tokens=int(provider_record.get("max_tokens") or 0),
     )
 
     # --- Channels ----------------------------------------------------------
@@ -1546,12 +1566,53 @@ def _render_openclaw_json(
 
     # 5. models.providers.<provider-name> — litellm only.
     if provider.type == "litellm":
-        base_url = provider.endpoint
-        if not base_url.rstrip("/").endswith("/v1"):
-            base_url = base_url.rstrip("/") + "/v1"
+        # W4 (#723 ATX): defense-in-depth empty-endpoint guard. The
+        # `build_render_inputs` path already raises for litellm without
+        # an endpoint, but a future caller that bypasses assembly (e.g.
+        # a manifest-driven path) would otherwise silently emit
+        # `baseUrl: "/v1"` — a relative URL the openclaw daemon would
+        # interpret against its own host.
+        if not provider.endpoint:
+            raise AgentConfigError(
+                f"render_openclaw: litellm provider {provider.name!r} "
+                f"requires a non-empty endpoint"
+            )
+        # W3 (#723 ATX): the provider name is used both as a JSON key in
+        # `models.providers.<name>` AND as a routing prefix in
+        # `<name>/<model>`. A name containing `/` would silently produce
+        # ambiguous routing (`foo/bar/qwen3` → tokenizes as
+        # provider=`foo`, model=`bar/qwen3`). Reject early; the message
+        # points at the canonical fix surface.
+        if "/" in provider.name:
+            raise AgentConfigError(
+                f"render_openclaw: litellm provider name "
+                f"{provider.name!r} must not contain '/' (used as a "
+                f"routing prefix in agents.defaults.model.primary). "
+                f"Recreate with `clawctl provider registry create "
+                f"<safe-name> --type litellm`."
+            )
+        # W1 (#723 ATX): mirror hermes' normalization byte-for-byte —
+        # `rstrip('/')` BEFORE the endswith check, and `.strip()` first
+        # so a stray newline from providers.json doesn't survive into
+        # the JSON. Hermes equivalent: render.py:985-987.
+        base_url = provider.endpoint.strip().rstrip("/")
+        if not base_url.endswith("/v1"):
+            base_url = base_url + "/v1"
         model_name = provider.default_model
+        # W2 (#723 ATX): operator-overridable context_window / max_tokens.
+        # Defaults match the issue spec (65536 / 16384) — tuned for
+        # vLLM's Qwen3-Next default `--max-model-len`. Operators with
+        # smaller (4K/8K) or larger (200K+) models override via
+        # `providers.json.context_window` / `.max_tokens`.
+        context_window = provider.context_window or 65536
+        max_tokens = provider.max_tokens or 16384
         models_block = baseline.setdefault("models", {})
         providers_block = models_block.setdefault("providers", {})
+        # S1 (#723 ATX): apiKey is written inline (no env-var hop). This
+        # is the upstream openclaw custom-provider contract — the
+        # daemon reads it from openclaw.json directly. The file is
+        # written atomically with mode 0600; any GUI/CLI dumper that
+        # emits the rendered JSON verbatim MUST redact this path.
         providers_block[provider.name] = {
             "baseUrl": base_url,
             "apiKey": provider.api_key,
@@ -1568,8 +1629,8 @@ def _render_openclaw_json(
                         "cacheRead": 0,
                         "cacheWrite": 0,
                     },
-                    "contextWindow": 65536,
-                    "maxTokens": 16384,
+                    "contextWindow": context_window,
+                    "maxTokens": max_tokens,
                 }
             ],
         }
