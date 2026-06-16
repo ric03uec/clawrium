@@ -1,6 +1,8 @@
 .rail {
   position: sticky;
   top: calc(var(--ifm-navbar-height) + 2rem);
+  max-height: calc(100vh - (var(--ifm-navbar-height) + 2rem));
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;

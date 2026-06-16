@@ -59,6 +59,10 @@ function BlogSidebarContent({
   ListComponent,
 }: Props): ReactNode {
   const themeConfig = useThemeConfig();
+  // We repurpose Docusaurus' `blog.sidebar.groupByYear` flag as a generic
+  // "group by date" switch — when true we render month-level buckets
+  // ("June 2026") instead of upstream's year-level ones. The flag name stays
+  // because there is no public custom-themeConfig API in classic preset.
   if (themeConfig.blog.sidebar.groupByYear) {
     const grouped = groupItemsByMonth(items);
     return (
