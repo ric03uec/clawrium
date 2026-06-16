@@ -87,6 +87,16 @@ PROVIDER_MODELS: dict[str, dict] = {
         "requires_api_key": True,
         "requires_endpoint": False,
     },
+    "opencode": {
+        "endpoint": "https://opencode.ai/zen/v1",
+        "requires_api_key": True,
+        "requires_endpoint": False,
+    },
+    "opencode-go": {
+        "endpoint": "https://opencode.ai/zen/go/v1",
+        "requires_api_key": True,
+        "requires_endpoint": False,
+    },
     "ollama": {
         "endpoint": None,  # User-provided
         "requires_api_key": False,

@@ -207,7 +207,7 @@ def create(
         ...,
         "--type",
         "-t",
-        help="Provider type (anthropic, openai, bedrock, ollama, ...).",
+        help="Provider type (anthropic, openai, bedrock, opencode, opencode-go, ollama, ...)."
     ),
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Default model id."

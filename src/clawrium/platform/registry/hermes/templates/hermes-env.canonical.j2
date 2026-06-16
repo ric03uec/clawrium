@@ -27,6 +27,10 @@ HERMES_INFERENCE_PROVIDER='custom'
    `model.api_key:` — see the hermes-config canonical template. No env
    var is emitted; hermes' custom provider doesn't consume one. #}
 HERMES_INFERENCE_PROVIDER='custom'
+{% elif provider.type == 'opencode' or provider.type == 'opencode-go' %}
+{# OpenCode's bearer key lives inline in `config.yaml` under
+   `model.api_key:`. No provider-specific env var is emitted. #}
+HERMES_INFERENCE_PROVIDER='custom'
 {% endif %}
 {# Issue #621: auxiliary provider credentials. `aux_api_keys` is a dict
    keyed by provider type (already deduped + dedup-vs-primary in

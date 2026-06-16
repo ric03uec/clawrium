@@ -50,7 +50,7 @@ def test_resolve_ignores_unexpected_stored_value():
 
 
 def test_resolve_returns_none_for_non_local_providers():
-    for t in ("openai", "anthropic", "bedrock", "openrouter"):
+    for t in ("openai", "anthropic", "bedrock", "openrouter", "opencode", "opencode-go"):
         assert _resolve_accelerator_vendor({"name": "p", "type": t}) is None
 
 
@@ -264,10 +264,10 @@ def test_provider_types_returns_rich_model_metadata():
     result = asyncio.run(providers_mod.provider_types())
     types = result["types"]
 
-    # All eight provider types are present
+    # All ten provider types are present
     assert set(types.keys()) == {
         "openai", "anthropic", "openrouter", "bedrock",
-        "vertex", "zai", "ollama", "litellm",
+        "vertex", "zai", "opencode", "opencode-go", "ollama", "litellm",
     }
 
     # Cloud providers carry catalog-shaped models

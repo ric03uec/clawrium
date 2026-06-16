@@ -273,6 +273,8 @@ class TestGetCatalogProviders:
             "bedrock",
             "ollama",
             "openai",
+            "opencode",
+            "opencode-go",
             "openrouter",
             "vertex",
             "zai",

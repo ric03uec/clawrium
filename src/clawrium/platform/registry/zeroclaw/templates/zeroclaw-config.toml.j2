@@ -35,7 +35,10 @@ fallback = "{{ provider.type | toq }}"
 
 [providers.models.{{ provider.type }}]
 model = "{{ provider.default_model | toq }}"
-{% if provider.type == "ollama" %}base_url = "{{ provider.endpoint | toq }}"{% else %}api_key = "{{ provider.api_key | toq }}"{% endif %}
+{% if provider.type == "ollama" %}base_url = "{{ provider.endpoint | toq }}"
+{% elif provider.type in ("opencode", "opencode-go") %}base_url = "{{ provider.endpoint | toq }}"
+api_key = "{{ provider.api_key | toq }}"
+{% else %}api_key = "{{ provider.api_key | toq }}"{% endif %}
 
 [agent]
 max_tool_iterations = 200

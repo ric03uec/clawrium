@@ -386,6 +386,9 @@ def verify_provider_connectivity(
     if provider_type == "zai":
         return _test_zai_connectivity(api_key, timeout)
 
+    if provider_type in ("opencode", "opencode-go"):
+        return _test_opencode_connectivity(provider_type, api_key, timeout)
+
     return ValidationResult(
         passed=True,
         warnings=[f"Connectivity test not implemented for {provider_type}"],
@@ -608,6 +611,47 @@ def _test_zai_connectivity(api_key: str, timeout: int) -> ValidationResult:
         return ValidationResult(
             passed=False,
             errors=[ERROR_MESSAGES["api_key_invalid"].format(provider="ZAI")],
+        )
+
+    if status == 200:
+        return ValidationResult(passed=True, details={"endpoint": url})
+
+    return ValidationResult(passed=True)
+
+
+def _test_opencode_connectivity(provider_type: str, api_key: str, timeout: int) -> ValidationResult:
+    """Test OpenCode (Zen / Go) API connectivity."""
+    from clawrium.core.providers.storage import PROVIDER_MODELS
+
+    endpoint = PROVIDER_MODELS.get(provider_type, {}).get("endpoint", "")
+    url = f"{endpoint}/models"
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    status, body, error = _make_request(url, headers, timeout=timeout)
+
+    provider_label = "OpenCode" if provider_type == "opencode" else "OpenCode Go"
+
+    if error == "timeout":
+        return ValidationResult(
+            passed=False,
+            errors=[
+                ERROR_MESSAGES["connection_timeout"].format(
+                    provider=provider_label, timeout=timeout
+                )
+            ],
+        )
+
+    if status == 0:
+        return ValidationResult(
+            passed=False,
+            errors=[ERROR_MESSAGES["connection_failed"].format(provider=provider_label)],
+            details={"error": error},
+        )
+
+    if status == 401:
+        return ValidationResult(
+            passed=False,
+            errors=[ERROR_MESSAGES["api_key_invalid"].format(provider=provider_label)],
         )
 
     if status == 200:

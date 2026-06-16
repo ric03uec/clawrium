@@ -774,6 +774,8 @@ class TestProviderModelsConstant:
             "bedrock",
             "vertex",
             "zai",
+            "opencode",
+            "opencode-go",
             "ollama",
             "litellm",
         }

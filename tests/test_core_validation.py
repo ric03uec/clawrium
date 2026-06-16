@@ -410,6 +410,70 @@ class TestTestProviderConnectivity:
         result = verify_provider_connectivity("test-anthropic")
         assert result.passed is True
 
+    @patch("clawrium.core.validation._make_request")
+    def test_opencode_success(self, mock_request, isolated_config: Path):
+        """Returns success on valid OpenCode response."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        providers_file = isolated_config / "providers.json"
+        providers_file.write_text(
+            json.dumps([{"name": "test-opencode", "type": "opencode"}])
+        )
+
+        secrets_file = isolated_config / "secrets.json"
+        secrets_file.write_text(
+            json.dumps(
+                {
+                    "provider:test-opencode": {
+                        "API_KEY": {
+                            "key": "API_KEY",
+                            "value": "sk-opencode-test",
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-01T00:00:00Z",
+                            "description": "",
+                        }
+                    }
+                }
+            )
+        )
+
+        mock_request.return_value = (200, {}, None)
+
+        result = verify_provider_connectivity("test-opencode")
+        assert result.passed is True
+        assert "opencode.ai/zen/v1" in result.details["endpoint"]
+
+    @patch("clawrium.core.validation._make_request")
+    def test_opencode_go_success(self, mock_request, isolated_config: Path):
+        """Returns success on valid OpenCode Go response."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        providers_file = isolated_config / "providers.json"
+        providers_file.write_text(
+            json.dumps([{"name": "test-opencode-go", "type": "opencode-go"}])
+        )
+
+        secrets_file = isolated_config / "secrets.json"
+        secrets_file.write_text(
+            json.dumps(
+                {
+                    "provider:test-opencode-go": {
+                        "API_KEY": {
+                            "key": "API_KEY",
+                            "value": "sk-opencode-go-test",
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-01T00:00:00Z",
+                            "description": "",
+                        }
+                    }
+                }
+            )
+        )
+
+        mock_request.return_value = (200, {}, None)
+
+        result = verify_provider_connectivity("test-opencode-go")
+        assert result.passed is True
+        assert "opencode.ai/zen/go/v1" in result.details["endpoint"]
+
 
 class TestTestOllamaConnectivity:
     """Tests for Ollama connectivity skip behaviour.
