@@ -21,3 +21,10 @@ cut. The `itx:release` skill archives this section into a new
 ### Fixed
 
 ### Documentation
+
+- Website blog UI improvements: post titles shrunk to 2.25rem; in-post body
+  headings (`h1`–`h4`) reduced by one step; left sidebar groups posts by
+  month (e.g. "June 2026") instead of year and shows all posts; the
+  sidebar's "All posts" title now links back to `/blog`; the `/blog` listing
+  page gains a right-hand rail with About, Tags, and Community sections so
+  the previously empty `col--2` slot is no longer dead space.

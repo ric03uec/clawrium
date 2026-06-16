@@ -219,3 +219,24 @@ button[class*="copyButton"] {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--ifm-color-primary-light);
 }
+
+/* ── Blog post title ── */
+.blog-wrapper article header h1,
+.blog-wrapper article header h2 {
+  font-size: 2.25rem;
+}
+
+@media (max-width: 576px) {
+  .blog-wrapper article header h1,
+  .blog-wrapper article header h2 {
+    font-size: 1.6rem;
+  }
+}
+
+/* ── Blog post body headings (one notch down) ── */
+.blog-wrapper article .markdown {
+  --ifm-h1-font-size: 1.875rem;
+  --ifm-h2-font-size: 1.375rem;
+  --ifm-h3-font-size: 1.15rem;
+  --ifm-h4-font-size: 0.9375rem;
+}
