@@ -90,10 +90,35 @@ def test_create_first_run_generates_keypair_and_prints_manual_setup(
     assert (key_dir / "xclm_ed25519").exists()
     assert (key_dir / "xclm_ed25519.pub").exists()
     # Both OS blocks are present, with the macOS-only access_ssh hint.
-    assert "## Linux" in result.output
-    assert "## macOS" in result.output
-    assert "com.apple.access_ssh" in result.output
-    assert "ssh-ed25519" in result.output
+    output = result.output
+    assert "## Linux" in output
+    assert "## macOS — preflight" in output
+    # Anchor on `sudo systemsetup` so a dropped sudo prefix fails the test.
+    assert "sudo systemsetup -setremotelogin on" in output
+    # Temporal qualifier — the whole point of preflight is the ordering.
+    assert "BEFORE attempting the SSH commands" in output
+    # Full Disk Access fallback is the user-visible recovery path —
+    # without it operators on macOS 13+ have nowhere to go.
+    assert "Full Disk Access" in output
+    assert "Remote Login" in output
+    assert "## macOS — SSH in" in output
+    assert "com.apple.access_ssh" in output
+    # H2-level ordering: preflight section must come before the SSH-paste
+    # section so the heading-level invariant is locked, not just commands.
+    assert output.index("## macOS — preflight") < output.index(
+        "## macOS — SSH in"
+    )
+    # Command-level ordering anchored on the FIRST SSH-paste command so
+    # a refactor that drops preflight between any two dscl lines fails.
+    assert output.index("systemsetup -setremotelogin on") < output.index(
+        "sudo dscl . -create /Users/xclm"
+    )
+    # Preflight must appear AFTER the Linux block so it cannot migrate
+    # into the Linux section.
+    assert output.index("## Linux") < output.index(
+        "systemsetup -setremotelogin on"
+    )
+    assert "ssh-ed25519" in output
     # Host record was NOT persisted on this run.
     list_result = runner.invoke(app, ["host", "get", "-o", "json"])
     parsed = json.loads(list_result.output)
@@ -131,6 +156,9 @@ def test_create_rerun_after_manual_setup_succeeds(
         ["host", "create", "192.168.1.100", "--user", "xclm", "--alias", "newbox"],
     )
     assert second.exit_code == 0, second.output
+    # The manual-setup block (including the macOS preflight) must NOT
+    # leak into the happy path once SSH already works.
+    assert "systemsetup -setremotelogin on" not in second.output
 
     list_result = runner.invoke(app, ["host", "get", "-o", "json"])
     parsed = json.loads(list_result.output)

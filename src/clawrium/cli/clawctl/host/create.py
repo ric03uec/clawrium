@@ -347,7 +347,22 @@ def _print_manual_setup(hostname: str) -> None:
     console.print("sudo chmod 600 /home/xclm/.ssh/authorized_keys")
     console.print("sudo chown -R xclm:xclm /home/xclm/.ssh\n")
 
-    console.print("[bold cyan]## macOS[/bold cyan]")
+    console.print(
+        "[bold cyan]## macOS — preflight (run LOCALLY on the Mac)[/bold cyan]"
+    )
+    console.print(
+        "[dim]# sshd is off by default on a fresh macOS install. "
+        "Run this on the Mac itself BEFORE attempting the SSH commands below.[/dim]"
+    )
+    console.print("sudo systemsetup -setremotelogin on")
+    console.print(
+        "[dim]# If that fails with a Full Disk Access error (macOS 13+), "
+        "enable it via System Settings → General → Sharing → Remote Login.[/dim]\n"
+    )
+
+    console.print(
+        "[bold cyan]## macOS — SSH in as your sudo user, then paste:[/bold cyan]"
+    )
     console.print("[dim]# Create xclm user via dscl[/dim]")
     console.print("sudo dscl . -create /Users/xclm")
     console.print("sudo dscl . -create /Users/xclm UserShell /bin/bash")

@@ -30,6 +30,9 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- `clawctl host create` manual-setup output now prints a macOS preflight
+  block instructing operators to enable Remote Login (`sshd`) locally on
+  the Mac before running the SSH-paste block. (#718)
 - Blog post titles shrunk from 3rem to 2.25rem (1.6rem on screens ≤576px).
   In-post body headings (`h1`–`h4`) reduced by one step. All overrides scoped
   to `.blog-wrapper` so docs typography is unaffected.
@@ -41,3 +44,7 @@ cut. The `itx:release` skill archives this section into a new
 ### Fixed
 
 ### Documentation
+
+- Document the macOS-only requirement to enable Remote Login (sshd) before
+  running the `xclm` host-preparation block, and surface the same preflight
+  in the `clawctl host create` manual-setup output. (#718)

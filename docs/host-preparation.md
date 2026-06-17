@@ -13,7 +13,9 @@ setup anyway. The flag was removed; the only supported path is below.
 ## Prerequisites
 
 - SSH access to the target host as a user that can run `sudo` (password sudo
-  is fine — you will run the commands interactively).
+  is fine — you will run the commands interactively). **On a fresh macOS
+  host, you must enable Remote Login first — see
+  [Step 1.5](#step-15-enable-remote-login-macos-only).**
 - `clawctl` installed on your management machine — see
   [Installation](installation.md).
 - On the target host: Python 3 (used for hardware detection).
@@ -45,6 +47,33 @@ On first run for that hostname, `clawctl` will:
 > updates the host's `hostname`, port, and address list **without**
 > rotating the `key_id` — every secret stays reachable. Renaming the
 > alias is a deliberate identity change and does invalidate secrets.
+
+## Step 1.5: Enable Remote Login (macOS only)
+
+> Skip this step on Linux. On a fresh macOS install, `sshd` (Remote Login)
+> is **off by default**, so Step 2's SSH instructions cannot succeed until
+> you turn it on. Do this **locally on the Mac**, signed in as an
+> administrator — you will not have SSH access yet.
+
+**GUI path (recommended):** System Settings → General → Sharing → toggle
+**Remote Login** on. When prompted "Allow access for":
+
+- Choose **All users** for the simplest setup, OR
+- Choose **Only these users** — the `dseditgroup ... com.apple.access_ssh`
+  command in Step 2's macOS block is what lets `xclm` satisfy this rule.
+
+**CLI path:** open Terminal locally on the Mac and run:
+
+```bash
+sudo systemsetup -setremotelogin on
+```
+
+On macOS 13+ (Ventura and later), `systemsetup` may fail with a Full Disk
+Access error. If that happens, use the GUI path above — there is no flag
+or workaround that avoids the FDA prompt.
+
+Once Remote Login is on, switch to your management machine and continue
+with Step 2.
 
 ## Step 2 — Run the setup commands on the host
 
