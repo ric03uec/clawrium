@@ -16,6 +16,12 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- `/clawctl` opencode skill (`.opencode/skills/clawctl/SKILL.md`) — embeds the
+  full `clawctl` CLI reference (all commands, flags, sub-commands, and common
+  workflows) into any opencode-compatible AI assistant. Enables natural-language
+  fleet management from the control machine without leaving the assistant session.
+  Registered in `AGENTS.md` and documented in the website guides
+  (`website/docs/guides/ai-assistant.md`).
 - `openclaw` agents can now attach `type=litellm` providers — custom
   OpenAI-compatible endpoints (LiteLLM, vLLM, any `/v1/chat/completions`
   proxy). `clawctl agent configure` / `clawctl agent sync` render a

@@ -247,6 +247,14 @@ Trigger with: `/itx:execute 35 in a subtree` or `/itx:execute 35 --worktree`
 New Issue → /itx:triage → /itx:plan-create → /itx:plan-scaffold → /itx:execute → /itx:verify → /itx:review-pr → Merge
 ```
 
+### Fleet Management
+
+Use `/clawctl` to manage the Clawrium fleet from an AI assistant session. The skill embeds the full `clawctl` CLI reference — hosts, agents, providers, channels, integrations, skills, secrets, and memory. Always use `clawctl`, never `clm`.
+
+| Command | Purpose |
+|---------|---------|
+| `/clawctl` | Manage fleet: hosts, agents, providers, channels, integrations, skills, secrets |
+
 ### Workflow Commands
 
 | Command | Purpose |
