@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Install the /clawctl skill globally for any installed AI assistant
-# (Claude Code, opencode), plus the clawctl-audit companion tool.
-# Idempotent — re-running updates an existing install.
+# (Claude Code, opencode). Idempotent — re-running updates an existing
+# install.
+#
+# The audit-trail tool (`clawctl audit ...`) ships as a subcommand of
+# clawctl itself — there is no separate companion binary to install.
+# Make sure `clawctl` is on your PATH before using the skill.
 #
 # Supports: Ubuntu / Debian-family Linux and macOS.
 #
@@ -15,16 +19,13 @@
 #   0  success — installed for at least one detected assistant
 #   1  no supported assistant detected on this machine
 #   2  unsupported OS
-#   3  required command (curl or python3) missing
+#   3  required command (curl) missing
 #   4  network/download failure for every detected assistant
-#   5  failed to install clawctl-audit companion tool
 
 set -euo pipefail
 
 REPO="ric03uec/clawrium"
 SKILL_NAME="clawctl"
-AUDIT_BIN_NAME="clawctl-audit"
-AUDIT_INSTALL_DIR="${CLAWCTL_AUDIT_BIN_DIR:-$HOME/.local/bin}"
 
 # ---------------------------------------------------------------------------
 # 0. Preflight
@@ -48,17 +49,8 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 3
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-  printf 'error: python3 is required for the clawctl-audit companion tool but not installed.\n' >&2
-  case "$OS" in
-    Linux)  printf '       install with: sudo apt-get install -y python3\n' >&2 ;;
-    Darwin) printf '       install with: brew install python  (or use the Xcode-bundled python3)\n' >&2 ;;
-  esac
-  exit 3
-fi
-
 # ---------------------------------------------------------------------------
-# 1. Determine which clawrium version's payload to fetch
+# 1. Determine which clawrium version's skill to fetch
 # ---------------------------------------------------------------------------
 
 VERSION="${CLAWCTL_VERSION:-}"
@@ -72,7 +64,7 @@ fi
 # standalone; the operator can install clawctl later.
 : "${VERSION:=main}"
 
-printf '==> Installing /%s skill + %s companion tool (version: %s)\n' "$SKILL_NAME" "$AUDIT_BIN_NAME" "$VERSION"
+printf '==> Installing /%s skill (version: %s)\n' "$SKILL_NAME" "$VERSION"
 printf '    OS: %s\n' "$OS"
 
 # ---------------------------------------------------------------------------
@@ -145,53 +137,33 @@ if [ "$DOWNLOAD_FAILURES" -eq "$TOOLS_FOUND" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Install the clawctl-audit companion tool
+# 3. Report + clawctl preflight
 # ---------------------------------------------------------------------------
 
-AUDIT_DEST="${AUDIT_INSTALL_DIR}/${AUDIT_BIN_NAME}"
+if ! command -v clawctl >/dev/null 2>&1; then
+  cat >&2 <<'EOM'
 
-if ! download_to "${AUDIT_BIN_NAME}" \
-    "scripts/clawctl-audit.py" \
-    "$AUDIT_DEST"; then
-  printf 'error: failed to install %s\n' "$AUDIT_BIN_NAME" >&2
-  exit 5
-fi
-chmod +x "$AUDIT_DEST"
+warning: clawctl is not on your PATH.
+         The /clawctl skill drives audit logging through `clawctl audit ...`,
+         which is a subcommand of clawctl itself. Install clawctl before
+         using the skill:
 
-# Warn if the install dir is not on PATH — the skill drives audit logging
-# through this binary, so this is load-bearing.
-case ":$PATH:" in
-  *":${AUDIT_INSTALL_DIR}:"*) ;;
-  *)
-    cat >&2 <<EOM
+           uv tool install clawrium
 
-warning: ${AUDIT_INSTALL_DIR} is not on your PATH.
-         The /${SKILL_NAME} skill expects ${AUDIT_BIN_NAME} to be runnable as a bare command.
-         Add this line to your shell profile (~/.bashrc, ~/.zshrc, etc.):
-
-           export PATH="${AUDIT_INSTALL_DIR}:\$PATH"
-
-         Then open a new shell. Verify with:  ${AUDIT_BIN_NAME} --help
 EOM
-    ;;
-esac
-
-# ---------------------------------------------------------------------------
-# 4. Report
-# ---------------------------------------------------------------------------
+fi
 
 cat <<EOM
 
-Done.
-  /${SKILL_NAME} skill is globally available for every detected assistant.
-  ${AUDIT_BIN_NAME} installed at ${AUDIT_DEST}
+Done. The /${SKILL_NAME} skill is now globally available for every detected assistant.
+
+Audit-trail commands ship inside clawctl:
+  clawctl audit log "<action>" --result success
+  clawctl audit tail
+  clawctl audit stats
 
 Audit trail will be written to:
   ~/.config/clawrium/changelog/<YYYYMMDD>.jsonl
-
-Verify:
-  ${AUDIT_BIN_NAME} --help
-  ${AUDIT_BIN_NAME} stats
 
 Open your assistant and type \`/${SKILL_NAME}\` to use it.
 EOM

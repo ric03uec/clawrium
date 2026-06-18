@@ -11,7 +11,7 @@ Clawrium ships a built-in AI skill — `/clawctl` — that gives any
 knowledge of the `clawctl` CLI. Instead of context-switching to a terminal, you
 can ask an AI agent to deploy, configure, and monitor your fleet in plain
 language. Every mutating action it takes on your behalf is recorded in a daily
-audit trail (`clawctl-audit`) so you have a full reproducible history.
+audit trail (`clawctl audit`) so you have a full reproducible history.
 
 ## How It Works
 
@@ -24,19 +24,19 @@ and writes each mutating action to the audit trail.
 You  →  "Deploy OpenClaw on mybox and attach my OpenAI key"
 AI   →  Loads /clawctl skill, plans steps, runs clawctl commands,
         appends each step to ~/.config/clawrium/changelog/<today>.jsonl
-You  →  clawctl-audit tail    # review what just happened
+You  →  clawctl audit tail    # review what just happened
 ```
 
 The skill is meant to live on your **control machine** — the machine where
 `clawctl` is installed — and works from any directory. You do **not** need a
-Clawrium project checked out to use it.
+Clawrium project checked out to use it. The audit-trail tool (`clawctl audit`)
+is a built-in subcommand of `clawctl` — there is no separate binary to install.
 
 ## Install (recommended: one-line script)
 
 A single shell script handles both Ubuntu / Debian-family Linux and macOS. It
-detects which AI assistants you have installed (Claude Code, opencode), drops
-the skill into the right global discovery path for each, and installs the
-`clawctl-audit` companion tool to `~/.local/bin/`.
+detects which AI assistants you have installed (Claude Code, opencode) and
+drops the skill into the right global discovery path for each.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ric03uec/clawrium/main/scripts/install-skill-clawctl.sh | bash
@@ -48,8 +48,8 @@ The script:
   skill to that release. Falls back to `main` if `clawctl` is not on PATH yet.
 - Installs the skill globally — same skill available in every assistant session
   on this machine, regardless of which project you have open.
-- Installs `clawctl-audit` to `~/.local/bin/clawctl-audit` and warns if that
-  directory is not on your `PATH`.
+- Warns if `clawctl` is not on PATH (since the skill drives audit logging
+  through `clawctl audit ...`).
 - Idempotent — re-run any time to update to the latest release.
 
 ### Override the version
@@ -66,7 +66,10 @@ curl -fsSL https://raw.githubusercontent.com/ric03uec/clawrium/main/scripts/inst
 |---|---|---|
 | Claude Code | `~/.claude/skills/clawctl/SKILL.md` | If `claude` is on PATH or `~/.claude` exists |
 | opencode    | `~/.config/opencode/skills/clawctl/SKILL.md` | If `opencode` is on PATH or `~/.config/opencode` exists |
-| `clawctl-audit` (companion) | `~/.local/bin/clawctl-audit` | Always |
+
+The audit tool is **not** installed by this script — it's a subcommand of
+`clawctl` (`clawctl audit log`, `clawctl audit show`, ...) and ships when you
+install Clawrium itself (`uv tool install clawrium`).
 
 If no AI assistant is detected, the script exits with a non-zero status and
 tells you how to install one. Re-run after you install your assistant of choice.
@@ -82,11 +85,11 @@ skills. You should see `clawctl` in the list:
 - clawctl: Know the clawctl CLI and manage your Clawrium fleet ...
 ```
 
-And verify the audit tool:
+And verify the audit subcommand:
 
 ```bash
-clawctl-audit --help
-clawctl-audit stats
+clawctl audit --help
+clawctl audit stats
 ```
 
 ## Manual install (fallback, if the script fails)
@@ -114,21 +117,17 @@ mkdir -p ~/.config/opencode/skills/clawctl
 curl -fsSL \
   "https://raw.githubusercontent.com/ric03uec/clawrium/${VERSION}/.opencode/skills/clawctl/SKILL.md" \
   -o ~/.config/opencode/skills/clawctl/SKILL.md
-
-# clawctl-audit companion tool
-mkdir -p ~/.local/bin
-curl -fsSL \
-  "https://raw.githubusercontent.com/ric03uec/clawrium/${VERSION}/scripts/clawctl-audit.py" \
-  -o ~/.local/bin/clawctl-audit
-chmod +x ~/.local/bin/clawctl-audit
 ```
 
-Confirm `~/.local/bin` is on your `PATH`. If not, add this to your shell
-profile (`~/.bashrc`, `~/.zshrc`):
+Confirm `clawctl` is on your PATH — `clawctl audit` is the runtime
+dependency:
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
+clawctl version
+clawctl audit --help
 ```
+
+If `clawctl` is missing, install it first: `uv tool install clawrium`.
 
 </details>
 
@@ -136,16 +135,17 @@ export PATH="$HOME/.local/bin:$PATH"
 
 If you are working **inside the Clawrium repository itself**, both skill files
 already live in the tree at `.claude/skills/clawctl/SKILL.md` and
-`.opencode/skills/clawctl/SKILL.md`, and the audit tool is at
-`scripts/clawctl-audit.py`. No install step is needed. The two `SKILL.md`
-files are kept byte-identical — update both in the same change.
+`.opencode/skills/clawctl/SKILL.md`. No install step is needed. The two
+`SKILL.md` files are kept byte-identical — update both in the same change.
 
 ## Prerequisites
 
-1. `clawctl` installed and at least one host registered (`clawctl host get`).
-2. An opencode-compatible AI assistant (e.g. opencode with Claude) **or**
+1. `clawctl` installed and on `PATH`. The skill calls `clawctl audit ...`
+   on every mutating action, so this is mandatory.
+2. At least one host registered (`clawctl host get`).
+3. An opencode-compatible AI assistant (e.g. opencode with Claude) **or**
    Claude Code, installed and on `PATH`.
-3. The skill + companion tool installed (see above).
+4. The skill installed (see above).
 
 ## Using the Skill
 
@@ -167,7 +167,7 @@ it with natural language:
 
 The assistant translates your request into `clawctl` commands, explains what
 it is about to do, executes, and **appends each mutating step to the audit
-trail** via `clawctl-audit log`.
+trail** via `clawctl audit log`.
 
 ## The Audit Trail
 
@@ -176,7 +176,7 @@ runs it or you do — is recorded as a JSONL line in
 `~/.config/clawrium/changelog/<YYYYMMDD>.jsonl`. One file per UTC day,
 append-only.
 
-Schema per line (managed by `clawctl-audit` — `type=clawctl_command`):
+Schema per line (managed by `clawctl audit` — `type=clawctl_command`):
 
 | Field | Meaning |
 |---|---|
@@ -186,7 +186,7 @@ Schema per line (managed by `clawctl-audit` — `type=clawctl_command`):
 | `session_id` | Optional grouping id for multi-step workflows (set via `$CLAWCTL_AUDIT_SESSION_ID` or `--session-id`). |
 | `timestamp` | ISO 8601 UTC, **millisecond precision**. |
 | `cwd` | Working directory at write time. |
-| `version` | `{audit, tool, clawctl}` — schema + tool + detected `clawctl` versions. |
+| `version` | `{audit, clawctl}` — schema version + clawctl version. |
 | `actor` | `"user"` or `"agent"`. |
 | `action` | What was done; literal command when relevant. |
 | `result` | `"success"`, `"failure"`, or `"skipped"`. |
@@ -195,27 +195,27 @@ Schema per line (managed by `clawctl-audit` — `type=clawctl_command`):
 ### Querying the trail
 
 ```bash
-clawctl-audit tail                              # Last 20 entries across all days
-clawctl-audit tail -n 100                       # Last 100
-clawctl-audit show --date 20260617              # One UTC day
-clawctl-audit show --actor agent --result failure --last 50
-clawctl-audit show --session-id <id>            # Replay one workflow
-clawctl-audit show --grep 'configure|sync'      # Regex over action + notes
-clawctl-audit show --json                       # Raw JSONL (for piping into jq)
-clawctl-audit stats                             # Summary counts + top action groups
-clawctl-audit path                              # Print the log directory
-clawctl-audit session new                       # Mint a session id
+clawctl audit tail                              # Last 20 entries across all days
+clawctl audit tail -n 100                       # Last 100
+clawctl audit show --date 20260617              # One UTC day
+clawctl audit show --actor agent --result failure --last 50
+clawctl audit show --session-id <id>            # Replay one workflow
+clawctl audit show --grep 'configure|sync'      # Regex over action + notes
+clawctl audit show --json                       # Raw JSONL (for piping into jq)
+clawctl audit stats                             # Summary counts + top action groups
+clawctl audit path                              # Print the log directory
+clawctl audit session new                       # Mint a session id
 ```
 
 ### Grouping a workflow with a session id
 
 Before kicking off a multi-step workflow, mint and export a session id. Every
-`clawctl-audit log` invocation in that shell will tag entries with it:
+`clawctl audit log` invocation in that shell will tag entries with it:
 
 ```bash
-export CLAWCTL_AUDIT_SESSION_ID="$(clawctl-audit session new)"
+export CLAWCTL_AUDIT_SESSION_ID="$(clawctl audit session new)"
 # ... assistant runs configure / start / sync / etc. — all tagged with that id
-clawctl-audit show --session-id "$CLAWCTL_AUDIT_SESSION_ID"
+clawctl audit show --session-id "$CLAWCTL_AUDIT_SESSION_ID"
 ```
 
 Read-only commands (`get`, `describe`, `logs`, `chat`, `open`, `version`) are
@@ -226,9 +226,9 @@ their failures go into the trail.
 
 You can answer at any time:
 
-- **"What did the agent do last Tuesday?"** — `clawctl-audit show --date 20260610`
-- **"Has anything failed in the last week?"** — `clawctl-audit show --result failure --last 100`
-- **"Did the assistant touch the prod host?"** — `clawctl-audit show --grep prod-host`
+- **"What did the agent do last Tuesday?"** — `clawctl audit show --date 20260610`
+- **"Has anything failed in the last week?"** — `clawctl audit show --result failure --last 100`
+- **"Did the assistant touch the prod host?"** — `clawctl audit show --grep prod-host`
 
 ## Example Workflows
 
@@ -240,11 +240,11 @@ You: I've just added a host called homelab. Help me create and start a
 
 AI: I'll walk you through this step by step using clawctl...
     1. clawctl agent create zclaw --type zeroclaw --host homelab
-       → clawctl-audit log "clawctl agent create zclaw --type zeroclaw --host homelab" --result success
+       → clawctl audit log "clawctl agent create zclaw --type zeroclaw --host homelab" --result success
     2. clawctl agent configure zclaw
-       → clawctl-audit log "clawctl agent configure zclaw" --result success
+       → clawctl audit log "clawctl agent configure zclaw" --result success
     3. clawctl agent start zclaw
-       → clawctl-audit log "clawctl agent start zclaw" --result success
+       → clawctl audit log "clawctl agent start zclaw" --result success
 ```
 
 ### Fleet Health Check
@@ -282,18 +282,19 @@ The `/clawctl` skill reminds the assistant of important invariants:
   remote chat sessions will receive a 401 and must reconnect.
 - Provider credentials belong in secrets (`clawctl agent secret`), not in
   plain config.
-- **Every mutating action is logged via `clawctl-audit log` — never hand-roll
-  JSON lines with `jq`/`printf`. If `clawctl-audit` is missing, re-run the
-  install script.**
+- **Every mutating action is logged via `clawctl audit log` — never hand-roll
+  JSON lines with `jq`/`printf`. If `clawctl` is missing, install it with
+  `uv tool install clawrium`.**
 
 ## Keeping the Skill Current
 
 The `/clawctl` skill lives at both `.opencode/skills/clawctl/SKILL.md` and
-`.claude/skills/clawctl/SKILL.md` in the repository (kept byte-identical), and
-the companion tool at `scripts/clawctl-audit.py`. They must be updated
-whenever the `clawctl` CLI surface changes — new commands, renamed flags, or
-removed sub-commands. This is enforced by the Maintenance Note at the bottom
-of the skill file itself.
+`.claude/skills/clawctl/SKILL.md` in the repository (kept byte-identical),
+and the audit-trail logic lives at `src/clawrium/cli/clawctl/audit.py`
+(exposed as `clawctl audit`). They must be updated whenever the `clawctl`
+CLI surface changes — new commands, renamed flags, or removed sub-commands.
+This is enforced by the Maintenance Note at the bottom of the skill file
+itself.
 
 Contributors: if you add or change a `clawctl` command, update both `SKILL.md`
 files in the same PR.

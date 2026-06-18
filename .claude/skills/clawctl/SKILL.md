@@ -364,13 +364,13 @@ clawctl gui                        # local web dashboard for the whole fleet
 
 Every mutating `clawctl` command you run on the user's behalf — and every mutating command you guide the user to run themselves — MUST be recorded in the operator's audit trail. The trail is the full history of what happened on this control machine via the `/clawctl` skill, and is the only way the operator can later answer "what did the agent do, when, and with what result?"
 
-The audit trail is owned by the **`clawctl-audit`** companion tool (a Python helper installed alongside this skill). Always call `clawctl-audit` — **never hand-roll JSON lines** with `printf`, `echo`, or `jq` in the chat. Hand-rolled lines break the file the moment a `notes` string contains a quote, newline, or backslash.
+The audit trail is owned by the **`clawctl audit`** subcommand. Always call `clawctl audit log` — **never hand-roll JSON lines** with `printf`, `echo`, or `jq` in the chat. Hand-rolled lines break the file the moment a `notes` string contains a quote, newline, or backslash.
 
 ### The tool
 
-`clawctl-audit` is a small Python 3.8+ stdlib-only program that owns writing and reading the trail. Logs live at `~/.config/clawrium/changelog/<YYYYMMDD>.jsonl` (one file per UTC day, append-only, one JSON object per line).
+`clawctl audit` is a built-in subcommand of `clawctl` — no separate binary to install. If you have `clawctl` on PATH, you have audit. Logs live at `~/.config/clawrium/changelog/<YYYYMMDD>.jsonl` (one file per UTC day, append-only, one JSON object per line).
 
-Schema per line (managed by `clawctl-audit`, **do not write directly**):
+Schema per line (managed by `clawctl audit`, **do not write directly**):
 
 | Field | Filled by | Notes |
 |---|---|---|
@@ -380,7 +380,7 @@ Schema per line (managed by `clawctl-audit`, **do not write directly**):
 | `session_id` | env / flag | Group everything you do in one workflow (see below) |
 | `timestamp` | tool | ISO 8601 UTC, millisecond precision |
 | `cwd` | tool | The working directory at write time — useful when the operator asks "where was I when this ran?" |
-| `version` | tool | `{audit, tool, clawctl}` — schema + tool + detected clawctl versions |
+| `version` | tool | `{audit, clawctl}` — schema version + clawctl version |
 | `actor` | you | `"user"` or `"agent"` |
 | `action` | you | Short description; **include the literal command** when relevant |
 | `result` | you | `"success"`, `"failure"`, or `"skipped"` |
@@ -388,29 +388,29 @@ Schema per line (managed by `clawctl-audit`, **do not write directly**):
 
 ### Sessions
 
-Before kicking off a multi-step workflow on the user's behalf, mint a session id and export it so every `clawctl-audit log` call inside the workflow is grouped:
+Before kicking off a multi-step workflow on the user's behalf, mint a session id and export it so every `clawctl audit log` call inside the workflow is grouped:
 
 ```bash
-export CLAWCTL_AUDIT_SESSION_ID="$(clawctl-audit session new)"
+export CLAWCTL_AUDIT_SESSION_ID="$(clawctl audit session new)"
 ```
 
-Every subsequent `log` invocation in that shell will tag entries with that session id. The operator can then run `clawctl-audit show --session-id <id>` to replay the full workflow.
+Every subsequent `log` invocation in that shell will tag entries with that session id. The operator can then run `clawctl audit show --session-id <id>` to replay the full workflow.
 
 You may also pass `--session-id <id>` explicitly to override the env var for a single entry.
 
 ### Writing entries
 
 ```
-clawctl-audit log "<action>" --result <success|failure|skipped> [--actor <user|agent>] [--notes "<context>"]
+clawctl audit log "<action>" --result <success|failure|skipped> [--actor <user|agent>] [--notes "<context>"]
 ```
 
 `--actor` defaults to `agent` (you ran the command yourself). Pass `--actor user` only when the operator ran the command directly and asked you to record it.
 
 Examples (always copy this shape — do NOT improvise the JSON):
 ```
-clawctl-audit log "clawctl agent start myassistant" --result success --notes "started zeroclaw on host mybox"
-clawctl-audit log "clawctl agent configure myassistant" --result failure --notes "ansible failed at stage 'render templates'; see clawctl agent doctor for details"
-clawctl-audit log "clawctl agent skill add myassistant --from-template clawrium/tdd" --result success
+clawctl audit log "clawctl agent start myassistant" --result success --notes "started zeroclaw on host mybox"
+clawctl audit log "clawctl agent configure myassistant" --result failure --notes "ansible failed at stage 'render templates'; see clawctl agent doctor for details"
+clawctl audit log "clawctl agent skill add myassistant --from-template clawrium/tdd" --result success
 ```
 
 ### Chaining steps with `parent_uuid` (optional)
@@ -418,8 +418,8 @@ clawctl-audit log "clawctl agent skill add myassistant --from-template clawrium/
 If you want to make causal dependency explicit (`configure` → `start` → `sync`), capture the parent's uuid with `--print-uuid` and pass it on the next entry:
 
 ```bash
-PARENT=$(clawctl-audit log "clawctl agent configure myassistant" --result success --print-uuid)
-clawctl-audit log "clawctl agent start myassistant" --result success --parent-uuid "$PARENT"
+PARENT=$(clawctl audit log "clawctl agent configure myassistant" --result success --print-uuid)
+clawctl audit log "clawctl agent start myassistant" --result success --parent-uuid "$PARENT"
 ```
 
 This is optional. If you don't chain, `parent_uuid` is null and the trail is still useful for time-ordered review.
@@ -427,14 +427,14 @@ This is optional. If you don't chain, `parent_uuid` is null and the trail is sti
 ### Reading the trail
 
 ```
-clawctl-audit tail [-n N]                                    # Last N entries across every day (default 20)
-clawctl-audit show --date YYYYMMDD                           # One day's entries
-clawctl-audit show --actor agent --result failure --last 50  # Failures attributed to the agent
-clawctl-audit show --session-id <id>                         # Everything in one workflow
-clawctl-audit show --grep '<regex>' [--json]                 # Regex over action+notes, optional raw JSONL
-clawctl-audit stats [--top N]                                # Summary counts + top action groups
-clawctl-audit path                                           # Print the log directory
-clawctl-audit session new                                    # Mint a session id (export it before a workflow)
+clawctl audit tail [-n N]                                    # Last N entries across every day (default 20)
+clawctl audit show --date YYYYMMDD                           # One day's entries
+clawctl audit show --actor agent --result failure --last 50  # Failures attributed to the agent
+clawctl audit show --session-id <id>                         # Everything in one workflow
+clawctl audit show --grep '<regex>' [--json]                 # Regex over action+notes, optional raw JSONL
+clawctl audit stats [--top N]                                # Summary counts + top action groups
+clawctl audit path                                           # Print the log directory
+clawctl audit session new                                    # Mint a session id (export it before a workflow)
 ```
 
 Use these — never `cat`, `grep`, or `jq` the JSONL files in the chat output. The tool understands the schema and won't choke on partial writes.
@@ -448,15 +448,15 @@ Use these — never `cat`, `grep`, or `jq` the JSONL files in the chat output. T
 | `skill add` / `skill remove`, `secret create` / `delete`, `memory edit` / `delete` | Read-only queries used purely to inform a recommendation |
 | **Failures** of any mutating command (with the error in `notes`) | |
 
-### If `clawctl-audit` is not on PATH
+### If `clawctl` is not on PATH
 
-Stop and tell the operator to (re-)run the install script:
+Stop and tell the operator to install clawctl first — `clawctl audit` ships with it:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/ric03uec/clawrium/main/scripts/install-skill-clawctl.sh | bash
+uv tool install clawrium
 ```
 
-The installer drops `clawctl-audit` into `~/.local/bin/`. Do not fall back to inline `jq`/`printf` — fragile JSON in the trail is worse than no trail.
+Do not fall back to inline `jq`/`printf` — fragile JSON in the trail is worse than no trail.
 
 ---
 
