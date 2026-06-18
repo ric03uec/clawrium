@@ -951,14 +951,23 @@ class TestCleanupArtifacts:
     def test_removes_known_subdirs(self, tmp_path: Path):
         artifacts = tmp_path / "artifacts"
         artifacts.mkdir()
-        (artifacts / "f").write_text("x")
+        # Create a run UUID subdir with fact_cache (sensitive) and stdout (safe)
+        run_dir = artifacts / "some-uuid"
+        run_dir.mkdir()
+        fact_cache = run_dir / "fact_cache"
+        fact_cache.mkdir()
+        (fact_cache / "host1").write_text("secret")
+        (run_dir / "stdout").write_text("playbook output")
         env = tmp_path / "env"
         env.mkdir()
         (env / "f").write_text("x")
 
         _cleanup_artifacts(tmp_path)
 
-        assert not artifacts.exists()
+        # artifacts dir preserved (stdout kept), but fact_cache removed
+        assert artifacts.exists()
+        assert not fact_cache.exists()
+        assert (run_dir / "stdout").exists()
         assert not env.exists()
 
     def test_silently_ignores_missing_dirs(self, tmp_path: Path):

@@ -132,7 +132,7 @@
         group: staff
         force: yes
         timeout: 30
-        checksum: "sha256:{{ claw_sha256 }}"
+        checksum: "{{ ('sha256:' + claw_sha256) if claw_sha256 else omit }}"
       when: not hermes_already_installed
 
     - name: Install Hermes runtime (non-interactive)

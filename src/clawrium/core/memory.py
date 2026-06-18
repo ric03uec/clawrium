@@ -483,12 +483,24 @@ def _cleanup_artifacts(operation_log_dir: Path) -> None:
 
     Mirrors the cleanup used in lifecycle._cleanup_ansible_artifacts so memory
     operations do not leak SSH key paths, extravars, or inventory contents on
-    disk. ``inventory/`` is included alongside ``artifacts/`` and ``env/``
-    because ansible-runner writes ``memory_content_b64`` and other extravars
-    there; without this, the security justification for removing ``no_log``
-    from the read playbook would only hold partway.
+    disk. Preserves stdout/rc/status log files for post-run diagnostics while
+    removing the secret-bearing fact_cache/ subdirectory.
     """
-    for sub in ("artifacts", "env", "inventory"):
+    # Selectively clean artifacts — keep stdout/rc/status, remove fact_cache
+    artifacts_dir = operation_log_dir / "artifacts"
+    if artifacts_dir.exists():
+        for run_dir in artifacts_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+            for sensitive_subdir in ("fact_cache",):
+                target = run_dir / sensitive_subdir
+                if target.exists():
+                    try:
+                        shutil.rmtree(target)
+                    except OSError as e:
+                        logger.warning("Failed to clean up %s: %s", target, e)
+
+    for sub in ("env", "inventory"):
         target = operation_log_dir / sub
         if target.exists():
             try:

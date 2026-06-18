@@ -74,7 +74,21 @@ def _logs_dir() -> Path:
 
 
 def _cleanup_artifacts(log_dir: Path) -> None:
-    for sub in ("artifacts", "env", "inventory"):
+    # Selectively clean artifacts — keep stdout/rc/status, remove fact_cache
+    artifacts_dir = log_dir / "artifacts"
+    if artifacts_dir.exists():
+        for run_dir in artifacts_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+            for sensitive_subdir in ("fact_cache",):
+                target = run_dir / sensitive_subdir
+                if target.exists():
+                    try:
+                        shutil.rmtree(target)
+                    except OSError as e:
+                        logger.warning("Failed to clean up %s: %s", target, e)
+
+    for sub in ("env", "inventory"):
         target = log_dir / sub
         if target.exists():
             try:
@@ -82,6 +96,7 @@ def _cleanup_artifacts(log_dir: Path) -> None:
             except OSError as e:
                 logger.warning("Failed to clean up %s: %s", target, e)
     # Drop the now-empty per-run directory (ATX iter-1 W8).
+    # Only remove if truly empty (stdout logs may now persist).
     try:
         log_dir.rmdir()
     except OSError:

@@ -284,15 +284,38 @@ def _cleanup_ansible_artifacts(operation_log_dir: Path) -> None:
     """Clean up ansible-runner artifacts that may contain secrets.
 
     B3 fix: ansible-runner stores inventory and vars in artifacts/,
-    which can contain API keys and tokens. Remove after all runs.
+    which can contain API keys and tokens. We preserve non-sensitive log
+    files (stdout, rc, status) for post-run diagnostics while removing
+    secret-bearing subdirectories (fact_cache/) and the inventory/env dirs.
     """
     artifacts_dir = operation_log_dir / "artifacts"
-    if artifacts_dir.exists():
+    if artifacts_dir.exists() and artifacts_dir.is_dir():
+        # Preserve stdout/rc/status from each run UUID subdir, then remove
+        # the sensitive fact_cache/ and job_events/ (which may echo vars).
         try:
-            shutil.rmtree(artifacts_dir)
-            logger.debug("Cleaned up ansible artifacts at %s", artifacts_dir)
-        except Exception as e:
-            logger.warning("Failed to clean up ansible artifacts: %s", e)
+            entries = list(artifacts_dir.iterdir())
+        except (OSError, FileNotFoundError):
+            entries = []
+        for run_dir in entries:
+            if not run_dir.is_dir():
+                continue
+            # Remove secret-bearing subdirs
+            for sensitive_subdir in ("fact_cache",):
+                target = run_dir / sensitive_subdir
+                if target.exists():
+                    try:
+                        shutil.rmtree(target)
+                        logger.debug(
+                            "Cleaned up sensitive subdir %s", target
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to clean up %s: %s", target, e
+                        )
+        logger.debug(
+            "Preserved ansible artifacts (stdout/rc/status) at %s",
+            artifacts_dir,
+        )
 
     # Also clean up env/ directory which may contain inventory with secrets
     env_dir = operation_log_dir / "env"

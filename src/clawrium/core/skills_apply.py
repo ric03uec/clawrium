@@ -438,12 +438,26 @@ def _cleanup_runner_artifacts(log_dir: Path) -> None:
     """Remove ansible-runner subdirectories that may cache inventory.
 
     `inventory/` includes the SSH key path and our extravars (including
-    the absolute staging_dir path on this host); `env/` and `artifacts/`
-    cache extravars + fact data. Same cleanup memory.py / lifecycle.py
-    do — keep this module consistent so SSH key paths aren't left on
-    disk after every apply.
+    the absolute staging_dir path on this host); `env/` caches extravars.
+    For `artifacts/` we preserve stdout/rc/status log files while removing
+    the secret-bearing fact_cache/ subdirectory (same approach as
+    lifecycle._cleanup_ansible_artifacts).
     """
-    for sub in ("artifacts", "env", "inventory"):
+    # Selectively clean artifacts — keep stdout/rc/status, remove fact_cache
+    artifacts_dir = log_dir / "artifacts"
+    if artifacts_dir.exists():
+        for run_dir in artifacts_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+            for sensitive_subdir in ("fact_cache",):
+                target = run_dir / sensitive_subdir
+                if target.exists():
+                    try:
+                        shutil.rmtree(target)
+                    except OSError as error:
+                        logger.debug("Could not clean %s: %s", target, error)
+
+    for sub in ("env", "inventory"):
         target = log_dir / sub
         if target.exists():
             try:

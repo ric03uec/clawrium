@@ -263,11 +263,22 @@ def test_apply_state_cleans_log_artifacts_on_success(monkeypatch, tmp_path):
     inside the runner's private_data_dir (with a real-looking
     inventory file mimicking what ansible-runner writes) so the
     cleanup pass has something to clean.
+
+    Post-fix behavior: artifacts/ is preserved (for stdout logs) but
+    fact_cache/ within it is removed. env/ and inventory/ are still
+    fully removed.
     """
 
     def create_artifacts_and_succeed(**kwargs):
         pd = Path(kwargs["private_data_dir"])
-        for sub in ("artifacts", "env", "inventory"):
+        # Simulate ansible-runner artifact structure
+        run_dir = pd / "artifacts" / "some-uuid"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "stdout").write_text("PLAY [all] ***")
+        fact_cache = run_dir / "fact_cache"
+        fact_cache.mkdir()
+        (fact_cache / "host1").write_text("would leak secrets")
+        for sub in ("env", "inventory"):
             (pd / sub).mkdir(parents=True, exist_ok=True)
             (pd / sub / "evidence.txt").write_text("would leak SSH key path")
         return _runner_result()
@@ -281,10 +292,18 @@ def test_apply_state_cleans_log_artifacts_on_success(monkeypatch, tmp_path):
     log_dirs = list(logs_dir.iterdir())
     assert log_dirs, "expected at least one log dir on disk"
     for log_dir in log_dirs:
-        for leaked in ("artifacts", "env", "inventory"):
+        # env and inventory must be fully removed
+        for leaked in ("env", "inventory"):
             assert not (log_dir / leaked).exists(), (
                 f"{log_dir / leaked} should have been cleaned"
             )
+        # artifacts dir is preserved (stdout kept) but fact_cache removed
+        artifacts_dir = log_dir / "artifacts"
+        if artifacts_dir.exists():
+            for run_dir in artifacts_dir.iterdir():
+                assert not (run_dir / "fact_cache").exists(), (
+                    "fact_cache should have been cleaned"
+                )
 
 
 # ---------------------------- materialize_for_claw --------------------------

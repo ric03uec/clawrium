@@ -2984,16 +2984,22 @@ class TestSyncAgent:
 class TestCleanupAnsibleArtifacts:
     """B5 fix: Tests for _cleanup_ansible_artifacts()."""
 
-    def test_cleans_artifacts_dir(self, tmp_path: Path):
-        """Removes artifacts directory."""
+    def test_cleans_artifacts_fact_cache(self, tmp_path: Path):
+        """Removes fact_cache from within artifact run dirs but preserves stdout."""
         artifacts_dir = tmp_path / "artifacts"
-        artifacts_dir.mkdir()
-        (artifacts_dir / "job_events").mkdir()
-        (artifacts_dir / "job_events" / "event.json").write_text("{}")
+        run_dir = artifacts_dir / "some-uuid"
+        run_dir.mkdir(parents=True)
+        fact_cache = run_dir / "fact_cache"
+        fact_cache.mkdir()
+        (fact_cache / "host1").write_text('{"secret": "token"}')
+        (run_dir / "stdout").write_text("PLAY [all] ***")
 
         _cleanup_ansible_artifacts(tmp_path)
 
-        assert not artifacts_dir.exists()
+        # artifacts dir and stdout preserved, fact_cache removed
+        assert artifacts_dir.exists()
+        assert (run_dir / "stdout").exists()
+        assert not fact_cache.exists()
 
     def test_cleans_env_dir(self, tmp_path: Path):
         """Removes env directory."""
@@ -3005,16 +3011,18 @@ class TestCleanupAnsibleArtifacts:
 
         assert not env_dir.exists()
 
-    def test_cleans_both_dirs(self, tmp_path: Path):
-        """Removes both artifacts and env directories."""
+    def test_cleans_env_and_inventory_preserves_artifacts(self, tmp_path: Path):
+        """Removes env and inventory but preserves artifacts dir."""
         artifacts_dir = tmp_path / "artifacts"
-        artifacts_dir.mkdir()
+        run_dir = artifacts_dir / "some-uuid"
+        run_dir.mkdir(parents=True)
+        (run_dir / "stdout").write_text("output")
         env_dir = tmp_path / "env"
         env_dir.mkdir()
 
         _cleanup_ansible_artifacts(tmp_path)
 
-        assert not artifacts_dir.exists()
+        assert artifacts_dir.exists()
         assert not env_dir.exists()
 
     def test_skips_nonexistent_dirs(self, tmp_path: Path):
@@ -3023,37 +3031,46 @@ class TestCleanupAnsibleArtifacts:
         _cleanup_ansible_artifacts(tmp_path)  # Should not raise
 
     def test_handles_permission_errors(self, tmp_path: Path):
-        """Logs warning on permission errors."""
+        """Logs warning on permission errors for fact_cache removal."""
         import stat
 
         artifacts_dir = tmp_path / "artifacts"
-        artifacts_dir.mkdir()
-        # Make parent read-only to prevent deletion
-        tmp_path.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        run_dir = artifacts_dir / "some-uuid"
+        run_dir.mkdir(parents=True)
+        fact_cache = run_dir / "fact_cache"
+        fact_cache.mkdir()
+        (fact_cache / "host1").write_text("secret")
+        # Make fact_cache read-only to prevent deletion
+        fact_cache.chmod(stat.S_IRUSR | stat.S_IXUSR)
 
         try:
             _cleanup_ansible_artifacts(tmp_path)  # Should not raise
-            # Artifacts still exist due to permission error
-            assert artifacts_dir.exists()
+            # fact_cache still exists due to permission error
+            assert fact_cache.exists()
         finally:
             # Restore permissions for cleanup
-            tmp_path.chmod(stat.S_IRWXU)
+            fact_cache.chmod(stat.S_IRWXU)
 
     def test_partial_failure_continues(self, tmp_path: Path):
-        """Continues to env cleanup even if artifacts cleanup fails."""
-        with patch("clawrium.core.lifecycle.shutil.rmtree") as mock_rmtree:
-            # First call (artifacts) fails, second (env) succeeds
-            mock_rmtree.side_effect = [PermissionError("denied"), None]
+        """Continues to env/inventory cleanup even if fact_cache cleanup fails."""
+        artifacts_dir = tmp_path / "artifacts"
+        run_dir = artifacts_dir / "some-uuid"
+        run_dir.mkdir(parents=True)
+        fact_cache = run_dir / "fact_cache"
+        fact_cache.mkdir()
+        env_dir = tmp_path / "env"
+        env_dir.mkdir()
+        inventory_dir = tmp_path / "inventory"
+        inventory_dir.mkdir()
 
-            artifacts_dir = tmp_path / "artifacts"
-            artifacts_dir.mkdir()
-            env_dir = tmp_path / "env"
-            env_dir.mkdir()
+        with patch("clawrium.core.lifecycle.shutil.rmtree") as mock_rmtree:
+            # First call (fact_cache) fails, subsequent (env, inventory) succeed
+            mock_rmtree.side_effect = [PermissionError("denied"), None, None]
 
             _cleanup_ansible_artifacts(tmp_path)
 
-            # Both attempts should be made
-            assert mock_rmtree.call_count == 2
+            # At least env+inventory attempts should be made
+            assert mock_rmtree.call_count >= 2
 
 
 class TestConfigureAgentSlackTokens:

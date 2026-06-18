@@ -273,12 +273,20 @@ def _atomic_write(
                 fh.write(body.encode("utf-8"))
         finally:
             sftp.close()
-        # `install -m 0600 -o <name> -g <name>` requires sudo (target
+        # `install -m 0600 -o <name> -g <group>` requires sudo (target
         # dirs are root- or agent-owned). `install` is atomic w.r.t.
         # the destination so a partial write is never visible.
+        # On macOS, agent users belong to the `staff` group (not a
+        # per-user group matching the username as on Linux). Resolve
+        # the primary group dynamically to avoid `Invalid argument`.
         owner = shlex.quote(agent_name)
+        _, gid_out, _ = client.exec_command(
+            f"id -gn {owner}", timeout=timeout
+        )
+        group = gid_out.read().decode("utf-8").strip() or agent_name
+        group = shlex.quote(group)
         cmd = (
-            f"sudo -n install -m 0600 -o {owner} -g {owner} "
+            f"sudo -n install -m 0600 -o {owner} -g {group} "
             f"{shlex.quote(tmp_path)} {quoted_path}"
         )
         _, install_out, install_err = client.exec_command(cmd, timeout=timeout)
