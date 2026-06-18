@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from clawrium.core.validation import (
     ValidationResult,
     validate_soul_md,
@@ -410,23 +412,32 @@ class TestTestProviderConnectivity:
         result = verify_provider_connectivity("test-anthropic")
         assert result.passed is True
 
+    @pytest.mark.parametrize(
+        "provider_type,expected_endpoint",
+        [
+            ("opencode", "opencode.ai/zen/v1"),
+            ("opencode-go", "opencode.ai/zen/go/v1"),
+        ],
+    )
     @patch("clawrium.core.validation._make_request")
-    def test_opencode_success(self, mock_request, isolated_config: Path):
+    def test_opencode_success(
+        self, mock_request, isolated_config: Path, provider_type: str, expected_endpoint: str
+    ):
         """Returns success on valid OpenCode response."""
         isolated_config.mkdir(parents=True, exist_ok=True)
         providers_file = isolated_config / "providers.json"
         providers_file.write_text(
-            json.dumps([{"name": "test-opencode", "type": "opencode"}])
+            json.dumps([{"name": f"test-{provider_type}", "type": provider_type}])
         )
 
         secrets_file = isolated_config / "secrets.json"
         secrets_file.write_text(
             json.dumps(
                 {
-                    "provider:test-opencode": {
+                    f"provider:test-{provider_type}": {
                         "API_KEY": {
                             "key": "API_KEY",
-                            "value": "sk-opencode-test",
+                            "value": f"sk-{provider_type}-test",
                             "created_at": "2026-01-01T00:00:00Z",
                             "updated_at": "2026-01-01T00:00:00Z",
                             "description": "",
@@ -438,27 +449,46 @@ class TestTestProviderConnectivity:
 
         mock_request.return_value = (200, {}, None)
 
-        result = verify_provider_connectivity("test-opencode")
+        result = verify_provider_connectivity(f"test-{provider_type}")
         assert result.passed is True
-        assert "opencode.ai/zen/v1" in result.details["endpoint"]
+        assert expected_endpoint in result.details["endpoint"]
 
+    @pytest.mark.parametrize(
+        "provider_type,status,error,expected_error_substring",
+        [
+            ("opencode", 401, None, "invalid"),
+            ("opencode", 0, "connection refused", "connect"),
+            ("opencode", None, "timeout", "timed out"),
+            ("opencode-go", 401, None, "invalid"),
+            ("opencode-go", 0, "connection refused", "connect"),
+            ("opencode-go", None, "timeout", "timed out"),
+        ],
+    )
     @patch("clawrium.core.validation._make_request")
-    def test_opencode_go_success(self, mock_request, isolated_config: Path):
-        """Returns success on valid OpenCode Go response."""
+    def test_opencode_failure_paths(
+        self,
+        mock_request,
+        isolated_config: Path,
+        provider_type: str,
+        status: int | None,
+        error: str | None,
+        expected_error_substring: str,
+    ):
+        """Returns failure on 401, connection failure, and timeout."""
         isolated_config.mkdir(parents=True, exist_ok=True)
         providers_file = isolated_config / "providers.json"
         providers_file.write_text(
-            json.dumps([{"name": "test-opencode-go", "type": "opencode-go"}])
+            json.dumps([{"name": f"test-{provider_type}", "type": provider_type}])
         )
 
         secrets_file = isolated_config / "secrets.json"
         secrets_file.write_text(
             json.dumps(
                 {
-                    "provider:test-opencode-go": {
+                    f"provider:test-{provider_type}": {
                         "API_KEY": {
                             "key": "API_KEY",
-                            "value": "sk-opencode-go-test",
+                            "value": f"sk-{provider_type}-test",
                             "created_at": "2026-01-01T00:00:00Z",
                             "updated_at": "2026-01-01T00:00:00Z",
                             "description": "",
@@ -468,11 +498,26 @@ class TestTestProviderConnectivity:
             )
         )
 
-        mock_request.return_value = (200, {}, None)
+        mock_request.return_value = (status, {}, error)
 
-        result = verify_provider_connectivity("test-opencode-go")
-        assert result.passed is True
-        assert "opencode.ai/zen/go/v1" in result.details["endpoint"]
+        result = verify_provider_connectivity(f"test-{provider_type}")
+        assert result.passed is False
+        assert expected_error_substring in result.errors[0].lower()
+
+    @pytest.mark.parametrize("provider_type", ["opencode", "opencode-go"])
+    def test_opencode_missing_key(
+        self, isolated_config: Path, provider_type: str
+    ):
+        """Returns failure when the API key is missing."""
+        isolated_config.mkdir(parents=True, exist_ok=True)
+        providers_file = isolated_config / "providers.json"
+        providers_file.write_text(
+            json.dumps([{"name": f"test-{provider_type}", "type": provider_type}])
+        )
+
+        result = verify_provider_connectivity(f"test-{provider_type}")
+        assert result.passed is False
+        assert "api key" in result.errors[0].lower()
 
 
 class TestTestOllamaConnectivity:

@@ -256,6 +256,71 @@ def test_update_cloud_provider_skips_ollama_validation(monkeypatch):
     assert captured["result"]["endpoint"] == "http://169.254.169.254/"
 
 
+# ─── OpenCode endpoint validation (W1) ──────────────────────────────
+
+
+def test_create_opencode_rejects_http_scheme(monkeypatch):
+    """OpenCode endpoints must use https."""
+    _capture_add_provider(monkeypatch)
+    _patch_secret_writes(monkeypatch)
+
+    body = ProviderCreate(
+        name="oc-http",
+        type="opencode",
+        api_key="sk-test",
+        endpoint="http://opencode.ai/zen/v1",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(create_provider(body))
+    assert exc_info.value.status_code == 400
+    assert "https" in str(exc_info.value.detail).lower()
+
+
+def test_create_opencode_rejects_cloud_metadata_endpoint(monkeypatch):
+    """OpenCode endpoint overrides must not target cloud metadata IPs."""
+    _capture_add_provider(monkeypatch)
+    _patch_secret_writes(monkeypatch)
+
+    body = ProviderCreate(
+        name="oc-metadata",
+        type="opencode-go",
+        api_key="sk-test",
+        endpoint="https://169.254.169.254/latest/meta-data/",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(create_provider(body))
+    assert exc_info.value.status_code == 400
+    assert "metadata" in str(exc_info.value.detail).lower()
+
+
+def test_create_opencode_uses_default_endpoint_when_none_supplied(monkeypatch):
+    """When no endpoint is supplied, the catalog default is persisted."""
+    captured = _capture_add_provider(monkeypatch)
+    _patch_secret_writes(monkeypatch)
+
+    body = ProviderCreate(
+        name="oc-default",
+        type="opencode-go",
+        api_key="sk-test",
+    )
+    asyncio.run(create_provider(body))
+    assert captured["provider"]["endpoint"] == "https://opencode.ai/zen/go/v1"
+
+
+def test_update_opencode_endpoint_rejects_http_scheme(monkeypatch):
+    """PUT on an opencode provider must reject non-https endpoints."""
+    existing = {"name": "oc", "type": "opencode"}
+    monkeypatch.setattr(providers_mod, "get_provider", lambda name: existing)
+    monkeypatch.setattr(providers_mod, "update_provider", lambda *a, **kw: True)
+    monkeypatch.setattr(providers_mod, "set_provider_api_key", lambda *a, **kw: True)
+
+    body = ProviderUpdate(endpoint="http://opencode.ai/zen/v1")
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(update_provider_endpoint("oc", body))
+    assert exc_info.value.status_code == 400
+    assert "https" in str(exc_info.value.detail).lower()
+
+
 # ─── provider_types endpoint ────────────────────────────────────────
 
 

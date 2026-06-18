@@ -207,7 +207,7 @@ def create(
         ...,
         "--type",
         "-t",
-        help="Provider type (anthropic, openai, bedrock, opencode, opencode-go, ollama, ...)."
+        help="Provider type (anthropic, openai, bedrock, opencode, opencode-go, ollama, ...).",
     ),
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Default model id."
@@ -352,6 +352,30 @@ def create(
         except DuplicateProviderError as exc:
             emit_error(str(exc))
         set_provider_aws_credentials(name, access_key, secret_key)
+        typer.echo(f"provider/{name}: created (type={provider_type})")
+        return
+
+    # OpenCode hosted providers: default endpoint is part of the provider
+    # contract; persist it so renderers don't have to re-derive it from
+    # PROVIDER_MODELS on every configure/sync.
+    if provider_type in ("opencode", "opencode-go"):
+        resolved_key = _resolve_api_key(api_key, api_key_stdin)
+        if not resolved_key:
+            emit_error("API key is required")
+        endpoint = PROVIDER_MODELS.get(provider_type, {}).get("endpoint", "")
+        record = {
+            "name": name,
+            "type": provider_type,
+            "endpoint": endpoint,
+            "default_model": model,
+            "created_at": now,
+            "updated_at": now,
+        }
+        try:
+            add_provider(record)
+        except DuplicateProviderError as exc:
+            emit_error(str(exc))
+        set_provider_api_key(name, resolved_key)
         typer.echo(f"provider/{name}: created (type={provider_type})")
         return
 

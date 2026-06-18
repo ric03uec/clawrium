@@ -583,6 +583,54 @@ def test_hermes_opencode_go_renders_custom_provider_with_inline_key():
     assert "OPENCODE_API_KEY" not in env
 
 
+def test_hermes_opencode_endpoint_without_v1_gets_normalized():
+    """Endpoint missing trailing /v1 gets /v1 appended for OpenCode."""
+    base = _baseline_inputs(ptype="opencode")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=base.provider.default_model,
+        endpoint="https://opencode.ai/zen",
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        api_server=base.api_server,
+        gateway=base.gateway,
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    assert "https://opencode.ai/zen/v1" in yaml
+    assert "https://opencode.ai/zen/v1/v1" not in yaml
+
+
+def test_hermes_opencode_go_endpoint_without_v1_gets_normalized():
+    """Endpoint missing trailing /v1 gets /v1 appended for OpenCode Go."""
+    base = _baseline_inputs(ptype="opencode-go")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=base.provider.default_model,
+        endpoint="https://opencode.ai/zen/go",
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        api_server=base.api_server,
+        gateway=base.gateway,
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    assert "https://opencode.ai/zen/go/v1" in yaml
+    assert "https://opencode.ai/zen/go/v1/v1" not in yaml
+
+
 def test_hermes_litellm_endpoint_with_v1_suffix_not_double_appended():
     """Endpoint already ending in /v1 must not be double-suffixed."""
     base = _baseline_inputs(ptype="litellm")
@@ -836,6 +884,27 @@ def test_zeroclaw_opencode_go_renders_base_url_and_api_key():
     assert 'api_key = "sk-opencode-go-1"' in toml
 
 
+def test_zeroclaw_opencode_normalizes_endpoint_to_v1():
+    """W8: user-supplied endpoint without trailing /v1 gets normalized."""
+    base = _zeroclaw_inputs(ptype="opencode")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=ProviderInputs(
+            name="oc",
+            type="opencode",
+            default_model="kimi-k2.5",
+            endpoint="https://opencode.ai/zen",
+            api_key="sk-opencode-1",
+        ),
+        channels=base.channels,
+        integrations=base.integrations,
+        gateway=base.gateway,
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    assert 'base_url = "https://opencode.ai/zen/v1"' in toml
+
+
 def test_openclaw_opencode_emits_api_key_and_unprefixed_model():
     inputs = _baseline_inputs(ptype="opencode")
     inputs = RenderInputs(
@@ -850,6 +919,7 @@ def test_openclaw_opencode_emits_api_key_and_unprefixed_model():
     env = out.files[".openclaw/env"]
     json_body = out.files[".openclaw/openclaw.json"]
     assert "OPENCODE_API_KEY='sk-opencode-1'" in env
+    assert "OPENAI_BASE_URL='https://opencode.ai/zen/v1'" in env
     assert "OPENCLAW_DEFAULT_MODEL='kimi-k2.5'" in env
     assert '"primary": "kimi-k2.5"' in json_body
 
@@ -868,6 +938,7 @@ def test_openclaw_opencode_go_emits_api_key_and_unprefixed_model():
     env = out.files[".openclaw/env"]
     json_body = out.files[".openclaw/openclaw.json"]
     assert "OPENCODE_API_KEY='sk-opencode-go-1'" in env
+    assert "OPENAI_BASE_URL='https://opencode.ai/zen/go/v1'" in env
     assert "OPENCLAW_DEFAULT_MODEL='kimi-k2.5'" in env
     assert '"primary": "kimi-k2.5"' in json_body
 

@@ -281,7 +281,7 @@ def add(
         ...,
         "--type",
         "-t",
-        help="Provider type (openai, anthropic, openrouter, bedrock, vertex, zai, opencode, opencode-go, ollama, litellm)",
+        help="Provider type (openai, anthropic, openrouter, bedrock, vertex, zai, ollama, litellm)",
     ),
     model: Optional[str] = typer.Option(
         None,

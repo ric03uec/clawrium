@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import functools as _functools
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 __all__ = [
     "AgentConfigError",
@@ -1198,11 +1198,22 @@ def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
             f"(zeroclaw supports 'discord' only)"
         )
 
+    # --- normalize provider endpoint for OpenAI-compatible gateways ------
+    # zeroclaw's config.toml uses the endpoint verbatim as base_url. For
+    # opencode/opencode-go (and litellm/ollama), ensure the trailing `/v1`
+    # is present so the daemon hits the correct OpenAI-compatible path.
+    provider = inputs.provider
+    if provider.type in ("opencode", "opencode-go"):
+        endpoint = provider.endpoint.rstrip("/")
+        if endpoint and not endpoint.endswith("/v1"):
+            endpoint = endpoint + "/v1"
+        provider = replace(provider, endpoint=endpoint)
+
     # --- render the full canonical template -------------------------------
     toml_body = _render_zeroclaw_config_template(
         agent_name=inputs.agent_name,
         gateway=inputs.gateway,
-        provider=inputs.provider,
+        provider=provider,
         discord_channel=discord_channel,
         shell_env_passthrough=passthrough,
     )
