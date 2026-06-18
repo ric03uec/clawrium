@@ -16,6 +16,36 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- `/clawctl` AI-assistant skill — embeds the full `clawctl` CLI reference (all
+  commands, flags, sub-commands, and common workflows) into any
+  opencode-compatible assistant **and** Claude Code, enabling natural-language
+  fleet management from the control machine without leaving the assistant
+  session. Ships in two byte-identical copies so it's discoverable by both
+  tools: `.opencode/skills/clawctl/SKILL.md` and
+  `.claude/skills/clawctl/SKILL.md`. Registered in `AGENTS.md` and documented
+  in the website guides (`website/docs/guides/ai-assistant.md`). Closes #741.
+- `scripts/install-skill-clawctl.sh` — one-shot installer for the `/clawctl`
+  skill. Works on Ubuntu / Debian-family Linux and macOS, auto-detects which
+  AI assistants (Claude Code, opencode) are installed, drops the skill into
+  the right **global** discovery path for each (no Clawrium project checkout
+  required), and pins the skill to the locally-installed `clawctl` version.
+  Idempotent. Curl-pipe-bash:
+  `curl -fsSL https://raw.githubusercontent.com/ric03uec/clawrium/main/scripts/install-skill-clawctl.sh | bash`.
+- `clawctl audit` subcommand — operator-side audit trail for the `/clawctl`
+  skill, exposed as a built-in subcommand of `clawctl` (no separate companion
+  binary to install). The skill instructs the assistant to record every
+  mutating `clawctl` command — and every command-line failure — via
+  `clawctl audit log` so the operator has a full reproducible trace of what
+  the assistant did, when, and with what result. Logs live at
+  `~/.config/clawrium/changelog/<YYYYMMDD>.jsonl` (one file per UTC day,
+  JSONL, append-only). Schema v1 fields per entry: `type`, `uuid`,
+  `parent_uuid`, `session_id`, `timestamp` (ms precision), `cwd`,
+  `version` (`{audit, clawctl}`), `actor`, `action`, `result`, `notes` —
+  inspired by Claude Code's `~/.claude/projects/*.jsonl` shape.
+  Subcommands: `log`, `show`, `tail`, `stats`, `path`, `session new`.
+  The skill mints a session id via `clawctl audit session new` and exports
+  it as `$CLAWCTL_AUDIT_SESSION_ID` before multi-step workflows so the
+  operator can replay a whole workflow with `clawctl audit show --session-id <id>`.
 - `openclaw` agents can now attach `type=litellm` providers — custom
   OpenAI-compatible endpoints (LiteLLM, vLLM, any `/v1/chat/completions`
   proxy). `clawctl agent configure` / `clawctl agent sync` render a
