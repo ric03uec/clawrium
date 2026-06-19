@@ -102,21 +102,23 @@ def generate_clips(
     output_format: str,
     force: bool,
 ) -> list[Path]:
-    try:
-        from elevenlabs.client import ElevenLabs
-    except ImportError:
-        sys.exit(
-            "missing dependency `elevenlabs` — invoke via "
-            "`uv run docs/demos/lib/narrate.py ...` so uv resolves the "
-            "PEP 723 dependencies declared at the top of the file."
-        )
-    client = ElevenLabs(api_key=api_key)
     voice_dir.mkdir(parents=True, exist_ok=True)
+    client = None  # lazy — only constructed when an actual TTS call is needed
 
     clip_paths: list[Path] = []
     for beat in beats:
         clip = voice_dir / beat.clip_filename(voice_id)
         if force or not clip.exists():
+            if client is None:
+                try:
+                    from elevenlabs.client import ElevenLabs
+                except ImportError:
+                    sys.exit(
+                        "missing dependency `elevenlabs` — invoke via "
+                        "`uv run docs/demos/lib/narrate.py ...` so uv resolves the "
+                        "PEP 723 dependencies declared at the top of the file."
+                    )
+                client = ElevenLabs(api_key=api_key)
             print(f"[narrate] scene {beat.scene_n} beat {beat.beat_n}: TTS ({len(beat.text)} chars)")
             audio = client.text_to_speech.convert(
                 voice_id=voice_id,

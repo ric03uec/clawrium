@@ -240,6 +240,67 @@ class TestCompilePipeline:
         assert data["narration"][0]["absolute_seconds"] > 0
         assert data["recording_duration_seconds"] > 0
 
+    # --- W3: every (head, tail) combination for replay dispatch ------------- #
+    @pytest.mark.parametrize(
+        "head,tail,expect_in_dispatch,not_expect_in_dispatch",
+        [
+            (None, None, ["cat "], ["head -n", "tail -n", "…"]),
+            (10,   None, ["head -n 10"], ["tail -n", "…"]),
+            (None, 5,    ["tail -n 5"], ["head -n", "…"]),
+            (10,   5,    ["head -n 10", "tail -n 5", "…"], []),
+        ],
+        ids=["full-cat", "head-only", "tail-only", "head-and-tail"],
+    )
+    def test_replay_dispatch_combinations(
+        self, compile_mod, head, tail, expect_in_dispatch, not_expect_in_dispatch
+    ) -> None:
+        """`_build_replay_dispatch` must emit the exact shape per (head, tail)."""
+        dispatch = compile_mod._build_replay_dispatch("OUT.txt", head, tail)
+        for needle in expect_in_dispatch:
+            assert needle in dispatch, (
+                f"expected `{needle}` in dispatch for head={head}, tail={tail}; got: {dispatch}"
+            )
+        for needle in not_expect_in_dispatch:
+            assert needle not in dispatch, (
+                f"unexpected `{needle}` in dispatch for head={head}, tail={tail}; got: {dispatch}"
+            )
+
+    # --- W4: LIVE-mode scene escape hatch ----------------------------------- #
+    def test_compile_live_mode_scene_omitted_from_replay_case(
+        self, compile_mod, tmp_path: Path
+    ) -> None:
+        """`mode: LIVE` scenes execute the real command and must NOT appear
+        as a case-arm in the helpers.sh clawctl() override.
+        """
+        demo = tmp_path / "20260101-live"
+        (demo / "outputs").mkdir(parents=True)
+        (demo / "outputs" / "01.txt").write_text("v\n")
+        (demo / "scenes.yaml").write_text(
+            "title: L\nsubtitle: t\n"
+            "outro: {line_1: x, line_2: y}\n"
+            "scenes:\n"
+            "  - n: 1\n"
+            "    title: v\n"
+            "    command: clawctl --version\n"
+            f"    output_file: docs/demos/{demo.name}/outputs/01.txt\n"
+            "    screen_seconds: 3\n"
+            "  - n: 2\n"
+            "    title: chat\n"
+            "    command: clawctl agent chat live-demo\n"
+            "    mode: LIVE\n"
+            "    screen_seconds: 5\n"
+        )
+        compile_mod.compile_demo(demo)
+        helpers = (demo / "helpers.sh").read_text()
+        # Scene 1 replay arm is present.
+        assert '"--version") cat docs/demos/' in helpers
+        # Scene 2 LIVE arm is NOT present — clawctl call would fall through
+        # to the real CLI, not the replay override.
+        assert "agent chat live-demo" not in helpers, (
+            "LIVE scene leaked into the replay case statement — clawctl() "
+            "would intercept it instead of executing the real command."
+        )
+
     def test_compile_head_tail_elision_in_helpers(self, compile_mod, tmp_path: Path) -> None:
         """`head:` + `tail:` is dispatched from helpers.sh, not the tape.
 
@@ -275,6 +336,96 @@ class TestCompilePipeline:
         # The visible tape types the real command, not any cat/head/tail.
         tape_text = tape.read_text()
         assert 'Type "clawctl agent create demo --type hermes --host h"' in tape_text
+
+    # --- W2: Stage 2 — actual ffprobed durations override the estimator ----- #
+    def test_stage2_uses_actual_durations_over_estimate(
+        self, compile_mod, tmp_path: Path
+    ) -> None:
+        """voice/_durations.json must short-circuit the char-rate estimate.
+
+        Seed the cache with a duration MUCH larger than the char estimate
+        would yield. compile must extend screen_seconds to fit, and
+        `used_actuals` must return True. Also seeds one malformed entry to
+        prove the silent-skip branch doesn't break loading.
+        """
+        demo = tmp_path / "20260101-stage2"
+        (demo / "outputs").mkdir(parents=True)
+        (demo / "outputs" / "01-version.txt").write_text("v\n")
+        (demo / "scenes.yaml").write_text(
+            "title: S2\nsubtitle: t\n"
+            "outro: {line_1: x, line_2: y}\n"
+            "scenes:\n"
+            "  - n: 1\n"
+            "    title: v\n"
+            "    command: clawctl --version\n"
+            f"    output_file: docs/demos/{demo.name}/outputs/01-version.txt\n"
+            "    screen_seconds: 3\n"
+            "    narration:\n"
+            '      - text: "x"\n'  # 1 char ≈ 0.07s estimate
+        )
+        # Actual ffprobed duration is 30s — should drive the auto-extension.
+        (demo / "voice").mkdir()
+        (demo / "voice" / "_durations.json").write_text(json.dumps({
+            "1.1": 30.0,
+            "bogus_key": "not-a-number",  # tests the silent-skip branch
+        }))
+
+        _, manifest, warnings, used_actuals = compile_mod.compile_demo(demo)
+        assert used_actuals is True
+
+        # Expect screen_seconds extended to at least 30s + 1.5s buffer.
+        assert any("scene 1" in w and "screen_seconds extended" in w for w in warnings), (
+            f"expected scene 1 extension warning citing the 30s actual; got {warnings}"
+        )
+
+        data = json.loads(manifest.read_text())
+        # Recording must be long enough to contain a 30s narration starting
+        # at scene 1's command-output time.
+        beat_t = data["narration"][0]["absolute_seconds"]
+        assert data["recording_duration_seconds"] >= beat_t + 30.0
+
+    # --- W5: warnings list is populated for known overlap cases -------------- #
+    def test_intra_scene_overlap_emits_warning(
+        self, compile_mod, tmp_path: Path
+    ) -> None:
+        demo = tmp_path / "20260101-overlap"
+        (demo / "outputs").mkdir(parents=True)
+        (demo / "outputs" / "01.txt").write_text("v\n")
+        (demo / "scenes.yaml").write_text(
+            "title: O\nsubtitle: t\n"
+            "outro: {line_1: x, line_2: y}\n"
+            "scenes:\n"
+            "  - n: 1\n"
+            "    title: v\n"
+            "    command: clawctl --version\n"
+            f"    output_file: docs/demos/{demo.name}/outputs/01.txt\n"
+            "    screen_seconds: 60\n"
+            "    narration:\n"
+            "      - offset_seconds: 0\n"
+            # Long narration that won't finish before beat 2 starts.
+            '      - text: ' + json.dumps("a" * 280) + "\n"
+            "      - offset_seconds: 1\n"  # well before beat 1 ends (~20s)
+            '        text: "second beat"\n'
+        )
+        # YAML above is malformed (offset_seconds out of order); rebuild cleanly.
+        (demo / "scenes.yaml").write_text(
+            "title: O\nsubtitle: t\n"
+            "outro: {line_1: x, line_2: y}\n"
+            "scenes:\n"
+            "  - n: 1\n"
+            "    title: v\n"
+            "    command: clawctl --version\n"
+            f"    output_file: docs/demos/{demo.name}/outputs/01.txt\n"
+            "    screen_seconds: 60\n"
+            "    narration:\n"
+            '      - text: ' + json.dumps("a" * 280) + "\n"
+            "      - offset_seconds: 1\n"
+            '        text: "second beat"\n'
+        )
+        _, _, warnings, _ = compile_mod.compile_demo(demo)
+        assert any(
+            re.search(r"scene 1 beat 2.*intra-scene overlap", w) for w in warnings
+        ), f"expected intra-scene overlap warning; got {warnings}"
 
     def test_compile_rejects_non_clawctl_replay(self, compile_mod, tmp_path: Path) -> None:
         """Non-clawctl commands must be marked LIVE — the override only patches clawctl."""
@@ -383,6 +534,49 @@ class TestCompilePipeline:
             + "\n".join(overlaps)
         )
 
+    # --- W6: every committed scenes.yaml's output_file must exist on disk --- #
+    @pytest.mark.parametrize(
+        "demo_dir",
+        [
+            pytest.param(p, id=p.name)
+            for p in sorted(DEMOS_DIR.glob("*/"))
+            if (p / "scenes.yaml").exists()
+        ],
+    )
+    def test_committed_demo_output_files_exist(self, demo_dir: Path) -> None:
+        """Every `output_file:` referenced in a committed scenes.yaml must
+        exist on disk and be non-empty.
+
+        Without this check, a typo in the YAML path compiles cleanly
+        (compile.py only reads the path string) and then fails at record
+        time when the clawctl() override tries to `cat` a missing file —
+        producing a broken recording that took ~3 minutes to make.
+        """
+        import yaml as _yaml
+        spec = _yaml.safe_load((demo_dir / "scenes.yaml").read_text())
+        missing: list[str] = []
+        empty: list[str] = []
+        for scene in spec.get("scenes", []):
+            if scene.get("mode", "replay") == "LIVE":
+                continue  # LIVE scenes don't need a cached output
+            path_str = scene.get("output_file")
+            if not path_str:
+                missing.append(f"scene {scene['n']}: no output_file declared")
+                continue
+            full = REPO_ROOT / path_str
+            if not full.exists():
+                missing.append(f"scene {scene['n']}: {path_str}")
+            elif full.stat().st_size == 0:
+                empty.append(f"scene {scene['n']}: {path_str}")
+        assert not missing, (
+            f"{demo_dir.name} references missing output files:\n  "
+            + "\n  ".join(missing)
+        )
+        assert not empty, (
+            f"{demo_dir.name} references empty output files (would render "
+            f"as blank cat in recording):\n  " + "\n  ".join(empty)
+        )
+
     # --- W4 round-trip over the real committed demo --------------------------- #
     @pytest.mark.parametrize(
         "demo_dir",
@@ -480,6 +674,125 @@ class TestNarratePipeline:
         assert b1.clip_filename("voice") != b2.clip_filename("voice")
         # Different voice -> different filename.
         assert b1.clip_filename("voiceA") != b1.clip_filename("voiceB")
+
+    # --- W1: narrate.py coverage --------------------------------------------- #
+    def test_load_beats_missing_file_raises_with_hint(
+        self, narrate_mod, tmp_path: Path
+    ) -> None:
+        """Missing compiled.json must error with a message pointing at compile.py."""
+        with pytest.raises(FileNotFoundError, match="compile.py"):
+            narrate_mod.load_beats(tmp_path / "no-such-file.json")
+
+    def test_mux_builds_expected_filter_complex(
+        self, narrate_mod, tmp_path: Path, monkeypatch
+    ) -> None:
+        """ffmpeg invocation must emit one `adelay=Xms|Xms` per beat + amix."""
+        captured: dict = {}
+
+        def fake_run(cmd, **kw):
+            captured["cmd"] = cmd
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(narrate_mod.subprocess, "run", fake_run)
+        monkeypatch.setattr(narrate_mod.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+
+        beats = [
+            narrate_mod.Beat(scene_n=1, beat_n=1, absolute_seconds=5.0, text="a"),
+            narrate_mod.Beat(scene_n=2, beat_n=1, absolute_seconds=10.5, text="b"),
+        ]
+        clips = [tmp_path / f"c{i}.mp3" for i in range(2)]
+        for c in clips:
+            c.touch()
+        in_v = tmp_path / "in.mp4"; in_v.touch()
+        out_v = tmp_path / "out.mp4"
+
+        narrate_mod.mux(input_video=in_v, output_video=out_v, beats=beats, clip_paths=clips)
+
+        cmd = captured["cmd"]
+        idx = cmd.index("-filter_complex")
+        fc = cmd[idx + 1]
+        assert "[1:a]adelay=5000|5000[a1]" in fc, (
+            f"missing scene-1 adelay (delay=5000ms): {fc}"
+        )
+        assert "[2:a]adelay=10500|10500[a2]" in fc, (
+            f"missing scene-2 adelay (delay=10500ms): {fc}"
+        )
+        assert "amix=inputs=2" in fc
+        # We deliberately do NOT pass -shortest so video stays full length.
+        assert "-shortest" not in cmd
+
+    def test_write_durations_round_trip_keys(
+        self, narrate_mod, tmp_path: Path, monkeypatch
+    ) -> None:
+        """`voice/_durations.json` must be keyed `<scene_n>.<beat_n>` so the
+        compile-side `_load_actual_durations` parser round-trips. Critical
+        contract — drift here silently disables Stage 2 refinement.
+        """
+        # Mock ffprobe to return canned durations per call.
+        durations_iter = iter([4.20, 6.13])
+
+        def fake_run(cmd, **kw):
+            d = next(durations_iter)
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=f"{d}\n", stderr=""
+            )
+
+        monkeypatch.setattr(narrate_mod.subprocess, "run", fake_run)
+        monkeypatch.setattr(narrate_mod.shutil, "which", lambda _: "/usr/bin/ffprobe")
+
+        beats = [
+            narrate_mod.Beat(scene_n=4, beat_n=2, absolute_seconds=0, text="x"),
+            narrate_mod.Beat(scene_n=999, beat_n=1, absolute_seconds=0, text="y"),
+        ]
+        clips = [tmp_path / "x.mp3", tmp_path / "y.mp3"]
+        for c in clips:
+            c.touch()
+
+        narrate_mod.write_durations(tmp_path, beats, clips)
+
+        out = json.loads((tmp_path / "voice" / "_durations.json").read_text())
+        assert out == {"4.2": 4.20, "999.1": 6.13}
+
+    def test_generate_clips_cache_hit_no_api_call(
+        self, narrate_mod, tmp_path: Path, monkeypatch
+    ) -> None:
+        """When the cached clip exists and force=False, no ElevenLabs call fires.
+
+        Mocks the SDK import so the test runs without the `elevenlabs` package
+        installed and proves the SDK is never instantiated on a cache hit.
+        """
+        constructed: list = []
+
+        class FakeClient:
+            def __init__(self, *_, **__):
+                constructed.append(True)
+                raise AssertionError("ElevenLabs client constructed on cache hit")
+
+        # narrate.py does `from elevenlabs.client import ElevenLabs` inside
+        # generate_clips. Inject a fake module so that import resolves to
+        # FakeClient without needing elevenlabs installed at test time.
+        fake_module = type(sys)("elevenlabs")
+        fake_client_module = type(sys)("elevenlabs.client")
+        fake_client_module.ElevenLabs = FakeClient
+        monkeypatch.setitem(sys.modules, "elevenlabs", fake_module)
+        monkeypatch.setitem(sys.modules, "elevenlabs.client", fake_client_module)
+
+        voice_dir = tmp_path / "voice"
+        voice_dir.mkdir()
+        beat = narrate_mod.Beat(scene_n=1, beat_n=1, absolute_seconds=0, text="hello")
+        voice_id = "fakevoice"
+        # Pre-create the cached clip with the expected sha-hashed filename.
+        (voice_dir / beat.clip_filename(voice_id)).write_bytes(b"cached")
+
+        paths = narrate_mod.generate_clips(
+            [beat], voice_dir,
+            api_key="x", voice_id=voice_id,
+            model_id="m", output_format="mp3_44100_128",
+            force=False,
+        )
+        assert len(paths) == 1
+        assert paths[0].read_bytes() == b"cached"
+        assert constructed == [], "no SDK client should be constructed on cache hit"
 
 
 # --------------------------------------------------------------------------- #
