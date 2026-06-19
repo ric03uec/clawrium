@@ -10,7 +10,7 @@ plugins:
   brave:
     npm_package: "@openclaw/brave-plugin"
     version: "2026.6.8"
-    min_host_version: "2026.4.10"
+    min_host_version: "2026.6.8"
 
 # Workspace metadata consumed by cross-claw subsystems (memory CLI, etc.).
 # Path matches the location previously hard-coded in core/memory.py so the
@@ -173,6 +173,33 @@ platforms:
       dependencies:
         nodejs: ">=18.0.0"
   - version: "2026.5.28"
+    os: macos
+    os_version: ">=14"
+    arch: arm64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=20.0.0"
+  - version: "2026.6.8"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=20.0.0"
+  - version: "2026.6.8"
+    os: ubuntu
+    os_version: "22.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=18.0.0"
+  - version: "2026.6.8"
     os: macos
     os_version: ">=14"
     arch: arm64

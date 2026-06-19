@@ -174,19 +174,31 @@ def _get_host_openclaw_version(
 ) -> tuple[int, int, int] | None:
     """Run `openclaw --version` on the host as the agent user and parse
     the X.Y.Z triple. Returns None when the binary is missing or its
-    output cannot be parsed — the preflight treats that as a hard fail
-    so we never let a brave attach proceed against an unknown version.
+    output cannot be parsed.
 
-    Uses the agent user's login shell (`bash -lc`) so the binary is
-    resolved via the same `PATH` that `install.yaml` configures —
-    `/usr/local/bin`, `/usr/bin`, or `~/.openclaw/bin` are all
-    acceptable per the install playbook's safelist.
+    Resolution mirrors `playbooks/exec.yaml`: prefer the per-agent
+    binary at `/home/<agent>/.openclaw/bin/openclaw` when it exists +
+    is executable, else fall back to whatever `bash -lc 'command -v
+    openclaw'` resolves on the agent user's login PATH. Using the same
+    resolution as exec.yaml is the source of truth: if the operator
+    invokes `clawctl agent exec wolf-i -- --version`, the preflight
+    must read the same binary, otherwise an upgrade that moved the
+    per-agent binary still sees a stale system binary on PATH and
+    rejects sync forever.
     """
     quoted_agent = shlex.quote(agent_name)
-    cmd = (
-        f"sudo -n -u {quoted_agent} bash -lc "
-        f"{shlex.quote('command -v openclaw >/dev/null 2>&1 && openclaw --version')}"
+    per_agent = f"/home/{agent_name}/.openclaw/bin/openclaw"
+    quoted_per_agent = shlex.quote(per_agent)
+    # `test -x` matches exec.yaml's stat(executable=True) + size>0 gate
+    # closely enough that the two will pick the same binary in practice.
+    inner = (
+        f"if [ -x {quoted_per_agent} ]; then "
+        f"  {quoted_per_agent} --version; "
+        f"elif command -v openclaw >/dev/null 2>&1; then "
+        f"  openclaw --version; "
+        f"else exit 1; fi"
     )
+    cmd = f"sudo -n -u {quoted_agent} bash -lc {shlex.quote(inner)}"
     _, out, _ = client.exec_command(cmd, timeout=timeout)
     body = out.read().decode("utf-8", errors="replace").strip()
     if out.channel.recv_exit_status() != 0:

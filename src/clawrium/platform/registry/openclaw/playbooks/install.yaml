@@ -4,7 +4,7 @@
   tasks:
     - name: Normalize target OpenClaw version
       ansible.builtin.set_fact:
-        openclaw_target_version: "{{ (claw_version | default('v2026.5.28')) | regex_replace('^v', '') }}"
+        openclaw_target_version: "{{ (claw_version | default('v2026.6.8')) | regex_replace('^v', '') }}"
 
     - name: Create agent user
       ansible.builtin.user:
