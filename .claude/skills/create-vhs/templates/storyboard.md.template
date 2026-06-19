@@ -14,10 +14,13 @@
 
 ## Scenes
 
+> Scene 1 is fixed by convention: every clawrium demo opens with `clawctl --version` so viewers can anchor the recording to a known release. Do not remove it.
+
 | # | Title                       | Command                                       | Mode    | Capture file              | Notes                          |
 |---|-----------------------------|-----------------------------------------------|---------|---------------------------|--------------------------------|
-| 1 | Meet the Fleet              | `clawctl agent get`                           | replay  | `01-fleet.txt`            |                                |
-| 2 | …                           | …                                             | replay  | `02-….txt`                |                                |
+| 1 | clawctl version             | `clawctl --version`                           | replay  | `01-version.txt`          | Fixed opener — do not remove   |
+| 2 | Meet the Fleet              | `clawctl agent get`                           | replay  | `02-fleet.txt`            |                                |
+| 3 | …                           | …                                             | replay  | `03-….txt`                |                                |
 | N | Chatting With the Agent     | `clawctl agent chat <agent-name>`             | LIVE    | —                         | Interactive TUI; cannot replay |
 
 **Mode legend**
@@ -29,7 +32,7 @@
 
 Per-scene script. Keep each beat to one or two sentences so timing matches the on-screen `Sleep`.
 
-- Scene 1: …
+- Scene 1: "Running clawctl version X.Y.Z — everything you see in the rest of this demo was recorded against this release."
 - Scene 2: …
 - Scene N: …
 

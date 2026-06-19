@@ -1,16 +1,12 @@
-# Storyboard helper sourced by docs/demos/<NAME>.tape inside a Hide/Show block.
-# Provides four shell functions used by the tape:
-#   titlecard       — opening branded frame
-#   outrocard       — closing branded frame
-#   headline N "T"  — per-scene banner
-#   progress N      — checklist with first N scenes struck through
+# Per-demo helper script. Sets the per-demo variables, then sources the shared
+# card/headline/progress functions from docs/demos/lib/cards.sh.
 #
-# Copy to docs/demos/_<NAME>_helpers.sh, then fill in the FILL-IN markers.
-# Keep _SCENES in sync with docs/demos/<NAME>.storyboard.md.
+# Copy to docs/demos/YYYYMMDD-<NAME>/helpers.sh and fill in the FILL-IN markers.
+# Keep _SCENES in sync with docs/demos/YYYYMMDD-<NAME>/storyboard.md.
 
 # FILL IN: one quoted scene title per line, in order. Order = playback order.
 _SCENES=(
-  "Scene One"
+  "clawctl version"
   "Scene Two"
 )
 
@@ -20,54 +16,5 @@ _SUBTITLE="a clawctl demo"
 _OUTRO_LINE_1="Thanks for watching!"
 _OUTRO_LINE_2="github.com/ric03uec/clawrium"
 
-# ANSI helpers — kept inline to keep the helper self-contained.
-#   1;36 = bold cyan   1;37 = bold white   1;32 = bold green
-#   1;90 = bold grey   9    = strikethrough
-progress() {
-  local done=${1:-0}
-  clear
-  printf '\n'
-  printf '\033[1;36m============================================================\033[0m\n'
-  printf '\033[1;36m  %s  —  Progress\033[0m\n' "$_TITLE"
-  printf '\033[1;36m============================================================\033[0m\n\n'
-  local i n
-  for i in "${!_SCENES[@]}"; do
-    n=$((i+1))
-    if [ "$n" -le "$done" ]; then
-      printf '  \033[1;32m[x]\033[0m \033[9;90m%2d. %s\033[0m\n' "$n" "${_SCENES[$i]}"
-    else
-      printf '  \033[37m[ ]\033[0m \033[37m%2d. %s\033[0m\n' "$n" "${_SCENES[$i]}"
-    fi
-  done
-  printf '\n'
-}
-
-headline() {
-  local n=$1
-  local title=$2
-  local total=${#_SCENES[@]}
-  clear
-  printf '\n\n\n'
-  printf '\033[1;36m============================================================\033[0m\n'
-  printf '\033[1;36m                    SCENE %d / %d\033[0m\n' "$n" "$total"
-  printf '\033[1;37m              %s\033[0m\n' "$title"
-  printf '\033[1;36m============================================================\033[0m\n\n'
-}
-
-titlecard() {
-  clear
-  printf '\n\n\n\n'
-  printf '\033[1;36m============================================================\033[0m\n'
-  printf '\033[1;37m       %s\033[0m\n' "$_TITLE"
-  printf '\033[1;90m                    %s\033[0m\n' "$_SUBTITLE"
-  printf '\033[1;36m============================================================\033[0m\n\n'
-}
-
-outrocard() {
-  clear
-  printf '\n\n\n\n'
-  printf '\033[1;36m============================================================\033[0m\n'
-  printf '\033[1;32m         %s\033[0m\n' "$_OUTRO_LINE_1"
-  printf '\033[1;90m            %s\033[0m\n' "$_OUTRO_LINE_2"
-  printf '\033[1;36m============================================================\033[0m\n\n'
-}
+# Source shared card/headline/progress functions.
+source "$(git rev-parse --show-toplevel)/docs/demos/lib/cards.sh"

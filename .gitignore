@@ -238,6 +238,8 @@ src/clawrium/gui/frontend/
 .claude/scheduled_tasks.lock
 
 # VHS demo recordings (uploaded to YouTube; tape + storyboard committed instead)
+# All .mp4 files under docs/demos/ are ignored regardless of folder.
+docs/demos/**/*.mp4
 docs/demos/recordings/*
 !docs/demos/recordings/.gitkeep
 /gtm/

@@ -1,9 +1,9 @@
 # <DEMO TITLE> — Long-Form Storyboarded Demo
 # Records: title card -> scenario checklist -> N scenes (each headline + body + progress update) -> outro card.
-# Output : MP4 in docs/demos/recordings/ (gitignored; uploaded to YouTube).
-# Storyboard : docs/demos/<NAME>.storyboard.md
-# Helper     : docs/demos/_<NAME>_helpers.sh
-# Captures   : docs/demos/<NAME>/outputs/NN-<slug>.txt   (committed; replay-mode scenes cat these)
+# Output : recording.mp4 in this demo folder (gitignored; uploaded to YouTube).
+# Storyboard : docs/demos/YYYYMMDD-<NAME>/storyboard.md
+# Helper     : docs/demos/YYYYMMDD-<NAME>/helpers.sh (sources docs/demos/lib/cards.sh)
+# Captures   : docs/demos/YYYYMMDD-<NAME>/outputs/NN-<slug>.txt   (committed; replay-mode scenes cat these)
 # Requires   : <list real prerequisites — hosts, providers, agents — that must exist before record>
 #
 # SECURITY: <Title> placeholders inside `Type `...`` backtick blocks are passed to bash
@@ -13,7 +13,7 @@
 Require vhs
 Require clawctl
 
-Output docs/demos/recordings/<NAME>.mp4
+Output docs/demos/YYYYMMDD-<NAME>/recording.mp4
 
 Set Shell "bash"
 Set FontSize 18
@@ -33,7 +33,7 @@ Hide
 Type `source "$(git rev-parse --show-toplevel)/.venv/bin/activate"`
 Enter
 Sleep 500ms
-Type `source "$(git rev-parse --show-toplevel)/docs/demos/_<NAME>_helpers.sh"`
+Type `source "$(git rev-parse --show-toplevel)/docs/demos/YYYYMMDD-<NAME>/helpers.sh"`
 Enter
 Sleep 500ms
 Type "clear"
@@ -55,20 +55,20 @@ Enter
 Sleep 5s
 
 # ============================================================
-# SCENE 1 — <Title>
+# SCENE 1 — clawctl version  (FIXED OPENER — every clawrium demo starts here)
 # Mode: replay
 # ============================================================
-Type `headline 1 "<Title>"`
+Type `headline 1 "clawctl version"`
 Enter
 Sleep 2500ms
 Hide
 Type "clear"
 Enter
 Show
-Type "cat docs/demos/<NAME>/outputs/01-<slug>.txt"
+Type "cat docs/demos/YYYYMMDD-<NAME>/outputs/01-version.txt"
 Sleep 300ms
 Enter
-Sleep 6s
+Sleep 4s
 Type "progress 1"
 Enter
 Sleep 2500ms
@@ -84,11 +84,30 @@ Hide
 Type "clear"
 Enter
 Show
-Type "cat docs/demos/<NAME>/outputs/02-<slug>.txt"
+Type "cat docs/demos/YYYYMMDD-<NAME>/outputs/02-<slug>.txt"
 Sleep 300ms
 Enter
 Sleep 6s
 Type "progress 2"
+Enter
+Sleep 2500ms
+
+# ============================================================
+# SCENE 3 — <Title>
+# Mode: replay
+# ============================================================
+Type `headline 3 "<Title>"`
+Enter
+Sleep 2500ms
+Hide
+Type "clear"
+Enter
+Show
+Type "cat docs/demos/YYYYMMDD-<NAME>/outputs/03-<slug>.txt"
+Sleep 300ms
+Enter
+Sleep 6s
+Type "progress 3"
 Enter
 Sleep 2500ms
 
