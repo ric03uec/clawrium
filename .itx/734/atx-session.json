@@ -1,0 +1,45 @@
+{
+  "transport": "cli",
+  "iterations": [
+    {
+      "iteration": 1,
+      "task_id": "a0cf4040-6986-42e6-ae82-fc030d2b6d59",
+      "rating": 3,
+      "blockers": ["B1", "B2", "B3", "B4"],
+      "warnings": 10,
+      "cost_usd": 5.28,
+      "duration_ms": 427083,
+      "blocking_overall": false,
+      "commit_sha": "d886860"
+    },
+    {
+      "iteration": 2,
+      "task_id": "e0f1b90b-95c0-4475-88f2-5a071753db40",
+      "rating": 3.5,
+      "blockers": ["B1 (configure_agent preflight)", "B2 (rotate test scope)"],
+      "warnings": 6,
+      "cost_usd": 5.36,
+      "duration_ms": 460917,
+      "blocking_overall": false,
+      "commit_sha": "3983d11"
+    },
+    {
+      "iteration": 3,
+      "task_id": "bc6bb230-a735-4a96-969e-2971c57d6661",
+      "rating": 4,
+      "leader_rating": 3,
+      "blockers": ["B_NEW1 (configure_agent preflight tests)"],
+      "warnings": 5,
+      "cost_usd": 6.37,
+      "duration_ms": 469941,
+      "blocking_overall": false,
+      "commit_sha": "f7c222b"
+    }
+  ],
+  "final_commit_sha": "9bc4c0a",
+  "total_cost_usd": 17.01,
+  "total_duration_ms": 1357941,
+  "models": ["claude-opus-4-7", "claude-sonnet-4-6"],
+  "last_status": "iter-3-blocker-B_NEW1-addressed-by-followup-test-commit",
+  "updated_at": "2026-06-19T19:00:00Z"
+}
