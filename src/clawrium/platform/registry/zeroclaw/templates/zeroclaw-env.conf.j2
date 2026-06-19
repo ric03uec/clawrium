@@ -57,5 +57,17 @@
 Environment=GITHUB_TOKEN_{{ _name | upper | replace('-', '_') | regex_replace('[^A-Z0-9_]', '') }}={{ systemd_quote(_integration.GITHUB_TOKEN) }}
 Environment=GITHUB_TOKEN={{ systemd_quote(_integration.GITHUB_TOKEN) }}
 {% endif %}
+{# Brave Search routing — see #734.
+   `BRAVE_API_KEY` is consumed by zeroclaw-tools' web_search crate at
+   boot. The companion `ZEROCLAW_web_search__search_provider=brave`
+   line forces the provider router off its duckduckgo default (the
+   crate's env-prefix override convention from
+   `web_search_provider_routing.rs`). Both lines are required —
+   omitting the second one means a working key with silent fallback
+   to duckduckgo. #}
+{% if _integration.type == 'brave' and _integration.BRAVE_API_KEY is defined %}
+Environment=BRAVE_API_KEY={{ systemd_quote(_integration.BRAVE_API_KEY) }}
+Environment=ZEROCLAW_web_search__search_provider="brave"
+{% endif %}
 {% endfor %}
 {% endif %}

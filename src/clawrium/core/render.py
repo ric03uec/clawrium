@@ -886,7 +886,7 @@ _HERMES_SUPPORTED_PROVIDERS = frozenset(
 )
 _HERMES_SUPPORTED_CHANNELS = frozenset({"discord", "slack"})
 _HERMES_SUPPORTED_INTEGRATIONS = frozenset(
-    {"github", "atlassian", "linear", "notion", "gitlab", "git"}
+    {"github", "atlassian", "linear", "notion", "gitlab", "git", "brave"}
 )
 # Lockstep with hermes' configure.yaml playbook
 # (`mcp_atlassian_version: "0.21.1"`). Without this pin in the rendered
@@ -961,6 +961,19 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
         slug = _integration_slug(integration.name)
         if integration.type == "github":
             last_github_token = creds.get("GITHUB_TOKEN", "")
+        if integration.type == "brave":
+            # #734: hermes upstream (PR #21337) reads
+            # `BRAVE_SEARCH_API_KEY` from the env, but the operator-facing
+            # credential is `BRAVE_API_KEY` (single key name across all
+            # three agent types). Mirror the value under the hermes-
+            # specific name — in the Python view builder, NOT in the
+            # Jinja template — so the template stays a dumb formatter
+            # and the rename is unit-testable in isolation from Jinja.
+            # Do NOT pop the source key (ATX iter 1 render-engine
+            # suggestion): a future consumer needing the operator name
+            # downstream would silently see an empty string.
+            if "BRAVE_API_KEY" in creds:
+                creds["BRAVE_SEARCH_API_KEY"] = creds["BRAVE_API_KEY"]
         if integration.type == "atlassian":
             lo_slug = slug.lower()
             if not lo_slug:
@@ -1125,7 +1138,7 @@ def _render_hermes_template(template_name: str, **context) -> str:
 _ZEROCLAW_PROVIDER_KINDS = frozenset(
     {"anthropic", "openai", "ollama", "openrouter", "opencode", "opencode-go"}
 )
-_ZEROCLAW_SUPPORTED_INTEGRATIONS = frozenset({"github", "git"})
+_ZEROCLAW_SUPPORTED_INTEGRATIONS = frozenset({"github", "git", "brave"})
 
 
 def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
@@ -1242,15 +1255,29 @@ def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
                 f"{integration.type!r} (zeroclaw supports: "
                 f"{sorted(_ZEROCLAW_SUPPORTED_INTEGRATIONS)})"
             )
-        if integration.type != "github":
-            continue
-        creds = dict(integration.credentials)
-        token = creds.get("GITHUB_TOKEN", "")
-        slug = _integration_slug(integration.name)
-        env_lines.append(
-            f"Environment=GITHUB_TOKEN_{slug}={_systemd_quote(token)}"
-        )
-        last_github_token = token
+        if integration.type == "github":
+            creds = dict(integration.credentials)
+            token = creds.get("GITHUB_TOKEN", "")
+            slug = _integration_slug(integration.name)
+            env_lines.append(
+                f"Environment=GITHUB_TOKEN_{slug}={_systemd_quote(token)}"
+            )
+            last_github_token = token
+        elif integration.type == "brave":
+            # #734: brave web-search routing. Both lines are required —
+            # `BRAVE_API_KEY` alone leaves the search provider on its
+            # duckduckgo default. The `ZEROCLAW_web_search__search_provider`
+            # env-prefix override flips the router (zeroclaw-tools'
+            # `web_search_provider_routing.rs:33`). Mirror of the j2
+            # template branch so canonical + Ansible paths stay in lockstep.
+            creds = dict(integration.credentials)
+            key = creds.get("BRAVE_API_KEY", "")
+            env_lines.append(
+                f"Environment=BRAVE_API_KEY={_systemd_quote(key)}"
+            )
+            env_lines.append(
+                'Environment=ZEROCLAW_web_search__search_provider="brave"'
+            )
     if last_github_token:
         env_lines.append(
             f"Environment=GITHUB_TOKEN={_systemd_quote(last_github_token)}"
@@ -1337,7 +1364,7 @@ _OPENCLAW_SUPPORTED_PROVIDERS = frozenset(
 )
 _OPENCLAW_SUPPORTED_CHANNELS = frozenset({"discord", "slack"})
 _OPENCLAW_SUPPORTED_INTEGRATIONS = frozenset(
-    {"github", "atlassian", "linear", "notion", "gitlab", "git"}
+    {"github", "atlassian", "linear", "notion", "gitlab", "git", "brave"}
 )
 _OPENCLAW_MODEL_PREFIX = {
     "openrouter": "openrouter/",
@@ -1457,6 +1484,8 @@ def render_openclaw(inputs: RenderInputs) -> RenderedFiles:
             view["linear_api_key"] = creds.get("LINEAR_API_KEY", "")
         elif integration.type == "notion":
             view["notion_api_key"] = creds.get("NOTION_API_KEY", "")
+        elif integration.type == "brave":
+            view["brave_api_key"] = creds.get("BRAVE_API_KEY", "")
         integration_views.append(view)
 
     env_body = _render_openclaw_template(

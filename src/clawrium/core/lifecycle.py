@@ -2514,6 +2514,88 @@ def configure_agent(
             # the lifecycle state machine half-walked.
             return False, f"Hermes render failed: {exc}"
 
+    # #734 Openclaw brave plugin pin. Single source of truth lives in
+    # `lifecycle_canonical._load_openclaw_brave_pin()` (W2 ATX iter 1),
+    # which reads `plugins.brave` from the openclaw manifest and
+    # hard-fails if any of (npm_package, version, min_host_version) is
+    # missing — so a typo'd manifest never lets npm install
+    # `@openclaw/brave-plugin@` with an empty version (W3 ATX iter 1).
+    # Default empty strings are used for non-openclaw runs where the
+    # vars are referenced but the install task is skipped by
+    # `integrations | selectattr(...)`.
+    openclaw_brave_plugin_package = ""
+    openclaw_brave_plugin_version = ""
+    if resolved_type == "openclaw":
+        from clawrium.core.lifecycle_canonical import (
+            CanonicalSyncError,
+            _get_host_openclaw_version,
+            _load_openclaw_brave_pin,
+        )
+
+        try:
+            _pin = _load_openclaw_brave_pin()
+        except CanonicalSyncError as exc:
+            return False, str(exc)
+        openclaw_brave_plugin_package = _pin["npm_package"]
+        openclaw_brave_plugin_version = _pin["version"]
+
+        # ATX iter 2 B1: openclaw minHostVersion preflight now runs on
+        # the configure path too. Without it, `clawctl agent attach +
+        # configure` on a host below 2026.4.10 would fire `npm install
+        # @openclaw/brave-plugin@2026.6.8` against a host the plugin's
+        # manifest does not support, and surface as an opaque runtime
+        # failure later. Mirrors the `sync_agent_canonical` preflight.
+        if any(
+            (entry or {}).get("type") == "brave"
+            for entry in integrations_data.values()
+        ):
+            _min_ver = _pin["min_host_version"]
+            _min_str = ".".join(str(p) for p in _min_ver)
+            _private_key = get_host_private_key(key_id)
+            if not _private_key:
+                return False, (
+                    f"openclaw brave preflight failed: no SSH key "
+                    f"registered for host {key_id!r}. Re-run "
+                    f"`clawctl host create`."
+                )
+            _client = paramiko.SSHClient()
+            _client.load_system_host_keys()
+            _client.set_missing_host_key_policy(paramiko.WarningPolicy())
+            try:
+                _client.connect(
+                    hostname=hostname,
+                    port=int(host.get("port", 22)),
+                    username=host.get("user", "xclm"),
+                    key_filename=str(_private_key),
+                    timeout=10,
+                )
+                _ver = _get_host_openclaw_version(_client, unix_agent_name)
+            except Exception as exc:
+                _client.close()
+                return False, (
+                    f"openclaw brave preflight failed: could not probe "
+                    f"{hostname!r} ({exc}). Resolve SSH access first."
+                )
+            finally:
+                try:
+                    _client.close()
+                except Exception:
+                    pass
+            if _ver is None:
+                return False, (
+                    f"openclaw on {hostname!r} is <unknown> (binary missing "
+                    f"or `--version` unparseable); brave plugin requires "
+                    f">= {_min_str}. Run `clawctl agent install "
+                    f"{unix_agent_name}` first."
+                )
+            if _ver < _min_ver:
+                return False, (
+                    f"openclaw on {hostname!r} is "
+                    f"{'.'.join(str(p) for p in _ver)}; brave plugin "
+                    f"requires >= {_min_str}. Run `clawctl agent upgrade "
+                    f"{unix_agent_name}` first."
+                )
+
     # Build Ansible inventory with API key passed directly
     ansible_vars = {
         "agent_name": unix_agent_name,
@@ -2528,6 +2610,8 @@ def configure_agent(
         "slack_bot_token": slack_bot_token,
         "slack_app_token": slack_app_token,
         "integrations": integrations_data,
+        "openclaw_brave_plugin_package": openclaw_brave_plugin_package,
+        "openclaw_brave_plugin_version": openclaw_brave_plugin_version,
         "prerendered_zeroclaw_config_toml": prerendered_files.get(
             ".zeroclaw/config.toml", ""
         ),

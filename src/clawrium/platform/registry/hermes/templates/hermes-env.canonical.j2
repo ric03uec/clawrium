@@ -117,6 +117,11 @@ GITLAB_TOKEN={{ intg.creds.get('GITLAB_TOKEN', '') | shq }}
 {% if 'GITLAB_URL' in intg.creds %}
 GITLAB_URL={{ intg.creds.get('GITLAB_URL', '') | shq }}
 {% endif %}
+{% elif intg.type == 'brave' %}
+{# #734: name mapping (`BRAVE_API_KEY` → `BRAVE_SEARCH_API_KEY`) lives
+   in `render_hermes` (core/render.py); creds here are already
+   normalized. Template is a dumb formatter. #}
+BRAVE_SEARCH_API_KEY={{ intg.creds.get('BRAVE_SEARCH_API_KEY', '') | shq }}
 {% endif %}
 {% endfor %}
 {% if last_github_token %}

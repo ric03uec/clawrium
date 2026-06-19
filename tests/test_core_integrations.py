@@ -115,7 +115,15 @@ class TestIntegrationTypes:
 
     def test_integration_types_has_expected_types(self):
         """INTEGRATION_TYPES contains expected integration types."""
-        expected_types = {"github", "gitlab", "atlassian", "linear", "notion", "git"}
+        expected_types = {
+            "github",
+            "gitlab",
+            "atlassian",
+            "linear",
+            "notion",
+            "git",
+            "brave",
+        }
         assert set(INTEGRATION_TYPES.keys()) == expected_types
 
     def test_each_type_has_description_and_credentials(self):

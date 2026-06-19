@@ -131,6 +131,16 @@ INTEGRATION_TYPES: dict[str, dict] = {
             },
         ],
     },
+    "brave": {
+        "description": "Brave Search API for web-search tooling",
+        "credentials": [
+            {
+                "key": "BRAVE_API_KEY",
+                "description": "Brave Search API subscription token (https://brave.com/search/api/)",
+                "required": True,
+            },
+        ],
+    },
     "git": {
         "description": "Git commit identity and ~/.gitconfig defaults (forge-agnostic)",
         "credentials": [

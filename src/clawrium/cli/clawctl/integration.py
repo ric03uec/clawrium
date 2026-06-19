@@ -148,6 +148,83 @@ def _resolve_credentials(
     return {}
 
 
+def _single_required_credential_key(integration_type: str) -> Optional[str]:
+    """If the type's credential schema is a single required entry, return
+    its key; otherwise None. Used by the `--api-key` convenience flag to
+    map a bare bearer onto the right credential key (#734)."""
+    creds = INTEGRATION_TYPES.get(integration_type, {}).get("credentials") or []
+    required = [c["key"] for c in creds if c.get("required")]
+    if len(required) == 1:
+        return required[0]
+    return None
+
+
+def _resolve_api_key(
+    integration_type: str,
+    api_key: Optional[str],
+    api_key_stdin: bool,
+) -> Optional[str]:
+    """Read the value for `--api-key` / `--api-key-stdin`.
+
+    Returns None when neither flag is supplied. Issues:
+    - Mutual exclusion with each other.
+    - `--api-key-stdin` MUST NOT read from a TTY (interactive prompt is
+      not a substitute; the operator should pipe input). Empty stdin
+      exits non-zero with a clear error rather than silently creating a
+      blank credential (#734 W1).
+    """
+    if api_key is not None and api_key_stdin:
+        emit_error(
+            "cannot combine --api-key with --api-key-stdin",
+            hint="pass exactly one",
+        )
+    if api_key is not None:
+        if not api_key:
+            emit_error("--api-key value is empty")
+        return api_key
+    if api_key_stdin:
+        if sys.stdin.isatty():
+            emit_error(
+                "--api-key-stdin requires a non-TTY stdin",
+                hint="pipe the key in, e.g. `printf %s $KEY | clawctl ...`",
+            )
+        data = sys.stdin.read().strip()
+        if not data:
+            emit_error(
+                "empty stdin for --api-key-stdin",
+                hint="pipe the key in, e.g. `printf %s $KEY | clawctl ...`",
+            )
+        return data
+    return None
+
+
+def _merge_api_key_into_credentials(
+    creds: dict[str, str],
+    integration_type: str,
+    api_key_value: Optional[str],
+) -> dict[str, str]:
+    """If `--api-key` / `--api-key-stdin` was supplied, fold it into the
+    `creds` dict under the type's single required credential key. The
+    flag is rejected on types whose schema does not have exactly one
+    required credential — otherwise the mapping would be ambiguous."""
+    if api_key_value is None:
+        return creds
+    key = _single_required_credential_key(integration_type)
+    if key is None:
+        emit_error(
+            f"--api-key is not supported for type {integration_type!r}",
+            hint="use --credential KEY=VALUE for multi-credential types",
+        )
+    if key in creds:
+        emit_error(
+            f"conflicting values for {key!r}",
+            hint="pass --api-key OR --credential, not both",
+        )
+    merged = dict(creds)
+    merged[key] = api_key_value
+    return merged
+
+
 def _integration_to_row(record: dict) -> dict:
     name = record.get("name", "")
     itype = record.get("type", "")
@@ -190,6 +267,21 @@ def create(
     credential_stdin: bool = typer.Option(
         False, "--credential-stdin", help="Read KEY=VALUE per line from stdin."
     ),
+    api_key: Optional[str] = typer.Option(
+        None,
+        "--api-key",
+        help=(
+            "Convenience flag: bearer key for single-required-credential "
+            "types (brave, linear, notion, ...). The value still appears "
+            "in shell history — pipe through `--api-key-stdin` to avoid "
+            "that."
+        ),
+    ),
+    api_key_stdin: bool = typer.Option(
+        False,
+        "--api-key-stdin",
+        help="Read the api key from stdin (TTY rejected).",
+    ),
 ) -> None:
     """Register an integration non-interactively when flags are supplied."""
     try:
@@ -211,6 +303,8 @@ def create(
         emit_error(str(exc), hint="check ~/.config/clawrium/integrations.json")
 
     creds = _resolve_credentials(credentials, credential_stdin)
+    api_key_value = _resolve_api_key(integration_type, api_key, api_key_stdin)
+    creds = _merge_api_key_into_credentials(creds, integration_type, api_key_value)
 
     # ATX iter-2 W5: required-credential enforcement now applies on
     # both TTY and non-TTY paths. The previous gate was non-TTY-only,
@@ -394,14 +488,33 @@ def edit(
     credential_stdin: bool = typer.Option(
         False, "--credential-stdin", help="Read KEY=VALUE per line from stdin."
     ),
+    api_key: Optional[str] = typer.Option(
+        None,
+        "--api-key",
+        help=(
+            "Convenience: bearer key for single-required-credential types. "
+            "See `create --help`."
+        ),
+    ),
+    api_key_stdin: bool = typer.Option(
+        False,
+        "--api-key-stdin",
+        help="Read the api key from stdin (TTY rejected).",
+    ),
 ) -> None:
     """Edit credentials on an existing integration."""
-    _safe_get_integration(name)
+    record = _safe_get_integration(name)
     creds = _resolve_credentials(credentials, credential_stdin)
+    api_key_value = _resolve_api_key(
+        record.get("type", ""), api_key, api_key_stdin
+    )
+    creds = _merge_api_key_into_credentials(
+        creds, record.get("type", ""), api_key_value
+    )
     if not creds:
         emit_error(
             "no changes specified",
-            hint="pass --credential KEY=VALUE or --credential-stdin",
+            hint="pass --credential KEY=VALUE, --api-key, or --credential-stdin",
         )
 
     def apply(rec: dict) -> dict:
@@ -415,6 +528,105 @@ def edit(
         set_integration_credential(name, key, value)
 
     typer.echo(f"integration/{name}: updated ({len(creds)} credential(s) set)")
+
+
+# ---------------------------------------------------------------------------
+# rotate (#734)
+# ---------------------------------------------------------------------------
+
+
+@integration_app.command("rotate")
+def rotate(
+    name: str = typer.Argument(..., help="Integration name."),
+    api_key: Optional[str] = typer.Option(
+        None,
+        "--api-key",
+        help="New bearer key for single-required-credential types.",
+    ),
+    api_key_stdin: bool = typer.Option(
+        False,
+        "--api-key-stdin",
+        help="Read the new api key from stdin (TTY rejected).",
+    ),
+    credentials: Optional[list[str]] = typer.Option(
+        None,
+        "--credential",
+        help="Set credential KEY=VALUE. Repeatable.",
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
+) -> None:
+    """Rotate an integration's credentials and re-sync every bound agent.
+
+    Convenience wrapper over `registry edit` + `agent sync` for every
+    agent currently attached to the integration. Surfaces sync failures
+    as non-zero exit so cron-driven rotations never silently leave
+    half-rotated state.
+    """
+    from clawrium.core.integrations import find_agents_using_integration
+
+    record = _safe_get_integration(name)
+    creds = _resolve_credentials(credentials, False)
+    api_key_value = _resolve_api_key(
+        record.get("type", ""), api_key, api_key_stdin
+    )
+    creds = _merge_api_key_into_credentials(
+        creds, record.get("type", ""), api_key_value
+    )
+    if not creds:
+        emit_error(
+            "no new credential specified",
+            hint="pass --api-key, --api-key-stdin, or --credential KEY=VALUE",
+        )
+
+    agents = find_agents_using_integration(name)
+    # No agents → this is effectively an `edit` with no sync side
+    # effect; skip the destructive confirmation prompt.
+    if agents:
+        confirm_destructive(
+            prompt=(
+                f"Rotate {name!r} credentials and re-sync "
+                f"{len(agents)} agent(s)?"
+            ),
+            yes=yes,
+        )
+
+    def apply(rec: dict) -> dict:
+        rec["updated_at"] = _now_iso()
+        return rec
+
+    if not update_integration(name, apply):
+        emit_error(f"failed to update integration {name!r}")
+    for key, value in creds.items():
+        set_integration_credential(name, key, value)
+
+    if not agents:
+        typer.echo(
+            f"integration/{name}: rotated (no agents attached; nothing to sync)"
+        )
+        return
+
+    from clawrium.core.lifecycle_canonical import (
+        CanonicalSyncError,
+        SecretRemovalRefused,
+        sync_agent_canonical,
+    )
+
+    failures: list[tuple[str, str, str]] = []
+    for hostname, agent_key in agents:
+        try:
+            sync_agent_canonical(agent_key)
+            typer.echo(f"  {hostname}:{agent_key}: synced")
+        except (CanonicalSyncError, SecretRemovalRefused) as exc:
+            failures.append((hostname, agent_key, str(exc)))
+            typer.echo(f"  {hostname}:{agent_key}: SYNC FAILED ({exc})")
+
+    if failures:
+        failed_list = ", ".join(a for _h, a, _e in failures)
+        emit_error(
+            f"rotation completed but {len(failures)} sync(s) failed; "
+            f"re-run `clawctl agent sync` for: {failed_list}.",
+        )
+    typer.echo(f"integration/{name}: rotated and synced {len(agents)} agent(s)")
 
 
 # Register sub-group on the top-level `integration` app.

@@ -55,10 +55,42 @@ def test_list_returns_summaries_without_credential_values(isolated_config):
 def test_types_endpoint_returns_all_known_types(isolated_config):
     result = _run(integrations_route.list_integration_types())
     types = result["types"]
-    for type_key in ("github", "gitlab", "atlassian", "linear", "notion"):
+    for type_key in ("github", "gitlab", "atlassian", "linear", "notion", "brave"):
         assert type_key in types
         assert "credentials" in types[type_key]
         assert "description" in types[type_key]
+
+
+def test_brave_type_credential_schema_is_single_api_key(isolated_config):
+    """#734: brave has a single required credential `BRAVE_API_KEY`.
+    The GUI consumes the types catalog to render one masked field — a
+    schema drift here would silently break the create modal."""
+    result = _run(integrations_route.list_integration_types())
+    brave = result["types"]["brave"]
+    keys = brave["credentials"]
+    assert [c["key"] for c in keys] == ["BRAVE_API_KEY"]
+    assert keys[0]["required"] is True
+
+
+def test_create_brave_integration_persists_only_credential_key(isolated_config):
+    """#734: POST /api/integrations with `type: brave` round-trips the
+    credential key (NOT the value) into the summary. The summary
+    endpoint MUST NOT leak the raw key value."""
+    req = integrations_route.IntegrationCreate(
+        name="my-brave",
+        type="brave",
+        credentials={"BRAVE_API_KEY": "bsk-secret-123"},
+    )
+    _run(integrations_route.create_integration(req))
+
+    result = _run(integrations_route.list_integrations())
+    [summary] = result["integrations"]
+    assert summary["type"] == "brave"
+    assert summary["configured_credential_keys"] == ["BRAVE_API_KEY"]
+    # The raw value MUST NOT appear anywhere in the response.
+    import json as _json
+
+    assert "bsk-secret-123" not in _json.dumps(result)
 
 
 def test_create_rejects_invalid_name(isolated_config):

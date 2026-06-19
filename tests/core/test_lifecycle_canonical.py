@@ -1337,3 +1337,340 @@ class TestVerifyHealthDiagnosticWrap:
         # Crucial: the catalog raise must NOT mask the verdict.
         assert "Diagnosis:" not in msg
         assert "catalog blew up" not in msg
+
+
+# ---------------------------------------------------------------------------
+# Brave (#734) — openclaw version preflight.
+# ---------------------------------------------------------------------------
+
+
+class TestOpenclawBraveVersionPreflight:
+    """`sync_agent_canonical` must refuse to write `.openclaw/env` with a
+    brave block when the host openclaw is older than the plugin's
+    `minHostVersion`. Without the preflight the plugin would install
+    against a host it doesn't support and surface as a daemon-side
+    error that's much harder to diagnose."""
+
+    def _setup(self, monkeypatch, host_version: tuple[int, int, int] | None):
+        from clawrium.core.render import (
+            GatewayInputs,
+            IntegrationInputs,
+            ProviderInputs,
+            RenderInputs,
+            RenderedFiles,
+        )
+
+        inputs = RenderInputs(
+            agent_name="oc",
+            agent_type="openclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="m",
+            ),
+            gateway=GatewayInputs(host="h", port=40000, auth="a"),
+            integrations=(
+                IntegrationInputs(
+                    name="my-brave",
+                    type="brave",
+                    credentials=(("BRAVE_API_KEY", "bsk-1"),),
+                ),
+            ),
+        )
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        rendered = RenderedFiles(
+            files={
+                ".openclaw/env": "BRAVE_API_KEY='bsk-1'\n",
+                ".openclaw/openclaw.json": "{}",
+            }
+        )
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: ({"hostname": "h"}, "openclaw:oc", {}),
+        )
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(
+            lc,
+            "_get_host_openclaw_version",
+            lambda *_a, **_kw: host_version,
+        )
+
+    def test_below_min_version_raises(self, monkeypatch):
+        self._setup(monkeypatch, (2026, 3, 13))
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"openclaw on 'h' is 2026\.3\.13; brave plugin requires >= 2026\.4\.10",
+        ):
+            sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_exact_min_version_passes(self, monkeypatch):
+        self._setup(monkeypatch, (2026, 4, 10))
+        # Should not raise on the preflight; diffs are empty so the rest
+        # of the pipeline is a no-op.
+        sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_newer_than_min_version_passes(self, monkeypatch):
+        self._setup(monkeypatch, (2026, 5, 28))
+        sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_unknown_version_raises(self, monkeypatch):
+        """Unknown version (binary missing / unparseable output) is a
+        hard fail — never let the brave plugin install land on an
+        unknown host where the plugin's minHostVersion contract cannot
+        be evaluated."""
+        self._setup(monkeypatch, None)
+        with pytest.raises(
+            CanonicalSyncError, match=r"openclaw on 'h' is <unknown>"
+        ):
+            sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_preflight_skipped_when_no_brave_integration(self, monkeypatch):
+        """The preflight has a measurable cost (one SSH exec). When no
+        brave integration is attached we MUST NOT invoke it — otherwise
+        every openclaw sync pays for a feature that's not in use."""
+        from clawrium.core.render import (
+            GatewayInputs,
+            ProviderInputs,
+            RenderInputs,
+            RenderedFiles,
+        )
+
+        inputs = RenderInputs(
+            agent_name="oc",
+            agent_type="openclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="m",
+            ),
+            gateway=GatewayInputs(host="h", port=40000, auth="a"),
+        )
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        rendered = RenderedFiles(
+            files={".openclaw/env": "", ".openclaw/openclaw.json": "{}"}
+        )
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: ({"hostname": "h"}, "openclaw:oc", {}),
+        )
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+
+        # Sentinel that fails the test if invoked.
+        called = []
+
+        def _should_not_be_called(*_a, **_kw):
+            called.append(True)
+            return (2026, 5, 28)
+
+        monkeypatch.setattr(
+            lc, "_get_host_openclaw_version", _should_not_be_called
+        )
+        sync_agent_canonical("oc", restart=False, verify=False)
+        assert called == [], "_get_host_openclaw_version was invoked"
+
+
+# ---------------------------------------------------------------------------
+# Brave (#734) — semver parsing + SSH probe (ATX iter 1 B3).
+# ---------------------------------------------------------------------------
+
+
+class TestParseSemverTuple:
+    """`_parse_semver_tuple` is the security-relevant gate that decides
+    whether the brave plugin install proceeds. Direct tests rather than
+    going through the SSH-mocked happy path so a parser regression
+    surfaces on its own."""
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("2026.5.28", (2026, 5, 28)),
+            ("openclaw 2026.4.10", (2026, 4, 10)),
+            ("openclaw version 2026.5.28\nbuilt 2026-05-28", (2026, 5, 28)),
+            ("openclaw 1.2.3", (1, 2, 3)),
+            ("  2026.4.10  \n", (2026, 4, 10)),
+        ],
+    )
+    def test_parses_realistic_version_strings(self, raw, expected):
+        assert lc._parse_semver_tuple(raw) == expected
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "",
+            "not a version",
+            "openclaw",
+            "12.34",  # only two components
+            "version unavailable",
+        ],
+    )
+    def test_returns_none_for_unparseable_input(self, raw):
+        assert lc._parse_semver_tuple(raw) is None
+
+    def test_picks_first_line_only(self):
+        """If a future build prints a Node/Rust runtime version after
+        the openclaw version, we want the openclaw line, not the
+        runtime line. (W8 ATX iter 1)"""
+        raw = "openclaw 2026.5.28\nnode v22.1.0\n"
+        assert lc._parse_semver_tuple(raw) == (2026, 5, 28)
+
+
+class TestGetHostOpenclawVersion:
+    """`_get_host_openclaw_version` issues an SSH `bash -lc 'command -v
+    openclaw && openclaw --version'`. Assert the command shape and the
+    non-zero-exit -> None branch. (B3 ATX iter 1)"""
+
+    def _make_client(
+        self, stdout: str, exit_status: int
+    ) -> tuple[MagicMock, list[str]]:
+        commands: list[str] = []
+        client = MagicMock()
+
+        def _exec_command(cmd, **_kw):
+            commands.append(cmd)
+            channel = MagicMock()
+            channel.recv_exit_status.return_value = exit_status
+            out = MagicMock()
+            out.read.return_value = stdout.encode("utf-8")
+            out.channel = channel
+            return MagicMock(), out, MagicMock()
+
+        client.exec_command.side_effect = _exec_command
+        return client, commands
+
+    def test_happy_path_returns_parsed_tuple(self):
+        client, commands = self._make_client("openclaw 2026.5.28\n", 0)
+        assert lc._get_host_openclaw_version(client, "wolf-i") == (2026, 5, 28)
+        assert len(commands) == 1
+        # Login shell so PATH-resolved binaries (install.yaml's
+        # /usr/local/bin or ~/.openclaw/bin) are reachable.
+        assert " bash -lc " in commands[0]
+        assert "openclaw --version" in commands[0]
+        # User context is quoted to prevent shell injection.
+        assert "sudo -n -u wolf-i" in commands[0]
+
+    def test_nonzero_exit_returns_none(self):
+        """Binary missing → exit 127 → None. Preflight maps None to
+        a `clawctl agent install` hint."""
+        client, _ = self._make_client("openclaw: command not found\n", 127)
+        assert lc._get_host_openclaw_version(client, "wolf-i") is None
+
+    def test_unparseable_output_returns_none(self):
+        client, _ = self._make_client("garbage output\n", 0)
+        assert lc._get_host_openclaw_version(client, "wolf-i") is None
+
+    def test_agent_name_is_shell_quoted(self):
+        """Defensive: a hostile agent name (e.g. `; rm -rf` injected via
+        a misconfigured hosts.json) must not break out of the sudo
+        shell. The `shlex.quote` wrap is the safety net."""
+        client, commands = self._make_client("0.0.0\n", 0)
+        lc._get_host_openclaw_version(client, "a;rm -rf /")
+        # The injection attempt is single-quoted; it never reaches sudo
+        # as separate tokens.
+        assert "'a;rm -rf /'" in commands[0]
+
+
+class TestLoadOpenclawBravePin:
+    """`_load_openclaw_brave_pin` is the single source of truth for the
+    plugin pin (npm package, version, min host version). Both
+    `lifecycle.configure_agent` and `lifecycle_canonical.sync_agent_canonical`
+    consume it; a manifest drift would silently desync the playbook
+    install version from the preflight floor. (W2 + W3 ATX iter 1)"""
+
+    def test_loads_pin_from_manifest(self):
+        pin = lc._load_openclaw_brave_pin()
+        assert pin["npm_package"] == "@openclaw/brave-plugin"
+        assert pin["version"] == "2026.6.8"
+        assert pin["min_host_version"] == (2026, 4, 10)
+
+    def test_raises_when_pin_block_missing(self, monkeypatch):
+        """Manifest with no `plugins.brave` block → hard fail. Never
+        let `npm install @openclaw/brave-plugin@` run with an empty
+        version under `no_log: true` masking. (W3)"""
+        import yaml
+
+        monkeypatch.setattr(
+            yaml,
+            "safe_load",
+            lambda _txt: {"agent": {"type": "openclaw"}},
+        )
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"openclaw manifest is missing plugins\.brave",
+        ):
+            lc._load_openclaw_brave_pin()
+
+    def test_raises_when_min_host_version_is_invalid(self, monkeypatch):
+        """A typo in the manifest (`min_host_version: "not-a-version"`)
+        must hard fail, not silently fall back to (0, 0, 0)."""
+        import yaml
+
+        monkeypatch.setattr(
+            yaml,
+            "safe_load",
+            lambda _txt: {
+                "plugins": {
+                    "brave": {
+                        "npm_package": "@openclaw/brave-plugin",
+                        "version": "2026.6.8",
+                        "min_host_version": "not-a-version",
+                    }
+                }
+            },
+        )
+        with pytest.raises(
+            CanonicalSyncError, match=r"not a valid X\.Y\.Z version"
+        ):
+            lc._load_openclaw_brave_pin()
+
+
+# ---------------------------------------------------------------------------
+# Brave (#734) — playbook dispatch routing (ATX iter 1 B4).
+# ---------------------------------------------------------------------------
+
+
+class TestOpenclawConfigureDispatch:
+    """The macOS sibling `configure_macos.yaml` MUST be the file
+    selected by `resolve_agent_playbook` for `os_family="darwin"`.
+    Without this test a regression renaming the file (or breaking the
+    `_macos` suffix convention) would only surface on a real Mac
+    host."""
+
+    def test_darwin_routes_to_configure_macos(self):
+        from clawrium.core.playbook_resolver import resolve_agent_playbook
+
+        path = resolve_agent_playbook("openclaw", "configure", "darwin")
+        assert path.name == "configure_macos.yaml"
+        assert path.exists()
+
+    def test_linux_routes_to_configure(self):
+        from clawrium.core.playbook_resolver import resolve_agent_playbook
+
+        path = resolve_agent_playbook("openclaw", "configure", "linux")
+        assert path.name == "configure.yaml"
+        assert path.exists()
+
+    def test_both_configure_playbooks_contain_brave_install_task(self):
+        """Symmetric brave plugin install on Linux + macOS. If a future
+        edit removes the install task from one but not the other the
+        dispatch test still passes — pin both files explicitly."""
+        from clawrium.core.playbook_resolver import resolve_agent_playbook
+
+        linux = resolve_agent_playbook("openclaw", "configure", "linux")
+        darwin = resolve_agent_playbook("openclaw", "configure", "darwin")
+        for path in (linux, darwin):
+            body = path.read_text()
+            assert "openclaw_brave_plugin_package" in body, path
+            assert "openclaw_brave_plugin_version" in body, path
+            assert "no_log: true" in body, path
+            # No Darwin-conditional inside either file (dispatcher-only
+            # OS fork — #734 invariant).
+            assert "ansible_os_family == 'Darwin'" not in body, path
+            assert 'ansible_os_family == "Darwin"' not in body, path

@@ -3139,3 +3139,220 @@ class TestConfigureAgentSlackTokens:
                 )
                 assert vars.get("slack_bot_token") == "xoxb-123-test"
                 assert vars.get("slack_app_token") == "xapp-1-ABC-test"
+
+
+class TestConfigureAgentBravePreflight:
+    """ATX iter 3 B_NEW1: pin the openclaw brave preflight inside
+    `configure_agent` directly. The canonical preflight in
+    `sync_agent_canonical` is independently covered in
+    `tests/core/test_lifecycle_canonical.py`; the configure path has
+    its own SSH+key plumbing and error formatting that must be tested
+    on its own."""
+
+    def _oc_host(self) -> dict:
+        return {
+            "hostname": "10.0.0.1",
+            "key_id": "test",
+            "agent_name": "wolf-i",
+            "port": 22,
+            "user": "xclm",
+            "agents": {
+                "oc-test": {
+                    "type": "openclaw",
+                    "agent_name": "openc",
+                    "onboarding": {"state": "ready"},
+                    "config": {"gateway": {"port": 40000}},
+                }
+            },
+        }
+
+    def _run_with_preflight(
+        self,
+        tmp_path: Path,
+        *,
+        host_version: tuple[int, int, int] | None,
+        attach_brave: bool = True,
+        pin_raises: bool = False,
+        no_ssh_key: bool = False,
+    ) -> tuple[bool, str | None]:
+        host = self._oc_host()
+        key_path = tmp_path / "k"
+        key_path.write_text("k")
+        playbook_path = tmp_path / "configure.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        integrations_for_agent = ["my-brave"] if attach_brave else []
+        brave_integration = {
+            "name": "my-brave",
+            "type": "brave",
+        }
+        brave_creds = {"BRAVE_API_KEY": "bsk-1"}
+
+        runner = MagicMock()
+        runner.status = "successful"
+        runner.events = []
+        artifacts_dir = tmp_path / "artifacts"
+        (artifacts_dir / "fact_cache").mkdir(parents=True)
+        runner.config.artifact_dir = str(artifacts_dir)
+
+        from clawrium.core.lifecycle_canonical import CanonicalSyncError
+
+        def _fake_load_pin():
+            if pin_raises:
+                raise CanonicalSyncError("manifest corrupt")
+            return {
+                "npm_package": "@openclaw/brave-plugin",
+                "version": "2026.6.8",
+                "min_host_version": (2026, 4, 10),
+            }
+
+        patches = [
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=None if no_ssh_key else key_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                return_value=runner,
+            ),
+            patch(
+                "clawrium.core.lifecycle.update_host", return_value=True
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_config_dir",
+                return_value=tmp_path,
+            ),
+            patch(
+                "clawrium.core.providers.get_provider_api_key",
+                return_value="",
+            ),
+            patch(
+                "clawrium.core.providers.get_provider_aws_credentials",
+                return_value=("", ""),
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value={},
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_key",
+                return_value="test-key",
+            ),
+            patch(
+                "clawrium.core.integrations.get_agent_integrations",
+                return_value=integrations_for_agent,
+            ),
+            patch(
+                "clawrium.core.integrations.get_integration",
+                return_value=brave_integration,
+            ),
+            patch(
+                "clawrium.core.integrations.get_integration_credentials",
+                return_value=brave_creds,
+            ),
+            patch(
+                "clawrium.core.lifecycle_canonical._load_openclaw_brave_pin",
+                side_effect=_fake_load_pin,
+            ),
+            patch(
+                "clawrium.core.lifecycle_canonical._get_host_openclaw_version",
+                return_value=host_version,
+            ),
+            patch(
+                "clawrium.core.lifecycle.paramiko.SSHClient",
+                return_value=MagicMock(),
+            ),
+            patch.object(Path, "exists", return_value=True),
+        ]
+        from contextlib import ExitStack
+
+        with ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            from clawrium.core.lifecycle import configure_agent
+
+            success, error = configure_agent(
+                "10.0.0.1",
+                "openclaw",
+                {"providers": {"anthropic": {"model": "claude-opus-4-7"}}},
+                agent_name="oc-test",
+            )
+        return success, error
+
+    def test_pin_load_failure_returns_false_with_message(self, tmp_path: Path):
+        """`_load_openclaw_brave_pin` raises (corrupt manifest) →
+        configure_agent returns (False, msg) instead of letting the
+        npm install run with an empty version."""
+        success, error = self._run_with_preflight(
+            tmp_path, host_version=(2026, 5, 28), pin_raises=True
+        )
+        assert success is False
+        assert "manifest corrupt" in (error or "")
+
+    def test_missing_ssh_key_returns_false(self, tmp_path: Path):
+        """If `get_host_private_key` returns None, configure_agent
+        must fail closed before any host-side work. The existing
+        early-return at `lifecycle.py:2433` covers this; the preflight
+        is downstream of it, so we just verify the call fails."""
+        success, error = self._run_with_preflight(
+            tmp_path, host_version=(2026, 5, 28), no_ssh_key=True
+        )
+        assert success is False
+        assert error is not None and "SSH key" in error
+
+    def test_version_below_minimum_returns_upgrade_hint(self, tmp_path: Path):
+        """Host openclaw < 2026.4.10 → upgrade hint, not install hint."""
+        success, error = self._run_with_preflight(
+            tmp_path, host_version=(2026, 3, 13)
+        )
+        assert success is False
+        assert "2026.3.13" in (error or "")
+        assert "clawctl agent upgrade" in (error or "")
+
+    def test_unknown_version_returns_install_hint(self, tmp_path: Path):
+        """`_get_host_openclaw_version` returns None (binary missing) →
+        install hint, distinct from upgrade hint (W9 ATX iter 1)."""
+        success, error = self._run_with_preflight(
+            tmp_path, host_version=None
+        )
+        assert success is False
+        assert "<unknown>" in (error or "")
+        assert "clawctl agent install" in (error or "")
+
+    def test_exact_minimum_version_proceeds_past_preflight(
+        self, tmp_path: Path
+    ):
+        """Host openclaw == minHostVersion → preflight passes; the
+        rest of configure_agent runs (we don't assert deep on the
+        ansible-runner mock; success vs falsy is enough to pin the
+        preflight has not short-circuited)."""
+        success, _ = self._run_with_preflight(
+            tmp_path, host_version=(2026, 4, 10)
+        )
+        # The rest of configure_agent has many side effects; this test
+        # only pins that preflight did not return False. `success` may
+        # be False for other reasons but the error must not be a
+        # preflight error.
+        success_or_no_preflight_error = (
+            success is True
+            or "brave plugin requires" not in (str(_) if _ else "")
+        )
+        assert success_or_no_preflight_error
+
+    def test_no_brave_integration_skips_preflight(self, tmp_path: Path):
+        """When no brave integration is attached, the preflight MUST
+        NOT run — every openclaw configure would otherwise pay for an
+        SSH version probe it doesn't need."""
+        # _get_host_openclaw_version returning None would normally trip
+        # the preflight; with no brave attachment the test passes
+        # because the preflight branch is never entered.
+        success, error = self._run_with_preflight(
+            tmp_path, host_version=None, attach_brave=False
+        )
+        # If preflight ran, error would mention 'brave plugin requires'.
+        assert "brave plugin requires" not in (error or "")

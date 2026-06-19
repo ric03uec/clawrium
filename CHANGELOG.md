@@ -16,6 +16,22 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- New `brave` integration type for the Brave Search API. Register once
+  with `clawctl integration registry create my-brave --type brave
+  --api-key <key>` (or pipe the key via `--api-key-stdin`), attach to
+  any supported agent with `clawctl agent integration attach <agent>
+  my-brave`, and `clawctl agent sync` writes the per-agent env shape:
+  `BRAVE_SEARCH_API_KEY` on hermes (name-mapped from the
+  operator-facing `BRAVE_API_KEY`), `BRAVE_API_KEY` plus
+  `ZEROCLAW_web_search__search_provider=brave` on zeroclaw (both lines
+  are required to actually flip the provider router off the
+  duckduckgo default), and `BRAVE_API_KEY` on openclaw. Openclaw also
+  installs `@openclaw/brave-plugin@2026.6.8` automatically on
+  configure (idempotent, sentinel-gated) and preflights the on-host
+  openclaw version against the plugin's `minHostVersion` (>= 2026.4.10)
+  before any sync write. New `clawctl integration rotate <name>`
+  rotates the credential and re-syncs every bound agent in one shot.
+  Closes #734.
 - OpenCode inference provider support. `clawctl provider registry create` now
   accepts `--type opencode` and `--type opencode-go`, with model catalog
   entries for both hosted gateways and renderer wiring for hermes, zeroclaw,

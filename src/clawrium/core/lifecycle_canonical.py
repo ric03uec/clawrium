@@ -43,6 +43,7 @@ import logging
 import re
 import shlex
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 import paramiko
@@ -101,6 +102,96 @@ _SECRET_KEY_SUFFIXES = (
     # up by the `endswith` check on the captured key.
     "_KEY_ID",
 )
+
+
+# Openclaw brave plugin pin is loaded from `manifest.yaml` so the
+# Python preflight and Ansible playbook never drift on the version or
+# minHostVersion (W2 ATX iter 1). The loader hard-fails on a missing
+# or malformed entry — silently falling back to an empty version would
+# let `npm install @openclaw/brave-plugin@` run with an unbounded
+# version and surface as an opaque error under `no_log: true`
+# (W3 ATX iter 1).
+
+
+def _load_openclaw_brave_pin() -> dict:
+    """Read `plugins.brave` from the openclaw manifest. Returns a dict
+    with `npm_package`, `version` (str), and `min_host_version` (tuple).
+    Raises `CanonicalSyncError` on any structural problem so the caller
+    never proceeds with an undefined pin."""
+    import yaml as _yaml
+
+    manifest_path = (
+        Path(__file__).parent.parent
+        / "platform"
+        / "registry"
+        / "openclaw"
+        / "manifest.yaml"
+    )
+    manifest = _yaml.safe_load(manifest_path.read_text())
+    brave = (manifest.get("plugins") or {}).get("brave") or {}
+    pkg = brave.get("npm_package")
+    ver = brave.get("version")
+    minv = brave.get("min_host_version")
+    if not pkg or not ver or not minv:
+        raise CanonicalSyncError(
+            "openclaw manifest is missing plugins.brave.{npm_package, "
+            "version, min_host_version} — clawrium build is corrupt; "
+            "reinstall via `uv tool install clawrium`."
+        )
+    minv_tuple = _parse_semver_tuple(minv)
+    if minv_tuple is None:
+        raise CanonicalSyncError(
+            f"openclaw manifest plugins.brave.min_host_version={minv!r} "
+            "is not a valid X.Y.Z version."
+        )
+    return {
+        "npm_package": pkg,
+        "version": ver,
+        "min_host_version": minv_tuple,
+    }
+
+
+def _parse_semver_tuple(raw: str) -> tuple[int, int, int] | None:
+    """Parse a leading `X.Y.Z` out of `raw`. Returns None when no triple
+    is present (treated as unknown, NOT zero — see preflight).
+
+    Anchors at line start to avoid picking up a runtime/Node version
+    that some future `openclaw --version` build might print first
+    (W8 ATX iter 1). Falls back to first-anywhere as a safety net so
+    operator-friendly output like `openclaw 2026.5.28` still parses.
+    """
+    if not raw:
+        return None
+    first_line = raw.splitlines()[0]
+    m = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", first_line)
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+
+def _get_host_openclaw_version(
+    client: paramiko.SSHClient, agent_name: str, *, timeout: int = 10
+) -> tuple[int, int, int] | None:
+    """Run `openclaw --version` on the host as the agent user and parse
+    the X.Y.Z triple. Returns None when the binary is missing or its
+    output cannot be parsed — the preflight treats that as a hard fail
+    so we never let a brave attach proceed against an unknown version.
+
+    Uses the agent user's login shell (`bash -lc`) so the binary is
+    resolved via the same `PATH` that `install.yaml` configures —
+    `/usr/local/bin`, `/usr/bin`, or `~/.openclaw/bin` are all
+    acceptable per the install playbook's safelist.
+    """
+    quoted_agent = shlex.quote(agent_name)
+    cmd = (
+        f"sudo -n -u {quoted_agent} bash -lc "
+        f"{shlex.quote('command -v openclaw >/dev/null 2>&1 && openclaw --version')}"
+    )
+    _, out, _ = client.exec_command(cmd, timeout=timeout)
+    body = out.read().decode("utf-8", errors="replace").strip()
+    if out.channel.recv_exit_status() != 0:
+        return None
+    return _parse_semver_tuple(body)
 
 
 class CanonicalSyncError(Exception):
@@ -600,6 +691,42 @@ def sync_agent_canonical(
 
     client = _open_ssh(host)
     try:
+        # #734 openclaw brave plugin requires minHostVersion 2026.4.10. We
+        # check on the live host (not on hosts.json cached state) because
+        # an operator may have upgraded out-of-band since the last
+        # `clawctl agent get` and we'd otherwise reject a now-valid host.
+        # Done after `_open_ssh` so the connect/auth errors surface with
+        # their normal messages instead of getting swallowed by the
+        # preflight error formatting.
+        if inputs.agent_type == "openclaw" and any(
+            i.type == "brave" for i in inputs.integrations
+        ):
+            pin = _load_openclaw_brave_pin()
+            min_ver = pin["min_host_version"]
+            version = _get_host_openclaw_version(client, agent_name)
+            min_str = ".".join(str(p) for p in min_ver)
+            if version is None:
+                # Binary missing or unparseable — distinct hint from
+                # "version too old": install vs upgrade (W9 ATX iter 1).
+                raise CanonicalSyncError(
+                    f"openclaw on {hostname!r} is <unknown> "
+                    f"(binary missing or `--version` unparseable); brave "
+                    f"plugin requires >= {min_str}. Run "
+                    f"`clawctl agent install {agent_name}` first."
+                )
+            if version < min_ver:
+                actual = ".".join(str(p) for p in version)
+                raise CanonicalSyncError(
+                    f"openclaw on {hostname!r} is {actual}; brave plugin "
+                    f"requires >= {min_str}. Run "
+                    f"`clawctl agent upgrade {agent_name}` first."
+                )
+            emit(
+                "brave_integration_configured",
+                f"openclaw {'.'.join(str(p) for p in version)} on {hostname} "
+                f"satisfies brave plugin min version",
+            )
+
         for d in diffs:
             if not d.unified_diff:
                 files_unchanged.append(d.path)

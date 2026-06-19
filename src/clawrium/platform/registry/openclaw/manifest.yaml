@@ -2,6 +2,16 @@ agent:
   type: openclaw
   description: "Open-source AI assistant framework"
 
+# Plugin pin table — versions are referenced by configure.yaml so a
+# bump is a single-line change. `min_host_version` mirrors the
+# upstream plugin's `minHostVersion` so `lifecycle_canonical` and
+# Ansible agree on the floor.
+plugins:
+  brave:
+    npm_package: "@openclaw/brave-plugin"
+    version: "2026.6.8"
+    min_host_version: "2026.4.10"
+
 # Workspace metadata consumed by cross-claw subsystems (memory CLI, etc.).
 # Path matches the location previously hard-coded in core/memory.py so the
 # memory dispatcher can read it without behavior change.

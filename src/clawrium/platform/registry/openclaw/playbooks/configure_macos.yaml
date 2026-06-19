@@ -87,6 +87,37 @@
         mode: "0644"
       when: identity_files is defined and identity_files.sync_workspace | default(false)
 
+    # See configure.yaml (Linux) for the rationale on plugin install
+    # ordering and sentinel gating. `no_log` is intentionally omitted
+    # so npm errors surface; the npm package is public and no secrets
+    # are in scope. macOS PATH covers Homebrew (/opt/homebrew/bin on
+    # Apple Silicon, /usr/local/bin on Intel) plus nvm's default shim
+    # under /Users/<user>/.nvm. (#734 ATX iter 2 W3, W4)
+    - name: Install openclaw brave plugin (idempotent, gated by sentinel)
+      become: yes
+      become_user: "{{ agent_name }}"
+      environment:
+        PATH: "/Users/{{ agent_name }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+      ansible.builtin.command: >-
+        npm install --prefix /Users/{{ agent_name }}/.openclaw
+        {{ openclaw_brave_plugin_package }}@{{ openclaw_brave_plugin_version }}
+      args:
+        creates: "/Users/{{ agent_name }}/.openclaw/.brave-plugin-installed.{{ openclaw_brave_plugin_version }}"
+      when:
+        - integrations is defined
+        - integrations.values() | selectattr('type', 'equalto', 'brave') | list | length > 0
+
+    - name: Stamp brave plugin install sentinel
+      become: yes
+      become_user: "{{ agent_name }}"
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.openclaw/.brave-plugin-installed.{{ openclaw_brave_plugin_version }}"
+        state: touch
+        mode: "0600"
+      when:
+        - integrations is defined
+        - integrations.values() | selectattr('type', 'equalto', 'brave') | list | length > 0
+
     - name: Write openclaw .env from template
       ansible.builtin.template:
         src: "{{ template_path }}/.env.j2"

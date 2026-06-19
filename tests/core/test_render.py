@@ -4193,3 +4193,126 @@ def test_openclaw_litellm_preserves_unmanaged_baseline_keys():
     assert blob["session"]["dmScope"] == "per-channel-peer"
     assert blob["env"]["shellEnv"] == {"enabled": True, "timeoutMs": 15000}
     assert blob["agents"]["defaults"]["workspace"] == "~/.openclaw/workspace"
+
+
+# ---------------------------------------------------------------------------
+# Brave integration (#734) — per-agent env render shape.
+# ---------------------------------------------------------------------------
+
+
+def test_hermes_brave_integration_emits_search_api_key_envvar():
+    """Hermes maps the operator-facing `BRAVE_API_KEY` credential to the
+    upstream-required `BRAVE_SEARCH_API_KEY=` env var (hermes #21337). The
+    name mapping is template-only — operators never see the upstream var
+    name."""
+    base = _baseline_inputs(ptype="anthropic")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="my-brave",
+                type="brave",
+                credentials=(("BRAVE_API_KEY", "bsk-1"),),
+            ),
+        ),
+        api_server=None,
+    )
+    env = render_hermes(inputs).files[".hermes/.env"]
+    assert "BRAVE_SEARCH_API_KEY='bsk-1'" in env
+    # The operator-facing key name MUST NOT appear in the rendered env.
+    assert "BRAVE_API_KEY=" not in env
+
+
+def test_zeroclaw_brave_integration_emits_key_and_provider_override():
+    """Zeroclaw needs BOTH env vars — the key alone leaves the search
+    provider on its duckduckgo default. The companion override flips the
+    router. Both lines are required and asserted together."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=base.channels,
+        integrations=(
+            IntegrationInputs(
+                name="my-brave",
+                type="brave",
+                credentials=(("BRAVE_API_KEY", "bsk-1"),),
+            ),
+        ),
+        gateway=base.gateway,
+    )
+    env = render_zeroclaw(inputs).files[".zeroclaw/zeroclaw-env.conf"]
+    assert 'Environment=BRAVE_API_KEY="bsk-1"' in env
+    assert 'Environment=ZEROCLAW_web_search__search_provider="brave"' in env
+
+
+def test_openclaw_brave_integration_emits_api_key_envvar():
+    """Openclaw's brave plugin reads `BRAVE_API_KEY` directly from the
+    process env (plugin manifest declares it as the first-class fallback
+    for `webSearch.apiKey`). No name mapping."""
+    inputs = _openclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=inputs.agent_name,
+        agent_type=inputs.agent_type,
+        provider=inputs.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="my-brave",
+                type="brave",
+                credentials=(("BRAVE_API_KEY", "bsk-1"),),
+            ),
+        ),
+        gateway=inputs.gateway,
+    )
+    env = render_openclaw(inputs).files[".openclaw/env"]
+    assert "BRAVE_API_KEY='bsk-1'" in env
+
+
+def test_brave_integration_supported_on_all_three_agents():
+    """Whitelist assertion — `brave` must be in every supported set. Catches
+    accidental removal during refactor."""
+    from clawrium.core.render import (
+        _HERMES_SUPPORTED_INTEGRATIONS,
+        _OPENCLAW_SUPPORTED_INTEGRATIONS,
+        _ZEROCLAW_SUPPORTED_INTEGRATIONS,
+    )
+
+    assert "brave" in _HERMES_SUPPORTED_INTEGRATIONS
+    assert "brave" in _ZEROCLAW_SUPPORTED_INTEGRATIONS
+    assert "brave" in _OPENCLAW_SUPPORTED_INTEGRATIONS
+
+
+def test_zeroclaw_brave_alongside_github_renders_both():
+    """Multi-integration: brave + github attached on the same zeroclaw
+    agent both emit their env-var blocks. Order independence is asserted
+    via membership (the iteration order is documented as stable but the
+    test does not pin it)."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=base.channels,
+        integrations=(
+            IntegrationInputs(
+                name="gh-1",
+                type="github",
+                credentials=(("GITHUB_TOKEN", "ghp_a"),),
+            ),
+            IntegrationInputs(
+                name="my-brave",
+                type="brave",
+                credentials=(("BRAVE_API_KEY", "bsk-1"),),
+            ),
+        ),
+        gateway=base.gateway,
+    )
+    env = render_zeroclaw(inputs).files[".zeroclaw/zeroclaw-env.conf"]
+    assert 'Environment=GITHUB_TOKEN_GH_1="ghp_a"' in env
+    assert 'Environment=BRAVE_API_KEY="bsk-1"' in env
+    assert 'Environment=ZEROCLAW_web_search__search_provider="brave"' in env

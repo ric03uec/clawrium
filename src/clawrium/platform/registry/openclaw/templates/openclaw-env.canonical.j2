@@ -69,6 +69,8 @@ CONFLUENCE_API_TOKEN={{ integration.atlassian_api_token | shq }}
 LINEAR_API_KEY={{ integration.linear_api_key | shq }}
 {% elif integration.type == 'notion' %}
 NOTION_API_KEY={{ integration.notion_api_key | shq }}
+{% elif integration.type == 'brave' %}
+BRAVE_API_KEY={{ integration.brave_api_key | shq }}
 {% endif %}
 {% endfor %}
 {% if last_github_token %}

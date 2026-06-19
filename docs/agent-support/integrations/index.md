@@ -7,6 +7,7 @@ Integrations allow agents to interact with external tools and services, extendin
 | Integration | Status | Agents | Use Case |
 |-------------|:------:|--------|----------|
 | **[Atlassian (Jira + Confluence)](atlassian.md)** | ✅ | Hermes (MCP), OpenClaw, ZeroClaw | Issue tracking, docs / knowledge base |
+| **[Brave Search](brave.md)** | ✅ | Hermes, OpenClaw, ZeroClaw | Web search tool |
 | **[GitHub](github.md)** | 🚧 | OpenClaw (planned) | PR reviews, issues |
 | **[GitLab](gitlab.md)** | 📋 | Not planned | Alternative to GitHub |
 | **[Linear](linear.md)** | 📋 | Not planned | Issue tracking |
