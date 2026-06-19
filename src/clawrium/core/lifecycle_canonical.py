@@ -797,8 +797,11 @@ def sync_agent_canonical(
 
     client = _open_ssh(host)
     try:
-        # #734 openclaw brave plugin requires minHostVersion 2026.4.10. We
-        # check on the live host (not on hosts.json cached state) because
+        # #734 openclaw brave plugin enforces a minHostVersion floor
+        # (sourced from `plugins.brave.min_host_version` in the
+        # openclaw manifest — do not duplicate the literal here, the
+        # manifest is the single source of truth). We check on the
+        # live host (not on hosts.json cached state) because
         # an operator may have upgraded out-of-band since the last
         # `clawctl agent get` and we'd otherwise reject a now-valid host.
         # Done after `_open_ssh` so the connect/auth errors surface with
