@@ -1403,18 +1403,18 @@ class TestOpenclawBraveVersionPreflight:
         self._setup(monkeypatch, (2026, 3, 13))
         with pytest.raises(
             CanonicalSyncError,
-            match=r"openclaw on 'h' is 2026\.3\.13; brave plugin requires >= 2026\.4\.10",
+            match=r"openclaw on 'h' is 2026\.3\.13; brave plugin requires >= 2026\.6\.8",
         ):
             sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_exact_min_version_passes(self, monkeypatch):
-        self._setup(monkeypatch, (2026, 4, 10))
+        self._setup(monkeypatch, (2026, 6, 8))
         # Should not raise on the preflight; diffs are empty so the rest
         # of the pipeline is a no-op.
         sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_newer_than_min_version_passes(self, monkeypatch):
-        self._setup(monkeypatch, (2026, 5, 28))
+        self._setup(monkeypatch, (2026, 6, 9))
         sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_unknown_version_raises(self, monkeypatch):
@@ -1588,7 +1588,7 @@ class TestLoadOpenclawBravePin:
         pin = lc._load_openclaw_brave_pin()
         assert pin["npm_package"] == "@openclaw/brave-plugin"
         assert pin["version"] == "2026.6.8"
-        assert pin["min_host_version"] == (2026, 4, 10)
+        assert pin["min_host_version"] == (2026, 6, 8)
 
     def test_raises_when_pin_block_missing(self, monkeypatch):
         """Manifest with no `plugins.brave` block → hard fail. Never
