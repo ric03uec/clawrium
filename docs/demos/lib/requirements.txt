@@ -1,4 +1,0 @@
-# Dependencies for docs/demos/lib/narrate.py.
-# Install with: pip install -r docs/demos/lib/requirements.txt
-elevenlabs>=1.0.0
-python-dotenv>=1.0.0

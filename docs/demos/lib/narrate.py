@@ -1,4 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "elevenlabs>=1.0.0",
+#   "python-dotenv>=1.0.0",
+# ]
+# ///
 """Layer ElevenLabs narration onto a VHS demo recording.
 
 Reads narration text and per-scene start timecodes from the demo's
@@ -6,12 +13,15 @@ Reads narration text and per-scene start timecodes from the demo's
 then muxes them into the recording at their declared start times with
 ffmpeg.
 
-Usage:
-    python docs/demos/lib/narrate.py docs/demos/<demo-folder>
+Usage (uv resolves deps from the PEP 723 block at the top of this file):
+    uv run docs/demos/lib/narrate.py docs/demos/<demo-folder>
         [--force]              # regenerate all scene mp3s even if cached
         [--regen 4,5]          # regenerate only listed scenes
         [--skip-mux]           # generate audio only; skip ffmpeg mux
         [--input recording.mp4 --output recording-narrated.mp4]
+
+If the file is executable and uv is on PATH, it can also be invoked directly:
+    docs/demos/lib/narrate.py docs/demos/<demo-folder>
 
 Storyboard narration format (one line per scene under ## Narration):
     - Scene 1 (start=14s): "Running clawctl version 26.6.4..."
@@ -68,10 +78,10 @@ def _load_env(env_file: Path) -> None:
     try:
         from dotenv import load_dotenv
     except ImportError:
-        # dotenv is required; surface a clear install hint.
         sys.exit(
-            "missing dependency: install with `pip install -r "
-            f"{LIB_DIR / 'requirements.txt'}`"
+            "missing dependency `python-dotenv` — invoke this script via "
+            "`uv run docs/demos/lib/narrate.py ...` so uv resolves the "
+            "PEP 723 dependencies declared at the top of the file."
         )
     load_dotenv(env_file, override=False)
 
@@ -147,8 +157,9 @@ def generate_clips(
         from elevenlabs.client import ElevenLabs
     except ImportError:
         sys.exit(
-            "missing dependency: install with `pip install -r "
-            f"{LIB_DIR / 'requirements.txt'}`"
+            "missing dependency `elevenlabs` — invoke this script via "
+            "`uv run docs/demos/lib/narrate.py ...` so uv resolves the "
+            "PEP 723 dependencies declared at the top of the file."
         )
     client = ElevenLabs(api_key=api_key)
     voice_dir.mkdir(parents=True, exist_ok=True)

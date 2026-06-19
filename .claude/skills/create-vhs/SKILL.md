@@ -18,8 +18,7 @@ Shared scripts and ANSI card/progress helpers live in `docs/demos/lib/` so each 
 |-------------------------------------------------------|------------|------------------------------------------------------|
 | `docs/demos/lib/cards.sh`                             | yes        | Shared titlecard/outrocard/headline/progress functions (sourced by every per-demo `helpers.sh`) |
 | `docs/demos/lib/stitch.sh`                            | yes        | `bash docs/demos/lib/stitch.sh <demo-folder>` — concatenates `outputs/*.txt` into `stitched.txt` |
-| `docs/demos/lib/narrate.py`                           | yes        | `python docs/demos/lib/narrate.py <demo-folder>` — ElevenLabs TTS + ffmpeg voiceover mux |
-| `docs/demos/lib/requirements.txt`                     | yes        | Python deps for `narrate.py` (`elevenlabs`, `python-dotenv`) |
+| `docs/demos/lib/narrate.py`                           | yes        | `uv run docs/demos/lib/narrate.py <demo-folder>` — ElevenLabs TTS + ffmpeg voiceover mux. Python deps declared inline via PEP 723 (`uv` resolves on first run). |
 | `docs/demos/lib/.env.example`                         | yes        | Template for ElevenLabs credentials + voice defaults |
 | `docs/demos/lib/.env`                                 | **no** (gitignored) | Real API key + voice/model IDs |
 | `docs/demos/YYYYMMDD-<slug>/tape.tape`                | yes        | Reproducible VHS source for the recording            |
@@ -129,8 +128,9 @@ After the tape records `recording.mp4`, an ElevenLabs voiceover can be muxed in 
 
 **Setup (one-time per machine)**
 
+`narrate.py` declares its Python deps in a PEP 723 inline metadata block at the top of the file. Run it via `uv run` — uv resolves and caches `elevenlabs` and `python-dotenv` on first invocation. No `pip` step needed.
+
 ```bash
-pip install -r docs/demos/lib/requirements.txt
 cp docs/demos/lib/.env.example docs/demos/lib/.env
 # Edit docs/demos/lib/.env and fill in ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID.
 ```
@@ -150,12 +150,14 @@ The single source of truth is the demo's `storyboard.md` `## Narration` section.
 **Run**
 
 ```bash
-python docs/demos/lib/narrate.py docs/demos/YYYYMMDD-<scenario-name>
+uv run docs/demos/lib/narrate.py docs/demos/YYYYMMDD-<scenario-name>
   [--force]              # regenerate ALL scene mp3s, even if cached
   [--regen 4,5]          # regenerate only the listed scenes
   [--skip-mux]           # generate audio only; skip ffmpeg
   [--input recording.mp4 --output recording-narrated.mp4]
 ```
+
+The script also carries a `#!/usr/bin/env -S uv run --script` shebang, so `./docs/demos/lib/narrate.py docs/demos/YYYYMMDD-<scenario-name>` works directly when uv is on PATH.
 
 The script:
 1. Loads `docs/demos/lib/.env`.
@@ -424,8 +426,7 @@ docs/demos/
 ├── lib/                              # committed — shared, all demos
 │   ├── cards.sh                      # titlecard / outrocard / headline / progress functions
 │   ├── stitch.sh                     # concatenate outputs/*.txt -> stitched.txt
-│   ├── narrate.py                    # ElevenLabs TTS + ffmpeg voiceover mux
-│   ├── requirements.txt              # python deps for narrate.py
+│   ├── narrate.py                    # ElevenLabs TTS + ffmpeg voiceover mux (PEP 723 deps; run via `uv run`)
 │   ├── .env.example                  # template for narrate.py credentials
 │   └── .env                          # GITIGNORED — real ELEVENLABS_API_KEY etc.
 └── YYYYMMDD-<slug>/                  # one folder per demo
