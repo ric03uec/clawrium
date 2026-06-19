@@ -1,0 +1,11 @@
+Clawrium initialized!
+Config directory: /home/devashish/.config/clawrium
+
+                               Dependency Status                                
+┏━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
+┃ Dependency     ┃ Status ┃ Version/Path                     ┃ Action Required ┃
+┡━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
+│ python         │ OK     │ 3.13.13                          │ -               │
+│ ansible        │ OK     │ ansible                          │ -               │
+│ ansible-runner │ OK     │ /home/devashish/.local/share/uv… │ -               │
+└────────────────┴────────┴──────────────────────────────────┴─────────────────┘

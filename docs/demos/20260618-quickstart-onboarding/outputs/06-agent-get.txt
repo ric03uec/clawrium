@@ -1,0 +1,10 @@
+NAME               TYPE       HOST       PROVIDER               STATUS       AGE
+wolf-i             openclaw   wolf-i     clawrium-gtm-litellm   ready        1h
+espresso           hermes     wolf-i     maurice-openrouter     ready        15d
+clawrium-d01       zeroclaw   wolf-i     clawrium-glm51         ready        31d
+clawrium-triage    hermes     wolf-i     clm-openrouter         ready        10d
+clawrium-gtm       hermes     wolf-i     clawrium-gtm-litellm   ready        10d
+clawrium-exec      hermes     wolf-i     clm-openrouter         ready        10d
+clawrium-maurice   hermes     wolf-i     cm-or-primary          ready        10d
+quickstart-demo    hermes     wolf-i     clawrium-gtm-litellm   ready        45s
+hermes-mac         hermes     mac-test   -                      onboarding   18d

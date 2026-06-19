@@ -1,0 +1,13 @@
+Connected target: quickstart-demo on wolf-i
+Type /exit or press Ctrl+D to end. Use /reset to clear conversation history.
+
+you> hello, what model are you?
+
+quickstart-demo> I'm a custom model running as Hermes Agent, optimized for task
+execution, tool use, and persistent context. I don't have a public name like
+"GPT-4" or "Claude 3" — I'm part of the Hermes Agent system, which lets me use
+tools, remember preferences, and learn from your workflow. Let me know how I
+can help!
+
+you> 
+Chat ended.
