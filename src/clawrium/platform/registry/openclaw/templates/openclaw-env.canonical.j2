@@ -28,6 +28,9 @@ OPENAI_API_KEY={{ provider.api_key | shq }}
 OPENROUTER_API_KEY={{ provider.api_key | shq }}
 {% elif provider.type == 'zai' %}
 ZAI_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'opencode' or provider.type == 'opencode-go' %}
+OPENCODE_API_KEY={{ provider.api_key | shq }}
+OPENAI_BASE_URL={{ provider.endpoint | shq }}
 {% elif provider.type == 'bedrock' %}
 AWS_ACCESS_KEY_ID={{ provider.aws_access_key | shq }}
 AWS_SECRET_ACCESS_KEY={{ provider.aws_secret_key | shq }}

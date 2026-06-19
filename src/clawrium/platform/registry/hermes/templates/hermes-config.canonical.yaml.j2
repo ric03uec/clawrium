@@ -156,6 +156,34 @@ auxiliary:
 {% endif %}
 {% endfor %}
 {% endif %}
+{% elif provider.type == 'opencode' or provider.type == 'opencode-go' %}
+{# OpenCode (Zen / Go): OpenAI-compatible hosted gateway. Hermes' custom
+   provider reads the bearer inline in `model.api_key:` and the non-default
+   base_url in `model.base_url:`. No env var is emitted for the key. #}
+model:
+  provider: "custom"
+  base_url: {{ opencode_base_url | yq }}
+  api_key: {{ provider.api_key | yq }}
+  default: {{ provider.default_model | yq }}
+{% if aux_attachments %}
+auxiliary:
+{% for entry in aux_attachments %}
+  {{ entry.role }}:
+{% if entry.type == 'litellm' %}
+    provider: "custom"
+    base_url: {{ entry.base_url | yq }}
+    api_key: {{ entry.api_key | yq }}
+    model: {{ entry.model | yq }}
+{% else %}
+    provider: "{{ entry.type }}"
+    model: {{ entry.model | yq }}
+{% endif %}
+{% endfor %}
+{% else %}
+auxiliary:
+  title_generation:
+    model: "openai/gpt-5-nano"
+{% endif %}
 {% endif %}
 {% if atlassian_integrations %}
 mcp_servers:

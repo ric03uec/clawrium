@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import functools as _functools
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 __all__ = [
     "AgentConfigError",
@@ -57,7 +57,7 @@ __all__ = [
 # not a bearer string. Conflating the two would silently produce a
 # broken on-host config. Vertex support belongs in a follow-up that
 # extends the schema with a credential-kind field.
-_BEARER_API_KEY_TYPES = frozenset({"openrouter", "anthropic", "openai", "zai"})
+_BEARER_API_KEY_TYPES = frozenset({"openrouter", "anthropic", "openai", "zai", "opencode", "opencode-go"})
 _LOCAL_ENDPOINT_TYPES = frozenset({"ollama"})
 # Providers that require BOTH a free-form endpoint AND a bearer API key.
 # LiteLLM is the canonical case: an OpenAI-compatible proxy whose URL is
@@ -80,11 +80,11 @@ _BEARER_API_KEY_WITH_ENDPOINT_TYPES = frozenset({"litellm"})
 # upstream openclaw's custom-provider shape.
 _AGENT_TYPE_PROVIDER_SUPPORT: dict[str, frozenset[str]] = {
     "hermes": frozenset(
-        {"openrouter", "anthropic", "openai", "bedrock", "ollama", "litellm"}
+        {"openrouter", "anthropic", "openai", "bedrock", "ollama", "litellm", "opencode", "opencode-go"}
     ),
-    "zeroclaw": frozenset({"openrouter", "anthropic", "openai", "ollama"}),
+    "zeroclaw": frozenset({"openrouter", "anthropic", "openai", "ollama", "opencode", "opencode-go"}),
     "openclaw": frozenset(
-        {"openrouter", "anthropic", "openai", "bedrock", "ollama", "zai", "litellm"}
+        {"openrouter", "anthropic", "openai", "bedrock", "ollama", "zai", "litellm", "opencode", "opencode-go"}
     ),
 }
 
@@ -882,7 +882,7 @@ def _integration_slug(name: str) -> str:
 
 
 _HERMES_SUPPORTED_PROVIDERS = frozenset(
-    {"openrouter", "anthropic", "openai", "bedrock", "ollama", "litellm"}
+    {"openrouter", "anthropic", "openai", "bedrock", "ollama", "litellm", "opencode", "opencode-go"}
 )
 _HERMES_SUPPORTED_CHANNELS = frozenset({"discord", "slack"})
 _HERMES_SUPPORTED_INTEGRATIONS = frozenset(
@@ -1007,6 +1007,16 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
             endpoint = endpoint + "/v1"
         litellm_base_url = endpoint
 
+    # OpenCode (Zen / Go) is an OpenAI-compatible hosted gateway. The
+    # default endpoint already ends in `/v1`; normalize defensively so a
+    # user-supplied override still works.
+    opencode_base_url = ""
+    if ptype in ("opencode", "opencode-go"):
+        endpoint = inputs.provider.endpoint.rstrip("/")
+        if not endpoint.endswith("/v1"):
+            endpoint = endpoint + "/v1"
+        opencode_base_url = endpoint
+
     # Issue #621: hermes multi-provider context. When the caller built
     # `RenderInputs` via `build_render_inputs`, `inputs.hermes` carries
     # the full attachment list + per-aux credential dicts. When a test
@@ -1053,6 +1063,7 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
         aux_attachments=aux_attachments,
         ollama_base_url=ollama_base_url,
         litellm_base_url=litellm_base_url,
+        opencode_base_url=opencode_base_url,
         atlassian_integrations=atlassian_views,
         mcp_atlassian_version=_HERMES_MCP_ATLASSIAN_VERSION,
     )
@@ -1112,7 +1123,7 @@ def _render_hermes_template(template_name: str, **context) -> str:
 
 # Zeroclaw provider section table. Each entry: (kind_string,)
 _ZEROCLAW_PROVIDER_KINDS = frozenset(
-    {"anthropic", "openai", "ollama", "openrouter"}
+    {"anthropic", "openai", "ollama", "openrouter", "opencode", "opencode-go"}
 )
 _ZEROCLAW_SUPPORTED_INTEGRATIONS = frozenset({"github", "git"})
 
@@ -1187,11 +1198,22 @@ def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
             f"(zeroclaw supports 'discord' only)"
         )
 
+    # --- normalize provider endpoint for OpenAI-compatible gateways ------
+    # zeroclaw's config.toml uses the endpoint verbatim as base_url. For
+    # opencode/opencode-go (and litellm/ollama), ensure the trailing `/v1`
+    # is present so the daemon hits the correct OpenAI-compatible path.
+    provider = inputs.provider
+    if provider.type in ("opencode", "opencode-go"):
+        endpoint = provider.endpoint.rstrip("/")
+        if endpoint and not endpoint.endswith("/v1"):
+            endpoint = endpoint + "/v1"
+        provider = replace(provider, endpoint=endpoint)
+
     # --- render the full canonical template -------------------------------
     toml_body = _render_zeroclaw_config_template(
         agent_name=inputs.agent_name,
         gateway=inputs.gateway,
-        provider=inputs.provider,
+        provider=provider,
         discord_channel=discord_channel,
         shell_env_passthrough=passthrough,
     )
@@ -1311,7 +1333,7 @@ def _render_zeroclaw_config_template(
 # strings. Vertex support belongs in a follow-up that extends the
 # credential schema with a credential-kind field (path vs bearer).
 _OPENCLAW_SUPPORTED_PROVIDERS = frozenset(
-    {"openrouter", "anthropic", "openai", "bedrock", "ollama", "zai", "litellm"}
+    {"openrouter", "anthropic", "openai", "bedrock", "ollama", "zai", "litellm", "opencode", "opencode-go"}
 )
 _OPENCLAW_SUPPORTED_CHANNELS = frozenset({"discord", "slack"})
 _OPENCLAW_SUPPORTED_INTEGRATIONS = frozenset(

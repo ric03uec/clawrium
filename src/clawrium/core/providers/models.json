@@ -6359,6 +6359,361 @@
         }
       ]
     },
+    "opencode": {
+      "models": [
+        {
+          "id": "kimi-k2.5",
+          "name": "Kimi K2.5",
+          "lab": "Moonshot AI",
+          "context_window": 256000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "minimax-m2.7",
+          "name": "MiniMax M2.7",
+          "lab": "MiniMax",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "mimo-v2.5-pro",
+          "name": "MIMO v2.5 Pro",
+          "lab": "MIMO",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "glm-5",
+          "name": "GLM-5",
+          "lab": "Zhipu AI",
+          "context_window": 204800,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "gpt-5",
+          "name": "GPT-5",
+          "lab": "OpenAI",
+          "context_window": 400000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "o3",
+          "name": "o3",
+          "lab": "OpenAI",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "gemini-2.5-pro",
+          "name": "Gemini 2.5 Pro",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "gemini-2.5-flash",
+          "name": "Gemini 2.5 Flash",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "deepseek-v3.1",
+          "name": "DeepSeek V3.1",
+          "lab": "DeepSeek",
+          "context_window": 128000,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "qwen3-235b-a22b",
+          "name": "Qwen3 235B A22B",
+          "lab": "Alibaba",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "llama-4-scout",
+          "name": "Llama 4 Scout",
+          "lab": "Meta",
+          "context_window": 10000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "llama-4-maverick",
+          "name": "Llama 4 Maverick",
+          "lab": "Meta",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        }
+      ]
+    },
+    "opencode-go": {
+      "models": [
+        {
+          "id": "minimax-m2.7",
+          "name": "MiniMax M2.7",
+          "lab": "MiniMax",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "kimi-k2.5",
+          "name": "Kimi K2.5",
+          "lab": "Moonshot AI",
+          "context_window": 256000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "mimo-v2.5-pro",
+          "name": "MIMO v2.5 Pro",
+          "lab": "MIMO",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "glm-5",
+          "name": "GLM-5",
+          "lab": "Zhipu AI",
+          "context_window": 204800,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "mimo-v2-omni",
+          "name": "MIMO v2 Omni",
+          "lab": "MIMO",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "moonshot-v2-128k",
+          "name": "Moonshot v2 128K",
+          "lab": "Moonshot AI",
+          "context_window": 128000,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "mistral-large-2411",
+          "name": "Mistral Large 24.11",
+          "lab": "Mistral AI",
+          "context_window": 128000,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "qwen3-235b-a22b",
+          "name": "Qwen3 235B A22B",
+          "lab": "Alibaba",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "gemini-2.5-pro",
+          "name": "Gemini 2.5 Pro",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "command-a",
+          "name": "Command A",
+          "lab": "Cohere",
+          "context_window": 256000,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "deepseek-v3.1",
+          "name": "DeepSeek V3.1",
+          "lab": "DeepSeek",
+          "context_window": 128000,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "llama-4-scout",
+          "name": "Llama 4 Scout",
+          "lab": "Meta",
+          "context_window": 10000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "llama-4-maverick",
+          "name": "Llama 4 Maverick",
+          "lab": "Meta",
+          "context_window": 1000000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "kimi-k2-omni",
+          "name": "Kimi K2 Omni",
+          "lab": "Moonshot AI",
+          "context_window": 256000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "qwq-32b",
+          "name": "QwQ 32B",
+          "lab": "Alibaba",
+          "context_window": 131072,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "open-weights"
+          ]
+        },
+        {
+          "id": "minimax-m2",
+          "name": "MiniMax M2",
+          "lab": "MiniMax",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use"
+          ]
+        },
+        {
+          "id": "gpt-5",
+          "name": "GPT-5",
+          "lab": "OpenAI",
+          "context_window": 400000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "o3",
+          "name": "o3",
+          "lab": "OpenAI",
+          "context_window": 200000,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "gemini-2.5-flash",
+          "name": "Gemini 2.5 Flash",
+          "lab": "Google",
+          "context_window": 1048576,
+          "tags": [
+            "reasoning",
+            "tool-use",
+            "multimodal",
+            "vision"
+          ]
+        }
+      ]
+    },
     "ollama": {
       "models": []
     }

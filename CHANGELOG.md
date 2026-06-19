@@ -16,6 +16,11 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- OpenCode inference provider support. `clawctl provider registry create` now
+  accepts `--type opencode` and `--type opencode-go`, with model catalog
+  entries for both hosted gateways and renderer wiring for hermes, zeroclaw,
+  and openclaw agents (#722).
+
 ### Changed
 
 ### Fixed

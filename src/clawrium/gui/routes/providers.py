@@ -21,6 +21,7 @@ from clawrium.core.providers.storage import (
     PROVIDER_MODELS,
     DuplicateProviderError,
     InvalidOllamaUrlError,
+    InvalidOpenCodeUrlError,
     InvalidProviderNameError,
     InvalidProviderTypeError,
     add_provider,
@@ -29,6 +30,7 @@ from clawrium.core.providers.storage import (
     remove_provider,
     update_provider,
     validate_ollama_url,
+    validate_opencode_url,
     validate_provider_name,
     validate_provider_type,
     get_provider_api_key,
@@ -301,15 +303,19 @@ async def create_provider(body: ProviderCreate):
     if not endpoint and body.type in PROVIDER_MODELS:
         endpoint = PROVIDER_MODELS[body.type].get("endpoint")
 
-    # Apply the same SSRF guard the CLI uses for user-supplied Ollama
-    # endpoints — without this, a client can store
-    # http://169.254.169.254/... and exfiltrate cloud metadata via clm
-    # provider sync. validate_ollama_url() blocks cloud metadata IPs and
-    # rejects non-http(s) schemes.
+    # Apply SSRF guards for any provider type that accepts a user-supplied
+    # endpoint. Local-inference providers use the Ollama validator (http(s)
+    # allowed, metadata IPs blocked). OpenCode is a hosted service, so
+    # overrides must be https-only and also avoid metadata endpoints.
     if body.type in LOCAL_INFERENCE_TYPES and endpoint:
         try:
             endpoint = validate_ollama_url(endpoint)
         except InvalidOllamaUrlError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    elif body.type in ("opencode", "opencode-go") and endpoint:
+        try:
+            endpoint = validate_opencode_url(endpoint)
+        except InvalidOpenCodeUrlError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
     # Reject mismatched credential families up front rather than silently
@@ -462,6 +468,11 @@ async def update_provider_endpoint(name: str, body: ProviderUpdate):
             try:
                 endpoint_value = validate_ollama_url(endpoint_value)
             except InvalidOllamaUrlError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+        elif provider.get("type") in ("opencode", "opencode-go") and endpoint_value:
+            try:
+                endpoint_value = validate_opencode_url(endpoint_value)
+            except InvalidOpenCodeUrlError as e:
                 raise HTTPException(status_code=400, detail=str(e))
         updates["endpoint"] = endpoint_value
     if (

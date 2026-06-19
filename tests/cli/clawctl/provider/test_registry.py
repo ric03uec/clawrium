@@ -11,6 +11,7 @@ import json
 from typer.testing import CliRunner
 
 from clawrium.cli import app
+from clawrium.core.render import build_render_inputs, render_hermes, render_openclaw
 
 runner = CliRunner()
 
@@ -309,3 +310,121 @@ def test_delete_with_yes_removes_record(fleet_dir, stdin_not_tty) -> None:
     # Now describing returns not-found.
     desc = runner.invoke(app, ["provider", "registry", "describe", "dy"])
     assert desc.exit_code != 0
+
+
+def test_create_opencode_persists_default_endpoint(fleet_dir, stdin_not_tty) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "provider",
+            "registry",
+            "create",
+            "my-opencode",
+            "--type",
+            "opencode",
+            "--model",
+            "kimi-k2.5",
+            "--api-key",
+            "sk-test",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    providers = json.loads((fleet_dir / "providers.json").read_text())
+    record = next(p for p in providers if p["name"] == "my-opencode")
+    assert record["endpoint"] == "https://opencode.ai/zen/v1"
+
+
+def test_create_opencode_go_persists_default_endpoint(fleet_dir, stdin_not_tty) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "provider",
+            "registry",
+            "create",
+            "my-opencode-go",
+            "--type",
+            "opencode-go",
+            "--model",
+            "deepseek-v4-flash",
+            "--api-key",
+            "sk-test",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    providers = json.loads((fleet_dir / "providers.json").read_text())
+    record = next(p for p in providers if p["name"] == "my-opencode-go")
+    assert record["endpoint"] == "https://opencode.ai/zen/go/v1"
+
+
+def test_create_opencode_end_to_end_renders_hermes(hermes_fleet_dir, stdin_not_tty) -> None:
+    """W3: default endpoint persisted at create time flows through build_render_inputs + render_hermes."""
+    runner.invoke(
+        app,
+        [
+            "provider",
+            "registry",
+            "create",
+            "ocg",
+            "--type",
+            "opencode-go",
+            "--model",
+            "deepseek-v4-flash",
+            "--api-key",
+            "sk-test",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "agent",
+            "provider",
+            "attach",
+            "ocg",
+            "--agent",
+            "sage-hermes",
+            "--role",
+            "primary",
+        ],
+    )
+    inputs = build_render_inputs("sage-hermes")
+    out = render_hermes(inputs)
+    yaml = out.files[".hermes/config.yaml"]
+    assert 'provider: "custom"' in yaml
+    assert "https://opencode.ai/zen/go/v1" in yaml
+    assert "deepseek-v4-flash" in yaml
+
+
+def test_create_opencode_end_to_end_renders_openclaw(fleet_dir, stdin_not_tty) -> None:
+    """W4: OPENAI_BASE_URL is rendered when an opencode provider is attached to openclaw."""
+    runner.invoke(
+        app,
+        [
+            "provider",
+            "registry",
+            "create",
+            "ocg",
+            "--type",
+            "opencode-go",
+            "--model",
+            "deepseek-v4-flash",
+            "--api-key",
+            "sk-test",
+        ],
+    )
+    runner.invoke(
+        app,
+        [
+            "agent",
+            "provider",
+            "attach",
+            "ocg",
+            "--agent",
+            "wise-hypatia",
+        ],
+    )
+    inputs = build_render_inputs("wise-hypatia")
+    out = render_openclaw(inputs)
+    env = out.files[".openclaw/env"]
+    assert "OPENCODE_API_KEY='sk-test'" in env
+    assert "OPENAI_BASE_URL='https://opencode.ai/zen/go/v1'" in env
+    assert "OPENCLAW_DEFAULT_MODEL='deepseek-v4-flash'" in env

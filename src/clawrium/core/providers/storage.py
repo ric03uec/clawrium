@@ -87,6 +87,16 @@ PROVIDER_MODELS: dict[str, dict] = {
         "requires_api_key": True,
         "requires_endpoint": False,
     },
+    "opencode": {
+        "endpoint": "https://opencode.ai/zen/v1",
+        "requires_api_key": True,
+        "requires_endpoint": False,
+    },
+    "opencode-go": {
+        "endpoint": "https://opencode.ai/zen/go/v1",
+        "requires_api_key": True,
+        "requires_endpoint": False,
+    },
     "ollama": {
         "endpoint": None,  # User-provided
         "requires_api_key": False,
@@ -144,6 +154,12 @@ class LiteLLMConnectionError(Exception):
 
 class InvalidLiteLLMUrlError(Exception):
     """Raised when LiteLLM URL is invalid or points to a restricted address."""
+
+    pass
+
+
+class InvalidOpenCodeUrlError(Exception):
+    """Raised when an OpenCode endpoint override is invalid or unsafe."""
 
     pass
 
@@ -324,6 +340,65 @@ def validate_litellm_url(url: str) -> str:
         return validate_ollama_url(url)
     except InvalidOllamaUrlError as e:
         raise InvalidLiteLLMUrlError(str(e))
+
+
+def validate_opencode_url(url: str) -> str:
+    """Validate an OpenCode endpoint override.
+
+    OpenCode is a hosted service; overrides must use HTTPS and must not
+    target cloud metadata endpoints. The same quote/backslash/whitespace
+    block used for Ollama URLs is applied as defense-in-depth for template
+    rendering.
+
+    Args:
+        url: URL to validate.
+
+    Returns:
+        Normalized URL (trailing slash removed).
+
+    Raises:
+        InvalidOpenCodeUrlError: If URL is invalid or points to a restricted address.
+    """
+    url = url.strip().rstrip("/")
+
+    if any(ch in url for ch in ('"', "\\", "\n", "\r", "\t")):
+        raise InvalidOpenCodeUrlError(
+            "URL must not contain quote, backslash, or whitespace characters"
+        )
+
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        raise InvalidOpenCodeUrlError(f"Invalid URL format: {e}")
+
+    if parsed.scheme != "https":
+        raise InvalidOpenCodeUrlError(
+            f"Invalid URL scheme '{parsed.scheme}'. OpenCode endpoints must use https."
+        )
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise InvalidOpenCodeUrlError("URL must include a hostname")
+
+    try:
+        addr_info = socket.getaddrinfo(
+            hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
+        for family, _, _, _, sockaddr in addr_info:
+            ip_str = sockaddr[0]
+            if _is_metadata_endpoint(ip_str):
+                raise InvalidOpenCodeUrlError(
+                    f"URL resolves to a cloud metadata endpoint '{ip_str}'. "
+                    "This address is not allowed for security."
+                )
+    except socket.gaierror:
+        pass
+    except InvalidOpenCodeUrlError:
+        raise
+    except Exception:
+        pass
+
+    return url
 
 
 def get_models_for_type(provider_type: str) -> list[str] | None:
