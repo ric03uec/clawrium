@@ -41,10 +41,19 @@ intro:
     narration: "Here's what we'll demo: <comma-separated scene titles>."
 
 scenes:
+  # Every scene MUST declare `command:` — this is the real command typed on
+  # screen (so viewers see exactly what was run). In replay mode (default),
+  # a shell-function override installed in setup intercepts the command and
+  # prints the cached `output_file` instead of executing it.
+  #
+  # v1 only intercepts `clawctl`-prefixed commands. Non-clawctl scenes must
+  # set `mode: LIVE` (executes for real at record time).
+  #
   # Scene 1 is fixed by convention: clawctl --version anchors the recording
   # to a known release. Keep this scene unless you have a strong reason.
   - n: 1
     title: clawctl version
+    command: clawctl --version
     output_file: docs/demos/YYYYMMDD-<NAME>/outputs/01-version.txt
     screen_seconds: 3
     narration:
@@ -52,6 +61,7 @@ scenes:
 
   - n: 2
     title: <scene title>
+    command: clawctl <verb> <args>
     output_file: docs/demos/YYYYMMDD-<NAME>/outputs/02-<slug>.txt
     screen_seconds: 5
     narration:
@@ -61,6 +71,7 @@ scenes:
   # Narration covers the gap so viewer sees start, "...", then finish.
   - n: 3
     title: <long-output scene title>
+    command: clawctl <verb> <args>
     output_file: docs/demos/YYYYMMDD-<NAME>/outputs/03-<slug>.txt
     head: 15
     tail: 10

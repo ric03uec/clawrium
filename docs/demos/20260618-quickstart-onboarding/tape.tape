@@ -33,6 +33,9 @@ Sleep 500ms
 Type "clawctl agent delete -y quickstart-demo >/dev/null 2>&1 || true"
 Enter
 Sleep 60.0s
+Type "_replay_install"
+Enter
+Sleep 200ms
 Type "clear"
 Enter
 Sleep 300ms
@@ -62,8 +65,8 @@ Hide
 Type "clear"
 Enter
 Show
-Type "cat docs/demos/20260618-quickstart-onboarding/outputs/01-version.txt"
-Sleep 0.3s
+Type "clawctl --version"
+Sleep 1.0s
 Enter
 Sleep 3.0s
 Type "progress 1"
@@ -81,8 +84,8 @@ Hide
 Type "clear"
 Enter
 Show
-Type "cat docs/demos/20260618-quickstart-onboarding/outputs/02-service-init.txt"
-Sleep 0.3s
+Type "clawctl service init"
+Sleep 1.0s
 Enter
 Sleep 5.0s
 Type "progress 2"
@@ -100,8 +103,8 @@ Hide
 Type "clear"
 Enter
 Show
-Type "cat docs/demos/20260618-quickstart-onboarding/outputs/03-host-create.txt"
-Sleep 0.3s
+Type "clawctl host create wolf.tailf7742d.ts.net --user xclm --alias wolf-i"
+Sleep 1.0s
 Enter
 Sleep 3.0s
 Type "progress 3"
@@ -119,8 +122,8 @@ Hide
 Type "clear"
 Enter
 Show
-Type "head -n 15 docs/demos/20260618-quickstart-onboarding/outputs/04-agent-create.txt; echo '   …'; tail -n 10 docs/demos/20260618-quickstart-onboarding/outputs/04-agent-create.txt"
-Sleep 0.3s
+Type "clawctl agent create quickstart-demo --type hermes --host wolf-i"
+Sleep 1.0s
 Enter
 Sleep 14.0s
 Type "progress 4"
@@ -138,8 +141,8 @@ Hide
 Type "clear"
 Enter
 Show
-Type "cat docs/demos/20260618-quickstart-onboarding/outputs/05-agent-configure.txt"
-Sleep 0.3s
+Type "clawctl agent configure quickstart-demo --stage providers --provider clawrium-gtm-litellm"
+Sleep 1.0s
 Enter
 Sleep 5.0s
 Type "progress 5"
@@ -157,8 +160,8 @@ Hide
 Type "clear"
 Enter
 Show
-Type "cat docs/demos/20260618-quickstart-onboarding/outputs/06-agent-get.txt"
-Sleep 0.3s
+Type "clawctl agent get"
+Sleep 1.0s
 Enter
 Sleep 5.0s
 Type "progress 6"
@@ -176,8 +179,8 @@ Hide
 Type "clear"
 Enter
 Show
-Type "cat docs/demos/20260618-quickstart-onboarding/outputs/07-agent-chat.txt"
-Sleep 0.3s
+Type "clawctl agent chat quickstart-demo"
+Sleep 1.0s
 Enter
 Sleep 8.0s
 Type "progress 7"

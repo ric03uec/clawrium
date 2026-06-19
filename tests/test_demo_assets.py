@@ -202,6 +202,7 @@ class TestCompilePipeline:
             "scenes:\n"
             "  - n: 1\n"
             "    title: version\n"
+            "    command: clawctl --version\n"
             f"    output_file: docs/demos/{demo.name}/outputs/01-version.txt\n"
             "    screen_seconds: 3\n"
             "    narration:\n"
@@ -215,7 +216,17 @@ class TestCompilePipeline:
         assert "Require vhs" in tape_text
         assert "Output " in tape_text
         assert "GENERATED FROM scenes.yaml" in tape_text
-        assert "headline 1 \"version\"" in tape_text
+        assert 'headline 1 "version"' in tape_text
+        # Tape types the REAL command (not a cat of the cached output).
+        assert 'Type "clawctl --version"' in tape_text
+        assert "cat " not in tape_text  # no cat-of-outputs leakage in the visible tape
+        # Setup installs the replay override AFTER live setup steps.
+        assert 'Type "_replay_install"' in tape_text
+        # Helpers.sh wires the clawctl() override to dispatch by command line.
+        helpers = (demo / "helpers.sh").read_text()
+        assert "_replay_install()" in helpers
+        assert "clawctl()" in helpers
+        assert '"--version") cat docs/demos/' in helpers
         data = json.loads(manifest.read_text())
         assert data["title"] == "Mini"
         assert len(data["narration"]) == 1
@@ -223,8 +234,13 @@ class TestCompilePipeline:
         assert data["narration"][0]["absolute_seconds"] > 0
         assert data["recording_duration_seconds"] > 0
 
-    def test_compile_head_tail_elision(self, compile_mod, tmp_path: Path) -> None:
-        """`head:` + `tail:` emits a compound shell command, not plain `cat`."""
+    def test_compile_head_tail_elision_in_helpers(self, compile_mod, tmp_path: Path) -> None:
+        """`head:` + `tail:` is dispatched from helpers.sh, not the tape.
+
+        The tape stays clean (just types the real command); the cached-output
+        replay including the head/tail elision lives in the clawctl() override
+        installed by helpers.sh.
+        """
         demo = tmp_path / "20260101-elision"
         (demo / "outputs").mkdir(parents=True)
         (demo / "outputs" / "01-version.txt").write_text("v\n")
@@ -235,19 +251,42 @@ class TestCompilePipeline:
             "scenes:\n"
             "  - n: 1\n"
             "    title: v\n"
+            "    command: clawctl --version\n"
             f"    output_file: docs/demos/{demo.name}/outputs/01-version.txt\n"
             "    screen_seconds: 3\n"
             "  - n: 4\n"
             "    title: install\n"
+            "    command: clawctl agent create demo --type hermes --host h\n"
             f"    output_file: docs/demos/{demo.name}/outputs/04-install.txt\n"
             "    head: 10\n"
             "    tail: 5\n"
             "    screen_seconds: 6\n"
         )
         tape, _ = compile_mod.compile_demo(demo)
-        text = tape.read_text()
-        assert "head -n 10" in text
-        assert "tail -n 5" in text
+        helpers = (demo / "helpers.sh").read_text()
+        assert "head -n 10" in helpers
+        assert "tail -n 5" in helpers
+        # The visible tape types the real command, not any cat/head/tail.
+        tape_text = tape.read_text()
+        assert 'Type "clawctl agent create demo --type hermes --host h"' in tape_text
+
+    def test_compile_rejects_non_clawctl_replay(self, compile_mod, tmp_path: Path) -> None:
+        """Non-clawctl commands must be marked LIVE — the override only patches clawctl."""
+        demo = tmp_path / "20260101-noncc"
+        (demo / "outputs").mkdir(parents=True)
+        (demo / "outputs" / "01.txt").write_text("x")
+        (demo / "scenes.yaml").write_text(
+            "title: t\nsubtitle: s\nouttro: {}\n"
+            "outro: {line_1: x, line_2: y}\n"
+            "scenes:\n"
+            "  - n: 1\n"
+            "    title: t\n"
+            '    command: "echo hello"\n'  # non-clawctl
+            f"    output_file: docs/demos/{demo.name}/outputs/01.txt\n"
+            "    screen_seconds: 3\n"
+        )
+        with pytest.raises(ValueError, match="must start with `clawctl `"):
+            compile_mod.compile_demo(demo)
 
 
 class TestNarratePipeline:

@@ -67,7 +67,9 @@ TITLECARD_HOLD = 4.0
 CHECKLIST_HOLD = 5.0
 OUTROCARD_HOLD = 5.0
 PRE_ROLL = 1.0
-COMMAND_TYPE_LAG = 0.3  # the existing tape uses Sleep 300ms between Type and Enter
+# 1s pause between Type-finished and Enter so the viewer has time to read the
+# command before its output floods in.
+COMMAND_TYPE_LAG = 1.0
 
 
 @dataclass
@@ -90,11 +92,9 @@ def _typing_seconds(text: str, typing_ms: int) -> float:
     return len(text) * typing_ms / 1000
 
 
-def _build_replay_command(output_file: str, head: int | None, tail: int | None) -> str:
-    """Return the shell command typed into the terminal for a replay scene."""
+def _build_replay_dispatch(output_file: str, head: int | None, tail: int | None) -> str:
+    """Return the shell expression the replay clawctl() wrapper runs for this scene."""
     if head and tail:
-        # head + ellipsis + tail. Wrap in a subshell-free single-line command
-        # so it types and runs cleanly through VHS's Type+Enter.
         return f"head -n {head} {output_file}; echo '   …'; tail -n {tail} {output_file}"
     if head:
         return f"head -n {head} {output_file}"
@@ -229,7 +229,12 @@ def compile_demo(demo_dir: Path) -> tuple[Path, Path]:
         lines.append(f'Type "{cmd}"')
         lines.append("Enter")
         lines.append(f"Sleep {wait}s")
+    # AFTER live setup runs, install the replay override so scenes' typed
+    # clawctl commands dispatch to cached outputs instead of executing.
     lines.extend([
+        'Type "_replay_install"',
+        "Enter",
+        "Sleep 200ms",
         'Type "clear"',
         "Enter",
         "Sleep 300ms",
@@ -282,20 +287,16 @@ def compile_demo(demo_dir: Path) -> tuple[Path, Path]:
         ))
 
     # === SCENES ===
+    # Every scene types its REAL command (so viewers see exactly what was run).
+    # In replay mode (default), a shell function override installed by
+    # `_replay_install` intercepts the command and prints the cached output.
+    # In LIVE mode the command runs for real.
     for scene in scenes:
         scene_n = int(scene["n"])
         s_title = scene["title"]
         s_mode = scene.get("mode", "replay")
         screen = float(scene.get("screen_seconds", 4))
-        if s_mode == "replay":
-            output_file = scene["output_file"]
-            head = scene.get("head")
-            tail = scene.get("tail")
-            command = _build_replay_command(output_file, head, tail)
-        elif s_mode == "LIVE":
-            command = scene["command"]
-        else:
-            raise ValueError(f"Scene {scene_n}: unknown mode {s_mode!r}")
+        command = scene["command"]  # ALWAYS the visible real command
 
         scene_lines, scene_duration, cmd_output_offset = _scene_block(
             scene_n, s_title, s_mode, command, screen, typing_ms,
@@ -362,28 +363,72 @@ def compile_demo(demo_dir: Path) -> tuple[Path, Path]:
 
 
 def _build_helpers_sh(spec: dict[str, Any]) -> str:
+    """Emit the per-demo helpers.sh.
+
+    Two parts:
+    1. _SCENES/_TITLE/... assignments + source of lib/cards.sh (provides
+       titlecard/headline/progress/outrocard functions).
+    2. A `_replay_install` function the tape calls in its Hide block AFTER
+       any live setup commands run. Once called, it overrides clawctl() to
+       dispatch by exact command-line match against the YAML's `command:`
+       fields and print the cached `output_file` (with optional head/tail
+       elision). Calls to clawctl that don't match any scene print a clear
+       error so misalignment fails loud at record time.
+    """
     title = spec["title"]
     subtitle = spec.get("subtitle", "")
     outro = spec.get("outro", {})
     line1 = outro.get("line_1", "Thanks for watching!")
     line2 = outro.get("line_2", "")
-    titles = [s["title"] for s in spec["scenes"]]
+    scenes = spec["scenes"]
+    titles = [s["title"] for s in scenes]
     scenes_arr = "\n".join(f'  "{t}"' for t in titles)
-    return (
-        "# GENERATED FROM scenes.yaml — DO NOT EDIT BY HAND.\n"
-        "#   Edit scenes.yaml then re-run docs/demos/lib/compile.py.\n"
-        "\n"
-        "_SCENES=(\n"
-        f"{scenes_arr}\n"
-        ")\n"
-        "\n"
-        f'_TITLE="{title}"\n'
-        f'_SUBTITLE="{subtitle}"\n'
-        f'_OUTRO_LINE_1="{line1}"\n'
-        f'_OUTRO_LINE_2="{line2}"\n'
-        "\n"
-        'source "$(git rev-parse --show-toplevel)/docs/demos/lib/cards.sh"\n'
-    )
+
+    # Build the case statement body.
+    case_arms: list[str] = []
+    for s in scenes:
+        if s.get("mode", "replay") == "LIVE":
+            continue  # LIVE scenes run the real command — no override needed
+        cmd = s["command"]
+        if not cmd.startswith("clawctl "):
+            # v1 only intercepts `clawctl`. Non-clawctl scenes must be LIVE.
+            raise ValueError(
+                f"Scene {s['n']}: replay-mode commands must start with `clawctl `; "
+                f"got {cmd!r}. Mark this scene `mode: LIVE` or rewrite as clawctl."
+            )
+        args = cmd[len("clawctl "):]  # what we pattern-match on inside clawctl()
+        out_file = s["output_file"]
+        dispatch = _build_replay_dispatch(out_file, s.get("head"), s.get("tail"))
+        case_arms.append(f'    "{args}") {dispatch} ;;')
+    case_block = "\n".join(case_arms) if case_arms else "    # no replay scenes"
+
+    return f"""# GENERATED FROM scenes.yaml — DO NOT EDIT BY HAND.
+#   Edit scenes.yaml then re-run docs/demos/lib/compile.py.
+
+_SCENES=(
+{scenes_arr}
+)
+
+_TITLE="{title}"
+_SUBTITLE="{subtitle}"
+_OUTRO_LINE_1="{line1}"
+_OUTRO_LINE_2="{line2}"
+
+source "$(git rev-parse --show-toplevel)/docs/demos/lib/cards.sh"
+
+# Install a clawctl() shell-function override that intercepts each scene's
+# real command and prints its cached output. Call this AFTER any live setup
+# clawctl invocations (e.g. `agent delete`) so those still hit the real CLI.
+_replay_install() {{
+  clawctl() {{
+    local args="$*"
+    case "$args" in
+{case_block}
+      *) echo "[replay] no match for: clawctl $args" >&2; return 1 ;;
+    esac
+  }}
+}}
+"""
 
 
 def main() -> int:
