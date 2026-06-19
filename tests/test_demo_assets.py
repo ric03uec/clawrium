@@ -1,15 +1,22 @@
 """Regression tests for VHS demo assets in `docs/demos/`.
 
-Two concerns are enforced:
+Three concerns are enforced:
 
 1. **Size limits** — the `create-vhs` skill caps docs GIFs at < 3 MiB.
    Without an automated gate, contributors can land oversized GIFs that
    bloat clones.
 
-2. **Structural integrity** — every committed `.tape` must have a paired `.gif`
-   (and vice versa), declare its `Output` path correctly, set `bash` as its
-   shell, and include the portable `Hide`/`Show` venv activation block. Drift
-   in any of these silently breaks re-recording.
+2. **Structural integrity** — legacy top-level `.tape` files must have a
+   paired `.gif`, declare a valid `Output`, set `bash` as their shell, and
+   include the portable `Hide`/`Show` venv activation block. Drift in any
+   of these silently breaks re-recording.
+
+3. **New folder convention (PR #748)** — the `/create-vhs` skill now scaffolds
+   each demo into its own `docs/demos/YYYYMMDD-<slug>/` folder and factors the
+   ANSI titlecard/headline/progress helpers into a shared `docs/demos/lib/`.
+   The bundled skill templates must continue to point at the new layout, and
+   `lib/cards.sh` must keep defining the four functions that every long-form
+   tape invokes by name.
 
 Both the test file and the gated limits track
 `.claude/skills/create-vhs/SKILL.md` and `CONTRIBUTING.md`.
@@ -26,6 +33,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEMOS_DIR = REPO_ROOT / "docs" / "demos"
+DEMOS_LIB_DIR = DEMOS_DIR / "lib"
 SKILL_TEMPLATES_DIR = (
     REPO_ROOT / ".claude" / "skills" / "create-vhs" / "templates"
 )
@@ -226,16 +234,27 @@ class TestSkillTemplates:
             "regenerated tapes would only run on the author's machine."
         )
 
-    def test_long_form_tape_output_targets_recordings(
+    def test_long_form_tape_output_targets_dated_folder(
         self, long_form_tape: Path
     ) -> None:
+        """Output must land inside the per-demo dated-slug folder, not a shared dir.
+
+        New convention (PR #748): every demo's rendered recording lives at
+        `docs/demos/YYYYMMDD-<NAME>/recording.<ext>` and is gitignored by the
+        `docs/demos/**/*.mp4` rule. The template ships with the literal
+        `YYYYMMDD-<NAME>` placeholder which the skill substitutes at scaffold.
+        """
         output_re = re.compile(r"^\s*Output\s+(\S+)\s*$", re.MULTILINE)
         match = output_re.search(long_form_tape.read_text())
         assert match, "long-form.tape.template missing Output directive"
-        # Template uses an <NAME> placeholder, so check the directory prefix.
-        assert match.group(1).startswith("docs/demos/recordings/"), (
-            f"long-form.tape.template Output is '{match.group(1)}'; "
-            "must target docs/demos/recordings/ per the gitignored convention."
+        output = match.group(1)
+        assert output.startswith("docs/demos/YYYYMMDD-"), (
+            f"long-form.tape.template Output is '{output}'; "
+            "must target docs/demos/YYYYMMDD-<NAME>/ per the per-demo folder convention."
+        )
+        assert output.endswith("/recording.mp4") or output.endswith("/recording.gif"), (
+            f"long-form.tape.template Output is '{output}'; "
+            "must end with /recording.mp4 or /recording.gif so the gitignore rule applies."
         )
 
     def test_long_form_tape_declares_require(self, long_form_tape: Path) -> None:
@@ -272,16 +291,42 @@ class TestSkillTemplates:
             "renaming or removing a marker breaks every generated helpers script."
         )
 
+    def test_progress_helper_sources_cards_lib(
+        self, progress_helper: Path
+    ) -> None:
+        """Per-demo helpers must source the shared `docs/demos/lib/cards.sh`.
+
+        Refactor (PR #748): the four ANSI helpers (`titlecard`/`outrocard`/
+        `headline`/`progress`) moved out of the per-demo template into a single
+        shared library. The template now only sets per-demo variables and must
+        source the library so the functions resolve at record time.
+        """
+        text = progress_helper.read_text()
+        source_re = re.compile(
+            r"^\s*source\s+.*docs/demos/lib/cards\.sh", re.MULTILINE
+        )
+        assert source_re.search(text), (
+            "_progress.sh.template must source docs/demos/lib/cards.sh — "
+            "without it, generated helpers.sh files have no titlecard/headline/"
+            "progress/outrocard functions and long-form tapes fail at record time."
+        )
+
     @pytest.mark.parametrize(
         "func", ["progress", "headline", "titlecard", "outrocard"]
     )
-    def test_progress_helper_defines_required_functions(
-        self, progress_helper: Path, func: str
-    ) -> None:
-        text = progress_helper.read_text()
+    def test_cards_lib_defines_required_functions(self, func: str) -> None:
+        """`docs/demos/lib/cards.sh` is the single source for the ANSI helpers.
+
+        Refactor (PR #748): per-demo helpers source this file instead of inlining
+        the functions. Drift here breaks every demo, present and future.
+        """
+        cards_lib = DEMOS_LIB_DIR / "cards.sh"
+        if not cards_lib.exists():
+            pytest.skip(f"missing {cards_lib} — lib refactor not yet landed")
+        text = cards_lib.read_text()
         assert re.search(rf"^{func}\s*\(\)\s*\{{", text, re.MULTILINE), (
-            f"_progress.sh.template missing required function `{func}()` — "
-            "long-form tapes invoke this by name and will fail at record time."
+            f"docs/demos/lib/cards.sh missing required function `{func}()` — "
+            "every long-form tape invokes this by name and will fail at record time."
         )
 
     @pytest.mark.parametrize(
