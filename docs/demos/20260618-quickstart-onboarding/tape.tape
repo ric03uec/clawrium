@@ -32,7 +32,7 @@ Enter
 Sleep 500ms
 Type "clawctl agent delete -y quickstart-demo >/dev/null 2>&1 || true"
 Enter
-Sleep 60.0s
+Sleep 30.0s
 Type "_replay_install"
 Enter
 Sleep 200ms

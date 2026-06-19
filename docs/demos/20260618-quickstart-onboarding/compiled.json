@@ -13,7 +13,7 @@
       "scene_n": 0,
       "beat_n": 2,
       "absolute_seconds": 5.95,
-      "text": "Here's what we'll demo: register a host, install a hermes agent, configure it, then chat with it."
+      "text": "Here's the full walkthrough: check our clawctl version, initialize the service, register a host, install a hermes agent, configure it with a provider, verify the fleet is up, then chat with our new agent."
     },
     {
       "scene_n": 1,

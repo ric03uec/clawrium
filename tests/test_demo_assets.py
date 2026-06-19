@@ -219,7 +219,13 @@ class TestCompilePipeline:
         assert 'headline 1 "version"' in tape_text
         # Tape types the REAL command (not a cat of the cached output).
         assert 'Type "clawctl --version"' in tape_text
-        assert "cat " not in tape_text  # no cat-of-outputs leakage in the visible tape
+        # No `Type "cat ..."` line — anchored regex avoids false positives
+        # from comments or narration containing the word "cat".
+        cat_type_re = re.compile(r'^\s*Type\s+"cat\s', re.MULTILINE)
+        assert not cat_type_re.search(tape_text), (
+            "tape.tape must never emit `Type \"cat ...\"` — replay goes through "
+            "the clawctl() override in helpers.sh, not a visible cat command."
+        )
         # Setup installs the replay override AFTER live setup steps.
         assert 'Type "_replay_install"' in tape_text
         # Helpers.sh wires the clawctl() override to dispatch by command line.
@@ -276,7 +282,7 @@ class TestCompilePipeline:
         (demo / "outputs").mkdir(parents=True)
         (demo / "outputs" / "01.txt").write_text("x")
         (demo / "scenes.yaml").write_text(
-            "title: t\nsubtitle: s\nouttro: {}\n"
+            "title: t\nsubtitle: s\n"
             "outro: {line_1: x, line_2: y}\n"
             "scenes:\n"
             "  - n: 1\n"
@@ -287,6 +293,89 @@ class TestCompilePipeline:
         )
         with pytest.raises(ValueError, match="must start with `clawctl `"):
             compile_mod.compile_demo(demo)
+
+    # --- W9 edge cases ------------------------------------------------------- #
+    def test_compile_missing_yaml(self, compile_mod, tmp_path: Path) -> None:
+        demo = tmp_path / "20260101-no-yaml"
+        demo.mkdir()
+        with pytest.raises(FileNotFoundError, match="scenes.yaml"):
+            compile_mod.compile_demo(demo)
+
+    def test_compile_malformed_yaml(self, compile_mod, tmp_path: Path) -> None:
+        import yaml as _yaml
+        demo = tmp_path / "20260101-bad-yaml"
+        demo.mkdir()
+        (demo / "scenes.yaml").write_text("title: ok\n  bogus: : :\n")
+        with pytest.raises(_yaml.YAMLError):
+            compile_mod.compile_demo(demo)
+
+    def test_compile_empty_scenes(self, compile_mod, tmp_path: Path) -> None:
+        """Empty scenes list compiles to a tape with only the structural beats.
+
+        It's a degenerate but valid spec — useful for testing title/checklist/
+        outro rendering in isolation. Must not raise.
+        """
+        demo = tmp_path / "20260101-empty"
+        demo.mkdir()
+        (demo / "scenes.yaml").write_text(
+            "title: Empty\nsubtitle: s\n"
+            "outro: {line_1: x, line_2: y}\n"
+            "scenes: []\n"
+        )
+        tape, manifest = compile_mod.compile_demo(demo)
+        text = tape.read_text()
+        assert 'Type "titlecard"' in text
+        assert 'Type "outrocard"' in text
+        data = json.loads(manifest.read_text())
+        assert data["recording_duration_seconds"] > 0  # title + outro still cost time
+        assert data["narration"] == []  # no narration without scenes
+
+    # --- W4 round-trip over the real committed demo --------------------------- #
+    @pytest.mark.parametrize(
+        "demo_dir",
+        [
+            pytest.param(p, id=p.name)
+            for p in sorted(DEMOS_DIR.glob("*/"))
+            if (p / "scenes.yaml").exists()
+        ],
+    )
+    def test_committed_demos_compile_cleanly(
+        self, compile_mod, demo_dir: Path, tmp_path: Path
+    ) -> None:
+        """Every committed demo's scenes.yaml must compile to a valid tape.
+
+        Runs the compile against a tmp_path copy so we never overwrite
+        committed artifacts. Validates structural invariants:
+          - tape declares Output + Require vhs
+          - helpers.sh defines _replay_install
+          - every narration beat's absolute_seconds is within the predicted
+            recording duration
+        """
+        # Copy the demo into a scratch dir so we don't mutate committed files.
+        scratch = tmp_path / demo_dir.name
+        shutil.copytree(demo_dir, scratch)
+        # Wipe derived artifacts to prove compile.py re-generates them.
+        for derived in ("tape.tape", "helpers.sh", "compiled.json"):
+            (scratch / derived).unlink(missing_ok=True)
+
+        tape, manifest = compile_mod.compile_demo(scratch)
+        assert tape.exists()
+        assert (scratch / "helpers.sh").exists()
+        tape_text = tape.read_text()
+        assert "Require vhs" in tape_text
+        assert "Output " in tape_text
+        helpers_text = (scratch / "helpers.sh").read_text()
+        assert "_replay_install" in helpers_text
+
+        data = json.loads(manifest.read_text())
+        duration = float(data["recording_duration_seconds"])
+        assert duration > 0
+        for beat in data["narration"]:
+            t = float(beat["absolute_seconds"])
+            assert 0 <= t <= duration, (
+                f"{demo_dir.name}: narration beat at {t}s exceeds predicted "
+                f"recording duration {duration}s — narration text would be cut off."
+            )
 
 
 class TestNarratePipeline:
@@ -360,14 +449,34 @@ class TestScenesYamlTemplate:
         )
 
     def test_template_seeds_scene_1_as_clawctl_version(self, template: Path) -> None:
-        text = template.read_text()
-        assert "clawctl --version" in text or "01-version.txt" in text, (
-            "scenes.yaml.template must seed Scene 1 with the fixed clawctl --version opener."
+        """Parse the YAML and assert the first scene's actual `command:` field.
+
+        Substring checks would pass on any comment containing `clawctl --version`
+        — load the doc and inspect the structure directly.
+        """
+        import yaml as _yaml
+        spec = _yaml.safe_load(template.read_text())
+        first = spec["scenes"][0]
+        assert first["n"] == 1, "Scene 1 must be numbered 1"
+        assert first["command"] == "clawctl --version", (
+            f"scenes.yaml.template Scene 1 command must be the fixed "
+            f"`clawctl --version` opener; got {first['command']!r}."
         )
 
     def test_template_documents_long_output_elision(self, template: Path) -> None:
-        text = template.read_text()
-        assert "head:" in text and "tail:" in text, (
-            "scenes.yaml.template must show `head:` + `tail:` so authors know how "
-            "to elide long captures like Ansible installs."
+        """At least one example scene must declare both `head:` and `tail:`.
+
+        Substring checks would pass on comments — load the YAML and walk
+        the scene dicts to assert the actual keys.
+        """
+        import yaml as _yaml
+        spec = _yaml.safe_load(template.read_text())
+        scenes_with_both = [
+            s for s in spec["scenes"]
+            if "head" in s and "tail" in s
+        ]
+        assert scenes_with_both, (
+            "scenes.yaml.template must include at least one scene declaring "
+            "both `head:` and `tail:` keys so authors learn how to elide long "
+            "captures (Ansible installs etc.)."
         )

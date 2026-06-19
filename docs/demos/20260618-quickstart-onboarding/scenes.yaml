@@ -30,8 +30,12 @@ tape:
 # Hidden setup: ensures recording starts from a known state. Runs in a VHS
 # Hide block, so it does NOT advance the recording's visible timeline.
 setup:
+  # `agent delete` runs a real Ansible uninstall on wolf-i (~30s wall clock
+  # when the agent actually exists; near-instant when `|| true` short-circuits).
+  # The full 60s budget was overkill — 30s covers a successful uninstall plus
+  # a small buffer; if the playbook ever gets slower, bump back up here.
   - run: clawctl agent delete -y quickstart-demo >/dev/null 2>&1 || true
-    wait_seconds: 60
+    wait_seconds: 30
 
 # Two structural beats before scene 1.
 intro:
@@ -40,7 +44,7 @@ intro:
     narration: "Welcome to the Clawrium Quickstart — a walkthrough of installing and chatting with your first agent."
   checklist:
     hold_seconds: 5
-    narration: "Here's what we'll demo: register a host, install a hermes agent, configure it, then chat with it."
+    narration: "Here's the full walkthrough: check our clawctl version, initialize the service, register a host, install a hermes agent, configure it with a provider, verify the fleet is up, then chat with our new agent."
 
 scenes:
   - n: 1
