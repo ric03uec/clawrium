@@ -2377,6 +2377,16 @@ def test_openclaw_json_managed_paths_populated():
             },
         }
     }
+    # 6. groupPolicy pinned + `allow` invariant: the canonical renderer
+    # emits `groupPolicy: "allowlist"` so the channel-presence semantics
+    # do not depend on the daemon's implicit default, and no channel entry
+    # carries the legacy `allow` key (W2: assert the upstream constraint
+    # that motivated the fix, not just today's literal shape).
+    assert blob["channels"]["discord"]["groupPolicy"] == "allowlist"
+    for chan_entry in blob["channels"]["discord"]["guilds"]["g1"][
+        "channels"
+    ].values():
+        assert "allow" not in chan_entry
 
 
 def test_openclaw_json_daemon_sections_preserved():
@@ -2573,7 +2583,8 @@ _OPENCLAW_JSON_BYTE_LOCK = """\
             "c2": {}
           }
         }
-      }
+      },
+      "groupPolicy": "allowlist"
     }
   },
   "browser": {
@@ -2792,11 +2803,73 @@ def test_openclaw_multi_guild_discord_renders_all_guilds():
     body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
     blob = json.loads(body)
     assert set(blob["channels"]["discord"]["guilds"].keys()) == {"g1", "g2"}
+    assert blob["channels"]["discord"]["groupPolicy"] == "allowlist"
     for guild_id in ("g1", "g2"):
         assert blob["channels"]["discord"]["guilds"][guild_id]["users"] == ["u1"]
         assert blob["channels"]["discord"]["guilds"][guild_id]["channels"] == {
             "c1": {}
         }
+        # `allow` invariant: openclaw 2026.5.28+ rejects it as additional
+        # property; assert absence directly rather than only checking the
+        # literal `{}` shape (W2).
+        for chan_entry in blob["channels"]["discord"]["guilds"][guild_id][
+            "channels"
+        ].values():
+            assert "allow" not in chan_entry
+
+
+@pytest.mark.parametrize(
+    "allowed_guilds,allowed_channels",
+    [
+        (("g1", "g2"), ("c1", "c2")),  # multi-guild × multi-channel
+        (("g1",), ()),  # guild without channels (empty channels map)
+    ],
+    ids=["2g_2c", "1g_0c"],
+)
+def test_openclaw_discord_guilds_channels_shape_parametrized(
+    allowed_guilds, allowed_channels
+):
+    """PR #747 W3 (ATX review): guard the `channels.<id>` payload shape
+    across multi-guild × multi-channel and empty-channels-per-guild
+    combinations. Every channel entry must be the empty object `{}` with
+    no `allow` key, and `groupPolicy: "allowlist"` must be emitted so the
+    channel-presence invariant holds regardless of upstream defaults.
+    """
+    import json
+
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="openclaw",
+        provider=ProviderInputs(
+            name="or", type="openrouter", default_model="m", api_key="sk-1"
+        ),
+        channels=(
+            ChannelInputs(
+                name="d",
+                type="discord",
+                bot_token="t",
+                allowed_users=("u1",),
+                allowed_guilds=allowed_guilds,
+                allowed_channels=allowed_channels,
+            ),
+        ),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, bind="lan"),
+    )
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    blob = json.loads(body)
+    discord = blob["channels"]["discord"]
+
+    assert discord["enabled"] is True
+    assert discord["groupPolicy"] == "allowlist"
+    assert set(discord["guilds"].keys()) == set(allowed_guilds)
+
+    for guild_id in allowed_guilds:
+        guild_entry = discord["guilds"][guild_id]
+        assert guild_entry["users"] == ["u1"]
+        assert set(guild_entry["channels"].keys()) == set(allowed_channels)
+        for chan_id, chan_entry in guild_entry["channels"].items():
+            assert chan_entry == {}
+            assert "allow" not in chan_entry
 
 
 def test_openclaw_git_integration_skipped():

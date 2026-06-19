@@ -757,6 +757,37 @@ def _sync_channel_config(
         raise RuntimeError(f"Failed to sync channel config: {error}")
 
 
+def _build_legacy_discord_channels_block(
+    *, guild_id: str, channel_id: str, user_id: str
+) -> dict:
+    """Build the `channels.discord` block emitted by the legacy `clm`
+    wizard (`_run_channels_stage` discord branch).
+
+    Each `guilds.<id>.channels.<id>` entry MUST be the empty object `{}`
+    (no `allow` key): openclaw 2026.5.28+ rejects `allow` as an additional
+    property — see `core/render.py:render_openclaw` for the canonical
+    render path that emits the same shape. `groupPolicy: "allowlist"` is
+    emitted explicitly so the channel-presence invariant does not depend
+    on the daemon's implicit default.
+    """
+    return {
+        "enabled": True,
+        "token": {
+            "source": "env",
+            "provider": "default",
+            "id": "DISCORD_BOT_TOKEN",
+        },
+        "allowFrom": [user_id],
+        "groupPolicy": "allowlist",
+        "guilds": {
+            guild_id: {
+                "users": [user_id],
+                "channels": {channel_id: {}},
+            }
+        },
+    }
+
+
 def _run_channels_stage(
     host: str,
     claw_type: str,
@@ -1129,22 +1160,11 @@ def _run_channels_stage(
                 return False
 
             channels_config = {
-                "discord": {
-                    "enabled": True,
-                    "token": {
-                        "source": "env",
-                        "provider": "default",
-                        "id": "DISCORD_BOT_TOKEN",
-                    },
-                    "allowFrom": [user_id],
-                    "groupPolicy": "allowlist",
-                    "guilds": {
-                        guild_id: {
-                            "users": [user_id],
-                            "channels": {channel_id: {}},
-                        }
-                    },
-                }
+                "discord": _build_legacy_discord_channels_block(
+                    guild_id=guild_id,
+                    channel_id=channel_id,
+                    user_id=user_id,
+                )
             }
 
         # Resolve canonical instance_key up-front so the token can be stored
