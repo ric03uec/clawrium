@@ -1,0 +1,106 @@
+# Clawrium Quickstart Onboarding — replay-first demo spec.
+#
+# This is the single source of truth for the demo. Edit here and re-run:
+#   uv run docs/demos/lib/compile.py docs/demos/20260618-quickstart-onboarding
+# which regenerates tape.tape + helpers.sh + compiled.json.
+#
+# Capture phase (one-time, run on a live host):
+#   the outputs/ folder already holds stdout from each scene's real
+#   `clawctl` command. Re-capture whenever CLI output format changes
+#   (per release tag, after Rich table changes, etc.).
+#
+# Reference page : https://ric03uec.github.io/clawrium/docs/guides/quickstart
+# Capture host   : wolf-i (already registered)
+# Agent          : quickstart-demo (hermes) attached to clawrium-gtm-litellm
+
+title: Clawrium Quickstart
+subtitle: onboarding walkthrough — clawctl 26.6.4
+
+outro:
+  line_1: "Get started: ric03uec.github.io/clawrium"
+  line_2: "github.com/ric03uec/clawrium"
+
+tape:
+  framerate: 30
+  width: 1400
+  height: 900
+  theme: Catppuccin Mocha
+  typing_speed_ms: 50
+
+# Hidden setup: ensures recording starts from a known state. Runs in a VHS
+# Hide block, so it does NOT advance the recording's visible timeline.
+setup:
+  - run: clawctl agent delete -y quickstart-demo >/dev/null 2>&1 || true
+    wait_seconds: 60
+
+# Two structural beats before scene 1.
+intro:
+  title_card:
+    hold_seconds: 4
+    narration: "Welcome to the Clawrium Quickstart — a walkthrough of installing and chatting with your first agent."
+  checklist:
+    hold_seconds: 5
+    narration: "Here's what we'll demo: register a host, install a hermes agent, configure it, then chat with it."
+
+scenes:
+  - n: 1
+    title: clawctl version
+    output_file: docs/demos/20260618-quickstart-onboarding/outputs/01-version.txt
+    screen_seconds: 3
+    narration:
+      - text: "This demo runs on clawctl 26.6.4 — everything you see was recorded against this release."
+
+  - n: 2
+    title: Initialize clawrium service
+    output_file: docs/demos/20260618-quickstart-onboarding/outputs/02-service-init.txt
+    screen_seconds: 5
+    narration:
+      - text: "First, initialize the clawrium service. This creates the config directory and validates that Ansible and SSH are available."
+
+  - n: 3
+    title: Register a host
+    output_file: docs/demos/20260618-quickstart-onboarding/outputs/03-host-create.txt
+    screen_seconds: 3
+    narration:
+      - text: "Next, register the host you'll deploy agents to. We're pointing at wolf-i, a machine already on the network."
+
+  # Long Ansible install — elide the middle with head + tail. Narration covers
+  # the gap so viewer sees install start, "..." marker, then final success.
+  - n: 4
+    title: Install the hermes agent
+    output_file: docs/demos/20260618-quickstart-onboarding/outputs/04-agent-create.txt
+    head: 15
+    tail: 10
+    screen_seconds: 14
+    narration:
+      - offset_seconds: 0
+        text: "Now install a hermes agent on wolf-i. Clawrium uses Ansible under the hood — this is a real install playbook running against the remote host."
+      - offset_seconds: 8
+        text: "Skipping ahead — Ansible's TASK lines configure dependencies, lay down the systemd unit, and verify port allocations."
+      - offset_seconds: 12
+        text: "Install complete — agent is ready."
+
+  - n: 5
+    title: Configure the agent
+    output_file: docs/demos/20260618-quickstart-onboarding/outputs/05-agent-configure.txt
+    screen_seconds: 5
+    narration:
+      - text: "Configure the agent. We're attaching a litellm-backed provider from the secret store so it can actually answer prompts."
+
+  - n: 6
+    title: Check fleet status
+    output_file: docs/demos/20260618-quickstart-onboarding/outputs/06-agent-get.txt
+    screen_seconds: 5
+    narration:
+      - text: "Check fleet status. The new quickstart-demo agent is up and running."
+
+  - n: 7
+    title: Chat with the agent
+    output_file: docs/demos/20260618-quickstart-onboarding/outputs/07-agent-chat.txt
+    screen_seconds: 8
+    narration:
+      - text: "Finally, chat with it. One prompt in, one response out — clawrium just routed the request through the configured provider."
+
+outro_card:
+  hold_seconds: 5
+  narration: "Try it yourself at ric03uec.github.io/clawrium."

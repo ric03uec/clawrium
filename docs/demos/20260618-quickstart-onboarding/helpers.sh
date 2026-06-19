@@ -1,6 +1,5 @@
-# Per-demo helper script for the 20260618-quickstart-onboarding demo.
-# Sets the per-demo variables, then sources the shared card/headline/progress
-# functions from docs/demos/lib/cards.sh.
+# GENERATED FROM scenes.yaml — DO NOT EDIT BY HAND.
+#   Edit scenes.yaml then re-run docs/demos/lib/compile.py.
 
 _SCENES=(
   "clawctl version"

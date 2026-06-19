@@ -1,0 +1,418 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "pyyaml>=6.0",
+# ]
+# ///
+"""Compile a demo's `scenes.yaml` into a VHS tape + narration manifest.
+
+Reads:  docs/demos/<demo-folder>/scenes.yaml + outputs/*.txt (captured stdouts)
+Writes: docs/demos/<demo-folder>/tape.tape          (regenerated; do not hand-edit)
+        docs/demos/<demo-folder>/compiled.json      (absolute narration timestamps)
+
+The render pipeline is replay-first: every scene `cat`s a pre-captured output
+file, with a designed `screen_seconds` Sleep. No live command execution at
+record time, so recording duration is deterministic and narration timestamps
+computed here are exact.
+
+For long captures (Ansible installs, etc.) use `head:` and `tail:` to
+elide the middle on screen — narration covers the gap.
+
+Usage (deps auto-resolved via uv):
+    uv run docs/demos/lib/compile.py docs/demos/<demo-folder>
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any
+
+try:
+    import yaml
+except ImportError:
+    sys.exit(
+        "missing dependency `pyyaml` — invoke via `uv run docs/demos/lib/compile.py ...` "
+        "so uv resolves the PEP 723 dependencies declared at the top of the file."
+    )
+
+# --- timing model (must mirror what VHS records) -----------------------------
+#
+# Hide blocks: invisible in the recording AND skipped on the visible-time
+# clock (verified empirically on the v1 quickstart demo: tape Hide block was
+# ~74s of wall clock, recording's visible content started at t=0).
+#
+# Typing time: TypingSpeed * len(text).
+#
+# Sleep: exact wall-clock seconds added to the timeline.
+#
+# Enter / Hide / Show / Ctrl+D: instantaneous.
+#
+# Title card / Outro card / Headline / Progress: rendered as `Type "..."` +
+# `Enter` + an explicit Sleep — accounted for via the same model.
+
+DEFAULT_TYPING_MS = 50
+DEFAULT_FRAMERATE = 30
+DEFAULT_WIDTH = 1400
+DEFAULT_HEIGHT = 900
+DEFAULT_THEME = "Catppuccin Mocha"
+
+# Designed beat durations (seconds).
+HEADLINE_HOLD = 2.5
+PROGRESS_HOLD = 2.5
+TITLECARD_HOLD = 4.0
+CHECKLIST_HOLD = 5.0
+OUTROCARD_HOLD = 5.0
+PRE_ROLL = 1.0
+COMMAND_TYPE_LAG = 0.3  # the existing tape uses Sleep 300ms between Type and Enter
+
+
+@dataclass
+class NarrationBeat:
+    scene_n: int
+    beat_n: int
+    absolute_seconds: float
+    text: str
+
+
+@dataclass
+class Compiled:
+    title: str
+    subtitle: str
+    recording_duration_seconds: float
+    narration: list[NarrationBeat] = field(default_factory=list)
+
+
+def _typing_seconds(text: str, typing_ms: int) -> float:
+    return len(text) * typing_ms / 1000
+
+
+def _build_replay_command(output_file: str, head: int | None, tail: int | None) -> str:
+    """Return the shell command typed into the terminal for a replay scene."""
+    if head and tail:
+        # head + ellipsis + tail. Wrap in a subshell-free single-line command
+        # so it types and runs cleanly through VHS's Type+Enter.
+        return f"head -n {head} {output_file}; echo '   …'; tail -n {tail} {output_file}"
+    if head:
+        return f"head -n {head} {output_file}"
+    if tail:
+        return f"tail -n {tail} {output_file}"
+    return f"cat {output_file}"
+
+
+def _scene_block(
+    scene_n: int,
+    title: str,
+    mode: str,
+    command: str,
+    screen_seconds: float,
+    typing_ms: int,
+) -> tuple[list[str], float, float]:
+    """Return (tape_lines, scene_duration_seconds, command_output_t_offset)."""
+    headline_text = f'headline {scene_n} "{title}"'
+    progress_text = f"progress {scene_n}"
+
+    lines: list[str] = [
+        "",
+        "# " + "=" * 60,
+        f"# SCENE {scene_n} — {title}",
+        f"# Mode: {mode}",
+        "# " + "=" * 60,
+        f"Type `{headline_text}`",
+        "Enter",
+        f"Sleep {HEADLINE_HOLD}s",
+        "Hide",
+        'Type "clear"',
+        "Enter",
+        "Show",
+        f'Type "{command}"',
+        f"Sleep {COMMAND_TYPE_LAG}s",
+        "Enter",
+        f"Sleep {screen_seconds}s",
+        f'Type "{progress_text}"',
+        "Enter",
+        f"Sleep {PROGRESS_HOLD}s",
+    ]
+
+    # Time within scene at which command output begins to render:
+    headline_typing = _typing_seconds(headline_text, typing_ms)
+    command_typing = _typing_seconds(command, typing_ms)
+    cmd_output_offset = (
+        headline_typing
+        + HEADLINE_HOLD
+        + command_typing
+        + COMMAND_TYPE_LAG
+    )
+    progress_typing = _typing_seconds(progress_text, typing_ms)
+    scene_duration = (
+        cmd_output_offset
+        + screen_seconds
+        + progress_typing
+        + PROGRESS_HOLD
+    )
+    return lines, scene_duration, cmd_output_offset
+
+
+def compile_demo(demo_dir: Path) -> tuple[Path, Path]:
+    spec_path = demo_dir / "scenes.yaml"
+    if not spec_path.exists():
+        raise FileNotFoundError(f"{spec_path} not found")
+    spec: dict[str, Any] = yaml.safe_load(spec_path.read_text())
+
+    title: str = spec["title"]
+    subtitle: str = spec.get("subtitle", "")
+    outro: dict[str, str] = spec.get("outro", {})
+    outro_l1 = outro.get("line_1", "Thanks for watching!")
+    outro_l2 = outro.get("line_2", "")
+
+    tape_cfg: dict[str, Any] = spec.get("tape", {})
+    typing_ms = int(tape_cfg.get("typing_speed_ms", DEFAULT_TYPING_MS))
+    framerate = int(tape_cfg.get("framerate", DEFAULT_FRAMERATE))
+    width = int(tape_cfg.get("width", DEFAULT_WIDTH))
+    height = int(tape_cfg.get("height", DEFAULT_HEIGHT))
+    theme = tape_cfg.get("theme", DEFAULT_THEME)
+
+    setup_steps: list[dict[str, Any]] = spec.get("setup", [])
+    intro: dict[str, Any] = spec.get("intro", {})
+    title_card_cfg = intro.get("title_card", {})
+    checklist_cfg = intro.get("checklist", {})
+    scenes: list[dict[str, Any]] = spec["scenes"]
+    outro_cfg: dict[str, Any] = spec.get("outro_card", {"hold_seconds": OUTROCARD_HOLD})
+
+    folder = demo_dir.name
+    # Tape uses repo-root-relative paths so `vhs` runs from the repo root.
+    # demo_dir is the absolute, resolved path for filesystem ops; build a
+    # short repo-relative form for what we write INTO the tape.
+    rel_demo = f"docs/demos/{folder}"
+    helpers_path = f"{rel_demo}/helpers.sh"
+
+    lines: list[str] = [
+        f"# {title} — Long-Form Storyboarded Demo",
+        f"# GENERATED FROM scenes.yaml — DO NOT EDIT BY HAND.",
+        f"#   Edit scenes.yaml then re-run: uv run docs/demos/lib/compile.py {rel_demo}",
+        "#",
+        "# Records: title card -> checklist -> N scenes (replay) -> outro card.",
+        "# Output : recording.mp4 alongside this tape (gitignored).",
+        "",
+        "Require vhs",
+        "",
+        f"Output {rel_demo}/recording.mp4",
+        "",
+        'Set Shell "bash"',
+        "Set FontSize 18",
+        f"Set Width {width}",
+        f"Set Height {height}",
+        f'Set Theme "{theme}"',
+        "Set WindowBar Colorful",
+        "Set Padding 20",
+        "Set Margin 20",
+        'Set MarginFill "#1e1e2e"',
+        "Set BorderRadius 8",
+        f"Set TypingSpeed {typing_ms}ms",
+        f"Set Framerate {framerate}",
+        "",
+        "# --- Setup (hidden — NOT in recording timeline) ---",
+        "Hide",
+        'Type `source "$(git rev-parse --show-toplevel)/.venv/bin/activate"`',
+        "Enter",
+        "Sleep 500ms",
+        f'Type `source "$(git rev-parse --show-toplevel)/{helpers_path}"`',
+        "Enter",
+        "Sleep 500ms",
+    ]
+    for step in setup_steps:
+        cmd = step["run"]
+        wait = float(step.get("wait_seconds", 1))
+        lines.append(f'Type "{cmd}"')
+        lines.append("Enter")
+        lines.append(f"Sleep {wait}s")
+    lines.extend([
+        'Type "clear"',
+        "Enter",
+        "Sleep 300ms",
+        "Show",
+        "",
+        "# Pre-roll so the first visible frame is not mid-action",
+        f"Sleep {PRE_ROLL}s",
+    ])
+
+    # --- timing model: walk visible-time clock ---
+    t = PRE_ROLL  # visible time elapsed after Show + pre-roll
+    narration: list[NarrationBeat] = []
+
+    # === TITLE CARD ===
+    tc_hold = float(title_card_cfg.get("hold_seconds", TITLECARD_HOLD))
+    lines.extend([
+        "",
+        "# === TITLE CARD ===",
+        'Type "titlecard"',
+        "Enter",
+        f"Sleep {tc_hold}s",
+    ])
+    tc_typing = _typing_seconds("titlecard", typing_ms)
+    titlecard_visible_t = t + tc_typing  # when card actually displays
+    t += tc_typing + tc_hold
+    if title_card_cfg.get("narration"):
+        narration.append(NarrationBeat(
+            scene_n=0, beat_n=1,
+            absolute_seconds=round(titlecard_visible_t, 3),
+            text=title_card_cfg["narration"].strip(),
+        ))
+
+    # === CHECKLIST ===
+    cl_hold = float(checklist_cfg.get("hold_seconds", CHECKLIST_HOLD))
+    lines.extend([
+        "",
+        "# === SCENARIO CHECKLIST (all pending) ===",
+        'Type "progress 0"',
+        "Enter",
+        f"Sleep {cl_hold}s",
+    ])
+    cl_typing = _typing_seconds("progress 0", typing_ms)
+    checklist_visible_t = t + cl_typing
+    t += cl_typing + cl_hold
+    if checklist_cfg.get("narration"):
+        narration.append(NarrationBeat(
+            scene_n=0, beat_n=2,
+            absolute_seconds=round(checklist_visible_t, 3),
+            text=checklist_cfg["narration"].strip(),
+        ))
+
+    # === SCENES ===
+    for scene in scenes:
+        scene_n = int(scene["n"])
+        s_title = scene["title"]
+        s_mode = scene.get("mode", "replay")
+        screen = float(scene.get("screen_seconds", 4))
+        if s_mode == "replay":
+            output_file = scene["output_file"]
+            head = scene.get("head")
+            tail = scene.get("tail")
+            command = _build_replay_command(output_file, head, tail)
+        elif s_mode == "LIVE":
+            command = scene["command"]
+        else:
+            raise ValueError(f"Scene {scene_n}: unknown mode {s_mode!r}")
+
+        scene_lines, scene_duration, cmd_output_offset = _scene_block(
+            scene_n, s_title, s_mode, command, screen, typing_ms,
+        )
+        lines.extend(scene_lines)
+        cmd_output_t = t + cmd_output_offset
+        for i, beat in enumerate(scene.get("narration", []), start=1):
+            offset = float(beat.get("offset_seconds", 0))
+            narration.append(NarrationBeat(
+                scene_n=scene_n, beat_n=i,
+                absolute_seconds=round(cmd_output_t + offset, 3),
+                text=beat["text"].strip(),
+            ))
+        t += scene_duration
+
+    # === OUTRO CARD ===
+    oc_hold = float(outro_cfg.get("hold_seconds", OUTROCARD_HOLD))
+    lines.extend([
+        "",
+        "# === OUTRO CARD ===",
+        'Type "outrocard"',
+        "Enter",
+        f"Sleep {oc_hold}s",
+    ])
+    oc_typing = _typing_seconds("outrocard", typing_ms)
+    outrocard_visible_t = t + oc_typing
+    t += oc_typing + oc_hold
+    if outro_cfg.get("narration"):
+        narration.append(NarrationBeat(
+            scene_n=999, beat_n=1,
+            absolute_seconds=round(outrocard_visible_t, 3),
+            text=outro_cfg["narration"].strip(),
+        ))
+
+    # --- write outputs ---
+    tape_path = demo_dir / "tape.tape"
+    tape_path.write_text("\n".join(lines) + "\n")
+
+    compiled = Compiled(
+        title=title,
+        subtitle=subtitle,
+        recording_duration_seconds=round(t, 3),
+        narration=sorted(narration, key=lambda b: b.absolute_seconds),
+    )
+    compiled_path = demo_dir / "compiled.json"
+    compiled_path.write_text(
+        json.dumps(
+            {
+                "title": compiled.title,
+                "subtitle": compiled.subtitle,
+                "recording_duration_seconds": compiled.recording_duration_seconds,
+                "narration": [asdict(b) for b in compiled.narration],
+            },
+            indent=2,
+        ) + "\n"
+    )
+
+    # Generate the per-demo helpers.sh too so the tape's `source` works.
+    helpers_text = _build_helpers_sh(spec)
+    helpers_file = demo_dir / "helpers.sh"
+    helpers_file.write_text(helpers_text)
+
+    return tape_path, compiled_path
+
+
+def _build_helpers_sh(spec: dict[str, Any]) -> str:
+    title = spec["title"]
+    subtitle = spec.get("subtitle", "")
+    outro = spec.get("outro", {})
+    line1 = outro.get("line_1", "Thanks for watching!")
+    line2 = outro.get("line_2", "")
+    titles = [s["title"] for s in spec["scenes"]]
+    scenes_arr = "\n".join(f'  "{t}"' for t in titles)
+    return (
+        "# GENERATED FROM scenes.yaml — DO NOT EDIT BY HAND.\n"
+        "#   Edit scenes.yaml then re-run docs/demos/lib/compile.py.\n"
+        "\n"
+        "_SCENES=(\n"
+        f"{scenes_arr}\n"
+        ")\n"
+        "\n"
+        f'_TITLE="{title}"\n'
+        f'_SUBTITLE="{subtitle}"\n'
+        f'_OUTRO_LINE_1="{line1}"\n'
+        f'_OUTRO_LINE_2="{line2}"\n'
+        "\n"
+        'source "$(git rev-parse --show-toplevel)/docs/demos/lib/cards.sh"\n'
+    )
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("demo_folder", type=Path, help="docs/demos/YYYYMMDD-<slug>/")
+    args = p.parse_args()
+
+    demo = args.demo_folder.resolve()
+    if not demo.is_dir():
+        sys.exit(f"error: {demo} is not a directory")
+
+    tape, manifest = compile_demo(demo)
+    data = json.loads(manifest.read_text())
+
+    print(f"compiled  → {tape}")
+    print(f"compiled  → {manifest}")
+    print(f"compiled  → {demo / 'helpers.sh'}")
+    print()
+    print(f"recording duration: {data['recording_duration_seconds']}s")
+    print(f"narration beats:    {len(data['narration'])}")
+    print()
+    print(f"{'scene':>5}  {'beat':>4}  {'t(s)':>7}  text")
+    for b in data["narration"]:
+        text = b["text"]
+        if len(text) > 60:
+            text = text[:57] + "..."
+        print(f"{b['scene_n']:>5}  {b['beat_n']:>4}  {b['absolute_seconds']:>7.1f}  {text}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

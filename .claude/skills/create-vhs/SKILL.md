@@ -1,447 +1,244 @@
 ---
 name: create-vhs
-description: Record a CLI demo (GIF or MP4) using VHS, with storyboard support for long-form / YouTube demos
+description: Record a CLI demo (GIF or MP4) using VHS via a replay-first compile pipeline. Outputs are captured once on a live host, then a YAML spec drives both the tape and the ElevenLabs voiceover.
 argument-hint: "<scenario-name> [--description 'what to demo']"
 ---
 
-# Demo Recording with VHS
+# Demo Recording with VHS — replay-first pipeline
 
-Record CLI demos using [charmbracelet/vhs](https://github.com/charmbracelet/vhs). Each demo lives in its own dated-slug folder `docs/demos/YYYYMMDD-<slug>/` containing tape, storyboard, helpers, captures, stitched transcript, and the rendered recording. All `.mp4` files under `docs/demos/` are gitignored — users upload MP4s to YouTube; the binary itself does not live in the repo. Shared scripts and ANSI helpers live in `docs/demos/lib/`.
+Record CLI demos using [charmbracelet/vhs](https://github.com/charmbracelet/vhs). Each demo lives in its own dated-slug folder `docs/demos/YYYYMMDD-<slug>/`. The pipeline is **replay-first**: captured stdouts are saved once on a live host, then a YAML spec drives tape generation, recording, and narration. Iteration is fast and timing is deterministic.
+
+## Pipeline
+
+```
+              (one-time, slow)
+   scenes.yaml + live host  -->  outputs/*.txt       [capture phase]
+                                          |
+              (instant)                   v
+   scenes.yaml  +  outputs/*.txt  -->  compile.py  -->  tape.tape + helpers.sh + compiled.json
+                                          |
+              (~2 min)                    v
+                                       vhs tape.tape  -->  recording.mp4
+                                          |
+              (~30s, cached per text)     v
+                                       narrate.py compiled.json  -->  voice/*.mp3 + recording-narrated.mp4
+                                          |
+              (manual)                    v
+                                       upload to YouTube
+```
+
+`compile.py`, `vhs`, and `narrate.py` are all idempotent and fast. The slow step is the initial capture; everything downstream re-runs in seconds.
 
 ## Output Layout
 
-Every demo lives in its own dated-slug folder under `docs/demos/`. The folder name is `YYYYMMDD-<slug>` where `YYYYMMDD` is the date the demo was first scaffolded. All artifacts for that demo are committed inside that folder; the rendered recording sits beside them but is gitignored.
+| Path | Committed? | Purpose |
+|---|---|---|
+| `docs/demos/lib/cards.sh` | yes | Shared titlecard/outrocard/headline/progress ANSI functions |
+| `docs/demos/lib/compile.py` | yes | `scenes.yaml → tape.tape + helpers.sh + compiled.json` |
+| `docs/demos/lib/narrate.py` | yes | `compiled.json + .env → voice/*.mp3 + recording-narrated.mp4` |
+| `docs/demos/lib/.env.example` | yes | Template for ElevenLabs credentials |
+| `docs/demos/lib/.env` | **no** (gitignored) | Real API key + voice/model IDs |
+| `docs/demos/YYYYMMDD-<slug>/scenes.yaml` | yes | **Single source of truth** — scene structure, commands, narration |
+| `docs/demos/YYYYMMDD-<slug>/outputs/NN-<slug>.txt` | yes | Per-scene captured stdouts (replayed by the tape) |
+| `docs/demos/YYYYMMDD-<slug>/tape.tape` | yes | **Generated** by compile.py; do not hand-edit |
+| `docs/demos/YYYYMMDD-<slug>/helpers.sh` | yes | **Generated** by compile.py; sources `lib/cards.sh` |
+| `docs/demos/YYYYMMDD-<slug>/compiled.json` | yes | **Generated** by compile.py; absolute narration timestamps |
+| `docs/demos/YYYYMMDD-<slug>/voice/*.mp3` | **no** (gitignored) | Per-beat TTS clips, cached by sha1(voice_id + text) |
+| `docs/demos/YYYYMMDD-<slug>/recording.mp4` | **no** (gitignored) | Output of `vhs tape.tape` |
+| `docs/demos/YYYYMMDD-<slug>/recording-narrated.mp4` | **no** (gitignored) | Final video with voiceover muxed in |
 
-Shared scripts and ANSI card/progress helpers live in `docs/demos/lib/` so each per-demo folder only contains per-demo content.
-
-| Path                                                  | Committed? | Purpose                                              |
-|-------------------------------------------------------|------------|------------------------------------------------------|
-| `docs/demos/lib/cards.sh`                             | yes        | Shared titlecard/outrocard/headline/progress functions (sourced by every per-demo `helpers.sh`) |
-| `docs/demos/lib/stitch.sh`                            | yes        | `bash docs/demos/lib/stitch.sh <demo-folder>` — concatenates `outputs/*.txt` into `stitched.txt` |
-| `docs/demos/lib/narrate.py`                           | yes        | `uv run docs/demos/lib/narrate.py <demo-folder>` — ElevenLabs TTS + ffmpeg voiceover mux. Python deps declared inline via PEP 723 (`uv` resolves on first run). |
-| `docs/demos/lib/.env.example`                         | yes        | Template for ElevenLabs credentials + voice defaults |
-| `docs/demos/lib/.env`                                 | **no** (gitignored) | Real API key + voice/model IDs |
-| `docs/demos/YYYYMMDD-<slug>/tape.tape`                | yes        | Reproducible VHS source for the recording            |
-| `docs/demos/YYYYMMDD-<slug>/storyboard.md`            | yes        | Scene list, capture index, narration text + start timecodes |
-| `docs/demos/YYYYMMDD-<slug>/helpers.sh`               | yes (long-form) | Per-demo variables (`_SCENES`, `_TITLE`, etc.) + `source ../lib/cards.sh` |
-| `docs/demos/YYYYMMDD-<slug>/outputs/NN-<slug>.txt`    | yes        | Per-scene captured stdout (used for replay scenes; reference for live scenes) |
-| `docs/demos/YYYYMMDD-<slug>/stitched.txt`             | yes        | Stitched timeline produced by `lib/stitch.sh` (Step 4 of the universal flow) |
-| `docs/demos/YYYYMMDD-<slug>/voice/scene-NN.mp3`       | **no** (gitignored) | Per-scene TTS clips produced by `lib/narrate.py` |
-| `docs/demos/YYYYMMDD-<slug>/recording.{mp4,gif}`      | **no** (gitignored) | Rendered recording — uploaded to YouTube. All `.mp4` files under `docs/demos/` are gitignored. |
-| `docs/demos/YYYYMMDD-<slug>/recording-narrated.mp4`   | **no** (gitignored) | Recording with ElevenLabs voiceover muxed in by `lib/narrate.py` |
+All `.mp4` files under `docs/demos/` are gitignored; `voice/` directories under any demo are gitignored.
 
 ## Arguments
 
-- `<scenario-name>`: Slug for the demo (e.g. `agent-lifecycle`, `host-setup`). Must match `^[a-zA-Z0-9_-]+$`. The skill prefixes today's date in `YYYYMMDD` form to produce the folder name `docs/demos/YYYYMMDD-<scenario-name>/`.
+- `<scenario-name>`: Slug for the demo (e.g. `agent-lifecycle`). Must match `^[a-zA-Z0-9_-]+$`. The skill prefixes today's date in `YYYYMMDD` form to produce `docs/demos/YYYYMMDD-<scenario-name>/`.
 - `--description`: Optional one-liner of what the demo should show.
 
 ## Required Up-Front Questions
 
-**MANDATORY**: Before writing any file, ask the user the following via `AskUserQuestion`. Do **not** assume defaults — wait for explicit answers.
+**MANDATORY**: Before scaffolding any file, ask the user the following via `AskUserQuestion`. Do **not** assume defaults.
 
 1. **Output format**
-   - **MP4** (`.mp4`) — default for YouTube uploads, social, anywhere a video container is required. Better compression. Recommended.
-   - **GIF** (`.gif`) — for embedding in README/docs on GitHub. Smaller, autoplay-in-markdown, no audio.
+   - **MP4** (`.mp4`) — recommended; YouTube uploads, social, video containers.
+   - **GIF** (`.gif`) — README/docs embeds. Smaller, no audio.
 
-2. **Demo style** — count the scenes the user wants to show. A storyboard is committed in either case (see Step 2 of the universal flow); the difference is whether a helper script and progress checklist are also generated.
-   - **Short** (≤3 scenes) — trimmed storyboard, no helper script. README hero pattern.
-   - **Long-form** (≥4 scenes) — full storyboard with scene list, progress checklist, title/outro cards, helper script. YouTube tutorial pattern.
+2. **Scene plan** — ordered list of scene titles + commands. Scene 1 is fixed as `clawctl --version`; ask only for Scene 2 onward.
 
-3. **Execution model** (long-form only):
-   - **Replay-first** (default, recommended) — capture command output to text files once, replay via `cat` during recording. Deterministic; recording doesn't need live infra; collapses minute-long ops into instant frames. Document `# LIVE` exceptions per-scene in the storyboard.
-   - **All live** — every scene runs the real command at record time. Slower; requires the target fleet to be in the right state.
+3. **Long-output handling per scene** — for any scene whose command produces tens or hundreds of lines (Ansible installs, etc.), confirm whether to `head N` + `tail M` elide the middle. The narration covers the gap.
 
-4. **Scene plan** (all demos — the storyboard is mandatory) — ask the user for an ordered list of scene titles, the command shown in each, and which scenes are `LIVE` (interactive TUIs like `agent chat` cannot be replayed). Scene 1 is fixed: `clawctl --version`. Ask only for Scene 2 onward. Stop after scaffolding the storyboard and get explicit user approval before layering in commands and generating the tape.
+4. **Any other unclear input** — never invent prerequisites.
 
-5. **Any other unclear input** — if the user's scenario name, scope, or prerequisites are ambiguous, ask before scaffolding. Never invent prerequisites.
-
-## Universal Flow (every demo, short or long)
-
-Every invocation of this skill follows four opening steps before branching into Flow A (short) or Flow B (long-form), then an optional post-record Step 5 for ElevenLabs narration. **Do not skip Steps 1–4.**
+## Universal Flow
 
 ### Step 1 — Run the prereq validator
-
-The first action of every invocation is to run the bundled prereq script:
 
 ```bash
 bash "$(git rev-parse --show-toplevel)/.claude/skills/create-vhs/scripts/check-prereqs.sh"
 ```
 
-The script checks for `vhs`, `ttyd`, `ffmpeg`, and `clawctl`. It exits non-zero on the first missing binary with an install hint. **If this exits non-zero, stop immediately and surface the missing binary to the user — do not attempt to scaffold a storyboard or tape.**
+Checks `vhs`, `ttyd`, `ffmpeg`, `clawctl`. Stop immediately if any are missing.
 
-> `ttyd` is upstream `tsl0922/ttyd` (a C project). No `go install` path — use a package manager or the official binary release.
+### Step 2 — Author `scenes.yaml`
 
-In addition, every tape **MUST** declare its own runtime prerequisites with `Require` directives at the top — VHS validates these before recording (`Require vhs`, `Require clawctl`, etc.).
+Copy `.claude/skills/create-vhs/templates/scenes.yaml.template` to `docs/demos/YYYYMMDD-<scenario-name>/scenes.yaml` and fill in title, subtitle, intro/outro narration, and the scene list.
 
-### Step 2 — Write the storyboard (mandatory for ALL demos)
+**Fixed Scene 1**: `clawctl --version`. Leave it in place. It anchors the recording to a known release.
 
-Resolve today's date as `YYYYMMDD` and create the per-demo folder `docs/demos/YYYYMMDD-<scenario-name>/`. Copy `.claude/skills/create-vhs/templates/storyboard.md.template` to `docs/demos/YYYYMMDD-<scenario-name>/storyboard.md` and fill in the scene table.
+For long scenes use `head:` and `tail:` to elide the middle on screen — narration covers the elision.
 
-**Fixed opening convention**: Scene 1 of every clawrium demo is `clawctl --version`. The storyboard template pre-fills this row — leave it in place. It anchors the recording to a specific release so viewers can correlate behavior to a version.
+**Get explicit user approval on `scenes.yaml`** before capturing outputs.
 
-The storyboard must list, per scene: title, command, mode (`replay` / `LIVE`), capture filename, and (optional) narration. **Get the user's explicit approval on the storyboard before moving to Step 3.**
+### Step 3 — Capture stdouts (one-time, on a live host)
 
-For short demos (≤3 scenes), trim the scene table to the rows you need and skip the helper script — the storyboard itself still gets committed.
-
-### Step 3 — Layer in the commands per storyboard checkpoint
-
-With the storyboard approved, walk through it scene by scene and decide the exact command line for each:
-
-- For `replay` scenes: run the real command once on a real host and save stdout to `docs/demos/YYYYMMDD-<scenario-name>/outputs/NN-<slug>.txt`. Mask non-deterministic values (timestamps, UUIDs, IPs, private hostnames) before committing.
-- For `LIVE` scenes: still capture a reference output (with `script -q -c '<cmd>' /tmp/...` or `tee`) so Step 4 below has something to stitch. Confirm the command runs end-to-end on the target host in the time budget you allocated.
-- Update the storyboard's `Command` column with the final, copy-paste-ready string. If a command changed during this step, re-confirm with the user.
-
-### Step 4 — Stitch outputs and estimate runtime
-
-After every scene's output has been captured under `docs/demos/YYYYMMDD-<scenario-name>/outputs/`, produce a single stitched transcript and a runtime estimate so the user can decide where to truncate before recording.
-
-**Stitch** uses the shared script in `docs/demos/lib/`:
+For each scene with `mode: replay` (default), run the real command once and save its stdout into the demo's `outputs/` folder:
 
 ```bash
-bash docs/demos/lib/stitch.sh docs/demos/YYYYMMDD-<scenario-name>
+NAME=YYYYMMDD-<scenario-name>
+mkdir -p docs/demos/$NAME/outputs
+
+clawctl --version                 | tee docs/demos/$NAME/outputs/01-version.txt
+clawctl service init              | tee docs/demos/$NAME/outputs/02-service-init.txt
+# ... one per scene ...
 ```
 
-The script writes `docs/demos/YYYYMMDD-<scenario-name>/stitched.txt` and prints per-scene and total line counts.
+Mask non-deterministic values (timestamps, UUIDs, IPs, private hostnames) before committing the capture files. A scripted sed pass is fine:
 
-**Estimate runtime** per scene and total, using the rule of thumb baked into the tape templates:
+```bash
+sed -i -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-]+/2026-01-01T00:00:00Z/g' docs/demos/$NAME/outputs/*.txt
+```
 
-- Typing of a single command line: ~`Set TypingSpeed` × command length (default 50ms × N chars).
-- `Sleep` after `Enter`: 6s for replay scenes with short tables, up to 8s for long output. LIVE scenes use real wall-clock + a 2s read buffer.
-- Title card: 4s. Outro card: 5s. Per-scene `headline` + `progress`: ~5s combined.
+**Re-capture cadence**: per release tag, after Rich table changes, or whenever the CLI's output shape shifts.
 
-Produce a markdown table for the user:
+### Step 4 — Compile
 
-| Scene | Title | Mode | Captured lines | Est. seconds |
-|------:|-------|------|---------------:|-------------:|
-| 1     | clawctl version | replay | 5  | 8  |
-| 2     | …               | replay | 32 | 12 |
-| …     | …               | …      | …  | …  |
-| **Total** | | | | **NN s** |
+```bash
+uv run docs/demos/lib/compile.py docs/demos/YYYYMMDD-<scenario-name>
+```
 
-Present the stitched transcript + table to the user. They can then say "truncate scene N output to first M lines" or "cut scene K entirely" before the tape is generated. **Do not auto-truncate.**
+uv resolves the PEP 723 deps (`pyyaml`) on first run. Outputs:
+- `tape.tape` — replay-first VHS source. Header banner says "GENERATED — DO NOT EDIT".
+- `helpers.sh` — per-demo `_SCENES`/`_TITLE`/... + sources `lib/cards.sh`.
+- `compiled.json` — flat list of every narration beat with its absolute timestamp in the rendered recording.
 
-Only after the user signs off on the stitched timeline should you proceed to the format-specific flow (A or B) below.
+The script prints the recording duration estimate and a per-beat timeline. Verify these match what you expect before recording.
 
-### Step 5 — Layer ElevenLabs narration (post-record, optional)
+### Step 5 — Record
 
-After the tape records `recording.mp4`, an ElevenLabs voiceover can be muxed in via `docs/demos/lib/narrate.py`. This step runs **after** recording, not before, because scene start timecodes are read off the rendered video.
+```bash
+export PATH="${GOPATH:-$HOME/go}/bin:$PATH"
+vhs docs/demos/YYYYMMDD-<scenario-name>/tape.tape
+```
 
-**Setup (one-time per machine)**
+Output lands at `docs/demos/YYYYMMDD-<scenario-name>/recording.mp4`. Replay-first tapes run in roughly their on-screen duration (no live waits), so recording time ≈ recording duration.
 
-`narrate.py` declares its Python deps in a PEP 723 inline metadata block at the top of the file. Run it via `uv run` — uv resolves and caches `elevenlabs` and `python-dotenv` on first invocation. No `pip` step needed.
+### Step 6 — Layer narration (ElevenLabs)
+
+**One-time setup per machine:**
 
 ```bash
 cp docs/demos/lib/.env.example docs/demos/lib/.env
-# Edit docs/demos/lib/.env and fill in ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID.
+# Edit and fill in ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID.
 ```
 
-`.env` is gitignored. The `voice/` folder under each demo is also gitignored.
+`narrate.py` declares its Python deps via PEP 723. uv resolves on first invocation; no `pip` step.
 
-**Per-demo authoring**
-
-The single source of truth is the demo's `storyboard.md` `## Narration` section. Each line:
-
-```markdown
-- Scene N (start=Xs): "spoken text for this scene"
-```
-
-`X` is the scene's start time in seconds (decimals allowed: `start=36.5s`). Lines without a `(start=Xs)` value, or whose text is the literal `…` placeholder, are skipped by `narrate.py` — useful when drafting before timecodes are known.
-
-**Run**
+**Run:**
 
 ```bash
 uv run docs/demos/lib/narrate.py docs/demos/YYYYMMDD-<scenario-name>
-  [--force]              # regenerate ALL scene mp3s, even if cached
-  [--regen 4,5]          # regenerate only the listed scenes
+  [--force]              # regenerate ALL clips even if cached
   [--skip-mux]           # generate audio only; skip ffmpeg
   [--input recording.mp4 --output recording-narrated.mp4]
 ```
 
-The script also carries a `#!/usr/bin/env -S uv run --script` shebang, so `./docs/demos/lib/narrate.py docs/demos/YYYYMMDD-<scenario-name>` works directly when uv is on PATH.
+- Reads `compiled.json` (not `scenes.yaml` — narrate.py only consumes derived artifacts).
+- TTS-synthesizes each beat; clips are cached at `voice/<scene>-<beat>-<sha1>.mp3`. Editing a beat's text changes the sha and auto-invalidates the cache — no `--regen` flag needed.
+- Muxes onto `recording.mp4` via ffmpeg `adelay + amix`. Video is `-c:v copy` (no re-encode).
 
-The script:
-1. Loads `docs/demos/lib/.env`.
-2. Parses the demo's `storyboard.md` `## Narration` section.
-3. For each narrated scene: writes `voice/scene-NN.mp3` via ElevenLabs TTS. Cached mp3s are re-used unless `--force` / `--regen` says otherwise.
-4. Builds an ffmpeg `adelay` filter chain that pads each clip to its `start_seconds` and `amix`-es them into a single track.
-5. Muxes audio onto `recording.mp4` (video stream copied without re-encode) → `recording-narrated.mp4`.
+### Step 7 — Iterate
 
-**Iterate**
+| Change | Re-run |
+|---|---|
+| Narration text only | `compile.py` + `narrate.py` (~30s; vhs not needed) |
+| Scene order / scene structure / new scene | `compile.py` + `vhs` + `narrate.py` |
+| Captured output diverged from CLI | re-do Step 3 capture + Step 4+ |
+| New scene with a new command | add to scenes.yaml + capture + compile + vhs + narrate |
 
-If a scene's voice overruns the next scene visually, shorten the text or shift the next scene's `start=Xs`. Then re-run with `--regen N` to only re-bill the edited scenes.
+### Step 8 — Upload (out of skill scope)
+
+You upload `recording-narrated.mp4` (or `recording.mp4` if going voiceless) to YouTube. The skill does not push.
 
 ## Configuration
 
-```bash
-ITX_CONFIG="$(git rev-parse --show-toplevel)/.claude/itx-config.json"
-if [ -f "$ITX_CONFIG" ]; then
-  VENV_PATH=$(jq -r '.demo.venv_path // ".venv/bin/activate"' "$ITX_CONFIG")
-  VHS_PATH=$(jq -r '.demo.vhs_path // "vhs"' "$ITX_CONFIG")
-else
-  VENV_PATH=".venv/bin/activate"
-  VHS_PATH="vhs"
-fi
-```
+`narrate.py` honors these env vars from `docs/demos/lib/.env`:
 
-Customize in `.claude/itx-config.json`:
+| Var | Required | Default |
+|---|---|---|
+| `ELEVENLABS_API_KEY` | yes | — |
+| `ELEVENLABS_VOICE_ID` | yes | — |
+| `ELEVENLABS_MODEL_ID` | no | `eleven_multilingual_v2` |
+| `ELEVENLABS_OUTPUT_FORMAT` | no | `mp3_44100_128` |
 
-```json
-{
-  "demo": {
-    "venv_path": ".venv/bin/activate",
-    "vhs_path": "vhs"
-  }
-}
-```
+Shell env vars override `.env` values.
 
----
+## VHS Commands Reference (for generated tapes)
 
-## Flow A — Short Demo (≤3 scenes)
+The compile.py output is hand-readable. Commands you'll see in generated tapes:
 
-For README hero GIFs and quick captures. Storyboard is committed (per Step 2 above) but no helper script is generated.
+| Command | Notes |
+|---|---|
+| `Output` | First line; absolute path under `docs/demos/<demo>/recording.mp4` |
+| `Require vhs` | Fail-fast validation |
+| `Set` | Tape-level config — must be at the top, not mid-tape (VHS ignores mid-tape `Set` with a warning) |
+| `Type "text"` | Types text |
+| `Enter` | Presses Enter |
+| `Sleep Ns` | Pauses N seconds. Compound durations like `4m30s` are NOT supported — use `270s` |
+| `Hide` / `Show` | Bracket invisible commands. **Hide blocks DO NOT advance the recording timeline.** |
 
-### 1. Write the tape
-
-Create `docs/demos/YYYYMMDD-<scenario-name>/tape.tape`. Scene 1 is always `clawctl --version` — the fixed opener.
-
-```tape
-# <Title>
-# Records: <what commands are shown>
-# Requires: <prerequisites, e.g., "a configured fleet">
-
-Require vhs
-Require clawctl
-
-Output docs/demos/YYYYMMDD-<scenario-name>/recording.<ext>   # <ext> = mp4 (YouTube) or gif (README)
-
-Set Shell "bash"
-Set FontSize 18
-Set Width 1400
-Set Height 600
-Set Theme "Catppuccin Mocha"
-Set WindowBar Colorful
-Set Padding 20
-Set Margin 20
-Set MarginFill "#1e1e2e"
-Set BorderRadius 8
-Set TypingSpeed 50ms
-Set Framerate 30
-
-# Activate project environment (hidden from recording).
-Hide
-Type `source "$(git rev-parse --show-toplevel)/.venv/bin/activate"`
-Enter
-Sleep 1s
-Show
-
-# Pre-roll so the first frame is not mid-action
-Sleep 1s
-
-# Scene 1 (fixed opener) — show clawctl version
-Type "clawctl --version"
-Sleep 300ms
-Enter
-Sleep 2s
-
-# Scene 2 — <Comment describing second command>
-Type "<command>"
-Sleep 300ms
-Enter
-Sleep 3s
-
-# Scene 3 — <Comment describing third command>
-Type "<command>"
-Sleep 300ms
-Enter
-Sleep 3s
-```
-
-### 2. Record
-
-```bash
-SCENARIO="<scenario-name>"
-DATE="$(date -u +%Y%m%d)"
-[[ "$SCENARIO" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid scenario name: $SCENARIO"; exit 1; }
-export PATH="${GOPATH:-$HOME/go}/bin:$PATH"
-"$VHS_PATH" "docs/demos/${DATE}-${SCENARIO}/tape.tape"
-```
-
-### 3. Validate
-
-```bash
-ls -lh docs/demos/YYYYMMDD-<scenario-name>/recording.*
-```
-
-- GIF for README: target **< 500 KiB**.
-- GIF for docs: target **< 3 MiB**.
-- MP4: no size cap (uploaded externally); still verify it plays and the output is legible.
-- Open in a viewer to confirm output is readable end-to-end.
-
-### 4. Reference (GIF only)
-
-For README embed:
-```markdown
-<p align="center">
-  <img src="docs/demos/YYYYMMDD-<scenario-name>/recording.gif" alt="<description>" width="100%">
-</p>
-```
-
-> ⚠️ `.mp4` files under `docs/demos/` are gitignored globally; `.gif` files are not unless an explicit rule is added. If a GIF needs to embed in the committed README, host it externally (GitHub release asset / CDN) or add an explicit `!docs/demos/YYYYMMDD-<scenario-name>/recording.gif` allowlist line to `.gitignore`. The skill does NOT auto-decide; ask the user.
-
----
-
-## Flow B — Long-Form Storyboarded Demo (≥4 scenes)
-
-For YouTube tutorials and product walkthroughs. Replay-first by default. The storyboard already exists and outputs already captured (per universal Steps 2 & 3 above) — this flow only covers helper + tape generation, recording, and validation.
-
-Replay-first trade-off (call out explicitly to the user):
-
-- ✅ Recording is deterministic and re-runs without infra.
-- ✅ A 3-minute `agent create` becomes an instant `cat` — Sleep is now purely for visual pacing.
-- ⚠️ Captured output drifts when CLI output format changes. Re-capture per release tag, or after any change to Rich table layout / column order / status strings.
-- ❌ Interactive scenes (TUIs, `agent chat`, anything keystroke-driven) **cannot** be replayed. Mark them `LIVE` in the storyboard.
-
-Quick reference for the masking pass (run during Step 3 of the universal flow):
-
-```bash
-sed -i -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-]+/2026-01-01T00:00:00Z/g' docs/demos/YYYYMMDD-<scenario-name>/outputs/*.txt
-```
-
-### 1. Generate the helper script
-
-Copy `.claude/skills/create-vhs/templates/_progress.sh.template` to `docs/demos/YYYYMMDD-<scenario-name>/helpers.sh`. Fill in:
-
-- `_SCENES=(...)` — must match the storyboard scene list, in order.
-- `_TITLE`, `_SUBTITLE`, `_OUTRO_LINE_1`, `_OUTRO_LINE_2`.
-
-The template ends with `source "$(git rev-parse --show-toplevel)/docs/demos/lib/cards.sh"` — leave that line in place. The shared functions `titlecard`, `outrocard`, `headline`, `progress` come from `docs/demos/lib/cards.sh`; per-demo `helpers.sh` only sets variables.
-
-Syntax-check it:
-
-```bash
-bash -n docs/demos/YYYYMMDD-<scenario-name>/helpers.sh
-```
-
-### 2. Generate the tape
-
-Copy `.claude/skills/create-vhs/templates/long-form.tape.template` to `docs/demos/YYYYMMDD-<scenario-name>/tape.tape`. For every scene block, fill in:
-
-- Scene number and title (must match storyboard).
-- Either `Type "cat docs/demos/YYYYMMDD-<scenario-name>/outputs/NN-<slug>.txt"` (replay) **or** the real command (LIVE).
-- `Sleep` duration — size it to the captured output's natural read time (~1.5–3s for short tables, 5–8s for longer output).
-
-Standard settings (built into the template — deviate only with a reason commented in the tape header):
-
-| Setting       | Value              | Rationale                                              |
-|---------------|--------------------|--------------------------------------------------------|
-| FontSize      | 18                 | Readable on 1080p YouTube                              |
-| Width         | 1400               | Fits `clm` tables at COLUMNS≥160                       |
-| Height        | 900 (long-form)    | Storyboard checklist needs vertical room               |
-| Height        | 600 (short)        | Compact for README                                     |
-| Theme         | Catppuccin Mocha   | Dark, high contrast                                    |
-| WindowBar     | Colorful           | Branded chrome                                         |
-| TypingSpeed   | 50ms               | Natural but not slow                                   |
-| Framerate     | 30                 | Smooth; reasonable file size                           |
-| Pre-roll      | 1s                 | First frame is not mid-action                          |
-| Scene Sleep   | 6–8s               | Time to read; resize per scene                         |
-
-### 3. Record
-
-```bash
-NAME="<scenario-name>"
-DATE="$(date -u +%Y%m%d)"
-[[ "$NAME" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid scenario name: $NAME"; exit 1; }
-export PATH="${GOPATH:-$HOME/go}/bin:$PATH"
-"$VHS_PATH" "docs/demos/${DATE}-${NAME}/tape.tape"
-```
-
-### 4. Validate
-
-```bash
-ls -lh docs/demos/YYYYMMDD-<scenario-name>/recording.*
-```
-
-- Play the recording end-to-end. Check title card, every scene headline, progress checklist updates, outro card.
-- Confirm no captured-file path leaks (sometimes `cat` errors hint a capture file is missing).
-- For LIVE scenes, confirm the recorded run reflects the intended fleet state.
-
-### 5. Upload (out of skill scope)
-
-User uploads `docs/demos/YYYYMMDD-<scenario-name>/recording.mp4` to YouTube. The skill does not push.
-
----
-
-## VHS Commands Reference
-
-| Command         | Usage                       | Notes                                              |
-|-----------------|-----------------------------|----------------------------------------------------|
-| `Output`        | `Output path.mp4`           | First line; sets output path                       |
-| `Require`       | `Require clawctl`           | Fail-fast validation of needed binaries            |
-| `Set`           | `Set Key Value`             | Configuration (see table above)                    |
-| `Type`          | `Type "text"`               | Types text into terminal                           |
-| `Enter`         | `Enter`                     | Presses Enter                                      |
-| `Sleep`         | `Sleep 3s`                  | Pauses recording                                   |
-| `Hide`/`Show`   | Bracket invisible commands  | venv activation, sourcing helpers, `clear`         |
-| `Ctrl+C` / `Ctrl+D` | `Ctrl+D`                | Interrupt / EOF                                    |
-| `Env`           | `Env KEY VALUE`             | Set env var (NEVER use for secrets — see warning)  |
-| `PlaybackSpeed` | `Set PlaybackSpeed 2`       | Speeds up final playback                           |
-| `Screenshot`    | `Screenshot path.png`       | Capture a still — useful for blog hero images      |
-
-> ⚠️ **Never use `Env` with real credentials.** VHS bakes the literal value into the tape, which is committed. Inject secrets via a gitignored `.env` sourced inside a `Hide`/`Show` block instead.
-
----
+> ⚠️ **Never use `Env` with real credentials.** VHS bakes the literal value into the committed tape.
 
 ## Production Quality (research-backed)
 
-Apply to long-form demos; pick-and-choose for short demos.
-
-- **Pre-roll & post-roll** `Sleep 1s` at the start and end so the first/last frame is not mid-action.
-- **Vary typing speed**: 50ms default; slow to 100–150ms for the hero command of each scene so the viewer registers it before output appears.
-- **Mask non-deterministic output** in captured replay files (timestamps, UUIDs, IPs, private hostnames). This also avoids leaking real fleet info to a public YouTube video.
-- **Use `Require`** at the top of every tape for fail-fast validation — saves a 10-minute record that errors at scene 7.
-- **Conversational `#` comments** typed into the shell narrate the demo without voiceover. Requires `Set Shell "bash"` (zsh treats `#` differently).
-- **`Up` / `Tab`** keys feel realistic — show command history navigation and tab-completion instead of retyping.
-- **`Screenshot`** the hero frame of each long demo for blog thumbnails and social.
-- **Consistent length and typing speed across a demo series** — builds brand recognition.
-- **`PlaybackSpeed` 1.5–2x** for stretches of unavoidably slow output. Note it in the tape header.
-- **One demo = one fleet state.** Don't try to demo `create` and `remove` in the same tape; the second half is a different starting state.
+- **Pre-roll & post-roll**: `Sleep 1s` (pre-roll) is auto-emitted by compile.py. Outro card has a 5s hold.
+- **Vary typing speed**: default `Set TypingSpeed 50ms` is in the YAML `tape.typing_speed_ms`.
+- **Mask non-deterministic output** in captured replay files. Done at capture time (Step 3).
+- **Long Ansible logs**: use `head:` + `tail:` in scenes.yaml. Narration covers the elision.
+- **One demo = one fleet state.** Don't combine `create` and `remove` in one tape — second half would need a different captured starting state.
 
 ## Troubleshooting
 
-| Problem                    | Solution                                                                |
-|----------------------------|-------------------------------------------------------------------------|
-| `clm` not found             | Source the venv inside the `Hide`/`Show` setup block.                  |
-| Helper functions not found  | Confirm `source ... _<name>_helpers.sh` is inside the Hide block.       |
-| GIF too large               | Lower `Framerate` to 24, raise `PlaybackSpeed`, trim `Sleep` durations. |
-| Output truncated            | Increase `Height` (900 for long-form), increase per-scene `Sleep`.      |
-| Tables misaligned           | Ensure `Width` ≥ 1400 for `clm` table output.                           |
-| Recording hangs             | Check command isn't waiting on interactive input; consider `Ctrl+C`.    |
-| Capture file missing        | Re-run the capture script in step 2 of Flow B for that one scene.       |
-| LIVE scene desyncs          | Add a hidden `until ... do sleep 3; done` after the visible `Sleep`.    |
+| Problem | Solution |
+|---|---|
+| `clawctl` not found inside the tape | Hidden setup sources the venv — confirm `docs/demos/lib/cards.sh` is being sourced |
+| Helper functions not found | Confirm `source ... helpers.sh` is inside the Hide block (auto-emitted by compile.py) |
+| GIF too large | Lower `tape.framerate` in scenes.yaml, trim long `screen_seconds`, or add `head:`/`tail:` to long scenes |
+| Output truncated | Increase `tape.height` for long-form (default 900) |
+| Tables misaligned | `tape.width` ≥ 1400 |
+| Capture file missing | Re-do Step 3 capture for that scene |
+| ElevenLabs sync drift | All narration beats use absolute timestamps from compile.py. If drift is real, edit `screen_seconds` or `offset_seconds` in scenes.yaml + recompile |
 
 ## File Organization
 
 ```
 docs/demos/
 ├── lib/                              # committed — shared, all demos
-│   ├── cards.sh                      # titlecard / outrocard / headline / progress functions
-│   ├── stitch.sh                     # concatenate outputs/*.txt -> stitched.txt
-│   ├── narrate.py                    # ElevenLabs TTS + ffmpeg voiceover mux (PEP 723 deps; run via `uv run`)
-│   ├── .env.example                  # template for narrate.py credentials
+│   ├── cards.sh                      # titlecard / outrocard / headline / progress
+│   ├── compile.py                    # scenes.yaml -> tape.tape + helpers.sh + compiled.json (PEP 723; run via `uv run`)
+│   ├── narrate.py                    # compiled.json -> voice/*.mp3 + recording-narrated.mp4 (PEP 723; run via `uv run`)
+│   ├── .env.example                  # ElevenLabs credentials template
 │   └── .env                          # GITIGNORED — real ELEVENLABS_API_KEY etc.
 └── YYYYMMDD-<slug>/                  # one folder per demo
-    ├── tape.tape                     # committed — VHS source
-    ├── storyboard.md                 # committed — scenes + narration (text + start timecodes)
-    ├── helpers.sh                    # committed (long-form) — per-demo _SCENES/_TITLE/… + source lib/cards.sh
+    ├── scenes.yaml                   # committed — SOURCE OF TRUTH
     ├── outputs/                      # committed — per-scene captures
     │   ├── 01-version.txt
     │   └── 02-….txt
-    ├── stitched.txt                  # committed — full timeline transcript
-    ├── voice/                        # GITIGNORED — per-scene TTS clips from narrate.py
-    │   ├── scene-01.mp3
-    │   └── scene-02.mp3
+    ├── tape.tape                     # committed (generated) — VHS source
+    ├── helpers.sh                    # committed (generated) — per-demo vars + source lib/cards.sh
+    ├── compiled.json                 # committed (generated) — narration timeline
+    ├── voice/                        # GITIGNORED — per-beat TTS clips
+    │   └── scene-NN-beat-MM-<sha8>.mp3
     ├── recording.mp4                 # GITIGNORED — output of `vhs tape.tape`
-    └── recording-narrated.mp4        # GITIGNORED — recording with voiceover muxed in
+    └── recording-narrated.mp4        # GITIGNORED — recording with voiceover
 ```
 
 ## References
@@ -451,10 +248,9 @@ External best-practice sources consulted for this skill:
 - [charmbracelet/vhs README](https://github.com/charmbracelet/vhs)
 - [VHS canonical demo.tape](https://github.com/charmbracelet/vhs/blob/main/examples/demo.tape)
 - [Tips and tricks from VHS tapes (gist)](https://gist.github.com/andyfeller/3104a42bc367831e2d5f3910bde6cf2e)
-- [Creating Terminal-Based Screencast Movies with VHS](https://blog.ouseful.info/2022/11/09/creating-terminal-based-screenshot-movies-with-vhs/)
-- [Beyond Screenshots: Capture CLI Magic with VHS](https://tywer.dev/beyond-screenshots-capture-cli-magic-with-charmbracelet-vhs)
-- [Terminal Recorders: A Comprehensive Guide (Intoli)](https://intoli.com/blog/terminal-recorders/)
-- [3 tips for perfect VS Code video & GIFs recordings](https://dev.to/sinedied/3-tips-for-perfect-vs-code-video-gifs-recordings-dbn)
+- [ElevenLabs Python SDK](https://github.com/elevenlabs/elevenlabs-python)
+- [Automated YouTube dubbing with ElevenLabs + ffmpeg](https://uhiyama-lab.com/en/blog/video-edit/elevenlabs-youtube-dubbing-workflow/)
+- [PEP 723 — inline script metadata](https://peps.python.org/pep-0723/)
 
 ## Prompt Logging
 

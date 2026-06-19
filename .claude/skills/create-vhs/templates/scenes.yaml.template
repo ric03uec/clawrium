@@ -1,0 +1,78 @@
+# <DEMO TITLE> — declarative spec.
+#
+# Single source of truth for the demo. Edit here and re-run:
+#   uv run docs/demos/lib/compile.py docs/demos/YYYYMMDD-<NAME>
+# which regenerates tape.tape + helpers.sh + compiled.json from this file.
+#
+# Replay-first: every scene `cat`s a pre-captured stdout from outputs/.
+# Capture phase (one-time, run on a live host):
+#   for each scene's command, save stdout to
+#   docs/demos/YYYYMMDD-<NAME>/outputs/NN-<slug>.txt
+#   Re-capture when CLI output format changes (per release tag, etc.).
+
+title: <DEMO TITLE>
+subtitle: <one-line subtitle, e.g. "onboarding walkthrough — clawctl X.Y.Z">
+
+outro:
+  line_1: "Get started: ric03uec.github.io/clawrium"
+  line_2: "github.com/ric03uec/clawrium"
+
+tape:
+  framerate: 30
+  width: 1400
+  height: 900
+  theme: Catppuccin Mocha
+  typing_speed_ms: 50
+
+# Hidden setup: runs in a VHS Hide block. Does NOT advance the recording's
+# visible timeline. Use for venv activation, source-of-truth state resets,
+# pre-record cleanups, etc.
+setup:
+  - run: <e.g. "clawctl agent delete -y my-demo-agent >/dev/null 2>&1 || true">
+    wait_seconds: 60
+
+# Two structural beats rendered before scene 1.
+intro:
+  title_card:
+    hold_seconds: 4
+    narration: "Welcome to the <Demo Title> — a walkthrough of <one-line summary>."
+  checklist:
+    hold_seconds: 5
+    narration: "Here's what we'll demo: <comma-separated scene titles>."
+
+scenes:
+  # Scene 1 is fixed by convention: clawctl --version anchors the recording
+  # to a known release. Keep this scene unless you have a strong reason.
+  - n: 1
+    title: clawctl version
+    output_file: docs/demos/YYYYMMDD-<NAME>/outputs/01-version.txt
+    screen_seconds: 3
+    narration:
+      - text: "This demo runs on clawctl X.Y.Z — everything you see was recorded against this release."
+
+  - n: 2
+    title: <scene title>
+    output_file: docs/demos/YYYYMMDD-<NAME>/outputs/02-<slug>.txt
+    screen_seconds: 5
+    narration:
+      - text: "<narration sentence aligned with this command's output>"
+
+  # Long output (Ansible installs, etc.) — use head + tail to elide the middle.
+  # Narration covers the gap so viewer sees start, "...", then finish.
+  - n: 3
+    title: <long-output scene title>
+    output_file: docs/demos/YYYYMMDD-<NAME>/outputs/03-<slug>.txt
+    head: 15
+    tail: 10
+    screen_seconds: 14
+    narration:
+      - offset_seconds: 0
+        text: "<intro to what's happening>"
+      - offset_seconds: 8
+        text: "Skipping ahead — <what's being skipped>."
+      - offset_seconds: 12
+        text: "<completion message>"
+
+outro_card:
+  hold_seconds: 5
+  narration: "Try it yourself at ric03uec.github.io/clawrium."

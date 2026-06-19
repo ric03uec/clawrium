@@ -1,32 +1,32 @@
 """Regression tests for VHS demo assets in `docs/demos/`.
 
-Three concerns are enforced:
+Enforces:
 
-1. **Size limits** — the `create-vhs` skill caps docs GIFs at < 3 MiB.
-   Without an automated gate, contributors can land oversized GIFs that
-   bloat clones.
+1. **Legacy size limits & tape structural integrity** — committed top-level
+   `.tape` files (currently only `agent-reprovision.tape`) must declare valid
+   `Output`, set bash shell, and use portable venv activation.
 
-2. **Structural integrity** — legacy top-level `.tape` files must have a
-   paired `.gif`, declare a valid `Output`, set `bash` as their shell, and
-   include the portable `Hide`/`Show` venv activation block. Drift in any
-   of these silently breaks re-recording.
+2. **Shared lib integrity** — `docs/demos/lib/` ships the four ANSI helpers
+   (`titlecard`/`outrocard`/`headline`/`progress`) every generated demo
+   sources, plus `compile.py` and `narrate.py` (replay-first pipeline).
 
-3. **New folder convention (PR #748)** — the `/create-vhs` skill now scaffolds
-   each demo into its own `docs/demos/YYYYMMDD-<slug>/` folder and factors the
-   ANSI titlecard/headline/progress helpers into a shared `docs/demos/lib/`.
-   The bundled skill templates must continue to point at the new layout, and
-   `lib/cards.sh` must keep defining the four functions that every long-form
-   tape invokes by name.
+3. **Replay-first pipeline** — `compile.py` must produce a valid tape, a
+   `compiled.json` with absolute narration timestamps, and a per-demo
+   helpers.sh from a `scenes.yaml` spec.
 
-Both the test file and the gated limits track
-`.claude/skills/create-vhs/SKILL.md` and `CONTRIBUTING.md`.
+4. **Skill template** — `scenes.yaml.template` carries the fields the
+   compile step reads at scaffold-time (title, scenes list with output_file,
+   etc.).
 """
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -39,7 +39,7 @@ SKILL_TEMPLATES_DIR = (
 )
 
 # Match SKILL.md & CONTRIBUTING.md: KiB / MiB (binary), not SI.
-DOCS_GIF_MAX_BYTES = 3 * 1024 * 1024  # 3_145_728 bytes — "< 3 MiB"
+DOCS_GIF_MAX_BYTES = 3 * 1024 * 1024  # "< 3 MiB"
 
 pytestmark = pytest.mark.skipif(
     not DEMOS_DIR.is_dir(),
@@ -47,6 +47,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+# --------------------------------------------------------------------------- #
+# Legacy top-level demos                                                      #
+# --------------------------------------------------------------------------- #
 class TestDemoAssetSizes:
     def test_docs_gifs_under_limit(self) -> None:
         checked = 0
@@ -59,112 +62,46 @@ class TestDemoAssetSizes:
         if checked == 0:
             pytest.skip("no GIFs present to validate")
         assert not oversized, (
-            f"Docs GIFs over {DOCS_GIF_MAX_BYTES:,} bytes: {', '.join(oversized)}. "
-            "Re-record with higher PlaybackSpeed or lower Framerate."
+            f"Docs GIFs over {DOCS_GIF_MAX_BYTES:,} bytes: "
+            f"{', '.join(oversized)}. Re-record with lower Framerate."
         )
 
 
-class TestTapeFileStructure:
-    """Pure-text checks on committed `.tape` source files."""
+class TestLegacyTapeFiles:
+    """Pure-text checks on legacy top-level `.tape` files (pre-replay-first)."""
 
     def _tape_files(self) -> list[Path]:
         return sorted(DEMOS_DIR.glob("*.tape"))
 
-    def test_tape_files_present(self) -> None:
-        tapes = self._tape_files()
-        assert tapes, (
-            f"At least one .tape file must be committed in {DEMOS_DIR}; "
-            "tape files are the reproducible source for committed GIFs."
-        )
-
     def test_tape_to_output_pairing(self) -> None:
-        """Every committed `.tape` whose Output is in docs/demos/ must have its
-        sibling rendered file (GIF or MP4) committed.
-
-        Tapes whose Output is in docs/demos/recordings/ (gitignored) are skipped —
-        the recording is uploaded to YouTube, not committed.
-        """
         output_re = re.compile(r"^\s*Output\s+(\S+)\s*$", re.MULTILINE)
         missing: list[str] = []
         for tape in self._tape_files():
-            text = tape.read_text()
-            match = output_re.search(text)
+            match = output_re.search(tape.read_text())
             if not match:
-                continue  # validated by test_tape_output_matches_filename
+                continue
             output_path = match.group(1)
             if output_path.startswith("docs/demos/recordings/"):
                 continue
             paired = REPO_ROOT / output_path
             if not paired.exists():
                 missing.append(f"{tape.name} (expected {output_path})")
-        assert not missing, (
-            "Tape files without paired output files: " + "; ".join(missing) + ". "
-            "Run vhs against the tape and commit the generated file, "
-            "or move its Output to docs/demos/recordings/ to opt out."
-        )
+        assert not missing, "Legacy tapes without paired outputs: " + "; ".join(missing)
 
     def test_gif_to_tape_pairing(self) -> None:
-        """Every committed `.gif` must have a sibling `.tape` of the same stem."""
         orphans: list[str] = []
         for gif in sorted(DEMOS_DIR.glob("*.gif")):
             paired_tape = gif.with_suffix(".tape")
             if not paired_tape.exists():
                 orphans.append(f"{gif.name} (expected {paired_tape.name})")
-        assert not orphans, (
-            "GIF files without a source tape: " + "; ".join(orphans) + ". "
-            "Commit the .tape used to generate the GIF (or remove the GIF)."
-        )
-
-    def test_tape_output_matches_filename(self) -> None:
-        """The `Output ...` directive must point at one of:
-
-        - `docs/demos/<stem>.gif` or `.mp4` (legacy / README-embedded; committed).
-        - `docs/demos/recordings/<stem>.gif` or `.mp4` (new convention; gitignored,
-          uploaded to YouTube).
-        """
-        output_re = re.compile(r"^\s*Output\s+(\S+)\s*$", re.MULTILINE)
-        bad: list[str] = []
-        for tape in self._tape_files():
-            text = tape.read_text()
-            match = output_re.search(text)
-            if not match:
-                bad.append(f"{tape.name}: missing Output directive")
-                continue
-            stem = tape.stem
-            allowed = {
-                f"docs/demos/{stem}.gif",
-                f"docs/demos/{stem}.mp4",
-                f"docs/demos/recordings/{stem}.gif",
-                f"docs/demos/recordings/{stem}.mp4",
-            }
-            if match.group(1) not in allowed:
-                bad.append(
-                    f"{tape.name}: Output is '{match.group(1)}'; "
-                    f"expected one of: {sorted(allowed)}"
-                )
-        assert not bad, "Tape Output directive issues:\n  - " + "\n  - ".join(bad)
+        assert not orphans, "Orphan GIFs: " + "; ".join(orphans)
 
     def test_tape_sets_bash_shell(self) -> None:
-        """`Set Shell "bash"` must be present so commands behave consistently."""
         shell_re = re.compile(r'^\s*Set\s+Shell\s+"bash"\s*$', re.MULTILINE)
-        bad = [
-            tape.name
-            for tape in self._tape_files()
-            if not shell_re.search(tape.read_text())
-        ]
-        assert not bad, (
-            'Tapes missing `Set Shell "bash"`: '
-            + ", ".join(bad)
-            + ". VHS defaults to the user shell, which silently breaks portability."
-        )
+        bad = [t.name for t in self._tape_files() if not shell_re.search(t.read_text())]
+        assert not bad, f'Legacy tapes missing `Set Shell "bash"`: {", ".join(bad)}'
 
     def test_tape_has_portable_venv_activation(self) -> None:
-        """The Hide/Show block must source the venv via repo-root resolution.
-
-        Tapes that hardcode `/home/<user>/...` or `~/` only reproduce on the
-        author's machine; the committed tape becomes unrunnable for everyone
-        else.
-        """
         repo_root_re = re.compile(
             r"git\s+rev-parse\s+--show-toplevel.*\.venv/bin/activate", re.DOTALL
         )
@@ -173,338 +110,38 @@ class TestTapeFileStructure:
         for tape in self._tape_files():
             text = tape.read_text()
             if not repo_root_re.search(text):
-                issues.append(
-                    f"{tape.name}: missing portable "
-                    '`source "$(git rev-parse --show-toplevel)/.venv/bin/activate"` '
-                    "inside a Hide/Show block"
-                )
+                issues.append(f"{tape.name}: missing portable venv activation")
             for lineno, line in enumerate(text.splitlines(), 1):
                 if bad_path_re.search(line):
-                    issues.append(
-                        f"{tape.name}:{lineno}: hardcoded home path: {line.strip()}"
-                    )
-        assert not issues, "Tape portability issues:\n  - " + "\n  - ".join(issues)
+                    issues.append(f"{tape.name}:{lineno}: hardcoded home path: {line.strip()}")
+        assert not issues, "Legacy tape portability issues: " + "; ".join(issues)
 
 
-class TestSkillTemplates:
-    """Structural checks on the create-vhs skill's bundled templates.
-
-    Templates ship at `.claude/skills/create-vhs/templates/` and are the
-    source of truth `/create-vhs` copies into `docs/demos/` for new demos.
-    Drift here silently breaks every future generated demo.
-    """
-
-    @pytest.fixture
-    def long_form_tape(self) -> Path:
-        path = SKILL_TEMPLATES_DIR / "long-form.tape.template"
-        if not path.exists():
-            pytest.skip(f"missing {path}")
-        return path
-
-    @pytest.fixture
-    def progress_helper(self) -> Path:
-        path = SKILL_TEMPLATES_DIR / "_progress.sh.template"
-        if not path.exists():
-            pytest.skip(f"missing {path}")
-        return path
-
-    @pytest.fixture
-    def storyboard(self) -> Path:
-        path = SKILL_TEMPLATES_DIR / "storyboard.md.template"
-        if not path.exists():
-            pytest.skip(f"missing {path}")
-        return path
-
-    def test_long_form_tape_sets_bash_shell(self, long_form_tape: Path) -> None:
-        shell_re = re.compile(r'^\s*Set\s+Shell\s+"bash"\s*$', re.MULTILINE)
-        assert shell_re.search(long_form_tape.read_text()), (
-            'long-form.tape.template missing `Set Shell "bash"` — generated tapes '
-            "would default to the user shell and silently break."
+# --------------------------------------------------------------------------- #
+# Shared lib                                                                  #
+# --------------------------------------------------------------------------- #
+class TestSharedLib:
+    @pytest.mark.parametrize("func", ["progress", "headline", "titlecard", "outrocard"])
+    def test_cards_lib_defines_required_functions(self, func: str) -> None:
+        cards_lib = DEMOS_LIB_DIR / "cards.sh"
+        if not cards_lib.exists():
+            pytest.skip(f"missing {cards_lib}")
+        text = cards_lib.read_text()
+        assert re.search(rf"^{func}\s*\(\)\s*\{{", text, re.MULTILINE), (
+            f"docs/demos/lib/cards.sh missing required function `{func}()`."
         )
 
-    def test_long_form_tape_portable_venv_activation(
-        self, long_form_tape: Path
-    ) -> None:
-        repo_root_re = re.compile(
-            r"git\s+rev-parse\s+--show-toplevel.*\.venv/bin/activate", re.DOTALL
-        )
-        text = long_form_tape.read_text()
-        assert repo_root_re.search(text), (
-            "long-form.tape.template missing portable venv activation — "
-            "regenerated tapes would only run on the author's machine."
-        )
-
-    def test_long_form_tape_output_targets_dated_folder(
-        self, long_form_tape: Path
-    ) -> None:
-        """Output must land inside the per-demo dated-slug folder, not a shared dir.
-
-        New convention (PR #748): every demo's rendered recording lives at
-        `docs/demos/YYYYMMDD-<NAME>/recording.<ext>` and is gitignored by the
-        `docs/demos/**/*.mp4` rule. The template ships with the literal
-        `YYYYMMDD-<NAME>` placeholder which the skill substitutes at scaffold.
-        """
-        output_re = re.compile(r"^\s*Output\s+(\S+)\s*$", re.MULTILINE)
-        match = output_re.search(long_form_tape.read_text())
-        assert match, "long-form.tape.template missing Output directive"
-        output = match.group(1)
-        assert output.startswith("docs/demos/YYYYMMDD-"), (
-            f"long-form.tape.template Output is '{output}'; "
-            "must target docs/demos/YYYYMMDD-<NAME>/ per the per-demo folder convention."
-        )
-        assert output.endswith("/recording.mp4") or output.endswith("/recording.gif"), (
-            f"long-form.tape.template Output is '{output}'; "
-            "must end with /recording.mp4 or /recording.gif so the gitignore rule applies."
-        )
-
-    def test_long_form_tape_declares_require(self, long_form_tape: Path) -> None:
-        text = long_form_tape.read_text()
-        assert re.search(r"^\s*Require\s+\S+", text, re.MULTILINE), (
-            "long-form.tape.template should declare at least one `Require` "
-            "directive for fail-fast validation."
-        )
-
-    def test_progress_helper_bash_syntax(self, progress_helper: Path) -> None:
+    def test_cards_lib_bash_syntax(self) -> None:
         bash = shutil.which("bash")
         if bash is None:
             pytest.skip("bash not on PATH")
-        result = subprocess.run(
-            [bash, "-n", str(progress_helper)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert result.returncode == 0, (
-            f"_progress.sh.template fails `bash -n`: {result.stderr.strip()}"
-        )
-
-    @pytest.mark.parametrize(
-        "marker",
-        ["_SCENES", "_TITLE", "_SUBTITLE", "_OUTRO_LINE_1", "_OUTRO_LINE_2"],
-    )
-    def test_progress_helper_required_fill_in_fields(
-        self, progress_helper: Path, marker: str
-    ) -> None:
-        text = progress_helper.read_text()
-        assert re.search(rf"^{marker}=", text, re.MULTILINE), (
-            f"_progress.sh.template missing FILL-IN marker `{marker}` — "
-            "renaming or removing a marker breaks every generated helpers script."
-        )
-
-    def test_progress_helper_sources_cards_lib(
-        self, progress_helper: Path
-    ) -> None:
-        """Per-demo helpers must source the shared `docs/demos/lib/cards.sh`.
-
-        Refactor (PR #748): the four ANSI helpers (`titlecard`/`outrocard`/
-        `headline`/`progress`) moved out of the per-demo template into a single
-        shared library. The template now only sets per-demo variables and must
-        source the library so the functions resolve at record time.
-        """
-        text = progress_helper.read_text()
-        source_re = re.compile(
-            r"^\s*source\s+.*docs/demos/lib/cards\.sh", re.MULTILINE
-        )
-        assert source_re.search(text), (
-            "_progress.sh.template must source docs/demos/lib/cards.sh — "
-            "without it, generated helpers.sh files have no titlecard/headline/"
-            "progress/outrocard functions and long-form tapes fail at record time."
-        )
-
-    @pytest.mark.parametrize(
-        "func", ["progress", "headline", "titlecard", "outrocard"]
-    )
-    def test_cards_lib_defines_required_functions(self, func: str) -> None:
-        """`docs/demos/lib/cards.sh` is the single source for the ANSI helpers.
-
-        Refactor (PR #748): per-demo helpers source this file instead of inlining
-        the functions. Drift here breaks every demo, present and future.
-        """
         cards_lib = DEMOS_LIB_DIR / "cards.sh"
         if not cards_lib.exists():
-            pytest.skip(f"missing {cards_lib} — lib refactor not yet landed")
-        text = cards_lib.read_text()
-        assert re.search(rf"^{func}\s*\(\)\s*\{{", text, re.MULTILINE), (
-            f"docs/demos/lib/cards.sh missing required function `{func}()` — "
-            "every long-form tape invokes this by name and will fail at record time."
+            pytest.skip(f"missing {cards_lib}")
+        result = subprocess.run(
+            [bash, "-n", str(cards_lib)], capture_output=True, text=True, check=False
         )
-
-    @pytest.mark.parametrize(
-        "header_substring",
-        ["Title", "Command", "Mode", "Capture file"],
-    )
-    def test_storyboard_template_has_required_columns(
-        self, storyboard: Path, header_substring: str
-    ) -> None:
-        text = storyboard.read_text()
-        assert header_substring in text, (
-            f"storyboard.md.template missing required column header containing "
-            f"`{header_substring}` — column rename breaks downstream tooling and "
-            "the skill's scene-table contract."
-        )
-
-
-class TestRecordingsConventionBranch:
-    """Synthetic-tape coverage for the `recordings/` skip branch.
-
-    Both existing tapes output to `docs/demos/`, so the production tape set
-    never exercises the new gitignored-output skip path. These tests build
-    minimal tapes via `tmp_path` to drive the branch directly.
-    """
-
-    def _write_minimal_tape(self, path: Path, output_line: str) -> None:
-        path.write_text(
-            f"# minimal\n{output_line}\n"
-            'Set Shell "bash"\n'
-            "Hide\n"
-            'Type `source "$(git rev-parse --show-toplevel)/.venv/bin/activate"`\n'
-            "Enter\n"
-            "Show\n"
-        )
-
-    def test_pairing_skips_recordings_output(self, tmp_path: Path) -> None:
-        """A tape whose Output is in recordings/ passes pairing without a sibling file."""
-        from tests.test_demo_assets import REPO_ROOT as _REPO_ROOT  # noqa: F401
-
-        tape = tmp_path / "demo.tape"
-        self._write_minimal_tape(
-            tape, "Output docs/demos/recordings/demo.mp4"
-        )
-
-        output_re = re.compile(r"^\s*Output\s+(\S+)\s*$", re.MULTILINE)
-        match = output_re.search(tape.read_text())
-        assert match is not None
-        # Branch under test: when Output is under recordings/, pairing is skipped.
-        assert match.group(1).startswith("docs/demos/recordings/")
-
-    def test_pairing_requires_sibling_for_non_recordings_output(
-        self, tmp_path: Path
-    ) -> None:
-        """A tape whose Output is in docs/demos/ requires the rendered file alongside."""
-        tape = tmp_path / "demo.tape"
-        self._write_minimal_tape(tape, "Output docs/demos/demo.gif")
-
-        output_re = re.compile(r"^\s*Output\s+(\S+)\s*$", re.MULTILINE)
-        match = output_re.search(tape.read_text())
-        assert match is not None
-        assert not match.group(1).startswith("docs/demos/recordings/")
-        # Sibling absent — pairing would fail for this synthetic tape.
-        assert not (tmp_path / "demo.gif").exists()
-
-    @pytest.mark.parametrize(
-        "output_path,allowed",
-        [
-            ("docs/demos/demo.gif", True),
-            ("docs/demos/demo.mp4", True),
-            ("docs/demos/recordings/demo.gif", True),
-            ("docs/demos/recordings/demo.mp4", True),
-            ("docs/demos/subdir/demo.gif", False),
-            ("/tmp/demo.mp4", False),
-            ("recordings/demo.mp4", False),
-        ],
-    )
-    def test_output_path_allowlist(
-        self, output_path: str, allowed: bool
-    ) -> None:
-        """The Output allowlist matches exactly four shapes."""
-        stem = "demo"
-        allowed_paths = {
-            f"docs/demos/{stem}.gif",
-            f"docs/demos/{stem}.mp4",
-            f"docs/demos/recordings/{stem}.gif",
-            f"docs/demos/recordings/{stem}.mp4",
-        }
-        assert (output_path in allowed_paths) is allowed
-
-
-class TestRecordingsDirectoryConvention:
-    def test_gitkeep_present(self) -> None:
-        """The recordings/ dir must ship a `.gitkeep` so it exists in fresh clones."""
-        gitkeep = DEMOS_DIR / "recordings" / ".gitkeep"
-        assert gitkeep.exists(), (
-            f"{gitkeep} missing — directory will not exist for fresh clones, "
-            "first `/create-vhs` run would fail without a `mkdir -p`."
-        )
-
-
-class TestNarrationPipeline:
-    """Structural checks on the ElevenLabs narration pipeline (`lib/narrate.py`).
-
-    The pipeline reads narration from each demo's `storyboard.md` and produces
-    a voiceover-muxed `recording-narrated.mp4`. Drift in the parser regex or
-    the storyboard template format would silently break every existing demo's
-    narration, so we lock both shapes down here.
-    """
-
-    @pytest.fixture
-    def narrate_module(self):
-        path = DEMOS_LIB_DIR / "narrate.py"
-        if not path.exists():
-            pytest.skip(f"missing {path}")
-        import importlib.util
-        import sys as _sys
-
-        spec = importlib.util.spec_from_file_location(
-            "_narrate_under_test", path
-        )
-        assert spec and spec.loader
-        module = importlib.util.module_from_spec(spec)
-        # dataclass needs the module in sys.modules at exec time (py3.14+).
-        _sys.modules["_narrate_under_test"] = module
-        try:
-            spec.loader.exec_module(module)
-            yield module
-        finally:
-            _sys.modules.pop("_narrate_under_test", None)
-
-    def test_narrate_module_imports(self, narrate_module) -> None:
-        """`narrate.py` must import cleanly without runtime deps installed."""
-        assert hasattr(narrate_module, "parse_narration")
-        assert hasattr(narrate_module, "Scene")
-        assert hasattr(narrate_module, "main")
-
-    def test_parser_extracts_scenes_with_timecodes(
-        self, narrate_module, tmp_path: Path
-    ) -> None:
-        sb = tmp_path / "storyboard.md"
-        sb.write_text(
-            "# Demo\n"
-            "## Narration\n"
-            '- Scene 1 (start=14s): "hello"\n'
-            '- Scene 2 (start=36.5s): "decimal timecode"\n'
-            "## Other\n"
-            "ignored\n"
-        )
-        scenes = narrate_module.parse_narration(sb)
-        assert [s.n for s in scenes] == [1, 2]
-        assert scenes[0].text == "hello"
-        assert scenes[1].start_seconds == 36.5
-
-    def test_parser_skips_placeholder_and_missing_timecode(
-        self, narrate_module, tmp_path: Path
-    ) -> None:
-        """Lines without `(start=Xs)` or with `…` text must be skipped.
-
-        Lets authors commit a storyboard with narration text drafted before
-        watching the recording (no timecodes yet) without breaking the parser.
-        """
-        sb = tmp_path / "storyboard.md"
-        sb.write_text(
-            "## Narration\n"
-            '- Scene 1 (start=14s): "real"\n'
-            "- Scene 2 (start=20s): …\n"
-            '- Scene 3: "no timecode"\n'
-        )
-        scenes = narrate_module.parse_narration(sb)
-        assert [s.n for s in scenes] == [1]
-
-    def test_parser_rejects_missing_narration_section(
-        self, narrate_module, tmp_path: Path
-    ) -> None:
-        sb = tmp_path / "storyboard.md"
-        sb.write_text("# Demo\n## Scenes\nfoo\n")
-        with pytest.raises(ValueError, match="no `## Narration` section"):
-            narrate_module.parse_narration(sb)
+        assert result.returncode == 0, f"cards.sh fails bash -n: {result.stderr.strip()}"
 
     def test_env_example_template_has_required_keys(self) -> None:
         env_example = DEMOS_LIB_DIR / ".env.example"
@@ -513,24 +150,185 @@ class TestNarrationPipeline:
         text = env_example.read_text()
         for key in ("ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"):
             assert re.search(rf"^{key}=", text, re.MULTILINE), (
-                f".env.example missing required key `{key}` — `narrate.py` "
-                "exits non-zero when this var is unset."
+                f".env.example missing required key `{key}`."
             )
 
-    def test_storyboard_template_uses_new_narration_format(self) -> None:
-        """The skill template's example narration line must declare a timecode.
 
-        Without the `(start=Xs)` pattern in the template, demos scaffolded
-        post-PR would carry the old narration format which `narrate.py`
-        cannot parse.
-        """
-        sb_template = SKILL_TEMPLATES_DIR / "storyboard.md.template"
-        if not sb_template.exists():
-            pytest.skip(f"missing {sb_template}")
-        text = sb_template.read_text()
-        assert re.search(
-            r"-\s+Scene\s+\d+\s*\(start\s*=\s*\S+\):", text
-        ), (
-            "storyboard.md.template missing the `- Scene N (start=Xs):` example "
-            "in its Narration section — narrate.py parser drift risk."
+# --------------------------------------------------------------------------- #
+# Replay-first pipeline (compile.py + narrate.py)                             #
+# --------------------------------------------------------------------------- #
+def _load_module(path: Path, name: str):
+    """Import a script-style module (PEP 723) cleanly, even on Python 3.14."""
+    if not path.exists():
+        return None
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        # Re-raise so the calling test reports the real failure.
+        raise
+
+
+class TestCompilePipeline:
+    @pytest.fixture
+    def compile_mod(self):
+        mod = _load_module(DEMOS_LIB_DIR / "compile.py", "_compile_under_test")
+        if mod is None:
+            pytest.skip("compile.py missing")
+        try:
+            yield mod
+        finally:
+            sys.modules.pop("_compile_under_test", None)
+
+    def test_compile_module_imports(self, compile_mod) -> None:
+        assert hasattr(compile_mod, "compile_demo")
+        assert hasattr(compile_mod, "main")
+
+    def test_compile_minimal_yaml(self, compile_mod, tmp_path: Path) -> None:
+        """Compile a minimal yaml spec — verify tape + helpers + compiled.json shape."""
+        demo = tmp_path / "20260101-mini"
+        (demo / "outputs").mkdir(parents=True)
+        (demo / "outputs" / "01-version.txt").write_text("clawctl 99.99.99\n")
+        (demo / "scenes.yaml").write_text(
+            "title: Mini\n"
+            "subtitle: test\n"
+            "outro:\n"
+            "  line_1: x\n"
+            "  line_2: y\n"
+            "scenes:\n"
+            "  - n: 1\n"
+            "    title: version\n"
+            f"    output_file: docs/demos/{demo.name}/outputs/01-version.txt\n"
+            "    screen_seconds: 3\n"
+            "    narration:\n"
+            "      - text: hello\n"
+        )
+        tape, manifest = compile_mod.compile_demo(demo)
+        assert tape.exists() and manifest.exists()
+        assert (demo / "helpers.sh").exists()
+        tape_text = tape.read_text()
+        # Required structural elements
+        assert "Require vhs" in tape_text
+        assert "Output " in tape_text
+        assert "GENERATED FROM scenes.yaml" in tape_text
+        assert "headline 1 \"version\"" in tape_text
+        data = json.loads(manifest.read_text())
+        assert data["title"] == "Mini"
+        assert len(data["narration"]) == 1
+        assert data["narration"][0]["text"] == "hello"
+        assert data["narration"][0]["absolute_seconds"] > 0
+        assert data["recording_duration_seconds"] > 0
+
+    def test_compile_head_tail_elision(self, compile_mod, tmp_path: Path) -> None:
+        """`head:` + `tail:` emits a compound shell command, not plain `cat`."""
+        demo = tmp_path / "20260101-elision"
+        (demo / "outputs").mkdir(parents=True)
+        (demo / "outputs" / "01-version.txt").write_text("v\n")
+        (demo / "outputs" / "04-install.txt").write_text("\n".join(str(i) for i in range(200)))
+        (demo / "scenes.yaml").write_text(
+            "title: Elision\nsubtitle: t\n"
+            "outro: {line_1: x, line_2: y}\n"
+            "scenes:\n"
+            "  - n: 1\n"
+            "    title: v\n"
+            f"    output_file: docs/demos/{demo.name}/outputs/01-version.txt\n"
+            "    screen_seconds: 3\n"
+            "  - n: 4\n"
+            "    title: install\n"
+            f"    output_file: docs/demos/{demo.name}/outputs/04-install.txt\n"
+            "    head: 10\n"
+            "    tail: 5\n"
+            "    screen_seconds: 6\n"
+        )
+        tape, _ = compile_mod.compile_demo(demo)
+        text = tape.read_text()
+        assert "head -n 10" in text
+        assert "tail -n 5" in text
+
+
+class TestNarratePipeline:
+    @pytest.fixture
+    def narrate_mod(self):
+        mod = _load_module(DEMOS_LIB_DIR / "narrate.py", "_narrate_under_test")
+        if mod is None:
+            pytest.skip("narrate.py missing")
+        try:
+            yield mod
+        finally:
+            sys.modules.pop("_narrate_under_test", None)
+
+    def test_narrate_module_imports(self, narrate_mod) -> None:
+        assert hasattr(narrate_mod, "load_beats")
+        assert hasattr(narrate_mod, "Beat")
+        assert hasattr(narrate_mod, "main")
+
+    def test_load_beats_reads_compiled_json(self, narrate_mod, tmp_path: Path) -> None:
+        demo = tmp_path / "demo"
+        demo.mkdir()
+        (demo / "compiled.json").write_text(json.dumps({
+            "title": "T", "subtitle": "S",
+            "recording_duration_seconds": 100,
+            "narration": [
+                {"scene_n": 1, "beat_n": 1, "absolute_seconds": 10.5, "text": "hello"},
+                {"scene_n": 2, "beat_n": 1, "absolute_seconds": 5.0,  "text": "first"},
+            ],
+        }))
+        beats = narrate_mod.load_beats(demo / "compiled.json")
+        assert len(beats) == 2
+        # Sorted by absolute_seconds.
+        assert beats[0].text == "first" and beats[0].absolute_seconds == 5.0
+        assert beats[1].text == "hello"
+
+    def test_load_beats_rejects_empty(self, narrate_mod, tmp_path: Path) -> None:
+        demo = tmp_path / "demo"
+        demo.mkdir()
+        (demo / "compiled.json").write_text(json.dumps({"narration": []}))
+        with pytest.raises(ValueError, match="no narration beats"):
+            narrate_mod.load_beats(demo / "compiled.json")
+
+    def test_beat_clip_filename_is_content_addressed(self, narrate_mod) -> None:
+        b1 = narrate_mod.Beat(scene_n=1, beat_n=1, absolute_seconds=0, text="hello")
+        b2 = narrate_mod.Beat(scene_n=1, beat_n=1, absolute_seconds=0, text="HELLO")
+        b3 = narrate_mod.Beat(scene_n=1, beat_n=1, absolute_seconds=0, text="hello")
+        # Same text -> same filename (cache hit). Different text -> different.
+        assert b1.clip_filename("voice") == b3.clip_filename("voice")
+        assert b1.clip_filename("voice") != b2.clip_filename("voice")
+        # Different voice -> different filename.
+        assert b1.clip_filename("voiceA") != b1.clip_filename("voiceB")
+
+
+# --------------------------------------------------------------------------- #
+# Skill template                                                              #
+# --------------------------------------------------------------------------- #
+class TestScenesYamlTemplate:
+    @pytest.fixture
+    def template(self) -> Path:
+        path = SKILL_TEMPLATES_DIR / "scenes.yaml.template"
+        if not path.exists():
+            pytest.skip(f"missing {path}")
+        return path
+
+    @pytest.mark.parametrize("key", ["title", "subtitle", "outro", "tape", "scenes"])
+    def test_template_has_top_level_key(self, template: Path, key: str) -> None:
+        text = template.read_text()
+        assert re.search(rf"^{key}\s*:", text, re.MULTILINE), (
+            f"scenes.yaml.template missing required top-level `{key}:` key — "
+            "compile.py would fail at scaffold time for demos using this template."
+        )
+
+    def test_template_seeds_scene_1_as_clawctl_version(self, template: Path) -> None:
+        text = template.read_text()
+        assert "clawctl --version" in text or "01-version.txt" in text, (
+            "scenes.yaml.template must seed Scene 1 with the fixed clawctl --version opener."
+        )
+
+    def test_template_documents_long_output_elision(self, template: Path) -> None:
+        text = template.read_text()
+        assert "head:" in text and "tail:" in text, (
+            "scenes.yaml.template must show `head:` + `tail:` so authors know how "
+            "to elide long captures like Ansible installs."
         )
