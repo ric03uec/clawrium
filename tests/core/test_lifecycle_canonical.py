@@ -1396,7 +1396,7 @@ class TestOpenclawBraveVersionPreflight:
         monkeypatch.setattr(
             lc,
             "_get_host_openclaw_version",
-            lambda *_a, **_kw: host_version,
+            lambda *_a, **_kw: (host_version, ""),
         )
 
     def test_below_min_version_raises(self, monkeypatch):
@@ -1404,6 +1404,17 @@ class TestOpenclawBraveVersionPreflight:
         with pytest.raises(
             CanonicalSyncError,
             match=r"openclaw on 'h' is 2026\.3\.13; brave plugin requires >= 2026\.6\.8",
+        ):
+            sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_one_below_floor_raises(self, monkeypatch):
+        """Off-by-one boundary: 2026.6.7 must be rejected. The far-below
+        case (2026.3.13) wouldn't catch a comparator regression that
+        treated the floor as `< min` instead of `<= min`. (W3 ATX iter 2)"""
+        self._setup(monkeypatch, (2026, 6, 7))
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"openclaw on 'h' is 2026\.6\.7; brave plugin requires >= 2026\.6\.8",
         ):
             sync_agent_canonical("oc", restart=False, verify=False)
 
@@ -1427,6 +1438,49 @@ class TestOpenclawBraveVersionPreflight:
             CanonicalSyncError, match=r"openclaw on 'h' is <unknown>"
         ):
             sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_unknown_version_includes_probe_stderr(self, monkeypatch):
+        """W5 ATX iter 2: when the probe returns `None`, the captured
+        stderr (sudo failure, unsafe-path rejection, etc.) is appended
+        to the error so the operator has a starting diagnostic instead
+        of a bare `<unknown>`."""
+        self._setup(monkeypatch, None)  # base wiring
+        # Override the probe to return None+a real stderr tail.
+        monkeypatch.setattr(
+            lc,
+            "_get_host_openclaw_version",
+            lambda *_a, **_kw: (None, "sudo: a password is required"),
+        )
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"stderr: sudo: a password is required",
+        ):
+            sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_macos_host_routes_to_macos_resolver(self, monkeypatch):
+        """The dispatcher must pass `os_family` from the host record
+        through to `_get_host_openclaw_version` — otherwise a Darwin
+        host falls back to the Linux variant and the macOS home-path
+        fork is dead code."""
+        self._setup(monkeypatch, (2026, 6, 8))
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: (
+                {"hostname": "h", "os_family": "darwin"},
+                "openclaw:oc",
+                {},
+            ),
+        )
+        captured: dict = {}
+
+        def _spy(_client, _agent_name, *, os_family, timeout=10):
+            captured["os_family"] = os_family
+            return (2026, 6, 8), ""
+
+        monkeypatch.setattr(lc, "_get_host_openclaw_version", _spy)
+        sync_agent_canonical("oc", restart=False, verify=False)
+        assert captured.get("os_family") == "darwin"
 
     def test_preflight_skipped_when_no_brave_integration(self, monkeypatch):
         """The preflight has a measurable cost (one SSH exec). When no
@@ -1468,7 +1522,7 @@ class TestOpenclawBraveVersionPreflight:
 
         def _should_not_be_called(*_a, **_kw):
             called.append(True)
-            return (2026, 5, 28)
+            return (2026, 5, 28), ""
 
         monkeypatch.setattr(
             lc, "_get_host_openclaw_version", _should_not_be_called
@@ -1522,59 +1576,207 @@ class TestParseSemverTuple:
         assert lc._parse_semver_tuple(raw) == (2026, 5, 28)
 
 
-class TestGetHostOpenclawVersion:
-    """`_get_host_openclaw_version` issues an SSH `bash -lc 'command -v
-    openclaw && openclaw --version'`. Assert the command shape and the
-    non-zero-exit -> None branch. (B3 ATX iter 1)"""
+class _ProbeMockClient:
+    """Helper that records the SSH commands issued and returns a
+    canned (stdout, stderr, exit_status) per invocation. The probe
+    issues exactly one `exec_command` per call, so a single entry is
+    enough."""
 
-    def _make_client(
-        self, stdout: str, exit_status: int
-    ) -> tuple[MagicMock, list[str]]:
-        commands: list[str] = []
+    def __init__(self, stdout: str = "", stderr: str = "", exit_status: int = 0):
+        self.commands: list[str] = []
+        self._stdout = stdout
+        self._stderr = stderr
+        self._exit_status = exit_status
+
+    def as_client(self) -> MagicMock:
         client = MagicMock()
 
         def _exec_command(cmd, **_kw):
-            commands.append(cmd)
+            self.commands.append(cmd)
             channel = MagicMock()
-            channel.recv_exit_status.return_value = exit_status
+            channel.recv_exit_status.return_value = self._exit_status
             out = MagicMock()
-            out.read.return_value = stdout.encode("utf-8")
+            out.read.return_value = self._stdout.encode("utf-8")
             out.channel = channel
-            return MagicMock(), out, MagicMock()
+            err = MagicMock()
+            err.read.return_value = self._stderr.encode("utf-8")
+            return MagicMock(), out, err
 
         client.exec_command.side_effect = _exec_command
-        return client, commands
+        return client
 
-    def test_happy_path_returns_parsed_tuple(self):
-        client, commands = self._make_client("openclaw 2026.5.28\n", 0)
-        assert lc._get_host_openclaw_version(client, "wolf-i") == (2026, 5, 28)
-        assert len(commands) == 1
-        # Login shell so PATH-resolved binaries (install.yaml's
-        # /usr/local/bin or ~/.openclaw/bin) are reachable.
-        assert " bash -lc " in commands[0]
-        assert "openclaw --version" in commands[0]
-        # User context is quoted to prevent shell injection.
-        assert "sudo -n -u wolf-i" in commands[0]
 
-    def test_nonzero_exit_returns_none(self):
-        """Binary missing → exit 127 → None. Preflight maps None to
-        a `clawctl agent install` hint."""
-        client, _ = self._make_client("openclaw: command not found\n", 127)
-        assert lc._get_host_openclaw_version(client, "wolf-i") is None
+class TestGetHostOpenclawVersionLinux:
+    """Linux variant: per-agent binary under `/home/<agent>/`, PATH
+    fallback safelist `/usr/local/bin`, `/usr/bin`, `/home/`.
+    (B1/B2 ATX iter 2 — completely forked from macOS variant.)"""
+
+    def test_command_shape_includes_linux_per_agent_path_and_safelist(self):
+        """Pin the exact shell construction so a regression that
+        dropped the per-agent branch (or the safelist check) would
+        fail the test rather than survive on generic substring
+        matches."""
+        probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        version, _ = lc._get_host_openclaw_version_linux(
+            probe.as_client(), "wolf-i"
+        )
+        assert version == (2026, 6, 8)
+        cmd = probe.commands[0]
+        # Per-agent path is Linux-rooted.
+        assert "/home/wolf-i/.openclaw/bin/openclaw" in cmd
+        # Size>0 gate (W1).
+        assert (
+            "[ -x /home/wolf-i/.openclaw/bin/openclaw ] && "
+            "[ -s /home/wolf-i/.openclaw/bin/openclaw ]" in cmd
+        )
+        # PATH fallback present.
+        assert "resolved=$(command -v openclaw" in cmd
+        # Safelist contains Linux prefixes.
+        assert "/usr/local/bin/" in cmd
+        assert "/usr/bin/" in cmd
+        assert "/home/" in cmd
+        # And NOT macOS prefixes.
+        assert "/Users/" not in cmd
+        assert "/opt/homebrew/bin/" not in cmd
+        # Login shell + sudo + agent-name quoting.
+        assert "sudo -n -u wolf-i bash -lc " in cmd
+        # Explicit exit 1 branch (binary missing / no PATH match).
+        assert "else exit 1; fi" in cmd
+
+    def test_path_fallback_safelist_reject_exits_two_with_stderr(self):
+        """If `command -v openclaw` resolves to an unsafelisted path
+        (e.g. `/tmp/openclaw`), the probe exits 2 and emits stderr
+        naming the path. This is the W2 defense-in-depth fix."""
+        probe = _ProbeMockClient(
+            "", "openclaw on PATH is at unsafe path: /tmp/openclaw\n", 2
+        )
+        version, stderr = lc._get_host_openclaw_version_linux(
+            probe.as_client(), "wolf-i"
+        )
+        assert version is None
+        assert "unsafe path: /tmp/openclaw" in stderr
+
+    def test_nonzero_exit_returns_none_with_stderr_tail(self):
+        """W5 ATX iter 2: stderr is captured and surfaced even when
+        the probe fails. Operator now sees sudo / pam errors instead
+        of an opaque `<unknown>`."""
+        probe = _ProbeMockClient(
+            "", "sudo: a password is required\n", 1
+        )
+        version, stderr = lc._get_host_openclaw_version_linux(
+            probe.as_client(), "wolf-i"
+        )
+        assert version is None
+        assert "sudo: a password is required" in stderr
 
     def test_unparseable_output_returns_none(self):
-        client, _ = self._make_client("garbage output\n", 0)
-        assert lc._get_host_openclaw_version(client, "wolf-i") is None
+        probe = _ProbeMockClient("garbage output\n", "", 0)
+        version, _ = lc._get_host_openclaw_version_linux(
+            probe.as_client(), "wolf-i"
+        )
+        assert version is None
 
     def test_agent_name_is_shell_quoted(self):
-        """Defensive: a hostile agent name (e.g. `; rm -rf` injected via
-        a misconfigured hosts.json) must not break out of the sudo
-        shell. The `shlex.quote` wrap is the safety net."""
-        client, commands = self._make_client("0.0.0\n", 0)
-        lc._get_host_openclaw_version(client, "a;rm -rf /")
-        # The injection attempt is single-quoted; it never reaches sudo
-        # as separate tokens.
-        assert "'a;rm -rf /'" in commands[0]
+        """Hostile agent name (e.g. `; rm -rf` injected via a
+        misconfigured hosts.json) must not break out of the sudo
+        shell. Both the agent-name position (`sudo -n -u`) and the
+        per-agent path (which contains `agent_name`) flow through
+        `shlex.quote` before reaching bash."""
+        probe = _ProbeMockClient("0.0.0\n", "", 0)
+        lc._get_host_openclaw_version_linux(probe.as_client(), "a;rm -rf /")
+        cmd = probe.commands[0]
+        # The agent-name position is single-quoted at the sudo level.
+        assert cmd.startswith("sudo -n -u 'a;rm -rf /' bash -lc '")
+        # The entire `bash -lc` body is single-quoted, so the `;rm`
+        # cannot escape into a top-level shell command separator —
+        # any inner single quotes are escaped by shlex.quote's
+        # standard `'\''` pattern. (Sanity check: no unescaped
+        # top-level `;` would appear after the closing wrapper quote
+        # other than as part of a balanced `'\''` sequence.)
+        assert cmd.endswith("'")
+
+
+class TestGetHostOpenclawVersionMacos:
+    """macOS (arm64) variant: per-agent binary under `/Users/<agent>/`,
+    PATH fallback safelist `/opt/homebrew/bin`, `/usr/local/bin`,
+    `/usr/bin`, `/Users/`. Completely forked from the Linux variant —
+    when macOS x86_64 support is added, dispatch should fork further
+    rather than retrofitting an arch branch into either function.
+    (B1/B2 ATX iter 2)"""
+
+    def test_command_shape_includes_macos_per_agent_path_and_safelist(self):
+        probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        version, _ = lc._get_host_openclaw_version_macos(
+            probe.as_client(), "wolf-m"
+        )
+        assert version == (2026, 6, 8)
+        cmd = probe.commands[0]
+        # Per-agent path is macOS-rooted.
+        assert "/Users/wolf-m/.openclaw/bin/openclaw" in cmd
+        # Size>0 gate (W1).
+        assert (
+            "[ -x /Users/wolf-m/.openclaw/bin/openclaw ] && "
+            "[ -s /Users/wolf-m/.openclaw/bin/openclaw ]" in cmd
+        )
+        # PATH fallback present.
+        assert "resolved=$(command -v openclaw" in cmd
+        # Safelist contains macOS prefixes (Homebrew first).
+        assert "/opt/homebrew/bin/" in cmd
+        assert "/Users/" in cmd
+        # And NOT Linux-only prefix.
+        assert "/home/" not in cmd
+
+    def test_path_fallback_safelist_reject_returns_none(self):
+        probe = _ProbeMockClient(
+            "", "openclaw on PATH is at unsafe path: /tmp/openclaw\n", 2
+        )
+        version, stderr = lc._get_host_openclaw_version_macos(
+            probe.as_client(), "wolf-m"
+        )
+        assert version is None
+        assert "unsafe path: /tmp/openclaw" in stderr
+
+    def test_per_agent_branch_uses_users_prefix(self):
+        """Regression guard: the macOS variant must NOT use `/home/`.
+        If anyone retrofits `if os_family ==` branching back into the
+        Linux variant, this assertion fails immediately."""
+        probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        lc._get_host_openclaw_version_macos(probe.as_client(), "wolf-m")
+        assert "/home/wolf-m" not in probe.commands[0]
+
+
+class TestGetHostOpenclawVersionDispatcher:
+    """The public `_get_host_openclaw_version(...)` is a thin dispatcher
+    that routes to the Linux or macOS variant based on `os_family`. The
+    dispatcher is the only place that knows about both — matches the
+    dispatcher-only-OS-fork convention (AGENTS.md)."""
+
+    def test_darwin_routes_to_macos_variant(self):
+        probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        version, _ = lc._get_host_openclaw_version(
+            probe.as_client(), "wolf-m", os_family="darwin"
+        )
+        assert version == (2026, 6, 8)
+        assert "/Users/wolf-m/.openclaw/bin/openclaw" in probe.commands[0]
+        assert "/home/" not in probe.commands[0]
+
+    def test_linux_routes_to_linux_variant(self):
+        probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        version, _ = lc._get_host_openclaw_version(
+            probe.as_client(), "wolf-i", os_family="linux"
+        )
+        assert version == (2026, 6, 8)
+        assert "/home/wolf-i/.openclaw/bin/openclaw" in probe.commands[0]
+        assert "/Users/" not in probe.commands[0]
+
+    def test_empty_os_family_defaults_to_linux(self):
+        """Older hosts.json records may pre-date os_family persistence;
+        treat missing/empty as Linux to match the install.yaml default."""
+        probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        lc._get_host_openclaw_version(
+            probe.as_client(), "wolf-i", os_family=""
+        )
+        assert "/home/wolf-i/.openclaw/bin/openclaw" in probe.commands[0]
 
 
 class TestLoadOpenclawBravePin:

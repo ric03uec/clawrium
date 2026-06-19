@@ -14,6 +14,15 @@ cut. The `itx:release` skill archives this section into a new
 
 ### BREAKING
 
+- **openclaw brave plugin now requires openclaw `>= 2026.6.8`** (previously
+  `>= 2026.4.10`). Any host running openclaw in the `2026.4.10..2026.6.7`
+  range with the brave integration attached will hit a hard
+  `CanonicalSyncError` on the next `clawctl agent sync` with the message
+  `openclaw on '<host>' is <X.Y.Z>; brave plugin requires >= 2026.6.8`.
+  **Operator action:** run `clawctl agent upgrade <agent>` (which now
+  installs `2026.6.8` by default) before the next sync. There is no
+  automated migration — the upgrade must be initiated explicitly.
+
 ### Added
 
 - New `brave` integration type for the Brave Search API. Register once
@@ -28,7 +37,7 @@ cut. The `itx:release` skill archives this section into a new
   duckduckgo default), and `BRAVE_API_KEY` on openclaw. Openclaw also
   installs `@openclaw/brave-plugin@2026.6.8` automatically on
   configure (idempotent, sentinel-gated) and preflights the on-host
-  openclaw version against the plugin's `minHostVersion` (>= 2026.4.10)
+  openclaw version against the plugin's `minHostVersion` (>= 2026.6.8)
   before any sync write. New `clawctl integration rotate <name>`
   rotates the credential and re-syncs every bound agent in one shot.
   Closes #734.
@@ -38,6 +47,18 @@ cut. The `itx:release` skill archives this section into a new
   and openclaw agents (#722).
 
 ### Changed
+
+- Default openclaw install target bumped from `2026.5.28` to `2026.6.8`.
+  `clawctl agent create --type openclaw` and `clawctl agent upgrade`
+  now install `2026.6.8` by default; manifest entries added for
+  ubuntu 22.04 / 24.04 (x86_64) and macos arm64. Existing agents pinned
+  to a specific `--version` are unaffected.
+- Openclaw brave-plugin preflight (`_get_host_openclaw_version`) is now
+  forked per OS — Linux uses `/home/<agent>/.openclaw/bin/openclaw`,
+  macOS uses `/Users/<agent>/.openclaw/bin/openclaw`, with PATH-fallback
+  safelists matching each OS's install playbook. The Linux-only
+  hardcoded path that shipped earlier in `[Unreleased]` would have
+  silently fallen through to a system-PATH binary on Darwin.
 
 ### Fixed
 

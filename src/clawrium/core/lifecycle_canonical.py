@@ -169,41 +169,118 @@ def _parse_semver_tuple(raw: str) -> tuple[int, int, int] | None:
     return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
 
 
-def _get_host_openclaw_version(
-    client: paramiko.SSHClient, agent_name: str, *, timeout: int = 10
-) -> tuple[int, int, int] | None:
-    """Run `openclaw --version` on the host as the agent user and parse
-    the X.Y.Z triple. Returns None when the binary is missing or its
-    output cannot be parsed.
-
-    Resolution mirrors `playbooks/exec.yaml`: prefer the per-agent
-    binary at `/home/<agent>/.openclaw/bin/openclaw` when it exists +
-    is executable, else fall back to whatever `bash -lc 'command -v
-    openclaw'` resolves on the agent user's login PATH. Using the same
-    resolution as exec.yaml is the source of truth: if the operator
-    invokes `clawctl agent exec wolf-i -- --version`, the preflight
-    must read the same binary, otherwise an upgrade that moved the
-    per-agent binary still sees a stale system binary on PATH and
-    rejects sync forever.
+def _build_openclaw_version_probe(
+    agent_name: str, *, home_root: str, path_safelist: tuple[str, ...]
+) -> str:
+    """Build the `sudo -n -u <agent> bash -lc '...'` command that
+    resolves the openclaw binary the same way exec.yaml does and
+    prints its `--version` output. Per-agent binary at
+    `<home_root>/<agent>/.openclaw/bin/openclaw` wins; PATH fallback
+    is accepted only when `command -v openclaw` resolves under one of
+    `path_safelist` (matches install.yaml's discovery gate).
     """
     quoted_agent = shlex.quote(agent_name)
-    per_agent = f"/home/{agent_name}/.openclaw/bin/openclaw"
+    per_agent = f"{home_root}/{agent_name}/.openclaw/bin/openclaw"
     quoted_per_agent = shlex.quote(per_agent)
-    # `test -x` matches exec.yaml's stat(executable=True) + size>0 gate
-    # closely enough that the two will pick the same binary in practice.
+    safelist_test = " || ".join(
+        f'case "$resolved" in {shlex.quote(prefix)}*) ok=1 ;; esac'
+        for prefix in path_safelist
+    )
     inner = (
-        f"if [ -x {quoted_per_agent} ]; then "
+        f"if [ -x {quoted_per_agent} ] && [ -s {quoted_per_agent} ]; then "
         f"  {quoted_per_agent} --version; "
-        f"elif command -v openclaw >/dev/null 2>&1; then "
-        f"  openclaw --version; "
+        f"elif resolved=$(command -v openclaw 2>/dev/null); then "
+        f"  ok=0; {safelist_test}; "
+        f'  if [ "$ok" = 1 ]; then "$resolved" --version; '
+        f'  else echo "openclaw on PATH is at unsafe path: $resolved" 1>&2; exit 2; fi; '
         f"else exit 1; fi"
     )
-    cmd = f"sudo -n -u {quoted_agent} bash -lc {shlex.quote(inner)}"
-    _, out, _ = client.exec_command(cmd, timeout=timeout)
+    return f"sudo -n -u {quoted_agent} bash -lc {shlex.quote(inner)}"
+
+
+_LINUX_OPENCLAW_PATH_SAFELIST: tuple[str, ...] = (
+    "/usr/local/bin/",
+    "/usr/bin/",
+    "/home/",
+)
+_MACOS_OPENCLAW_PATH_SAFELIST: tuple[str, ...] = (
+    "/opt/homebrew/bin/",
+    "/usr/local/bin/",
+    "/usr/bin/",
+    "/Users/",
+)
+
+
+def _get_host_openclaw_version_linux(
+    client: paramiko.SSHClient, agent_name: str, *, timeout: int = 10
+) -> tuple[tuple[int, int, int] | None, str]:
+    """Linux variant: per-agent binary under `/home/<agent>/`, PATH
+    fallback safelist matches Linux install.yaml lines ~50-57.
+
+    Returns `(version, stderr_tail)`. `version` is `None` when the
+    binary is missing, the output is unparseable, or the resolved
+    PATH binary is rejected by the safelist; `stderr_tail` is the
+    last ~512 bytes of stderr so the caller can surface a diagnostic
+    instead of an opaque `<unknown>`.
+    """
+    cmd = _build_openclaw_version_probe(
+        agent_name,
+        home_root="/home",
+        path_safelist=_LINUX_OPENCLAW_PATH_SAFELIST,
+    )
+    return _run_openclaw_version_probe(client, cmd, timeout=timeout)
+
+
+def _get_host_openclaw_version_macos(
+    client: paramiko.SSHClient, agent_name: str, *, timeout: int = 10
+) -> tuple[tuple[int, int, int] | None, str]:
+    """macOS (arm64) variant: per-agent binary under `/Users/<agent>/`,
+    PATH fallback safelist matches install_macos.yaml line ~109.
+
+    Forked completely from the Linux variant — when a future macOS
+    x86_64 platform is added, dispatch should fork further rather
+    than retrofitting an arch branch into either function.
+    """
+    cmd = _build_openclaw_version_probe(
+        agent_name,
+        home_root="/Users",
+        path_safelist=_MACOS_OPENCLAW_PATH_SAFELIST,
+    )
+    return _run_openclaw_version_probe(client, cmd, timeout=timeout)
+
+
+def _run_openclaw_version_probe(
+    client: paramiko.SSHClient, cmd: str, *, timeout: int
+) -> tuple[tuple[int, int, int] | None, str]:
+    _, out, err = client.exec_command(cmd, timeout=timeout)
     body = out.read().decode("utf-8", errors="replace").strip()
+    err_bytes = err.read()
+    stderr_tail = err_bytes.decode("utf-8", errors="replace")[-512:].strip()
     if out.channel.recv_exit_status() != 0:
-        return None
-    return _parse_semver_tuple(body)
+        return None, stderr_tail
+    return _parse_semver_tuple(body), stderr_tail
+
+
+def _get_host_openclaw_version(
+    client: paramiko.SSHClient,
+    agent_name: str,
+    *,
+    os_family: str,
+    timeout: int = 10,
+) -> tuple[tuple[int, int, int] | None, str]:
+    """Dispatcher: routes to the Linux or macOS variant based on
+    `os_family` (the host record's `os_family` field). The Linux and
+    macOS resolvers are intentionally separate functions — the
+    dispatcher is the only place that knows about both, matching the
+    dispatcher-only-OS-fork convention in AGENTS.md.
+    """
+    if (os_family or "linux") == "darwin":
+        return _get_host_openclaw_version_macos(
+            client, agent_name, timeout=timeout
+        )
+    return _get_host_openclaw_version_linux(
+        client, agent_name, timeout=timeout
+    )
 
 
 class CanonicalSyncError(Exception):
@@ -715,16 +792,24 @@ def sync_agent_canonical(
         ):
             pin = _load_openclaw_brave_pin()
             min_ver = pin["min_host_version"]
-            version = _get_host_openclaw_version(client, agent_name)
+            version, probe_stderr = _get_host_openclaw_version(
+                client,
+                agent_name,
+                os_family=host.get("os_family", "linux"),
+            )
             min_str = ".".join(str(p) for p in min_ver)
             if version is None:
                 # Binary missing or unparseable — distinct hint from
                 # "version too old": install vs upgrade (W9 ATX iter 1).
+                # `probe_stderr` surfaces sudo failures, safelist
+                # rejections, or PATH-resolution errors so the operator
+                # has a starting point beyond <unknown>.
+                detail = f" stderr: {probe_stderr}" if probe_stderr else ""
                 raise CanonicalSyncError(
                     f"openclaw on {hostname!r} is <unknown> "
                     f"(binary missing or `--version` unparseable); brave "
                     f"plugin requires >= {min_str}. Run "
-                    f"`clawctl agent install {agent_name}` first."
+                    f"`clawctl agent install {agent_name}` first.{detail}"
                 )
             if version < min_ver:
                 actual = ".".join(str(p) for p in version)
