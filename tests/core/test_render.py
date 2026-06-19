@@ -2365,13 +2365,15 @@ def test_openclaw_json_managed_paths_populated():
     # 4. channels.discord.enabled + allowFrom
     assert blob["channels"]["discord"]["enabled"] is True
     assert blob["channels"]["discord"]["allowFrom"] == ["u1", "u2"]
-    # 5. channels.discord.guilds — nested reshape
+    # 5. channels.discord.guilds — nested reshape. openclaw 2026.5.28+
+    # rejects `{"allow": true}` as an additional property; presence in the
+    # channels map alone permits the channel under `groupPolicy: "allowlist"`.
     assert blob["channels"]["discord"]["guilds"] == {
         "g1": {
             "users": ["u1", "u2"],
             "channels": {
-                "c1": {"allow": True},
-                "c2": {"allow": True},
+                "c1": {},
+                "c2": {},
             },
         }
     }
@@ -2567,12 +2569,8 @@ _OPENCLAW_JSON_BYTE_LOCK = """\
             "u2"
           ],
           "channels": {
-            "c1": {
-              "allow": true
-            },
-            "c2": {
-              "allow": true
-            }
+            "c1": {},
+            "c2": {}
           }
         }
       }
@@ -2797,7 +2795,7 @@ def test_openclaw_multi_guild_discord_renders_all_guilds():
     for guild_id in ("g1", "g2"):
         assert blob["channels"]["discord"]["guilds"][guild_id]["users"] == ["u1"]
         assert blob["channels"]["discord"]["guilds"][guild_id]["channels"] == {
-            "c1": {"allow": True}
+            "c1": {}
         }
 
 

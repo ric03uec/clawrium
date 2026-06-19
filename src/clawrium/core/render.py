@@ -1673,15 +1673,18 @@ def _render_openclaw_json(
         discord["enabled"] = True
         discord["allowFrom"] = list(discord_channel.allowed_users)
         # Reshape flat allowed_guilds[] + allowed_channels[] into the
-        # nested {<guild>: {users: [...], channels: {<chan>: {allow: true}}}}
-        # structure openclaw's daemon expects.
+        # nested {<guild>: {users: [...], channels: {<chan>: {}}}} structure
+        # openclaw's daemon expects. Under `groupPolicy: "allowlist"`, mere
+        # presence in `channels` permits the channel — `{"allow": true}` was
+        # accepted by older openclaw but rejected as an additional property
+        # by 2026.5.28+ (`channels.discord.guilds.<id>.channels.<id>: must
+        # not have additional properties: "allow"`).
         guilds_block: dict = {}
         for guild_id in discord_channel.allowed_guilds:
             guilds_block[guild_id] = {
                 "users": list(discord_channel.allowed_users),
                 "channels": {
-                    chan_id: {"allow": True}
-                    for chan_id in discord_channel.allowed_channels
+                    chan_id: {} for chan_id in discord_channel.allowed_channels
                 },
             }
         discord["guilds"] = guilds_block

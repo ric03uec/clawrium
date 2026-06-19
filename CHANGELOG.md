@@ -20,6 +20,15 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- openclaw renderer no longer emits `{"allow": true}` for entries in
+  `channels.discord.guilds.<id>.channels.<id>`. openclaw 2026.5.28+
+  rejects `allow` as an additional property
+  (`must not have additional properties: "allow"`); presence in the
+  channels map alone permits the channel under
+  `groupPolicy: "allowlist"`. The legacy `clm` CLI's discord setup
+  prompt (`cli/agent.py`) emitted the same shape and is patched in
+  the same change.
+
 ### Documentation
 
 - Landing page audit: restructured the GitHub README first-success path —

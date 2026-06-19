@@ -1141,7 +1141,7 @@ def _run_channels_stage(
                     "guilds": {
                         guild_id: {
                             "users": [user_id],
-                            "channels": {channel_id: {"allow": True}},
+                            "channels": {channel_id: {}},
                         }
                     },
                 }
