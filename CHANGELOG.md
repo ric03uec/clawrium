@@ -45,6 +45,15 @@ cut. The `itx:release` skill archives this section into a new
   accepts `--type opencode` and `--type opencode-go`, with model catalog
   entries for both hosted gateways and renderer wiring for hermes, zeroclaw,
   and openclaw agents (#722).
+- `clawctl agent shell <name> -- <cmd>` runs an arbitrary command on
+  the host as the agent user in a full login + interactive bash shell
+  (`bash -lic`) so `~/.bash_profile`, `~/.profile`, and `~/.bashrc`
+  all load before the command runs — tilde expansion, PATH shims,
+  virtualenvs, pipes, and redirects all work. Non-interactive;
+  `--timeout` controls the kill window (default 120s, hard-capped at
+  1800s; `0` means "no client timeout" but the 30-min remote cap
+  still applies). Linux hosts only in v1 (macOS returns a clear
+  preflight error, tracked separately). Closes #761.
 
 ### Changed
 

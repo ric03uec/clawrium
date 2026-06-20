@@ -139,7 +139,19 @@ clawctl agent chat <name>            # Chat with an agent
 clawctl agent open <name>            # Open agent web UI in browser
 clawctl agent port-forward <name>    # Forward local port to agent
 clawctl agent exec <name> -- <args>  # Run command against agent's native CLI
+clawctl agent shell <name> -- <cmd>  # Run a command in the agent user's login bash shell on the host
 ```
+
+> `exec` invokes the agent's native binary (`hermes`, `openclaw`, …);
+> `shell` runs `/bin/bash -lic '<cmd>'` as the agent user with the
+> full login + interactive env (sources `~/.bash_profile`,
+> `~/.profile`, AND `~/.bashrc` — PATH shims, virtualenvs, pipes,
+> redirects all work).
+> Use `shell` for host-level ops (`ls`, `cat`, `make`, `git`, …).
+> Non-interactive only; `--timeout SECONDS` controls the kill window
+> (default 120s, hard-capped at 1800s; `0` is an alias for that cap,
+> no value disables it).
+> Linux hosts only in v1; macOS hosts return a clear preflight error.
 
 ### Provider attachments
 

@@ -2,7 +2,7 @@
 
 Plan §4 surface: create, get, describe, delete, edit, configure,
 start, stop, restart, sync, logs, chat, open, port-forward, exec,
-registry.
+shell, registry.
 
 Per-verb modules under this package wire onto `agent_app`. The CLI
 layer delegates all data-plane work to `clawrium.core.*` (untouched
@@ -33,6 +33,7 @@ from clawrium.cli.clawctl.agent import (
     registry as _registry,
     restart as _restart,
     secret as _secret,
+    shell as _shell,
     skill as _skill,
     start as _start,
     stop as _stop,
@@ -86,6 +87,10 @@ agent_app.command(
     help="Execute a command against the agent's native CLI on its host.",
     context_settings=_exec.EXEC_CONTEXT_SETTINGS,
 )(_exec.exec_cmd)
+agent_app.command(
+    name="shell",
+    context_settings=_shell.SHELL_CONTEXT_SETTINGS,
+)(_shell.shell)
 
 
 # Sub-groups (Pattern A per-agent + agent-scoped sub-resources, plus

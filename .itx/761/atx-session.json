@@ -1,0 +1,56 @@
+{
+  "session_id_iter1": "ff43f4e7-e26f-45a2-9f1b-9fc589e31bb3",
+  "session_id_iter2": "c23aad4c-9bbe-4bbc-8212-b75763bb00a8",
+  "session_id_iter3": "67fec7c2-e43b-4492-9880-e92a16d606ca",
+  "transport": "cli",
+  "commit_sha": "e77f25bb9eda7f7d9a35b193fa4ec33c1fb441ed",
+  "iteration": 3,
+  "last_rating": 3,
+  "iteration_ceiling_hit": true,
+  "iter1": {
+    "rating": 2,
+    "blockers": [
+      "B1: shlex.join produces un-runnable commands (single-element argv)",
+      "B2: Missing macOS dispatcher / preflight"
+    ],
+    "cost_usd": 5.0158922,
+    "duration_s": 553
+  },
+  "iter2": {
+    "rating": 3,
+    "blockers": [
+      "B1: reserved unix usernames accepted by regex",
+      "B2: rc==124 unconditionally rewrites stderr",
+      "B3: _cleanup_artifacts misses project/command*.json/daemon.log/pid",
+      "B4: .opencode SKILL.md mirror not updated",
+      "B5: bash -lc does not source ~/.bashrc as claimed"
+    ],
+    "cost_usd": 4.44726695,
+    "duration_s": 435
+  },
+  "iter3": {
+    "rating": 3,
+    "blocking": false,
+    "remaining_blockers_documented_as_callouts": [
+      "B1/B3: macOS support via parallel shell_macos.yaml + dispatcher (out-of-scope; plan §1 locked Linux-only for v1; tracked in macOS subissue)"
+    ],
+    "fixes_applied": [
+      "B2: shell_timeout validation task in playbook",
+      "W1: switched playbook to bash -lc; Python caller prepends explicit `[ -f ~/.bashrc ] && . ~/.bashrc;` to keep PATH shims without -i side effects",
+      "W3: cmd_b64 defined/non-empty validation task in playbook",
+      "W5: CLI denylist test seam coverage",
+      "W6: --timeout 0 wording corrected in CLI + both SKILL.md mirrors",
+      "W7: rc=255 infra failures route through emit_error with Error:/Hint: framing"
+    ],
+    "warnings_acknowledged": [
+      "W2: streaming/buffering large output (out of scope for v1)",
+      "W4: non-UTF-8 binary output lossy (documented in K19)"
+    ],
+    "cost_usd": 3.73949035,
+    "duration_s": 390
+  },
+  "started_at": "2026-06-20T22:45:56Z",
+  "updated_at": "2026-06-20T23:23:14Z",
+  "cost_usd_total": 13.2026495,
+  "duration_s_total": 1378
+}

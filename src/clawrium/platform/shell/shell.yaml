@@ -1,0 +1,88 @@
+---
+# Run an arbitrary command on the host as the agent's unix user in a
+# full login bash shell (`/bin/bash -lc '<cmd>'`), so the agent user's
+# ~/.bashrc, ~/.profile, PATH shims, virtualenv activations, etc. are
+# loaded before the command executes.
+#
+# Hard kill window enforced server-side via `/usr/bin/timeout`. Output
+# is emitted via three base64-tagged debug events:
+# SHELL_STDOUT=, SHELL_STDERR=, SHELL_RC=. The prefixes are distinct
+# from EXEC_* so a mis-shared parser cannot silently cross paths.
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate cmd_b64 is defined and non-empty
+      # If `cmd_b64` is missing or empty the inline `b64decode` filter
+      # in the command task would emit a confusing Jinja error
+      # silenced by `no_log: true` (#761 iter-3 W3). Fail loudly here
+      # before reaching the no-log boundary.
+      ansible.builtin.fail:
+        msg: "cmd_b64 must be a non-empty base64 string"
+      when:
+        - (cmd_b64 is not defined) or (cmd_b64 | length == 0)
+
+    - name: Validate shell_timeout is a positive integer
+      # Defense-in-depth against a future caller that forgets to set
+      # `shell_timeout`. Without this guard, `{{ shell_timeout | int }}`
+      # silently becomes `0`, which `timeout(1)` interprets as "no
+      # kill window" — turning the advertised hard cap into an
+      # unbounded wait (#761 iter-3 B2).
+      ansible.builtin.fail:
+        msg: "shell_timeout must be a positive integer (got {{ shell_timeout | default('undefined') }})"
+      when:
+        - (shell_timeout is not defined) or (shell_timeout | int < 1)
+
+    - name: Run command in login shell as agent user
+      # `/usr/bin/timeout` enforces the kill window so the remote
+      # process is reaped even if ansible-runner is killed.
+      # `--kill-after=5` follows SIGTERM with SIGKILL 5s later if the
+      # process ignores TERM.
+      #
+      # `bash -lc` (login, non-interactive) avoids `-i`'s side effects
+      # — no `bash: cannot set terminal process group` stderr noise,
+      # no `~/.bash_history` writes, no `~/.bash_logout` trap (#761
+      # iter-3 W1). The Python caller prepends an explicit
+      # `[ -f ~/.bashrc ] && . ~/.bashrc;` to the decoded command so
+      # PATH shims (pyenv, nvm, asdf) defined in `~/.bashrc` still
+      # load — restoring the login-env intent of #761 iter-2 B5
+      # without the interactive-mode noise.
+      #
+      # `cmd_b64` is base64-encoded by the Python caller (core/
+      # agent_shell.py); decoding inline here means the user-supplied
+      # command never passes through Ansible's recursive Jinja
+      # templater. Without this, a command of
+      # `echo {{ lookup('env','SECRET') }}` would expand the lookup on
+      # the controller and ship the value to the remote host (#761
+      # iter-1 W1).
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/timeout
+          - "--kill-after=5"
+          - "{{ shell_timeout | int }}"
+          - /bin/bash
+          - -lc
+          - "{{ cmd_b64 | b64decode }}"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: shell_result
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Emit stdout
+      ansible.builtin.debug:
+        msg: "SHELL_STDOUT={{ shell_result.stdout | default('') | b64encode }}"
+
+    - name: Emit stderr
+      ansible.builtin.debug:
+        msg: "SHELL_STDERR={{ shell_result.stderr | default('') | b64encode }}"
+
+    - name: Emit rc
+      ansible.builtin.debug:
+        msg: "SHELL_RC={{ shell_result.rc | default(255) }}"
