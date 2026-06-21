@@ -84,15 +84,41 @@ manifest and playbook.
   asserts `/home/{{ agent_name }}/` prefix, NEVER references
   `ansible_user_dir` (B1 iter-3).
 - `sync_agent_canonical` runs the workspace phase between canonical
-  write loop and restart per §1.4. `configure_agent` (core) calls
-  `push_workspace_phase` alongside `_do_pair()` (W3 iter-3).
+  write loop and restart per §1.4. `configure_agent` invokes
+  `push_workspace_phase` **before** the existing restart / state-
+  transition block (W2 hook-review fix). The `_do_pair()` dispatch
+  for zeroclaw is unchanged; openclaw is not in `_PAIRING_AGENT_TYPES`
+  and has no pairing handshake.
 - `CanonicalSyncResult` carries `workspace_files_pushed` /
   `workspace_files_excluded`.
 - CLI flags landed: `--workspace-only`, `--no-restart`, `--workspace`
   hard error (hidden=True). `--workspace-only --diff` mutex rejected
   via `cli/output/errors.py`. Help text + short string updated.
+- **Bidi sanitization (W3 hook-review fix)**: workspace-relative
+  paths emitted in NDJSON events AND the human-facing banner pass
+  through the project's bidi sanitizer (see existing
+  `tests/cli/clawctl/test_bidi_safety.py`) before display.
+  Filenames containing U+202E etc. MUST NOT spoof adjacent NDJSON
+  lines on operator terminals.
+- **CHANGELOG `### BREAKING` lands in Phase 1 (W1 hook-review fix)**:
+  `CHANGELOG.md` `[Unreleased]` gets the `### BREAKING` entry for
+  the `--workspace` flag removal in the same PR that lands the
+  hard-error. AGENTS.md: "an undocumented breaking change is a
+  release blocker." Phase 3 may expand the section; Phase 1 must
+  not merge to main without it.
 - `install.py:create_agent` mkdirs the local workspace scaffold for
   openclaw (idempotent on pre-existing).
+- **`agent_name` allowlist (hook-review S — security)**: `workspace_sync.py`
+  rejects `agent_name` values not matching `^[a-z][a-z0-9_-]{0,30}$`
+  before computing the `/home/<agent_name>/` prefix assertion, and
+  the Ansible playbook re-asserts the same regex server-side.
+  Pre-existing `agent_name` validation in `install.py` is the
+  source of truth — `workspace_sync.py` imports the same validator
+  rather than duplicating the regex.
+- **Workspace-phase failure exit code (hook-review S — cli-ux)**:
+  workspace-phase failure surfaces as `typer.Exit(code=1)` so
+  operator scripts (`clawctl agent sync ... || handle_err`) work.
+  Integration assertion pins the non-zero exit code.
 
 *Tests (the openclaw-applicable subset of §3.1 / §3.2):*
 - Unit: U1 (openclaw row), U2 (openclaw destination pinned), U4
@@ -278,8 +304,11 @@ root with canonical-render output).
   mirror document the overlay model end-to-end now that all three
   agents are present. Stop→sync→start workflow recommendation for
   hermes `memories/` and `cron/` overlays (W14 iter-2).
-- `CHANGELOG.md` `[Unreleased]` finalized with `### Added` +
-  `### BREAKING` entries.
+- `CHANGELOG.md` `[Unreleased]` finalizes the `### Added` section
+  for the overall overlay landing AND expands the existing
+  `### BREAKING` entry (landed in Phase 1 for `--workspace`
+  removal) to cover Phase 2/3 deltas. **Do not duplicate or move
+  the Phase 1 BREAKING line** — it already on main.
 - `AGENTS.md` "Workspace Overlay" section landed — destination +
   excludes from manifest; per-agent `playbooks/workspace.yaml` is the
   only host-write path; `--workspace-only` syncs + rotates bearer;
