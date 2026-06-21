@@ -1130,11 +1130,23 @@ def sync_agent_canonical(
                 )
             # iter-1 lifecycle-core W2: tightened remediation — see the
             # workspace-only branch comment for rationale.
+            # iter-2 lifecycle-core W3: branch the preamble on `restart`
+            # so the message does not claim a restart that did not run
+            # in --no-restart mode (operators would otherwise look for
+            # systemctl evidence of a restart that never happened).
+            if restart:
+                preamble = (
+                    f"sync wrote and restarted {agent_name!r}"
+                )
+            else:
+                preamble = (
+                    f"sync of {agent_name!r} (restart skipped)"
+                )
             raise CanonicalSyncError(
-                f"sync wrote and restarted {agent_name!r} but the gateway "
-                f"re-pair failed: {repair_err}. `clawctl agent chat` will "
-                f"return 401 until the bearer rotates. Run `clawctl agent "
-                f"restart {agent_name}` to recover; if that fails, "
+                f"{preamble} but the gateway re-pair failed: "
+                f"{repair_err}. `clawctl agent chat` will return 401 "
+                f"until the bearer rotates. Run `clawctl agent restart "
+                f"{agent_name}` to recover; if that fails, "
                 f"`clawctl agent doctor {agent_name}` for diagnosis."
             )
 

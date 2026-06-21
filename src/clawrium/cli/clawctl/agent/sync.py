@@ -425,6 +425,8 @@ def sync(
             from rich.console import Console
             from rich.markup import escape as rich_escape
 
+            from clawrium.cli.output._sanitize import sanitize
+
             console = Console()
 
             agent_label: str | None = None
@@ -438,13 +440,15 @@ def sync(
                 pass
             if agent_label:
                 # `agent_label` originates from JSON-parsed daemon output;
-                # escape Rich markup metacharacters (`[`, `]`) before
-                # interpolating so a hostile or accidental `[bold]` in an
-                # agent_key cannot rewrite the rendered styling. Matches
-                # the pattern at cli/agent.py:145.
+                # iter-2 cli-ux W1 + W2: route through `sanitize` (strict —
+                # strips bidi + zero-width + C0/C1 controls + ANSI escapes;
+                # agent_key is a single-line token with no legitimate
+                # whitespace to preserve) BEFORE `rich_escape` (markup-only).
+                # Closes the same vector W3 patched in the
+                # `gateway_auth_stale` handler below.
                 console.print(
                     f"  [yellow]Gateway token rotated for "
-                    f"{rich_escape(agent_label)}. "
+                    f"{rich_escape(sanitize(agent_label))}. "
                     f"Active chat sessions on other machines will need to "
                     f"reconnect.[/yellow]"
                 )
@@ -473,7 +477,7 @@ def sync(
             from rich.console import Console
             from rich.markup import escape as rich_escape
 
-            from clawrium.cli.output._sanitize import sanitize_passthrough
+            from clawrium.cli.output._sanitize import sanitize
 
             stderr_console = Console(stderr=True)
 
@@ -491,30 +495,42 @@ def sync(
             except (_json.JSONDecodeError, TypeError):
                 pass
 
-            # iter-1 cli-ux W3 + security-reviewer warning: both
-            # `agent_label` (operator-chosen agent name) and
-            # `detail_text` (daemon-returned repair error) are
-            # operator-controlled. `rich.markup.escape` blocks Rich's
-            # `[...]` markup but not UAX#9 bidi or zero-width codepoints.
-            # Route through `sanitize_passthrough` FIRST (bidi strip)
-            # then `rich_escape` (markup) so the rendered banner cannot
-            # be terminal-spoofed via either vector.
+            # iter-1 cli-ux W3 + iter-2 cli-ux W2: both `agent_label`
+            # (operator-chosen agent name) and `detail_text` (raw
+            # `repair_err` from the pair playbook / ansible-runner) are
+            # operator-controlled, single-line tokens. `sanitize` is
+            # the strict primitive — strips bidi + zero-width + C0/C1
+            # controls + ANSI escape sequences. Use it (not
+            # `sanitize_passthrough`, which only strips bidi) so a
+            # hostile `\x1b[2J` or U+202E in the daemon's 401 echo
+            # can't manipulate the terminal. `rich_escape` second to
+            # block Rich's `[...]` markup metacharacters.
             if agent_label:
-                label = rich_escape(sanitize_passthrough(agent_label))
+                label_text = sanitize(agent_label)
+                label = rich_escape(label_text)
+                # iter-2 cli-ux S1: the recovery hint embeds the agent
+                # name in a `clawctl agent restart <name>` snippet. With
+                # a valid label the snippet is copy-pasteable; on the
+                # malformed-payload fallback we drop the name parameter
+                # entirely so the operator does not paste an
+                # unrunnable two-positional command.
+                restart_cmd = f"clawctl agent restart {label}"
+                doctor_cmd = f"clawctl agent doctor {label}"
             else:
                 label = "zeroclaw agent"
+                restart_cmd = "clawctl agent restart <agent-name>"
+                doctor_cmd = "clawctl agent doctor <agent-name>"
             stderr_console.print(
                 f"  [yellow]WARN: Gateway bearer for {label} is now stale "
                 f"on disk: the daemon is running but "
                 f"`hosts.json.gateway.auth` may not match the bearer it "
-                f"will enforce. Run `clawctl agent restart {label}` "
-                f"first; if that fails, `clawctl agent doctor` for "
-                f"diagnosis.[/yellow]"
+                f"will enforce. Run `{restart_cmd}` first; if that "
+                f"fails, `{doctor_cmd}` for diagnosis.[/yellow]"
             )
             if detail_text:
                 stderr_console.print(
                     f"    [dim]repair detail: "
-                    f"{rich_escape(sanitize_passthrough(detail_text))}"
+                    f"{rich_escape(sanitize(detail_text))}"
                     f"[/dim]"
                 )
             _sys.stderr.flush()

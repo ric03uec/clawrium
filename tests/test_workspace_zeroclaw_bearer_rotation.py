@@ -385,6 +385,140 @@ def test_zeroclaw_workspace_only_does_not_transition_state(
 # ---------------------------------------------------------------------------
 
 
+def test_zeroclaw_workspace_only_push_failure_skips_repair(
+    make_canonical_stubs,
+) -> None:
+    """iter-2 test-coverage W4: when the workspace push itself fails on
+    the `--workspace-only` path, the bearer-rotation block MUST be
+    skipped. Reordering the push-failure raise to land after bearer
+    rotation would silently rotate the bearer on a half-applied
+    overlay — the exact regression class the AGENTS.md short-circuit
+    contract forbids.
+    """
+    make_canonical_stubs("zeroclaw")
+
+    repair_mock = MagicMock()
+    events: list[tuple[str, str]] = []
+
+    def on_event(stage: str, message: str) -> None:
+        events.append((stage, message))
+
+    with (
+        patch(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            return_value=WorkspacePhaseResult(
+                success=False,
+                files_pushed=(),
+                files_excluded=(),
+                error="forced workspace_only push failure",
+            ),
+        ),
+        patch(
+            "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+            repair_mock,
+        ),
+    ):
+        with pytest.raises(
+            CanonicalSyncError, match=r"workspace overlay push failed"
+        ):
+            sync_agent_canonical(
+                "alice",
+                workspace_only=True,
+                restart=False,
+                verify=False,
+                on_event=on_event,
+            )
+
+    # The push raised — repair MUST NOT have run.
+    repair_mock.assert_not_called()
+    # And no bearer-related events should have been emitted on the
+    # short-circuited path.
+    assert all(
+        stage not in {"gateway_token_rotated", "gateway_auth_stale"}
+        for stage, _ in events
+    )
+
+
+def test_zeroclaw_no_restart_repair_failure_says_restart_skipped(
+    make_canonical_stubs,
+) -> None:
+    """iter-2 lifecycle-core W3: the user-facing CanonicalSyncError
+    preamble on the main-branch re-pair-failure path must branch on
+    `restart`. In --no-restart mode the preamble must NOT claim a
+    restart that did not happen — operators would otherwise look for
+    systemctl evidence that never existed.
+    """
+    make_canonical_stubs("zeroclaw")
+
+    repair_mock = MagicMock(return_value=(False, "/pair returned 503"))
+
+    with (
+        patch(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            return_value=_fake_push_success(),
+        ),
+        patch(
+            "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+            repair_mock,
+        ),
+    ):
+        with pytest.raises(CanonicalSyncError) as excinfo:
+            sync_agent_canonical(
+                "alice",
+                force=False,
+                restart=False,
+                verify=False,
+            )
+
+    err = str(excinfo.value)
+    assert "restart skipped" in err
+    # The preamble MUST NOT claim a restart that never ran.
+    assert "wrote and restarted" not in err
+
+
+def test_zeroclaw_repair_failure_default_path_says_restarted(
+    make_canonical_stubs,
+) -> None:
+    """iter-2 lifecycle-core W3 (positive pin): in default mode the
+    preamble correctly claims the restart that did happen.
+    """
+    make_canonical_stubs("zeroclaw")
+
+    repair_mock = MagicMock(return_value=(False, "/pair returned 503"))
+
+    written_diff = MagicMock()
+    written_diff.unified_diff = "--- a\n+++ b\n"
+    written_diff.path = ".zeroclaw/config.toml"
+    written_diff.remote_path = "/home/alice/.zeroclaw/config.toml"
+    written_diff.rendered_body = "[]"
+
+    with (
+        patch(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            return_value=_fake_push_success(),
+        ),
+        patch.object(
+            lifecycle_canonical, "diff_files", return_value=[written_diff]
+        ),
+        patch.object(lifecycle_canonical, "_atomic_write", return_value=None),
+        patch(
+            "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+            repair_mock,
+        ),
+    ):
+        with pytest.raises(CanonicalSyncError) as excinfo:
+            sync_agent_canonical(
+                "alice",
+                force=False,
+                restart=True,
+                verify=True,
+            )
+
+    err = str(excinfo.value)
+    assert "wrote and restarted 'alice'" in err
+    assert "restart skipped" not in err
+
+
 def test_zeroclaw_workspace_only_repair_failure_raises(
     make_canonical_stubs,
 ) -> None:
@@ -420,7 +554,10 @@ def test_zeroclaw_workspace_only_repair_failure_raises(
     # diagnostic) is caught.
     err_msg = str(excinfo.value)
     assert "workspace-only sync wrote overlay for 'alice'" in err_msg
-    assert "gateway hung" in err_msg
+    # iter-2 test-coverage S4: pin the FULL repair_err string so a
+    # regression that truncates the detail to its last token still
+    # fails. The literal must match the stub's return value above.
+    assert "/pair returned 500: gateway hung" in err_msg
 
 
 # ---------------------------------------------------------------------------
