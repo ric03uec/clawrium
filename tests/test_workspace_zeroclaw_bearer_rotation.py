@@ -210,11 +210,13 @@ def test_zeroclaw_workspace_only_sync_calls_repair_with_exact_args(
 
     assert result.success is True
     assert result.workspace_files_pushed == ("MARKER.md",)
+    # iter-1 lifecycle-core S5: reason is distinct per entry point so
+    # `gateway_token_rotated` events are greppable by source.
     repair_mock.assert_called_once_with(
         "h.example",
         agent_name="alice",
         on_event=None,
-        reason="sync",
+        reason="workspace-only-sync",
     )
 
 
@@ -328,8 +330,13 @@ def test_zeroclaw_workspace_only_does_not_transition_state(
 ) -> None:
     """W5 iter-3 / I17: `--workspace-only` preserves the current
     lifecycle state. An operator may overlay onto a STOPPED zeroclaw
-    agent without silently flipping it to READY."""
-    make_canonical_stubs("zeroclaw")
+    agent without silently flipping it to READY.
+
+    iter-1 test-coverage W2/W3: tighten to (a) exact-argument repair
+    assertion (loose assert_called_once() would mask wrong-reason
+    regressions), (b) explicit assertion that restart/verify did not
+    fire on the workspace-only path."""
+    calls = make_canonical_stubs("zeroclaw")
 
     transition_mock = MagicMock()
     monkeypatch.setattr(
@@ -355,10 +362,22 @@ def test_zeroclaw_workspace_only_does_not_transition_state(
             verify=False,
         )
 
-    # Bearer DID rotate (workspace-only is bound by the #437 invariant)
-    repair_mock.assert_called_once()
+    # Bearer DID rotate (workspace-only is bound by the #437 invariant);
+    # pin reason="workspace-only-sync" so the entry-point distinction
+    # in operator logs cannot regress to the default `reason="sync"`.
+    repair_mock.assert_called_once_with(
+        "h.example",
+        agent_name="alice",
+        on_event=None,
+        reason="workspace-only-sync",
+    )
     # But the state-READY transition is NOT attempted.
     transition_mock.assert_not_called()
+    # And neither restart nor verify ran (workspace-only short-circuits
+    # before the canonical write loop).
+    assert not any(c[0] in {"restart", "verify"} for c in calls), (
+        f"workspace-only path should not call restart/verify, got: {calls}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -388,16 +407,20 @@ def test_zeroclaw_workspace_only_repair_failure_raises(
             repair_mock,
         ),
     ):
-        with pytest.raises(
-            CanonicalSyncError,
-            match=r"workspace-only sync wrote overlay for 'alice'",
-        ):
+        with pytest.raises(CanonicalSyncError) as excinfo:
             sync_agent_canonical(
                 "alice",
                 workspace_only=True,
                 restart=False,
                 verify=False,
             )
+    # iter-1 test-coverage W4: pin both the agent-name fragment AND the
+    # upstream `repair_err` so a regression that drops `{repair_err}`
+    # from the raise message (silently stripping the operator's only
+    # diagnostic) is caught.
+    err_msg = str(excinfo.value)
+    assert "workspace-only sync wrote overlay for 'alice'" in err_msg
+    assert "gateway hung" in err_msg
 
 
 # ---------------------------------------------------------------------------
@@ -410,10 +433,15 @@ def test_zeroclaw_workspace_only_dry_run_skips_bearer_rotation(
 ) -> None:
     """W6 iter-3 defense-in-depth: even if a programmatic caller passes
     `dry_run=True` alongside `workspace_only=True`, the bearer MUST NOT
-    be minted and no `gateway_token_rotated` event MAY be emitted."""
+    be minted and no `gateway_token_rotated` event MAY be emitted.
+
+    iter-1 test-coverage W7: also pin that `push_workspace_phase` is
+    invoked with `dry_run=True` — a regression that forwarded
+    `dry_run=False` would cause the dry-run to actually write files."""
     make_canonical_stubs("zeroclaw")
 
     repair_mock = MagicMock()
+    push_mock = MagicMock(return_value=_fake_push_success())
     events: list[tuple[str, str]] = []
 
     def on_event(stage: str, message: str) -> None:
@@ -422,7 +450,7 @@ def test_zeroclaw_workspace_only_dry_run_skips_bearer_rotation(
     with (
         patch(
             "clawrium.core.workspace_sync.push_workspace_phase",
-            return_value=_fake_push_success(),
+            push_mock,
         ),
         patch(
             "clawrium.core.lifecycle._zeroclaw_repair_after_start",
@@ -439,6 +467,10 @@ def test_zeroclaw_workspace_only_dry_run_skips_bearer_rotation(
         )
 
     repair_mock.assert_not_called()
+    # push_workspace_phase MUST receive dry_run=True so it short-circuits
+    # before any host write.
+    push_mock.assert_called_once()
+    assert push_mock.call_args.kwargs.get("dry_run") is True
     # No gateway_token_rotated / gateway_auth_stale events permitted.
     assert all(
         stage not in {"gateway_token_rotated", "gateway_auth_stale"}

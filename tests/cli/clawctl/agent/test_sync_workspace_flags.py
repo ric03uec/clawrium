@@ -128,21 +128,109 @@ def test_workspace_phase_failure_exits_nonzero(
     assert "workspace overlay push failed" in result.output
 
 
+def test_gateway_auth_stale_banner_renders_to_stderr(
+    fleet_dir, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """iter-1 test-coverage W1 + cli-ux W3 (Phase 2 / #768): the new
+    `gateway_auth_stale` banner is rendered to stderr (not stdout) with
+    a yellow warning, includes the recovery commands, and runs both
+    operator-controlled fields (`agent_key`, `detail`) through
+    `sanitize_passthrough` so bidi / zero-width codepoints cannot
+    spoof terminal output.
+    """
+    from clawrium.core.lifecycle_canonical import (
+        CanonicalSyncError,
+        CanonicalSyncResult,  # noqa: F401  imported for side-effect import path
+    )
+
+    # `sync_agent_canonical` is stubbed to:
+    #   1. emit a gateway_auth_stale event with a hostile agent_key
+    #      and detail (bidi LRE U+202A embedded)
+    #   2. raise CanonicalSyncError to mirror the real flow
+    HOSTILE_KEY = "alice‪hidden"
+    HOSTILE_DETAIL = "pair returned 500: gateway‫hung"
+
+    def fake_sync(_name: str, *, on_event=None, **_kwargs):
+        import json as _json
+
+        if on_event is not None:
+            on_event(
+                "gateway_auth_stale",
+                _json.dumps(
+                    {
+                        "agent_key": HOSTILE_KEY,
+                        "reason": "sync re-pair failed",
+                        "detail": HOSTILE_DETAIL,
+                    }
+                ),
+            )
+        raise CanonicalSyncError(
+            "sync wrote and restarted 'wise-hypatia' but the gateway "
+            "re-pair failed: stub failure"
+        )
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical",
+        fake_sync,
+    )
+
+    # Use a runner that does not merge stderr into stdout so we can pin
+    # the stderr-only contract.
+    runner_split = CliRunner()
+    result = runner_split.invoke(app, ["agent", "sync", "wise-hypatia"])
+
+    assert result.exit_code != 0
+    # Banner must surface on stderr.
+    assert "Gateway bearer" in result.stderr
+    assert "stale" in result.stderr
+    # Tightened remediation text (lifecycle-core W2): includes restart,
+    # falls through to doctor.
+    assert "clawctl agent restart" in result.stderr
+    assert "doctor" in result.stderr
+    # Bidi-safety: U+202A / U+202B MUST NOT appear verbatim in either
+    # stream after sanitize_passthrough.
+    assert "‪" not in result.stderr
+    assert "‫" not in result.stderr
+
+
+def test_gateway_auth_stale_banner_tolerates_malformed_payload(
+    fleet_dir, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The banner handler must not raise on a malformed JSON payload;
+    it falls back to the generic 'zeroclaw agent' label."""
+    from clawrium.core.lifecycle_canonical import CanonicalSyncError
+
+    def fake_sync(_name: str, *, on_event=None, **_kwargs):
+        if on_event is not None:
+            on_event("gateway_auth_stale", "{not valid json")
+        raise CanonicalSyncError("stub failure")
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical",
+        fake_sync,
+    )
+
+    runner_split = CliRunner()
+    result = runner_split.invoke(app, ["agent", "sync", "wise-hypatia"])
+    # Must exit on the raised CanonicalSyncError, not on a banner-handler
+    # exception. Without the JSONDecodeError catch, the handler would
+    # raise inside `on_event` and the test would surface an unrelated
+    # exception trace in `result.exception`.
+    assert result.exit_code != 0
+    assert "zeroclaw agent" in result.stderr
+
+
 @pytest.mark.parametrize("flag", ["--workspace-only", "--no-restart"])
-def test_flag_rejected_for_zeroclaw_in_phase_1(
+def test_flag_accepted_for_zeroclaw_in_phase_2(
     fleet_dir, monkeypatch: pytest.MonkeyPatch, flag: str
 ) -> None:
-    """ATX iter-2 B2-NEW: `--workspace-only` and `--no-restart` are
-    gated away from zeroclaw in Phase 1 because bearer rotation wiring
-    is deferred to Phase 2. Without this gate, running these flags
-    against a zeroclaw agent silently leaves `hosts.json.gateway.auth`
-    stale and `clawctl agent chat` returns 401 on the next daemon
-    restart with no diagnostic.
-    """
-    # Patch the resolved agent type to zeroclaw without rebuilding the
-    # fleet fixture. The CLI's safe_resolve_agent looks up by name; the
-    # `wise-hypatia` agent in the fleet is openclaw, so we monkeypatch
-    # the lookup to return a zeroclaw type.
+    """ATX iter-1 cli-ux B1 (Phase 2 / #768): Phase 1 of #760 gated
+    `--workspace-only` / `--no-restart` away from zeroclaw because
+    bearer-rotation wiring was deferred. Phase 2 wires
+    `_zeroclaw_repair_after_start` into both branches of
+    `sync_agent_canonical` so the gate is lifted. This test pins the
+    inversion: a zeroclaw agent invoked with either flag must reach the
+    canonical sync layer (no exit-2, no "not supported" error)."""
     import clawrium.cli.clawctl.agent.sync as sync_mod
 
     real_resolve = sync_mod.safe_resolve_agent
@@ -155,12 +243,40 @@ def test_flag_rejected_for_zeroclaw_in_phase_1(
 
     monkeypatch.setattr(sync_mod, "safe_resolve_agent", fake_resolve)
 
+    # Stub the canonical pipeline so we can assert it was reached; we
+    # don't care about its return value here.
+    from clawrium.core.lifecycle_canonical import CanonicalSyncResult
+
+    canonical_calls: list[dict] = []
+
+    def fake_sync(name: str, **kwargs) -> CanonicalSyncResult:
+        canonical_calls.append({"name": name, **kwargs})
+        return CanonicalSyncResult(
+            success=True,
+            agent=name,
+            host="h",
+            files_written=(),
+            files_unchanged=(),
+            diffs=(),
+            error=None,
+            workspace_files_pushed=(),
+            workspace_files_excluded=(),
+        )
+
+    monkeypatch.setattr(
+        "clawrium.core.lifecycle_canonical.sync_agent_canonical",
+        fake_sync,
+    )
+
     result = runner.invoke(app, ["agent", "sync", "wise-hypatia", flag])
-    assert result.exit_code == 2, (
-        f"{flag} on zeroclaw must exit 2 with a clear error; got "
+    assert result.exit_code == 0, (
+        f"{flag} on zeroclaw must reach the canonical sync layer; got "
         f"exit_code={result.exit_code}, output:\n{result.output}"
     )
-    # Pin the canonical error-fragment string, not just a substring of
-    # the agent type (W4 iter-3 tightening).
-    assert "not supported for zeroclaw" in result.output
-    assert "Phase 2" in result.output
+    assert "not supported for zeroclaw" not in result.output
+    assert len(canonical_calls) == 1
+    if flag == "--workspace-only":
+        assert canonical_calls[0]["workspace_only"] is True
+    else:
+        assert canonical_calls[0]["restart"] is False
+        assert canonical_calls[0]["verify"] is False

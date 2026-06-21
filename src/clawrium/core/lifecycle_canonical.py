@@ -830,11 +830,15 @@ def sync_agent_canonical(
                 f"re-pairing zeroclaw gateway for {agent_name} "
                 f"(workspace-only sync)",
             )
+            # iter-1 lifecycle-core S5: pass a distinct `reason` so
+            # post-mortem analysis can grep `gateway_token_rotated`
+            # events by entry point (workspace-only-sync vs default
+            # sync vs restart).
             repair_ok, repair_err = _zeroclaw_repair_after_start(
                 hostname,
                 agent_name=agent_name,
                 on_event=on_event,
-                reason="sync",
+                reason="workspace-only-sync",
             )
             if not repair_ok:
                 # Workspace push already landed on host; the daemon
@@ -858,12 +862,19 @@ def sync_agent_canonical(
                             }
                         ),
                     )
+                # iter-1 lifecycle-core W2: tightened remediation — a
+                # deterministic pair failure (port-bind issue, dead
+                # daemon) will repeat on a plain sync. `restart` first
+                # is more likely to recover; `doctor` is the fallback
+                # diagnostic.
                 raise CanonicalSyncError(
                     f"workspace-only sync wrote overlay for {agent_name!r} "
                     f"but the gateway re-pair failed: {repair_err}. "
-                    f"`clawctl agent chat` will return 401 until you "
-                    f"re-run `clawctl agent sync` or `clawctl agent "
-                    f"restart`."
+                    f"`clawctl agent chat` will return 401 until the "
+                    f"bearer rotates. Run `clawctl agent restart "
+                    f"{agent_name}` to recover; if that fails, "
+                    f"`clawctl agent doctor {agent_name}` for "
+                    f"diagnosis."
                 )
 
         emit(
@@ -1093,13 +1104,17 @@ def sync_agent_canonical(
             reason="sync",
         )
         if not repair_ok:
-            # W11 iter-3 stale-bearer banner: restart + verify succeeded
-            # above, so the daemon is now running and will enforce
-            # whatever bearer it minted on first /pair/code probe. The
-            # disk-side `hosts.json.gateway.auth` may now lag — surface
+            # W11 iter-3 stale-bearer banner: restart + verify already
+            # completed when applicable; in --no-restart mode any prior
+            # external restart already invalidated the on-disk bearer
+            # and the re-pair was the recovery path. Either way the
+            # disk-side `hosts.json.gateway.auth` may now lag whatever
+            # bearer the daemon enforces on the next request — surface
             # the divergence as a structured NDJSON event before
             # raising so operators get a starting point instead of
             # chasing silent 401s on the next `clawctl agent chat`.
+            # (iter-1 lifecycle-core W1: corrected from the misleading
+            # "restart + verify succeeded above" wording.)
             if on_event is not None:
                 import json as _json
 
@@ -1113,11 +1128,14 @@ def sync_agent_canonical(
                         }
                     ),
                 )
+            # iter-1 lifecycle-core W2: tightened remediation — see the
+            # workspace-only branch comment for rationale.
             raise CanonicalSyncError(
                 f"sync wrote and restarted {agent_name!r} but the gateway "
                 f"re-pair failed: {repair_err}. `clawctl agent chat` will "
-                f"return 401 until you re-run `clawctl agent sync` or "
-                f"`clawctl agent restart`."
+                f"return 401 until the bearer rotates. Run `clawctl agent "
+                f"restart {agent_name}` to recover; if that fails, "
+                f"`clawctl agent doctor {agent_name}` for diagnosis."
             )
 
     # B2: advance the onboarding state machine to READY so
