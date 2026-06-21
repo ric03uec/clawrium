@@ -5,6 +5,7 @@ export { useProviders, useProviderTypes, useModelCatalog, useCreateProvider, use
 export { useUsageSummary, useUsageHistory, useUsageByAgent } from "./use-usage";
 export {
   useAgent,
+  useAgentHealth,
   useAgentActions,
   useAgentWebUI,
   useAgentPairingCode,

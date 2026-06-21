@@ -1,16 +1,23 @@
 "use client";
 
-import { AgentDetail } from "@/lib/types";
+import { AgentDetail, AgentDetailHealth } from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { useAgentSkills } from "@/hooks";
 
 interface OverviewTabProps {
   agent: AgentDetail;
   agentKey: string;
+  // #758: live runtime fields (status, uptime, latest_supported_version)
+  // arrive separately from the static identity. Undefined while the
+  // probe + registry lookup are in flight.
+  health: AgentDetailHealth | undefined;
 }
 
-export function OverviewTab({ agent, agentKey }: OverviewTabProps) {
+export function OverviewTab({ agent, agentKey, health }: OverviewTabProps) {
   const { data: skillsData } = useAgentSkills(agentKey);
+  const status = health?.status ?? agent.status;
+  // uptime stays on the static endpoint (#758 S5).
+  const uptime = agent.uptime;
 
   const installedSkills = skillsData?.installed ?? [];
 
@@ -104,11 +111,15 @@ export function OverviewTab({ agent, agentKey }: OverviewTabProps) {
           <InfoRow label="Host" value={agent.host_alias || agent.host} />
           <VersionRow
             version={agent.version}
-            latestSupportedVersion={agent.latest_supported_version}
+            latestSupportedVersion={health?.latest_supported_version ?? null}
+            // #758 W3: distinguish "still loading the registry lookup"
+            // from "confirmed no upgrade available" so we don't silently
+            // present a stale agent as up-to-date.
+            healthLoaded={health !== undefined}
             agentName={agent.agent_name}
           />
-          <InfoRow label="Status" value={agent.status} />
-          <InfoRow label="Uptime" value={agent.uptime || "—"} />
+          <InfoRow label="Status" value={status} />
+          <InfoRow label="Uptime" value={uptime || "—"} />
           {agent.gateway_url && (
             <InfoRow label="Gateway" value={agent.gateway_url} />
           )}
@@ -147,10 +158,12 @@ function isNewerVersion(latest: string, current: string): boolean {
 function VersionRow({
   version,
   latestSupportedVersion,
+  healthLoaded,
   agentName,
 }: {
   version: string;
   latestSupportedVersion: string | null;
+  healthLoaded: boolean;
   agentName: string;
 }) {
   // `version === '?'` is the legacy sentinel from `cli/tui/data.py` for
@@ -159,6 +172,7 @@ function VersionRow({
   // state. ATX W2 (issue #592).
   const versionKnown = !!version && version !== "?";
   const upgradeAvailable =
+    healthLoaded &&
     !!latestSupportedVersion &&
     versionKnown &&
     isNewerVersion(latestSupportedVersion, version);
@@ -169,6 +183,14 @@ function VersionRow({
       <span className="text-primary-text font-mono text-xs">
         {version || "—"}
       </span>
+      {!healthLoaded && versionKnown && (
+        <div
+          data-testid="upgrade-loading-badge"
+          className="mt-1 text-xs text-muted font-mono"
+        >
+          Checking for upgrades…
+        </div>
+      )}
       {upgradeAvailable && (
         <div
           data-testid="upgrade-available-badge"

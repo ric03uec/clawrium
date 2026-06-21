@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException
 from clawrium.cli.tui.data import (
     AgentViewModel,
     get_agent_detail,
+    get_agent_static,
     get_fleet_data,
     get_fleet_data_local,
 )
@@ -210,10 +211,11 @@ async def fleet_health(host: str | None = None):
 
 @router.get("/fleet/agents/{agent_key}")
 async def agent_detail(agent_key: str, host: str | None = None):
-    """Get detailed info for a single agent.
+    """Return static identity + persisted config for a single agent.
 
-    Searches across all hosts unless host is specified. Uses resolve_agent
-    for consistent HostsFileCorruptedError / ambiguous-name / OSError handling.
+    Reads hosts.json only — no SSH probe, no registry lookup. The GUI
+    uses this to paint the detail-page shell instantly; the slow
+    runtime fields are served by the sibling /health endpoint below.
     """
     resolved = await asyncio.to_thread(resolve_agent, agent_key)
     if resolved is None:
@@ -227,20 +229,96 @@ async def agent_detail(agent_key: str, host: str | None = None):
         )
 
     hostname = host_record.get("hostname", "")
-    detail = await asyncio.to_thread(get_agent_detail, agent_key, hostname)
+    detail = await asyncio.to_thread(get_agent_static, agent_key, hostname)
+    if not detail:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+    return _agent_to_dict(detail)
+
+
+@router.get("/fleet/agents/{agent_key}/health")
+async def agent_health(agent_key: str, host: str | None = None):
+    """Return live runtime fields for a single agent via SSH probe.
+
+    Companion to /fleet/agents/{key}. Runs check_claw_health and the
+    registry version lookup — the slow work the static endpoint
+    intentionally skips. The frontend fetches this in parallel with
+    the static call so the page shell never blocks on it.
+
+    Routed through the same dedicated executor + semaphore + timeout
+    as `/fleet/health` (#758 ATX B1). `useAgentHealth`'s 10s poll on
+    every open detail tab would otherwise pin Starlette's default
+    threadpool indefinitely on a dead host and starve every other
+    route that shares it.
+    """
+    resolved = await asyncio.to_thread(resolve_agent, agent_key)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
+    host_record, _agent_type, _ = resolved
+
+    if host and host_record.get("hostname") != host and host_record.get("alias") != host:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agent_key}' not found on host '{host}'",
+        )
+
+    hostname = host_record.get("hostname", "")
+    loop = asyncio.get_running_loop()
+    async with _get_fleet_health_semaphore():
+        try:
+            detail = await asyncio.wait_for(
+                loop.run_in_executor(
+                    _get_fleet_health_executor(),
+                    get_agent_detail,
+                    agent_key,
+                    hostname,
+                ),
+                timeout=_FLEET_HEALTH_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError as e:
+            raise HTTPException(
+                status_code=504, detail="agent health probe timed out"
+            ) from e
     if not detail:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found")
 
-    payload = _agent_to_dict(detail)
     from clawrium.core.registry import latest_supported_version
 
     try:
-        payload["latest_supported_version"] = latest_supported_version(
+        latest_version = latest_supported_version(
             detail["agent_type"], host_record.get("hardware") or {}
         )
-    except Exception:
-        payload["latest_supported_version"] = None
-    return payload
+    except (KeyError, ValueError, FileNotFoundError) as e:
+        # W1: previously a bare `except Exception`. A malformed manifest
+        # or genuine bug would silently render as a missing upgrade
+        # badge — operators think they're on the newest build when
+        # they're not. Narrow the catch and log so the failure is
+        # visible server-side without breaking the rest of the
+        # response payload.
+        logger.warning(
+            "latest_supported_version lookup failed for %s: %s",
+            agent_key,
+            e,
+            exc_info=True,
+        )
+        latest_version = None
+
+    status = detail["status"]
+    # S5: `uptime` is computed from claw_record.runtime.started_at and
+    # has no SSH-derived component — keeping it here would be a second,
+    # unsynchronized source of truth. The static endpoint owns uptime;
+    # the frontend reads it from useAgent which now polls (W2) so the
+    # value still advances.
+    return {
+        "agent_key": detail["agent_key"],
+        "status": status.value if isinstance(status, ClawStatus) else status,
+        "process_running": detail["process_running"],
+        "health_error": _sanitize_health_error(detail["health_error"]),
+        "cpu_count": detail["cpu_count"],
+        "memory_total_mb": detail["memory_total_mb"],
+        "missing_secrets": detail["missing_secrets"],
+        "onboarding_step": detail["onboarding_step"],
+        "latest_supported_version": latest_version,
+    }
 
 
 @router.post("/agents/{agent_key}/start")

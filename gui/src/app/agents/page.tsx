@@ -2,7 +2,7 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useState } from "react";
-import { useAgent } from "@/hooks";
+import { useAgent, useAgentHealth } from "@/hooks";
 import { PageHeader } from "@/components/layout";
 import { AgentTable } from "@/components/dashboard";
 import {
@@ -56,6 +56,11 @@ function AgentDetailView({
   onTabChange: (tab: TabId) => void;
 }) {
   const { data: agent, isLoading, error } = useAgent(agentKey);
+  // #758: health is fetched in parallel and never gates the shell.
+  // Children read runtime fields from `health` when present and fall
+  // back to the static AgentDetail (which carries status="checking"
+  // until the probe lands) so they can render a sensible default.
+  const health = useAgentHealth(agentKey);
   const router = useRouter();
 
   if (isLoading) {
@@ -92,18 +97,27 @@ function AgentDetailView({
         <span className="text-primary-text">{agent.agent_name}</span>
       </div>
 
-      {/* key={agent.agent_key}: local state (revealed token, copied flags,
-          pairing-code mutation result) must not leak across agents when the
-          user switches via the search-param-only route change. */}
-      <AgentHeader key={agent.agent_key} agent={agent} />
+      {/* key={agent.agent_key}: prevent local state (revealed token,
+          copied flags, pairing-code mutation result) from leaking
+          across agents when the user switches via the search-param-only
+          route change. AgentMetrics + OverviewTab are keyed too
+          (#758 S4) — no local state today, but the key keeps the
+          invariant consistent so a future hook inside either component
+          does not silently regress. */}
+      <AgentHeader key={agent.agent_key} agent={agent} health={health.data} />
 
-      <AgentMetrics agent={agent} />
+      <AgentMetrics key={agent.agent_key} agent={agent} health={health.data} />
 
       <div className="bg-white rounded-xl border border-default shadow-sm overflow-hidden">
         <TabNav active={activeTab} onChange={onTabChange} />
         <div className="min-h-[500px]">
           {activeTab === "overview" && (
-            <OverviewTab agent={agent} agentKey={agentKey} />
+            <OverviewTab
+              key={agent.agent_key}
+              agent={agent}
+              agentKey={agentKey}
+              health={health.data}
+            />
           )}
           {activeTab === "chat" && (
             <ChatTab agentKey={agentKey} agentName={agent.agent_name} />

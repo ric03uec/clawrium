@@ -1,4 +1,9 @@
-"""Tests for `latest_supported_version` on the agent-detail API (issue #592)."""
+"""Tests for `latest_supported_version` on the agent-detail API (issue #592).
+
+Moved from /api/fleet/agents/{key} to /api/fleet/agents/{key}/health in
+issue #758, where the registry lookup was peeled off the static-data
+endpoint that gates the GUI page shell.
+"""
 
 from __future__ import annotations
 
@@ -53,7 +58,7 @@ def _seed_hosts(
 def test_agent_detail_includes_latest_supported_version(isolated_config: Path):
     _seed_hosts(isolated_config, agent_type="openclaw", installed_version="2026.4.2")
     with TestClient(app) as client:
-        resp = client.get("/api/fleet/agents/demo")
+        resp = client.get("/api/fleet/agents/demo/health")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert "latest_supported_version" in body
@@ -71,7 +76,7 @@ def test_agent_detail_latest_supported_version_is_none_for_unmatched_host(
         architecture="aarch64",
     )
     with TestClient(app) as client:
-        resp = client.get("/api/fleet/agents/demo")
+        resp = client.get("/api/fleet/agents/demo/health")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert "latest_supported_version" in body

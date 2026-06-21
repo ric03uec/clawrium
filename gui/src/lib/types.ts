@@ -66,6 +66,22 @@ export interface AgentDetail extends AgentSummary {
   device_id: string;
   onboarding_step: string;
   gateway_port: number | null;
+}
+
+// Response from GET /fleet/agents/{key}/health. Companion to the static
+// AgentDetail; the GUI fetches both in parallel and the page shell never
+// waits on this one. status/uptime/process_running come from the live
+// SSH probe; `latest_supported_version` is the registry lookup that was
+// previously bundled into AgentDetail. (#758)
+export interface AgentDetailHealth {
+  agent_key: string;
+  status: AgentStatus;
+  process_running: boolean | null;
+  health_error: string | null;
+  cpu_count: number | null;
+  memory_total_mb: number | null;
+  missing_secrets: string[] | null;
+  onboarding_step: string | null;
   // Max manifest version compatible with this host's hardware. `null`
   // when the host's os/arch has no matching platform entry. Issue #592.
   latest_supported_version: string | null;

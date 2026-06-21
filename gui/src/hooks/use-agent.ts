@@ -1,10 +1,36 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
+// Static identity + persisted config from hosts.json. Cheap and local;
+// the page shell renders as soon as this resolves. Runtime fields
+// (status, process counts) come from useAgentHealth below.
+//
+// #758: polling was previously here at 10s, dragging the slow SSH
+// health probe into the foreground every tick. The probe now lives on
+// the /health endpoint and useAgentHealth owns the cadence for those
+// fields. We keep a 10s refetch here too because the data still
+// changes out of band — operator runs `clawctl provider attach` from
+// another terminal, gateway port reallocation on upgrade, onboarding
+// step transitions, and the uptime string is recomputed each fetch.
+// The static endpoint is now just a hosts.json read so the cost is
+// negligible (ATX W2 from initial review).
 export function useAgent(key: string) {
   return useQuery({
     queryKey: ["agent", key],
     queryFn: () => api.getAgent(key),
+    enabled: !!key,
+    refetchInterval: 10_000,
+  });
+}
+
+// Live runtime probe for the agent detail page. Independent loading
+// state lets each section show a skeleton while the SSH probe is in
+// flight, and a failure here surfaces inline without blanking the
+// rest of the page (#758).
+export function useAgentHealth(key: string) {
+  return useQuery({
+    queryKey: ["agent-health", key],
+    queryFn: () => api.getAgentHealth(key),
     enabled: !!key,
     refetchInterval: 10_000,
   });
@@ -92,6 +118,10 @@ export function useAgentActions(key: string) {
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["agent", key] });
+    // #758: live status / uptime live on the health query now. Without
+    // this invalidation the status pill stays stale until the 10s poll
+    // ticks, masking the result of the user's own action.
+    queryClient.invalidateQueries({ queryKey: ["agent-health", key] });
     queryClient.invalidateQueries({ queryKey: ["fleet"] });
     // After a restart/stop/start the tunnel state file may point at a
     // process that's about to die. Invalidate the web-ui query so the

@@ -65,6 +65,8 @@ export const api = {
   getFleetHealth: (signal?: AbortSignal) =>
     request<FleetHealthResponse>("/fleet/health", { signal }),
   getAgent: (key: string) => request<AgentDetail>(`/fleet/agents/${key}`),
+  getAgentHealth: (key: string) =>
+    request<AgentDetailHealth>(`/fleet/agents/${key}/health`),
   getAgentWebUI: (key: string) =>
     request<WebUIResponse>(`/fleet/agents/${key}/web-ui`),
   mintAgentPairingCode: (key: string) =>
@@ -302,6 +304,7 @@ import type {
   FleetResponse,
   FleetHealthResponse,
   AgentDetail,
+  AgentDetailHealth,
   ActionResponse,
   WebUIResponse,
   PairingCodeResponse,

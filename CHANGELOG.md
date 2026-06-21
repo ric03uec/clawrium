@@ -123,6 +123,15 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- GUI agent detail page now renders its shell instantly and loads each
+  runtime section progressively. The single backend route was split
+  into `/api/fleet/agents/{key}` (cheap, local — hosts.json only) and
+  `/api/fleet/agents/{key}/health` (the slow SSH probe plus the
+  registry version lookup). A failed or slow probe no longer blanks
+  the page; the header, tabs, and provider/skills cards stay
+  interactive while the status pill and upgrade badge populate on
+  arrival. `latest_supported_version` moved off the static endpoint
+  onto `/health`. Closes #758.
 - Default openclaw install target bumped from `2026.5.28` to `2026.6.8`.
   `clawctl agent create --type openclaw` and `clawctl agent upgrade`
   now install `2026.6.8` by default; manifest entries added for

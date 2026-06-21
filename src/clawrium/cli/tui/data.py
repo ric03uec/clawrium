@@ -45,6 +45,16 @@ def _resolve_provider_name(claw_record: dict) -> str | None:
 
 
 class AgentViewModel(TypedDict):
+    # SECURITY NOTE (#758 S6): This view model contains secrets
+    # (`gateway_auth`, `device_private_key`) and is the canonical
+    # internal representation used by both the GUI agent_to_dict
+    # allow-list and the TUI's local renderer. Any new field added
+    # here is silently invisible to the browser only because
+    # `gui/routes/fleet.py:_agent_to_dict` is an explicit allow-list.
+    # If you add a new field, also update that allow-list — adding a
+    # field here without touching the GUI serializer is correct (the
+    # field stays redacted) but is easy to forget when the new field
+    # IS meant to reach the browser. There is no compile-time check.
     agent_key: str
     agent_name: str
     agent_type: str
@@ -425,6 +435,129 @@ def check_claw_health_safe(claw_name: str, host: dict) -> HealthResult:
         )
 
 
+def get_agent_static(agent_key: str, host_identifier: str) -> AgentViewModel | None:
+    """Return an AgentViewModel from hosts.json only — no remote probe.
+
+    Mirrors get_agent_detail but skips check_claw_health entirely so the
+    GUI agent-detail page can render its shell instantly. Runtime fields
+    (cpu_count, memory_total_mb, missing_secrets, process_running,
+    health_error) default to None. status is derived from local
+    onboarding data only — CHECKING for agents past onboarding (their
+    real running/stopped state requires SSH and is served by the
+    separate /health endpoint).
+    """
+    if not AGENT_KEY_PATTERN.match(agent_key):
+        logger.warning("Invalid agent_key format: %s", agent_key)
+        return None
+    hosts = load_hosts_safe()
+    for h in hosts:
+        hostname = h.get("hostname", "")
+        if hostname != host_identifier and h.get("alias") != host_identifier:
+            continue
+        agents = h.get("agents", {})
+        if agent_key not in agents:
+            continue
+        claw_record = agents[agent_key]
+        if not isinstance(claw_record, dict):
+            continue
+
+        identity = _build_agent_identity(agent_key, h, claw_record)
+        onboard_status, onboard_step = get_onboarding_status(claw_record)
+        if onboard_status in (ClawStatus.ONBOARDING, ClawStatus.PENDING_ONBOARD):
+            status = onboard_status
+        else:
+            status = ClawStatus.CHECKING
+
+        return AgentViewModel(
+            **identity,
+            status=status,
+            missing_secrets=None,
+            onboarding_step=onboard_step,
+            process_running=None,
+            health_error=None,
+            cpu_count=None,
+            memory_total_mb=None,
+        )
+    return None
+
+
+def _build_agent_identity(
+    agent_key: str, host: dict, claw_record: dict
+) -> dict:
+    """Extract the static identity fields shared by static + full readers.
+
+    Returned dict is suitable for **-spreading into AgentViewModel
+    alongside the runtime fields (status, missing_secrets, etc.).
+    """
+    hostname = host.get("hostname", "")
+    agent_name = (
+        claw_record.get("agent_name") or claw_record.get("name") or agent_key
+    )
+    agent_type = claw_record.get("type", "unknown")
+    version = claw_record.get("version", "?")
+    config = claw_record.get("config", {})
+    model = "-"
+    provider_name = None
+    provider_type = None
+    gateway_port = None
+    gateway_url = None
+    gateway_auth = None
+    device_id = None
+    device_private_key = None
+    if isinstance(config, dict):
+        provider_cfg = config.get("provider")
+        if isinstance(provider_cfg, dict):
+            model = provider_cfg.get("default_model", "-")
+            provider_type = provider_cfg.get("type")
+        provider_name = _resolve_provider_name(claw_record)
+        if provider_name is None and isinstance(provider_cfg, dict):
+            provider_name = provider_cfg.get("name") or provider_cfg.get("type")
+        gateway_cfg = config.get("gateway")
+        if isinstance(gateway_cfg, dict):
+            port_val = gateway_cfg.get("port")
+            if isinstance(port_val, int):
+                gateway_port = port_val
+            auth_val = gateway_cfg.get("auth")
+            if isinstance(auth_val, str) and auth_val.strip():
+                gateway_auth = auth_val
+            if gateway_port is not None:
+                scheme = _gateway_scheme(gateway_cfg.get("url"))
+                gateway_url = f"{scheme}://{hostname}:{gateway_port}"
+            device_cfg = gateway_cfg.get("device")
+            if isinstance(device_cfg, dict):
+                dev_id = device_cfg.get("id")
+                dev_key = device_cfg.get("privateKey")
+                if isinstance(dev_id, str) and dev_id.strip():
+                    device_id = dev_id
+                if isinstance(dev_key, str) and dev_key.strip():
+                    device_private_key = dev_key
+
+    started_at = None
+    runtime = claw_record.get("runtime", {})
+    if isinstance(runtime, dict):
+        started_at = runtime.get("started_at")
+
+    return {
+        "agent_key": agent_key,
+        "agent_name": agent_name,
+        "agent_type": agent_type,
+        "host": hostname,
+        "host_alias": host.get("alias") or hostname,
+        "host_os_family": host.get("os_family"),
+        "version": version,
+        "model": model,
+        "uptime": calculate_uptime(started_at),
+        "addresses": host.get("addresses", []),
+        "provider": provider_name,
+        "provider_type": provider_type,
+        "gateway_port": gateway_port,
+        "gateway_url": gateway_url,
+        "gateway_auth": gateway_auth,
+        "device_id": device_id,
+        "device_private_key": device_private_key,
+    }
+
+
 def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | None:
     if not AGENT_KEY_PATTERN.match(agent_key):
         logger.warning("Invalid agent_key format: %s", agent_key)
@@ -441,84 +574,16 @@ def get_agent_detail(agent_key: str, host_identifier: str) -> AgentViewModel | N
         if not isinstance(claw_record, dict):
             continue
         result = check_claw_health_safe(agent_key, h)
-        agent_name = (
-            claw_record.get("agent_name") or claw_record.get("name") or agent_key
-        )
-        agent_type = claw_record.get("type", "unknown")
-        version = claw_record.get("version", "?")
-        config = claw_record.get("config", {})
-        model = "-"
-        provider_name = None
-        provider_type = None
-        gateway_port = None
-        gateway_url = None
-        gateway_auth = None
-        device_id = None
-        device_private_key = None
-        if isinstance(config, dict):
-            provider_cfg = config.get("provider")
-            if isinstance(provider_cfg, dict):
-                model = provider_cfg.get("default_model", "-")
-                provider_type = provider_cfg.get("type")
-            # Tier-1 attachment list is canonical for the provider name;
-            # fall back to the tier-2 render payload only for display.
-            provider_name = _resolve_provider_name(claw_record)
-            if provider_name is None and isinstance(provider_cfg, dict):
-                provider_name = provider_cfg.get("name") or provider_cfg.get("type")
-            gateway_cfg = config.get("gateway")
-            if isinstance(gateway_cfg, dict):
-                port_val = gateway_cfg.get("port")
-                if isinstance(port_val, int):
-                    gateway_port = port_val
-                auth_val = gateway_cfg.get("auth")
-                if isinstance(auth_val, str) and auth_val.strip():
-                    gateway_auth = auth_val
-                # Reconstruct gateway URL using host's current address and port,
-                # preserving the scheme stored at install/configure time.
-                if gateway_port is not None:
-                    scheme = _gateway_scheme(gateway_cfg.get("url"))
-                    gateway_url = f"{scheme}://{hostname}:{gateway_port}"
-                # Extract device credentials for operator.write scope
-                device_cfg = gateway_cfg.get("device")
-                if isinstance(device_cfg, dict):
-                    dev_id = device_cfg.get("id")
-                    dev_key = device_cfg.get("privateKey")
-                    if isinstance(dev_id, str) and dev_id.strip():
-                        device_id = dev_id
-                    if isinstance(dev_key, str) and dev_key.strip():
-                        device_private_key = dev_key
-
-        started_at = None
-        runtime = claw_record.get("runtime", {})
-        if isinstance(runtime, dict):
-            started_at = runtime.get("started_at")
-
+        identity = _build_agent_identity(agent_key, h, claw_record)
         status = result.get("status", ClawStatus.UNKNOWN)
-
         return AgentViewModel(
-            agent_key=agent_key,
-            agent_name=agent_name,
-            agent_type=agent_type,
-            host=hostname,
-            host_alias=h.get("alias") or hostname,
-            host_os_family=h.get("os_family"),
-            version=version,
+            **identity,
             status=status,
-            model=model,
-            uptime=calculate_uptime(started_at),
             missing_secrets=result.get("missing_secrets"),
             onboarding_step=result.get("onboarding_step"),
             process_running=result.get("process_running"),
             health_error=result.get("error"),
-            addresses=h.get("addresses", []),
-            provider=provider_name,
-            provider_type=provider_type,
             cpu_count=result.get("cpu_count"),
             memory_total_mb=result.get("memory_total_mb"),
-            gateway_port=gateway_port,
-            gateway_url=gateway_url,
-            gateway_auth=gateway_auth,
-            device_id=device_id,
-            device_private_key=device_private_key,
         )
     return None

@@ -1,15 +1,23 @@
 "use client";
 
-import { AgentDetail } from "@/lib/types";
+import { AgentDetail, AgentDetailHealth } from "@/lib/types";
 import { useUsageByAgent } from "@/hooks";
 
 interface AgentMetricsProps {
   agent: AgentDetail;
+  // #758: live runtime fields. Undefined while the SSH probe is in
+  // flight — uptime and status fall back to the static AgentDetail.
+  health: AgentDetailHealth | undefined;
 }
 
-export function AgentMetrics({ agent }: AgentMetricsProps) {
+export function AgentMetrics({ agent, health }: AgentMetricsProps) {
   const { data: perAgent } = useUsageByAgent(30);
   const agentUsage = perAgent?.find((row) => row.agent_key === agent.agent_key);
+  // uptime lives on the static endpoint (#758 S5): it's a pure
+  // function of claw_record.runtime.started_at, has no SSH-derived
+  // component, and the static query polls at 10s.
+  const uptime = agent.uptime;
+  const status = health?.status ?? agent.status;
 
   const tokenLabel = agentUsage
     ? formatNumber(agentUsage.tokens)
@@ -24,10 +32,10 @@ export function AgentMetrics({ agent }: AgentMetricsProps) {
   const unavailableTip = "No usage recorded for this agent in the last 30 days";
 
   const metrics = [
-    { label: "Uptime", value: agent.uptime || "—", title: undefined },
+    { label: "Uptime", value: uptime || "—", title: undefined },
     {
       label: "Status",
-      value: agent.status.replace("_", " "),
+      value: status.replace("_", " "),
       title: undefined,
     },
     {

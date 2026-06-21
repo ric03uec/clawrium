@@ -1143,36 +1143,55 @@ def test_agent_detail_404_for_unknown(isolated_config: Path):
 
 
 def test_agent_detail_success(isolated_config: Path):
+    """The static endpoint serves identity from hosts.json. The sibling
+    /health endpoint is the one that carries latest_supported_version
+    (moved off the static path in #758)."""
     _seed_hosts(isolated_config, "hermes")
     vm = _agent_vm()
     captured: dict = {}
 
-    def _capture_detail(agent_key, hostname):
+    def _capture_static(agent_key, hostname):
         captured["agent_key"] = agent_key
         captured["hostname"] = hostname
         return vm
 
-    with (
-        patch("clawrium.gui.routes.fleet.get_agent_detail", side_effect=_capture_detail),
-        patch(
-            "clawrium.core.registry.latest_supported_version",
-            return_value="2026.6.0",
-        ),
+    with patch(
+        "clawrium.gui.routes.fleet.get_agent_static", side_effect=_capture_static
     ):
         with TestClient(app) as client:
             resp = client.get("/api/fleet/agents/demo")
     assert resp.status_code == 200
     data = resp.json()
     assert data["agent_key"] == "demo"
-    assert data["latest_supported_version"] == "2026.6.0"
+    # latest_supported_version is no longer on the static endpoint.
+    assert "latest_supported_version" not in data
     assert captured["hostname"] == "192.168.1.100"
     assert captured["agent_key"] == "demo"
 
 
-def test_agent_detail_404_when_get_agent_detail_returns_none(isolated_config: Path):
-    """Second 404 path: resolve_agent succeeds but get_agent_detail returns None."""
+def test_agent_health_returns_latest_supported_version(isolated_config: Path):
+    """/health is the single source for latest_supported_version (#758)."""
     _seed_hosts(isolated_config, "hermes")
-    with patch("clawrium.gui.routes.fleet.get_agent_detail", return_value=None):
+    vm = _agent_vm()
+    with (
+        patch("clawrium.gui.routes.fleet.get_agent_detail", return_value=vm),
+        patch(
+            "clawrium.core.registry.latest_supported_version",
+            return_value="2026.6.0",
+        ),
+    ):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/agents/demo/health")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["agent_key"] == "demo"
+    assert data["latest_supported_version"] == "2026.6.0"
+
+
+def test_agent_detail_404_when_get_agent_static_returns_none(isolated_config: Path):
+    """Second 404 path: resolve_agent succeeds but get_agent_static returns None."""
+    _seed_hosts(isolated_config, "hermes")
+    with patch("clawrium.gui.routes.fleet.get_agent_static", return_value=None):
         with TestClient(app) as client:
             resp = client.get("/api/fleet/agents/demo")
     assert resp.status_code == 404
@@ -1188,8 +1207,12 @@ def test_agent_detail_404_when_host_mismatch(isolated_config: Path):
     assert "wronghost" in resp.json()["detail"]
 
 
-def test_agent_detail_hardware_null_coercion(isolated_config: Path):
-    """Regression: hardware=null in hosts.json must not raise — `or {}` coerces it."""
+def test_agent_health_hardware_null_coercion(isolated_config: Path):
+    """Regression: hardware=null in hosts.json must not raise — `or {}` coerces it.
+
+    Moved to /health in #758 since latest_supported_version now lives
+    on the runtime endpoint.
+    """
     hosts = [
         {
             "hostname": "192.168.1.100",
@@ -1212,7 +1235,7 @@ def test_agent_detail_hardware_null_coercion(isolated_config: Path):
     vm = _agent_vm()
     with patch("clawrium.gui.routes.fleet.get_agent_detail", return_value=vm):
         with TestClient(app) as client:
-            resp = client.get("/api/fleet/agents/demo")
+            resp = client.get("/api/fleet/agents/demo/health")
     assert resp.status_code == 200
     # latest_supported_version raises on hardware={} with no arch; caught → None
     assert resp.json()["latest_supported_version"] is None
@@ -1222,11 +1245,25 @@ def test_agent_detail_excludes_gateway_auth(isolated_config: Path):
     """gateway_auth must never appear in the agent_detail response body (W3)."""
     _seed_hosts(isolated_config, "hermes")
     vm = _agent_vm()
-    with patch("clawrium.gui.routes.fleet.get_agent_detail", return_value=vm):
+    with patch("clawrium.gui.routes.fleet.get_agent_static", return_value=vm):
         with TestClient(app) as client:
             resp = client.get("/api/fleet/agents/demo")
     assert "secret_bearer_must_not_leak" not in resp.text
     assert "gateway_auth" not in resp.json()
+
+
+def test_agent_detail_excludes_device_private_key(isolated_config: Path):
+    """device_private_key is a secret too — _agent_to_dict's allow-list
+    excludes it, but only the gateway_auth field had a regression test.
+    (#758 ATX S1)."""
+    _seed_hosts(isolated_config, "hermes")
+    vm = _agent_vm(device_private_key="SENTINEL_PRIVKEY_NEVER_LEAK")
+    with patch("clawrium.gui.routes.fleet.get_agent_static", return_value=vm):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/agents/demo")
+    assert resp.status_code == 200
+    assert "SENTINEL_PRIVKEY_NEVER_LEAK" not in resp.text
+    assert "device_private_key" not in resp.json()
 
 
 # ---------------------------------------------------------------------------

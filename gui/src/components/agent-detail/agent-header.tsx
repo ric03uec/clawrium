@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AgentDetail } from "@/lib/types";
+import { AgentDetail, AgentDetailHealth } from "@/lib/types";
 import { StatusDot } from "@/components/ui/status-dot";
 import { OSIcon } from "@/components/ui/os-icon";
 import { Button } from "@/components/ui/button";
@@ -16,12 +16,20 @@ import {
 
 interface AgentHeaderProps {
   agent: AgentDetail;
+  // #758: live runtime fields. Undefined while the probe is in flight;
+  // header falls back to the static "checking" status and disables the
+  // lifecycle buttons (we don't yet know whether the agent is running).
+  health: AgentDetailHealth | undefined;
 }
 
-export function AgentHeader({ agent }: AgentHeaderProps) {
+export function AgentHeader({ agent, health }: AgentHeaderProps) {
   const { start, stop, restart } = useAgentActions(agent.agent_key);
-  const isRunning = agent.status === "running";
-  const isStopped = agent.status === "stopped";
+  // Health-derived: the SSH probe is the source of truth for the
+  // lifecycle buttons. Until it lands, status is "checking" and both
+  // Start and Restart/Stop are hidden to avoid acting on stale data.
+  const liveStatus = health?.status ?? agent.status;
+  const isRunning = liveStatus === "running";
+  const isStopped = liveStatus === "stopped";
 
   // B2 (#560 / #567): backend `/web-ui` returns `available: false` with
   // a `reason` for any agent type whose manifest does not declare
@@ -37,7 +45,9 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
   //   - permanent no-UI (`reason` says "does not expose") → button is
   //     hidden entirely; rendering a perma-disabled button on every
   //     nemoclaw page was the previous UX regression.
-  const webUI = useAgentWebUI(agent.agent_key, agent.status);
+  // Keyed on the live status so the web-ui query re-resolves after a
+  // status transition (e.g. start → running flips tunnel availability).
+  const webUI = useAgentWebUI(agent.agent_key, liveStatus);
   const webUIPermanentlyUnavailable =
     webUI.data?.available === false &&
     !!webUI.data?.reason &&
@@ -77,7 +87,7 @@ export function AgentHeader({ agent }: AgentHeaderProps) {
     <div className="bg-white rounded-xl border border-default p-6 shadow-sm">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <StatusDot status={agent.status} size="lg" />
+          <StatusDot status={liveStatus} size="lg" />
           <div>
             <h1 className="text-xl font-semibold text-primary-text">
               {agent.agent_name}
