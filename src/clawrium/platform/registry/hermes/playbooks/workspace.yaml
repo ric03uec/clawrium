@@ -166,7 +166,17 @@
       # late arrivals (TOCTOU bound) so the operator-facing event log
       # is the canonical record.
       ansible.builtin.copy:
-        src: "{{ staging_dir }}/{{ item.rel }}"
+        # ATX iter-1 S6: use `item.src` (absolute staged path computed
+        # by `core/workspace_sync.py:_stage_files`) rather than
+        # reconstructing `{{ staging_dir }}/{{ item.rel }}` inline.
+        # Today both expressions are byte-equivalent because
+        # `_stage_files` writes to exactly `staging_dir / entry.rel`,
+        # but a future refactor (e.g. flattening or hashing staged
+        # names to dodge case-insensitive collisions on macOS) would
+        # silently desync these two paths if the playbook kept
+        # recomputing. The Python side stays the single source of
+        # truth for the staged source path.
+        src: "{{ item.src }}"
         dest: "{{ workspace_dest_root }}/{{ item.rel }}"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"

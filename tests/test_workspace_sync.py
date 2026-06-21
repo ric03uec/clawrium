@@ -543,11 +543,23 @@ def test_hermes_workspace_filter_plugin_mirrors_core_is_excluded() -> None:
         "skills/other/SKILL.md",  # not under our slot
         "profiles/coder/SOUL.md",  # legitimate operator drop
         "memories/NOTES.md",
+        # ATX iter-1 S3: edge cases reviewer flagged but the original
+        # parity test didn't cover.
+        "",  # empty string — neither side should claim this is excluded
+        "/config.yaml",  # leading-slash rel — should NOT match the
+                         # exact-file `config.yaml` entry (path canonicalization)
     ]
     for rel in cases:
         assert workspace_excluded(rel, excludes_files, excludes_dirs) == (
             _is_excluded(rel, py_spec)
         ), f"filter/_is_excluded drift for rel={rel!r}"
+
+
+# Hard count of canonical hermes renderer output keys. Bumping
+# `render_hermes` to emit a new `.hermes/<path>` key MUST trip this
+# constant + the superset assertion below in the same commit, forcing
+# a deliberate edit of the manifest excludes.
+_EXPECTED_HERMES_RENDER_OUTPUT_COUNT = 2
 
 
 def test_hermes_excludes_are_strict_superset_of_render_hermes_outputs() -> None:
@@ -559,14 +571,21 @@ def test_hermes_excludes_are_strict_superset_of_render_hermes_outputs() -> None:
     could drop a file under workspace/ that overwrites the renderer's
     output on the next sync.
 
-    Implementation: parse the AST of `core/render.py:render_hermes`
-    and harvest every string literal of the shape `.hermes/<path>`.
-    Strip the `.hermes/` prefix (the destination root) and assert
-    each stripped key is a member of the hermes exclude set.
+    Implementation (ATX iter-1 W3 fix): walk the entire `render`
+    module AST (not just the `render_hermes` FunctionDef body) and
+    harvest every string literal — including `ast.JoinedStr`
+    (f-strings) constituents — of the shape `.hermes/<path>`. Module-
+    level constants, helper functions, and f-string fragments are now
+    all visible.
 
-    Adding a future renderer output path that lands somewhere new
-    under `.hermes/` without a matching manifest exclude entry must
-    fail this test (hook-review S — test-coverage).
+    Two assertions tighten the contract:
+      1. The harvested key set is a strict subset of the manifest
+         exclude set (the original superset invariant).
+      2. The harvested key count equals `_EXPECTED_HERMES_RENDER_OUTPUT_COUNT`.
+         A new `.hermes/<path>` literal anywhere in `render.py` —
+         even buried in a helper or assembled via f-string — fails
+         this assertion and forces an explicit constant bump plus a
+         matching manifest exclude entry.
     """
     import ast
     import inspect
@@ -574,27 +593,46 @@ def test_hermes_excludes_are_strict_superset_of_render_hermes_outputs() -> None:
     from clawrium.core import render as render_mod
 
     tree = ast.parse(inspect.getsource(render_mod))
-    target: ast.FunctionDef | None = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "render_hermes":
-            target = node
-            break
-    assert target is not None, (
-        "render_hermes function not found — U5 cannot enforce the "
-        "superset invariant without parsing the renderer body."
-    )
 
-    # Harvest every `.hermes/<...>` string literal inside the renderer.
     output_keys: set[str] = set()
-    for node in ast.walk(target):
+
+    for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if node.value.startswith(".hermes/"):
                 output_keys.add(node.value)
+        elif isinstance(node, ast.JoinedStr):
+            # Reconstruct the static prefix of an f-string. A future
+            # `f".hermes/{name}"` will surface here with the leading
+            # `.hermes/` fragment captured and treated as a tracked
+            # output prefix.
+            head = ""
+            for piece in node.values:
+                if isinstance(piece, ast.Constant) and isinstance(piece.value, str):
+                    head += piece.value
+                else:
+                    break
+            if head.startswith(".hermes/") and len(head) > len(".hermes/"):
+                output_keys.add(head)
 
     assert output_keys, (
-        "U5 found zero `.hermes/...` literals inside render_hermes; "
+        "U5 found zero `.hermes/...` literals across the render module; "
         "either the renderer moved its keys to indirect construction "
-        "(this test must be updated) or there is a real regression."
+        "(e.g. `os.path.join('.hermes', ...)` or `Path('.hermes') / ...`) "
+        "and this test must broaden its scanner, or there is a real "
+        "regression in render_hermes."
+    )
+
+    # Hard count pin. A new renderer-output key requires bumping the
+    # constant AND adding a matching exclude entry. Drift in either
+    # direction is caught here.
+    assert len(output_keys) == _EXPECTED_HERMES_RENDER_OUTPUT_COUNT, (
+        f"render_hermes output-key count drifted: found "
+        f"{sorted(output_keys)} ({len(output_keys)} keys), expected "
+        f"{_EXPECTED_HERMES_RENDER_OUTPUT_COUNT}. Bump "
+        f"_EXPECTED_HERMES_RENDER_OUTPUT_COUNT in this test AND add "
+        f"every new key to hermes manifest "
+        f"features.workspace_overlay.excludes — they MUST land in the "
+        f"same commit."
     )
 
     spec = WorkspaceOverlaySpec.from_manifest("hermes")

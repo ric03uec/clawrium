@@ -146,25 +146,45 @@ def test_i3_hermes_good_files_land(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_e3_hostile_symlink_to_excluded_target_is_skipped(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    "symlink_rel",
+    [
+        # Exact-file excluded path. With symlink-first → reason=symlink.
+        # With exclude-first (the regression we want to catch) →
+        # reason=manifest_exclude. Either-or distinguishes the orderings.
+        pytest.param("auth.json", id="exact-file-excluded"),
+        # Dir-prefix excluded path. Same logic for the dir-prefix
+        # branch of `_is_excluded`.
+        pytest.param("sessions/foo.json", id="dir-prefix-excluded"),
+    ],
+)
+def test_e3_hostile_symlink_with_excluded_name_pins_ordering(
+    tmp_path: Path, symlink_rel: str
 ) -> None:
-    """Hook-review S — security: an operator may try to bypass the
-    exclude filter by symlinking `workspace/innocent.md → ../auth.json`.
-    The symlink-rejection at enumeration (`os.path.islink`) fires
-    BEFORE the exclude check, so the file is skipped with
-    `reason=symlink` and NEVER read — the link target is irrelevant.
+    """Hook-review S — security; ATX iter-1 W1 fix: pin the ordering
+    invariant by naming the symlink after an excluded entry.
 
-    Pin the event so a regression that re-orders symlink/exclude
-    checks (or drops `os.path.islink`) fails this test.
+    Mechanism: with the current order (symlink-check first) the
+    enumerator emits `reason=symlink`. If a regression were to flip
+    the order (exclude-check first), the same hostile drop would
+    surface as `reason=manifest_exclude` because the name matches an
+    exclude entry — and this test would fail.
+
+    Both the exact-file branch (`auth.json`) and the dir-prefix branch
+    (`sessions/foo.json`) of `_is_excluded` are covered so a future
+    edit that reorders only one branch is caught.
+
+    The symlink target is outside the workspace dir, exactly the
+    bypass attempt the security defense exists for.
     """
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    # The "target" is outside the workspace — exactly the bypass attempt.
-    target = tmp_path / "auth.json"
-    target.write_text("real auth contents")
+    target = tmp_path / "real_auth_secret.txt"
+    target.write_text("real auth contents the symlink would dereference to")
 
-    (workspace / "innocent.md").symlink_to(target)
+    symlink_path = workspace / symlink_rel
+    symlink_path.parent.mkdir(parents=True, exist_ok=True)
+    symlink_path.symlink_to(target)
 
     spec = WorkspaceOverlaySpec.from_manifest("hermes")
     assert spec is not None
@@ -176,20 +196,43 @@ def test_e3_hostile_symlink_to_excluded_target_is_skipped(
 
     # Nothing got staged.
     assert entries == []
-    # The symlink rel is in skipped, not excluded — exclude-list
-    # semantics never came into play because the symlink check ran
-    # first.
-    assert "innocent.md" in skipped
-    assert "innocent.md" not in excluded
-    # Event emitted with the correct reason.
+
+    # The ordering pin: symlink-check runs BEFORE exclude-check. So the
+    # rel surfaces in `skipped` with reason=symlink, NOT in `excluded`.
+    # If the ordering ever flips, this exact assertion fails.
+    assert symlink_rel in skipped, (
+        f"expected {symlink_rel!r} in skipped (reason=symlink), got "
+        f"skipped={skipped} excluded={excluded}"
+    )
+    assert symlink_rel not in excluded, (
+        f"ordering regression: {symlink_rel!r} reached the exclude "
+        f"branch before the symlink branch — symlink check must run first"
+    )
+
     skip_events = [
         p for (phase, p) in events
         if phase == "push_workspace" and p.get("state") == "skipped"
     ]
     assert any(
-        p.get("path") == "innocent.md" and p.get("reason") == "symlink"
+        p.get("path") == symlink_rel and p.get("reason") == "symlink"
         for p in skip_events
-    ), f"no symlink-skip event for innocent.md: events={skip_events}"
+    ), (
+        f"no symlink-skip event for {symlink_rel!r}: events={skip_events}"
+    )
+
+    # And the negative side: ZERO `manifest_exclude` events for this
+    # rel. A regression that ran the exclude check first would emit
+    # one, and this assertion would catch it.
+    excl_events = [
+        p for (phase, p) in events
+        if phase == "push_workspace" and p.get("state") == "excluded"
+    ]
+    assert not any(
+        p.get("path") == symlink_rel for p in excl_events
+    ), (
+        f"ordering regression: {symlink_rel!r} emitted as "
+        f"manifest_exclude before the symlink check fired"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -197,30 +240,127 @@ def test_e3_hostile_symlink_to_excluded_target_is_skipped(
 # ---------------------------------------------------------------------------
 
 
-def test_toctou_file_matching_exclude_injected_after_enumeration_is_filtered(
+def test_toctou_late_arrival_absent_from_staging_and_playbook_extravars(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hook-review S — test-coverage TOCTOU; ATX iter-1 W2 fix.
+
+    The architectural invariant under test: the playbook reads from
+    the staging tempdir, NEVER the operator's original workspace path.
+    So a file matching an exclude pattern injected AFTER enumeration
+    but BEFORE the push completes is bounded by the staging-dir
+    lifetime and never reaches the host.
+
+    Drive `push_workspace_phase` end-to-end with a stubbed
+    `ansible_runner.run`. At runner-invocation time:
+      1. Inject `state.db` into the operator workspace AFTER
+         enumeration returned (simulating the late arrival).
+      2. Capture the `workspace_files` extravar payload that the
+         runner sees.
+      3. Capture a snapshot of the staging dir contents.
+
+    A regression that streamed-walked the operator's workspace at
+    copy time (instead of the staging dir) would either let the late
+    arrival into the staging tempdir or pass it through extravars —
+    both assertions below would fail.
+    """
+    from clawrium.core import config as config_module
+    from clawrium.core import workspace_sync as ws_module
+    from clawrium.core.workspace_sync import push_workspace_phase
+
+    # Redirect get_config_dir so the staging tree lives under tmp_path.
+    # `workspace_sync` imports the symbol at module-load time, so we
+    # patch both the source module and the imported alias.
+    monkeypatch.setattr(config_module, "get_config_dir", lambda: tmp_path)
+    monkeypatch.setattr(ws_module, "get_config_dir", lambda: tmp_path)
+
+    # Stage a workspace with one good file under the agents-slot layout
+    # push_workspace_phase expects.
+    workspace = (
+        tmp_path / "agents" / "hermes" / "alice" / "workspace"
+    )
+    workspace.mkdir(parents=True)
+    (workspace / "good.md").write_text("ok")
+
+    # Stub the SSH key lookup so the helper doesn't hit the real store.
+    monkeypatch.setattr(
+        "clawrium.core.keys.get_host_private_key",
+        lambda key_id: tmp_path / "fake-key",
+    )
+    (tmp_path / "fake-key").write_text("fake key data")
+
+    captured = {"extravars": None, "staging_contents": None}
+
+    class _StubRunResult:
+        status = "successful"
+        rc = 0
+
+    def _stub_run(*_args, **kwargs):
+        # The late arrival happens NOW — between Python staging and
+        # the (stubbed) Ansible run.
+        (workspace / "state.db").write_text("hostile late-arriving SQLite")
+
+        extravars = kwargs["extravars"]
+        captured["extravars"] = extravars
+        staging_dir = Path(extravars["staging_dir"])
+        captured["staging_contents"] = sorted(
+            str(p.relative_to(staging_dir))
+            for p in staging_dir.rglob("*")
+            if p.is_file()
+        )
+        return _StubRunResult()
+
+    class _StubModule:
+        def run(self, *a, **kw):
+            return _stub_run(*a, **kw)
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "ansible_runner", _StubModule()
+    )
+
+    result = push_workspace_phase(
+        host={"hostname": "h", "key_id": "h", "os_family": "linux"},
+        agent_type="hermes",
+        agent_name="alice",
+    )
+
+    # The push itself succeeded (stubbed runner returns OK).
+    assert result.success is True
+
+    # Late arrival was injected:
+    assert (workspace / "state.db").exists(), (
+        "test setup error — state.db should have been injected by the runner stub"
+    )
+
+    # The staging dir snapshot captured at runner-invocation time:
+    # `state.db` MUST NOT be present. Only `good.md` should be.
+    assert captured["staging_contents"] == ["good.md"], (
+        f"staging dir leak: {captured['staging_contents']!r} contains "
+        f"a late-arriving file — the staging step is NOT TOCTOU-safe"
+    )
+
+    # The extravar payload the playbook would have used: same property.
+    workspace_files_rels = sorted(
+        f["rel"] for f in captured["extravars"]["workspace_files"]
+    )
+    assert workspace_files_rels == ["good.md"], (
+        f"extravar leak: workspace_files contains a late-arriving rel "
+        f"{workspace_files_rels!r} — the playbook would have copied it"
+    )
+
+    # And the result-level pin: `state.db` is not in files_pushed
+    # (it never made it into the staging payload).
+    assert "state.db" not in result.files_pushed
+
+
+def test_toctou_re_enumeration_catches_late_arrival_as_excluded(
     tmp_path: Path,
 ) -> None:
-    """Hook-review S — test-coverage TOCTOU: a file matching an exclude
-    pattern injected AFTER enumeration but BEFORE the push completes
-    must still be filtered.
-
-    Architecture rationale (plan W18 iter-2): the staging step copies
-    each enumerated file into a managed `tempfile.TemporaryDirectory`
-    via `shutil.copy2`. The Ansible playbook reads the staged copy,
-    NEVER the operator's original workspace path. So even if the
-    operator drops `state.db` into the workspace dir after enumeration
-    returned, the staging dir does not contain `state.db` and the
-    playbook never sees it.
-
-    This test pins that property by:
-      1. enumerating a workspace with one good file,
-      2. injecting `state.db` into the workspace AFTER enumeration,
-      3. re-enumerating and asserting the late-arriving `state.db` is
-         filtered as an exclude on the second pass.
-
-    A regression that streamed-walked the operator's workspace during
-    the playbook copy task (instead of the staging dir) would let the
-    late-arriving file through and fail this test.
+    """Belt-and-suspenders companion to the TOCTOU test above: on the
+    NEXT sync (re-enumeration), the late-arrival is correctly
+    classified as `manifest_exclude`. This pins the exclude branch
+    works whether the file appeared just before or long after the
+    initial enumeration.
     """
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -229,31 +369,13 @@ def test_toctou_file_matching_exclude_injected_after_enumeration_is_filtered(
     spec = WorkspaceOverlaySpec.from_manifest("hermes")
     assert spec is not None
 
-    # First pass: only `good.md` exists.
-    entries1, excluded1, _ = enumerate_workspace_files(
-        workspace, spec, agent_name="alice"
-    )
-    assert [e.rel for e in entries1] == ["good.md"]
-    assert excluded1 == []
-
-    # Inject the exclude-matching file AFTER enumeration. Mirror the
-    # exact rel the playbook would have to handle if the operator
-    # raced the sync.
+    # Inject the exclude-matching file. On re-enumeration:
     (workspace / "state.db").write_text("hostile late-arriving sqlite")
-
-    # Second pass (representative of a re-enumeration before the
-    # playbook is invoked, or of the next sync): the exclude filter
-    # catches it.
-    entries2, excluded2, _ = enumerate_workspace_files(
+    entries, excluded, _ = enumerate_workspace_files(
         workspace, spec, agent_name="alice"
     )
-    assert "state.db" in excluded2
-    assert all(e.rel != "state.db" for e in entries2)
-
-    # And critically: the first-pass `entries1` (which is what the
-    # staging step would have used) does NOT contain `state.db`. The
-    # playbook reads only the staged copy.
-    assert all(e.rel != "state.db" for e in entries1)
+    assert "state.db" in excluded
+    assert all(e.rel != "state.db" for e in entries)
 
 
 # ---------------------------------------------------------------------------
@@ -287,8 +409,11 @@ def test_i14_configure_and_sync_share_same_enumeration_path(
     assert hasattr(workspace_sync, "push_workspace_phase")
     # Smoke check — the function is referenced from both lifecycle paths
     # (avoids a future rename that breaks just one caller).
-    lifecycle_src = open(lifecycle.__file__).read()
-    canonical_src = open(lifecycle_canonical.__file__).read()
+    # ATX iter-1 S1 fix: use Path.read_text() so file handles are
+    # context-managed; bare `open(...).read()` leaks under
+    # `-W error::ResourceWarning`.
+    lifecycle_src = Path(lifecycle.__file__).read_text()
+    canonical_src = Path(lifecycle_canonical.__file__).read_text()
     assert "push_workspace_phase" in lifecycle_src
     assert "push_workspace_phase" in canonical_src
 
