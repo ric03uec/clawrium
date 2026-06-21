@@ -65,9 +65,10 @@ agent_app.command(name="configure", help="Configure an agent (per stage).")(
 agent_app.command(name="start", help="Start an agent.")(_start.start)
 agent_app.command(name="stop", help="Stop an agent.")(_stop.stop)
 agent_app.command(name="restart", help="Restart an agent.")(_restart.restart)
-agent_app.command(name="sync", help="Flush local control-plane state to the agent.")(
-    _sync.sync
-)
+agent_app.command(
+    name="sync",
+    help="Sync local control-plane state and workspace overlay to the agent.",
+)(_sync.sync)
 agent_app.command(
     name="upgrade",
     help="Upgrade an agent to the manifest's max supported version.",

@@ -14,6 +14,13 @@ cut. The `itx:release` skill archives this section into a new
 
 ### BREAKING
 
+- **`clawctl agent sync --workspace` is removed.** Use `--no-restart`
+  for canonical render + workspace overlay without a unit restart, or
+  `--workspace-only` to push the operator overlay alone. There is no
+  automated migration — operators must update any scripts or CI that
+  pass `--workspace`. The deprecated flag now exits 2 with the
+  replacement guidance on stderr; in `-o json` mode it produces a
+  parseable error object on stderr and zero stdout bytes. Issue #760.
 - **openclaw brave plugin now requires openclaw `>= 2026.6.8`** (previously
   `>= 2026.4.10`). Any host running openclaw in the `2026.4.10..2026.6.7`
   range with the brave integration attached will hit a hard
@@ -25,6 +32,27 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- **Workspace overlay sync (openclaw, Ubuntu).** Files dropped under
+  `~/.config/clawrium/agents/openclaw/<name>/workspace/` are now
+  mirrored onto the agent host at `~/.openclaw/workspace/` on every
+  `clawctl agent sync` and `clawctl agent configure`. Two new sync
+  flags: `--workspace-only` pushes the overlay alone (skips canonical
+  render / restart / verify) and `--no-restart` runs canonical +
+  overlay without flapping the unit. The per-agent manifest declares
+  its overlay shape via `features.workspace_overlay.destination_root`
+  (manifest-driven so third-party manifests can opt in) plus an
+  optional `excludes` list. The architecture is Ansible-only: a new
+  per-agent `playbooks/workspace.yaml` is the single host-write path;
+  Python `core/workspace_sync.py` is a thin enumerator/stager that
+  filters symlinks, applies manifest excludes, and floors
+  secret-pattern files (`*.key`, `*.pem`, `*.env`, `*credentials*`,
+  `*secret*`, `*token*`, `*password*`) to mode 0600 regardless of
+  local perms. Bidi/zero-width codepoints in operator-controlled
+  paths are stripped at the NDJSON / text emission boundary so a
+  hostile workspace filename cannot spoof terminal output. macOS
+  support is deferred to follow-up subtasks under #760 (the
+  `workspace_macos.yaml` stub returns a clean Ansible
+  `fail:` for now). Closes Phase 1 of #760 (openclaw on Ubuntu).
 - New `brave` integration type for the Brave Search API. Register once
   with `clawctl integration registry create my-brave --type brave
   --api-key <key>` (or pipe the key via `--api-key-stdin`), attach to

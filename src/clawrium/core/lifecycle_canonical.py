@@ -325,6 +325,12 @@ class CanonicalSyncResult:
     files_unchanged: tuple[str, ...]
     diffs: tuple[FileDiff, ...]
     error: str | None = None
+    # Issue #760: per-sync workspace overlay phase counters. Always
+    # populated (empty tuples when the agent type has no
+    # `features.workspace_overlay` block, or in failure paths that
+    # short-circuit before the phase runs).
+    workspace_files_pushed: tuple[str, ...] = ()
+    workspace_files_excluded: tuple[str, ...] = ()
 
 
 def _extract_secret_keys(body: str) -> set[str]:
@@ -716,6 +722,9 @@ def sync_agent_canonical(
     force: bool = False,
     restart: bool = True,
     verify: bool = True,
+    push_workspace: bool = True,
+    workspace_only: bool = False,
+    dry_run: bool = False,
     on_event: Callable[[str, str], None] | None = None,
 ) -> CanonicalSyncResult:
     """Sync `agent_name` via the canonical pipeline.
@@ -754,9 +763,6 @@ def sync_agent_canonical(
             f"no canonical renderer for agent type {inputs.agent_type!r}"
         )
 
-    emit("render", f"rendering canonical config for {inputs.agent_type}")
-    rendered = renderer(inputs)
-
     resolved = get_agent_by_name(agent_name)
     if resolved is None:
         raise CanonicalSyncError(
@@ -764,6 +770,71 @@ def sync_agent_canonical(
         )
     host, agent_key, _claw_record = resolved
     hostname = host.get("hostname", "")
+
+    # Issue #760 §1.4 `--workspace-only` short-circuit. Skip canonical
+    # render / diff / write / restart / verify entirely; push the
+    # operator overlay and (for zeroclaw, in later phases) rotate the
+    # bearer. State transition is intentionally NOT executed
+    # (W5 iter-3): workspace-only preserves the current lifecycle
+    # position so an operator may overlay onto a STOPPED agent without
+    # silently flipping it to READY.
+    if workspace_only:
+        from clawrium.core.workspace_sync import push_workspace_phase
+
+        def _ws_event(stage: str, payload: dict) -> None:
+            if on_event is None:
+                return
+            import json as _json
+
+            on_event(stage, _json.dumps(payload))
+
+        ws_result = push_workspace_phase(
+            host=host,
+            agent_type=inputs.agent_type,
+            agent_name=agent_name,
+            on_event=_ws_event,
+            dry_run=dry_run,
+        )
+        if not ws_result.success:
+            return CanonicalSyncResult(
+                success=False,
+                agent=agent_name,
+                host=hostname,
+                files_written=(),
+                files_unchanged=(),
+                diffs=(),
+                error=ws_result.error,
+                workspace_files_pushed=ws_result.files_pushed,
+                workspace_files_excluded=ws_result.files_excluded,
+            )
+        # NOTE(zeroclaw bearer rotation): the plan §1.4 contract
+        # requires phase 6a (`_zeroclaw_repair_after_start`) to run
+        # unconditionally for zeroclaw across all three sync modes,
+        # including `--workspace-only`. Wiring that here is part of the
+        # zeroclaw vertical slice (parent #760 Phase 2 — issue
+        # filed as the second subtask). Openclaw (this Phase 1 subtask)
+        # has no bearer rotation so the workspace-only path is complete
+        # for openclaw without it.
+        emit(
+            "sync",
+            f"workspace-only sync of {agent_name}: "
+            f"{len(ws_result.files_pushed)} pushed, "
+            f"{len(ws_result.files_excluded)} excluded",
+        )
+        return CanonicalSyncResult(
+            success=True,
+            agent=agent_name,
+            host=hostname,
+            files_written=(),
+            files_unchanged=(),
+            diffs=(),
+            error=None,
+            workspace_files_pushed=ws_result.files_pushed,
+            workspace_files_excluded=ws_result.files_excluded,
+        )
+
+    emit("render", f"rendering canonical config for {inputs.agent_type}")
+    rendered = renderer(inputs)
 
     emit("diff", f"reading on-host files from {hostname}")
     diffs = diff_files(
@@ -856,6 +927,41 @@ def sync_agent_canonical(
                 body=d.rendered_body,
             )
             files_written.append(d.path)
+
+        # Issue #760 §1.4 phase 3: push operator workspace overlay.
+        # Runs between the canonical write loop and restart so the
+        # daemon picks up both canonical config drift AND operator
+        # overlay drift in a single restart. Failure here MUST
+        # short-circuit before restart (W2 iter-1, I8 frozen-enum
+        # payload check) — restarting on a half-applied overlay is the
+        # regression class iter-2 protected.
+        workspace_files_pushed_t: tuple[str, ...] = ()
+        workspace_files_excluded_t: tuple[str, ...] = ()
+        if push_workspace:
+            from clawrium.core.workspace_sync import push_workspace_phase
+
+            def _ws_event(stage: str, payload: dict) -> None:
+                if on_event is None:
+                    return
+                import json as _json
+
+                on_event(stage, _json.dumps(payload))
+
+            ws_result = push_workspace_phase(
+                host=host,
+                agent_type=inputs.agent_type,
+                agent_name=agent_name,
+                on_event=_ws_event,
+                dry_run=dry_run,
+            )
+            workspace_files_pushed_t = ws_result.files_pushed
+            workspace_files_excluded_t = ws_result.files_excluded
+            if not ws_result.success:
+                raise CanonicalSyncError(
+                    f"workspace overlay push failed for {agent_name!r}: "
+                    f"{ws_result.error}. Skipping restart to avoid "
+                    f"flapping the unit on a half-applied overlay."
+                )
 
         # Restart policy:
         #
@@ -1009,4 +1115,6 @@ def sync_agent_canonical(
         files_unchanged=tuple(files_unchanged),
         diffs=tuple(diffs),
         error=transition_error,
+        workspace_files_pushed=workspace_files_pushed_t,
+        workspace_files_excluded=workspace_files_excluded_t,
     )

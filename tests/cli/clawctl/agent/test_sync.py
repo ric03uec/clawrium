@@ -54,12 +54,24 @@ def test_sync_skip_validate_drops_phase_1(fleet_dir) -> None:
     assert "pushing config" in result.output
 
 
-def test_sync_workspace_skips_restart(fleet_dir) -> None:
+def test_sync_no_restart_skips_restart(fleet_dir) -> None:
+    """Issue #760: `--workspace` is removed; `--no-restart` replaces the
+    canonical+overlay-no-restart shape."""
     result = runner.invoke(
-        app, ["agent", "sync", "wise-hypatia", "--dry-run", "--workspace"]
+        app, ["agent", "sync", "wise-hypatia", "--dry-run", "--no-restart"]
     )
     assert result.exit_code == 0
     assert "restarting unit" not in result.output
+
+
+def test_sync_workspace_flag_is_removed_hard_error(fleet_dir) -> None:
+    """Issue #760 W6 iter-2: `--workspace` is removed (BREAKING)."""
+    result = runner.invoke(
+        app, ["agent", "sync", "wise-hypatia", "--workspace"]
+    )
+    assert result.exit_code == 2
+    assert "--workspace-only" in result.output
+    assert "--no-restart" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -118,11 +130,15 @@ def test_sync_rejects_removed_force_flag(fleet_dir) -> None:
     assert "--force" in result.output
 
 
-def test_sync_workspace_flag_disables_restart_and_verify(
+def test_sync_no_restart_flag_disables_restart_and_verify(
     fleet_dir, monkeypatch
 ) -> None:
+    """Issue #760: `--no-restart` replaces the old `--workspace` alias for
+    canonical+overlay without flapping the unit."""
     captured = _patch_canonical_capture(monkeypatch)
-    result = runner.invoke(app, ["agent", "sync", "wise-hypatia", "--workspace"])
+    result = runner.invoke(
+        app, ["agent", "sync", "wise-hypatia", "--no-restart"]
+    )
     assert result.exit_code == 0, result.output
     assert captured.get("restart") is False
     assert captured.get("verify") is False
@@ -480,7 +496,7 @@ def test_sync_renders_gateway_token_rotated_as_yellow_notice(
     operators see when remote chat sessions need to reconnect."""
     import json as _json
 
-    def fake_sync(name, *, force, restart, verify, on_event):
+    def fake_sync(name, *, force, restart, verify, on_event, **_extra):
         on_event(
             "gateway_token_rotated",
             _json.dumps(
@@ -520,7 +536,7 @@ def test_sync_gateway_token_rotated_escapes_rich_markup_in_agent_key(
 
     hostile_key = "evil[/yellow][bold red]INJECTED[/bold red]"
 
-    def fake_sync(name, *, force, restart, verify, on_event):
+    def fake_sync(name, *, force, restart, verify, on_event, **_extra):
         on_event(
             "gateway_token_rotated",
             _json.dumps(

@@ -47,6 +47,16 @@ features:
     enabled: true
     bind: wildcard
     port_field: gateway.port
+  # Operator-owned overlay slot. Files dropped under
+  # ~/.config/clawrium/agents/openclaw/<name>/workspace/ are mirrored to
+  # `destination_root` on the agent host on every `clawctl agent sync`.
+  # Openclaw separates config (~/.openclaw/) from workspace
+  # (~/.openclaw/workspace/) per upstream — overlay writes only into the
+  # workspace zone, never into ~/.openclaw/ proper, so excludes can be
+  # empty.
+  workspace_overlay:
+    destination_root: "~/.openclaw/workspace"
+    excludes: []
 
 # Secrets configuration
 # Note: Provider-specific API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)

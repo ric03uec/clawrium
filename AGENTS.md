@@ -203,6 +203,70 @@ The hermes dashboard binds `127.0.0.1:<port>` only (`features.web_ui.bind: loopb
 
 **No `default_port` in bundled manifests.** Hermes, zeroclaw, and openclaw manifests all omit `features.web_ui.default_port`. install.py always persists a per-instance port at `port_field`; a manifest-wide default would silently collide on hosts running multiple agents of the same type. The resolver surfaces a missing persisted port as "no UI available" rather than inventing one. Third-party manifests may still opt into `default_port` — the schema accepts it.
 
+## Workspace Overlay (issue #760)
+
+Operator-supplied files dropped under
+`~/.config/clawrium/agents/<type>/<name>/workspace/` are mirrored onto
+the agent host at the manifest-declared destination root on every
+`clawctl agent sync` and `clawctl agent configure`. The shared push
+helper is `src/clawrium/core/workspace_sync.py:push_workspace_phase`;
+both `lifecycle_canonical.sync_agent_canonical` and
+`lifecycle.configure_agent` call it.
+
+Manifest contract — per-agent `manifest.yaml`:
+
+```yaml
+features:
+  workspace_overlay:
+    destination_root: "<absolute path under agent's home>"
+    excludes:                  # optional, relative-path strings
+      - <relpath>              # exact-file match
+      - <relpath>/             # trailing slash = dir-prefix match
+```
+
+Per-type destinations (Ubuntu, this iteration):
+
+| Agent | `destination_root` | Notes |
+|---|---|---|
+| openclaw | `~/.openclaw/workspace` | No excludes — workspace zone is operator-owned |
+| zeroclaw | _Phase 2 (#760 subtask 2)_ | |
+| hermes   | _Phase 3 (#760 subtask 3)_ | Renderer-output paths excluded |
+
+CLI flags on `clawctl agent sync`:
+
+- `--workspace-only` — push the overlay alone, skip canonical render /
+  restart / verify. Mutually exclusive with `--diff`. For zeroclaw the
+  bearer rotation still runs (lands in Phase 2).
+- `--no-restart` — canonical + overlay, skip restart. Bearer rotation
+  still runs for zeroclaw.
+- `--workspace` — **removed** (BREAKING). Exits 2 with a hint to the
+  two replacements above. No automated migration.
+
+Host-write path is **Ansible only** — per-agent
+`playbooks/workspace.yaml` (Linux) and `playbooks/workspace_macos.yaml`
+(stub until Phases 4–6). The Python side stages files into a managed
+`tempfile.TemporaryDirectory` under
+`${clawrium_config}/staging/workspace/<name>/` and passes the file
+list as the `workspace_files` extravar; ansible-runner reads the
+staged copies, never the operator's original path. Symlinks are
+rejected at enumeration (`os.path.islink`); `follow: no` on the
+`ansible.builtin.copy` task is belt-and-suspenders. The playbook
+asserts the rendered destination starts with `/home/{{ agent_name }}/`
+and NEVER references `ansible_user_dir` (B1 iter-3: `become_user`
+does not re-run `setup`, so the fact would resolve to the SSH user,
+not the agent user).
+
+Secret-pattern files (`*.key`, `*.pem`, `*.env`, `.env`,
+`*credentials*`, `*secret*`, `*token*`, `*password*`) get `mode: '0600'`
+regardless of local perms. Operator-controlled strings in NDJSON
+event payloads (`path`, `remote_path`, `reason`) are passed through
+`cli/output/_sanitize.py:sanitize_passthrough` so bidi/zero-width
+codepoints cannot spoof terminal output.
+
+Workspace-phase failure short-circuits before restart — the daemon is
+never restarted on a half-applied overlay. The failure surfaces as
+`CanonicalSyncError` → CLI `emit_error` → `typer.Exit(code=1)`.
+
 ## Tech Stack
 
 - **CLI**: Python + Typer

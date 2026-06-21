@@ -935,6 +935,37 @@ def run_installation(
         }
     }
 
+    # Issue #760: scaffold the local control-plane workspace slot for
+    # agent types whose manifest declares `features.workspace_overlay`.
+    # The directory is created with 0700 perms so the staging copies of
+    # operator-supplied files (which may include `*.env`, `*.key`,
+    # `*credentials*` etc.) are not group/world readable on the control
+    # machine. Idempotent: re-running install over an existing scaffold
+    # leaves user-dropped files and any custom mode bits untouched
+    # (B5 iter-1, U18).
+    try:
+        from clawrium.core.workspace_sync import WorkspaceOverlaySpec
+
+        overlay_spec = WorkspaceOverlaySpec.from_manifest(claw_name)
+        if overlay_spec is not None:
+            from clawrium.core.config import get_config_dir as _gcd
+
+            local_ws = (
+                _gcd() / "agents" / claw_name / agent_name / "workspace"
+            )
+            if not local_ws.exists():
+                local_ws.mkdir(parents=True, exist_ok=True, mode=0o700)
+                logger.info("Scaffolded local workspace at %s", local_ws)
+    except Exception as ws_exc:
+        # Non-fatal — workspace scaffold is opportunistic. Operator can
+        # mkdir the dir themselves; the playbook will still pick up
+        # files dropped in via the next sync.
+        logger.warning(
+            "Could not scaffold local workspace for %s: %s",
+            agent_name,
+            ws_exc,
+        )
+
     # Step 7: Setup persistent logs directory
     logs_dir = _get_logs_dir()
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")

@@ -20,7 +20,9 @@ numbered phase line so the user-visible sequence stays at 4 steps.
 Flags:
 - `--timeout 120` — 2-minute default; advisory (canonical pipeline
   does not honor a timeout parameter today).
-- `--workspace` — workspace files only, no restart.
+- `--workspace-only` — workspace overlay only, no canonical render/restart.
+- `--no-restart` — canonical render + workspace overlay, no restart.
+- `--workspace` — removed (issue #760); exits 2 with a hint.
 - `--dry-run` — validate + show intent, no push.
 - `--diff` — (F8, parent #555) host-vs-rendered unified diff per file.
   Implies `--dry-run`. Reads on-host files via SSH so you can verify
@@ -203,8 +205,31 @@ def _emit_diff_error(
 
 def sync(
     name: str = typer.Argument(..., help="Agent name."),
-    workspace: bool = typer.Option(
-        False, "--workspace", help="Workspace files only; no restart."
+    workspace_only: bool = typer.Option(
+        False,
+        "--workspace-only",
+        help=(
+            "Push workspace overlay only (rotates zeroclaw bearer). "
+            "Skips canonical render, restart, verify. "
+            "Mutually exclusive with --diff."
+        ),
+    ),
+    no_restart: bool = typer.Option(
+        False,
+        "--no-restart",
+        help=(
+            "Canonical render + workspace overlay; skip restart and verify. "
+            "Still rotates zeroclaw bearer."
+        ),
+    ),
+    workspace_deprecated: bool = typer.Option(
+        False,
+        "--workspace",
+        hidden=True,
+        help=(
+            "[REMOVED] Use --no-restart for canonical+overlay-no-restart, "
+            "or --workspace-only for overlay-only."
+        ),
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Validate + show intent; no push."
@@ -227,7 +252,33 @@ def sync(
         OutputFormat.table, "--output", "-o", help="Output format (table or json)."
     ),
 ) -> None:
-    """Flush local control-plane state to the agent (drift-to-zero)."""
+    """Flush local control-plane state and workspace overlay to the agent."""
+    # Issue #760 W6 iter-2 / W2 iter-3: `--workspace` is a HARD ERROR,
+    # not a deprecation alias. The flag prints both candidate
+    # replacements and exits 2 immediately. Routed through emit_error
+    # so JSON mode produces zero stdout bytes and one parseable error
+    # object on stderr (U32).
+    if workspace_deprecated:
+        emit_error(
+            "the --workspace flag was removed. "
+            "Use --no-restart for canonical+overlay-no-restart, "
+            "or --workspace-only for overlay-only.",
+            exit_code=2,
+        )
+        return
+
+    # Issue #760 §1.3 mutex rejection: --workspace-only --diff is
+    # ambiguous (workspace-only pushes a fresh overlay; diff is
+    # rendered-vs-host for the canonical pipeline). Reject explicitly
+    # (I7).
+    if workspace_only and diff:
+        emit_error(
+            "--workspace-only and --diff are mutually exclusive. "
+            "Use --workspace-only --dry-run for a non-mutating overlay "
+            "preview.",
+            exit_code=2,
+        )
+        return
     # Bug #516: see configure.py for full rationale.
     host, _agent_type, claw_record = safe_resolve_agent(name)
     agent_key = resolve_agent_key(host, name)
@@ -270,7 +321,12 @@ def sync(
     for key, label in zip(phase_keys, _PHASES):
         if key == "validate" and skip_validate:
             continue
-        if key == "restart" and workspace:
+        if key == "restart" and (no_restart or workspace_only):
+            continue
+        if key in ("validate", "push") and workspace_only:
+            # `--workspace-only` short-circuits before canonical render.
+            continue
+        if key == "verify" and (no_restart or workspace_only):
             continue
         # ATX iter-1 W3: in dry-run mode every phase short-circuits
         # before the canonical pipeline runs (the early return at the
@@ -376,14 +432,24 @@ def sync(
         canonical_result = sync_agent_canonical(
             on_host_name,
             force=False,
-            restart=not workspace,
-            verify=not workspace,
+            restart=not (no_restart or workspace_only),
+            verify=not (no_restart or workspace_only),
+            push_workspace=True,
+            workspace_only=workspace_only,
+            dry_run=dry_run,
             on_event=canonical_event,
         )
     except SecretRemovalRefused as exc:
         emit_error(str(exc))
         return
     except (AgentConfigError, CanonicalSyncError, RemoteReadError) as exc:
+        # Issue #760 S-cli-ux: workspace-phase failures from
+        # `sync_agent_canonical` come up as CanonicalSyncError with a
+        # "workspace overlay push failed" prefix. The exception flow
+        # is unchanged — `emit_error` already calls `sys.exit(1)` /
+        # raises `typer.Exit(code=1)` internally — but the integration
+        # test pins this contract so a future refactor cannot silently
+        # downgrade workspace failures to a non-zero-but-non-1 code.
         emit_error(f"sync failed: {exc}")
         return
 

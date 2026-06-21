@@ -2950,6 +2950,44 @@ def configure_agent(
                 )
                 emit("configure", f"Stored ETHOS_CHAT_TOKEN for {agent_key}")
 
+        # Issue #760 W3 iter-3: push operator workspace overlay
+        # alongside the configure flow so non-CLI callers (install
+        # retries, GUI integration, programmatic flows) inherit the
+        # overlay through this layer. The CLI shim does NOT call
+        # push_workspace_phase separately on the configure path.
+        #
+        # Failure here is logged but does not fail the configure call —
+        # the canonical configure already succeeded and the operator's
+        # next `clawctl agent sync` will surface the workspace error
+        # with full diagnostics. Crashing the configure on overlay
+        # failure would leave hosts.json updated with no recovery hook.
+        try:
+            from clawrium.core.workspace_sync import push_workspace_phase
+
+            def _ws_event_str(stage: str, payload: dict) -> None:
+                import json as _json
+
+                emit(stage, _json.dumps(payload))
+
+            ws_result = push_workspace_phase(
+                host=host,
+                agent_type=resolved_type,
+                agent_name=agent_key,
+                on_event=_ws_event_str if on_event is not None else None,
+            )
+            if not ws_result.success:
+                emit(
+                    "configure",
+                    f"warning: workspace overlay push failed: "
+                    f"{ws_result.error}",
+                )
+        except Exception as ws_exc:
+            logger.warning(
+                "workspace overlay push raised during configure_agent: %s",
+                ws_exc,
+                exc_info=True,
+            )
+
         emit("configure", f"Successfully configured {agent_key}")
         return True, None
 

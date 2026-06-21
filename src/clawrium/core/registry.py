@@ -161,12 +161,39 @@ class WebUIFeatureConfig(TypedDict):
     port_field: str
 
 
+class WorkspaceOverlayConfig(TypedDict):
+    """Operator-overlay descriptor for `features.workspace_overlay`.
+
+    `destination_root` is the absolute path on the agent host (under the
+    agent's home dir) where files from the local
+    `~/.config/clawrium/agents/<type>/<name>/workspace/` slot are mirrored
+    on every `clawctl agent sync`. The leading `~` is expanded against
+    the agent's home (`/home/<agent_name>` on Linux). The Python
+    enumerator and Ansible playbook agree on this expansion via the
+    `workspace_dest_root` extravar; the playbook asserts the rendered
+    path begins with `/home/{{ agent_name }}/` and never references
+    `ansible_user_dir` (B1 iter-3).
+
+    `excludes` is a list of relative-path strings interpreted with two
+    shapes (W10):
+      * No trailing slash → exact file match (`config.yaml` excludes
+        only the workspace-root `config.yaml`, never a nested
+        `profiles/x/config.yaml`).
+      * Trailing slash → directory prefix (`sessions/` excludes every
+        descendant of `sessions/`).
+    """
+
+    destination_root: str
+    excludes: NotRequired[list[str]]
+
+
 class FeaturesConfig(TypedDict):
     """Capability flags advertised by an agent manifest."""
 
     memory: NotRequired[bool]
     chat: NotRequired[ChatFeatureConfig]
     web_ui: NotRequired[WebUIFeatureConfig]
+    workspace_overlay: NotRequired[WorkspaceOverlayConfig]
 
 
 class AgentManifest(TypedDict):
@@ -641,6 +668,74 @@ def _validate_features(features_value: object, agent_type: str) -> FeaturesConfi
 
     if "web_ui" in features:
         validated["web_ui"] = _validate_web_ui(features["web_ui"], agent_type)
+
+    if "workspace_overlay" in features:
+        validated["workspace_overlay"] = _validate_workspace_overlay(
+            features["workspace_overlay"], agent_type
+        )
+
+    return validated
+
+
+def _validate_workspace_overlay(
+    overlay_value: object, agent_type: str
+) -> WorkspaceOverlayConfig:
+    """Validate `features.workspace_overlay` block.
+
+    Required: `destination_root` (non-empty string, absolute or `~`-rooted).
+    Optional: `excludes` (list of strings). `null` is normalized to `[]`.
+    Trailing-slash entries are dir-prefix; bare entries are exact-file.
+    """
+    overlay = _as_dict(overlay_value, "features.workspace_overlay", agent_type)
+    dest = overlay.get("destination_root")
+    if not isinstance(dest, str) or not dest.strip():
+        _raise_parse_error(
+            agent_type,
+            "has invalid `features.workspace_overlay.destination_root` "
+            "(expected non-empty string)",
+        )
+    dest = dest.strip()
+    if not (dest.startswith("/") or dest.startswith("~")):
+        _raise_parse_error(
+            agent_type,
+            "has invalid `features.workspace_overlay.destination_root` "
+            f"(expected absolute path or `~`-rooted, got {dest!r})",
+        )
+
+    validated: WorkspaceOverlayConfig = {"destination_root": dest}
+
+    if "excludes" in overlay:
+        raw_excludes = overlay["excludes"]
+        if raw_excludes is None:
+            validated["excludes"] = []
+        elif isinstance(raw_excludes, list):
+            cleaned: list[str] = []
+            for entry in raw_excludes:
+                if not isinstance(entry, str) or not entry.strip():
+                    _raise_parse_error(
+                        agent_type,
+                        "has invalid entry in "
+                        "`features.workspace_overlay.excludes` "
+                        "(expected non-empty string)",
+                    )
+                stripped = entry.strip()
+                if stripped.startswith("/") or ".." in stripped.split("/"):
+                    _raise_parse_error(
+                        agent_type,
+                        "has invalid entry in "
+                        "`features.workspace_overlay.excludes` "
+                        f"(must be a workspace-relative path, got {stripped!r})",
+                    )
+                cleaned.append(stripped)
+            validated["excludes"] = cleaned
+        else:
+            _raise_parse_error(
+                agent_type,
+                "has invalid `features.workspace_overlay.excludes` "
+                "(expected list or null)",
+            )
+    else:
+        validated["excludes"] = []
 
     return validated
 
