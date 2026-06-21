@@ -575,6 +575,14 @@ def push_workspace_phase(
             "workspace_dest_root": workspace_dest_root,
             "workspace_files": payload,
             "staging_dir": str(staging_dir),
+            # Pass the manifest exclude payload so the per-agent playbook
+            # can re-apply exclude semantics inside a `when:` clause as
+            # belt-and-suspenders (#769, hook-review S — platform-playbooks).
+            # Openclaw + zeroclaw both ship empty lists today; their
+            # playbooks ignore the vars. Hermes references both via the
+            # `workspace_excluded` Jinja filter.
+            "workspace_excludes_files": sorted(spec.excludes_files),
+            "workspace_excludes_dirs": list(spec.excludes_dirs),
         }
 
         private_data_dir = tempfile.mkdtemp(

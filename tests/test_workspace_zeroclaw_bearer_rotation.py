@@ -268,6 +268,23 @@ def test_zeroclaw_no_restart_sync_still_calls_repair(
 
 
 @pytest.mark.parametrize(
+    "agent_type,remote_path,rendered_body",
+    [
+        pytest.param(
+            "openclaw",
+            "/home/alice/.openclaw/openclaw.json",
+            "{}",
+            id="openclaw",
+        ),
+        pytest.param(
+            "hermes",
+            "/home/alice/.hermes/config.yaml",
+            "version: 1\n",
+            id="hermes",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
     "sync_kwargs",
     [
         pytest.param(
@@ -282,24 +299,31 @@ def test_zeroclaw_no_restart_sync_still_calls_repair(
         ),
     ],
 )
-def test_openclaw_never_calls_zeroclaw_repair(
-    make_canonical_stubs, sync_kwargs: dict
+def test_non_zeroclaw_never_calls_zeroclaw_repair(
+    make_canonical_stubs,
+    sync_kwargs: dict,
+    agent_type: str,
+    remote_path: str,
+    rendered_body: str,
 ) -> None:
-    """I-pair-D (openclaw cell): bearer rotation is zeroclaw-specific.
-    Openclaw's gateway uses a flat bearer in
+    """I-pair-D (openclaw + hermes cells, #769): bearer rotation is
+    zeroclaw-specific. Openclaw's gateway uses a flat bearer in
     `hosts.json.gateway.auth` but it is NOT rotated by clawctl; the
-    repair playbook does not exist for openclaw. Pinning this prevents
-    a regression where the `agent_type == "zeroclaw"` guard is dropped
-    or inverted. Hermes cell joins this parametrization in Phase 3."""
-    make_canonical_stubs("openclaw")
+    repair playbook does not exist for openclaw. Hermes has no
+    pairing flow at all — its api_server bearer is generated once at
+    install time and never rotated. Pinning both cells prevents a
+    regression where the `agent_type == "zeroclaw"` guard is dropped
+    or inverted (#769 completes the negative parametrization started
+    in Phase 2)."""
+    make_canonical_stubs(agent_type)
 
     repair_mock = MagicMock(return_value=(True, None))
 
     written_diff = MagicMock()
     written_diff.unified_diff = "--- a\n+++ b\n"
-    written_diff.path = ".openclaw/openclaw.json"
-    written_diff.remote_path = "/home/alice/.openclaw/openclaw.json"
-    written_diff.rendered_body = "{}"
+    written_diff.path = remote_path.split("/home/alice/")[1]
+    written_diff.remote_path = remote_path
+    written_diff.rendered_body = rendered_body
 
     with (
         patch(

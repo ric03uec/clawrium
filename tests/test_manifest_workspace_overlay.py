@@ -110,14 +110,55 @@ def test_workspace_overlay_parser_rejects_malformed_exclude_entry() -> None:
         )
 
 
+def test_hermes_workspace_overlay_destination_root_pinned() -> None:
+    """U2 (hermes subset, #769): destination_root sourced from manifest.
+    Hermes uses `~/.hermes` directly (no `workspace/` suffix) because the
+    overlay shares its destination with canonical-render output."""
+    manifest = load_manifest("hermes")
+    overlay = manifest["features"]["workspace_overlay"]
+    assert overlay["destination_root"] == "~/.hermes"
+
+
+def test_hermes_workspace_overlay_excludes_pinned() -> None:
+    """U3 (#769): the hermes exclude list is pinned to the exact set
+    documented in the plan §1.1. Drift is a release blocker.
+
+    Manifest entries with a trailing slash (`sessions/`, `logs/`,
+    `skills/clawrium/`) mean "dir-prefix exclude"; the loader retains
+    the trailing slash here in the raw manifest view. The typed
+    `WorkspaceOverlaySpec` strips it when classifying into
+    `excludes_dirs`."""
+    manifest = load_manifest("hermes")
+    overlay = manifest["features"]["workspace_overlay"]
+    assert set(overlay["excludes"]) == {
+        "config.yaml",
+        ".env",
+        "auth.json",
+        "state.db",
+        "state.db-journal",
+        "state.db-wal",
+        "state.db-shm",
+        "sessions/",
+        "logs/",
+        "skills/clawrium/",
+    }
+
+
 def test_workspace_overlay_block_absent_yields_no_overlay() -> None:
     """An agent type with no `features.workspace_overlay` block must
     return None from the typed accessor (the in-source contract used by
-    `workspace_sync.WorkspaceOverlaySpec.from_manifest`)."""
+    `workspace_sync.WorkspaceOverlaySpec.from_manifest`).
+
+    Every bundled agent type (openclaw, zeroclaw, hermes) now ships
+    with a workspace_overlay block, so we exercise the missing-block
+    path with a manual fixture instead.
+    """
     from clawrium.core.workspace_sync import WorkspaceOverlaySpec
 
-    spec = WorkspaceOverlaySpec.from_manifest("hermes")
-    # hermes does not yet have a workspace_overlay block (lands in
-    # Phase 3 of #760). Until then, the helper returns None and any
-    # caller treats it as "no overlay for this agent type".
-    assert spec is None or spec.destination_root  # tolerate Phase 3 landing
+    # All three currently-bundled types have overlays; the typed
+    # accessor should NEVER return None for them.
+    for agent_type in ("openclaw", "zeroclaw", "hermes"):
+        spec = WorkspaceOverlaySpec.from_manifest(agent_type)
+        assert spec is not None, (
+            f"{agent_type} must declare features.workspace_overlay"
+        )

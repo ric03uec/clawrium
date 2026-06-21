@@ -1,3 +1,11 @@
+---
+sidebar_position: 2
+description: How `clawctl agent sync` flushes local control-plane state to the host — canonical render + operator-supplied workspace overlay.
+keywords: [sync, clawctl, workspace, overlay, doctor, diff]
+---
+
+<!-- Mirror of docs/operations/sync.md. Do not edit here directly — edit docs/operations/sync.md and copy the body verbatim. The Docusaurus frontmatter above and this comment are the only website-specific additions. -->
+
 # `clawctl agent sync` — flush local control-plane state to the host
 
 `sync` is the drift-to-zero command. It re-renders the canonical

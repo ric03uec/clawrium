@@ -24,6 +24,46 @@ features:
     enabled: true
     bind: loopback
     port_field: dashboard.port
+  # Operator-owned overlay slot. Files dropped under
+  # ~/.config/clawrium/agents/hermes/<name>/workspace/ are mirrored to
+  # `destination_root` on the agent host on every `clawctl agent sync`.
+  #
+  # Hermes has no dedicated "workspace" subdirectory — the overlay lands
+  # directly under `~/.hermes/` alongside canonical-render output
+  # (`.env`, `config.yaml`) and daemon state. The `excludes` list
+  # reserves every path Clawrium itself manages, so operator drops
+  # cannot overwrite them:
+  #
+  #   - `config.yaml`, `.env`         → rendered by core/render.py
+  #                                     (render_hermes). U5 enforces
+  #                                     `excludes ⊇ render output keys`.
+  #   - `auth.json`                   → operator-paired upstream auth.
+  #   - `state.db`, `state.db-{journal,wal,shm}` → SQLite state for
+  #                                     the daemon. Overlaying these
+  #                                     while the daemon holds the WAL
+  #                                     open corrupts the database
+  #                                     silently. All three WAL companion
+  #                                     files MUST be excluded.
+  #   - `sessions/`                   → per-conversation transcripts.
+  #   - `logs/`                       → daemon log output.
+  #   - `skills/clawrium/`            → reconciled by hermes
+  #                                     playbooks/skills_apply.yaml.
+  #                                     U33 enforces this is a strict
+  #                                     superset of the skills_apply
+  #                                     write target.
+  workspace_overlay:
+    destination_root: "~/.hermes"
+    excludes:
+      - config.yaml
+      - .env
+      - auth.json
+      - state.db
+      - state.db-journal
+      - state.db-wal
+      - state.db-shm
+      - sessions/
+      - logs/
+      - skills/clawrium/
 
 # Secrets configuration.
 # All provider keys are optional: Phase 1 installs the binary in an inert state.
