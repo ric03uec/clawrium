@@ -38,6 +38,16 @@ def test_openclaw_spec_from_manifest_has_no_excludes() -> None:
     assert spec.excludes_dirs == ()
 
 
+def test_zeroclaw_spec_from_manifest_has_no_excludes() -> None:
+    """U4 (zeroclaw subset, #768) — zeroclaw mirrors openclaw's
+    empty-excludes contract."""
+    spec = WorkspaceOverlaySpec.from_manifest("zeroclaw")
+    assert spec is not None
+    assert spec.destination_root == "~/.zeroclaw/workspace"
+    assert spec.excludes_files == frozenset()
+    assert spec.excludes_dirs == ()
+
+
 def test_unknown_agent_type_raises_from_manifest() -> None:
     from clawrium.core.registry import ManifestNotFoundError
 
@@ -323,23 +333,48 @@ def test_resolver_returns_correct_path_per_os() -> None:
     assert darwin_path.name == "workspace_macos.yaml"
 
 
+def test_resolver_returns_zeroclaw_workspace_playbooks() -> None:
+    """U12 (zeroclaw subset, #768) — both linux and darwin variants
+    exist on disk for zeroclaw, mirroring the openclaw pair."""
+    from clawrium.core.playbook_resolver import resolve_agent_playbook
+
+    linux_path = resolve_agent_playbook("zeroclaw", "workspace", "linux")
+    assert linux_path.name == "workspace.yaml"
+    assert linux_path.parent.name == "playbooks"
+    assert linux_path.parent.parent.name == "zeroclaw"
+    assert linux_path.exists()
+
+    darwin_path = resolve_agent_playbook("zeroclaw", "workspace", "darwin")
+    assert darwin_path.name == "workspace_macos.yaml"
+    assert darwin_path.exists()
+
+
 # ---------------------------------------------------------------------------
 # playbook body invariants (U22, U23) — AST-grep on YAML
 # ---------------------------------------------------------------------------
 
 
-def _openclaw_workspace_yaml_body() -> str:
+def _workspace_yaml_body(agent_type: str) -> str:
     from clawrium.core.playbook_resolver import resolve_agent_playbook
 
-    return resolve_agent_playbook("openclaw", "workspace", "linux").read_text()
+    return resolve_agent_playbook(agent_type, "workspace", "linux").read_text()
 
 
-def test_workspace_playbook_does_not_reference_ansible_user_dir() -> None:
+def _openclaw_workspace_yaml_body() -> str:
+    return _workspace_yaml_body("openclaw")
+
+
+# Parametrized over both Ubuntu-shipping agent types so the U22 / U23
+# invariants are enforced uniformly. Hermes joins this matrix in Phase 3.
+@pytest.mark.parametrize("agent_type", ["openclaw", "zeroclaw"])
+def test_workspace_playbook_does_not_reference_ansible_user_dir(
+    agent_type: str,
+) -> None:
     """U22 — B1 iter-3: `ansible_user_dir` resolves to SSH user, not
     agent user. The playbook MUST NOT reference it in any task body.
     Comments explaining the rationale are allowed.
     """
-    body = _openclaw_workspace_yaml_body()
+    body = _workspace_yaml_body(agent_type)
     non_comment_lines: list[str] = []
     for line in body.splitlines():
         stripped = line.split("#", 1)[0]
@@ -347,16 +382,30 @@ def test_workspace_playbook_does_not_reference_ansible_user_dir() -> None:
     assert "ansible_user_dir" not in "\n".join(non_comment_lines)
 
 
-def test_workspace_playbook_uses_copy_with_follow_no() -> None:
+@pytest.mark.parametrize("agent_type", ["openclaw", "zeroclaw"])
+def test_workspace_playbook_uses_copy_with_follow_no(agent_type: str) -> None:
     """U23 — symlink defense at the playbook copy boundary."""
-    body = _openclaw_workspace_yaml_body()
+    body = _workspace_yaml_body(agent_type)
     assert "ansible.builtin.copy" in body
     # The copy task carries `follow: no`. Loose match — YAML whitespace
     # may vary.
     assert "follow: no" in body or "follow: false" in body.lower()
 
 
-def test_workspace_playbook_asserts_home_agent_name_prefix() -> None:
+@pytest.mark.parametrize("agent_type", ["openclaw", "zeroclaw"])
+def test_workspace_playbook_asserts_home_agent_name_prefix(
+    agent_type: str,
+) -> None:
     """U22 — the assert task pins rendered dest under /home/{{ agent_name }}/."""
-    body = _openclaw_workspace_yaml_body()
+    body = _workspace_yaml_body(agent_type)
     assert "workspace_dest_root.startswith('/home/' ~ agent_name ~ '/')" in body
+
+
+def test_zeroclaw_workspace_playbook_uses_agent_name_as_become_user() -> None:
+    """U22 (zeroclaw subset, #768): playbook becomes the agent unix user
+    (`become_user: {{ agent_name }}`), matching openclaw's contract. The
+    SSH user (xclm) writing into ~/.zeroclaw/workspace/ would leave the
+    files owned by xclm, breaking the daemon's reads."""
+    body = _workspace_yaml_body("zeroclaw")
+    assert 'become_user: "{{ agent_name }}"' in body
+    assert "become: yes" in body

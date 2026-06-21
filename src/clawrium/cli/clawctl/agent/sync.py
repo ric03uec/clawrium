@@ -212,8 +212,9 @@ def sync(
             "Push workspace overlay only. "
             "Skips canonical render, restart, verify. "
             "Mutually exclusive with --diff and --no-restart. "
-            "NOT supported for zeroclaw in Phase 1 of #760 — bearer "
-            "rotation wiring lands in Phase 2."
+            "Supported for zeroclaw — the gateway bearer is re-paired "
+            "after the overlay push so hosts.json.gateway.auth stays in "
+            "sync with the daemon."
         ),
     ),
     no_restart: bool = typer.Option(
@@ -221,8 +222,9 @@ def sync(
         "--no-restart",
         help=(
             "Canonical render + workspace overlay; skip restart and verify. "
-            "NOT supported for zeroclaw in Phase 1 of #760 — bearer "
-            "rotation wiring lands in Phase 2."
+            "Supported for zeroclaw — the gateway bearer is re-paired "
+            "even when restart is skipped, since any externally-driven "
+            "daemon restart invalidates the on-disk bearer."
         ),
     ),
     workspace_deprecated: bool = typer.Option(
@@ -297,47 +299,18 @@ def sync(
         )
         return
 
-    # ATX iter-2 B2-NEW: gate `--workspace-only` / `--no-restart` away
-    # from zeroclaw in Phase 1 of #760. Both flags skip the restart
-    # branch where the canonical pipeline currently rotates the
-    # zeroclaw gateway bearer. Phase 2 wires
-    # `_zeroclaw_repair_after_start` into the workspace-only and
-    # no-restart paths unconditionally per AGENTS.md "Gateway Token
-    # Lifecycle (zeroclaw)" — until then, allowing these flags for
-    # zeroclaw leaves `hosts.json.gateway.auth` stale on the next
-    # daemon restart, with `clawctl agent chat` returning 401 and no
-    # diagnostic. Block with a clear error rather than ship the
-    # footgun.
-    # Bug #516: see configure.py for full rationale.
-    # ATX iter-3 W6: hoisted above the zeroclaw gate so resolver
-    # exceptions surface with their normal messages and the gate uses
-    # the same lookup result as the rest of the function (no double
-    # call, no silent bypass on transient lookup failure).
+    # Phase 1 of #760 gated `--workspace-only` / `--no-restart` away
+    # from zeroclaw because the bearer-rotation invariant was not yet
+    # wired into either path. Phase 2 (#768) now invokes
+    # `_zeroclaw_repair_after_start` unconditionally in
+    # `lifecycle_canonical.sync_agent_canonical` for both flags, so the
+    # gate is dropped. The resolver call below is retained because
+    # downstream code (NDJSON emit, agent_key lookup) still relies on
+    # it, and ATX iter-3 W6 (hoisted above the old gate) keeps the
+    # single-lookup contract intact.
     host, _agent_type, claw_record = safe_resolve_agent(name)
     agent_key = resolve_agent_key(host, name)
     agent_type = claw_record.get("type", _agent_type)
-
-    if (workspace_only or no_restart) and agent_type == "zeroclaw":
-        # ATX iter-2 B2-NEW: Both flags skip the restart branch where
-        # the canonical pipeline currently rotates the zeroclaw gateway
-        # bearer. Phase 2 wires `_zeroclaw_repair_after_start` into the
-        # workspace-only and no-restart paths unconditionally per
-        # AGENTS.md "Gateway Token Lifecycle (zeroclaw)" — until then,
-        # allowing these flags for zeroclaw leaves
-        # `hosts.json.gateway.auth` stale on the next daemon restart,
-        # with `clawctl agent chat` returning 401 and no diagnostic.
-        # Block with a clear error rather than ship the footgun.
-        chosen = "--workspace-only" if workspace_only else "--no-restart"
-        emit_error(
-            f"{chosen} is not supported for zeroclaw agents in this "
-            f"release (#760 Phase 1). Bearer rotation wiring lands "
-            f"in Phase 2 (#760); until then, running {chosen} on a "
-            f"zeroclaw agent would leave the stored gateway bearer "
-            f"stale on the next daemon restart. Use `clawctl agent "
-            f"sync {name}` without the flag.",
-            exit_code=2,
-        )
-        return
 
     # F8 (parent #555): `--diff` implies `--dry-run`. Promote here so
     # the phase-emission and short-circuit logic below sees the
@@ -452,6 +425,8 @@ def sync(
             from rich.console import Console
             from rich.markup import escape as rich_escape
 
+            from clawrium.cli.output._sanitize import sanitize
+
             console = Console()
 
             agent_label: str | None = None
@@ -465,13 +440,15 @@ def sync(
                 pass
             if agent_label:
                 # `agent_label` originates from JSON-parsed daemon output;
-                # escape Rich markup metacharacters (`[`, `]`) before
-                # interpolating so a hostile or accidental `[bold]` in an
-                # agent_key cannot rewrite the rendered styling. Matches
-                # the pattern at cli/agent.py:145.
+                # iter-2 cli-ux W1 + W2: route through `sanitize` (strict —
+                # strips bidi + zero-width + C0/C1 controls + ANSI escapes;
+                # agent_key is a single-line token with no legitimate
+                # whitespace to preserve) BEFORE `rich_escape` (markup-only).
+                # Closes the same vector W3 patched in the
+                # `gateway_auth_stale` handler below.
                 console.print(
                     f"  [yellow]Gateway token rotated for "
-                    f"{rich_escape(agent_label)}. "
+                    f"{rich_escape(sanitize(agent_label))}. "
                     f"Active chat sessions on other machines will need to "
                     f"reconnect.[/yellow]"
                 )
@@ -480,6 +457,83 @@ def sync(
                     "  [yellow]Gateway token rotated. Active chat sessions "
                     "on other machines will need to reconnect.[/yellow]"
                 )
+            return
+        if stage == "gateway_auth_stale":
+            # Issue #760 Phase 2 (#768) W11 iter-3 stale-bearer banner.
+            # `lifecycle_canonical.sync_agent_canonical` emits this
+            # event right before raising when zeroclaw's re-pair fails:
+            # the daemon will enforce a bearer the on-disk
+            # `hosts.json.gateway.auth` no longer matches. The error
+            # itself surfaces via the CanonicalSyncError path; this
+            # banner gives the operator a head-start on the diagnosis
+            # before that error lands. The `detail` field is the raw
+            # `repair_err` string from the pair playbook — operator
+            # debuggability hint per recommendation in iter-1
+            # lifecycle-core review (we surface it explicitly so the
+            # operator doesn't have to scrape NDJSON).
+            import json as _json
+            import sys as _sys
+
+            from rich.console import Console
+            from rich.markup import escape as rich_escape
+
+            from clawrium.cli.output._sanitize import sanitize
+
+            stderr_console = Console(stderr=True)
+
+            agent_label = None
+            detail_text = ""
+            try:
+                payload = _json.loads(message)
+                if isinstance(payload, dict):
+                    raw_key = payload.get("agent_key")
+                    if isinstance(raw_key, str) and raw_key:
+                        agent_label = raw_key
+                    raw_detail = payload.get("detail")
+                    if isinstance(raw_detail, str):
+                        detail_text = raw_detail
+            except (_json.JSONDecodeError, TypeError):
+                pass
+
+            # iter-1 cli-ux W3 + iter-2 cli-ux W2: both `agent_label`
+            # (operator-chosen agent name) and `detail_text` (raw
+            # `repair_err` from the pair playbook / ansible-runner) are
+            # operator-controlled, single-line tokens. `sanitize` is
+            # the strict primitive — strips bidi + zero-width + C0/C1
+            # controls + ANSI escape sequences. Use it (not
+            # `sanitize_passthrough`, which only strips bidi) so a
+            # hostile `\x1b[2J` or U+202E in the daemon's 401 echo
+            # can't manipulate the terminal. `rich_escape` second to
+            # block Rich's `[...]` markup metacharacters.
+            if agent_label:
+                label_text = sanitize(agent_label)
+                label = rich_escape(label_text)
+                # iter-2 cli-ux S1: the recovery hint embeds the agent
+                # name in a `clawctl agent restart <name>` snippet. With
+                # a valid label the snippet is copy-pasteable; on the
+                # malformed-payload fallback we drop the name parameter
+                # entirely so the operator does not paste an
+                # unrunnable two-positional command.
+                restart_cmd = f"clawctl agent restart {label}"
+                doctor_cmd = f"clawctl agent doctor {label}"
+            else:
+                label = "zeroclaw agent"
+                restart_cmd = "clawctl agent restart <agent-name>"
+                doctor_cmd = "clawctl agent doctor <agent-name>"
+            stderr_console.print(
+                f"  [yellow]WARN: Gateway bearer for {label} is now stale "
+                f"on disk: the daemon is running but "
+                f"`hosts.json.gateway.auth` may not match the bearer it "
+                f"will enforce. Run `{restart_cmd}` first; if that "
+                f"fails, `{doctor_cmd}` for diagnosis.[/yellow]"
+            )
+            if detail_text:
+                stderr_console.print(
+                    f"    [dim]repair detail: "
+                    f"{rich_escape(sanitize(detail_text))}"
+                    f"[/dim]"
+                )
+            _sys.stderr.flush()
             return
         stream_action(resource=resource, message=f"{stage}: {message}")
 

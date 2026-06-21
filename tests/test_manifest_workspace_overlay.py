@@ -33,6 +33,22 @@ def test_openclaw_workspace_overlay_has_no_excludes() -> None:
     assert overlay.get("excludes", []) == []
 
 
+def test_zeroclaw_workspace_overlay_destination_root_pinned() -> None:
+    """U2 (zeroclaw subset, #768): destination_root sourced from manifest,
+    matches the on-host workspace path zeroclaw itself uses for memory."""
+    manifest = load_manifest("zeroclaw")
+    overlay = manifest["features"]["workspace_overlay"]
+    assert overlay["destination_root"] == "~/.zeroclaw/workspace"
+
+
+def test_zeroclaw_workspace_overlay_has_no_excludes() -> None:
+    """U4 (zeroclaw subset, #768): zeroclaw renders no canonical config
+    or auth artifacts under the workspace root, so excludes are empty."""
+    manifest = load_manifest("zeroclaw")
+    overlay = manifest["features"]["workspace_overlay"]
+    assert overlay.get("excludes", []) == []
+
+
 def test_workspace_overlay_parser_accepts_minimal_block() -> None:
     spec = _validate_workspace_overlay(
         {"destination_root": "/home/agent/.x/workspace"}, "openclaw"

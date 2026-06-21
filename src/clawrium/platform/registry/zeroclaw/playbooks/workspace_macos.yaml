@@ -1,0 +1,14 @@
+---
+# Stub playbook — macOS workspace overlay is deferred to subtask #5
+# of parent #760 (Phase 5). Single source of error surface: the
+# Ansible `fail:` task here. Python side does NOT short-circuit darwin
+# (W8/W9 iter-3); the dispatcher routes via
+# `core/playbook_resolver.resolve_agent_playbook` and the non-zero rc
+# surfaces as a `WorkspaceSyncError` in `core/workspace_sync.py` with
+# this `fail.msg` propagated.
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: workspace overlay deferred to macOS subtask
+      ansible.builtin.fail:
+        msg: "workspace overlay deferred to macOS subtask"

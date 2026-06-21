@@ -34,6 +34,17 @@ features:
     enabled: true
     bind: wildcard
     port_field: gateway.port
+  # Operator-owned overlay slot. Files dropped under
+  # ~/.config/clawrium/agents/zeroclaw/<name>/workspace/ are mirrored to
+  # `destination_root` on the agent host on every `clawctl agent sync`.
+  # Zeroclaw's workspace dir is the same path that holds the canonical
+  # memory tree (see `workspace.memory_path` above), so the overlay
+  # writes alongside operator-edited memory files. Excludes are empty:
+  # zeroclaw does not render config or auth artifacts under the
+  # workspace root, so no path must be reserved.
+  workspace_overlay:
+    destination_root: "~/.zeroclaw/workspace"
+    excludes: []
 
 # Secrets for this agent. Provider URL and model are now sourced from the
 # providers system (selected during the onboarding `providers` stage and

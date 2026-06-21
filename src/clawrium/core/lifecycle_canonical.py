@@ -806,14 +806,77 @@ def sync_agent_canonical(
                 f"workspace overlay push failed for {agent_name!r}: "
                 f"{ws_result.error}"
             )
-        # NOTE(zeroclaw bearer rotation): the plan §1.4 contract
-        # requires phase 6a (`_zeroclaw_repair_after_start`) to run
-        # unconditionally for zeroclaw across all three sync modes,
-        # including `--workspace-only`. Wiring that here is part of the
-        # zeroclaw vertical slice (parent #760 Phase 2 — issue
-        # filed as the second subtask). Openclaw (this Phase 1 subtask)
-        # has no bearer rotation so the workspace-only path is complete
-        # for openclaw without it.
+
+        # Issue #760 Phase 2 (#768) — bearer rotation invariant.
+        # AGENTS.md "Gateway Token Lifecycle (zeroclaw)" is explicit:
+        # `configure` / `sync` / `restart` MUST mint a fresh bearer and
+        # overwrite `hosts.json.gateway.auth` on every call. There is no
+        # idempotent-skip path; an out-of-sync `auth` field is the bug
+        # we are guarding against (#437). `--workspace-only` is just
+        # another sync entry point and is bound by the same contract.
+        #
+        # Dry-run gate (W6 iter-3): when the CLI passes `dry_run=True`
+        # we MUST NOT mint a bearer or emit `gateway_token_rotated` —
+        # the operator asked for an inspection, not a rotation. The CLI
+        # short-circuits before reaching this branch today (an early
+        # return at sync.py:396), but the gate here is defense-in-depth
+        # against any future programmatic caller that passes `dry_run`
+        # alongside `workspace_only`.
+        if inputs.agent_type == "zeroclaw" and not dry_run:
+            from clawrium.core.lifecycle import _zeroclaw_repair_after_start
+
+            emit(
+                "repair",
+                f"re-pairing zeroclaw gateway for {agent_name} "
+                f"(workspace-only sync)",
+            )
+            # iter-1 lifecycle-core S5: pass a distinct `reason` so
+            # post-mortem analysis can grep `gateway_token_rotated`
+            # events by entry point (workspace-only-sync vs default
+            # sync vs restart).
+            repair_ok, repair_err = _zeroclaw_repair_after_start(
+                hostname,
+                agent_name=agent_name,
+                on_event=on_event,
+                reason="workspace-only-sync",
+            )
+            if not repair_ok:
+                # Workspace push already landed on host; the daemon
+                # state is intact and the only fallout is that
+                # `hosts.json.gateway.auth` may now lag behind whatever
+                # bearer the daemon will enforce on the next request.
+                # That's the W11 stale-bearer case — surface it as a
+                # structured event before raising so the operator has a
+                # diagnostic instead of a silent 401 storm on the next
+                # `clawctl agent chat`.
+                if on_event is not None:
+                    import json as _json
+
+                    on_event(
+                        "gateway_auth_stale",
+                        _json.dumps(
+                            {
+                                "agent_key": agent_name,
+                                "reason": "workspace-only re-pair failed",
+                                "detail": repair_err or "",
+                            }
+                        ),
+                    )
+                # iter-1 lifecycle-core W2: tightened remediation — a
+                # deterministic pair failure (port-bind issue, dead
+                # daemon) will repeat on a plain sync. `restart` first
+                # is more likely to recover; `doctor` is the fallback
+                # diagnostic.
+                raise CanonicalSyncError(
+                    f"workspace-only sync wrote overlay for {agent_name!r} "
+                    f"but the gateway re-pair failed: {repair_err}. "
+                    f"`clawctl agent chat` will return 401 until the "
+                    f"bearer rotates. Run `clawctl agent restart "
+                    f"{agent_name}` to recover; if that fails, "
+                    f"`clawctl agent doctor {agent_name}` for "
+                    f"diagnosis."
+                )
+
         emit(
             "sync",
             f"workspace-only sync of {agent_name}: "
@@ -1021,7 +1084,16 @@ def sync_agent_canonical(
     # Round 1 B3 code introduced." Re-pair unconditionally on every
     # zeroclaw sync regardless of `restart`. The pair playbook is the
     # single source of truth for the handshake.
-    if inputs.agent_type == "zeroclaw":
+    #
+    # Issue #760 Phase 2 (#768): the same `--no-restart` path lands
+    # here too — the bearer rotates even when the operator asked to
+    # skip the systemd restart, because (per AGENTS.md) any externally-
+    # triggered daemon restart (host reboot, ops-driven `systemctl
+    # restart`) will have already invalidated the on-disk bearer.
+    # Dry-run gate (W6 iter-3): defense-in-depth against any future
+    # programmatic caller that passes `dry_run` into this layer (the
+    # CLI short-circuits before reaching here today).
+    if inputs.agent_type == "zeroclaw" and not dry_run:
         from clawrium.core.lifecycle import _zeroclaw_repair_after_start
 
         emit("repair", f"re-pairing zeroclaw gateway for {agent_name}")
@@ -1032,11 +1104,50 @@ def sync_agent_canonical(
             reason="sync",
         )
         if not repair_ok:
+            # W11 iter-3 stale-bearer banner: restart + verify already
+            # completed when applicable; in --no-restart mode any prior
+            # external restart already invalidated the on-disk bearer
+            # and the re-pair was the recovery path. Either way the
+            # disk-side `hosts.json.gateway.auth` may now lag whatever
+            # bearer the daemon enforces on the next request — surface
+            # the divergence as a structured NDJSON event before
+            # raising so operators get a starting point instead of
+            # chasing silent 401s on the next `clawctl agent chat`.
+            # (iter-1 lifecycle-core W1: corrected from the misleading
+            # "restart + verify succeeded above" wording.)
+            if on_event is not None:
+                import json as _json
+
+                on_event(
+                    "gateway_auth_stale",
+                    _json.dumps(
+                        {
+                            "agent_key": agent_name,
+                            "reason": "sync re-pair failed",
+                            "detail": repair_err or "",
+                        }
+                    ),
+                )
+            # iter-1 lifecycle-core W2: tightened remediation — see the
+            # workspace-only branch comment for rationale.
+            # iter-2 lifecycle-core W3: branch the preamble on `restart`
+            # so the message does not claim a restart that did not run
+            # in --no-restart mode (operators would otherwise look for
+            # systemctl evidence of a restart that never happened).
+            if restart:
+                preamble = (
+                    f"sync wrote and restarted {agent_name!r}"
+                )
+            else:
+                preamble = (
+                    f"sync of {agent_name!r} (restart skipped)"
+                )
             raise CanonicalSyncError(
-                f"sync wrote and restarted {agent_name!r} but the gateway "
-                f"re-pair failed: {repair_err}. `clawctl agent chat` will "
-                f"return 401 until you re-run `clawctl agent sync` or "
-                f"`clawctl agent restart`."
+                f"{preamble} but the gateway re-pair failed: "
+                f"{repair_err}. `clawctl agent chat` will return 401 "
+                f"until the bearer rotates. Run `clawctl agent restart "
+                f"{agent_name}` to recover; if that fails, "
+                f"`clawctl agent doctor {agent_name}` for diagnosis."
             )
 
     # B2: advance the onboarding state machine to READY so
