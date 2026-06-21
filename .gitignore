@@ -232,6 +232,7 @@ gui/out/
 gui/.next/
 *.tsbuildinfo
 src/clawrium/gui/frontend/
+src/clawrium/_version.py
 .claude/worktrees/
 
 # Scheduled-task internal state (ScheduleWakeup runtime lock)

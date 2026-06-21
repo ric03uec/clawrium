@@ -16,6 +16,8 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- `clawctl version` and `clawctl --version` now show the git commit SHA alongside the release version (#656).
+
 ### Changed
 
 ### Fixed
