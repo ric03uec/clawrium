@@ -455,3 +455,53 @@ openclaw — the simplest agent — so the cross-cutting contracts get
 stress-tested on `wolf-i` before zeroclaw's bearer-rotation invariant
 and hermes' exclude semantics are layered on top. No subtask issues
 created; no labels touched; no execution started.
+
+## Prompt Log
+
+**Stage**: scaffolding (re-invocation — workflow completion)
+**Skill**: /itx:plan-scaffold
+**Timestamp**: 2026-06-20T18:45:00Z
+**Model**: claude-opus-4-7
+
+```prompt
+/itx:plan-scaffold 760
+```
+
+**Output**: Existing scaffold (committed in #766) re-used as-is. Posted
+scaffold summary as comment on #760
+([comment-4760561028](https://github.com/ric03uec/clawrium/issues/760#issuecomment-4760561028)),
+added `ready` label, and created three subtask issues linked as
+sub-issues of #760:
+
+- #767 — Phase 1: openclaw workspace overlay end-to-end on Ubuntu
+- #768 — Phase 2: zeroclaw workspace overlay end-to-end on Ubuntu
+- #769 — Phase 3: hermes workspace overlay end-to-end on Ubuntu
+- #770 — Phase 4: openclaw workspace overlay end-to-end on macOS (deferred)
+- #771 — Phase 5: zeroclaw workspace overlay end-to-end on macOS (deferred)
+- #772 — Phase 6: hermes workspace overlay end-to-end on macOS (deferred)
+
+macOS Phases 4–6 filed as deferred tracking issues per user request
+(will be closed if `mac-test` capacity does not materialize).
+
+## Execute (orchestrate)
+
+**Stage**: execution (orchestrate mode)
+**Skill**: /itx:execute
+**Timestamp**: 2026-06-20T18:55:00Z
+**Model**: claude-opus-4-7
+
+```prompt
+/itx:execute 760 orchestrate all the ubuntu tasks. run in worktrees and tell subtasks to use atx cli for reviews. go
+```
+
+**Output**: Orchestrator session `clawrium-issue-760` (tmux) spawning
+Ubuntu subtasks (#767 → #768 → #769) in stacked-PR layout. macOS
+subtasks (#770–#772) intentionally skipped — out of orchestrate scope.
+
+- Worktrees: `~/workspace/ric03uec/clawrium-issue-<N>/`
+- Branches: `issue-<N>-<agent>-workspace-overlay`
+- PR base chain: #767 → main, #768 → issue-767-…, #769 → issue-768-…
+- Children directed to use ATX **via CLI** (not MCP) per user
+  directive — `atx review` invoked from inside each worktree.
+- Polling cadence: 10 min (per memory `orchestrate_auto_advance`).
+- Orchestrator does not touch source, does not merge, does not block.
