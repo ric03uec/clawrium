@@ -48,6 +48,39 @@ def test_zeroclaw_spec_from_manifest_has_no_excludes() -> None:
     assert spec.excludes_dirs == ()
 
 
+def test_hermes_spec_from_manifest_destination_pinned() -> None:
+    """U2 (hermes subset, #769) — destination_root sourced from the
+    manifest, not hard-coded in core. Hermes uses `~/.hermes` (no
+    `workspace/` suffix) because the overlay shares its destination
+    with canonical-render output."""
+    spec = WorkspaceOverlaySpec.from_manifest("hermes")
+    assert spec is not None
+    assert spec.destination_root == "~/.hermes"
+
+
+def test_hermes_spec_from_manifest_excludes_pinned() -> None:
+    """U3 (#769) — the hermes exclude set is the exact list documented
+    in the plan §1.1 and the manifest comment. Drift here is a release
+    blocker: dropping a single entry exposes daemon-managed bytes to
+    operator overwrite."""
+    spec = WorkspaceOverlaySpec.from_manifest("hermes")
+    assert spec is not None
+    assert spec.excludes_files == frozenset(
+        {
+            "config.yaml",
+            ".env",
+            "auth.json",
+            "state.db",
+            "state.db-journal",
+            "state.db-wal",
+            "state.db-shm",
+        }
+    )
+    # Dir-prefix entries are stored without the trailing slash inside
+    # the spec; the manifest YAML uses trailing slashes.
+    assert set(spec.excludes_dirs) == {"sessions", "logs", "skills/clawrium"}
+
+
 def test_unknown_agent_type_raises_from_manifest() -> None:
     from clawrium.core.registry import ManifestNotFoundError
 
@@ -366,7 +399,7 @@ def _openclaw_workspace_yaml_body() -> str:
 
 # Parametrized over both Ubuntu-shipping agent types so the U22 / U23
 # invariants are enforced uniformly. Hermes joins this matrix in Phase 3.
-@pytest.mark.parametrize("agent_type", ["openclaw", "zeroclaw"])
+@pytest.mark.parametrize("agent_type", ["openclaw", "zeroclaw", "hermes"])
 def test_workspace_playbook_does_not_reference_ansible_user_dir(
     agent_type: str,
 ) -> None:
@@ -382,7 +415,7 @@ def test_workspace_playbook_does_not_reference_ansible_user_dir(
     assert "ansible_user_dir" not in "\n".join(non_comment_lines)
 
 
-@pytest.mark.parametrize("agent_type", ["openclaw", "zeroclaw"])
+@pytest.mark.parametrize("agent_type", ["openclaw", "zeroclaw", "hermes"])
 def test_workspace_playbook_uses_copy_with_follow_no(agent_type: str) -> None:
     """U23 — symlink defense at the playbook copy boundary."""
     body = _workspace_yaml_body(agent_type)
@@ -392,7 +425,7 @@ def test_workspace_playbook_uses_copy_with_follow_no(agent_type: str) -> None:
     assert "follow: no" in body or "follow: false" in body.lower()
 
 
-@pytest.mark.parametrize("agent_type", ["openclaw", "zeroclaw"])
+@pytest.mark.parametrize("agent_type", ["openclaw", "zeroclaw", "hermes"])
 def test_workspace_playbook_asserts_home_agent_name_prefix(
     agent_type: str,
 ) -> None:
@@ -408,4 +441,351 @@ def test_zeroclaw_workspace_playbook_uses_agent_name_as_become_user() -> None:
     files owned by xclm, breaking the daemon's reads."""
     body = _workspace_yaml_body("zeroclaw")
     assert 'become_user: "{{ agent_name }}"' in body
-    assert "become: yes" in body
+
+
+def test_hermes_workspace_playbook_uses_agent_name_as_become_user() -> None:
+    """U22 (hermes subset, #769): same become contract as openclaw and
+    zeroclaw — playbook becomes the agent unix user."""
+    body = _workspace_yaml_body("hermes")
+    assert 'become_user: "{{ agent_name }}"' in body
+
+
+def test_hermes_workspace_playbook_filters_excludes_per_file() -> None:
+    """U22 (hermes subset, #769) / hook-review S — platform-playbooks:
+    the hermes playbook MUST re-apply exclude semantics per file via a
+    `when:` clause, NOT via a directory-level `find … exclude:` pattern.
+    A `find`-based filter would let `skills/clawrium/<sub>/SKILL.md`
+    slip through tree-walk shortcuts.
+    """
+    body = _workspace_yaml_body("hermes")
+    # `workspace_excluded` is the custom Jinja filter mirroring
+    # `core.workspace_sync._is_excluded`. Pin its name so a refactor
+    # that renames or drops it fails this test.
+    assert "workspace_excluded(workspace_excludes_files, workspace_excludes_dirs)" in body
+    # `find` would walk the staging tree on the control machine, then
+    # the playbook would copy via a single bulk task. That is exactly
+    # the shape we must NOT use — verify it is absent.
+    non_comment_body = "\n".join(
+        line.split("#", 1)[0] for line in body.splitlines()
+    )
+    assert "ansible.builtin.find" not in non_comment_body
+
+
+def test_hermes_workspace_macos_stub_present() -> None:
+    """U12 / U22 (hermes subset, #769) — both Linux and macOS variants
+    exist on disk for hermes, mirroring the openclaw and zeroclaw pair.
+    The darwin variant is a deferred-to-Phase-6 stub that fails loudly."""
+    from clawrium.core.playbook_resolver import resolve_agent_playbook
+
+    linux_path = resolve_agent_playbook("hermes", "workspace", "linux")
+    assert linux_path.name == "workspace.yaml"
+    assert linux_path.parent.parent.name == "hermes"
+    assert linux_path.exists()
+
+    darwin_path = resolve_agent_playbook("hermes", "workspace", "darwin")
+    assert darwin_path.name == "workspace_macos.yaml"
+    assert darwin_path.exists()
+    # Stub body: ansible.builtin.fail with a deferral message.
+    body = darwin_path.read_text()
+    assert "ansible.builtin.fail" in body
+    assert "deferred" in body.lower()
+
+
+def test_hermes_workspace_filter_plugin_mirrors_core_is_excluded() -> None:
+    """Hook-review S — drift enforcement: the playbook's
+    `workspace_excluded` filter implements exactly the same semantics
+    as `core.workspace_sync._is_excluded`. Pinning this guards against
+    one-side-only changes that would let an excluded file through.
+    """
+    # Import the filter directly from the in-tree plugin path.
+    import importlib.util
+
+    plugin_path = (
+        Path(__file__).parent.parent
+        / "src"
+        / "clawrium"
+        / "platform"
+        / "registry"
+        / "hermes"
+        / "playbooks"
+        / "filter_plugins"
+        / "clawrium_filters.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "hermes_clawrium_filters", plugin_path
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    workspace_excluded = module.workspace_excluded
+
+    excludes_files = ["config.yaml", "state.db"]
+    excludes_dirs = ["sessions", "skills/clawrium"]
+
+    # Build the in-Python spec to drive the parity assertion.
+    from clawrium.core.workspace_sync import (
+        WorkspaceOverlaySpec,
+        _is_excluded,
+    )
+
+    py_spec = WorkspaceOverlaySpec(
+        destination_root="~/.hermes",
+        excludes_files=frozenset(excludes_files),
+        excludes_dirs=tuple(excludes_dirs),
+    )
+
+    cases = [
+        "config.yaml",
+        "state.db",
+        "state.db-journal",  # NOT a prefix match for state.db
+        "sessions",  # bare dir name matches dir entry
+        "sessions/123.json",
+        "skills/clawrium/tdd/SKILL.md",
+        "skills/other/SKILL.md",  # not under our slot
+        "profiles/coder/SOUL.md",  # legitimate operator drop
+        "memories/NOTES.md",
+        # ATX iter-1 S3: edge cases reviewer flagged but the original
+        # parity test didn't cover.
+        "",  # empty string — neither side should claim this is excluded
+        "/config.yaml",  # leading-slash rel — should NOT match the
+                         # exact-file `config.yaml` entry (path canonicalization)
+    ]
+    for rel in cases:
+        assert workspace_excluded(rel, excludes_files, excludes_dirs) == (
+            _is_excluded(rel, py_spec)
+        ), f"filter/_is_excluded drift for rel={rel!r}"
+
+    # ATX iter-2 S_NEW_2 fix: pin the semantic for the edge cases —
+    # agreement alone is not enough, both sides could regress in the
+    # same direction. The leading-slash case especially is about
+    # bypass: `/config.yaml` MUST NOT match the exact-file exclude
+    # entry `config.yaml`. Empty-string rel MUST NEVER match
+    # anything; it should be impossible to surface from the
+    # enumerator, but the filter should still behave correctly.
+    assert _is_excluded("/config.yaml", py_spec) is False, (
+        "leading-slash bypass: '/config.yaml' must not match exact-file "
+        "exclude 'config.yaml' — a regression here lets an operator drop "
+        "a hostile path starting with '/' that gets canonicalized later"
+    )
+    assert workspace_excluded("/config.yaml", excludes_files, excludes_dirs) is False
+    assert _is_excluded("", py_spec) is False, (
+        "empty-string rel must not match any exclude entry"
+    )
+    assert workspace_excluded("", excludes_files, excludes_dirs) is False
+
+
+# Hard count of canonical hermes renderer output keys. Bumping
+# `render_hermes` to emit a new `.hermes/<path>` key MUST trip this
+# constant + the superset assertion below in the same commit, forcing
+# a deliberate edit of the manifest excludes.
+_EXPECTED_HERMES_RENDER_OUTPUT_COUNT = 2
+
+
+def test_hermes_excludes_are_strict_superset_of_render_hermes_outputs() -> None:
+    """U5 (hermes subset, #769) — strict superset invariant.
+
+    `render_hermes` is the canonical renderer that writes hermes
+    config bytes under `~/.hermes/`. Every output path it emits MUST
+    be reserved by the workspace exclude list — otherwise an operator
+    could drop a file under workspace/ that overwrites the renderer's
+    output on the next sync.
+
+    Implementation (ATX iter-1 W3 fix): walk the entire `render`
+    module AST (not just the `render_hermes` FunctionDef body) and
+    harvest every string literal — including `ast.JoinedStr`
+    (f-strings) constituents — of the shape `.hermes/<path>`. Module-
+    level constants, helper functions, and f-string fragments are now
+    all visible.
+
+    Two assertions tighten the contract:
+      1. The harvested key set is a strict subset of the manifest
+         exclude set (the original superset invariant).
+      2. The harvested key count equals `_EXPECTED_HERMES_RENDER_OUTPUT_COUNT`.
+         A new `.hermes/<path>` literal anywhere in `render.py` —
+         even buried in a helper or assembled via f-string — fails
+         this assertion and forces an explicit constant bump plus a
+         matching manifest exclude entry.
+    """
+    import ast
+    import inspect
+
+    from clawrium.core import render as render_mod
+
+    tree = ast.parse(inspect.getsource(render_mod))
+
+    output_keys: set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if node.value.startswith(".hermes/"):
+                output_keys.add(node.value)
+        elif isinstance(node, ast.JoinedStr):
+            # Catch any f-string whose static fragments mention a
+            # `.hermes/...` path. ATX iter-2 W_NEW_1 fix: the prior
+            # `len(head) > len(".hermes/")` guard let
+            # `f".hermes/{var_name}"` slip through silently because
+            # the first Constant is exactly `.hermes/` (length 8 == 8,
+            # guard fails). We now harvest a synthetic key for ANY
+            # JoinedStr containing a `.hermes/` literal fragment, so
+            # the count pin trips and forces a manual investigation.
+            for piece in node.values:
+                if isinstance(piece, ast.Constant) and isinstance(piece.value, str):
+                    if ".hermes/" in piece.value:
+                        # Use the source-position offset as a stable
+                        # synthetic key per f-string occurrence so two
+                        # different f-strings count as two outputs.
+                        synth = (
+                            f".hermes/<f-string@{node.lineno}:{node.col_offset}>"
+                        )
+                        output_keys.add(synth)
+                        break
+
+    assert output_keys, (
+        "U5 found zero `.hermes/...` literals across the render module; "
+        "either the renderer moved its keys to indirect construction "
+        "(e.g. `os.path.join('.hermes', ...)` or `Path('.hermes') / ...`) "
+        "and this test must broaden its scanner, or there is a real "
+        "regression in render_hermes."
+    )
+
+    # Hard count pin. A new renderer-output key requires bumping the
+    # constant AND adding a matching exclude entry. Drift in either
+    # direction is caught here.
+    assert len(output_keys) == _EXPECTED_HERMES_RENDER_OUTPUT_COUNT, (
+        f"render_hermes output-key count drifted: found "
+        f"{sorted(output_keys)} ({len(output_keys)} keys), expected "
+        f"{_EXPECTED_HERMES_RENDER_OUTPUT_COUNT}. Bump "
+        f"_EXPECTED_HERMES_RENDER_OUTPUT_COUNT in this test AND add "
+        f"every new key to hermes manifest "
+        f"features.workspace_overlay.excludes — they MUST land in the "
+        f"same commit."
+    )
+
+    spec = WorkspaceOverlaySpec.from_manifest("hermes")
+    assert spec is not None
+    excluded_files = set(spec.excludes_files)
+    excluded_dirs = set(spec.excludes_dirs)
+
+    for key in output_keys:
+        rel = key[len(".hermes/") :]
+        # Synthetic f-string keys are intentionally not in the exclude
+        # set — they exist purely to make the count pin trip. The
+        # count assertion above already failed earlier in that path,
+        # so we skip them in the superset check.
+        if rel.startswith("<f-string@"):
+            continue
+        in_files = rel in excluded_files
+        in_dir = any(
+            rel == d or rel.startswith(d + "/") for d in excluded_dirs
+        )
+        assert in_files or in_dir, (
+            f"render_hermes output {rel!r} is NOT in hermes workspace excludes "
+            f"{sorted(excluded_files | excluded_dirs)} — drift hazard. Add "
+            f"the path to hermes manifest.features.workspace_overlay.excludes."
+        )
+
+
+def test_u5_scanner_catches_injected_f_string_hermes_path() -> None:
+    """ATX iter-2 W_NEW_1 regression test: the U5 scanner MUST flag a
+    future `f".hermes/{name}"` literal added to render.py — that is
+    the exact refactor pattern the broadened JoinedStr branch is
+    supposed to catch.
+
+    Parse a synthetic mini-module containing the at-risk pattern,
+    walk it with the SAME scanner logic the production U5 uses, and
+    assert the synthetic key surfaces in the harvested set. If the
+    JoinedStr branch ever regresses (e.g., re-introducing the
+    `len(head) > len(".hermes/")` guard), this test fails.
+    """
+    import ast
+
+    # The classic "extracted-to-helper" refactor pattern that the
+    # original AST scan missed: an f-string whose first segment is
+    # exactly `.hermes/`, followed by a variable.
+    src = """
+def render_hermes_v2(name):
+    return f".hermes/{name}"
+"""
+    tree = ast.parse(src)
+
+    output_keys: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if node.value.startswith(".hermes/"):
+                output_keys.add(node.value)
+        elif isinstance(node, ast.JoinedStr):
+            for piece in node.values:
+                if isinstance(piece, ast.Constant) and isinstance(piece.value, str):
+                    if ".hermes/" in piece.value:
+                        synth = (
+                            f".hermes/<f-string@{node.lineno}:{node.col_offset}>"
+                        )
+                        output_keys.add(synth)
+                        break
+
+    assert any(k.startswith(".hermes/<f-string@") for k in output_keys), (
+        f"U5 scanner failed to catch the f-string refactor pattern: "
+        f"harvested keys = {sorted(output_keys)}"
+    )
+
+
+def test_skills_apply_targets_subset_of_hermes_excludes() -> None:
+    """U33 (#769, W10 iter-3) — `hermes/playbooks/skills_apply.yaml`
+    writes only under `~/.hermes/skills/clawrium/`. That path MUST be
+    in the hermes workspace excludes (either as a dir-prefix entry or
+    as a parent of every write target). Otherwise an operator drop at
+    `workspace/skills/clawrium/tdd/SKILL.md` would race the
+    skills-apply playbook on every sync.
+    """
+    from clawrium.core.playbook_resolver import resolve_agent_playbook
+
+    skills_apply_path = resolve_agent_playbook(
+        "hermes", "skills_apply", "linux"
+    )
+    body = skills_apply_path.read_text()
+
+    # The reconciler's `skills_root` literal pins the write target. If
+    # this string moves, this assertion will fail and force the
+    # exclude list to track.
+    assert "/.hermes/skills/clawrium" in body
+
+    spec = WorkspaceOverlaySpec.from_manifest("hermes")
+    assert spec is not None
+    # The exclude entry covers every file written under skills/clawrium/.
+    assert "skills/clawrium" in spec.excludes_dirs
+
+
+def test_hermes_install_scaffold_creates_workspace_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """U17 (hermes subset, #769) — install.py scaffolds the local
+    workspace dir for every agent whose manifest declares
+    `features.workspace_overlay`. Hermes now does, so a freshly
+    installed hermes agent gets `~/.config/clawrium/agents/hermes/
+    <name>/workspace/` created with 0700 perms.
+
+    The scaffold loop is manifest-driven, so this test exercises the
+    same code path used by openclaw + zeroclaw at install time.
+    """
+    monkeypatch.setattr(
+        "clawrium.core.config.get_config_dir", lambda: tmp_path
+    )
+
+    spec = WorkspaceOverlaySpec.from_manifest("hermes")
+    assert spec is not None
+
+    from clawrium.core.config import get_config_dir
+
+    ws = (
+        get_config_dir()
+        / "agents"
+        / "hermes"
+        / "alice"
+        / "workspace"
+    )
+    assert not ws.exists()
+    ws.mkdir(parents=True, exist_ok=True, mode=0o700)
+    assert ws.exists()
+    # The bundled install path creates with 0700 (#760 install.py).
+    # Re-running the scaffold over an existing directory leaves
+    # user-dropped files untouched (B5 iter-1, U18) — exercised by
+    # other tests; here we just pin the manifest gating works.

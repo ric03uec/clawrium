@@ -21,6 +21,32 @@ cut. The `itx:release` skill archives this section into a new
   pass `--workspace`. The deprecated flag now exits 2 with the
   replacement guidance on stderr; in `-o json` mode it produces a
   parseable error object on stderr and zero stdout bytes. Issue #760.
+
+  **Zeroclaw bearer rotation extends to both replacements (Phase 2,
+  #768).** `clawctl agent sync --workspace-only` and
+  `clawctl agent sync --no-restart` against a zeroclaw agent now
+  rotate the gateway bearer on every invocation, matching the
+  full-flow `sync` contract documented in AGENTS.md "Gateway Token
+  Lifecycle (zeroclaw)". Remote `clawctl agent chat` sessions against
+  a zeroclaw agent will get a clean 401 on their next request after
+  any `sync` flavor and must reconnect. Local chat reconnects
+  transparently. **Operator action:** if you previously relied on
+  `--workspace-only` to leave the bearer untouched (no documented
+  reliance, but worth calling out), expect token rotation now.
+
+  **Hermes `~/.hermes` is shared between operator overlay and
+  Clawrium-managed paths (Phase 3, #769).** Hermes is the only agent
+  whose workspace overlay destination root (`~/.hermes`) coincides
+  with `core/render.py` output (`config.yaml`, `.env`),
+  `skills_apply.yaml` writes (`skills/clawrium/`), and the daemon's
+  own SQLite state (`state.db`, `state.db-journal`, `state.db-wal`,
+  `state.db-shm`, `sessions/`, `logs/`). The manifest's exclude list
+  reserves every one of those paths. **Operator action:** if you have
+  files at any of those paths in your local hermes workspace slot
+  (`~/.config/clawrium/agents/hermes/<name>/workspace/`), they will
+  surface as `WorkspaceExcluded` events and never reach the host. Move
+  them elsewhere or accept that they are filtered. There is no
+  automated migration.
 - **openclaw brave plugin now requires openclaw `>= 2026.6.8`** (previously
   `>= 2026.4.10`). Any host running openclaw in the `2026.4.10..2026.6.7`
   range with the brave integration attached will hit a hard
@@ -32,27 +58,39 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
-- **Workspace overlay sync (openclaw, Ubuntu).** Files dropped under
-  `~/.config/clawrium/agents/openclaw/<name>/workspace/` are now
-  mirrored onto the agent host at `~/.openclaw/workspace/` on every
-  `clawctl agent sync` and `clawctl agent configure`. Two new sync
-  flags: `--workspace-only` pushes the overlay alone (skips canonical
-  render / restart / verify) and `--no-restart` runs canonical +
-  overlay without flapping the unit. The per-agent manifest declares
-  its overlay shape via `features.workspace_overlay.destination_root`
-  (manifest-driven so third-party manifests can opt in) plus an
-  optional `excludes` list. The architecture is Ansible-only: a new
-  per-agent `playbooks/workspace.yaml` is the single host-write path;
-  Python `core/workspace_sync.py` is a thin enumerator/stager that
-  filters symlinks, applies manifest excludes, and floors
+- **Workspace overlay sync (openclaw + zeroclaw + hermes, Ubuntu).**
+  Files dropped under `~/.config/clawrium/agents/<type>/<name>/workspace/`
+  are now mirrored onto the agent host at the per-agent
+  `destination_root` on every `clawctl agent sync` and
+  `clawctl agent configure`. Two new sync flags: `--workspace-only`
+  pushes the overlay alone (skips canonical render / restart / verify)
+  and `--no-restart` runs canonical + overlay without flapping the
+  unit. The per-agent manifest declares its overlay shape via
+  `features.workspace_overlay.destination_root` (manifest-driven so
+  third-party manifests can opt in) plus an optional `excludes` list.
+  Per-type destinations: openclaw `~/.openclaw/workspace`
+  (no excludes), zeroclaw `~/.zeroclaw/workspace` (no excludes; every
+  sync also rotates the gateway bearer per #437), and hermes
+  `~/.hermes` (excludes reserve `config.yaml`, `.env`, `auth.json`,
+  `state.db`, `state.db-{journal,wal,shm}`, `sessions/`, `logs/`,
+  `skills/clawrium/` — the canonical-render and daemon-managed paths
+  shared with the destination root). The architecture is Ansible-only:
+  a new per-agent `playbooks/workspace.yaml` is the single host-write
+  path; Python `core/workspace_sync.py` is a thin enumerator/stager
+  that filters symlinks, applies manifest excludes, and floors
   secret-pattern files (`*.key`, `*.pem`, `*.env`, `*credentials*`,
   `*secret*`, `*token*`, `*password*`) to mode 0600 regardless of
-  local perms. Bidi/zero-width codepoints in operator-controlled
-  paths are stripped at the NDJSON / text emission boundary so a
-  hostile workspace filename cannot spoof terminal output. macOS
-  support is deferred to follow-up subtasks under #760 (the
-  `workspace_macos.yaml` stub returns a clean Ansible
-  `fail:` for now). Closes Phase 1 of #760 (openclaw on Ubuntu).
+  local perms. Hermes' playbook adds a per-file `workspace_excluded`
+  Jinja filter at the copy boundary that mirrors the Python
+  `_is_excluded` semantics exactly — belt-and-suspenders so a bypass
+  at the Python layer cannot overwrite reserved files. Bidi/zero-width
+  codepoints in operator-controlled paths are stripped at the NDJSON /
+  text emission boundary so a hostile workspace filename cannot spoof
+  terminal output. macOS support is deferred to follow-up subtasks
+  #770 (openclaw), #771 (zeroclaw), and #772 (hermes) — the
+  `workspace_macos.yaml` stubs return a clean Ansible `fail:` for
+  now. Closes Ubuntu-side Phases 1–3 of #760
+  (issues #767, #768, #769).
 - New `brave` integration type for the Brave Search API. Register once
   with `clawctl integration registry create my-brave --type brave
   --api-key <key>` (or pipe the key via `--api-key-stdin`), attach to

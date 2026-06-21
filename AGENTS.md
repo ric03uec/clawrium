@@ -229,16 +229,39 @@ Per-type destinations (Ubuntu, this iteration):
 | Agent | `destination_root` | Notes |
 |---|---|---|
 | openclaw | `~/.openclaw/workspace` | No excludes — workspace zone is operator-owned |
-| zeroclaw | _Phase 2 (#760 subtask 2)_ | |
-| hermes   | _Phase 3 (#760 subtask 3)_ | Renderer-output paths excluded |
+| zeroclaw | `~/.zeroclaw/workspace` | No excludes — workspace dir holds operator memory files; canonical render writes elsewhere. Every sync also rotates the gateway bearer (#437). |
+| hermes   | `~/.hermes` | Renderer-output paths excluded. Shares destination root with `core/render.py` output, `skills_apply.yaml` writes, and daemon state (SQLite + WAL companions). |
+
+Hermes excludes (manifest source of truth):
+
+| Excluded path | Why |
+|---|---|
+| `config.yaml`, `.env` | Written by `core/render.py:render_hermes`. U5 enforces `excludes ⊇ render output keys` via AST scan. |
+| `auth.json` | Operator-paired upstream auth state. |
+| `state.db`, `state.db-journal`, `state.db-wal`, `state.db-shm` | SQLite DB + all three WAL companion files. Overlaying any while the daemon holds the WAL open corrupts the database silently — all three companions MUST stay listed (W13 iter-2). |
+| `sessions/` (dir) | Per-conversation transcripts. |
+| `logs/` (dir) | Daemon log output. |
+| `skills/clawrium/` (dir) | Reconciled by `hermes/playbooks/skills_apply.yaml`. U33 enforces this dir is a strict superset of the playbook's write target. |
+
+Hermes is the only agent type whose playbook re-applies exclude
+semantics inside a per-file `when:` clause (via the
+`workspace_excluded` Jinja filter in
+`hermes/playbooks/filter_plugins/`). The filter mirrors
+`core.workspace_sync._is_excluded` exactly. Drift between the two
+would either let an excluded file through (Python applies the filter
+but the playbook does not) or silently drop a legitimate file (the
+playbook is stricter than Python) — any change to either side MUST
+land in the same commit. Openclaw and zeroclaw playbooks omit the
+filter because both ship empty exclude lists; their playbook ignores
+the `workspace_excludes_*` extravars.
 
 CLI flags on `clawctl agent sync`:
 
 - `--workspace-only` — push the overlay alone, skip canonical render /
   restart / verify. Mutually exclusive with `--diff`. For zeroclaw the
-  bearer rotation still runs (lands in Phase 2).
+  bearer rotation still runs (Phase 2, #768).
 - `--no-restart` — canonical + overlay, skip restart. Bearer rotation
-  still runs for zeroclaw.
+  still runs for zeroclaw (Phase 2, #768).
 - `--workspace` — **removed** (BREAKING). Exits 2 with a hint to the
   two replacements above. No automated migration.
 
@@ -254,7 +277,10 @@ rejected at enumeration (`os.path.islink`); `follow: no` on the
 asserts the rendered destination starts with `/home/{{ agent_name }}/`
 and NEVER references `ansible_user_dir` (B1 iter-3: `become_user`
 does not re-run `setup`, so the fact would resolve to the SSH user,
-not the agent user).
+not the agent user). This `ansible_user_dir` ban is a **project-wide
+invariant** — any new or refactored Ansible task that needs the agent
+user's home MUST use the literal `/home/{{ agent_name }}` pattern,
+not the fact.
 
 Secret-pattern files (`*.key`, `*.pem`, `*.env`, `.env`,
 `*credentials*`, `*secret*`, `*token*`, `*password*`) get `mode: '0600'`
