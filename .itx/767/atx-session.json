@@ -1,32 +1,27 @@
 {
   "transport": "cli",
-  "session_id": "atx-review-request-iter-1",
-  "commit_sha": "fad7274a842f5b371520ecac69d1c9063291f8e3",
-  "iteration": 1,
-  "last_rating": null,
+  "session_id": "atx-review-request-iter-2",
+  "commit_sha": "527e167",
+  "iteration": 2,
+  "last_rating": "2/5",
   "last_blockers": [
     {
-      "id": "B1",
-      "domain": "cli-ux",
-      "location": "cli/clawctl/agent/sync.py",
-      "issue": "--workspace-only / --no-restart mutex not enforced",
-      "status": "fixing"
+      "id": "B1-NEW",
+      "domain": "lifecycle-core/cli-ux",
+      "location": "lifecycle_canonical.py workspace_only path + sync.py",
+      "issue": "workspace_only failure returned CanonicalSyncResult(success=False) → CLI fell through to exit 0",
+      "status": "fixed: raise CanonicalSyncError, symmetric with in-loop path; added canonical-level test"
     },
     {
-      "id": "B2",
-      "domain": "test-coverage",
-      "location": "lifecycle_canonical.py phase 3 short-circuit",
-      "issue": "Plan I8 unimplemented: no test asserts workspace failure -> _restart_unit NOT called",
-      "status": "fixing"
-    },
-    {
-      "id": "B3",
-      "domain": "test-coverage",
-      "location": "lifecycle_canonical.py",
-      "issue": "Phase ordering [push_workspace, restart, verify] not pinned by call-order assertion",
-      "status": "fixing"
+      "id": "B2-NEW",
+      "domain": "cli-ux/security",
+      "location": "sync.py help text + runtime gate",
+      "issue": "--workspace-only / --no-restart claimed zeroclaw bearer rotation that isn't wired in Phase 1",
+      "status": "fixed: gate both flags away from zeroclaw with exit 2; help text updated; paired test added"
     }
   ],
+  "iter_1_blockers": ["B1 (mutex)", "B2 (I8 short-circuit test)", "B3 (phase order pin)"],
+  "iter_1_resolutions": "all fixed in commit 527e167",
   "started_at": "2026-06-20T00:00:00Z",
-  "updated_at": "2026-06-20T00:00:00Z"
+  "updated_at": "2026-06-20T19:30:00Z"
 }

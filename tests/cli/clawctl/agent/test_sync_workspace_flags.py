@@ -126,3 +126,41 @@ def test_workspace_phase_failure_exits_nonzero(
     result = runner.invoke(app, ["agent", "sync", "wise-hypatia"])
     assert result.exit_code != 0
     assert "workspace overlay push failed" in result.output
+
+
+def test_workspace_only_rejected_for_zeroclaw_in_phase_1(
+    fleet_dir, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ATX iter-2 B2-NEW: `--workspace-only` and `--no-restart` are
+    gated away from zeroclaw in Phase 1 because bearer rotation wiring
+    is deferred to Phase 2. Without this gate, running these flags
+    against a zeroclaw agent silently leaves `hosts.json.gateway.auth`
+    stale and `clawctl agent chat` returns 401 on the next daemon
+    restart with no diagnostic.
+    """
+    # Patch the resolved agent type to zeroclaw without rebuilding the
+    # fleet fixture. The CLI's safe_resolve_agent looks up by name; the
+    # `wise-hypatia` agent in the fleet is openclaw, so we monkeypatch
+    # the lookup to return a zeroclaw type.
+    import clawrium.cli.clawctl.agent.sync as sync_mod
+
+    real_resolve = sync_mod.safe_resolve_agent
+
+    def fake_resolve(name: str):
+        host, _agent_type, claw_record = real_resolve(name)
+        claw_record = dict(claw_record)
+        claw_record["type"] = "zeroclaw"
+        return host, "zeroclaw", claw_record
+
+    monkeypatch.setattr(sync_mod, "safe_resolve_agent", fake_resolve)
+
+    for flag in ("--workspace-only", "--no-restart"):
+        result = runner.invoke(
+            app, ["agent", "sync", "wise-hypatia", flag]
+        )
+        assert result.exit_code == 2, (
+            f"{flag} on zeroclaw must exit 2 with a clear error; got "
+            f"exit_code={result.exit_code}, output:\n{result.output}"
+        )
+        assert "zeroclaw" in result.output
+        assert "Phase 2" in result.output

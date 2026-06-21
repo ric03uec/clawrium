@@ -796,16 +796,15 @@ def sync_agent_canonical(
             dry_run=dry_run,
         )
         if not ws_result.success:
-            return CanonicalSyncResult(
-                success=False,
-                agent=agent_name,
-                host=hostname,
-                files_written=(),
-                files_unchanged=(),
-                diffs=(),
-                error=ws_result.error,
-                workspace_files_pushed=ws_result.files_pushed,
-                workspace_files_excluded=ws_result.files_excluded,
+            # ATX iter-2 B1-NEW: raise rather than return
+            # `CanonicalSyncResult(success=False)`. The CLI only catches
+            # raised exceptions — returning a falsy result falls through
+            # to `synced (drift=0)` with exit 0, violating the AGENTS.md
+            # short-circuit contract. Symmetric with the in-loop path
+            # below.
+            raise CanonicalSyncError(
+                f"workspace overlay push failed for {agent_name!r}: "
+                f"{ws_result.error}"
             )
         # NOTE(zeroclaw bearer rotation): the plan §1.4 contract
         # requires phase 6a (`_zeroclaw_repair_after_start`) to run

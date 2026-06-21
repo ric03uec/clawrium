@@ -137,6 +137,45 @@ def test_workspace_failure_short_circuits_before_restart(
     )
 
 
+def test_workspace_only_failure_raises_canonical_sync_error(
+    canonical_stubs,
+) -> None:
+    """ATX iter-2 B1-NEW: the workspace_only early-return path used to
+    return `CanonicalSyncResult(success=False)` rather than raising.
+    The CLI never inspects `.success`, so the operator would see
+    `synced (drift=0)` with exit 0. Pin that the path raises
+    `CanonicalSyncError` so the CLI's existing `except` clause routes
+    it to `emit_error` (exit code 1).
+    """
+
+    def fake_push(**_kwargs):
+        canonical_stubs.append("push_workspace")
+        return WorkspacePhaseResult(
+            success=False,
+            files_pushed=(),
+            files_excluded=(),
+            error="forced workspace_only failure",
+        )
+
+    with patch(
+        "clawrium.core.workspace_sync.push_workspace_phase",
+        side_effect=fake_push,
+    ):
+        with pytest.raises(CanonicalSyncError, match="workspace overlay push failed"):
+            sync_agent_canonical(
+                "alice",
+                workspace_only=True,
+                restart=False,
+                verify=False,
+            )
+
+    # No restart/verify in the workspace_only path either.
+    assert canonical_stubs == ["push_workspace"], (
+        f"workspace_only short-circuit broken: expected only "
+        f"push_workspace, got {canonical_stubs}"
+    )
+
+
 def test_phase_order_is_push_workspace_then_restart_then_verify(
     canonical_stubs,
 ) -> None:
