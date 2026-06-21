@@ -279,6 +279,20 @@ def sync(
             exit_code=2,
         )
         return
+
+    # ATX iter-1 B1: `--workspace-only` already implies skip-restart;
+    # passing `--no-restart` alongside is ambiguous (no-restart preserves
+    # the canonical render phase, workspace-only skips it). Reject
+    # explicitly rather than silently collapse to workspace-only.
+    if workspace_only and no_restart:
+        emit_error(
+            "--workspace-only and --no-restart are mutually exclusive. "
+            "--workspace-only already skips restart and verify; use it "
+            "alone for overlay-only behavior, or use --no-restart for "
+            "canonical+overlay-no-restart.",
+            exit_code=2,
+        )
+        return
     # Bug #516: see configure.py for full rationale.
     host, _agent_type, claw_record = safe_resolve_agent(name)
     agent_key = resolve_agent_key(host, name)

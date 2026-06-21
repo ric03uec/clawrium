@@ -35,6 +35,22 @@ def test_workspace_only_and_diff_are_mutually_exclusive(fleet_dir) -> None:
     assert "mutually exclusive" in result.output
 
 
+def test_workspace_only_and_no_restart_are_mutually_exclusive(
+    fleet_dir,
+) -> None:
+    """ATX iter-1 B1: `--workspace-only` already implies skip-restart;
+    `--no-restart` alongside it is ambiguous and must be rejected, not
+    silently collapsed to workspace-only behavior."""
+    result = runner.invoke(
+        app,
+        ["agent", "sync", "wise-hypatia", "--workspace-only", "--no-restart"],
+    )
+    assert result.exit_code == 2
+    assert "mutually exclusive" in result.output
+    assert "--workspace-only" in result.output
+    assert "--no-restart" in result.output
+
+
 def test_workspace_only_short_circuits_canonical_render(
     fleet_dir, monkeypatch: pytest.MonkeyPatch
 ) -> None:
