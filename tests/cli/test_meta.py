@@ -2,7 +2,7 @@
 
 from typer.testing import CliRunner
 
-from clawrium import __version__
+from clawrium import __git_sha__, __version__
 from clawrium.cli import app
 
 runner = CliRunner()
@@ -14,7 +14,16 @@ class TestVersion:
         sub = runner.invoke(app, ["version"])
         assert flag.exit_code == 0
         assert sub.exit_code == 0
-        assert flag.output.strip() == sub.output.strip() == f"clawctl {__version__}"
+        assert (
+            flag.output.strip()
+            == sub.output.strip()
+            == f"clawctl {__version__} (git: {__git_sha__})"
+        )
+
+    def test_git_sha_in_output(self) -> None:
+        result = runner.invoke(app, ["version"])
+        assert result.exit_code == 0
+        assert f"git: {__git_sha__}" in result.output
 
 
 class TestCompletion:

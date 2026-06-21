@@ -46,6 +46,9 @@ clawctl = "clawrium.cli:app"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/clawrium"]
 # The staged frontend is added via force-include below. Excluding it from
