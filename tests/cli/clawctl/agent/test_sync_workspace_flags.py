@@ -128,8 +128,9 @@ def test_workspace_phase_failure_exits_nonzero(
     assert "workspace overlay push failed" in result.output
 
 
-def test_workspace_only_rejected_for_zeroclaw_in_phase_1(
-    fleet_dir, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("flag", ["--workspace-only", "--no-restart"])
+def test_flag_rejected_for_zeroclaw_in_phase_1(
+    fleet_dir, monkeypatch: pytest.MonkeyPatch, flag: str
 ) -> None:
     """ATX iter-2 B2-NEW: `--workspace-only` and `--no-restart` are
     gated away from zeroclaw in Phase 1 because bearer rotation wiring
@@ -154,13 +155,12 @@ def test_workspace_only_rejected_for_zeroclaw_in_phase_1(
 
     monkeypatch.setattr(sync_mod, "safe_resolve_agent", fake_resolve)
 
-    for flag in ("--workspace-only", "--no-restart"):
-        result = runner.invoke(
-            app, ["agent", "sync", "wise-hypatia", flag]
-        )
-        assert result.exit_code == 2, (
-            f"{flag} on zeroclaw must exit 2 with a clear error; got "
-            f"exit_code={result.exit_code}, output:\n{result.output}"
-        )
-        assert "zeroclaw" in result.output
-        assert "Phase 2" in result.output
+    result = runner.invoke(app, ["agent", "sync", "wise-hypatia", flag])
+    assert result.exit_code == 2, (
+        f"{flag} on zeroclaw must exit 2 with a clear error; got "
+        f"exit_code={result.exit_code}, output:\n{result.output}"
+    )
+    # Pin the canonical error-fragment string, not just a substring of
+    # the agent type (W4 iter-3 tightening).
+    assert "not supported for zeroclaw" in result.output
+    assert "Phase 2" in result.output

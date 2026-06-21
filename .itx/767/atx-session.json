@@ -1,27 +1,36 @@
 {
   "transport": "cli",
-  "session_id": "atx-review-request-iter-2",
-  "commit_sha": "527e167",
-  "iteration": 2,
-  "last_rating": "2/5",
-  "last_blockers": [
-    {
-      "id": "B1-NEW",
-      "domain": "lifecycle-core/cli-ux",
-      "location": "lifecycle_canonical.py workspace_only path + sync.py",
-      "issue": "workspace_only failure returned CanonicalSyncResult(success=False) → CLI fell through to exit 0",
-      "status": "fixed: raise CanonicalSyncError, symmetric with in-loop path; added canonical-level test"
-    },
-    {
-      "id": "B2-NEW",
-      "domain": "cli-ux/security",
-      "location": "sync.py help text + runtime gate",
-      "issue": "--workspace-only / --no-restart claimed zeroclaw bearer rotation that isn't wired in Phase 1",
-      "status": "fixed: gate both flags away from zeroclaw with exit 2; help text updated; paired test added"
-    }
+  "session_id": "atx-review-request-iter-3",
+  "commit_sha": "dd9dd2e",
+  "iteration": 3,
+  "last_rating": "4/5",
+  "iter_1_blockers": [
+    "B1: --workspace-only / --no-restart mutex (fixed in 527e167)",
+    "B2: I8 short-circuit test (fixed in 527e167)",
+    "B3: phase-order pin test (fixed in 527e167)"
   ],
-  "iter_1_blockers": ["B1 (mutex)", "B2 (I8 short-circuit test)", "B3 (phase order pin)"],
-  "iter_1_resolutions": "all fixed in commit 527e167",
+  "iter_2_blockers": [
+    "B1-NEW: workspace_only failure returned success=False (fixed in dd9dd2e)",
+    "B2-NEW: --workspace-only/--no-restart claimed zeroclaw bearer rotation (fixed in dd9dd2e: gated)"
+  ],
+  "iter_3_blockers": [],
+  "iter_3_verdict": "Clear to merge. Composite 4/5. test-coverage 3/5, cli-ux 4/5, lifecycle-core 4/5, platform-playbooks 4/5, security 4/5.",
+  "iter_3_warnings_addressed_inline": [
+    "W4: parametrized the zeroclaw-gate loop test",
+    "W6: hoisted safe_resolve_agent above the gate; removed bare except",
+    "S5: pinned agent_name in CanonicalSyncError match regex"
+  ],
+  "iter_3_warnings_deferred_as_callouts": [
+    "W1: configure_agent asymmetric failure handling (log warning vs raise) — track in follow-up",
+    "W2: defense-in-depth zeroclaw guard in sync_agent_canonical — Phase 2 lands the wiring + removes the guard",
+    "W3: TOCTOU on stage-time symlink re-check — low-risk, document",
+    "W5: ws_result.error not bidi-sanitized at every emit site — file standalone sec issue",
+    "W7: workspace.yaml additive-only semantics undocumented — quick docs follow-up",
+    "S1: 0o7777 mask preserves setuid/setgid/sticky — narrow to 0o777",
+    "S2: destination_root validation moved to Python layer",
+    "S3: dead returns after emit_error",
+    "S4: gateway_token_rotated yellow notice helper"
+  ],
   "started_at": "2026-06-20T00:00:00Z",
-  "updated_at": "2026-06-20T19:30:00Z"
+  "updated_at": "2026-06-20T19:40:00Z"
 }

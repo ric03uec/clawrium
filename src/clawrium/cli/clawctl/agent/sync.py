@@ -308,33 +308,36 @@ def sync(
     # daemon restart, with `clawctl agent chat` returning 401 and no
     # diagnostic. Block with a clear error rather than ship the
     # footgun.
-    if workspace_only or no_restart:
-        # Type lookup is deferred until after the mutex checks so a
-        # mistyped flag combination fails on the flag wiring first
-        # rather than on the agent-record lookup.
-        try:
-            _host_lookup, _agent_type_lookup, _claw_record_lookup = (
-                safe_resolve_agent(name)
-            )
-            _resolved_type = _claw_record_lookup.get("type", _agent_type_lookup)
-        except Exception:
-            _resolved_type = None
-        if _resolved_type == "zeroclaw":
-            chosen = "--workspace-only" if workspace_only else "--no-restart"
-            emit_error(
-                f"{chosen} is not supported for zeroclaw agents in this "
-                f"release (#760 Phase 1). Bearer rotation wiring lands "
-                f"in Phase 2 (#760); until then, running {chosen} on a "
-                f"zeroclaw agent would leave the stored gateway bearer "
-                f"stale on the next daemon restart. Use `clawctl agent "
-                f"sync {name}` without the flag.",
-                exit_code=2,
-            )
-            return
     # Bug #516: see configure.py for full rationale.
+    # ATX iter-3 W6: hoisted above the zeroclaw gate so resolver
+    # exceptions surface with their normal messages and the gate uses
+    # the same lookup result as the rest of the function (no double
+    # call, no silent bypass on transient lookup failure).
     host, _agent_type, claw_record = safe_resolve_agent(name)
     agent_key = resolve_agent_key(host, name)
     agent_type = claw_record.get("type", _agent_type)
+
+    if (workspace_only or no_restart) and agent_type == "zeroclaw":
+        # ATX iter-2 B2-NEW: Both flags skip the restart branch where
+        # the canonical pipeline currently rotates the zeroclaw gateway
+        # bearer. Phase 2 wires `_zeroclaw_repair_after_start` into the
+        # workspace-only and no-restart paths unconditionally per
+        # AGENTS.md "Gateway Token Lifecycle (zeroclaw)" — until then,
+        # allowing these flags for zeroclaw leaves
+        # `hosts.json.gateway.auth` stale on the next daemon restart,
+        # with `clawctl agent chat` returning 401 and no diagnostic.
+        # Block with a clear error rather than ship the footgun.
+        chosen = "--workspace-only" if workspace_only else "--no-restart"
+        emit_error(
+            f"{chosen} is not supported for zeroclaw agents in this "
+            f"release (#760 Phase 1). Bearer rotation wiring lands "
+            f"in Phase 2 (#760); until then, running {chosen} on a "
+            f"zeroclaw agent would leave the stored gateway bearer "
+            f"stale on the next daemon restart. Use `clawctl agent "
+            f"sync {name}` without the flag.",
+            exit_code=2,
+        )
+        return
 
     # F8 (parent #555): `--diff` implies `--dry-run`. Promote here so
     # the phase-emission and short-circuit logic below sees the

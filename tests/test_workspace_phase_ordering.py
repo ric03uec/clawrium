@@ -161,7 +161,12 @@ def test_workspace_only_failure_raises_canonical_sync_error(
         "clawrium.core.workspace_sync.push_workspace_phase",
         side_effect=fake_push,
     ):
-        with pytest.raises(CanonicalSyncError, match="workspace overlay push failed"):
+        with pytest.raises(
+            CanonicalSyncError,
+            # S5 iter-3: pin the agent name in the message so a regression
+            # that drops `{agent_name!r}` from the raise is caught.
+            match=r"workspace overlay push failed for 'alice'",
+        ):
             sync_agent_canonical(
                 "alice",
                 workspace_only=True,
