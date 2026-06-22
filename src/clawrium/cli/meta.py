@@ -2,7 +2,7 @@
 
 Plan §4 / §5:
 
-- `clawctl version`           → prints `clawctl <version> (git: <sha>)` to stdout.
+- `clawctl version`           → prints `clawctl <version>` or `clawctl <version> (git: <sha>)` to stdout.
 - `clawctl --version`         → same, handled in the root callback.
 - `clawctl completion <shell>` → emits a Click-generated completion
   script for bash/zsh/fish. The user pipes the output into their shell
@@ -20,7 +20,7 @@ import click
 import typer
 from click import shell_completion
 
-from clawrium import __git_sha__, __version__
+from clawrium import format_version
 
 __all__ = ["Shell", "completion_cmd", "version_cmd"]
 
@@ -35,7 +35,7 @@ class Shell(str, Enum):
 
 def version_cmd() -> None:
     """Show clawctl version and exit."""
-    typer.echo(f"clawctl {__version__} (git: {__git_sha__})")
+    typer.echo(format_version())
 
 
 def completion_cmd(

@@ -10,7 +10,7 @@ TUI code paths — and tracked for removal in #707.
 
 import typer
 
-from clawrium import __git_sha__, __version__
+from clawrium import format_version
 from clawrium.cli.clawctl.agent import agent_app
 from clawrium.cli.clawctl.audit import audit_app
 from clawrium.cli.clawctl.channel import channel_app
@@ -49,7 +49,7 @@ def _root(
 ) -> None:
     """clawctl root callback — handles `--version` and falls through to subcommands."""
     if version:
-        typer.echo(f"clawctl {__version__} (git: {__git_sha__})")
+        typer.echo(format_version())
         raise typer.Exit(code=0)
     # Otherwise Typer dispatches to the chosen subcommand. When no
     # subcommand is given Typer prints help (no_args_is_help=True).
