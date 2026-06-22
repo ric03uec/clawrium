@@ -188,6 +188,16 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- **`tests/test_demo_assets.py` no longer fails on Playwright demos.**
+  Three `TestCompilePipeline` parametrize blocks unconditionally invoked
+  the VHS-only `docs/demos/lib/compile.py` against every
+  `docs/demos/*/scenes.yaml`, including browser-style specs (e.g.
+  `20260621-clawrium-gui-walkthrough`) that have `actions:` instead of
+  `command:`. Those specs are compiled by `pw_compile.py`; feeding them to
+  `compile.py` raised `KeyError: 'command'`. The parametrize lists now
+  consult a `_committed_vhs_demos()` helper that skips any demo whose
+  `scenes.yaml` declares `tape.base_url` (the Playwright discriminator).
+
 - **`clawctl audit show --grep <pattern>` no longer raises a Python
   traceback** when the pattern is not a valid regex (#780). A
   malformed pattern (e.g. `--grep '['`) now exits 2 with

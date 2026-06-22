@@ -173,6 +173,25 @@ def _load_module(path: Path, name: str):
         raise
 
 
+def _committed_vhs_demos() -> list[Path]:
+    # Playwright demos (tape.base_url set) are compiled by pw_compile.py and
+    # do not share compile.py's `command:` per-scene contract.
+    import yaml as _yaml
+    demos: list[Path] = []
+    for p in sorted(DEMOS_DIR.glob("*/")):
+        scenes = p / "scenes.yaml"
+        if not scenes.exists():
+            continue
+        try:
+            spec = _yaml.safe_load(scenes.read_text()) or {}
+        except Exception:
+            continue
+        if (spec.get("tape") or {}).get("base_url"):
+            continue
+        demos.append(p)
+    return demos
+
+
 class TestCompilePipeline:
     @pytest.fixture
     def compile_mod(self):
@@ -484,11 +503,7 @@ class TestCompilePipeline:
     # --- timing safety: no narration audio bleeds across boundaries ---------- #
     @pytest.mark.parametrize(
         "demo_dir",
-        [
-            pytest.param(p, id=p.name)
-            for p in sorted(DEMOS_DIR.glob("*/"))
-            if (p / "scenes.yaml").exists()
-        ],
+        [pytest.param(p, id=p.name) for p in _committed_vhs_demos()],
     )
     def test_no_narration_overlap_committed(
         self, compile_mod, demo_dir: Path, tmp_path: Path
@@ -537,11 +552,7 @@ class TestCompilePipeline:
     # --- W6: every committed scenes.yaml's output_file must exist on disk --- #
     @pytest.mark.parametrize(
         "demo_dir",
-        [
-            pytest.param(p, id=p.name)
-            for p in sorted(DEMOS_DIR.glob("*/"))
-            if (p / "scenes.yaml").exists()
-        ],
+        [pytest.param(p, id=p.name) for p in _committed_vhs_demos()],
     )
     def test_committed_demo_output_files_exist(self, demo_dir: Path) -> None:
         """Every `output_file:` referenced in a committed scenes.yaml must
@@ -580,11 +591,7 @@ class TestCompilePipeline:
     # --- W4 round-trip over the real committed demo --------------------------- #
     @pytest.mark.parametrize(
         "demo_dir",
-        [
-            pytest.param(p, id=p.name)
-            for p in sorted(DEMOS_DIR.glob("*/"))
-            if (p / "scenes.yaml").exists()
-        ],
+        [pytest.param(p, id=p.name) for p in _committed_vhs_demos()],
     )
     def test_committed_demos_compile_cleanly(
         self, compile_mod, demo_dir: Path, tmp_path: Path
