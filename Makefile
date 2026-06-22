@@ -1,4 +1,4 @@
-.PHONY: help install test test-py test-ui test-cov lint lint-py lint-ui format build build-ui clean upgrade lock setup-dev
+.PHONY: help install test test-py test-ui test-cov lint lint-py lint-ui format build build-ui clean upgrade lock setup-dev check-no-version-file
 
 GUI_DIR := gui
 GUI_OUT := $(GUI_DIR)/out
@@ -62,6 +62,13 @@ lint-py:
 
 lint-ui: $(GUI_INSTALL_STAMP)
 	cd $(GUI_DIR) && npm run lint
+
+# W6: CI guard — fail if _version.py was accidentally committed.
+check-no-version-file:
+	@if git ls-files --error-unmatch src/clawrium/_version.py 2>/dev/null; then \
+		echo "ERROR: src/clawrium/_version.py is tracked by git — it must stay gitignored."; \
+		exit 1; \
+	fi
 
 format:
 	uv run ruff format src tests
