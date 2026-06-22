@@ -18,6 +18,14 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- GUI Integrations page now renders the official vendor brand SVG icon
+  for every configured integration (github, gitlab, atlassian, linear,
+  notion, brave, git) in place of the two-letter type badge, making
+  configured rows scannable at a glance. The **Add Integration** button
+  was moved out of the page header and now sits directly above the
+  configured integrations list, co-located with the list it mutates
+  (#786).
+
 ### Fixed
 
 ### Documentation

@@ -80,11 +80,6 @@ export default function IntegrationsPage() {
       <PageHeader
         title="Integrations"
         description="Connect external services once, share them across your fleet. Agents inherit credentials automatically."
-        actions={
-          <Button variant="primary" onClick={() => setShowAdd(true)}>
-            + Add Integration
-          </Button>
-        }
       />
 
       {isLoading ? (
@@ -93,9 +88,14 @@ export default function IntegrationsPage() {
         </div>
       ) : integrations && integrations.length > 0 ? (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-primary-text">
-            Configured Integrations ({integrations.length})
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-primary-text">
+              Configured Integrations ({integrations.length})
+            </h2>
+            <Button variant="primary" onClick={() => setShowAdd(true)}>
+              + Add Integration
+            </Button>
+          </div>
           {integrations.map((i) => (
             <IntegrationCard
               key={i.name}

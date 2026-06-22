@@ -3,14 +3,7 @@
 import type { Integration } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-
-const TYPE_BADGES: Record<string, { label: string; color: string }> = {
-  github: { label: "GH", color: "bg-slate-100 text-slate-700" },
-  gitlab: { label: "GL", color: "bg-orange-100 text-orange-700" },
-  atlassian: { label: "AT", color: "bg-blue-100 text-blue-700" },
-  linear: { label: "LN", color: "bg-purple-100 text-purple-700" },
-  notion: { label: "NT", color: "bg-stone-100 text-stone-700" },
-};
+import { IntegrationIcon } from "./integration-icon";
 
 interface IntegrationCardProps {
   integration: Integration;
@@ -25,12 +18,6 @@ export function IntegrationCard({
   onEdit,
   onRemove,
 }: IntegrationCardProps) {
-  const badge =
-    TYPE_BADGES[integration.type] || {
-      label: "??",
-      color: "bg-gray-100 text-gray-700",
-    };
-
   const allConfigured =
     integration.credential_keys.length > 0 &&
     integration.credential_keys.every((k) =>
@@ -40,10 +27,8 @@ export function IntegrationCard({
   return (
     <Card padding="md">
       <div className="flex items-start gap-4">
-        <div
-          className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold ${badge.color}`}
-        >
-          {badge.label}
+        <div className="w-10 h-10 rounded-lg bg-white border border-default flex items-center justify-center">
+          <IntegrationIcon type={integration.type} size={24} />
         </div>
 
         <div className="flex-1 min-w-0">
