@@ -85,6 +85,14 @@ It is _not_ a hosted platform. There's no dashboard, no SaaS, no account signup.
   <img src="docs/demos/agent-reprovision.gif" alt="Provisioning a new agent with clawctl" width="100%">
 </p>
 
+<p align="center">
+  <a href="https://youtu.be/F8AVpxsZTOA">
+    <img src="https://img.youtube.com/vi/F8AVpxsZTOA/maxresdefault.jpg" alt="Watch the Clawrium GUI walkthrough on YouTube" width="75%">
+  </a>
+  <br>
+  <em>75-second walkthrough of every tab in <code>clawctl gui</code> — Dashboard, Agents, Topology, Providers, Skills, Integrations, Settings</em>
+</p>
+
 ### Install & Run
 
 ```bash

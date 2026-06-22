@@ -1,0 +1,98 @@
+# <DEMO TITLE> — declarative spec for a browser-session demo.
+#
+# Single source of truth for the demo. Edit here and re-run:
+#   uv run docs/demos/lib/pw_compile.py docs/demos/YYYYMMDD-<NAME>
+# which regenerates driver.py + cards/*.html + compiled.json from this file.
+#
+# Replay-first: every scene optionally declares a `har:` file that Playwright
+# replays via `route_from_har`. Capture phase (one-time, against the live app):
+#   uv run docs/demos/lib/pw_compile.py docs/demos/YYYYMMDD-<NAME> --capture
+#   uv run docs/demos/YYYYMMDD-<NAME>/driver_capture.py
+# Re-capture when the app's API shape or selector contracts change.
+
+title: <DEMO TITLE>
+subtitle: <one-line subtitle, e.g. "clawctl GUI walkthrough — vX.Y.Z">
+
+outro:
+  line_1: "Get started: ric03uec.github.io/clawrium"
+  line_2: "github.com/ric03uec/clawrium"
+
+tape:
+  framerate: 30
+  width: 1400
+  height: 900
+  device_scale: 1
+  base_url: https://app.example.com
+  color_scheme: light          # light | dark | no-preference
+  reduced_motion: reduce       # reduce | no-preference
+
+# Hidden setup runs before any scene. The driver does NOT record this phase.
+# Use it for storage-state load, viewport assertion, or feature-flag toggles.
+setup:
+  - storage_state: outputs/storage_state.json   # optional; gitignored
+  # - eval: "page.add_init_script('window.__DEMO__ = true;')"
+
+# Two structural beats rendered before scene 1.
+intro:
+  title_card:
+    hold_seconds: 4
+    narration: "Welcome to the <Demo Title> — a walkthrough of <one-line summary>."
+  checklist:
+    hold_seconds: 5
+    narration: "Here's what we'll demo: <comma-separated scene titles>."
+
+scenes:
+  # Every scene declares an `actions:` list (the on-screen interactions) and
+  # may declare `har:` for deterministic network replay. Scenes without `har:`
+  # hit the live backend at record time.
+  #
+  # `screen_seconds` is the TOTAL on-screen time for the scene, including the
+  # time actions take. The driver computes elapsed action time and adds a final
+  # `wait_for_timeout` to reach `screen_seconds` exactly.
+  #
+  # `narration` `offset_seconds` are RELATIVE to the scene start. pw_compile.py
+  # converts them to absolute timestamps in compiled.json for narrate.py.
+
+  - n: 1
+    title: Landing page
+    actions:
+      - goto: /                          # relative paths use tape.base_url
+      - wait_for: "text=Welcome"
+    har: outputs/01-landing.har
+    screen_seconds: 4
+    narration:
+      - text: "We open the app on its landing page."
+
+  - n: 2
+    title: Create a new agent
+    actions:
+      - click: "button:has-text('New agent')"
+      - fill: { selector: "#agent-name", text: "demo-agent" }
+      - click: "button:has-text('Create')"
+      - wait_for: "text=Created"
+    har: outputs/02-create-agent.har
+    screen_seconds: 8
+    narration:
+      - offset_seconds: 0
+        text: "From the dashboard, we click 'New agent' to start the flow."
+      - offset_seconds: 4
+        text: "We fill in the agent name and submit."
+
+  # Longer flow with an emphasised region.
+  - n: 3
+    title: Agent details
+    actions:
+      - click: "a:has-text('demo-agent')"
+      - wait_for: "[data-testid=agent-detail]"
+      - highlight: "[data-testid=agent-status]"   # CSS ring overlay
+    har: outputs/03-agent-details.har
+    screen_seconds: 10
+    narration:
+      - offset_seconds: 0
+        text: "Clicking the agent opens its detail page."
+      - offset_seconds: 5
+        text: "The status banner shows the live health of the agent."
+
+outro_card:
+  hold_seconds: 5
+  narration: "Try it yourself at ric03uec.github.io/clawrium."

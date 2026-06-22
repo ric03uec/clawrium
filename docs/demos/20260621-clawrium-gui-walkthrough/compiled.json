@@ -1,0 +1,77 @@
+{
+  "duration_seconds": 74.5,
+  "narration": [
+    {
+      "scene_n": 0,
+      "beat_n": 0,
+      "absolute_seconds": 0.0,
+      "kind": "title_card",
+      "title": "Clawrium GUI walkthrough",
+      "text": "Welcome to Clawrium \u2014 a quick tour of every tab in the clawctl GUI."
+    },
+    {
+      "scene_n": 1,
+      "beat_n": 0,
+      "absolute_seconds": 5.5,
+      "kind": "scene",
+      "title": "Dashboard",
+      "text": "The Dashboard is your fleet overview \u2014 total agents, how many are running, providers configured, and a seven-day token-usage chart."
+    },
+    {
+      "scene_n": 2,
+      "beat_n": 0,
+      "absolute_seconds": 14.5,
+      "kind": "scene",
+      "title": "Agents",
+      "text": "The Agents tab lists every agent installed across every host in your fleet, with its current status, type, and provider."
+    },
+    {
+      "scene_n": 3,
+      "beat_n": 0,
+      "absolute_seconds": 22.5,
+      "kind": "scene",
+      "title": "Topology",
+      "text": "Topology shows the physical layout of your fleet \u2014 every host you've connected, and which agents live where."
+    },
+    {
+      "scene_n": 4,
+      "beat_n": 0,
+      "absolute_seconds": 30.5,
+      "kind": "scene",
+      "title": "Providers",
+      "text": "Providers are the AI backends powering your agents \u2014 Anthropic, OpenAI, Bedrock, OpenRouter, and others, each with their default models."
+    },
+    {
+      "scene_n": 5,
+      "beat_n": 0,
+      "absolute_seconds": 41.5,
+      "kind": "scene",
+      "title": "Skills",
+      "text": "Skills are reusable behavior bundles. You can install them onto any agent \u2014 test-driven workflows, code review, release announcements, and more."
+    },
+    {
+      "scene_n": 6,
+      "beat_n": 0,
+      "absolute_seconds": 49.5,
+      "kind": "scene",
+      "title": "Integrations",
+      "text": "Integrations connect your fleet to external channels like Slack and Discord, so agents can post updates or receive commands."
+    },
+    {
+      "scene_n": 7,
+      "beat_n": 0,
+      "absolute_seconds": 57.5,
+      "kind": "scene",
+      "title": "Settings",
+      "text": "Settings is where global preferences live \u2014 your config directory, token-tracking storage, GUI port, and a danger zone for resets."
+    },
+    {
+      "scene_n": 99,
+      "beat_n": 0,
+      "absolute_seconds": 68.5,
+      "kind": "outro_card",
+      "title": "Clawrium GUI walkthrough",
+      "text": "That's every tab. Spin up the GUI yourself with clawctl gui, and head to the docs to get started."
+    }
+  ]
+}

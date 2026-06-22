@@ -1,0 +1,104 @@
+# Clawrium GUI walkthrough — declarative spec.
+#
+# Smoke-test demo for the /create-playwright skill. Visits every clickable
+# sidebar route in the clawctl GUI, holds for a few seconds on each so the
+# viewer can read the page header and primary content, with ElevenLabs
+# narration explaining each page.
+
+title: Clawrium GUI walkthrough
+subtitle: A quick tour of every tab in the dashboard
+
+outro:
+  line_1: "Get started: ric03uec.github.io/clawrium"
+  line_2: "github.com/ric03uec/clawrium"
+
+tape:
+  framerate: 30
+  width: 1400
+  height: 900
+  device_scale: 1
+  base_url: http://127.0.0.1:36000
+  color_scheme: light
+  reduced_motion: reduce
+
+# No HAR replay — the GUI is local and deterministic enough for a smoke test.
+# No storage_state — the dashboard requires no auth.
+setup: []
+
+intro:
+  title_card:
+    hold_seconds: 5
+    narration: "Welcome to Clawrium — a quick tour of every tab in the clawctl GUI."
+
+outro_card:
+  hold_seconds: 6
+  narration: "That's every tab. Spin up the GUI yourself with clawctl gui, and head to the docs to get started."
+
+scenes:
+  - n: 1
+    title: Dashboard
+    actions:
+      - wait_for: "h1:has-text('Dashboard')"
+    screen_seconds: 9
+    narration:
+      - text: "The Dashboard is your fleet overview — total agents, how many are running, providers configured, and a seven-day token-usage chart."
+
+  - n: 2
+    title: Agents
+    actions:
+      - click: "aside nav a[href='/agents']"
+      - wait_for_url: "**/agents"
+      - wait_for: "h1"
+    screen_seconds: 8
+    narration:
+      - text: "The Agents tab lists every agent installed across every host in your fleet, with its current status, type, and provider."
+
+  - n: 3
+    title: Topology
+    actions:
+      - click: "aside nav a[href='/topology']"
+      - wait_for_url: "**/topology"
+      - wait_for: "h1"
+    screen_seconds: 8
+    narration:
+      - text: "Topology shows the physical layout of your fleet — every host you've connected, and which agents live where."
+
+  - n: 4
+    title: Providers
+    actions:
+      - click: "aside nav a[href='/providers']"
+      - wait_for_url: "**/providers"
+      - wait_for: "h1"
+    screen_seconds: 11
+    narration:
+      - text: "Providers are the AI backends powering your agents — Anthropic, OpenAI, Bedrock, OpenRouter, and others, each with their default models."
+
+  - n: 5
+    title: Skills
+    actions:
+      - click: "aside nav a[href='/skills']"
+      - wait_for_url: "**/skills"
+      - wait_for: "h1"
+    screen_seconds: 8
+    narration:
+      - text: "Skills are reusable behavior bundles. You can install them onto any agent — test-driven workflows, code review, release announcements, and more."
+
+  - n: 6
+    title: Integrations
+    actions:
+      - click: "aside nav a[href='/integrations']"
+      - wait_for_url: "**/integrations"
+      - wait_for: "h1"
+    screen_seconds: 8
+    narration:
+      - text: "Integrations connect your fleet to external channels like Slack and Discord, so agents can post updates or receive commands."
+
+  - n: 7
+    title: Settings
+    actions:
+      - click: "aside a[href='/settings']"
+      - wait_for_url: "**/settings"
+      - wait_for: "h1"
+    screen_seconds: 11
+    narration:
+      - text: "Settings is where global preferences live — your config directory, token-tracking storage, GUI port, and a danger zone for resets."

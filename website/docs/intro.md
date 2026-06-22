@@ -26,6 +26,21 @@ keywords: [clawrium, AI assistant, fleet management, CLI tool, multi-host, agent
 
 End-to-end walkthrough: install `clawctl`, register a host, deploy a [Hermes](https://github.com/NousResearch/hermes-agent) agent, attach a model provider, and chat with it. Full step-by-step write-up in the [Quickstart guide](./guides/quickstart.md).
 
+## Watch: GUI walkthrough
+
+<div style={{position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden', maxWidth: '100%', marginBottom: '2rem'}}>
+  <iframe
+    style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%'}}
+    src="https://www.youtube.com/embed/F8AVpxsZTOA"
+    title="Clawrium GUI walkthrough — every tab in the clawctl dashboard"
+    frameBorder="0"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowFullScreen>
+  </iframe>
+</div>
+
+75-second narrated tour of every tab in `clawctl gui` — Dashboard, Agents, Topology, Providers, Skills, Integrations, Settings. Full reference in the [Web Dashboard guide](./web-dashboard.md).
+
 ## What is an Agent?
 
 A Clawrium **agent** is a general-purpose AI assistant that runs on a machine in your network. Unlike coding-specific tools, these agents are versatile assistants that can:

@@ -245,8 +245,18 @@ docs/demos/recordings/*
 
 # ElevenLabs narration pipeline (docs/demos/lib/narrate.py).
 # Real API key + voice IDs live in .env; per-scene TTS clips are regenerated.
+# _durations.json is tracked so a fresh clone can recompile with the same
+# screen_seconds without re-running TTS. Voice-coupled — if you change
+# ELEVENLABS_VOICE_ID, the committed durations go stale; rerun narrate.py
+# and re-commit.
 docs/demos/lib/.env
-docs/demos/**/voice/
+docs/demos/**/voice/*
+!docs/demos/**/voice/_durations.json
+
+# Playwright (create-playwright) intermediate + auth artifacts.
+docs/demos/**/recording.webm
+docs/demos/**/_video_raw/
+docs/demos/**/outputs/storage_state.json
 /gtm/
 tests/platform/fixtures/.ws_cache/
 

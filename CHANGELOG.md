@@ -220,6 +220,15 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Documentation
 
+- Added a **`/create-playwright` skill** for recording browser-session demos
+  with Playwright. Mirrors `/create-vhs` for browser flows: `scenes.yaml` is
+  the source of truth, `docs/demos/lib/pw_compile.py` generates `driver.py`
+  + intro/outro card HTML + a `compiled.json` narration timeline, and
+  `narrate.py` is reused for ElevenLabs voiceover. First demo lands at
+  `docs/demos/20260621-clawrium-gui-walkthrough/` — a 75-second walkthrough
+  of every tab in the `clawctl gui` dashboard, embedded in the README and on
+  the website's [Web Dashboard guide](website/docs/web-dashboard.md) and
+  [Introduction](website/docs/intro.md).
 - Landing page audit: restructured the GitHub README first-success path —
   added a Support Matrix near the top (control/host OS, agent runtimes,
   providers, channels), dropped the deliberate `xclm SSH verification

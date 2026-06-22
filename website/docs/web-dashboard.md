@@ -15,6 +15,21 @@ The server binds to `127.0.0.1:36000` only — it is **never reachable from the 
 
 > Prefer the terminal? `clawctl tui` gives you the same fleet overview without leaving the shell.
 
+## Watch: 75-second tour
+
+<div style={{position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden', maxWidth: '100%', marginBottom: '2rem'}}>
+  <iframe
+    style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%'}}
+    src="https://www.youtube.com/embed/F8AVpxsZTOA"
+    title="Clawrium GUI walkthrough — every tab in the clawctl dashboard"
+    frameBorder="0"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowFullScreen>
+  </iframe>
+</div>
+
+A narrated walkthrough of every tab in the dashboard — Dashboard, Agents, Topology, Providers, Skills, Integrations, Settings. The rest of this page is the reference detail for each tab.
+
 ## Dashboard
 
 The landing page at `/` is the fleet at a glance: total agents, running count, configured providers, 24-hour token usage, estimated cost, and a token-usage chart. A table at the bottom lists each agent with status, type, host, model, and uptime.
