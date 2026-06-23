@@ -67,10 +67,7 @@ describe("IntegrationsPage", () => {
       within(sectionRow).getByRole("button", { name: /Add Integration/ }),
     ).toBeInTheDocument();
 
-    const pageHeader = screen.getByRole("heading", {
-      level: 1,
-      name: "Integrations",
-    }).parentElement!.parentElement!;
+    const pageHeader = screen.getByTestId("page-header");
     expect(
       within(pageHeader).queryByRole("button", { name: /Add Integration/ }),
     ).toBeNull();
@@ -90,6 +87,14 @@ describe("IntegrationsPage", () => {
     ).toBeInTheDocument();
     expect(
       screen.queryByText(/Configured Integrations/),
+    ).toBeNull();
+
+    // W5 invariant must hold on the empty branch too: the Add affordance
+    // is the empty-state CTA only — there must not be a duplicate in the
+    // page header.
+    const pageHeader = screen.getByTestId("page-header");
+    expect(
+      within(pageHeader).queryByRole("button", { name: /Add Integration/ }),
     ).toBeNull();
   });
 });

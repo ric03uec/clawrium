@@ -1,12 +1,12 @@
 {
-  "session_id": "c0180349-e1cc-493c-88ce-d5a781bca5f2",
+  "session_id": "b1111d7e-a5b9-4c7a-9877-3686672baa7c",
   "transport": "cli",
-  "commit_sha": "ebaf11fba0dcb598949103c471ed0924f00bad08",
-  "iteration": 1,
-  "last_rating": 0,
+  "commit_sha": "a5c5646b8671700a0db493e8764d1bc3edb17ec2",
+  "iteration": 2,
+  "last_rating": 4,
   "last_blockers": [],
-  "last_status": "timed_out",
-  "last_summary": "Review failed: review timed out: after 5m0s",
+  "last_status": "cleared",
+  "last_summary": "Rating 4/5 \u2014 all W1-W5 resolved; 6 non-blocking suggestions; S1-S5 addressed in follow-up commit.",
   "started_at": "2026-06-22T23:41:40Z",
-  "updated_at": "2026-06-22T23:45:30Z"
+  "updated_at": "2026-06-23T00:00:08Z"
 }

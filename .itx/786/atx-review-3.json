@@ -1,0 +1,110 @@
+Requesting review for /home/devashish/workspace/ric03uec/clawrium-issue-786...
+{"time":"2026-06-22T16:53:06.962735143-07:00","level":"INFO","msg":"request_review: starting","project_root":"/home/devashish/workspace/ric03uec/clawrium"}
+{"time":"2026-06-22T16:53:07.014127522-07:00","level":"INFO","msg":"request_review: task created","task_id":"b1111d7e-a5b9-4c7a-9877-3686672baa7c","project_port":30011}
+ATX review in progress. Using high effort (per-project) — leader may invoke up to 6 of 7 specialists.
+Task created (id: b1111d7e-a5b9-4c7a-9877-3686672baa7c), polling for completion...
+Waiting for review... (0s elapsed)
+Waiting for review... (1s elapsed)
+Waiting for review... (3s elapsed)
+Waiting for review... (7s elapsed)
+Waiting for review... (15s elapsed)
+Waiting for review... (25s elapsed)
+Waiting for review... (35s elapsed)
+Waiting for review... (45s elapsed)
+Waiting for review... (55s elapsed)
+Waiting for review... (1m5s elapsed)
+Waiting for review... (1m15s elapsed)
+Waiting for review... (1m25s elapsed)
+Waiting for review... (1m35s elapsed)
+Waiting for review... (1m45s elapsed)
+Waiting for review... (1m55s elapsed)
+Waiting for review... (2m5s elapsed)
+Waiting for review... (2m15s elapsed)
+Waiting for review... (2m25s elapsed)
+Waiting for review... (2m35s elapsed)
+Waiting for review... (2m45s elapsed)
+Waiting for review... (2m56s elapsed)
+Waiting for review... (3m6s elapsed)
+Waiting for review... (3m16s elapsed)
+Waiting for review... (3m26s elapsed)
+Waiting for review... (3m36s elapsed)
+{"time":"2026-06-22T16:56:52.698011452-07:00","level":"INFO","msg":"review: task completed","task_id":"b1111d7e-a5b9-4c7a-9877-3686672baa7c","status":"completed","duration_ms":221244}
+{"time":"2026-06-22T16:56:52.698100029-07:00","level":"INFO","msg":"request_review: completed","blocking":false,"files_reviewed":0,"cost_usd":1.3330996000000002,"task_id":"b1111d7e-a5b9-4c7a-9877-3686672baa7c","status":"completed"}
+{
+  "status": "reviewed",
+  "blocking": false,
+  "summary": "## Issue-786 Re-Review — Iteration 2\n\n**Rating: 4/5 — No blockers. All W1–W5 resolved. 6 suggestions.**\n\n---\n\n### W1–W5 Resolution Status\n\n| # | Warning | Status | Notes |\n|---|---------|--------|----...",
+  "feedback": "## Issue-786 Re-Review — Iteration 2\n\n**Rating: 4/5 — No blockers. All W1–W5 resolved. 6 suggestions.**\n\n---\n\n### W1–W5 Resolution Status\n\n| # | Warning | Status | Notes |\n|---|---------|--------|-------|\n| W1 | Fallback span missing `role=img`/`aria-label` | **Resolved** | Fallback `\u003cdiv\u003e` carries `role=\"img\"` + `aria-hidden=\"true\"`. Technically the `role` is dead code (aria-hidden removes the node from the accessibility tree), but since each call site renders the integration type as sibling text, treating the icon as decorative is correct. |\n| W2 | `\u003cimg\u003e` missing `alt` / not aria-hidden | **Resolved** | `alt=\"\"` + `aria-hidden=\"true\"` applied. Both signals are redundant (WAI-ARIA idiom only needs `alt=\"\"`), but harmless. |\n| W3 | No parametrized fallback coverage | **Resolved** | `it.each` parametrizes fallback across empty-string, single-char, and multi-char cases. See S1 below for one weak assertion in the empty-string row. |\n| W4 | No lazy/width/height attribute assertions | **Resolved** | Assertions use `toHaveAttribute` on actual rendered DOM (`loading=\"lazy\"`, `width=\"32\"`, `height=\"32\"`) — not prop-pass-through mocks. |\n| W5 | Add button in page header; no placement test | **Resolved** | `page.test.tsx` positively asserts button presence in the section row and negatively asserts absence from the page header. See S4 below for brittleness. |\n\n---\n\n### New Suggestions Introduced (not blocking)\n\n**S1** · `integration-icon.test.tsx:42–53` — `expect(fallback).toHaveTextContent('')` is a substring match; an empty string matches *any* element's textContent, so the empty-type row can never fail. Use `expect(fallback.textContent).toBe('')` or `.toBeEmptyDOMElement()`.\n\n**S2** · `integration-icon.tsx:32–33` — `role=\"img\"` on an `aria-hidden=\"true\"` node is dead code (AT never sees the role). Drop `role=\"img\"` from the fallback `\u003cdiv\u003e`; keep only `aria-hidden=\"true\"`.\n\n**S3** · `integration-card.test.tsx:47` — `expect(screen.queryByText('GH')).toBeNull()` is a misleading guard: jsdom textContent is lowercase (`gi`, not `GH`), so this assertion passes against the very regression it claims to block. The `img != null` + `src` check is what actually catches the regression. Drop the `GH` line or replace it with an absence-of-legacy-class assertion.\n\n**S4** · `page.test.tsx:70–76` — `.parentElement!.parentElement!` DOM-climbing to reach the PageHeader container will silently shift targets if `\u003cPageHeader\u003e` gains or loses a wrapper div. Stabilize with `data-testid=\"page-header\"` on the PageHeader root (or `screen.getByRole('banner')`), then use `within(pageHeader).queryByRole(...)`.\n\n**S5** · `page.test.tsx:79–94` — The empty-state test verifies the CTA is present but omits the negative header assertion. A future change that adds a header button only on empty-state would silently regress the W5 invariant. Add the same `within(pageHeader).queryByRole('button', { name: /Add Integration/ })` negative check to the empty-state branch.\n\n**S6** · `integration-card.test.tsx:34–46` — `container.querySelector('img')` will match whichever `\u003cimg\u003e` appears first if the card later renders a second image (e.g., a status badge). Tighten to `container.querySelector('img[src^=\"/integration-icons/\"]')` to keep the assertion specific to the integration icon.\n\n---\n\n### Recommended Actions Before Merge\n\nPriority order (none are blockers, but S1, S4, S5 have the highest regression risk):\n\n1. **S1** — Fix `toHaveTextContent('')` → `toBe('')` so the empty-type fallback row actually exercises the branch.\n2. **S4 + S5** — Replace parent-chain selector with a stable handle; extend the negative header check to the empty-state test.\n3. **S2** — Drop the redundant `role=\"img\"` on the aria-hidden fallback.\n4. **S3** — Remove or fix the misleading `GH` text assertion in card tests.\n5. **S6** — Tighten the card test's `img` selector.\n",
+  "agent_feedback": [
+    {
+      "agent_id": "a13a9b15-3250-4f4b-adce-c781fb471731",
+      "agent_name": "leader",
+      "status": "completed",
+      "result": "## Issue-786 Re-Review — Iteration 2\n\n**Rating: 4/5 — No blockers. All W1–W5 resolved. 6 suggestions.**\n\n---\n\n### W1–W5 Resolution Status\n\n| # | Warning | Status | Notes |\n|---|---------|--------|-------|\n| W1 | Fallback span missing `role=img`/`aria-label` | **Resolved** | Fallback `\u003cdiv\u003e` carries `role=\"img\"` + `aria-hidden=\"true\"`. Technically the `role` is dead code (aria-hidden removes the node from the accessibility tree), but since each call site renders the integration type as sibling text, treating the icon as decorative is correct. |\n| W2 | `\u003cimg\u003e` missing `alt` / not aria-hidden | **Resolved** | `alt=\"\"` + `aria-hidden=\"true\"` applied. Both signals are redundant (WAI-ARIA idiom only needs `alt=\"\"`), but harmless. |\n| W3 | No parametrized fallback coverage | **Resolved** | `it.each` parametrizes fallback across empty-string, single-char, and multi-char cases. See S1 below for one weak assertion in the empty-string row. |\n| W4 | No lazy/width/height attribute assertions | **Resolved** | Assertions use `toHaveAttribute` on actual rendered DOM (`loading=\"lazy\"`, `width=\"32\"`, `height=\"32\"`) — not prop-pass-through mocks. |\n| W5 | Add button in page header; no placement test | **Resolved** | `page.test.tsx` positively asserts button presence in the section row and negatively asserts absence from the page header. See S4 below for brittleness. |\n\n---\n\n### New Suggestions Introduced (not blocking)\n\n**S1** · `integration-icon.test.tsx:42–53` — `expect(fallback).toHaveTextContent('')` is a substring match; an empty string matches *any* element's textContent, so the empty-type row can never fail. Use `expect(fallback.textContent).toBe('')` or `.toBeEmptyDOMElement()`.\n\n**S2** · `integration-icon.tsx:32–33` — `role=\"img\"` on an `aria-hidden=\"true\"` node is dead code (AT never sees the role). Drop `role=\"img\"` from the fallback `\u003cdiv\u003e`; keep only `aria-hidden=\"true\"`.\n\n**S3** · `integration-card.test.tsx:47` — `expect(screen.queryByText('GH')).toBeNull()` is a misleading guard: jsdom textContent is lowercase (`gi`, not `GH`), so this assertion passes against the very regression it claims to block. The `img != null` + `src` check is what actually catches the regression. Drop the `GH` line or replace it with an absence-of-legacy-class assertion.\n\n**S4** · `page.test.tsx:70–76` — `.parentElement!.parentElement!` DOM-climbing to reach the PageHeader container will silently shift targets if `\u003cPageHeader\u003e` gains or loses a wrapper div. Stabilize with `data-testid=\"page-header\"` on the PageHeader root (or `screen.getByRole('banner')`), then use `within(pageHeader).queryByRole(...)`.\n\n**S5** · `page.test.tsx:79–94` — The empty-state test verifies the CTA is present but omits the negative header assertion. A future change that adds a header button only on empty-state would silently regress the W5 invariant. Add the same `within(pageHeader).queryByRole('button', { name: /Add Integration/ })` negative check to the empty-state branch.\n\n**S6** · `integration-card.test.tsx:34–46` — `container.querySelector('img')` will match whichever `\u003cimg\u003e` appears first if the card later renders a second image (e.g., a status badge). Tighten to `container.querySelector('img[src^=\"/integration-icons/\"]')` to keep the assertion specific to the integration icon.\n\n---\n\n### Recommended Actions Before Merge\n\nPriority order (none are blockers, but S1, S4, S5 have the highest regression risk):\n\n1. **S1** — Fix `toHaveTextContent('')` → `toBe('')` so the empty-type fallback row actually exercises the branch.\n2. **S4 + S5** — Replace parent-chain selector with a stable handle; extend the negative header check to the empty-state test.\n3. **S2** — Drop the redundant `role=\"img\"` on the aria-hidden fallback.\n4. **S3** — Remove or fix the misleading `GH` text assertion in card tests.\n5. **S6** — Tighten the card test's `img` selector.\n",
+      "rating": 0,
+      "cost_usd": 0.26735735,
+      "delegated_to": [
+        "49fbebd6-8745-4b35-81b4-0bb0bf680f37",
+        "96cf24db-1fca-48da-8f6f-2d799acb293a",
+        "e5323802-3973-44c7-a934-53da9bea7eae",
+        "d79463ac-884b-4e03-b34f-fb6017c83027",
+        "2f559a42-9fca-4be1-a67d-1601b2edbe8b",
+        "2b6bb653-42cd-4aa5-aac5-6edc8b274fd0",
+        "e8462619-249e-41f6-8cb0-a7169ae20d74"
+      ]
+    },
+    {
+      "agent_id": "49fbebd6-8745-4b35-81b4-0bb0bf680f37",
+      "agent_name": "gui-routes",
+      "status": "completed",
+      "result": "\u003coutput\u003e\n{\n  \"rating\": 4,\n  \"summary\": \"All five iter-1 warnings are resolved on a5c5646. The accessibility fix takes a different (but valid) route than W1's suggestion — treating both icon branches as decorative (aria-hidden) since the adjacent type label provides the accessible name. Test coverage now exercises the parametrized fallback, lazy/width/height forwarding, and pins the Add button to the list-section row. Two minor issues introduced; nothing blocking.\",\n  \"findings\": [\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"gui/src/components/integrations/integration-icon.tsx:32-33\",\n      \"issue\": \"W1 status — Resolved (different from suggestion). The fallback \u003cdiv\u003e now carries BOTH role=\\\"img\\\" and aria-hidden=\\\"true\\\". aria-hidden removes the node from the accessibility tree entirely, which makes the explicit role=\\\"img\\\" dead code — assistive tech never sees the role. This is defensible because each call site renders the integration type as visible text adjacent to the icon, so the icon is genuinely decorative; but the role attribute is misleading.\",\n      \"suggestion\": \"Drop role=\\\"img\\\" on the fallback \u003cdiv\u003e; keep just aria-hidden=\\\"true\\\". Either update the fallback test to query by a non-ARIA selector (e.g. data-testid) or remove the dual signal.\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"gui/src/components/integrations/integration-icon.tsx:48-49\",\n      \"issue\": \"W2 status — Resolved. alt=\\\"\\\" plus aria-hidden=\\\"true\\\" cleanly marks the \u003cimg\u003e as decorative. The two signals are redundant (alt=\\\"\\\" alone is the WAI-spec idiom) but harmless.\",\n      \"suggestion\": \"Optional: prefer just alt=\\\"\\\" to match standard decorative-image guidance.\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"gui/src/components/integrations/integration-icon.test.tsx:34-47\",\n      \"issue\": \"W3 status — Resolved. The fallback path is now parametrized over \\\"\\\", single-char (\\\"x\\\"), and multi-char (\\\"custom\\\"). The empty-string case correctly asserts an empty text content — type.slice(0, 2) on \\\"\\\" returns \\\"\\\", matching the assertion. Negative assertion container.querySelector(\\\"img\\\") toBeNull also present.\",\n      \"suggestion\": \"None.\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"gui/src/components/integrations/integration-icon.test.tsx:26-32\",\n      \"issue\": \"W4 status — Resolved. Test now asserts width=\\\"32\\\", height=\\\"32\\\", and loading=\\\"lazy\\\" on the rendered \u003cimg\u003e. Separate fallback test also asserts className passthrough and inline width/height styling.\",\n      \"suggestion\": \"None.\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"gui/src/app/integrations/page.test.tsx:65-78\",\n      \"issue\": \"W5 status — Resolved, but the implementation is brittle. The test climbs the DOM via screen.getByRole(\\\"heading\\\", { level: 1, name: \\\"Integrations\\\" }).parentElement!.parentElement! to assert the Add button is absent from the page header. Any added wrapper div in PageHeader will silently move the assertion target, making the test pass for the wrong reason.\",\n      \"suggestion\": \"Add data-testid=\\\"page-header\\\" to PageHeader's root (or use a role=\\\"banner\\\" landmark) and select by that handle. Same for the list-section row — data-testid=\\\"integrations-section-header\\\" would be more durable than heading.parentElement!.\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"gui/src/components/integrations/integration-card.test.tsx:34-46\",\n      \"issue\": \"The new card test uses container.querySelector(\\\"img\\\") rather than an accessible query. This is acceptable given the icon is now aria-hidden, but if IntegrationCard later renders an additional \u003cimg\u003e (e.g., status badge), the bare querySelector will match whichever appears first and the assertion may pass on the wrong element.\",\n      \"suggestion\": \"Scope by class or testid, e.g. container.querySelector('img[src^=\\\"/integration-icons/\\\"]'), to keep the assertion specific to the integration icon.\"\n    }\n  ],\n  \"recommendations\": [\n    \"Drop the redundant role=\\\"img\\\" on the aria-hidden fallback div; it cannot be observed by AT and contradicts the aria-hidden signal.\",\n    \"Replace .parentElement!.parentElement! DOM-climbing in page.test.tsx with a data-testid (or landmark role) on PageHeader to make the Add-button-location assertion durable.\",\n    \"Tighten the card-test img selector so it cannot silently match a future non-icon \u003cimg\u003e.\"\n  ],\n  \"metadata\": {\n    \"files_reviewed\": 4,\n    \"domain\": \"gui-routes (gui/src)\",\n    \"iter1_warnings_resolved\": \"W1,W2,W3,W4,W5\",\n    \"blocking_issues_introduced\": 0\n  }\n}\n\u003c/output\u003e",
+      "rating": 4,
+      "cost_usd": 0.493872
+    },
+    {
+      "agent_id": "96cf24db-1fca-48da-8f6f-2d799acb293a",
+      "agent_name": "test-coverage",
+      "status": "completed",
+      "result": "\u003coutput\u003e\n{\n  \"rating\": 4,\n  \"summary\": \"All five iter-1 warnings (W1–W5) are addressed on HEAD. Tests are now genuinely parametrized via it.each, attribute assertions hit real DOM rather than mocks, and the Add button location is pinned both positively (in the section row) and negatively (absent from the page header). Two minor weak assertions and one brittle parent-chain remain — none are blocking.\",\n  \"findings\": [\n    {\"severity\": \"suggestion\", \"location\": \"gui/src/components/integrations/integration-icon.test.tsx:42-53\", \"issue\": \"The empty-type fallback row `['', '']` asserts `expect(fallback).toHaveTextContent('')`. jest-dom's `toHaveTextContent('')` is a substring match, so an empty string matches ANY element's textContent — this assertion can never fail and provides zero coverage for the empty-type edge case.\", \"suggestion\": \"Switch to `expect(fallback.textContent).toBe('')` (or use `.toBeEmptyDOMElement()`) so the empty-string slice path is actually verified.\"},\n    {\"severity\": \"suggestion\", \"location\": \"gui/src/components/integrations/integration-card.test.tsx:47\", \"issue\": \"`expect(screen.queryByText('GH')).toBeNull()` is effectively a dead guard against the legacy badge regression. The current fallback renders `type.slice(0,2)` ('gi' for github) and relies on CSS `uppercase` for the visual cap, so jsdom's textContent is lowercase. The assertion would also pass against the very regression it claims to detect if the regressed badge used CSS-uppercase. The positive `img != null` + `src` assertion is what actually catches the regression; the `GH` check is misleading.\", \"suggestion\": \"Either drop the `GH` line (the img+src assertion is sufficient) or make it case-insensitive and broader, e.g. `expect(container.textContent?.toUpperCase()).not.toMatch(/\\\\bGH\\\\b/)`. Better: assert the absence of the legacy badge class/role directly.\"},\n    {\"severity\": \"suggestion\", \"location\": \"gui/src/app/integrations/page.test.tsx:70-76\", \"issue\": \"Two-hop `.parentElement!.parentElement!` chain to reach the PageHeader container is brittle. Any internal refactor of `\u003cPageHeader\u003e` (e.g., adding/removing a wrapper div) would silently shift which element is selected and the negative `queryByRole` could become a false negative instead of a true assertion.\", \"suggestion\": \"Wrap PageHeader in a stable test marker (e.g. `data-testid='page-header'` on the outermost container) or use `screen.getByRole('banner')` if the heading lives in a header landmark, then `within(...).queryByRole('button', { name: /Add Integration/ })`.\"},\n    {\"severity\": \"suggestion\", \"location\": \"gui/src/app/integrations/page.test.tsx:79-94\", \"issue\": \"The empty-state test verifies the CTA is present but does not assert that the Add Integration button is still absent from the page header in this state. If a future change adds a header button only on empty-state, the iter-1 W5 invariant ('Add button belongs with the list row, not the header') would regress unnoticed.\", \"suggestion\": \"Add the same negative `within(pageHeader).queryByRole('button', { name: /Add/ })` assertion to the empty-state test.\"},\n    {\"severity\": \"suggestion\", \"location\": \"gui/src/components/integrations/integration-icon.test.tsx:34-40\", \"issue\": \"The img path tests do not assert that `className` is forwarded to the rendered `\u003cimg\u003e` (only verified on the fallback path at line 55-64). Minor symmetry gap.\", \"suggestion\": \"Add a className assertion in the official-icon describe block, e.g. `render(\u003cIntegrationIcon type='github' className='ring-2' /\u003e); expect(container.querySelector('img')?.className).toContain('ring-2')`.\"}\n  ],\n  \"recommendations\": [\n    \"W1: RESOLVED — fallback span has role='img'; aria-hidden='true' is a deliberate, valid pattern because the integration label is rendered as sibling text (component-level comment makes the intent explicit and correct).\",\n    \"W2: RESOLVED — img has both alt='' and aria-hidden='true'; decorative-image contract is satisfied.\",\n    \"W3: RESOLVED — `it.each` parametrizes both the 7 vendors and the fallback variations including a 1-char edge case. Fix the empty-string assertion (see findings) to make the third row meaningful.\",\n    \"W4: RESOLVED — width/height/loading assertions use `toHaveAttribute` against the actual rendered DOM, not mocked props.\",\n    \"W5: RESOLVED — page.test.tsx asserts the Add button is inside the 'Configured Integrations' section row AND absent from the page header. Tighten the parent-chain selector and add the same negative check to the empty-state test.\"\n  ],\n  \"metadata\": {\"files_reviewed\": 4, \"domain\": \"test-coverage\"}\n}\n\u003c/output\u003e",
+      "rating": 4,
+      "cost_usd": 0.5718702500000001
+    },
+    {
+      "agent_id": "e5323802-3973-44c7-a934-53da9bea7eae",
+      "agent_name": "cli-ux",
+      "status": "skipped",
+      "rating": 0
+    },
+    {
+      "agent_id": "d79463ac-884b-4e03-b34f-fb6017c83027",
+      "agent_name": "lifecycle-core",
+      "status": "skipped",
+      "rating": 0
+    },
+    {
+      "agent_id": "2f559a42-9fca-4be1-a67d-1601b2edbe8b",
+      "agent_name": "platform-playbooks",
+      "status": "skipped",
+      "rating": 0
+    },
+    {
+      "agent_id": "2b6bb653-42cd-4aa5-aac5-6edc8b274fd0",
+      "agent_name": "render-engine",
+      "status": "skipped",
+      "rating": 0
+    },
+    {
+      "agent_id": "e8462619-249e-41f6-8cb0-a7169ae20d74",
+      "agent_name": "security-reviewer",
+      "status": "skipped",
+      "rating": 0
+    }
+  ],
+  "rating": 4,
+  "review_cost_usd": 1.3330996000000002,
+  "duration_ms": 221244,
+  "models": [
+    "claude-opus-4-7",
+    "claude-sonnet-4-6"
+  ]
+}

@@ -8,7 +8,10 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
-    <div className="flex items-center justify-between mb-8 pb-4 border-b border-default">
+    <div
+      data-testid="page-header"
+      className="flex items-center justify-between mb-8 pb-4 border-b border-default"
+    >
       <div>
         <h1 className="text-2xl font-semibold text-primary-text">{title}</h1>
         {description && (

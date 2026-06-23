@@ -40,11 +40,14 @@ describe("IntegrationCard", () => {
         onRemove={() => {}}
       />,
     );
-    const img = container.querySelector("img");
+    const img = container.querySelector('img[src^="/integration-icons/"]');
     expect(img).not.toBeNull();
     expect(img).toHaveAttribute("src", "/integration-icons/github.svg");
-    // Guard against the badge regressing back to "GH" / "GL" etc.
-    expect(screen.queryByText("GH")).toBeNull();
+    // Guard against the fallback two-letter chip rendering instead of
+    // the official icon for a known type.
+    expect(
+      container.querySelector('[data-testid="integration-icon-fallback"]'),
+    ).toBeNull();
   });
 
   it("renders 'credentials configured' when all required keys are set", () => {

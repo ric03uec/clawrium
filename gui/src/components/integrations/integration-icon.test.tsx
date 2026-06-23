@@ -46,17 +46,23 @@ describe("IntegrationIcon", () => {
   ])("falls back to a label for unknown type %p", (type, expectedLabel) => {
     const { container } = render(<IntegrationIcon type={type} />);
     expect(container.querySelector("img")).toBeNull();
-    const fallback = container.querySelector('[role="img"]');
+    const fallback = container.querySelector(
+      '[data-testid="integration-icon-fallback"]',
+    );
     expect(fallback).not.toBeNull();
     expect(fallback).toHaveAttribute("aria-hidden", "true");
-    expect(fallback).toHaveTextContent(expectedLabel);
+    // toHaveTextContent('') is a substring match — it would pass against
+    // ANY textContent. Pin the exact string instead.
+    expect(fallback?.textContent).toBe(expectedLabel);
   });
 
   it("passes className through and respects size on the fallback", () => {
     const { container } = render(
       <IntegrationIcon type="unknown" size={40} className="ring-1" />,
     );
-    const fallback = container.querySelector('[role="img"]') as HTMLElement;
+    const fallback = container.querySelector(
+      '[data-testid="integration-icon-fallback"]',
+    ) as HTMLElement;
     expect(fallback).not.toBeNull();
     expect(fallback.className).toContain("ring-1");
     expect(fallback.style.width).toBe("40px");

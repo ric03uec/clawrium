@@ -29,7 +29,7 @@ export function IntegrationIcon({
   if (!src) {
     return (
       <div
-        role="img"
+        data-testid="integration-icon-fallback"
         aria-hidden="true"
         className={`flex items-center justify-center rounded-md bg-slate-100 text-slate-600 text-[10px] font-semibold uppercase ${className ?? ""}`}
         style={{ width: size, height: size }}
