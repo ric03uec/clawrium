@@ -16,6 +16,12 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- `tape.output_format` key in `docs/demos/<demo>/scenes.yaml` — set to
+  `gif` to emit `recording.gif` from `vhs`; defaults to `mp4` (existing
+  behavior). GIF outputs skip the `narrate.py` step since GIF has no
+  audio container. The `/create-vhs` skill documents this in its
+  scenes.yaml template and Step 6 (narration).
+
 ### Changed
 
 ### Fixed

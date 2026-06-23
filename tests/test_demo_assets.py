@@ -259,6 +259,77 @@ class TestCompilePipeline:
         assert data["narration"][0]["absolute_seconds"] > 0
         assert data["recording_duration_seconds"] > 0
 
+    @pytest.mark.parametrize(
+        "fmt,expected_filename",
+        [
+            (None, "recording.mp4"),  # absent → default to mp4
+            ("mp4", "recording.mp4"),
+            ("gif", "recording.gif"),
+            ("MP4", "recording.mp4"),  # case-insensitive
+            ("GIF", "recording.gif"),
+        ],
+        ids=["default", "mp4", "gif", "mp4-upper", "gif-upper"],
+    )
+    def test_compile_output_format(
+        self, compile_mod, tmp_path: Path, fmt: str | None, expected_filename: str
+    ) -> None:
+        """`tape.output_format` drives the tape's Output line (mp4 default; gif valid)."""
+        demo = tmp_path / "20260101-fmt"
+        (demo / "outputs").mkdir(parents=True)
+        (demo / "outputs" / "01-version.txt").write_text("clawctl 99.99.99\n")
+        tape_block = "tape:\n  framerate: 30\n"
+        if fmt is not None:
+            tape_block += f"  output_format: {fmt}\n"
+        (demo / "scenes.yaml").write_text(
+            "title: Fmt\n"
+            "subtitle: test\n"
+            f"{tape_block}"
+            "outro:\n"
+            "  line_1: x\n"
+            "  line_2: y\n"
+            "scenes:\n"
+            "  - n: 1\n"
+            "    title: version\n"
+            "    command: clawctl --version\n"
+            f"    output_file: docs/demos/{demo.name}/outputs/01-version.txt\n"
+            "    screen_seconds: 3\n"
+            "    narration:\n"
+            "      - text: hello\n"
+        )
+        tape, _manifest, _w, _u = compile_mod.compile_demo(demo)
+        tape_text = tape.read_text()
+        assert f"/{expected_filename}" in tape_text, (
+            f"expected Output line to reference {expected_filename}, "
+            f"got tape:\n{tape_text[:600]}"
+        )
+
+    def test_compile_output_format_rejects_unknown(
+        self, compile_mod, tmp_path: Path
+    ) -> None:
+        """An invalid `tape.output_format` must fail loudly, not silently default."""
+        demo = tmp_path / "20260101-badfmt"
+        (demo / "outputs").mkdir(parents=True)
+        (demo / "outputs" / "01-version.txt").write_text("x\n")
+        (demo / "scenes.yaml").write_text(
+            "title: Bad\n"
+            "subtitle: t\n"
+            "tape:\n"
+            "  output_format: webm\n"
+            "outro:\n"
+            "  line_1: x\n"
+            "  line_2: y\n"
+            "scenes:\n"
+            "  - n: 1\n"
+            "    title: v\n"
+            "    command: clawctl --version\n"
+            f"    output_file: docs/demos/{demo.name}/outputs/01-version.txt\n"
+            "    screen_seconds: 3\n"
+            "    narration:\n"
+            "      - text: hi\n"
+        )
+        with pytest.raises(ValueError, match="output_format"):
+            compile_mod.compile_demo(demo)
+
     # --- W3: every (head, tail) combination for replay dispatch ------------- #
     @pytest.mark.parametrize(
         "head,tail,expect_in_dispatch,not_expect_in_dispatch",
