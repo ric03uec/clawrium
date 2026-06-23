@@ -57,7 +57,7 @@ test-macos:
 
 lint: lint-py lint-ui
 
-lint-py:
+lint-py: check-no-version-file
 	uv run ruff check src tests
 
 lint-ui: $(GUI_INSTALL_STAMP)

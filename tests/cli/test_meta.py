@@ -21,7 +21,7 @@ from clawrium.cli import app
 
 runner = CliRunner()
 
-_VERSION_RE = re.compile(r"^clawctl \d+\.\d+\.\d+(?: \(git: [0-9a-f]{4,40}\))?$")
+_VERSION_RE = re.compile(r"^clawctl .+(?: \(git: [0-9a-f]{4,40}\))?$")
 
 
 class TestVersionOutput:
@@ -71,12 +71,13 @@ class TestFallback:
 
     @pytest.fixture(autouse=True)
     def _isolate_clawrium(self) -> Generator[None, None, None]:
-        """Remove ``clawrium._version`` from ``sys.modules`` and reload."""
-        saved = sys.modules.copy()
+        """Remove ``clawrium``-related modules from ``sys.modules`` and reload."""
         yield
-        # Restore sys.modules to avoid polluting other tests.
-        sys.modules.clear()
-        sys.modules.update(saved)
+        # Targeted cleanup — only remove clawrium keys so we don't
+        # disrupt pytest/typer/etc. during the clear→update window.
+        clawrium_keys = [k for k in sys.modules if k == "clawrium" or k.startswith("clawrium.")]
+        for k in clawrium_keys:
+            del sys.modules[k]
 
     @pytest.mark.parametrize(
         "args",

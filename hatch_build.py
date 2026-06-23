@@ -20,11 +20,17 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from hatchling.builders.hooks.plugin.interface import BuildHookInterface
-
 _ROOT = Path(__file__).resolve().parent
 _VERSION_FILE = _ROOT / "src" / "clawrium" / "_version.py"
 _UNKNOWN = "unknown"
+
+# The hatchling import is only needed when this module is loaded by the
+# hatchling build system.  Guard it so the module is importable for testing
+# without hatchling installed (e.g. in CI where only test deps are present).
+try:
+    from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+except ImportError:  # pragma: no cover — hatchling not installed at test time
+    BuildHookInterface = object  # type: ignore[assignment, misc]
 
 
 def _get_version() -> str:
@@ -101,13 +107,16 @@ def _warn_git(message: str) -> None:
     warnings.warn(full_msg, stacklevel=2)
 
 
-class CustomBuildHook(BuildHookInterface):
+class CustomBuildHook(BuildHookInterface):  # type: ignore[misc]
     """Hatchling build hook that generates ``_version.py`` before the build."""
 
     PLUGIN_NAME = "custom"
 
-    def initialize(self, build_version: str, build_data: dict[str, Any]) -> None:  # noqa: ARG002
-        pkg_version = _get_version()
+    def initialize(self, build_version: str, build_data: dict[str, Any]) -> None:
+        # Prefer the version hatchling resolved (S1) — it is always the
+        # correct build version.  Fall back to _get_version() only when
+        # hatchling passes an empty string (should not happen in practice).
+        pkg_version = build_version or _get_version()
         git_sha = _get_git_sha()
 
         # B1: If _version.py already exists (e.g. shipped inside the sdist)
@@ -130,6 +139,13 @@ class CustomBuildHook(BuildHookInterface):
             "__version__ = {pkg_version!r}\n"
             "__git_sha__ = {git_sha!r}\n"
         ).format(pkg_version=pkg_version, git_sha=git_sha)
+
+        # W3: If the existing file already has identical content, skip the
+        # rewrite — avoids unnecessary mtime changes and bytecode invalidation.
+        if _VERSION_FILE.exists():
+            existing = _VERSION_FILE.read_text()
+            if existing == content:
+                return
 
         # W4: Atomic write — write to a temp file then os.replace() so that
         # a half-written file from Ctrl-C / OOM never exists on disk.
