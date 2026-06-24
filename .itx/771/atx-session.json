@@ -1,0 +1,14 @@
+{
+  "session_id": "b7250e3b-3810-462e-b613-e4ad8ba81df0",
+  "task_id": "7993b1e2-4d88-48f5-8b9b-978c996007a1",
+  "transport": "cli",
+  "commit_sha": "f839378e9f0e93f1aa5e4b750def0c352b7d1ac6",
+  "iteration": 1,
+  "last_rating": 4,
+  "last_blockers": [],
+  "last_warnings": ["W1", "W2", "W3", "W4"],
+  "started_at": "2026-06-24T06:06:51Z",
+  "updated_at": "2026-06-24T06:24:15Z",
+  "duration_seconds": 1044,
+  "cost_usd": 3.95
+}

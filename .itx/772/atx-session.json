@@ -1,0 +1,14 @@
+{
+  "session_id": "858f3245-2e66-4138-a900-bc92b66eea2f",
+  "transport": "cli",
+  "commit_sha": "pending-iter-2-amend",
+  "iteration": 1,
+  "last_rating": 4,
+  "last_blockers": [],
+  "last_warnings": ["W1", "W2", "W3", "W4"],
+  "started_at": "2026-06-24T06:48:00Z",
+  "updated_at": "2026-06-24T06:58:10Z",
+  "duration_seconds": 546,
+  "cost_usd": 2.52,
+  "notes": "Iter-1: rating 4/5 — Approve with follow-up hardening. 0 blockers, 4 warnings, 8 suggestions. Recommended action: merge as-is. Addressing W1/W2/W3 in iter-2 amendment; W4 (mode regex setuid bits) + S1/S2/S3/S5/S6/S7/S8 captured as PR Callouts (parity ticket for openclaw/zeroclaw, documentation polish)."
+}
