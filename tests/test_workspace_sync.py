@@ -393,8 +393,9 @@ def _macos_playbook_non_comment_body(agent_type: str = "openclaw") -> str:
 
     #771 (Phase 5): `agent_type` parameter added so the same
     invariants below are pinned for both openclaw and zeroclaw on
-    macOS. Hermes is intentionally excluded — its macOS variant is
-    still a deferred stub (Phase 6).
+    macOS. #772 (Phase 6): hermes joined the GA matrix once its
+    `workspace_macos.yaml` stub was replaced with the real copy
+    pipeline.
     """
     from clawrium.core.playbook_resolver import resolve_agent_playbook
 
@@ -402,10 +403,10 @@ def _macos_playbook_non_comment_body(agent_type: str = "openclaw") -> str:
     return "\n".join(line.split("#", 1)[0] for line in body.splitlines())
 
 
-# Parametrized over both agent types whose macOS workspace overlay is
-# GA: openclaw (#770) and zeroclaw (#771). Hermes joins this matrix in
-# Phase 6 (#772).
-_MACOS_GA_AGENT_TYPES = ("openclaw", "zeroclaw")
+# Parametrized over every agent type whose macOS workspace overlay is
+# GA: openclaw (#770), zeroclaw (#771), and hermes (#772, Phase 6 of
+# #760 — closes out the macOS row of the matrix).
+_MACOS_GA_AGENT_TYPES = ("openclaw", "zeroclaw", "hermes")
 
 
 @pytest.mark.parametrize("agent_type", _MACOS_GA_AGENT_TYPES)
@@ -769,6 +770,245 @@ def test_push_workspace_phase_threads_os_family_to_darwin_zeroclaw(
     assert extravars["staging_dir"].startswith(str(tmp_path))
 
 
+def test_push_workspace_phase_threads_os_family_to_darwin_hermes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#772 (Phase 6) — hermes on macOS mirror of the
+    `test_push_workspace_phase_threads_os_family_to_darwin_zeroclaw`
+    test. `push_workspace_phase` MUST:
+
+      1. Route to `hermes/playbooks/workspace_macos.yaml`.
+      2. Expand the rendered destination under `/Users/<agent>/.hermes`
+         (NO `workspace/` suffix — hermes overlays directly under
+         `~/.hermes/` because it shares the destination with canonical
+         render output).
+      3. Thread the FULL hermes excludes payload through to the
+         playbook extravars. Mixing in openclaw / zeroclaw excludes
+         (both empty) or dropping any hermes entry would silently let
+         hostile drops reach the daemon's SQLite WAL or the renderer's
+         `.env` / `config.yaml` outputs.
+
+    Stages a nested-rel file as well (`subdir/NESTED.md`) to exercise
+    the `when: dirname | length > 0` gate on the parent-directory task
+    in `workspace_macos.yaml` (mirrors ATX iter-1 S3 from #771).
+    """
+    monkeypatch.setattr(
+        "clawrium.core.workspace_sync.get_config_dir", lambda: tmp_path
+    )
+    fake_key = tmp_path / "fake.pem"
+    fake_key.write_text("")
+    monkeypatch.setattr(
+        "clawrium.core.keys.get_host_private_key",
+        lambda _key_id: str(fake_key),
+    )
+
+    ws = tmp_path / "agents" / "hermes" / "alice" / "workspace"
+    ws.mkdir(parents=True)
+    (ws / "profiles" / "coder").mkdir(parents=True)
+    (ws / "profiles" / "coder" / "SOUL.md").write_text("you are senior staff")
+    (ws / "memories").mkdir()
+    (ws / "memories" / "NOTES.md").write_text("dad joke")
+
+    captured: dict[str, Any] = {}
+
+    class _StubResult:
+        status = "successful"
+        rc = 0
+
+    class _StubRunner:
+        def run(self, **kwargs: Any) -> _StubResult:
+            captured["playbook"] = kwargs.get("playbook")
+            captured["extravars"] = kwargs.get("extravars")
+            return _StubResult()
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "ansible_runner", _StubRunner()
+    )
+
+    from clawrium.core.workspace_sync import push_workspace_phase
+
+    result = push_workspace_phase(
+        host={
+            "hostname": "esper-macmini.example",
+            "key_id": "esper-macmini.example",
+            "os_family": "darwin",
+        },
+        agent_type="hermes",
+        agent_name="alice",
+    )
+    assert result.success is True, result.error
+    assert set(result.files_pushed) == {
+        "memories/NOTES.md",
+        "profiles/coder/SOUL.md",
+    }
+
+    # Dispatcher routed to the hermes macOS playbook (not openclaw /
+    # zeroclaw, and not the Linux variant).
+    assert captured["playbook"].endswith("workspace_macos.yaml"), captured[
+        "playbook"
+    ]
+    assert "/hermes/playbooks/" in captured["playbook"], captured["playbook"]
+
+    extravars = captured["extravars"]
+    # Expansion used the darwin home root AND the hermes destination
+    # (no `workspace/` suffix — overlay sits directly under `~/.hermes`).
+    assert extravars["workspace_dest_root"] == "/Users/alice/.hermes"
+    files = extravars["workspace_files"]
+    assert len(files) == 2
+    rels = {f["rel"] for f in files}
+    assert rels == {"memories/NOTES.md", "profiles/coder/SOUL.md"}
+    # ATX iter-2 W4 mirror: pin every extravar the downstream playbook
+    # consumes. Critically for hermes: the FULL excludes payload — a
+    # regression that dropped any single entry (or mixed in openclaw's
+    # empty list) opens an exfiltration / corruption channel.
+    assert extravars["agent_name"] == "alice"
+    assert extravars["agent_type"] == "hermes"
+    assert extravars["staging_dir"].startswith(str(tmp_path))
+    assert set(extravars["workspace_excludes_files"]) == {
+        "config.yaml",
+        ".env",
+        "auth.json",
+        "state.db",
+        "state.db-journal",
+        "state.db-wal",
+        "state.db-shm",
+    }
+    assert set(extravars["workspace_excludes_dirs"]) == {
+        "sessions",
+        "logs",
+        "skills/clawrium",
+    }
+
+
+def test_push_workspace_phase_hermes_darwin_filters_full_hostile_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ATX iter-1 W2 fix: companion to
+    `test_push_workspace_phase_threads_os_family_to_darwin_hermes` —
+    stage the FULL hostile-file set (every entry in the hermes manifest
+    exclude list, including all three SQLite WAL companions and the
+    `skills/clawrium/` dir-prefix) into the hermes/<agent> workspace
+    slot under a darwin host record, and assert NONE of them surface
+    in `result.files_pushed` or `extravars['workspace_files']`.
+
+    The Python-side `_is_excluded` filter is shared with the Linux
+    path and covered by `test_workspace_hermes_excludes.py::test_i3_...`
+    at the enumerator layer. This test extends the coverage one layer
+    up — through `push_workspace_phase` on a darwin host — so a
+    regression that smuggled an exclude bypass into a darwin-only
+    enumerator branch would fail here, not just on a live mac.
+
+    A good file (`profiles/coder/SOUL.md`) is staged alongside the
+    hostile set so we can also assert positive landing on the same
+    darwin path in the same run (catches the inverse regression:
+    over-eager filter that drops legitimate drops on macOS too).
+    """
+    monkeypatch.setattr(
+        "clawrium.core.workspace_sync.get_config_dir", lambda: tmp_path
+    )
+    fake_key = tmp_path / "fake.pem"
+    fake_key.write_text("")
+    monkeypatch.setattr(
+        "clawrium.core.keys.get_host_private_key",
+        lambda _key_id: str(fake_key),
+    )
+
+    ws = tmp_path / "agents" / "hermes" / "alice" / "workspace"
+    ws.mkdir(parents=True)
+    # Good file (positive control).
+    (ws / "profiles" / "coder").mkdir(parents=True)
+    (ws / "profiles" / "coder" / "SOUL.md").write_text("you are senior staff")
+    # Full hostile set — every entry from
+    # `WorkspaceOverlaySpec.from_manifest('hermes')`.
+    (ws / "config.yaml").write_text("MALICIOUS: overwrites canonical render")
+    (ws / ".env").write_text("MALICIOUS_KEY=stolen")
+    (ws / "auth.json").write_text('{"malicious": true}')
+    (ws / "state.db").write_text("MALICIOUS-DB")
+    (ws / "state.db-journal").write_text("MALICIOUS-JOURNAL")
+    (ws / "state.db-wal").write_text("MALICIOUS-WAL")
+    (ws / "state.db-shm").write_text("MALICIOUS-SHM")
+    (ws / "sessions").mkdir()
+    (ws / "sessions" / "123.json").write_text('{"malicious_session": true}')
+    (ws / "logs").mkdir()
+    (ws / "logs" / "gateway.log").write_text("MALICIOUS-LOG")
+    (ws / "skills" / "clawrium" / "tdd").mkdir(parents=True)
+    (ws / "skills" / "clawrium" / "tdd" / "SKILL.md").write_text(
+        "MALICIOUS-SKILL"
+    )
+
+    captured: dict[str, Any] = {}
+
+    class _StubResult:
+        status = "successful"
+        rc = 0
+
+    class _StubRunner:
+        def run(self, **kwargs: Any) -> _StubResult:
+            captured["playbook"] = kwargs.get("playbook")
+            captured["extravars"] = kwargs.get("extravars")
+            return _StubResult()
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "ansible_runner", _StubRunner()
+    )
+
+    from clawrium.core.workspace_sync import push_workspace_phase
+
+    result = push_workspace_phase(
+        host={
+            "hostname": "esper-macmini.example",
+            "key_id": "esper-macmini.example",
+            "os_family": "darwin",
+        },
+        agent_type="hermes",
+        agent_name="alice",
+    )
+    assert result.success is True, result.error
+
+    # Positive control: the good file lands.
+    assert result.files_pushed == ("profiles/coder/SOUL.md",)
+
+    # Every hostile entry is in `excluded`, NOT in `files_pushed`.
+    expected_excluded = {
+        "config.yaml",
+        ".env",
+        "auth.json",
+        "state.db",
+        "state.db-journal",
+        "state.db-wal",
+        "state.db-shm",
+        "sessions/123.json",
+        "logs/gateway.log",
+        "skills/clawrium/tdd/SKILL.md",
+    }
+    assert expected_excluded.issubset(set(result.files_excluded)), (
+        f"hermes/darwin exclude leak: {expected_excluded - set(result.files_excluded)}"
+    )
+    assert not (expected_excluded & set(result.files_pushed)), (
+        f"hermes/darwin push leak: hostile file(s) reached files_pushed: "
+        f"{expected_excluded & set(result.files_pushed)}"
+    )
+
+    # Same property at the extravar payload layer — the playbook never
+    # sees the hostile rels at all (defense-in-depth: even if a future
+    # regression let them through Python's exclude check, the playbook's
+    # per-file `workspace_excluded` `when:` clause is the second gate;
+    # we want to know the FIRST gate is holding here).
+    extravar_rels = {f["rel"] for f in captured["extravars"]["workspace_files"]}
+    assert extravar_rels == {"profiles/coder/SOUL.md"}, (
+        f"hermes/darwin extravar leak: hostile rel(s) reached the playbook: "
+        f"{extravar_rels - {'profiles/coder/SOUL.md'}}"
+    )
+
+    # Dispatcher and home-root expansion still correct (smoke-pin in
+    # case the hostile-fixture branch silently routed somewhere else).
+    assert captured["playbook"].endswith("workspace_macos.yaml")
+    assert "/hermes/playbooks/" in captured["playbook"]
+    assert (
+        captured["extravars"]["workspace_dest_root"] == "/Users/alice/.hermes"
+    )
+
+
 def test_push_workspace_phase_empty_zeroclaw_overlay_darwin_noop(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -931,10 +1171,12 @@ def test_hermes_workspace_playbook_filters_excludes_per_file() -> None:
     assert "ansible.builtin.find" not in non_comment_body
 
 
-def test_hermes_workspace_macos_stub_present() -> None:
-    """U12 / U22 (hermes subset, #769) — both Linux and macOS variants
-    exist on disk for hermes, mirroring the openclaw and zeroclaw pair.
-    The darwin variant is a deferred-to-Phase-6 stub that fails loudly."""
+def test_hermes_workspace_macos_playbook_present_and_real() -> None:
+    """U12 / U22 (hermes subset, #769 + #772 Phase 6) — both Linux and
+    macOS variants exist on disk for hermes, mirroring the openclaw and
+    zeroclaw pair. After #772 the darwin variant is a real copy pipeline
+    (not the Phase-3 `ansible.builtin.fail` stub).
+    """
     from clawrium.core.playbook_resolver import resolve_agent_playbook
 
     linux_path = resolve_agent_playbook("hermes", "workspace", "linux")
@@ -945,10 +1187,66 @@ def test_hermes_workspace_macos_stub_present() -> None:
     darwin_path = resolve_agent_playbook("hermes", "workspace", "darwin")
     assert darwin_path.name == "workspace_macos.yaml"
     assert darwin_path.exists()
-    # Stub body: ansible.builtin.fail with a deferral message.
     body = darwin_path.read_text()
-    assert "ansible.builtin.fail" in body
-    assert "deferred" in body.lower()
+    non_comment = "\n".join(line.split("#", 1)[0] for line in body.splitlines())
+    # Real playbook — no `ansible.builtin.fail`-as-stub anymore. The
+    # stub deferral message is gone.
+    assert "deferred to macOS subtask" not in body
+    # Copy task is the real channel, not a `fail:` placeholder.
+    assert "ansible.builtin.copy" in non_comment
+    assert "follow: no" in non_comment
+    # ATX iter-1 W3 fix: the renamed test dropped the previous
+    # `"ansible.builtin.fail" in body` stub-detection assertion. Replace
+    # it with the inverse: a half-stub regression (real `copy` task PLUS
+    # a leftover `ansible.builtin.fail` with a different message) would
+    # have passed every other assertion above without this guard. The
+    # real playbook has zero `fail:` tasks, so this assertion is safe.
+    assert "ansible.builtin.fail" not in non_comment
+
+
+def test_hermes_workspace_macos_playbook_filters_excludes_per_file() -> None:
+    """#772 (Phase 6) — the hermes macOS playbook MUST re-apply exclude
+    semantics per file via the same `workspace_excluded` Jinja filter
+    used by the Linux variant. A directory-level `find … exclude:`
+    pattern would let `skills/clawrium/<sub>/SKILL.md` slip through
+    tree-walk shortcuts (hook-review S — platform-playbooks).
+
+    Without this per-file `when:` guard, a tampered Python enumeration
+    that smuggled `state.db` (or any other exclude entry) into
+    `workspace_files` would land it on the darwin host's `~/.hermes/`
+    and corrupt the SQLite WAL silently.
+    """
+    body = _macos_playbook_non_comment_body("hermes")
+    # ATX iter-1 W1 fix: the filter MUST appear in BOTH `when:` clauses
+    # — the parent-dir creation task AND the copy task. A regression
+    # that dropped the filter from only the parent-dir task (leaving
+    # it on the copy task) would silently create empty `sessions/`,
+    # `logs/`, `skills/clawrium/` shell dirs on the host before
+    # skipping the file copy, leaking the directory structure of
+    # excluded paths even when the file content stays filtered.
+    occurrences = body.count(
+        "workspace_excluded(workspace_excludes_files, workspace_excludes_dirs)"
+    )
+    assert occurrences >= 2, (
+        f"hermes macOS playbook must call workspace_excluded(...) in BOTH "
+        f"`when:` clauses (parent-dir creation + copy task); found "
+        f"{occurrences} occurrence(s). Dropping the filter from either "
+        f"`when:` clause is a release blocker."
+    )
+    assert "ansible.builtin.find" not in body
+
+
+def test_hermes_workspace_macos_playbook_asserts_excludes_payload_is_list() -> None:
+    """#772 (Phase 6) — the hermes-specific exclude-payload assert tasks
+    MUST appear in the macOS variant too. A missing or malformed
+    `workspace_excludes_files` / `workspace_excludes_dirs` extravar
+    would silently let every file through the per-file filter (the
+    filter's `(excludes_files or [])` fallback evaluates a non-list to
+    the empty list).
+    """
+    body = _macos_playbook_non_comment_body("hermes")
+    assert "workspace_excludes_files must be a list" in body
+    assert "workspace_excludes_dirs must be a list" in body
 
 
 def test_hermes_workspace_filter_plugin_mirrors_core_is_excluded() -> None:

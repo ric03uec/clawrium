@@ -230,7 +230,7 @@ Per-type destinations:
 |---|---|---|---|---|
 | openclaw | `~/.openclaw/workspace` | `/home/<name>/.openclaw/workspace` | `/Users/<name>/.openclaw/workspace` (#770) | No excludes — workspace zone is operator-owned. macOS GA via #770. |
 | zeroclaw | `~/.zeroclaw/workspace` | `/home/<name>/.zeroclaw/workspace` | `/Users/<name>/.zeroclaw/workspace` (#771) | No excludes — workspace dir holds operator memory files; canonical render writes elsewhere. Every sync also rotates the gateway bearer (#437); macOS GA via #771. |
-| hermes   | `~/.hermes` | `/home/<name>/.hermes` | macOS deferred (Phase 6) | Renderer-output paths excluded. Shares destination root with `core/render.py` output, `skills_apply.yaml` writes, and daemon state (SQLite + WAL companions). |
+| hermes   | `~/.hermes` | `/home/<name>/.hermes` | `/Users/<name>/.hermes` (#772) | Renderer-output paths excluded. Shares destination root with `core/render.py` output, `skills_apply.yaml` writes, and daemon state (SQLite + WAL companions). macOS GA via #772 — the per-file `workspace_excluded` Jinja filter applies identically on darwin and Linux. |
 
 Hermes excludes (manifest source of truth):
 
@@ -267,8 +267,9 @@ CLI flags on `clawctl agent sync`:
 
 Host-write path is **Ansible only** — per-agent
 `playbooks/workspace.yaml` (Linux) and `playbooks/workspace_macos.yaml`
-(macOS; openclaw is GA via #770, zeroclaw is GA via #771, hermes
-ships a deferred stub awaiting Phase 6). The Python side stages files into a
+(macOS; openclaw GA via #770, zeroclaw GA via #771, hermes GA via
+#772 — the workspace-overlay macOS matrix is complete). The Python
+side stages files into a
 managed `tempfile.TemporaryDirectory` under
 `${clawrium_config}/staging/workspace/<name>/` and passes the file
 list as the `workspace_files` extravar; ansible-runner reads the
