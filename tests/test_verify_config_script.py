@@ -174,6 +174,7 @@ def test_verify_config_bedrock_already_prefixed_not_double_prefixed(tmp_path: Pa
     assert result.returncode == 0, (
         f"verify failed: stdout={result.stdout!r} stderr={result.stderr!r}"
     )
+    assert "Configuration verified successfully" in result.stdout
 
 
 def test_verify_config_rejects_legacy_bedrock_prefix_on_host(tmp_path: Path):
