@@ -815,18 +815,16 @@ def start_agent(
                 if isinstance(claw_record, dict)
                 else {}
             )
-            persisted_config = (
-                persisted_config if isinstance(persisted_config, dict) else {}
-            )
-            # Issue #794 B1 fix: hosts.json no longer carries
-            # `config.provider` / `config.providers` mirrors, but
-            # the hermes configure playbook's post-render verification
+            if not isinstance(persisted_config, dict):
+                persisted_config = {}
+            # The hermes configure playbook's post-render verification
             # tasks (configure.yaml:208-264) are gated on
-            # `config.provider is defined`. Hydrate the overlay from
-            # canonical attachments + providers.json before invoking
-            # configure_agent so those verifications still fire on
-            # the start-precheck reconfigure path.
-            persisted_config = dict(persisted_config)
+            # `config.provider is defined`. Provider overlays are
+            # rebuilt from canonical attachments + providers.json on
+            # every call (issue #794 stripped them from persisted
+            # state) and merged here purely for the ansible render;
+            # configure_agent strips them again before persisting.
+            render_payload = dict(persisted_config)
             try:
                 provider_overlay, provider_overlays, _ = (
                     _build_provider_overlays_from_attachments(
@@ -836,9 +834,9 @@ def start_agent(
                     )
                 )
                 if provider_overlay is not None:
-                    persisted_config["provider"] = provider_overlay
+                    render_payload["provider"] = provider_overlay
                 if provider_overlays is not None:
-                    persisted_config["providers"] = provider_overlays
+                    render_payload["providers"] = provider_overlays
             except LifecycleError as exc:
                 # An invalid / unregistered attachment surfaces here as
                 # well, with the same remediation hint sync_agent gives.
@@ -855,7 +853,7 @@ def start_agent(
             cfg_success, cfg_error = configure_agent(
                 hostname,
                 claw_name,
-                persisted_config,
+                render_payload,
                 agent_name=agent_key,
                 on_event=on_event,
                 reason="start-precheck",
@@ -1718,19 +1716,21 @@ def sync_agent(
             f"--agent {agent_key}'."
         )
 
-    # Apply the overlay first so a freshly attached provider can rescue
-    # an otherwise-empty config (which would normally be a pathological
-    # state — install.py writes config.gateway). ATX iter-1 W5.
+    # Build the render payload. Provider overlays are rebuilt from
+    # canonical attachments on every call (issue #794 stripped them
+    # from persisted state) and merged here purely for the ansible
+    # render; configure_agent strips them again before persisting.
+    # The overlay can also rescue an otherwise-empty config — a
+    # pathological state since install.py writes config.gateway.
+    # ATX iter-1 W5.
     existing_config = claw_record.get("config", {})
+    render_payload = dict(existing_config)
     if provider_overlay is not None:
-        existing_config = dict(existing_config)
-        existing_config["provider"] = provider_overlay
+        render_payload["provider"] = provider_overlay
     if provider_overlays is not None:
         # Issue #501: hermes-only multi-provider overlay. Carries
         # per-attachment role + model so the configure playbook can
         # render `auxiliary.<slot>` in hermes-config.yaml.j2 (Phase 3).
-        # `config.provider` stays populated above from the primary so
-        # existing readers continue to function unchanged in Phase 1.
         #
         # TODO(#501 Phase 3): when hermes-config.yaml.j2 renders
         # `auxiliary.<slot>` per non-primary attachment, configure_agent
@@ -1739,10 +1739,9 @@ def sync_agent(
         # (lifecycle.py configure path), so every auxiliary slot would
         # render with an empty key. Block the Phase 3 template work on
         # this hydration to avoid a silent misconfigure at first use.
-        existing_config = dict(existing_config)
-        existing_config["providers"] = provider_overlays
+        render_payload["providers"] = provider_overlays
 
-    if not existing_config:
+    if not render_payload:
         # install.py always writes config.gateway, so this branch
         # implies a corrupt agent record (hand-edited hosts.json) — the
         # only honest remediation is re-create. ATX iter-1 W1 +
@@ -1758,7 +1757,7 @@ def sync_agent(
     config_success, config_error = configure_agent(
         hostname,
         agent_type,
-        existing_config,
+        render_payload,
         agent_name=agent_key,
         on_event=on_event,
         reason="sync",
