@@ -55,12 +55,21 @@ verification on `clawdmin03@espers-mac-mini.tailf7742d.ts.net`.
 - [x] `make test` green (3867 Python + 305 vitest).
 - [x] ATX review iter-1 captured in `.itx/openclaw-macos-bundle/atx-review-1.txt`.
 
-## Pending — ATX Review Iter-2
+## ATX Review History
 
-- [ ] Re-run `atx review request` on the post-fix branch to confirm
-  all 13 iter-1 blockers resolved + capture any new findings on the
-  two follow-up fixes (verify_config.py 3.9 compat, `nc -z` health
-  probe).
+- [x] Iter 1 — 1.5/5, 13 blockers; all resolved (transcript:
+  `.itx/openclaw-macos-bundle/atx-review-1.txt`)
+- [x] Iter 2 — 3/5, 1 blocker + 4 strongly-recommended warnings;
+  all resolved
+- [x] Iter 3 — 3/5, 3 blockers + 6 warnings + 7 suggestions;
+  16/17 resolved (S4 sentinel-env-var skipped)
+- [x] Iter 4 — 2/5, 2 blockers + 4 warnings + 4 suggestions;
+  9/10 resolved (S2 Node test infra skipped)
+- [x] Iter 5 — **4/5, blocking=false** (transcript:
+  `.itx/openclaw-macos-bundle/atx-review-5.txt`). No merge gate
+  remains. Specialists: platform-playbooks 5/5, security 4/5,
+  lifecycle-core 4/5, cli-ux 4/5, test-coverage 3/5, gui-routes
+  2/5, render-engine skipped.
 
 ## End-to-end verification on a real macOS host
 
