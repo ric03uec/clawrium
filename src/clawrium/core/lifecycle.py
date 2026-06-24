@@ -549,6 +549,105 @@ def _run_lifecycle_playbook(
         _cleanup_ansible_artifacts(operation_log_dir)
 
 
+def _build_provider_overlays_from_attachments(
+    *,
+    claw_record: dict,
+    agent_type: str,
+    agent_key: str,
+) -> tuple[dict | None, list[dict] | None, str | None]:
+    """Materialize provider overlays from canonical attachments.
+
+    Reads tier-1 `claw_record["providers"]` (the attach list written by
+    `clawctl agent provider attach`) and `providers.json` (the canonical
+    provider registry), and returns the overlays the Ansible templates
+    expect on `config.provider` / `config.providers`. Issue #794 stripped
+    those keys from persisted hosts.json, so any caller that wants
+    Ansible to render a real provider block MUST hydrate via this
+    helper before invoking `configure_agent` — `configure_agent` itself
+    only auto-hydrates `channels` (see `_hydrate_channels_from_canonical`).
+
+    Returns a tuple of `(provider_overlay, provider_overlays,
+    provider_name_for_state)`:
+
+    - `provider_overlay`: the singleton overlay (zeroclaw/openclaw), or
+      the primary slot's overlay (hermes), with `role` stripped. `None`
+      when the agent has no attachments.
+    - `provider_overlays`: the full multi-provider list with `role` +
+      per-attachment `model` (hermes only). `None` for singletons.
+    - `provider_name_for_state`: the canonical provider name, suitable
+      for stamping into the onboarding `providers` stage metadata.
+
+    Raises `LifecycleError` for unregistered providers, invalid
+    attachment shapes, or hermes attachments that fail validation.
+    """
+    raw_attachments = claw_record.get("providers") or []
+    attachments = _pa.normalize(raw_attachments, agent_type)
+    try:
+        _pa.validate(attachments, agent_type)
+    except _pa.AttachmentError as exc:
+        raise LifecycleError(
+            f"agent '{agent_key}' has invalid provider attachments: {exc}. "
+            f"Inspect with 'clawctl agent provider get --agent {agent_key}'."
+        ) from exc
+
+    provider_overlay: dict | None = None
+    provider_overlays: list[dict] | None = None
+    provider_name_for_state: str | None = None
+
+    def _build_overlay(provider_name: str) -> dict:
+        provider_record = _provider_storage.get_provider(provider_name)
+        if provider_record is None:
+            raise LifecycleError(
+                f"attached provider '{provider_name}' not registered. "
+                f"Run 'clawctl provider registry get' to list available providers."
+            )
+        overlay = {
+            "name": provider_record.get("name", ""),
+            "type": provider_record.get("type", "ollama"),
+            "endpoint": provider_record.get("endpoint", ""),
+            "default_model": provider_record.get("default_model", ""),
+        }
+        # `is not None` instead of truthy: max_tokens=0 / context_window=0
+        # are meaningful (no-limit signals on some APIs); a falsy check
+        # would silently drop them (ATX iter-1 S1, preserved across the
+        # #794 extraction).
+        if provider_record.get("context_window") is not None:
+            overlay["context_window"] = provider_record["context_window"]
+        if provider_record.get("max_tokens") is not None:
+            overlay["max_tokens"] = provider_record["max_tokens"]
+        return overlay
+
+    if attachments and _pa.supports_multi_provider(agent_type):
+        provider_overlays = []
+        for entry in attachments:
+            if not isinstance(entry, dict):
+                raise LifecycleError(
+                    f"agent '{agent_key}' has non-dict provider attachment "
+                    f"after normalization: {entry!r}. Inspect with "
+                    f"'clawctl agent provider get --agent {agent_key}'."
+                )
+            overlay = _build_overlay(entry["name"])
+            overlay["role"] = entry.get("role", "")
+            attachment_model = entry.get("model") or overlay.get("default_model", "")
+            overlay["model"] = attachment_model
+            provider_overlays.append(overlay)
+            if entry.get("role") == _pa.PRIMARY_ROLE:
+                provider_overlay = {
+                    k: v for k, v in overlay.items() if k not in ("role",)
+                }
+                provider_name_for_state = entry["name"]
+    elif attachments:
+        provider_name = attachments[0]
+        if not isinstance(provider_name, str):
+            raise LifecycleError(
+                f"agent '{agent_key}' provider attachment shape unexpected"
+            )
+        provider_overlay = _build_overlay(provider_name)
+        provider_name_for_state = provider_name
+
+    return provider_overlay, provider_overlays, provider_name_for_state
+
+
 def _hermes_env_token_matches_secrets(
     host: dict, agent_name: str
 ) -> tuple[bool, str | None]:
@@ -716,10 +815,47 @@ def start_agent(
                 if isinstance(claw_record, dict)
                 else {}
             )
+            persisted_config = (
+                persisted_config if isinstance(persisted_config, dict) else {}
+            )
+            # Issue #794 B1 fix: hosts.json no longer carries
+            # `config.provider` / `config.providers` mirrors, but
+            # the hermes configure playbook's post-render verification
+            # tasks (configure.yaml:208-264) are gated on
+            # `config.provider is defined`. Hydrate the overlay from
+            # canonical attachments + providers.json before invoking
+            # configure_agent so those verifications still fire on
+            # the start-precheck reconfigure path.
+            persisted_config = dict(persisted_config)
+            try:
+                provider_overlay, provider_overlays, _ = (
+                    _build_provider_overlays_from_attachments(
+                        claw_record=claw_record,
+                        agent_type=agent_type,
+                        agent_key=agent_key,
+                    )
+                )
+                if provider_overlay is not None:
+                    persisted_config["provider"] = provider_overlay
+                if provider_overlays is not None:
+                    persisted_config["providers"] = provider_overlays
+            except LifecycleError as exc:
+                # An invalid / unregistered attachment surfaces here as
+                # well, with the same remediation hint sync_agent gives.
+                return {
+                    "success": False,
+                    "agent": agent_key,
+                    "host": hostname,
+                    "operation": "start",
+                    "pid": None,
+                    "started_at": None,
+                    "error": f"Pre-start reconfigure failed: {exc}",
+                }
+
             cfg_success, cfg_error = configure_agent(
                 hostname,
                 claw_name,
-                persisted_config if isinstance(persisted_config, dict) else {},
+                persisted_config,
                 agent_name=agent_key,
                 on_event=on_event,
                 reason="start-precheck",
@@ -1389,95 +1525,20 @@ def sync_agent(
     # Ansible templates render). The Pattern A surface from #509 records
     # attachments as metadata only; sync is the declarative reconcile
     # point that materializes those attachments into the agent's config
-    # before pushing to the remote. `detach` intentionally does NOT strip
-    # `config.provider` — once a provider lands in config it is
-    # last-known-good across subsequent syncs (design decision on #426).
+    # before pushing to the remote. After issue #794 the materialized
+    # overlay is no longer persisted in hosts.json — sync rebuilds it
+    # from canonical attachments + providers.json on every call.
     #
     # Issue #501: hermes alone supports N attachments (primary + 9
     # auxiliary slots); zeroclaw/openclaw keep the singleton invariant.
-    # Normalization handles both legacy list-of-strings and the new
-    # list-of-objects shape transparently.
-    raw_attachments = claw_record.get("providers") or []
-    attachments = _pa.normalize(raw_attachments, agent_type)
-    try:
-        _pa.validate(attachments, agent_type)
-    except _pa.AttachmentError as exc:
-        raise LifecycleError(
-            f"agent '{agent_key}' has invalid provider attachments: {exc}. "
-            f"Inspect with 'clawctl agent provider get --agent {agent_key}'."
-        ) from exc
-
-    provider_overlay: dict | None = None
-    provider_overlays: list[dict] | None = None
-    provider_name_for_state: str | None = None
-
-    def _build_overlay(provider_name: str) -> dict:
-        provider_record = _provider_storage.get_provider(provider_name)
-        if provider_record is None:
-            raise LifecycleError(
-                f"attached provider '{provider_name}' not registered. "
-                f"Run 'clawctl provider registry get' to list available providers."
-            )
-        overlay = {
-            "name": provider_record.get("name", ""),
-            "type": provider_record.get("type", "ollama"),
-            "endpoint": provider_record.get("endpoint", ""),
-            "default_model": provider_record.get("default_model", ""),
-        }
-        # `is not None` instead of truthy: max_tokens=0 / context_window=0
-        # are meaningful (no-limit signals on some APIs); a falsy check
-        # would silently drop them. ATX iter-1 S1.
-        if provider_record.get("context_window") is not None:
-            overlay["context_window"] = provider_record["context_window"]
-        if provider_record.get("max_tokens") is not None:
-            overlay["max_tokens"] = provider_record["max_tokens"]
-        return overlay
-
-    if attachments and _pa.supports_multi_provider(agent_type):
-        # Hermes path: build a config.providers list (one overlay per
-        # attachment, carrying role + per-attachment model) and also
-        # populate config.provider from the primary so the bridge
-        # contract with downstream readers (templates, validators) is
-        # preserved unchanged for back-compat. Phase 1 wires the data
-        # model; template rewrites land in Phase 3.
-        provider_overlays = []
-        for entry in attachments:
-            # ATX W5: validate() above guarantees every hermes entry is
-            # a dict — but if normalize() ever regresses, silently
-            # skipping non-dicts would leave the agent with no primary,
-            # no state-machine walk, and a config rendered with empty
-            # provider fields that Ansible would happily push. Fail loud.
-            if not isinstance(entry, dict):
-                raise LifecycleError(
-                    f"agent '{agent_key}' has non-dict provider attachment "
-                    f"after normalization: {entry!r}. Inspect with "
-                    f"'clawctl agent provider get --agent {agent_key}'."
-                )
-            overlay = _build_overlay(entry["name"])
-            overlay["role"] = entry.get("role", "")
-            # Per-attachment model override; falls back to provider's
-            # default_model when the attachment didn't specify one.
-            # Always set `model` explicitly so template authors can
-            # read a single field regardless of whether the operator
-            # supplied an override.
-            attachment_model = entry.get("model") or overlay.get("default_model", "")
-            overlay["model"] = attachment_model
-            provider_overlays.append(overlay)
-            if entry.get("role") == _pa.PRIMARY_ROLE:
-                provider_overlay = {
-                    k: v for k, v in overlay.items() if k not in ("role",)
-                }
-                provider_name_for_state = entry["name"]
-    elif attachments:
-        # Singleton path (zeroclaw/openclaw). normalize() guarantees
-        # list-of-strings shape here; validate() guarantees len<=1.
-        provider_name = attachments[0]
-        if not isinstance(provider_name, str):
-            raise LifecycleError(
-                f"agent '{agent_key}' provider attachment shape unexpected"
-            )
-        provider_overlay = _build_overlay(provider_name)
-        provider_name_for_state = provider_name
+    # The helper handles both shapes.
+    provider_overlay, provider_overlays, provider_name_for_state = (
+        _build_provider_overlays_from_attachments(
+            claw_record=claw_record,
+            agent_type=agent_type,
+            agent_key=agent_key,
+        )
+    )
 
     onboarding = claw_record.get("onboarding", {})
     state_value = onboarding.get("state", "pending")
@@ -2864,42 +2925,33 @@ def configure_agent(
                     api_server_persisted.pop("key", None)
                     persisted_config["api_server"] = api_server_persisted
 
-            # B3 invariant for Discord: bot_token lives in secrets.json only,
-            # never in hosts.json. Applies to both hermes (DISCORD_BOT_TOKEN
-            # hydrated into .env via .env.j2) and zeroclaw (#422 — token
-            # hydrated into config.toml's [channels.discord]). Without this
-            # strip, the bot_token roundtrips: hydrated → persisted → read
-            # back into existing_config on next configure → re-hydrated, etc.
-            # ATX B1 finding. Slack inclusion is hermes-only in practice but
-            # the pop is idempotent on absent keys so leaving it covers both
-            # agent types in one branch.
-            if resolved_type in ("hermes", "zeroclaw"):
-                if "channels" in persisted_config:
-                    channels_persisted = persisted_config.get("channels")
-                    if isinstance(channels_persisted, dict):
-                        channels_persisted = dict(channels_persisted)
-                        discord_persisted = channels_persisted.get("discord")
-                        if isinstance(discord_persisted, dict):
-                            discord_persisted = dict(discord_persisted)
-                            discord_persisted.pop("bot_token", None)
-                            channels_persisted["discord"] = discord_persisted
-                        slack_persisted = channels_persisted.get("slack")
-                        if isinstance(slack_persisted, dict):
-                            slack_persisted = dict(slack_persisted)
-                            slack_persisted.pop("bot_token", None)
-                            slack_persisted.pop("app_token", None)
-                            channels_persisted["slack"] = slack_persisted
-                        persisted_config["channels"] = channels_persisted
-                    else:
-                        # Unexpected shape (string/list/etc.) — drop rather
-                        # than risk persisting a token via an unknown path.
-                        logger.warning(
-                            "Dropping unexpected channels block (type=%s) for "
-                            "agent %s during persist to avoid B3 violation.",
-                            type(channels_persisted).__name__,
-                            agent_key,
-                        )
-                        persisted_config.pop("channels", None)
+            # Issue #794: `provider` / `providers` are render-only state
+            # (the canonical stores are tier-1 `agent_record["providers"]`
+            # + `providers.json`). Persisting a mirror in hosts.json
+            # caused the tier-2 staleness #790 fixed in the read path.
+            # Strip so a subsequent load_hosts() never sees a stale copy.
+            persisted_config.pop("provider", None)
+            persisted_config.pop("providers", None)
+            # `channels` is render + security state — the configure
+            # playbook hydrates channels.discord.bot_token (B3) /
+            # channels.slack.bot_token / app_token for templating, but
+            # the canonical store is `channels.json` + secrets.json.
+            # Strip unconditionally; the broader strip subsumes the
+            # earlier targeted bot_token/app_token scrubs (ATX #794
+            # iter-1 W3) so the B3 isolation invariant now holds for
+            # every agent type, not just hermes/zeroclaw.
+            #
+            # ATX #794 iter-2 W2: emit a debug crumb when we drop a
+            # populated channels block so an operator chasing
+            # hosts.json corruption from a pre-#794 build can see the
+            # strip happened.
+            stripped_channels = persisted_config.pop("channels", None)
+            if stripped_channels:
+                logger.debug(
+                    "Stripped channels block from persisted_config for %s "
+                    "(canonical store is channels.json).",
+                    agent_key,
+                )
 
             h["agents"][agent_key]["config"] = persisted_config
 
