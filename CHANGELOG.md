@@ -50,6 +50,14 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- `clawctl agent shell <name> -- <cmd>` now works against macOS hosts
+  (#808). The new `shell_macos.yaml` playbook is selected per-OS via
+  `core.playbook_resolver.resolve_shell_playbook`; the kill window is
+  enforced via Homebrew's `gtimeout` (coreutils) when available, and
+  the ansible-runner outer timeout is the kill backstop when it is
+  not (`brew install coreutils` is suggested for the tighter window).
+  The rc-file prepend sources `~/.bash_profile` first on darwin to
+  match macOS login-shell convention before `~/.bashrc`.
 - `tape.output_format` key in `docs/demos/<demo>/scenes.yaml` — set to
   `gif` to emit `recording.gif` from `vhs`; defaults to `mp4` (existing
   behavior). GIF outputs skip the `narrate.py` step since GIF has no

@@ -1,0 +1,27 @@
+You are continuing work on issue #808 in the clawrium repo. You are already inside the git worktree at `.claude/worktrees/issue-808` on branch `worktree-issue-808`. Do NOT enter a new worktree.
+
+Read `.itx/808/00_PLAN.md` and execute it end-to-end via the `/itx-execute` skill. Pass `808` as the issue number. Do NOT use any worktree-creation flag — you are already inside the worktree.
+
+OPERATOR OVERRIDES — these supersede the skill defaults:
+
+1. REVIEW TOOL: use the `atx` CLI, NOT `mcp__atx__request_review`. After each meaningful batch of edits (one logical step from the plan), run:
+     atx review --message "iter <N>: <one-line focus>"
+   Parse the JSON output. Iterate until rating > 3/5 AND no blocking issues remain. Capture rating / cost / time / agents for each round in the ATX Review Summary block of the eventual commit message and PR body (format per AGENTS.md `<commit-format-atx>` and `<pr-format-atx>`).
+
+2. ALWAYS run `make lint && make test` BEFORE each `atx review` call. CI runs ruff before pytest; a lint failure surfaces as "all tests failing".
+
+3. DO NOT git push. DO NOT open a PR. Local commits only. The operator will push when ready. (Per project memory `feedback_no_push_without_ask`.)
+
+4. REAL-HOST VERIFICATION: Step 6 of the plan runs against `mac-test` (100.120.88.97, darwin/arm64) using `uv run clawctl agent shell <mac-agent> -- <cmd>` from THIS worktree. Before running, list the mac-test agents with `uv run clawctl agent get` and pick the openclaw/hermes/zeroclaw agent on mac-test. If none are usable, STOP and ask the operator which agent to target — do not invent one.
+
+5. TASK TRACKING: use `TaskCreate` to break the plan into tasks before you start editing. Mark each `in_progress` when starting, `completed` when done. This prevents drift across the review iterations.
+
+6. COMMIT DISCIPLINE: create NEW commits, never amend. One commit per logical step; the final commit carries the ATX Review Summary block. Include `Co-Authored-By: Claude <noreply@anthropic.com>` AND `Co-Authored-By: @atx-ci <269048218+atx-ci@users.noreply.github.com>` per the project ATX commit format.
+
+7. FOLLOW THE DISPATCHER-ONLY OS-FORK CONVENTION: no `if ansible_os_family == "Darwin"` branches inside the existing `shell.yaml`. The new `shell_macos.yaml` is a parallel file; the resolver in `core/playbook_resolver.py` is the single routing seam.
+
+8. EVERY EDIT: prefer Edit over Write; respect existing comment style; do NOT add boilerplate docstrings or what-comments.
+
+When the plan is fully executed, ATX-reviewed clean (>3/5, no blockers), tests green, lint green, and verified on mac-test, STOP and print a status summary. Do not push. Do not open a PR. Do not exit the tmux pane — leave it open so the operator can attach and see the final state.
+
+Start now: invoke `/itx-execute 808` and proceed.
