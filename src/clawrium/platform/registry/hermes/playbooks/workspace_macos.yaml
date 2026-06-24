@@ -1,14 +1,252 @@
 ---
-# Stub playbook — hermes workspace overlay on macOS is deferred to
-# Phase 6 of parent #760 (issue #772). Single source of error surface:
-# the Ansible `fail:` task here. Python side does NOT short-circuit
-# darwin (W8/W9 iter-3); the dispatcher routes via
-# `core/playbook_resolver.resolve_agent_playbook` and the non-zero rc
-# surfaces as a `WorkspaceSyncError` in `core/workspace_sync.py` with
-# this `fail.msg` propagated.
+# Hermes workspace overlay — macOS variant (issue #772, Phase 6 of #760).
+# Mirrors operator-supplied files from the control-plane staging tree
+# onto the agent host under `workspace_dest_root` (declared in
+# hermes/manifest.yaml).
+#
+# The macOS playbook mirrors workspace.yaml's task structure with two
+# OS-specific deltas:
+#   (a) home-dir root is `/Users/<agent_name>/`, not `/home/<agent_name>/`
+#       (macOS user homes live under `/Users`).
+#   (b) `group: staff` is hardcoded instead of `group: "{{ agent_name }}"`
+#       (macOS does NOT create a per-user primary group like Linux does;
+#       every user's primary group is `staff` (gid 20) by default).
+# Reverting either delta to match Linux will fail at apply time on a
+# darwin host, so do not treat them as drift.
+#
+# Hermes is the only agent type with a non-empty exclude list. The
+# destination root `~/.hermes/` is shared with canonical-render output
+# (`.env`, `config.yaml`), reconciled skills under
+# `skills/clawrium/`, and the daemon's own SQLite state (`state.db`
+# + WAL companions). The exclude list reserves every one of those
+# paths. The Python enumerator already filters these before staging,
+# but this playbook re-filters per file against the exclude payload
+# as belt-and-suspenders so a bypass at the Python boundary cannot
+# overwrite renderer / daemon-managed files (hook-review S, plan U5).
+#
+# Per-file filtering is enforced via the `workspace_excluded` Jinja
+# filter (filter_plugins/clawrium_filters.py) — NOT via a directory-
+# level `find … exclude:` pattern. A directory-level pattern would let
+# `skills/clawrium/<sub>/SKILL.md` slip through via tree-walk shortcuts.
+# Ansible auto-discovers the adjacent `filter_plugins/` directory, so
+# the same plugin file serves both `workspace.yaml` (Linux) and this
+# macOS variant — no separate plugin copy required.
+#
+# The dispatcher in `core/playbook_resolver.resolve_agent_playbook`
+# routes to this file when `host.os_family == "darwin"` (#772).
+#
+# Inputs (extravars): same shape as workspace.yaml — see that file for
+# the contract. The Python side at `core/workspace_sync.py` expands
+# `destination_root` against `/Users/<agent_name>` for darwin hosts so
+# the rendered `workspace_dest_root` already begins with `/Users/...`.
+#
+# Why no `ansible_user_dir` (B1 iter-3): `become_user` does NOT re-run
+# the `setup` module, so `ansible_user_dir` keeps the SSH-connecting
+# user's home (`/Users/xclm`), not the agent user's. The literal
+# `/Users/{{ agent_name }}/...` pattern mirrors what
+# `openclaw/playbooks/workspace_macos.yaml` and
+# `zeroclaw/playbooks/workspace_macos.yaml` already use.
 - hosts: all
+  become: yes
+  become_user: "{{ agent_name }}"
   gather_facts: false
   tasks:
-    - name: hermes workspace overlay deferred to macOS subtask
-      ansible.builtin.fail:
-        msg: "hermes workspace overlay deferred to macOS subtask (#772)"
+    - name: Assert agent_name matches the safe slug pattern
+      ansible.builtin.assert:
+        that:
+          - agent_name is string
+          - agent_name is match('^[a-z][a-z0-9_-]{0,31}$')
+        fail_msg: "Invalid agent_name: {{ agent_name | default('<unset>') }}"
+        quiet: true
+
+    - name: Assert workspace_dest_root is under /Users/{{ agent_name }}/
+      # B1 iter-3 backstop, macOS variant: the manifest is the source of
+      # truth, but a tampered extravar pointing at e.g. `/etc/hermes`
+      # must bail before any copy task runs. The `..` rejection (mirrors
+      # openclaw + zeroclaw macOS ATX iter-1 W1) blocks
+      # `/Users/<name>/../../etc/hermes` from passing the prefix check
+      # via path traversal — Python-side `_expand_destination_root` does
+      # string concatenation only and does not call `os.path.normpath`.
+      ansible.builtin.assert:
+        that:
+          - workspace_dest_root is string
+          - workspace_dest_root | length > 0
+          - workspace_dest_root.startswith('/Users/' ~ agent_name ~ '/')
+          - "'..' not in workspace_dest_root.split('/')"
+        fail_msg: >-
+          workspace_dest_root must start with `/Users/{{ agent_name }}/`
+          and contain no `..` segments
+          (got '{{ workspace_dest_root | default('<unset>') }}')
+        quiet: true
+
+    - name: Assert staging_dir is a non-empty absolute path under the clawrium staging tree
+      # ATX iter-2 S_NEW_4 (carried forward from Linux hermes/workspace.yaml):
+      # after S6 switched the copy task to read `item.src` (the absolute
+      # staged path computed Python-side), `staging_dir` is no longer
+      # consumed by the copy task. This assert remains the structural
+      # anchor: the per-file `item.src` assert below pins each entry's
+      # source to live under `staging_dir + '/'`. Dropping this assert
+      # without also dropping the per-file pin would weaken the
+      # defense-in-depth posture — keep both or remove both, do not
+      # split them.
+      ansible.builtin.assert:
+        that:
+          - staging_dir is string
+          - staging_dir | length > 0
+          - staging_dir.startswith('/')
+          - "'/clawrium/staging/workspace/' in staging_dir"
+        fail_msg: >-
+          staging_dir must be an absolute path under
+          `${clawrium_config}/staging/workspace/` (got '{{ staging_dir }}')
+        quiet: true
+
+    - name: Assert workspace_files is a list
+      ansible.builtin.assert:
+        that:
+          - workspace_files is iterable
+          - workspace_files is not string
+          - workspace_files is not mapping
+        fail_msg: "workspace_files must be a list"
+        quiet: true
+
+    - name: Assert workspace_excludes_files is a list
+      # Hermes-specific: the per-file exclude filter below depends on
+      # this var being present and shaped as a list. A missing or
+      # malformed exclude payload would silently let every file through.
+      ansible.builtin.assert:
+        that:
+          - workspace_excludes_files is iterable
+          - workspace_excludes_files is not string
+          - workspace_excludes_files is not mapping
+        fail_msg: "workspace_excludes_files must be a list"
+        quiet: true
+
+    - name: Assert workspace_excludes_dirs is a list
+      ansible.builtin.assert:
+        that:
+          - workspace_excludes_dirs is iterable
+          - workspace_excludes_dirs is not string
+          - workspace_excludes_dirs is not mapping
+        fail_msg: "workspace_excludes_dirs must be a list"
+        quiet: true
+
+    - name: Assert each workspace file entry is a relative path and well-formed mode
+      # W12 iter-2 belt-and-suspenders: even if Python enumeration filters
+      # symlinks/traversal, this re-asserts inside the playbook so a future
+      # bypass cannot land hostile paths on host.
+      # Mirrors openclaw/zeroclaw macOS ATX iter-1 W6 (security-reviewer):
+      # pin `item.mode` to the octal string shape `_floor_mode_for` emits
+      # — if that helper regresses or a hostile extravar is injected, the
+      # playbook would otherwise write whatever string it's given to `mode:`.
+      ansible.builtin.assert:
+        that:
+          - item.rel is string
+          - item.rel | length > 0
+          - not item.rel.startswith('/')
+          - "'..' not in (item.rel.split('/'))"
+          - item.mode is string
+          - item.mode is match('^0[0-7]{3,4}$')
+        fail_msg: >-
+          workspace file entry has unsafe rel or mode: rel='{{ item.rel | default('<unset>') }}',
+          mode='{{ item.mode | default('<unset>') }}'
+        quiet: true
+      loop: "{{ workspace_files }}"
+      loop_control:
+        label: "{{ item.rel | default('<unset>') }}"
+
+    - name: Assert each workspace file entry's src lives under staging_dir
+      # ATX iter-2 S_NEW_1 (carried forward from Linux hermes/workspace.yaml):
+      # after S6 switched the copy task to read `item.src` (the absolute
+      # staged path computed Python-side), the implicit containment binding
+      # that `{{ staging_dir }}/{{ item.rel }}` carried was lost. Without
+      # this per-file assert, a future regression in `_stage_files` — or
+      # any caller injecting `workspace_files` extravars — could set
+      # `item.src` to an arbitrary absolute path (e.g.
+      # `/Users/<ssh_user>/.ssh/id_rsa`) and Ansible would copy it without
+      # complaint. This re-anchors the playbook-side guarantee that the
+      # staged source lives under the asserted `staging_dir`, regardless
+      # of how Python computes `entry.src` in the future.
+      ansible.builtin.assert:
+        that:
+          - item.src is string
+          - item.src | length > 0
+          - item.src.startswith(staging_dir ~ '/')
+          - "'..' not in (item.src.split('/'))"
+        fail_msg: >-
+          workspace file entry has unsafe src: '{{ item.src | default('<unset>') }}'
+          (must start with '{{ staging_dir }}/')
+        quiet: true
+      loop: "{{ workspace_files }}"
+      loop_control:
+        label: "{{ item.rel | default('<unset>') }}"
+
+    - name: Ensure workspace destination root exists
+      # `follow: no` so a pre-existing symlink at `workspace_dest_root`
+      # (pointing at e.g. `~/.ssh`) is not followed when `chown`/`chmod`
+      # apply. Same-user blast radius (become_user is agent_name) but
+      # inverts the documented defense-in-depth posture for symlink
+      # handling. Mirrors openclaw/zeroclaw macOS ATX iter-1 W2.
+      ansible.builtin.file:
+        path: "{{ workspace_dest_root }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0755"
+        follow: no
+
+    - name: Ensure parent directories exist for each non-excluded workspace file
+      # The `workspace_excluded` filter mirrors
+      # `clawrium.core.workspace_sync._is_excluded`. Mirroring this filter
+      # on parent-dir creation avoids spawning empty `sessions/` or
+      # `logs/` shells for files that will subsequently be filtered out
+      # by the copy task. `follow: no` for the same reason as the
+      # dest-root task above.
+      ansible.builtin.file:
+        path: "{{ workspace_dest_root }}/{{ item.rel | dirname }}"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "0755"
+        follow: no
+      loop: "{{ workspace_files }}"
+      loop_control:
+        label: "{{ item.rel }}"
+      when:
+        - item.rel | dirname | length > 0
+        - not (item.rel | workspace_excluded(workspace_excludes_files, workspace_excludes_dirs))
+
+    - name: Push each non-excluded workspace file onto the host
+      # `copy` writes to a tempfile in the dest dir and renames atomically.
+      # `follow: no` is the W12 iter-2 / W18 iter-2 symlink defense: even
+      # though Python enumerates with `os.path.islink` filtering and stages
+      # via `shutil.copy2` into a managed `tempfile.TemporaryDirectory`,
+      # the playbook re-asserts the no-symlink invariant at the copy boundary.
+      #
+      # The `when` clause is the per-file exclude filter described above —
+      # a tampered enumeration that smuggled `state.db` through Python
+      # still bails here. A `WorkspaceExcluded` NDJSON event is emitted
+      # Python-side at enumeration; the playbook itself silently drops
+      # late arrivals (TOCTOU bound) so the operator-facing event log
+      # is the canonical record.
+      ansible.builtin.copy:
+        # ATX iter-1 S6 (carried forward from Linux hermes/workspace.yaml):
+        # use `item.src` (absolute staged path computed by
+        # `core/workspace_sync.py:_stage_files`) rather than reconstructing
+        # `{{ staging_dir }}/{{ item.rel }}` inline. Today both expressions
+        # are byte-equivalent because `_stage_files` writes to exactly
+        # `staging_dir / entry.rel`, but a future refactor (e.g. flattening
+        # or hashing staged names to dodge case-insensitive collisions on
+        # macOS) would silently desync these two paths if the playbook kept
+        # recomputing. The Python side stays the single source of truth
+        # for the staged source path.
+        src: "{{ item.src }}"
+        dest: "{{ workspace_dest_root }}/{{ item.rel }}"
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: "{{ item.mode }}"
+        follow: no
+      loop: "{{ workspace_files }}"
+      loop_control:
+        label: "{{ item.rel }}"
+      when:
+        - not (item.rel | workspace_excluded(workspace_excludes_files, workspace_excludes_dirs))

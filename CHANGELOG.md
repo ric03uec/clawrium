@@ -91,6 +91,21 @@ cut. The `itx:release` skill archives this section into a new
   (`default`, `--workspace-only`, `--no-restart`) mints a fresh
   bearer and emits exactly one `gateway_token_rotated` event. The
   hermes macOS variant remains deferred to Phase 6.
+- hermes workspace overlay end-to-end on macOS (#772, Phase 6 of
+  #760 — final phase). The hermes `workspace_macos.yaml` playbook is
+  now a real copy pipeline rather than the Phase-3 deferral stub.
+  Files dropped under `~/.config/clawrium/agents/hermes/<name>/workspace/`
+  mirror onto darwin hosts at `/Users/<name>/.hermes/` on every
+  `clawctl agent sync` and `clawctl agent configure`. The full
+  hermes exclude list (`config.yaml`, `.env`, `auth.json`, `state.db`
+  + all three SQLite WAL companion files, `sessions/`, `logs/`,
+  `skills/clawrium/`) is enforced on darwin via the same per-file
+  `workspace_excluded` Jinja filter the Linux variant uses — the
+  adjacent `filter_plugins/clawrium_filters.py` is auto-discovered by
+  Ansible for both playbook variants, so the filter logic cannot
+  drift between Linux and macOS. This closes out the workspace-overlay
+  macOS matrix; all three GA agent types (openclaw, zeroclaw, hermes)
+  now support darwin hosts end-to-end.
 
 ### Changed
 
