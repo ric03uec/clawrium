@@ -48,10 +48,6 @@ def patched_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         lambda key_id: tmp_path / "fake-key",
     )
     (tmp_path / "fake-key").write_text("KEY")
-    # Make the shell playbook path exist for tests that don't override it.
-    if not agent_shell._PLAYBOOK.exists():  # pragma: no cover — real playbook exists
-        agent_shell._PLAYBOOK.parent.mkdir(parents=True, exist_ok=True)
-        agent_shell._PLAYBOOK.write_text("dummy")
     # Stub get_host
     from clawrium.core import hosts as hosts_module
 
@@ -248,8 +244,13 @@ def test_K9_invalid_agent_name_raises(patched_env):
 
 
 def test_K10_playbook_missing(monkeypatch, patched_env):
+    def fake_resolve(os_family):
+        raise FileNotFoundError(
+            f"shell playbook for os_family={os_family!r} not found at /nonexistent/path/shell.yaml."
+        )
+
     monkeypatch.setattr(
-        agent_shell, "_PLAYBOOK", Path("/nonexistent/path/shell.yaml")
+        agent_shell.playbook_resolver, "resolve_shell_playbook", fake_resolve
     )
 
     called = {"hit": False}
@@ -263,7 +264,8 @@ def test_K10_playbook_missing(monkeypatch, patched_env):
         "wolf-i", "wolf-i", ["x"]
     )
     assert rc == 255
-    assert "Playbook not found" in stderr
+    assert "shell playbook" in stderr
+    assert "not found" in stderr
     assert called["hit"] is False
 
 
@@ -589,9 +591,25 @@ def test_rc_124_propagates_verbatim(monkeypatch, patched_env):
     "reserved",
     ["root", "daemon", "bin", "nobody"],
 )
-def test_iter2_B1_reserved_unix_names_rejected(patched_env, reserved):
+@pytest.mark.parametrize(
+    "os_family",
+    [None, "linux", "darwin"],
+)
+def test_iter2_B1_reserved_unix_names_rejected(
+    monkeypatch, patched_env, reserved, os_family
+):
     """Even if a regex-match name slips through, the denylist must
-    refuse to `become_user` a privileged or system account."""
+    refuse to `become_user` a privileged or system account — equally
+    on Linux and macOS hosts. A future refactor that moves the check
+    below the os_family branch would otherwise break darwin silently
+    (W7 iter-1)."""
+    from clawrium.core import hosts as hosts_module
+
+    host = {**HOST_FIXTURE}
+    if os_family is not None:
+        host["os_family"] = os_family
+    monkeypatch.setattr(hosts_module, "get_host", lambda h: dict(host))
+
     with pytest.raises(agent_shell.AgentShellError, match=r"reserved system user"):
         agent_shell.run_agent_shell("wolf-i", reserved, ["ls"])
 
@@ -625,10 +643,10 @@ def test_iter2_B3_full_workdir_rmtree_on_cleanup(monkeypatch, patched_env):
     assert not Path(captured["pd"]).exists()
 
 
-# ----- K20 (B2): macOS host returns clear preflight error -----------
+# ----- K20 (#808): macOS host routes to shell_macos.yaml ------------
 
 
-def test_K20_macos_host_preflight_error(monkeypatch, patched_env):
+def test_K20_macos_host_uses_macos_playbook(monkeypatch, patched_env):
     from clawrium.core import hosts as hosts_module
 
     monkeypatch.setattr(
@@ -637,20 +655,150 @@ def test_K20_macos_host_preflight_error(monkeypatch, patched_env):
         lambda h: {**HOST_FIXTURE, "os_family": "darwin"},
     )
 
+    captured = {}
+
+    def fake_run(**kw):
+        captured["playbook"] = kw["playbook"]
+        return _make_result(_ok_events_for(stdout=b"hi"))
+
+    monkeypatch.setattr(agent_shell.ansible_runner, "run", fake_run)
+    stdout, stderr, rc = agent_shell.run_agent_shell(
+        "wolf-i", "wolf-i", ["ls"]
+    )
+    assert (stdout, stderr, rc) == ("hi", "", 0)
+    # Anchor on the leading `/` so a stray rename like
+    # `legacy_shell_macos.yaml` cannot satisfy the assertion (W6 iter-1).
+    assert captured["playbook"].endswith("/shell_macos.yaml")
+
+
+def test_K20_linux_host_uses_linux_playbook(monkeypatch, patched_env):
+    captured = {}
+
+    def fake_run(**kw):
+        captured["playbook"] = kw["playbook"]
+        return _make_result(_ok_events_for(stdout=b"hi"))
+
+    monkeypatch.setattr(agent_shell.ansible_runner, "run", fake_run)
+    agent_shell.run_agent_shell("wolf-i", "wolf-i", ["ls"])
+    # Linux uses the no-suffix shell.yaml — assert end-of-path is exactly
+    # `/shell.yaml` so a future `_linux` rename can't slip past.
+    assert captured["playbook"].endswith("/shell.yaml")
+    assert not captured["playbook"].endswith("shell_macos.yaml")
+
+
+def test_unsupported_os_family_returns_255(monkeypatch, patched_env):
+    """A malformed hosts.json with `os_family: 'windows'` must round-
+    trip to rc=255 with an actionable stderr — not crash with a
+    ValueError up the call stack (iter-1 S6 / lifecycle-core S4)."""
+    from clawrium.core import hosts as hosts_module
+
+    monkeypatch.setattr(
+        hosts_module,
+        "get_host",
+        lambda h: {**HOST_FIXTURE, "os_family": "windows"},
+    )
+
     called = {"hit": False}
 
     def boom_run(**kw):
         called["hit"] = True
-        raise AssertionError("ansible_runner.run must not be called on macOS")
+        raise AssertionError("ansible_runner.run must not be called")
 
     monkeypatch.setattr(agent_shell.ansible_runner, "run", boom_run)
-    stdout, stderr, rc = agent_shell.run_agent_shell(
-        "wolf-i", "wolf-i", ["ls"]
-    )
+    stdout, stderr, rc = agent_shell.run_agent_shell("wolf-i", "wolf-i", ["ls"])
     assert (stdout, rc) == ("", 255)
-    assert "macOS" in stderr or "darwin" in stderr.lower()
-    assert "does not support" in stderr
+    assert "unsupported os_family" in stderr
     assert called["hit"] is False
+
+
+@pytest.mark.parametrize(
+    "raw_os_family",
+    [42, {"x": 1}, ["darwin"], True],
+)
+def test_non_string_os_family_falls_back_to_linux(
+    monkeypatch, patched_env, raw_os_family
+):
+    """A tampered hosts.json record with a non-string `os_family` must
+    not raise AttributeError on `.lower()` — Python normalizes to the
+    default ("linux") and the playbook resolves cleanly (iter-1 S1).
+
+    `True` is a sentinel: bool is a subclass of int, exercising the
+    isinstance-string guard explicitly."""
+    from clawrium.core import hosts as hosts_module
+
+    monkeypatch.setattr(
+        hosts_module,
+        "get_host",
+        lambda h: {**HOST_FIXTURE, "os_family": raw_os_family},
+    )
+
+    captured = {}
+
+    def fake_run(**kw):
+        captured["playbook"] = kw["playbook"]
+        return _make_result(_ok_events_for(stdout=b"ok"))
+
+    monkeypatch.setattr(agent_shell.ansible_runner, "run", fake_run)
+    stdout, stderr, rc = agent_shell.run_agent_shell("wolf-i", "wolf-i", ["ls"])
+    assert (stdout, stderr, rc) == ("ok", "", 0)
+    assert captured["playbook"].endswith("/shell.yaml")
+
+
+# ----- #808: OS-aware rc-file prepend -------------------------------
+
+
+def test_darwin_rc_prepend_sources_login_files_then_bashrc(
+    monkeypatch, patched_env
+):
+    """The macOS prepend must follow bash login-shell precedence
+    (`.bash_profile` → `.bash_login` → `.profile`) followed by an
+    always-on `.bashrc` source. Operators with a `.profile`-only
+    POSIX-compat dotfile setup must still get PATH shims (iter-1 W2)."""
+    from clawrium.core import hosts as hosts_module
+
+    monkeypatch.setattr(
+        hosts_module,
+        "get_host",
+        lambda h: {**HOST_FIXTURE, "os_family": "darwin"},
+    )
+
+    captured = {}
+
+    def fake_run(**kw):
+        captured["vars"] = kw["inventory"]["all"]["vars"]
+        return _make_result(_ok_events_for())
+
+    monkeypatch.setattr(agent_shell.ansible_runner, "run", fake_run)
+    agent_shell.run_agent_shell("wolf-i", "wolf-i", ["echo", "hi"])
+
+    decoded = base64.b64decode(captured["vars"]["cmd_b64"]).decode("utf-8")
+    # All three login-file legs and the always-on bashrc must appear,
+    # in precedence order, followed by exactly the user command.
+    expected_prefix = (
+        'if [ -f "$HOME/.bash_profile" ]; then . "$HOME/.bash_profile";'
+        ' elif [ -f "$HOME/.bash_login" ]; then . "$HOME/.bash_login";'
+        ' elif [ -f "$HOME/.profile" ]; then . "$HOME/.profile"; fi;'
+        ' [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"; '
+    )
+    assert decoded.startswith(expected_prefix), decoded
+    assert decoded[len(expected_prefix) :] == "echo hi"
+
+
+def test_linux_rc_prepend_unchanged(monkeypatch, patched_env):
+    """Belt-and-suspenders: the Linux prepend remains bashrc-only."""
+    captured = {}
+
+    def fake_run(**kw):
+        captured["vars"] = kw["inventory"]["all"]["vars"]
+        return _make_result(_ok_events_for())
+
+    monkeypatch.setattr(agent_shell.ansible_runner, "run", fake_run)
+    agent_shell.run_agent_shell("wolf-i", "wolf-i", ["echo", "hi"])
+
+    decoded = base64.b64decode(captured["vars"]["cmd_b64"]).decode("utf-8")
+    assert decoded.startswith(_BASHRC_PREFIX), decoded
+    # Must NOT contain the darwin-specific .bash_profile leg.
+    assert ".bash_profile" not in decoded
 
 
 # ----- W1: Ansible Jinja sub-injection blocked by base64 hop --------
