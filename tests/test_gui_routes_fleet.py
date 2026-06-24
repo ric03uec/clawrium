@@ -1419,3 +1419,110 @@ def test_restart_agent_generic_exception_uses_safe_message(isolated_config: Path
             resp = client.post("/api/agents/demo/restart")
     assert resp.status_code == 500
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
+
+
+def test_fleet_endpoint_returns_tier1_model(isolated_config: Path):
+    """End-to-end: `/api/fleet` JSON carries the tier-1 model (#790).
+
+    A stale ``config.provider.default_model`` mirror in ``hosts.json``
+    must NOT bleed into the serialized response — the live tier-1
+    attachment + providers.json record is the source of truth. Keep
+    this test forever; it is the user-visible gate for the original
+    bug.
+    """
+    hosts = [
+        {
+            "hostname": "192.168.1.100",
+            "alias": "wolf-i",
+            "agents": {
+                "clawrium-exec": {
+                    "type": "openclaw",
+                    "agent_name": "clawrium-exec",
+                    "version": "1.0.0",
+                    "providers": [{"name": "glm51"}],
+                    "config": {
+                        # Pre-#790 stale mirror — must be ignored.
+                        "provider": {
+                            "name": "openai-prod",
+                            "type": "openai",
+                            "default_model": "openai/gpt-4o",
+                        },
+                    },
+                }
+            },
+        }
+    ]
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+    (isolated_config / "providers.json").write_text(
+        json.dumps(
+            [
+                {
+                    "name": "glm51",
+                    "type": "litellm",
+                    "default_model": "z-ai/glm-5.1",
+                }
+            ]
+        )
+    )
+
+    with TestClient(app) as client:
+        resp = client.get("/api/fleet")
+    assert resp.status_code == 200
+    body = resp.json()
+    agents = body["agents"]
+    assert len(agents) == 1
+    assert agents[0]["agent_key"] == "clawrium-exec"
+    assert agents[0]["provider"] == "glm51"
+    assert agents[0]["provider_type"] == "litellm"
+    assert agents[0]["model"] == "z-ai/glm-5.1"
+    # Explicit negative gates — keep the regression contract
+    # self-documenting if the stale-mirror strings get renamed.
+    assert agents[0]["model"] != "openai/gpt-4o"
+    assert agents[0]["provider"] != "openai-prod"
+    assert agents[0]["provider_type"] != "openai"
+
+
+def test_fleet_endpoint_broken_attachment_fails_closed(isolated_config: Path):
+    """Tier-1 attachment absent from providers.json → "broken" badge (#790).
+
+    The "providers.json drifted from hosts.json" mode is the real-world
+    drift this Phase 1 fix protects against. The serializer must surface
+    "-" rather than silently falling back to any tier-2 mirror.
+    """
+    hosts = [
+        {
+            "hostname": "192.168.1.100",
+            "alias": "wolf-i",
+            "agents": {
+                "clawrium-exec": {
+                    "type": "openclaw",
+                    "agent_name": "clawrium-exec",
+                    "version": "1.0.0",
+                    "providers": [{"name": "missing-prov"}],
+                    "config": {
+                        # Stale mirror present — must NOT be used as a fallback.
+                        "provider": {
+                            "name": "openai-prod",
+                            "type": "openai",
+                            "default_model": "openai/gpt-4o",
+                        },
+                    },
+                }
+            },
+        }
+    ]
+    isolated_config.mkdir(parents=True, exist_ok=True)
+    (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+    # No providers.json — get_provider returns None for any lookup.
+    (isolated_config / "providers.json").write_text("[]")
+
+    with TestClient(app) as client:
+        resp = client.get("/api/fleet")
+    assert resp.status_code == 200
+    agents = resp.json()["agents"]
+    assert len(agents) == 1
+    assert agents[0]["provider"] == "-"
+    assert agents[0]["provider_type"] is None
+    assert agents[0]["model"] == "-"
+    assert agents[0]["model"] != "openai/gpt-4o"
