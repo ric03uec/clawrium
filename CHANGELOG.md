@@ -118,6 +118,13 @@ cut. The `itx:release` skill archives this section into a new
   the canonical on-disk store for those settings and are preserved
   byte-for-byte. No operator action required; this is not a breaking
   change (#795, Phase 3 of #790).
+- Internal cleanup of dead code and defensive comments referencing
+  the now-removed `config.provider` / `config.providers` /
+  `config.channels` mirror. `lifecycle.sync_agent` and
+  `lifecycle.start_agent`'s hermes pre-start reconfigure path now
+  build a separate `render_payload` dict for the ansible call rather
+  than mutating the persisted-config view in place; behavior is
+  unchanged (#797, Phase 4 of #790, closes #790).
 - GUI Integrations page now renders the official vendor brand SVG icon
   for every configured integration (github, gitlab, atlassian, linear,
   notion, brave, git) in place of the two-letter type badge, making

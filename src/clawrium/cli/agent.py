@@ -375,13 +375,6 @@ def _sync_provider_config(
     # Build complete config data
     config_data = {"gateway": gateway_config, "provider": provider_config}
 
-    # Issue #794: channels mirror is no longer carried through. Channel
-    # state is hydrated from canonical channels.json inside
-    # `configure_agent` via `_hydrate_channels_from_canonical`, and the
-    # configure_agent updater strips `channels` from persisted_config
-    # before write — so merging existing_config["channels"] here would
-    # be discarded anyway.
-
     # Preserve existing api_server block (Hermes loopback gateway auth).
     # configure_agent re-hydrates this from hosts.json too, but carrying it
     # through here keeps the persisted record consistent across rotations.
@@ -814,23 +807,18 @@ def _run_channels_stage(
     Returns:
         True if stage completed successfully
     """
-    # Issue #794 (Phase 2 of #790): the legacy `clm agent configure
-    # --stage channels` wizard used to fold the prompted channel block
-    # into `existing_config["channels"]` before calling
-    # `configure_agent`. Phase 2 stops persisting the channels mirror
-    # in hosts.json (the canonical store is `channels.json`), so any
-    # tokens this wizard would collect would be silently dropped after
-    # the Ansible push (ATX #794 iter-1 W1). Fail loudly with a hint
-    # pointing at the modern `clawctl channel` surface; the rest of
-    # the wizard body is dead and is removed alongside the legacy
-    # `clm` driver in Phase 4.
+    # This wizard is deprecated. Channel state is canonical in
+    # `channels.json` (with secrets in secrets.json); tokens this wizard
+    # prompted for are no longer persisted anywhere. Fail loudly and
+    # direct the operator at the modern `clawctl channel` surface.
     #
-    # WARNING (ATX #794 iter-2 W5): the dead body below contains
-    # unguarded `typer.prompt(hide_input=True)` calls. Demoting the
-    # `raise typer.Exit(code=2)` to conditional (e.g. behind a
-    # feature flag) silently restores an interactive token-prompt
-    # path — keep the raise unconditional until Phase 4 deletes the
-    # body entirely.
+    # WARNING (orig audit: ATX #794 iter-2 W5): the body below the
+    # raise contains unguarded `typer.prompt(hide_input=True)` calls.
+    # Demoting the `raise typer.Exit(code=2)` to conditional (e.g.
+    # behind a feature flag) silently restores an interactive
+    # token-prompt path — keep the raise unconditional until the dead
+    # body is removed alongside the legacy `clm` driver retirement
+    # (#707).
     # Channel-type hint must mirror `_hydrate_channels_from_canonical`
     # in `core/lifecycle.py` (`if resolved_type in ("hermes", "zeroclaw",
     # "ethos"):`). Only those three types pull channels from the

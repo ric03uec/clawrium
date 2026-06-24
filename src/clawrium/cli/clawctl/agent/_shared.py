@@ -115,16 +115,9 @@ def _first_provider(claw_record: dict) -> Optional[str]:
     (Pattern A; #426/#509). The single-provider invariant is enforced at
     attach time, so index 0 is the canonical name. Accepts both
     `["name"]` (string entries) and `[{"name": "..."}]` (dict entries)
-    shapes.
-
-    There is intentionally NO fallback to `config["provider"]` (the
-    materialized render payload written by sync) or to the vestigial
-    `config["providers"]` plural key. Provider state is read from exactly
-    one place; if nothing is attached this returns None, matching
+    shapes. Returns None when nothing is attached, matching
     `build_render_inputs` (render.py), which raises when the same tier-1
-    list is empty. This alignment closes the historical asymmetry where an
-    agent with a provider only in `config.provider` rendered in `agent get`
-    but failed the render/drift/upgrade path.
+    list is empty.
 
     String entries are validated against `PROVIDER_NAME_PATTERN` (the same
     pattern enforced at write time by `validate_provider_name`); a
