@@ -3267,6 +3267,21 @@ class TestConfigureAgentBravePreflight:
                 "clawrium.core.lifecycle.paramiko.SSHClient",
                 return_value=MagicMock(),
             ),
+            # #756: configure_agent now pre-renders openclaw.json via
+            # build_render_inputs + render_openclaw. These tests target
+            # the brave preflight downstream of that block; stub the
+            # renderer so the test fixtures (without provider attachments)
+            # don't trip AgentConfigError before preflight runs.
+            patch(
+                "clawrium.core.render.build_render_inputs",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "clawrium.core.render.render_openclaw",
+                return_value=MagicMock(
+                    files={".openclaw/openclaw.json": "{}"}
+                ),
+            ),
             patch.object(Path, "exists", return_value=True),
         ]
         from contextlib import ExitStack
@@ -3455,6 +3470,19 @@ class TestConfigureAgentDoesNotPersistOverlay:
             patch(
                 "clawrium.core.lifecycle._hydrate_channels_from_canonical",
                 return_value=(True, None),
+            ),
+            # #756: stub openclaw pre-render path so these overlay-strip
+            # tests don't trip AgentConfigError against incomplete
+            # fixture data. Real renderer is covered separately.
+            patch(
+                "clawrium.core.render.build_render_inputs",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "clawrium.core.render.render_openclaw",
+                return_value=MagicMock(
+                    files={".openclaw/openclaw.json": "{}"}
+                ),
             ),
             patch.object(Path, "exists", return_value=True),
         ):

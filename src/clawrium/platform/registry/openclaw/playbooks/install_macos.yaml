@@ -228,9 +228,9 @@
         msg: "Invalid openclaw_port: must be digits only"
       when: openclaw_port | string is not regex('^[0-9]+$')
 
-    - name: Write openclaw config from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/openclaw.json.j2"
+    - name: Write openclaw config (pre-rendered)
+      ansible.builtin.copy:
+        content: "{{ prerendered_openclaw_config_json }}"
         dest: "/Users/{{ agent_name }}/.openclaw/openclaw.json"
         owner: "{{ agent_name }}"
         group: staff

@@ -2511,12 +2511,10 @@ def configure_agent(
     # bug as #555/#582, where one render path silently diverges from
     # the other.
     #
-    # Today only zeroclaw config.toml is pre-rendered (it uses the
-    # custom `toq` filter that Ansible's Jinja env can't discover
-    # reliably under ansible-runner's private_data_dir layout). Hermes
-    # and openclaw playbook templates still render via Ansible's
-    # template module — they don't use custom filters, so the dual
-    # path doesn't bite them yet. Extending to them is a follow-up.
+    # zeroclaw config.toml (#583), hermes config.yaml + .env (#622),
+    # and openclaw openclaw.json (#756) are all pre-rendered here. The
+    # remaining per-agent templates (skills, identity, exec-approvals,
+    # etc.) still render via Ansible's template module.
     prerendered_files: dict[str, str] = {}
     if resolved_type == "zeroclaw":
         try:
@@ -2573,6 +2571,35 @@ def configure_agent(
             # (False, msg) instead of an unhandled traceback that leaves
             # the lifecycle state machine half-walked.
             return False, f"Hermes render failed: {exc}"
+    elif resolved_type == "openclaw":
+        # #756: pre-render canonical openclaw.json via render_openclaw so
+        # the configure playbook can `copy: content:` the bytes instead
+        # of templating server-side. Collapses the previously divergent
+        # install/configure/sync write paths onto a single source of
+        # truth (`_render_openclaw_json`) — closes the same class of bug
+        # as #622 (litellm primary model not prefixed on configure).
+        from clawrium.core.render import (
+            AgentConfigError,
+            build_render_inputs,
+            render_openclaw,
+        )
+
+        try:
+            render_inputs = build_render_inputs(unix_agent_name)
+            rendered = render_openclaw(render_inputs)
+            prerendered_files[".openclaw/openclaw.json"] = (
+                rendered.files[".openclaw/openclaw.json"]
+            )
+        except AgentConfigError as exc:
+            # Loud failure at assembly time: provider name with bad
+            # chars, missing endpoint, dual-discord/dual-slack, etc.
+            # Nothing pushed to host.
+            return False, f"Openclaw render failed (config error): {exc}"
+        except Exception as exc:
+            # Mirror hermes' broad except: TemplateError, KeyError on a
+            # bad hosts.json shape, IOError on baseline read — surface
+            # as a clean (False, msg) instead of an unhandled traceback.
+            return False, f"Openclaw render failed (internal): {exc}"
 
     # #734 Openclaw brave plugin pin. Single source of truth lives in
     # `lifecycle_canonical._load_openclaw_brave_pin()` (W2 ATX iter 1),
@@ -2678,6 +2705,13 @@ def configure_agent(
         "prerendered_hermes_env": prerendered_files.get(".hermes/.env", ""),
         "prerendered_hermes_config_yaml": prerendered_files.get(
             ".hermes/config.yaml", ""
+        ),
+        # Bearer embedded here is wiped by _cleanup_ansible_artifacts
+        # which strips inventory/ after every playbook run. Same
+        # invariant as config.gateway.auth.token (pre-existing) and the
+        # hermes/zeroclaw bearers.
+        "prerendered_openclaw_config_json": prerendered_files.get(
+            ".openclaw/openclaw.json", ""
         ),
     }
 

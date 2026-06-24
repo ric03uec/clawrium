@@ -205,15 +205,14 @@
           loop_control:
             label: "{{ item.key }}"
 
-    - name: Write openclaw config from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/openclaw.json.j2"
+    - name: Write openclaw config (pre-rendered)
+      ansible.builtin.copy:
+        content: "{{ prerendered_openclaw_config_json }}"
         dest: "/home/{{ agent_name }}/.openclaw/openclaw.json"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
       no_log: true
-      when: config.provider is defined and config.provider.default_model is defined
       notify: Restart openclaw service
 
     - name: Write exec approvals policy from template

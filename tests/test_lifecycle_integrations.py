@@ -177,6 +177,17 @@ class TestConfigureAgentIntegrationLoading:
             ),
             patch("clawrium.core.lifecycle.get_instance_secrets", return_value={}),
             patch("clawrium.core.lifecycle._cleanup_ansible_artifacts"),
+            # #756: stub openclaw pre-render path.
+            patch(
+                "clawrium.core.render.build_render_inputs",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "clawrium.core.render.render_openclaw",
+                return_value=MagicMock(
+                    files={".openclaw/openclaw.json": "{}"}
+                ),
+            ),
         ):
             # Setup playbook path
             playbook = tmp_path / "configure.yaml"
@@ -234,6 +245,17 @@ class TestConfigureAgentIntegrationLoading:
             ),
             patch("clawrium.core.lifecycle.get_instance_secrets", return_value={}),
             patch("clawrium.core.lifecycle._cleanup_ansible_artifacts"),
+            # #756: stub openclaw pre-render path.
+            patch(
+                "clawrium.core.render.build_render_inputs",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "clawrium.core.render.render_openclaw",
+                return_value=MagicMock(
+                    files={".openclaw/openclaw.json": "{}"}
+                ),
+            ),
         ):
             # Setup playbook path
             playbook = tmp_path / "configure.yaml"
@@ -302,6 +324,17 @@ class TestConfigureAgentIntegrationLoading:
             patch("clawrium.core.lifecycle._cleanup_ansible_artifacts"),
             patch(
                 "clawrium.core.lifecycle._get_logs_dir", return_value=tmp_path / "logs"
+            ),
+            # #756: stub openclaw pre-render path.
+            patch(
+                "clawrium.core.render.build_render_inputs",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "clawrium.core.render.render_openclaw",
+                return_value=MagicMock(
+                    files={".openclaw/openclaw.json": "{}"}
+                ),
             ),
         ):
             playbook = tmp_path / "configure.yaml"
