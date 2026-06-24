@@ -3,9 +3,12 @@
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 
+import pytest
 
 from clawrium.cli.tui.data import (
+    _build_agent_identity,
     _gateway_scheme,
+    _resolve_provider_display,
     calculate_uptime,
     get_fleet_data,
     get_agent_detail,
@@ -145,12 +148,23 @@ class TestGetFleetData:
                         "status": "installed",
                         "agent_name": "opc-testhost",
                         "type": "openclaw",
-                        "config": {"provider": {"default_model": "gpt-4o"}},
+                        "providers": [{"name": "my-openai"}],
                     }
                 },
             }
         ]
         (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+        (isolated_config / "providers.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "my-openai",
+                        "type": "openai",
+                        "default_model": "gpt-4o",
+                    }
+                ]
+            )
+        )
 
         mock_result = {
             "agent": "openclaw",
@@ -267,8 +281,8 @@ class TestGetFleetData:
         assert agents[0]["provider"] is None
         assert agents[0]["provider_type"] is None
 
-    def test_provider_type_extracted_from_config(self, isolated_config):
-        """Provider type should be extracted from config.provider.type."""
+    def test_provider_type_extracted_from_providers_json(self, isolated_config):
+        """Provider type is sourced from providers.json (#790)."""
         import json
 
         isolated_config.mkdir(parents=True, exist_ok=True)
@@ -283,18 +297,23 @@ class TestGetFleetData:
                         "status": "installed",
                         "agent_name": "opc-testhost",
                         "type": "openclaw",
-                        "config": {
-                            "provider": {
-                                "name": "my-openai",
-                                "type": "openai",
-                                "default_model": "gpt-4o",
-                            }
-                        },
+                        "providers": [{"name": "my-openai"}],
                     }
                 },
             }
         ]
         (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+        (isolated_config / "providers.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "my-openai",
+                        "type": "openai",
+                        "default_model": "gpt-4o",
+                    }
+                ]
+            )
+        )
 
         mock_result = {
             "agent": "openclaw",
@@ -317,8 +336,14 @@ class TestGetFleetData:
         assert agents[0]["provider_type"] == "openai"
         assert agents[0]["model"] == "gpt-4o"
 
-    def test_provider_name_fallback_to_type(self, isolated_config):
-        """Provider name should fallback to type if name is not set."""
+    def test_no_tier1_attachment_ignores_stale_tier2(self, isolated_config):
+        """No tier-1 attachment + stale tier-2 mirror → all None/"-" (#790).
+
+        The pre-#790 code path fell back to ``config.provider.type`` /
+        ``config.provider.default_model`` when no tier-1 attachment
+        existed. The fixture deliberately seeds a stale ``config.provider``
+        mirror so the assertions fail if that fallback regresses.
+        """
         import json
 
         isolated_config.mkdir(parents=True, exist_ok=True)
@@ -329,7 +354,15 @@ class TestGetFleetData:
                     "zeroclaw": {
                         "type": "zeroclaw",
                         "agent_name": "zc-test",
-                        "config": {"provider": {"type": "anthropic"}},
+                        "config": {
+                            # Stale mirror from before the operator detached
+                            # the provider. The new resolver must ignore it.
+                            "provider": {
+                                "name": "stale-anthropic",
+                                "type": "anthropic",
+                                "default_model": "claude-opus-4",
+                            },
+                        },
                     }
                 },
             }
@@ -353,9 +386,9 @@ class TestGetFleetData:
         with patch("clawrium.cli.tui.data.check_claw_health", return_value=mock_result):
             agents, _ = get_fleet_data()
 
-        # provider fallbacks to type when name is not set
-        assert agents[0]["provider"] == "anthropic"
-        assert agents[0]["provider_type"] == "anthropic"
+        assert agents[0]["provider"] is None
+        assert agents[0]["provider_type"] is None
+        assert agents[0]["model"] == "-"
 
     def test_gateway_port_extracted_from_config(self, isolated_config):
         """Gateway port should be extracted from config.gateway.port."""
@@ -830,3 +863,213 @@ class TestGetAgentDetail:
 
         assert detail is not None
         assert detail["gateway_url"] == "wss://gateway.example.com:443"
+
+
+class TestResolveProviderDisplay:
+    """Unit tests for the tier-1 + providers.json display helper (#790)."""
+
+    def test_resolve_provider_display_attachment_override(self):
+        """Tier-1 entry ``model`` override wins over providers.json default."""
+        claw_record = {
+            "providers": [{"name": "openai-prod", "model": "gpt-4o-mini"}]
+        }
+        with patch(
+            "clawrium.cli.tui.data.get_provider",
+            return_value={
+                "name": "openai-prod",
+                "type": "openai",
+                "default_model": "gpt-4o",
+            },
+        ):
+            name, ptype, model = _resolve_provider_display(claw_record)
+        assert name == "openai-prod"
+        assert ptype == "openai"
+        assert model == "gpt-4o-mini"
+
+    def test_resolve_provider_display_falls_back_to_providers_json(self):
+        """When the attachment lacks ``model``, default_model is used."""
+        claw_record = {"providers": [{"name": "openai-prod"}]}
+        with patch(
+            "clawrium.cli.tui.data.get_provider",
+            return_value={
+                "name": "openai-prod",
+                "type": "openai",
+                "default_model": "gpt-4o",
+            },
+        ):
+            name, ptype, model = _resolve_provider_display(claw_record)
+        assert name == "openai-prod"
+        assert ptype == "openai"
+        assert model == "gpt-4o"
+
+    def test_resolve_provider_display_missing_provider_record(self, caplog):
+        """Unresolved tier-1 attachment → ("-", None, "-") + warning.
+
+        The caplog assertion pins logger, level, and full message so the
+        missing-record branch cannot be confused with the IO-error branch
+        below — they emit distinct warnings.
+        """
+        import logging
+
+        claw_record = {"providers": [{"name": "unregistered"}]}
+        with patch("clawrium.cli.tui.data.get_provider", return_value=None):
+            with caplog.at_level(logging.WARNING, logger="clawrium.cli.tui.data"):
+                name, ptype, model = _resolve_provider_display(claw_record)
+        assert (name, ptype, model) == ("-", None, "-")
+        assert any(
+            rec.name == "clawrium.cli.tui.data"
+            and rec.levelno == logging.WARNING
+            and "is not registered in providers.json" in rec.getMessage()
+            and "unregistered" in rec.getMessage()
+            for rec in caplog.records
+        )
+
+    def test_resolve_provider_display_get_provider_raises(self, caplog):
+        """Storage IO error → ("-", None, "-") + distinct warning, no crash."""
+        import logging
+
+        claw_record = {"providers": [{"name": "openai-prod"}]}
+        with patch(
+            "clawrium.cli.tui.data.get_provider",
+            side_effect=OSError("disk error"),
+        ):
+            with caplog.at_level(logging.WARNING, logger="clawrium.cli.tui.data"):
+                name, ptype, model = _resolve_provider_display(claw_record)
+        assert (name, ptype, model) == ("-", None, "-")
+        assert any(
+            rec.name == "clawrium.cli.tui.data"
+            and rec.levelno == logging.WARNING
+            and "Failed to look up provider" in rec.getMessage()
+            and "openai-prod" in rec.getMessage()
+            and "disk error" in rec.getMessage()
+            for rec in caplog.records
+        )
+
+    def test_resolve_provider_display_no_attachment(self):
+        """No tier-1 attachment → (None, None, "-")."""
+        claw_record: dict = {}
+        name, ptype, model = _resolve_provider_display(claw_record)
+        assert (name, ptype, model) == (None, None, "-")
+
+    def test_resolve_provider_display_record_missing_type(self):
+        """providers.json entry without ``type`` → provider_type is None."""
+        claw_record = {"providers": [{"name": "p"}]}
+        with patch(
+            "clawrium.cli.tui.data.get_provider",
+            return_value={"name": "p", "default_model": "m"},
+        ):
+            name, ptype, model = _resolve_provider_display(claw_record)
+        assert (name, ptype, model) == ("p", None, "m")
+
+    def test_resolve_provider_display_record_missing_default_model(self):
+        """Attached but no model anywhere → model is "-"."""
+        claw_record = {"providers": [{"name": "p"}]}
+        with patch(
+            "clawrium.cli.tui.data.get_provider",
+            return_value={"name": "p", "type": "openai"},
+        ):
+            name, ptype, model = _resolve_provider_display(claw_record)
+        assert (name, ptype, model) == ("p", "openai", "-")
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        ["1leading", "Bad-Name!", "has space", "", "ALLCAPS"],
+    )
+    def test_resolve_provider_display_invalid_name_rejected(self, bad_name):
+        """Attachment names that fail the regex → silent (None, None, "-").
+
+        get_provider must NOT be called for an invalid name. This branch
+        is distinguishable from the missing-record branch because no
+        warning is logged.
+        """
+        claw_record = {"providers": [{"name": bad_name}]}
+        called = {"value": False}
+
+        def fake_get_provider(_):
+            called["value"] = True
+            return None
+
+        with patch(
+            "clawrium.cli.tui.data.get_provider", side_effect=fake_get_provider
+        ):
+            name, ptype, model = _resolve_provider_display(claw_record)
+        assert (name, ptype, model) == (None, None, "-")
+        assert called["value"] is False
+
+    @pytest.mark.parametrize("garbage", [42, None, ["nested"], 3.14])
+    def test_resolve_provider_display_garbage_entry(self, garbage):
+        """Non-dict / non-str first attachment entry → (None, None, "-")."""
+        claw_record = {"providers": [garbage]}
+        name, ptype, model = _resolve_provider_display(claw_record)
+        assert (name, ptype, model) == (None, None, "-")
+
+    def test_resolve_provider_display_ignores_tier2_provider(self):
+        """A leftover ``config.provider`` mirror is NEVER consulted (#790)."""
+        claw_record = {
+            "providers": [{"name": "glm51"}],
+            "config": {
+                "provider": {
+                    "name": "openai-prod",
+                    "type": "openai",
+                    "default_model": "openai/gpt-4o",
+                }
+            },
+        }
+        with patch(
+            "clawrium.cli.tui.data.get_provider",
+            return_value={
+                "name": "glm51",
+                "type": "litellm",
+                "default_model": "z-ai/glm-5.1",
+            },
+        ):
+            name, ptype, model = _resolve_provider_display(claw_record)
+        assert name == "glm51"
+        assert ptype == "litellm"
+        assert model == "z-ai/glm-5.1"
+
+
+class TestBuildAgentIdentityRegression:
+    """Regression coverage for the original #790 bug.
+
+    The GUI agent landing page (and ``clawctl agent get``) were reading
+    the model from the stale ``config.provider.default_model`` mirror in
+    ``hosts.json`` instead of the live tier-1 attachment + providers.json.
+    After a provider swap that the user had not yet ``sync``'d, the
+    operator saw the old model. Keep this test forever — it is the gate.
+    """
+
+    def test_build_agent_identity_ignores_stale_tier2_provider(self):
+        """Tier-1 = glm51, tier-2 leftover = openai/gpt-4o → glm-5.1 wins."""
+        host = {
+            "hostname": "192.168.1.100",
+            "alias": "wolf-i",
+            "addresses": [],
+        }
+        claw_record = {
+            "type": "openclaw",
+            "agent_name": "clawrium-exec",
+            "version": "1.0.0",
+            "providers": [{"name": "glm51"}],
+            "config": {
+                # Pre-#790 lifecycle.sync_agent mirror — must be ignored.
+                "provider": {
+                    "name": "openai-prod",
+                    "type": "openai",
+                    "default_model": "openai/gpt-4o",
+                },
+            },
+        }
+        with patch(
+            "clawrium.cli.tui.data.get_provider",
+            return_value={
+                "name": "glm51",
+                "type": "litellm",
+                "default_model": "z-ai/glm-5.1",
+            },
+        ):
+            identity = _build_agent_identity("clawrium-exec", host, claw_record)
+
+        assert identity["provider"] == "glm51"
+        assert identity["provider_type"] == "litellm"
+        assert identity["model"] == "z-ai/glm-5.1"

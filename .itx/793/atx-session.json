@@ -1,0 +1,11 @@
+{
+  "session_id": "8f73062c-ab4f-44b0-956f-ef850657cab1",
+  "transport": "cli",
+  "commit_sha": "pending-commit",
+  "iteration": 2,
+  "last_rating": 4,
+  "last_blockers": [],
+  "started_at": "2026-06-23T20:42:00Z",
+  "updated_at": "2026-06-23T21:05:00Z",
+  "notes": "iter-1: 3/5 no blockers / 8W / 6S. iter-2: 4/5 no blockers / remaining items are suggestions only. Clears merge bar."
+}
