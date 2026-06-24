@@ -104,5 +104,33 @@ cut. The `itx:release` skill archives this section into a new
   hardware first via `clawctl host create`. Eliminates the
   `npm ETARGET: No matching version found for openclaw@0.1.0`
   class of failure (#720).
+- `clawctl agent sync` and `clawctl agent configure` no longer write
+  `config.provider`, `config.providers`, or `config.channels` mirrors
+  back into `~/.config/clawrium/hosts.json`. The Ansible payload still
+  receives the overlays so templates can render the model and channel
+  hulls, but the canonical stores (`providers.json` + tier-1
+  `agent_record["providers"]` for providers; `channels.json` for
+  channels) are now the single source of truth on disk. Eliminates
+  the stale-mirror class of bugs fixed in the GUI read path by #793
+  (#794, Phase 2 of #790).
+- openclaw and nemoclaw also benefit from the channels strip — the
+  previous bot_token/app_token scrub was guarded by `if resolved_type
+  in ("hermes", "zeroclaw")`, so any accumulated stale
+  `config.channels.discord.bot_token` on those types persisted
+  unscrubbed. The unconditional strip now applies to all agent types
+  and removes the gap on first `clawctl agent configure` after
+  upgrade. No operator action required (#794).
+
+### Changed
+
+- `clm agent configure --stage channels` (the legacy `clm` wizard) now
+  prints a deprecation banner and exits with code 2 on entry. The
+  wizard's prompt + Ansible-push flow no longer worked after the #794
+  hosts.json mirror strip — channels collected interactively would be
+  silently dropped before reaching the host. Operators must use the
+  modern `clawctl channel registry create <name> --type <type>` →
+  `clawctl agent channel attach <name> --agent <agent>` →
+  `clawctl agent sync <agent>` pipeline. The full removal of the
+  wizard module is tracked under Phase 4 of #790.
 
 ### Documentation
