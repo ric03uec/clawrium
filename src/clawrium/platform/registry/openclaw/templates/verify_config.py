@@ -72,6 +72,19 @@ def main():
             return f"ollama/{default_model}"
         if provider_type == "bedrock" and not default_model.startswith("amazon-bedrock/"):
             return f"amazon-bedrock/{default_model}"
+        if provider_type == "litellm":
+            # Mirror clawrium.core.render's litellm rule (#756): the prefix
+            # is the clawctl provider name, not a static type-keyed string,
+            # because every litellm proxy is its own custom provider in
+            # `models.providers.<name>`. Without this branch the verify task
+            # always fails for litellm providers (#819) because the
+            # canonical render emits `<provider-name>/<model>` while this
+            # function would otherwise return the raw `default_model`.
+            provider_name = provider.get("name")
+            if isinstance(provider_name, str) and provider_name:
+                prefix = f"{provider_name}/"
+                if not default_model.startswith(prefix):
+                    return f"{prefix}{default_model}"
         return default_model
 
     # Verify model is set if provider configured
