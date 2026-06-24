@@ -11,6 +11,7 @@ from __future__ import annotations
 import inspect
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -364,6 +365,270 @@ def test_resolver_returns_correct_path_per_os() -> None:
 
     darwin_path = resolve_agent_playbook("openclaw", "workspace", "darwin")
     assert darwin_path.name == "workspace_macos.yaml"
+
+
+def test_home_root_for_linux_and_darwin() -> None:
+    """#770 — `home_root_for` is the single OS seam for the home-dir
+    root (`/home` vs `/Users`). Keeping the branch here means
+    `workspace_sync.py` and other consumers stay free of OS literals
+    (U13 / S4 iter-3)."""
+    from clawrium.core.playbook_resolver import home_root_for
+
+    assert home_root_for("linux") == "/home"
+    assert home_root_for("darwin") == "/Users"
+
+    # ATX iter-1 W6: pin the error message shape so a regression that
+    # changes it to a generic `raise ValueError("bad")` is caught.
+    with pytest.raises(ValueError, match=r"unsupported os_family.*freebsd"):
+        home_root_for("freebsd")
+
+
+def _macos_playbook_non_comment_body() -> str:
+    """Helper: strip line-comments before scanning playbook text.
+
+    ATX iter-2 W6 — applying comment-stripping uniformly to both
+    positive and negative scans prevents a diff that comments out a
+    live assertion line (or moves it into a comment) from silently
+    passing.
+    """
+    from clawrium.core.playbook_resolver import resolve_agent_playbook
+
+    body = resolve_agent_playbook("openclaw", "workspace", "darwin").read_text()
+    return "\n".join(line.split("#", 1)[0] for line in body.splitlines())
+
+
+def test_openclaw_workspace_macos_playbook_uses_users_prefix() -> None:
+    """#770 (openclaw macOS, U22 darwin variant) — the macOS workspace
+    playbook asserts `workspace_dest_root` begins with
+    `/Users/<agent_name>/`, not `/home/<agent_name>/`. Drift here means
+    the dispatcher routed a darwin host through a /home/-asserting
+    playbook and the run would fail mid-flight."""
+    body = _macos_playbook_non_comment_body()
+    assert "workspace_dest_root.startswith('/Users/' ~ agent_name ~ '/')" in body
+    # The Linux assertion must NOT bleed into the macOS playbook
+    # (regression: if someone copy-pasted from workspace.yaml without
+    # editing the prefix, the playbook would always bail on darwin).
+    assert "workspace_dest_root.startswith('/home/' ~ agent_name ~ '/')" not in body
+    # ATX iter-1 W1 backstop — the `..` segment rejection is present.
+    assert "'..' not in workspace_dest_root.split('/')" in body
+
+
+def test_openclaw_workspace_macos_playbook_is_not_the_deferred_stub() -> None:
+    """#770 — the Phase-1 stub used `ansible.builtin.fail: msg: deferred
+    to macOS subtask`. Pin that body is no longer present so a future
+    revert / merge accident can't ship the stub again."""
+    body = _macos_playbook_non_comment_body()
+    assert "deferred to macOS subtask" not in body
+    # The real playbook copies files; the stub did not. Pin the copy
+    # task is present and uses `follow: no` (symlink defense).
+    assert "ansible.builtin.copy" in body
+    assert "follow: no" in body
+
+
+def test_openclaw_workspace_macos_playbook_uses_staff_group() -> None:
+    """#770 — macOS users have primary group `staff` (gid 20), not a
+    per-user group like Linux. The macOS playbook MUST hardcode
+    `group: staff` for owner+copy tasks; using `{{ agent_name }}` (the
+    Linux convention) would fail on darwin because the group does not
+    exist."""
+    body = _macos_playbook_non_comment_body()
+    assert "group: staff" in body
+    # The Linux-style `group: "{{ agent_name }}"` must NOT appear in
+    # task bodies.
+    assert 'group: "{{ agent_name }}"' not in body
+
+
+@pytest.mark.parametrize(
+    "os_family,raw,expected",
+    [
+        # Tilde-slash form — the realistic case (every shipped manifest
+        # uses this shape).
+        ("linux", "~/.openclaw/workspace", "/home/alice/.openclaw/workspace"),
+        ("darwin", "~/.openclaw/workspace", "/Users/alice/.openclaw/workspace"),
+        # Bare tilde — no shipped manifest uses this, but the helper
+        # MUST not silently drop it (regression guard).
+        ("linux", "~", "/home/alice"),
+        ("darwin", "~", "/Users/alice"),
+        # ATX iter-1 W4: absolute-path passthrough. A future manifest
+        # with `destination_root: "/var/openclaw/workspace"` MUST be
+        # returned unchanged regardless of os_family — otherwise the
+        # macOS / Linux branches would silently rewrite operator intent.
+        ("linux", "/var/openclaw/workspace", "/var/openclaw/workspace"),
+        ("darwin", "/var/openclaw/workspace", "/var/openclaw/workspace"),
+    ],
+)
+def test_expand_destination_root_parametrized(
+    os_family: str, raw: str, expected: str
+) -> None:
+    """#770 — `_expand_destination_root` covers three input shapes
+    (`~/...`, `~`, absolute passthrough) crossed with two OS families.
+    S4 (ATX iter-1): the per-OS / per-shape cases collapse into a
+    parametrized table; only the distinct backward-compat default-arg
+    case below stays standalone because it tests a different contract."""
+    from clawrium.core.workspace_sync import _expand_destination_root
+
+    spec = WorkspaceOverlaySpec(destination_root=raw)
+    assert _expand_destination_root(spec, "alice", os_family) == expected
+
+
+def test_expand_destination_root_default_arg_is_linux() -> None:
+    """#770 — backward-compat: callers that don't pass `os_family` get
+    Linux behavior. The default keeps every existing call site working
+    without churn; only the new sync entry point threads `os_family`
+    explicitly. The playbook prefix assertion remains the backstop if a
+    new caller forgets the threading on a darwin host."""
+    from clawrium.core.workspace_sync import _expand_destination_root
+
+    spec = WorkspaceOverlaySpec(destination_root="~/.openclaw/workspace")
+    assert (
+        _expand_destination_root(spec, "alice")
+        == "/home/alice/.openclaw/workspace"
+    )
+
+
+def test_push_workspace_phase_threads_os_family_to_darwin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ATX iter-1 W5 — integration test: `push_workspace_phase` must
+    thread `host['os_family']` into both the playbook resolver AND the
+    `workspace_dest_root` expansion. A regression that hard-coded
+    `'linux'` at the call site would route the dispatcher to
+    `workspace_macos.yaml` correctly but pass `workspace_dest_root =
+    '/home/<name>/...'` to it — the playbook's `/Users/` prefix assert
+    would catch it on-host, but we want a unit-level signal too.
+
+    Stubs `ansible_runner.run` and captures the playbook path + the
+    extravars handed to it.
+    """
+    # Redirect config dir so our fake workspace lives in tmp_path.
+    monkeypatch.setattr(
+        "clawrium.core.workspace_sync.get_config_dir", lambda: tmp_path
+    )
+    # Redirect the lazy-loaded host-key lookup to a synthetic path —
+    # `push_workspace_phase` only checks for non-None, then passes it
+    # into the inventory dict as the SSH key file.
+    fake_key = tmp_path / "fake.pem"
+    fake_key.write_text("")
+    monkeypatch.setattr(
+        "clawrium.core.keys.get_host_private_key",
+        lambda _key_id: str(fake_key),
+    )
+
+    # Stage a marker file under the openclaw workspace slot for a
+    # synthetic agent.
+    ws = tmp_path / "agents" / "openclaw" / "alice" / "workspace"
+    ws.mkdir(parents=True)
+    (ws / "MARKER.md").write_text("hello mac")
+
+    captured: dict[str, Any] = {}
+
+    class _StubResult:
+        status = "successful"
+        rc = 0
+
+    class _StubRunner:
+        def run(self, **kwargs: Any) -> _StubResult:
+            captured["playbook"] = kwargs.get("playbook")
+            captured["extravars"] = kwargs.get("extravars")
+            return _StubResult()
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "ansible_runner", _StubRunner()
+    )
+
+    from clawrium.core.workspace_sync import push_workspace_phase
+
+    result = push_workspace_phase(
+        host={
+            "hostname": "esper-macmini.example",
+            "key_id": "esper-macmini.example",
+            "os_family": "darwin",
+        },
+        agent_type="openclaw",
+        agent_name="alice",
+    )
+    assert result.success is True, result.error
+    assert result.files_pushed == ("MARKER.md",)
+
+    # Dispatcher routed to the macOS playbook.
+    assert captured["playbook"].endswith("workspace_macos.yaml"), captured["playbook"]
+    # Expansion used the darwin home root.
+    extravars = captured["extravars"]
+    assert extravars["workspace_dest_root"] == "/Users/alice/.openclaw/workspace"
+    # The remote path on each enumerated file also uses /Users/.
+    files = extravars["workspace_files"]
+    assert len(files) == 1
+    assert files[0]["rel"] == "MARKER.md"
+    # ATX iter-2 W4: pin every extravar that downstream playbook tasks
+    # consume so a regression that mixes up agent_name, swaps in the
+    # wrong agent's excludes (e.g. hermes excludes on openclaw), or
+    # drops staging_dir surfaces at unit-test level.
+    assert extravars["agent_name"] == "alice"
+    assert extravars["agent_type"] == "openclaw"
+    assert extravars["workspace_excludes_files"] == []
+    assert extravars["workspace_excludes_dirs"] == []
+    assert extravars["staging_dir"].startswith(str(tmp_path))
+
+
+def test_push_workspace_phase_threads_os_family_to_linux(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ATX iter-1 W5 (counterpart) — same integration as above but for
+    linux. Catches a regression that hard-coded 'darwin' at the call
+    site (the mirror of the failure W5 protects against)."""
+    monkeypatch.setattr(
+        "clawrium.core.workspace_sync.get_config_dir", lambda: tmp_path
+    )
+    fake_key = tmp_path / "fake.pem"
+    fake_key.write_text("")
+    monkeypatch.setattr(
+        "clawrium.core.keys.get_host_private_key",
+        lambda _key_id: str(fake_key),
+    )
+
+    ws = tmp_path / "agents" / "openclaw" / "bob" / "workspace"
+    ws.mkdir(parents=True)
+    (ws / "MARKER.md").write_text("hello linux")
+
+    captured: dict[str, Any] = {}
+
+    class _StubResult:
+        status = "successful"
+        rc = 0
+
+    class _StubRunner:
+        def run(self, **kwargs: Any) -> _StubResult:
+            captured["playbook"] = kwargs.get("playbook")
+            captured["extravars"] = kwargs.get("extravars")
+            return _StubResult()
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "ansible_runner", _StubRunner()
+    )
+
+    from clawrium.core.workspace_sync import push_workspace_phase
+
+    result = push_workspace_phase(
+        host={
+            "hostname": "wolf-i.example",
+            "key_id": "wolf-i.example",
+            "os_family": "linux",
+        },
+        agent_type="openclaw",
+        agent_name="bob",
+    )
+    assert result.success is True, result.error
+
+    assert captured["playbook"].endswith("workspace.yaml")
+    assert not captured["playbook"].endswith("workspace_macos.yaml")
+    extravars = captured["extravars"]
+    assert extravars["workspace_dest_root"] == "/home/bob/.openclaw/workspace"
+    # ATX iter-2 W4 mirror: same extravar pinning on the linux side.
+    assert extravars["agent_name"] == "bob"
+    assert extravars["agent_type"] == "openclaw"
+    assert extravars["workspace_excludes_files"] == []
+    assert extravars["workspace_excludes_dirs"] == []
+    assert extravars["staging_dir"].startswith(str(tmp_path))
 
 
 def test_resolver_returns_zeroclaw_workspace_playbooks() -> None:

@@ -29,6 +29,28 @@ def _suffix_for(os_family: str) -> str:
     return "" if os_family == "linux" else "_macos"
 
 
+_HOME_ROOT_BY_OS: dict[str, str] = {
+    "linux": "/home",
+    "darwin": "/Users",
+}
+
+
+def home_root_for(os_family: str) -> str:
+    """Return the per-OS user home-directory root.
+
+    Linux uses `/home`, macOS uses `/Users`. Callers that need to
+    materialize an agent's home path do so as
+    `f"{home_root_for(os_family)}/{agent_name}"`. This is the single
+    seam for the home-root branch so the rest of the codebase keeps
+    the no-OS-literal invariant (issue #770; U13 / S4 iter-3).
+    """
+    if os_family not in SUPPORTED_OS:
+        raise ValueError(
+            f"unsupported os_family: {os_family!r} (expected one of {sorted(SUPPORTED_OS)})"
+        )
+    return _HOME_ROOT_BY_OS[os_family]
+
+
 def resolve_base_playbook(os_family: str) -> Path:
     """Return the path to the system-prerequisites playbook for this OS family.
 

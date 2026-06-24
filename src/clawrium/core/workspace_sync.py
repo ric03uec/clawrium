@@ -35,7 +35,7 @@ from typing import Any
 from clawrium.cli.output._sanitize import sanitize_passthrough
 from clawrium.core.config import get_config_dir
 from clawrium.core.names import validate_agent_name
-from clawrium.core.playbook_resolver import resolve_agent_playbook
+from clawrium.core.playbook_resolver import home_root_for, resolve_agent_playbook
 from clawrium.core.registry import load_manifest
 
 logger = logging.getLogger(__name__)
@@ -363,19 +363,28 @@ def _emit_skip(
     )
 
 
-def _expand_destination_root(spec: WorkspaceOverlaySpec, agent_name: str) -> str:
-    """Expand `~` in `destination_root` to `/home/<agent_name>`.
+def _expand_destination_root(
+    spec: WorkspaceOverlaySpec,
+    agent_name: str,
+    os_family: str = "linux",
+) -> str:
+    """Expand `~` in `destination_root` to the agent's home dir.
 
-    The Ansible playbook re-asserts the result begins with
-    `/home/<agent_name>/`. We do the expansion Python-side too so the
-    extravar payload is unambiguous and the playbook assert sees the
-    final rendered string (B1 iter-3 backstop).
+    Linux hosts use `/home/<agent_name>`; darwin hosts use
+    `/Users/<agent_name>` (#770). The OS→home-root mapping lives in
+    `core.playbook_resolver.home_root_for`, which is the single seam
+    where OS-family branching is allowed (U13 / S4 iter-3). The per-OS
+    Ansible playbook re-asserts the rendered prefix matches its OS
+    family. We do the expansion Python-side too so the extravar payload
+    is unambiguous and the playbook assert sees the final rendered
+    string (B1 iter-3 backstop).
     """
+    home_root = home_root_for(os_family)
     dest = spec.destination_root
     if dest.startswith("~/"):
-        dest = f"/home/{agent_name}/" + dest[2:]
+        dest = f"{home_root}/{agent_name}/" + dest[2:]
     elif dest == "~":
-        dest = f"/home/{agent_name}"
+        dest = f"{home_root}/{agent_name}"
     return dest
 
 
@@ -525,7 +534,7 @@ def push_workspace_phase(
             error=str(exc),
         )
 
-    workspace_dest_root = _expand_destination_root(spec, agent_name)
+    workspace_dest_root = _expand_destination_root(spec, agent_name, os_family)
 
     # Stage under `${clawrium_config}/staging/workspace/<name>/` so the
     # playbook's defense-in-depth substring check ('/clawrium/staging/
