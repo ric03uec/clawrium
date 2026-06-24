@@ -74,6 +74,108 @@ def test_connect_success(monkeypatch):
     assert req["params"]["auth"]["token"] == "secret-token"
 
 
+# ---------------------------------------------------------------------------
+# B2 + W1 (ATX iter-4 #719): pin the cross-platform pairing invariant
+# and the protocol-3..4 negotiation on the wire. A regression that
+# reverts `platform` back to a hardcoded string OR drops the
+# `maxProtocol` bump from 4 to 3 would otherwise pass every other
+# chat test silently and only surface live against openclaw v2026.6.9
+# (protocol-4-only) or on a cross-platform operator/agent install.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sys_platform_value, expected_normalized",
+    [
+        ("linux", "linux"),
+        ("darwin", "darwin"),
+        ("win32", "win32"),
+        # Versioned POSIX shapes must be stripped so the value matches
+        # what Node's `process.platform` (= bare family) records on
+        # the daemon side at pair time.
+        ("freebsd13", "freebsd"),
+        ("openbsd6.9", "openbsd"),
+    ],
+)
+def test_connect_sends_normalized_operator_platform(
+    monkeypatch, sys_platform_value, expected_normalized
+):
+    """The `client.platform` field on the wire MUST be the normalized
+    operator platform (matching the value the install pair script
+    persisted). The openclaw daemon rejects any subsequent connect
+    with a different `platform` as 'device identity changed'."""
+    import sys as _sys
+
+    monkeypatch.setattr(_sys, "platform", sys_platform_value)
+
+    frames = [
+        {
+            "type": "event",
+            "event": "connect.challenge",
+            "payload": {"nonce": "abc123", "ts": 1234},
+        },
+        {
+            "type": "res",
+            "id": "1",
+            "ok": True,
+            "payload": {"type": "hello-ok", "protocol": 4},
+        },
+    ]
+    fake_ws = FakeWebSocket(frames)
+
+    async def fake_connect(*args, **kwargs):
+        return fake_ws
+
+    monkeypatch.setattr("clawrium.core.chat.websockets.connect", fake_connect)
+
+    client = OpenClawChatClient("ws://test-host:40123", "secret-token")
+    asyncio.run(client.connect())
+
+    req = fake_ws.sent[0]
+    assert req["params"]["client"]["platform"] == expected_normalized, (
+        f"client.platform must match Node's process.platform shape "
+        f"(install pair side); sys.platform={sys_platform_value!r} "
+        f"normalized → {expected_normalized!r}, got "
+        f"{req['params']['client']['platform']!r}"
+    )
+
+
+def test_connect_negotiates_protocol_3_to_4(monkeypatch):
+    """W1 (ATX iter-4): openclaw v2026.6.9 dropped protocol 3 — the
+    daemon rejects min=3/max=3 handshakes with 'expected=4 probeMin=4'
+    (verified live against esper-mac-oc, see
+    .itx/719/01_EXECUTION.md). The client must advertise minProtocol=3
+    (compat with older daemons still on proto 3) AND maxProtocol=4
+    (compat with v2026.6.9+). A revert to max=3 would silently break
+    every chat session against a v2026.6.9+ host."""
+    frames = [
+        {
+            "type": "event",
+            "event": "connect.challenge",
+            "payload": {"nonce": "abc123", "ts": 1234},
+        },
+        {
+            "type": "res",
+            "id": "1",
+            "ok": True,
+            "payload": {"type": "hello-ok", "protocol": 4},
+        },
+    ]
+    fake_ws = FakeWebSocket(frames)
+
+    async def fake_connect(*args, **kwargs):
+        return fake_ws
+
+    monkeypatch.setattr("clawrium.core.chat.websockets.connect", fake_connect)
+
+    client = OpenClawChatClient("ws://test-host:40123", "secret-token")
+    asyncio.run(client.connect())
+
+    req = fake_ws.sent[0]
+    assert req["params"]["minProtocol"] == 3
+    assert req["params"]["maxProtocol"] == 4
+
+
 def test_secret_str_masks_repr():
     secret = SecretStr("very-secret")
     assert repr(secret) == "***"

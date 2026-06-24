@@ -11,25 +11,73 @@
  * then falls back to v2). Bumping to a v3-payload default is a follow-up
  * once v3-only daemons exist in the field.
  *
- * Usage: node pair_device.mjs <gateway_url> <bootstrap_token>
+ * Usage: node pair_device.mjs <gateway_url> <bootstrap_token> [<platform>]
+ *
+ * <platform> is the OPERATOR's platform (the machine where clawctl
+ * lives), NOT the agent host's platform. The daemon stores this on
+ * the paired device record and rejects subsequent connects from a
+ * different platform as "device identity changed". The chat client
+ * (`clawrium.core.chat`) sends `sys.platform` from the operator's
+ * machine, so the pair-time value MUST match. Default falls back to
+ * `process.platform` for the legacy 2-arg invocation, but the install
+ * playbooks pass the operator's platform explicitly.
+ *
  * Output: JSON with deviceId, deviceToken, privateKeyPem
  */
 
 import WebSocket from 'ws';
 import crypto from 'crypto';
 
-const [,, gatewayUrl, bootstrapToken] = process.argv;
+const [,, gatewayUrl, bootstrapToken, platformArg] = process.argv;
 
 const MIN_SUPPORTED_PROTOCOL = 3;
 const MAX_SUPPORTED_PROTOCOL = 4;
 const DEFAULT_PAYLOAD_VERSION = 'v2';
 
+// Accept only the well-known bare-family shapes the operator side
+// (clawrium.core._operator_platform.normalize) emits. Anything else
+// is either a misrendered Jinja extravar or an unsupported OS; in
+// both cases falling back to `process.platform` would silently
+// reinstate the #719 cross-platform pairing mismatch (W2 ATX iter-4).
+const ALLOWED_PLATFORMS = new Set([
+  'linux', 'darwin', 'win32', 'freebsd', 'openbsd', 'netbsd', 'aix', 'sunos',
+]);
+
 if (!gatewayUrl || !bootstrapToken) {
   console.error(JSON.stringify({
     error: 'Missing required arguments',
-    usage: 'node pair_device.mjs <gateway_url> <bootstrap_token>'
+    usage: 'node pair_device.mjs <gateway_url> <bootstrap_token> [<platform>]'
   }));
   process.exit(1);
+}
+
+// W2: if the caller passed a platformArg, require a non-empty,
+// well-known value. Empty string from Jinja `default('')` would
+// otherwise silently fall back to `process.platform` (= the AGENT
+// HOST's OS) and reinstate the exact identity-changed mismatch this
+// arg was added to prevent. The legacy 2-arg invocation (no
+// platformArg at all) still falls back to `process.platform` — only
+// the unsupported case is the explicit empty 3rd arg.
+let clientPlatform;
+if (platformArg === undefined) {
+  clientPlatform = process.platform;
+} else if (typeof platformArg !== 'string' || platformArg.length === 0) {
+  console.error(JSON.stringify({
+    error: 'platformArg present but empty/non-string',
+    received: platformArg,
+    fix: 'install playbook must set operator_platform from the inventory'
+  }));
+  process.exit(1);
+} else if (!ALLOWED_PLATFORMS.has(platformArg)) {
+  console.error(JSON.stringify({
+    error: 'platformArg is not a known platform family',
+    received: platformArg,
+    allowed: Array.from(ALLOWED_PLATFORMS),
+    fix: 'normalize via clawrium.core._operator_platform.normalize before passing'
+  }));
+  process.exit(1);
+} else {
+  clientPlatform = platformArg;
 }
 
 function generateDeviceKeypair() {
@@ -150,7 +198,7 @@ async function pairDevice() {
               client: {
                 id: clientId,
                 version: '1.0.0',
-                platform: process.platform,
+                platform: clientPlatform,
                 mode: clientMode
               },
               role: role,

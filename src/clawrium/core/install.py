@@ -25,12 +25,14 @@ Host record schema (extended):
 import hashlib
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, NotRequired, TypedDict
 
 import ansible_runner
 
+from clawrium.core._operator_platform import normalize as _normalize_operator_platform
 from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import get_host, update_host
 from clawrium.core.keys import get_host_private_key
@@ -926,6 +928,24 @@ def run_installation(
                 "config": config,
                 "template_path": str(template_path),
                 "force_install": force,
+                # The OPERATOR's platform (`linux`/`darwin`/`win32`/
+                # `freebsd`/...). The openclaw pair script records
+                # this on the daemon's paired device entry; the chat
+                # client sends the same value on subsequent connects.
+                # If the two disagree, openclaw treats the connect as
+                # "device identity changed" and demands UI re-approval.
+                # Setting it here from clawctl's own process platform
+                # — the install pair script runs on the agent host but
+                # is paired ON BEHALF OF this clawctl install, so the
+                # operator platform is what matters, not the agent
+                # host's OS.
+                #
+                # `_normalize_operator_platform` strips Python's
+                # versioned-platform suffix (`freebsd13` → `freebsd`)
+                # so the install-time and chat-time values match
+                # across Python interpreter upgrades on the same
+                # operator machine.
+                "operator_platform": _normalize_operator_platform(sys.platform),
                 # ATX W2: scope dashboard_port to hermes only. Unconditional
                 # injection puts `dashboard_port: null` in non-hermes
                 # inventories where `when: dashboard_port is defined`

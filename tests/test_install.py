@@ -2631,3 +2631,124 @@ def test_install_hardware_unknown_with_version_override_bypasses_check(monkeypat
         "validate",
         "Version override: openclaw v2026.6.8",
     ) in events
+
+
+# ---------------------------------------------------------------------------
+# B1 (ATX iter-4 #719): `operator_platform` extravar must be threaded
+# from `sys.platform` (normalized) into the ansible inventory so the
+# openclaw pair script records the OPERATOR's platform on the daemon's
+# paired device entry — not the agent host's OS. A regression that
+# drops/renames this key would only surface on a live host at pair
+# time as `AnsibleUndefinedVariable`, reinstating the #719 bug
+# silently. Asserts the value via `mock_run.call_args` introspection
+# on the same fixture pattern as `test_install_success` above.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sys_platform_value, expected_normalized",
+    [
+        ("linux", "linux"),
+        ("darwin", "darwin"),
+        ("win32", "win32"),
+        # FreeBSD: Python returns versioned `freebsd13`; the normalizer
+        # must strip the version so the value matches what Node's
+        # `process.platform` (= bare `freebsd`) records on the daemon.
+        ("freebsd13", "freebsd"),
+        ("freebsd14", "freebsd"),
+        ("openbsd6.9", "openbsd"),
+    ],
+)
+def test_install_inventory_threads_normalized_operator_platform(
+    monkeypatch, tmp_path, sys_platform_value, expected_normalized
+):
+    """`run_installation` must inject `operator_platform` into the
+    ansible inventory vars dict, normalized to the bare family name
+    that matches Node's `process.platform` shape (see
+    clawrium.core._operator_platform)."""
+    import sys as _sys
+
+    monkeypatch.setattr(_sys, "platform", sys_platform_value)
+
+    from clawrium.core.install import run_installation
+    import clawrium.core.install
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.9"},
+                },
+            }
+        ],
+    }
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compatible_host = {
+        "hostname": "test-host",
+        "agent_name": "xclm",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: {
+            "compatible": True,
+            "matched_entry": mock_manifest["entries"][0],
+            "reasons": [],
+        },
+    )
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "update_host",
+        lambda h, u: u(clawrium.core.install.get_host(h)),
+    )
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", lambda h, c: True
+    )
+
+    class SuccessfulResult:
+        status = "successful"
+
+    mock_run = Mock(return_value=SuccessfulResult())
+    import ansible_runner
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    run_installation("openclaw", "test-host")
+
+    # Inspect the CLAW playbook call (second invocation; first is base).
+    assert mock_run.call_count == 2
+    claw_call_kwargs = mock_run.call_args_list[1].kwargs
+    inv_vars = claw_call_kwargs["inventory"]["all"]["vars"]
+    assert "operator_platform" in inv_vars, (
+        f"missing operator_platform; got keys: {sorted(inv_vars.keys())}"
+    )
+    assert inv_vars["operator_platform"] == expected_normalized, (
+        f"expected {expected_normalized!r} (normalized from "
+        f"sys.platform={sys_platform_value!r}); got "
+        f"{inv_vars['operator_platform']!r}"
+    )

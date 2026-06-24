@@ -80,6 +80,21 @@ cut. The `itx:release` skill archives this section into a new
   was moved out of the page header and now sits directly above the
   configured integrations list, co-located with the list it mutates
   (#786).
+- openclaw WebSocket chat protocol negotiation now spans
+  `minProtocol=3, maxProtocol=4`. openclaw v2026.6.9+ requires
+  protocol 4 (the daemon rejects min=3/max=3 handshakes with
+  `expected=4 probeMin=4`); the 3..4 range keeps `clawctl agent
+  chat` compatible with both older daemons still on protocol 3 and
+  v2026.6.9+ (#719).
+- openclaw install now threads the OPERATOR'S `sys.platform`
+  (normalized to the bare family name — `freebsd13` → `freebsd`,
+  etc.) through to the pair script as the `operator_platform`
+  inventory extravar. The daemon stores this on the paired device
+  entry; `clawctl agent chat` sends the same value on subsequent
+  connects. Previously the pair script recorded the AGENT HOST's
+  OS (Mac mini → `darwin`) while the chat client hardcoded
+  `"linux"` — every cross-platform install required UI re-approval
+  to chat. Same-platform installs are unaffected (#719).
 
 ### Fixed
 
