@@ -42,9 +42,15 @@ from clawrium.core.workspace_sync import WorkspacePhaseResult
 def make_canonical_stubs(monkeypatch: pytest.MonkeyPatch):
     """Factory: returns a stubs builder parametrized on `agent_type`
     so the same scaffolding drives the openclaw-negative and
-    zeroclaw-positive cases."""
+    zeroclaw-positive cases.
 
-    def _build(agent_type: str):
+    #771 — `os_family` defaults to `"linux"` but can be overridden to
+    `"darwin"` to exercise the macOS code path. The bearer-rotation
+    invariant is OS-agnostic (it lives in `lifecycle_canonical`, not
+    in the playbook), so the same three I-pair-A/B/C tests must hold
+    under both OS families."""
+
+    def _build(agent_type: str, os_family: str = "linux"):
         calls: list[str] = []
 
         inputs = MagicMock()
@@ -62,7 +68,7 @@ def make_canonical_stubs(monkeypatch: pytest.MonkeyPatch):
                 "hostname": "h.example",
                 "key_id": "h.example",
                 "user": "xclm",
-                "os_family": "linux",
+                "os_family": os_family,
             }
             return (host, agent_name, {"type": agent_type})
 
@@ -263,6 +269,156 @@ def test_zeroclaw_no_restart_sync_still_calls_repair(
 
 
 # ---------------------------------------------------------------------------
+# I-pair-A/B/C (macOS): repair gate is os-agnostic (#771)
+# ---------------------------------------------------------------------------
+#
+# ATX iter-1 W3 scope clarification: these three tests do NOT exercise
+# the macOS workspace playbook routing. They pin one narrow invariant:
+# the repair gate at `lifecycle_canonical.py` (`agent_type ==
+# "zeroclaw"` and `not dry_run`) is NOT additionally gated on
+# `os_family == "linux"`. `push_workspace_phase`, `_restart_unit`,
+# `_open_ssh`, and `_atomic_write` are all stubbed — only the host
+# dict's `os_family` value reaches `lifecycle_canonical`, and these
+# tests confirm flipping it to `"darwin"` does not silence the repair
+# call.
+#
+# Playbook routing on darwin is covered separately by
+# `tests/test_workspace_sync.py::
+# test_push_workspace_phase_threads_os_family_to_darwin_zeroclaw` —
+# that test lets `push_workspace_phase → playbook_resolver` run
+# unstubbed and asserts the dispatcher returns `workspace_macos.yaml`.
+#
+# The #437 regression class this pins: a future refactor threads
+# `os_family` more aggressively through the canonical pipeline and
+# narrows the repair gate to "linux only", silently turning every
+# macOS sync into the original #437 bug shape (stale
+# hosts.json.gateway.auth on the next external restart).
+
+
+def test_zeroclaw_default_sync_calls_repair_with_exact_args_darwin(
+    make_canonical_stubs,
+) -> None:
+    """#771 I-pair-A darwin / ATX iter-1 W3-narrowed: the repair gate at
+    `lifecycle_canonical.py:1188` is OS-agnostic. `push_workspace_phase`
+    is stubbed; this test does NOT cover macOS playbook routing."""
+    make_canonical_stubs("zeroclaw", os_family="darwin")
+
+    repair_mock = MagicMock(return_value=(True, None))
+
+    written_diff = MagicMock()
+    written_diff.unified_diff = "--- a\n+++ b\n"
+    written_diff.path = ".zeroclaw/config.toml"
+    # Path uses /Users/ on darwin — the diff_files stub upstream of
+    # this test does not actually compute it, but pinning it here
+    # documents the contract.
+    written_diff.remote_path = "/Users/alice/.zeroclaw/config.toml"
+    written_diff.rendered_body = "[]"
+
+    with (
+        patch(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            return_value=_fake_push_success(),
+        ),
+        patch.object(
+            lifecycle_canonical, "diff_files", return_value=[written_diff]
+        ),
+        patch.object(lifecycle_canonical, "_atomic_write", return_value=None),
+        patch(
+            "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+            repair_mock,
+        ),
+    ):
+        result = sync_agent_canonical(
+            "alice", force=False, restart=True, verify=True
+        )
+
+    assert result.success is True
+    repair_mock.assert_called_once_with(
+        "h.example",
+        agent_name="alice",
+        on_event=None,
+        reason="sync",
+    )
+
+
+def test_zeroclaw_workspace_only_sync_calls_repair_with_exact_args_darwin(
+    make_canonical_stubs,
+) -> None:
+    """#771 I-pair-B darwin / ATX iter-1 W3-narrowed: the repair gate at
+    `lifecycle_canonical.py:905` (the workspace-only branch) is
+    OS-agnostic. `push_workspace_phase` is stubbed; this test does NOT
+    cover macOS playbook routing. The #437 bug shape would re-emerge
+    on macOS only if the rotation gate was tightened on `os_family`."""
+    make_canonical_stubs("zeroclaw", os_family="darwin")
+
+    repair_mock = MagicMock(return_value=(True, None))
+
+    with (
+        patch(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            return_value=_fake_push_success(rel_files=("SOUL.md",)),
+        ),
+        patch(
+            "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+            repair_mock,
+        ),
+    ):
+        result = sync_agent_canonical(
+            "alice",
+            workspace_only=True,
+            restart=False,
+            verify=False,
+        )
+
+    assert result.success is True
+    assert result.workspace_files_pushed == ("SOUL.md",)
+    repair_mock.assert_called_once_with(
+        "h.example",
+        agent_name="alice",
+        on_event=None,
+        reason="workspace-only-sync",
+    )
+
+
+def test_zeroclaw_no_restart_sync_still_calls_repair_darwin(
+    make_canonical_stubs,
+) -> None:
+    """#771 I-pair-C darwin / ATX iter-1 W3-narrowed: the repair gate at
+    `lifecycle_canonical.py:1188` runs even when `restart=False`.
+    `push_workspace_phase` and `_restart_unit` are both stubbed; this
+    test does NOT cover macOS playbook routing or the macOS-specific
+    `launchctl kickstart -k` restart path."""
+    calls = make_canonical_stubs("zeroclaw", os_family="darwin")
+
+    repair_mock = MagicMock(return_value=(True, None))
+
+    with (
+        patch(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            return_value=_fake_push_success(),
+        ),
+        patch(
+            "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+            repair_mock,
+        ),
+    ):
+        sync_agent_canonical(
+            "alice", force=False, restart=False, verify=False
+        )
+
+    # No restart unit ran (operator asked to skip it).
+    restart_calls = [c for c in calls if c[0] == "restart"]
+    assert restart_calls == []
+
+    repair_mock.assert_called_once_with(
+        "h.example",
+        agent_name="alice",
+        on_event=None,
+        reason="sync",
+    )
+
+
+# ---------------------------------------------------------------------------
 # I-pair-D — negative: openclaw NEVER calls repair
 # ---------------------------------------------------------------------------
 
@@ -299,23 +455,38 @@ def test_zeroclaw_no_restart_sync_still_calls_repair(
         ),
     ],
 )
+@pytest.mark.parametrize(
+    "os_family",
+    [
+        pytest.param("linux", id="linux"),
+        # #771 ATX iter-1 W4: a regression that gated the
+        # zeroclaw-only repair on `(agent_type == 'zeroclaw' AND
+        # os_family == 'darwin')` — introduced, say, while threading
+        # os_family through the openclaw macOS path that #770 just
+        # shipped — would still pass all existing tests if the
+        # negative cell were linux-only. Pinning darwin symmetrically
+        # closes that gap.
+        pytest.param("darwin", id="darwin"),
+    ],
+)
 def test_non_zeroclaw_never_calls_zeroclaw_repair(
     make_canonical_stubs,
     sync_kwargs: dict,
     agent_type: str,
     remote_path: str,
     rendered_body: str,
+    os_family: str,
 ) -> None:
-    """I-pair-D (openclaw + hermes cells, #769): bearer rotation is
-    zeroclaw-specific. Openclaw's gateway uses a flat bearer in
-    `hosts.json.gateway.auth` but it is NOT rotated by clawctl; the
-    repair playbook does not exist for openclaw. Hermes has no
-    pairing flow at all — its api_server bearer is generated once at
-    install time and never rotated. Pinning both cells prevents a
-    regression where the `agent_type == "zeroclaw"` guard is dropped
-    or inverted (#769 completes the negative parametrization started
-    in Phase 2)."""
-    make_canonical_stubs(agent_type)
+    """I-pair-D (openclaw + hermes cells, #769; darwin cell added
+    #771): bearer rotation is zeroclaw-specific. Openclaw's gateway
+    uses a flat bearer in `hosts.json.gateway.auth` but it is NOT
+    rotated by clawctl; the repair playbook does not exist for
+    openclaw. Hermes has no pairing flow at all — its api_server
+    bearer is generated once at install time and never rotated.
+    Pinning both cells across both OS families prevents a regression
+    where the `agent_type == "zeroclaw"` guard is dropped or inverted,
+    or accidentally gated on os_family."""
+    make_canonical_stubs(agent_type, os_family=os_family)
 
     repair_mock = MagicMock(return_value=(True, None))
 

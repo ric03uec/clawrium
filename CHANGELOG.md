@@ -80,6 +80,17 @@ cut. The `itx:release` skill archives this section into a new
   `core.playbook_resolver.home_root_for`; `core.workspace_sync`
   consumes it to keep its no-OS-literal invariant intact. zeroclaw and
   hermes macOS variants remain deferred to Phases 5/6.
+- zeroclaw workspace overlay end-to-end on macOS (#771, Phase 5 of
+  #760). The zeroclaw `workspace_macos.yaml` playbook is now a real
+  copy pipeline rather than the Phase-2 deferral stub. Files dropped
+  under `~/.config/clawrium/agents/zeroclaw/<name>/workspace/` mirror
+  onto darwin hosts at `/Users/<name>/.zeroclaw/workspace/` (alongside
+  the canonical memory tree) on every `clawctl agent sync` and
+  `clawctl agent configure`. The bearer-rotation invariant (#437)
+  holds identically across Linux and macOS — every sync entry point
+  (`default`, `--workspace-only`, `--no-restart`) mints a fresh
+  bearer and emits exactly one `gateway_token_rotated` event. The
+  hermes macOS variant remains deferred to Phase 6.
 
 ### Changed
 

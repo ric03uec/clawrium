@@ -383,27 +383,39 @@ def test_home_root_for_linux_and_darwin() -> None:
         home_root_for("freebsd")
 
 
-def _macos_playbook_non_comment_body() -> str:
+def _macos_playbook_non_comment_body(agent_type: str = "openclaw") -> str:
     """Helper: strip line-comments before scanning playbook text.
 
     ATX iter-2 W6 — applying comment-stripping uniformly to both
     positive and negative scans prevents a diff that comments out a
     live assertion line (or moves it into a comment) from silently
     passing.
+
+    #771 (Phase 5): `agent_type` parameter added so the same
+    invariants below are pinned for both openclaw and zeroclaw on
+    macOS. Hermes is intentionally excluded — its macOS variant is
+    still a deferred stub (Phase 6).
     """
     from clawrium.core.playbook_resolver import resolve_agent_playbook
 
-    body = resolve_agent_playbook("openclaw", "workspace", "darwin").read_text()
+    body = resolve_agent_playbook(agent_type, "workspace", "darwin").read_text()
     return "\n".join(line.split("#", 1)[0] for line in body.splitlines())
 
 
-def test_openclaw_workspace_macos_playbook_uses_users_prefix() -> None:
-    """#770 (openclaw macOS, U22 darwin variant) — the macOS workspace
-    playbook asserts `workspace_dest_root` begins with
+# Parametrized over both agent types whose macOS workspace overlay is
+# GA: openclaw (#770) and zeroclaw (#771). Hermes joins this matrix in
+# Phase 6 (#772).
+_MACOS_GA_AGENT_TYPES = ("openclaw", "zeroclaw")
+
+
+@pytest.mark.parametrize("agent_type", _MACOS_GA_AGENT_TYPES)
+def test_workspace_macos_playbook_uses_users_prefix(agent_type: str) -> None:
+    """#770 (openclaw) / #771 (zeroclaw, U22 darwin variant) — the macOS
+    workspace playbook asserts `workspace_dest_root` begins with
     `/Users/<agent_name>/`, not `/home/<agent_name>/`. Drift here means
     the dispatcher routed a darwin host through a /home/-asserting
     playbook and the run would fail mid-flight."""
-    body = _macos_playbook_non_comment_body()
+    body = _macos_playbook_non_comment_body(agent_type)
     assert "workspace_dest_root.startswith('/Users/' ~ agent_name ~ '/')" in body
     # The Linux assertion must NOT bleed into the macOS playbook
     # (regression: if someone copy-pasted from workspace.yaml without
@@ -413,11 +425,15 @@ def test_openclaw_workspace_macos_playbook_uses_users_prefix() -> None:
     assert "'..' not in workspace_dest_root.split('/')" in body
 
 
-def test_openclaw_workspace_macos_playbook_is_not_the_deferred_stub() -> None:
-    """#770 — the Phase-1 stub used `ansible.builtin.fail: msg: deferred
-    to macOS subtask`. Pin that body is no longer present so a future
-    revert / merge accident can't ship the stub again."""
-    body = _macos_playbook_non_comment_body()
+@pytest.mark.parametrize("agent_type", _MACOS_GA_AGENT_TYPES)
+def test_workspace_macos_playbook_is_not_the_deferred_stub(
+    agent_type: str,
+) -> None:
+    """#770 (openclaw) / #771 (zeroclaw) — the Phase-2 stub used
+    `ansible.builtin.fail: msg: deferred to macOS subtask`. Pin that
+    body is no longer present so a future revert / merge accident can't
+    ship the stub again."""
+    body = _macos_playbook_non_comment_body(agent_type)
     assert "deferred to macOS subtask" not in body
     # The real playbook copies files; the stub did not. Pin the copy
     # task is present and uses `follow: no` (symlink defense).
@@ -425,17 +441,48 @@ def test_openclaw_workspace_macos_playbook_is_not_the_deferred_stub() -> None:
     assert "follow: no" in body
 
 
-def test_openclaw_workspace_macos_playbook_uses_staff_group() -> None:
-    """#770 — macOS users have primary group `staff` (gid 20), not a
-    per-user group like Linux. The macOS playbook MUST hardcode
-    `group: staff` for owner+copy tasks; using `{{ agent_name }}` (the
-    Linux convention) would fail on darwin because the group does not
-    exist."""
-    body = _macos_playbook_non_comment_body()
+@pytest.mark.parametrize("agent_type", _MACOS_GA_AGENT_TYPES)
+def test_workspace_macos_playbook_uses_staff_group(agent_type: str) -> None:
+    """#770 (openclaw) / #771 (zeroclaw) — macOS users have primary
+    group `staff` (gid 20), not a per-user group like Linux. The macOS
+    playbook MUST hardcode `group: staff` for owner+copy tasks; using
+    `{{ agent_name }}` (the Linux convention) would fail on darwin
+    because the group does not exist."""
+    body = _macos_playbook_non_comment_body(agent_type)
     assert "group: staff" in body
     # The Linux-style `group: "{{ agent_name }}"` must NOT appear in
     # task bodies.
     assert 'group: "{{ agent_name }}"' not in body
+
+
+@pytest.mark.parametrize("agent_type", _MACOS_GA_AGENT_TYPES)
+def test_workspace_macos_playbook_no_os_family_branching(
+    agent_type: str,
+) -> None:
+    """#771 W3 (dispatcher-only invariant carried forward from #719
+    review) — the macOS playbook MUST NOT contain any
+    `ansible_os_family == "Darwin"` (or `Linux`) guards. OS routing
+    happens at `core/playbook_resolver.resolve_agent_playbook` only;
+    the playbook itself is unconditional once dispatched. A
+    `when: ansible_os_family == "Darwin"` line inside a darwin-only
+    playbook is harmless on macOS but signals copy-paste-from-Linux
+    drift that would silently turn into dead code."""
+    body = _macos_playbook_non_comment_body(agent_type)
+    assert 'ansible_os_family ==' not in body
+    assert 'ansible_os_family !=' not in body
+
+
+@pytest.mark.parametrize("agent_type", _MACOS_GA_AGENT_TYPES)
+def test_workspace_macos_playbook_no_ansible_user_dir(
+    agent_type: str,
+) -> None:
+    """#771 W4 (carried forward from #719 review) — `ansible_user_dir`
+    keeps the SSH-connecting user's home, not the agent user's, because
+    `become_user` does not re-run the `setup` module (B1 iter-3). The
+    macOS variant must follow the same rule the Linux variant already
+    obeys: literal `/Users/{{ agent_name }}/...` only."""
+    body = _macos_playbook_non_comment_body(agent_type)
+    assert "ansible_user_dir" not in body
 
 
 @pytest.mark.parametrize(
@@ -445,6 +492,10 @@ def test_openclaw_workspace_macos_playbook_uses_staff_group() -> None:
         # uses this shape).
         ("linux", "~/.openclaw/workspace", "/home/alice/.openclaw/workspace"),
         ("darwin", "~/.openclaw/workspace", "/Users/alice/.openclaw/workspace"),
+        # #771 — zeroclaw destination must expand identically under the
+        # darwin branch (the shipped manifest uses `~/.zeroclaw/workspace`).
+        ("linux", "~/.zeroclaw/workspace", "/home/alice/.zeroclaw/workspace"),
+        ("darwin", "~/.zeroclaw/workspace", "/Users/alice/.zeroclaw/workspace"),
         # Bare tilde — no shipped manifest uses this, but the helper
         # MUST not silently drop it (regression guard).
         ("linux", "~", "/home/alice"),
@@ -629,6 +680,150 @@ def test_push_workspace_phase_threads_os_family_to_linux(
     assert extravars["workspace_excludes_files"] == []
     assert extravars["workspace_excludes_dirs"] == []
     assert extravars["staging_dir"].startswith(str(tmp_path))
+
+
+def test_push_workspace_phase_threads_os_family_to_darwin_zeroclaw(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#771 — zeroclaw on macOS mirror of the openclaw darwin
+    integration test. `push_workspace_phase` MUST route to
+    `zeroclaw/playbooks/workspace_macos.yaml` AND expand the rendered
+    destination under `/Users/<agent>/.zeroclaw/workspace/`.
+
+    A regression that hard-coded `agent_type='openclaw'` deep in the
+    enumerator path would route via the wrong macOS playbook AND
+    quietly mix the manifests' excludes; this test catches both.
+
+    ATX iter-1 S3: also stages a nested-rel file (`subdir/NESTED.md`)
+    to exercise the `when: dirname | length > 0` gate on the
+    parent-directory task in `workspace_macos.yaml`.
+    """
+    monkeypatch.setattr(
+        "clawrium.core.workspace_sync.get_config_dir", lambda: tmp_path
+    )
+    fake_key = tmp_path / "fake.pem"
+    fake_key.write_text("")
+    monkeypatch.setattr(
+        "clawrium.core.keys.get_host_private_key",
+        lambda _key_id: str(fake_key),
+    )
+
+    ws = tmp_path / "agents" / "zeroclaw" / "alice" / "workspace"
+    ws.mkdir(parents=True)
+    (ws / "SOUL.md").write_text("hello zeroclaw mac")
+    nested = ws / "subdir"
+    nested.mkdir()
+    (nested / "NESTED.md").write_text("nested overlay file")
+
+    captured: dict[str, Any] = {}
+
+    class _StubResult:
+        status = "successful"
+        rc = 0
+
+    class _StubRunner:
+        def run(self, **kwargs: Any) -> _StubResult:
+            captured["playbook"] = kwargs.get("playbook")
+            captured["extravars"] = kwargs.get("extravars")
+            return _StubResult()
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "ansible_runner", _StubRunner()
+    )
+
+    from clawrium.core.workspace_sync import push_workspace_phase
+
+    result = push_workspace_phase(
+        host={
+            "hostname": "esper-macmini.example",
+            "key_id": "esper-macmini.example",
+            "os_family": "darwin",
+        },
+        agent_type="zeroclaw",
+        agent_name="alice",
+    )
+    assert result.success is True, result.error
+    assert set(result.files_pushed) == {"SOUL.md", "subdir/NESTED.md"}
+
+    # Dispatcher routed to the zeroclaw macOS playbook.
+    assert captured["playbook"].endswith("workspace_macos.yaml"), captured[
+        "playbook"
+    ]
+    assert "/zeroclaw/playbooks/" in captured["playbook"], captured["playbook"]
+    extravars = captured["extravars"]
+    # Expansion used the darwin home root AND the zeroclaw destination.
+    assert (
+        extravars["workspace_dest_root"]
+        == "/Users/alice/.zeroclaw/workspace"
+    )
+    files = extravars["workspace_files"]
+    assert len(files) == 2
+    rels = {f["rel"] for f in files}
+    assert rels == {"SOUL.md", "subdir/NESTED.md"}
+    # Zeroclaw ships empty excludes (manifest), mirror that pinning
+    # so a regression that mixed in hermes excludes surfaces here.
+    assert extravars["agent_name"] == "alice"
+    assert extravars["agent_type"] == "zeroclaw"
+    assert extravars["workspace_excludes_files"] == []
+    assert extravars["workspace_excludes_dirs"] == []
+    assert extravars["staging_dir"].startswith(str(tmp_path))
+
+
+def test_push_workspace_phase_empty_zeroclaw_overlay_darwin_noop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#771 ATX iter-1 S3 — empty operator overlay on macOS is a no-op:
+    `ansible_runner.run` MUST NOT be invoked at all. A regression that
+    fired the playbook with an empty `workspace_files` list would
+    still pass the playbook's `is iterable` assert and waste an SSH
+    round-trip; this test pins the short-circuit at the Python layer.
+    """
+    monkeypatch.setattr(
+        "clawrium.core.workspace_sync.get_config_dir", lambda: tmp_path
+    )
+    fake_key = tmp_path / "fake.pem"
+    fake_key.write_text("")
+    monkeypatch.setattr(
+        "clawrium.core.keys.get_host_private_key",
+        lambda _key_id: str(fake_key),
+    )
+
+    # Empty workspace slot.
+    ws = tmp_path / "agents" / "zeroclaw" / "bob" / "workspace"
+    ws.mkdir(parents=True)
+
+    called: dict[str, Any] = {"count": 0}
+
+    class _StubRunner:
+        def run(self, **_kwargs: Any) -> Any:
+            called["count"] += 1
+
+            class _R:
+                status = "successful"
+                rc = 0
+
+            return _R()
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "ansible_runner", _StubRunner()
+    )
+
+    from clawrium.core.workspace_sync import push_workspace_phase
+
+    result = push_workspace_phase(
+        host={
+            "hostname": "esper-macmini.example",
+            "key_id": "esper-macmini.example",
+            "os_family": "darwin",
+        },
+        agent_type="zeroclaw",
+        agent_name="bob",
+    )
+    assert result.success is True, result.error
+    assert result.files_pushed == ()
+    assert called["count"] == 0, (
+        "empty overlay must short-circuit before invoking ansible-runner"
+    )
 
 
 def test_resolver_returns_zeroclaw_workspace_playbooks() -> None:
