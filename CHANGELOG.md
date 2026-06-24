@@ -73,6 +73,15 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- `load_hosts()` now strips the legacy `config.provider`,
+  `config.providers`, and `config.channels` mirror from every agent
+  record at load time. #794 stopped writing these keys; this prunes
+  any residue from `hosts.json` files written before that change so
+  the file naturally shrinks on the next `save_hosts()` round-trip.
+  `config.gateway`, `config.dashboard`, and `config.api_server` are
+  the canonical on-disk store for those settings and are preserved
+  byte-for-byte. No operator action required; this is not a breaking
+  change (#795, Phase 3 of #790).
 - GUI Integrations page now renders the official vendor brand SVG icon
   for every configured integration (github, gitlab, atlassian, linear,
   notion, brave, git) in place of the two-letter type badge, making
