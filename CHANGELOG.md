@@ -117,6 +117,18 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- openclaw `~/.openclaw/openclaw.json` is now written through the
+  canonical Python renderer (`clawrium.core.render._render_openclaw_json`)
+  on every code path: `clawctl agent create` (install) pre-renders a
+  baseline + gateway stub via `_prerender_openclaw_install_stub`;
+  `clawctl agent configure` pre-renders full canonical bytes via
+  `render_openclaw(build_render_inputs(...))`; `clawctl agent sync`
+  was already canonical and is unchanged. The four Ansible playbooks
+  (`install.yaml`, `install_macos.yaml`, `configure.yaml`,
+  `configure_macos.yaml`) now `copy: content:` the pre-rendered bytes
+  instead of templating server-side. The legacy Jinja template
+  `openclaw.json.j2` is deleted. End state: one writer for
+  `openclaw.json` across all three lifecycle entry points (#756).
 - `load_hosts()` now strips the legacy `config.provider`,
   `config.providers`, and `config.channels` mirror from every agent
   record at load time. #794 stopped writing these keys; this prunes
@@ -158,6 +170,16 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- openclaw with a litellm provider now correctly emits
+  `agents.defaults.model.primary` as `<provider-name>/<model>` on
+  `clawctl agent configure`. Previously the configure path used the
+  Jinja template `openclaw.json.j2`, which had no litellm branch and
+  wrote the raw model id without the provider prefix — the openclaw
+  daemon then fell back to `openai/<model>` and failed with
+  `FailoverError: Unknown model: openai/<model>`. The fix collapses
+  install / configure / sync onto a single canonical renderer (see
+  the matching `### Changed` entry below) so litellm prefixing is
+  handled in one place (#756).
 - `clawctl agent create` no longer guesses `platforms[0]` (the oldest
   manifest entry) when host hardware facts are missing. It now fails
   fast with `InstallationError` and tells the operator to populate

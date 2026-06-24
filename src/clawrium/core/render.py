@@ -434,10 +434,10 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
         api_key=api_key,
         aws_access_key=aws_access_key,
         aws_secret_key=aws_secret_key,
-        # Optional model-shape overrides (#723 ATX W2). Mirrors what the
-        # legacy ollama playbook template already accepted at
-        # `openclaw.json.j2:132-133`; surfaced through ProviderInputs so
-        # `_render_openclaw_json`'s litellm branch can honor them.
+        # Optional model-shape overrides (#723 ATX W2). Surfaced through
+        # ProviderInputs so `_render_openclaw_json`'s litellm branch can
+        # honor them (writes `contextWindow` / `maxTokens` on the
+        # `models.providers.<name>.models[]` entry).
         context_window=int(provider_record.get("context_window") or 0),
         max_tokens=int(provider_record.get("max_tokens") or 0),
     )
@@ -1443,6 +1443,17 @@ def render_openclaw(inputs: RenderInputs) -> RenderedFiles:
             )
 
     # --- Build prefixed model id (used by both env + openclaw.json) -------
+    # R1 (#756 ATX iter-2 W1): validate the RAW default_model BEFORE
+    # prefixing. For litellm, `model_id` becomes `"<provider-name>/"` after
+    # prefixing an empty default_model, which is truthy and would bypass the
+    # belt-and-suspenders guard in `_render_openclaw_json`. Whitespace-only
+    # default_model has the same problem for every provider type (`not "   "`
+    # is False). Reject both here so the canonical fix-surface is this raise.
+    if not (inputs.provider.default_model or "").strip():
+        raise AgentConfigError(
+            f"render_openclaw: provider {inputs.provider.name!r} has empty "
+            f"or whitespace-only default_model"
+        )
     model_id = inputs.provider.default_model
     if ptype == "litellm":
         # The litellm prefix is the clawctl provider name, not a static
@@ -1551,21 +1562,16 @@ def _openclaw_json_baseline() -> str:
     Returns the raw text; `_render_openclaw_json` re-parses on every call so
     deep-updates don't mutate the shared baseline dict.
 
-    Baseline schema provenance: the structure mirrors the legacy
-    `openclaw.json.j2` Ansible template at
-    `src/clawrium/platform/registry/openclaw/templates/openclaw.json.j2`,
-    which is the existing source of truth for the on-host file shape
-    (consumed by `install.yaml` and `configure.yaml`). Field names
+    Baseline schema provenance: the structure was captured from a live
+    `~/.openclaw/openclaw.json` produced by upstream openclaw and now
+    lives at `src/clawrium/platform/registry/openclaw/templates/openclaw.json`
+    as the canonical scaffold. Field names
     (`agents.defaults.{workspace,model,sandbox,heartbeat}`, `gateway.{mode,
     port,bind,reload,auth}`, `session.{dmScope,threadBindings,reset}`,
     `tools.{exec,deny}`, `channels.discord.{enabled,allowFrom,guilds}`,
-    `browser.enabled`, `env.shellEnv.{enabled,timeoutMs}`) are copied
-    verbatim from that template's defaults. 00_PLAN.md Phase 4 closes
-    the schema verification loop with a live dry-run against wolf-i's
-    `~/.openclaw/openclaw.json`; if any key name diverges, the captured
-    live file replaces this synthesized baseline. Until Phase 4 runs,
-    treat the baseline as "best-effort match to the legacy Ansible
-    template" — silent no-op risk on unknown keys is non-zero.
+    `browser.enabled`, `env.shellEnv.{enabled,timeoutMs}`) match the
+    daemon's expected shape. `_render_openclaw_json` deep-updates the
+    clawctl-managed paths and preserves every other key byte-for-byte.
     """
     from importlib.resources import files
 
@@ -1578,15 +1584,15 @@ def _openclaw_json_baseline() -> str:
 
 def _render_openclaw_json(
     *,
-    provider: "ProviderInputs",
-    provider_default_model: str,
+    provider: "ProviderInputs | None",
+    provider_default_model: str | None,
     gateway: "GatewayInputs | None",
     discord_channel: "ChannelInputs | None",
 ) -> str:
     """Deep-update the openclaw.json baseline with the clawctl-managed paths.
 
     Managed paths:
-      1. `agents.defaults.model.primary`
+      1. `agents.defaults.model.primary` (when `provider` is not None)
       2. `gateway.port`
       3. `gateway.bind` (+ `gateway.auth` when present)
       4. `channels.discord.enabled` / `allowFrom` / `guilds`
@@ -1601,22 +1607,45 @@ def _render_openclaw_json(
          path — for them, model selection flows through `OPENCLAW_DEFAULT_MODEL`
          in `.openclaw/env` only.
 
+    When `provider is None` (install-time bootstrap), the provider-dependent
+    writes (step 1 + step 5) are skipped — the function returns the static
+    baseline merged with the gateway / discord overrides only. This is the
+    canonical no-provider path used by `clawctl agent create` before any
+    `clawctl provider attach` has run; the daemon needs a startable
+    `openclaw.json` (with gateway block) to accept the install-time pair
+    handshake, but model selection is deferred until configure.
+
     Every other key in the baseline is preserved byte-for-byte (modulo
     json.dumps formatting). Output uses `indent=2, sort_keys=False` to keep
     section order stable for diffability.
     """
     import json
 
+    # W1 (#756 ATX iter-2): a provider with an empty `default_model` would
+    # silently write `null` (Python None → JSON null) into
+    # `agents.defaults.model.primary` and break the daemon's model lookup.
+    # Reject early at the assembly boundary so the failure points at the
+    # canonical fix surface (`clawctl provider registry update <name>
+    # --default-model <id>`).
+    if provider is not None and not provider_default_model:
+        raise AgentConfigError(
+            f"render_openclaw: provider {provider.name!r} has empty default_model"
+        )
+
     baseline = json.loads(_openclaw_json_baseline())
 
-    # 1. agents.defaults.model.primary
-    agents = baseline.setdefault("agents", {})
-    defaults = agents.setdefault("defaults", {})
-    model = defaults.setdefault("model", {})
-    model["primary"] = provider_default_model
+    # 1. agents.defaults.model.primary — provider-dependent, skipped when
+    #    no provider is attached (install-time bootstrap). The
+    #    `provider_default_model` guard above guarantees the value is a
+    #    non-empty string by the time we reach the write.
+    if provider is not None and provider_default_model:
+        agents = baseline.setdefault("agents", {})
+        defaults = agents.setdefault("defaults", {})
+        model = defaults.setdefault("model", {})
+        model["primary"] = provider_default_model
 
     # 5. models.providers.<provider-name> — litellm only.
-    if provider.type == "litellm":
+    if provider is not None and provider.type == "litellm":
         # W3 (#723 ATX): the provider name is used both as a JSON key in
         # `models.providers.<name>` AND as a routing prefix in
         # `<name>/<model>`. A name containing `/`, whitespace, control
@@ -1699,11 +1728,11 @@ def _render_openclaw_json(
 
     # 2. gateway.port + 3. gateway.bind + gateway.auth (managed bearer)
     #
-    # Round 3 B1: `gateway.auth` MUST flow into the JSON. The legacy
-    # `openclaw.json.j2` writes the bearer to `gateway.auth.{mode,token}`
-    # via `install.yaml`; if F3 sync emitted the baseline verbatim
-    # (without auth), it would silently wipe the on-host bearer on every
-    # sync — exactly the silent-wipe class of bug #560 was opened to fix.
+    # Round 3 B1: `gateway.auth` MUST flow into the JSON. The daemon
+    # expects the bearer at `gateway.auth.{mode,token}`; if sync ever
+    # emitted the baseline verbatim (without auth), it would silently
+    # wipe the on-host bearer on every sync — exactly the silent-wipe
+    # class of bug #560 was opened to fix.
     if gateway is not None:
         gw = baseline.setdefault("gateway", {})
         gw["port"] = int(gateway.port or _OPENCLAW_DEFAULT_GATEWAY_PORT)

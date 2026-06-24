@@ -173,9 +173,9 @@
     # Skip on already-installed path: rewriting openclaw.json would rotate the
     # gateway token in the running daemon and invalidate the credentials cached
     # in hosts.json. The existing config on disk is preserved verbatim.
-    - name: Write openclaw config from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/openclaw.json.j2"
+    - name: Write openclaw config (pre-rendered)
+      ansible.builtin.copy:
+        content: "{{ prerendered_openclaw_config_json }}"
         dest: "/home/{{ agent_name }}/.openclaw/openclaw.json"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -183,7 +183,7 @@
       when: not openclaw_already_installed
       # ATX iter-1 B1: openclaw.json embeds the gateway bearer token.
       # Every other secret-touching task in this playbook already carries
-      # `no_log: true`; this template write must too so `-v` ansible-runner
+      # `no_log: true`; this copy write must too so `-v` ansible-runner
       # logs don't leak the rendered file path / contents into the artifact
       # directory.
       no_log: true

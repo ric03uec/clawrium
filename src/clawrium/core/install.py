@@ -260,6 +260,36 @@ def _openclaw_install_was_skipped(playbook_result: object) -> bool:
     return _install_was_skipped(playbook_result, "openclaw")
 
 
+def _prerender_openclaw_install_stub(
+    *, openclaw_port: int, gateway_auth_token: str
+) -> str:
+    """Pre-render `~/.openclaw/openclaw.json` for the install-time bootstrap.
+
+    Issue #756: at install time no provider is attached yet, so this
+    delegates to `_render_openclaw_json` with `provider=None` — yielding
+    the baseline scaffold plus the install-minted gateway bearer. Model
+    selection (`agents.defaults.model.primary` +
+    `models.providers.<litellm-name>`) is deferred until configure, where
+    `build_render_inputs` resolves the attached provider.
+
+    Extracted from `run_installation` so the install-path render branch
+    is unit-testable without standing up the full installer (B3 ATX
+    iter-2).
+    """
+    from clawrium.core.render import GatewayInputs, _render_openclaw_json
+
+    return _render_openclaw_json(
+        provider=None,
+        provider_default_model=None,
+        gateway=GatewayInputs(
+            port=openclaw_port,
+            bind="lan",
+            auth=gateway_auth_token,
+        ),
+        discord_channel=None,
+    )
+
+
 def run_installation(
     claw_name: str,
     hostname: str,
@@ -825,6 +855,37 @@ def run_installation(
             },
         }
 
+    # Issue #756: pre-render `~/.openclaw/openclaw.json` via the canonical
+    # Python renderer at install time, so the install playbook can
+    # `copy: content:` the bytes instead of templating server-side. This
+    # collapses the previously divergent install/configure/sync write
+    # paths onto a single source of truth (`_render_openclaw_json`).
+    #
+    # At install time no provider is attached yet — `clawctl provider
+    # attach` runs after `clawctl agent create`. The renderer's
+    # `provider=None` branch yields the baseline scaffold plus the
+    # install-minted gateway bearer; model selection (`agents.defaults
+    # .model.primary` + `models.providers.<litellm-name>`) is deferred
+    # until configure, where `build_render_inputs` resolves the attached
+    # provider.
+    prerendered_openclaw_config_json = ""
+    if claw_name == "openclaw":
+        # R2 (#756 ATX iter-2 W2): every other failure path in
+        # run_installation wraps its raw cause in `InstallationError`
+        # with `... from exc` so hosts.json.status=failed is set
+        # consistently. The pre-render call can raise FileNotFoundError
+        # (baseline shipped missing) or JSONDecodeError (baseline
+        # malformed) — wrap it for parity.
+        try:
+            prerendered_openclaw_config_json = _prerender_openclaw_install_stub(
+                openclaw_port=openclaw_port,
+                gateway_auth_token=gateway_auth_token,
+            )
+        except Exception as exc:
+            raise InstallationError(
+                f"openclaw pre-render failed: {exc}"
+            ) from exc
+
     # Hermes: generate (or reuse) the API_SERVER_KEY that gates the local
     # OpenAI-compatible gateway on 127.0.0.1:8642. Generated once on first
     # install so reconfigure flows can rely on the same token across runs.
@@ -955,6 +1016,17 @@ def run_installation(
                     if dashboard_port is not None
                     else {}
                 ),
+                # Issue #756: pre-rendered openclaw.json bytes (canonical
+                # renderer, install-time no-provider branch). Consumed by
+                # `install.yaml`'s `ansible.builtin.copy` task. Empty
+                # string for non-openclaw installs (the playbook task is
+                # openclaw-only).
+                # Bearer embedded here is wiped by
+                # _cleanup_ansible_artifacts which strips inventory/
+                # after every playbook run. Same
+                # invariant as config.gateway.auth.token (pre-existing)
+                # and the hermes/zeroclaw bearers.
+                "prerendered_openclaw_config_json": prerendered_openclaw_config_json,
                 **secret_vars,  # Inject secrets as ansible vars
             },
         }

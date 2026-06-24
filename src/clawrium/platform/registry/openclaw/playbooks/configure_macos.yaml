@@ -1,9 +1,11 @@
 ---
-# macOS counterpart to configure.yaml. Renders the same templates
-# (openclaw.json.j2 + exec-approvals.json.j2 + .env.j2) into
+# macOS counterpart to configure.yaml. Writes the same files
+# (openclaw.json + exec-approvals.json + .env) into
 # /Users/<agent>/.openclaw/ instead of /home/<agent>/.openclaw/, and
 # DOES NOT touch launchctl — lifecycle_macos.configure_agent triggers
-# a launchctl restart after this playbook returns.
+# a launchctl restart after this playbook returns. The openclaw.json
+# bytes are pre-rendered by `_render_openclaw_json` and copied verbatim
+# via `prerendered_openclaw_config_json` (issue #756).
 #
 # IMPORTANT: This playbook is NOT safe to invoke directly via
 # `ansible-playbook`. Direct invocation will write the rendered config
@@ -222,15 +224,14 @@
           loop_control:
             label: "{{ item.key }}"
 
-    - name: Write openclaw config from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/openclaw.json.j2"
+    - name: Write openclaw config (pre-rendered)
+      ansible.builtin.copy:
+        content: "{{ prerendered_openclaw_config_json }}"
         dest: "/Users/{{ agent_name }}/.openclaw/openclaw.json"
         owner: "{{ agent_name }}"
         group: staff
         mode: "0600"
       no_log: true
-      when: config.provider is defined and config.provider.default_model is defined
 
     - name: Write exec approvals policy from template
       ansible.builtin.template:

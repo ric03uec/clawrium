@@ -323,6 +323,94 @@ def _setup_openclaw_bedrock_discord(s: _Stores) -> None:
     s.channel_tokens[("disc", "BOT_TOKEN")] = "discord-bot-XXXX"
 
 
+# --- Issue #756: per-provider-type openclaw render-matrix cells --------------
+# These cells exercise every provider type the canonical openclaw renderer
+# supports (other than the pre-existing bedrock+discord cell). They byte-lock
+# the cross-provider behaviour now that install / configure / sync all share
+# the same `_render_openclaw_json` writer.
+
+
+def _openclaw_gateway_config() -> dict:
+    return {
+        "gateway": {
+            "port": 40500,
+            "bind": "lan",
+            "auth": "install-bearer",
+        }
+    }
+
+
+def _setup_openclaw_litellm_bare(s: _Stores) -> None:
+    s.agent = _agent(
+        "openclaw",
+        [{"name": "lt", "role": "primary", "model": "writer"}],
+        config=_openclaw_gateway_config(),
+    )
+    s.providers["lt"] = {
+        "name": "lt",
+        "type": "litellm",
+        "default_model": "writer",
+        "endpoint": "https://litellm.example.com",
+    }
+    s.provider_api_keys["lt"] = "sk-litellm-XXXX"
+
+
+def _setup_openclaw_openrouter_bare(s: _Stores) -> None:
+    s.agent = _agent(
+        "openclaw",
+        [{"name": "or", "role": "primary", "model": "anthropic/claude-opus-4"}],
+        config=_openclaw_gateway_config(),
+    )
+    s.providers["or"] = {
+        "name": "or",
+        "type": "openrouter",
+        "default_model": "anthropic/claude-opus-4",
+    }
+    s.provider_api_keys["or"] = "sk-or-XXXX"
+
+
+def _setup_openclaw_ollama_bare(s: _Stores) -> None:
+    s.agent = _agent(
+        "openclaw",
+        [{"name": "ol", "role": "primary", "model": "llama3"}],
+        config=_openclaw_gateway_config(),
+    )
+    s.providers["ol"] = {
+        "name": "ol",
+        "type": "ollama",
+        "default_model": "llama3",
+        "endpoint": "http://localhost:11434",
+    }
+
+
+def _setup_openclaw_anthropic_bare(s: _Stores) -> None:
+    s.agent = _agent(
+        "openclaw",
+        [{"name": "an", "role": "primary", "model": "claude-3"}],
+        config=_openclaw_gateway_config(),
+    )
+    s.providers["an"] = {
+        "name": "an",
+        "type": "anthropic",
+        "default_model": "claude-3",
+    }
+    s.provider_api_keys["an"] = "sk-ant-XXXX"
+
+
+def _setup_openclaw_openai_bare(s: _Stores) -> None:
+    s.agent = _agent(
+        "openclaw",
+        [{"name": "oa", "role": "primary", "model": "gpt-4"}],
+        config=_openclaw_gateway_config(),
+    )
+    s.providers["oa"] = {
+        "name": "oa",
+        "type": "openai",
+        "default_model": "gpt-4",
+    }
+    s.provider_api_keys["oa"] = "sk-oa-XXXX"
+
+
 # Cells modelled on the #555 plan table. `expected_keys` lists every env
 # var that MUST appear in the rendered `.env` body. Each one corresponds
 # to a column in the plan's matrix; missing it is the silent-wipe
@@ -422,6 +510,51 @@ MATRIX_CELLS: list[tuple] = [
         _setup_openclaw_bedrock_discord,
         ["AWS_ACCESS_KEY_ID", "DISCORD_BOT_TOKEN"],
     ),
+    # Issue #756 cells: per-provider-type openclaw coverage. Each cell
+    # asserts the provider's expected on-host secret / model substring
+    # appears in the rendered output (env + openclaw.json concatenated by
+    # the harness below). Collectively they pin that the canonical
+    # `_render_openclaw_json` writer — now the single source of truth
+    # for install / configure / sync — emits each provider type without
+    # silent-wipe regressions.
+    (
+        "openclaw_litellm_bare",
+        "openclaw",
+        _setup_openclaw_litellm_bare,
+        # litellm has no env-key emission; the bearer + base_url + the
+        # prefixed primary model id all flow into openclaw.json's
+        # `models.providers.<name>` block. The substring assertions pin
+        # each load-bearing piece.
+        [
+            "sk-litellm-XXXX",
+            "https://litellm.example.com/v1",
+            "\"primary\": \"lt/writer\"",
+        ],
+    ),
+    (
+        "openclaw_openrouter_bare",
+        "openclaw",
+        _setup_openclaw_openrouter_bare,
+        ["OPENROUTER_API_KEY", "sk-or-XXXX"],
+    ),
+    (
+        "openclaw_ollama_bare",
+        "openclaw",
+        _setup_openclaw_ollama_bare,
+        ["OPENCLAW_OLLAMA_URL", "http://localhost:11434"],
+    ),
+    (
+        "openclaw_anthropic_bare",
+        "openclaw",
+        _setup_openclaw_anthropic_bare,
+        ["ANTHROPIC_API_KEY", "sk-ant-XXXX"],
+    ),
+    (
+        "openclaw_openai_bare",
+        "openclaw",
+        _setup_openclaw_openai_bare,
+        ["OPENAI_API_KEY", "sk-oa-XXXX"],
+    ),
 ]
 
 
@@ -462,6 +595,21 @@ def test_render_matrix_cell(cell_id, agent_type, setup_fn, expected_keys, stores
             f"Files: {list(rendered.files.keys())}. "
             f"This is the #555 silent-wipe regression — render emitted "
             f"a config that omits a declared attachment."
+        )
+
+    # W2 (#756 ATX iter-2): for the openclaw litellm cell, also parse
+    # the rendered openclaw.json and assert the prefixed model id lands
+    # at the exact JSON path `agents.defaults.model.primary`. The
+    # substring check above is order/whitespace-fragile; a structural
+    # assertion catches drift the substring would miss.
+    if cell_id == "openclaw_litellm_bare":
+        import json
+
+        parsed = json.loads(rendered.files[".openclaw/openclaw.json"])
+        assert parsed["agents"]["defaults"]["model"]["primary"] == "lt/writer", (
+            f"openclaw_litellm_bare: "
+            f"agents.defaults.model.primary != 'lt/writer' "
+            f"(got {parsed['agents']['defaults']['model'].get('primary')!r})"
         )
 
 
