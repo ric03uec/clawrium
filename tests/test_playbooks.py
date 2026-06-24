@@ -124,7 +124,11 @@ def test_openclaw_install_playbook_structure():
     assert (
         template_cfg["dest"] == "/home/{{ agent_name }}/.openclaw/exec-approvals.json"
     )
-    assert template_cfg["backup"] is True
+    # W6 (ATX iter-2): `backup: yes` was removed because it accumulates
+    # `exec-approvals.json.NNNN~` siblings on every reconfigure with no
+    # rotation; the previous value is recoverable from the template.
+    # Pin its absence so a re-add is caught.
+    assert "backup" not in template_cfg
     assert exec_approvals_task["no_log"] is True
     assert any(t.get("name") == "Verify exec approvals JSON is valid" for t in tasks), (
         "Should validate exec-approvals JSON after rendering"
@@ -174,7 +178,11 @@ def test_openclaw_configure_playbook_structure():
     assert (
         template_cfg["dest"] == "/home/{{ agent_name }}/.openclaw/exec-approvals.json"
     )
-    assert template_cfg["backup"] is True
+    # W6 (ATX iter-2): `backup: yes` was removed because it accumulates
+    # `exec-approvals.json.NNNN~` siblings on every reconfigure with no
+    # rotation; the previous value is recoverable from the template.
+    # Pin its absence so a re-add is caught.
+    assert "backup" not in template_cfg
     assert exec_approvals_task["no_log"] is True
     assert any(t.get("name") == "Verify exec approvals JSON is valid" for t in tasks), (
         "Should validate exec-approvals JSON after rendering"

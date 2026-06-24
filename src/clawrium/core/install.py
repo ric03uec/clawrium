@@ -25,12 +25,14 @@ Host record schema (extended):
 import hashlib
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, NotRequired, TypedDict
 
 import ansible_runner
 
+from clawrium.core._operator_platform import normalize as _normalize_operator_platform
 from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import get_host, update_host
 from clawrium.core.keys import get_host_private_key
@@ -325,10 +327,15 @@ def run_installation(
         matched_version = compat["matched_entry"]["version"]
         emit("validate", f"Compatible with {claw_name} v{matched_version}")
     else:
-        # Hardware not yet gathered — fall back to latest manifest version.
-        manifest = load_manifest(claw_name)
-        matched_version = manifest["platforms"][0]["version"]
-        emit("validate", f"Hardware unknown, using latest: {claw_name} v{matched_version}")
+        # Hardware not yet gathered — cannot determine correct version.
+        # Refuse to proceed: guessing a version risks installing an
+        # incompatible or non-existent package (see issue #720).
+        raise InstallationError(
+            f"Cannot determine compatible version for '{claw_name}': "
+            f"host hardware information is not available. "
+            f"Run 'clawctl host create' with SSH access first to gather "
+            f"hardware facts, then retry the install."
+        )
 
     # Step 4: Validate custom name if provided (format only, uniqueness checked in updater)
     if name is not None:
@@ -921,6 +928,24 @@ def run_installation(
                 "config": config,
                 "template_path": str(template_path),
                 "force_install": force,
+                # The OPERATOR's platform (`linux`/`darwin`/`win32`/
+                # `freebsd`/...). The openclaw pair script records
+                # this on the daemon's paired device entry; the chat
+                # client sends the same value on subsequent connects.
+                # If the two disagree, openclaw treats the connect as
+                # "device identity changed" and demands UI re-approval.
+                # Setting it here from clawctl's own process platform
+                # — the install pair script runs on the agent host but
+                # is paired ON BEHALF OF this clawctl install, so the
+                # operator platform is what matters, not the agent
+                # host's OS.
+                #
+                # `_normalize_operator_platform` strips Python's
+                # versioned-platform suffix (`freebsd13` → `freebsd`)
+                # so the install-time and chat-time values match
+                # across Python interpreter upgrades on the same
+                # operator machine.
+                "operator_platform": _normalize_operator_platform(sys.platform),
                 # ATX W2: scope dashboard_port to hermes only. Unconditional
                 # injection puts `dashboard_port: null` in non-hermes
                 # inventories where `when: dashboard_port is defined`

@@ -444,7 +444,12 @@ def _open_ssh(host: dict, *, timeout: int = 15) -> paramiko.SSHClient:
     return client
 
 
-def _atomic_write(
+def _host_is_macos(host: dict) -> bool:
+    """Single OS-detection helper for the canonical pipeline dispatchers."""
+    return host.get("hardware", {}).get("os") == "macos"
+
+
+def _atomic_write_linux(
     client: paramiko.SSHClient,
     *,
     agent_name: str,
@@ -452,17 +457,8 @@ def _atomic_write(
     body: str,
     timeout: int = 30,
 ) -> None:
-    """Atomically replace `remote_path` with `body`, mode 0600, owned by agent.
-
-    Uses `sudo -n` to write a tmpfile under `/tmp` (xclm-writable) and
-    then `sudo -n install` to atomically move it into place with the
-    correct mode / owner. `install` is preferred over `mv` because it
-    sets mode + owner in one syscall and is universally available on
-    Linux hosts.
-    """
+    """Linux implementation: agent_name doubles as the primary group name."""
     quoted_path = shlex.quote(remote_path)
-    # mktemp -p /tmp: deterministic, world-writable location for the
-    # xclm user before sudo takes over for the final placement.
     _, stdout, _ = client.exec_command("mktemp /tmp/clawrium-sync.XXXXXX")
     if stdout.channel.recv_exit_status() != 0:
         raise CanonicalSyncError("mktemp failed on host")
@@ -476,9 +472,6 @@ def _atomic_write(
                 fh.write(body.encode("utf-8"))
         finally:
             sftp.close()
-        # `install -m 0600 -o <name> -g <name>` requires sudo (target
-        # dirs are root- or agent-owned). `install` is atomic w.r.t.
-        # the destination so a partial write is never visible.
         owner = shlex.quote(agent_name)
         cmd = (
             f"sudo -n install -m 0600 -o {owner} -g {owner} "
@@ -495,7 +488,42 @@ def _atomic_write(
         client.exec_command(f"rm -f {shlex.quote(tmp_path)}")
 
 
-def _restart_unit(
+def _atomic_write(
+    client: paramiko.SSHClient,
+    *,
+    agent_name: str,
+    remote_path: str,
+    body: str,
+    host: dict | None = None,
+    timeout: int = 30,
+) -> None:
+    """Dispatcher — routes to the Linux or macOS atomic-write impl by host OS.
+
+    `install` is atomic w.r.t. the destination on both platforms, so a
+    partial write is never visible. The OS split is purely about the
+    primary-group name passed to `install -g`: Linux uses a per-user
+    group matching `agent_name`; macOS uses the shared `staff` group.
+    """
+    if host is not None and _host_is_macos(host):
+        from clawrium.core.lifecycle_macos import atomic_write_macos
+
+        return atomic_write_macos(
+            client,
+            agent_name=agent_name,
+            remote_path=remote_path,
+            body=body,
+            timeout=timeout,
+        )
+    _atomic_write_linux(
+        client,
+        agent_name=agent_name,
+        remote_path=remote_path,
+        body=body,
+        timeout=timeout,
+    )
+
+
+def _restart_unit_linux(
     client: paramiko.SSHClient,
     *,
     agent_type: str,
@@ -509,8 +537,43 @@ def _restart_unit(
     if rc != 0:
         stderr_text = err.read().decode("utf-8", errors="replace")
         raise CanonicalSyncError(
-            f"systemctl restart {unit} failed (exit {rc}): {stderr_text.strip()}"
+            f"restart {unit} failed (exit {rc}): {stderr_text.strip()}"
         )
+
+
+def _restart_unit(
+    client: paramiko.SSHClient,
+    *,
+    agent_type: str,
+    agent_name: str,
+    host: dict | None = None,
+    on_event: Callable[[str, str], None] | None = None,
+    timeout: int = 30,
+) -> None:
+    """Dispatcher — routes to systemctl (Linux) or launchctl helpers (macOS).
+
+    macOS routes through `lifecycle_macos.restart_unit_macos` which
+    handles dual-label (gateway + dashboard for hermes), validates the
+    agent name via `label_for`, and falls back to a fresh bootstrap if
+    the unit was never loaded.
+    """
+    if host is not None and _host_is_macos(host):
+        from clawrium.core.lifecycle_macos import restart_unit_macos
+
+        return restart_unit_macos(
+            client,
+            host=host,
+            agent_name=agent_name,
+            agent_type=agent_type,
+            on_event=on_event,
+            timeout=timeout,
+        )
+    _restart_unit_linux(
+        client,
+        agent_type=agent_type,
+        agent_name=agent_name,
+        timeout=timeout,
+    )
 
 
 # #575: when a unit fails to come active after restart, capture the
@@ -683,8 +746,25 @@ def _verify_health(
     *,
     agent_type: str,
     agent_name: str,
+    host: dict | None = None,
+    gateway_port: int | None = None,
+    on_event: Callable[[str, str], None] | None = None,
     timeout: int = 15,
 ) -> None:
+    """Dispatcher — systemctl is-active (Linux) or lsof port-listen (macOS)."""
+    if host is not None and _host_is_macos(host):
+        from clawrium.core.lifecycle_macos import verify_health_macos
+
+        # macOS launchd needs longer than systemctl to stabilize after
+        # kickstart, especially if the daemon crash-looped previously.
+        return verify_health_macos(
+            client,
+            agent_name=agent_name,
+            gateway_port=gateway_port,
+            on_event=on_event,
+            timeout=max(timeout, 30),
+        )
+
     unit = f"{agent_type}-{agent_name}.service"
     cmd = f"systemctl is-active {shlex.quote(unit)}"
     _, out, _ = client.exec_command(cmd, timeout=timeout)
@@ -987,6 +1067,7 @@ def sync_agent_canonical(
                 agent_name=agent_name,
                 remote_path=d.remote_path,
                 body=d.rendered_body,
+                host=host,
             )
             files_written.append(d.path)
 
@@ -1061,13 +1142,24 @@ def sync_agent_canonical(
                 client,
                 agent_type=inputs.agent_type,
                 agent_name=agent_name,
+                host=host,
+                on_event=on_event,
             )
             if verify:
                 emit("verify", "checking unit is active")
+                gateway_port = (
+                    ((host.get("agents") or {}).get(agent_name) or {})
+                    .get("config", {})
+                    .get("gateway", {})
+                    .get("port")
+                )
                 _verify_health(
                     client,
                     agent_type=inputs.agent_type,
                     agent_name=agent_name,
+                    host=host,
+                    gateway_port=gateway_port,
+                    on_event=on_event,
                 )
         elif restart and not files_written:
             emit("restart", "skipped (no files changed)")

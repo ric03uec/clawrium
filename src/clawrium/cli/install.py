@@ -244,6 +244,15 @@ def install(
             console.print(f"  - {reason}")
         raise typer.Exit(code=1)
 
+    if compat["matched_entry"] is None:
+        console.print(
+            f"[red]Error:[/red] Cannot determine compatible version for "
+            f"'{selected_claw}': host hardware information is not available.\n"
+            f"Run 'clawctl host create' with SSH access first to gather "
+            f"hardware facts, then retry the install."
+        )
+        raise typer.Exit(code=1)
+
     matched_version = compat["matched_entry"]["version"]
     display_host = host_record.get("alias") or host_record["hostname"]
 

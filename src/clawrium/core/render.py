@@ -1368,7 +1368,7 @@ _OPENCLAW_SUPPORTED_INTEGRATIONS = frozenset(
 )
 _OPENCLAW_MODEL_PREFIX = {
     "openrouter": "openrouter/",
-    "bedrock": "bedrock/",
+    "bedrock": "amazon-bedrock/",
 }
 
 # Single source of truth for the openclaw gateway port fallback. Used by

@@ -1403,29 +1403,29 @@ class TestOpenclawBraveVersionPreflight:
         self._setup(monkeypatch, (2026, 3, 13))
         with pytest.raises(
             CanonicalSyncError,
-            match=r"openclaw on 'h' is 2026\.3\.13; brave plugin requires >= 2026\.6\.8",
+            match=r"openclaw on 'h' is 2026\.3\.13; brave plugin requires >= 2026\.6\.9",
         ):
             sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_one_below_floor_raises(self, monkeypatch):
-        """Off-by-one boundary: 2026.6.7 must be rejected. The far-below
-        case (2026.3.13) wouldn't catch a comparator regression that
-        treated the floor as `< min` instead of `<= min`. (W3 ATX iter 2)"""
-        self._setup(monkeypatch, (2026, 6, 7))
+        """Off-by-one boundary: pin-floor minus one must be rejected. The
+        far-below case wouldn't catch a comparator regression that treated
+        the floor as `< min` instead of `<= min`. (W3 ATX iter 2)"""
+        self._setup(monkeypatch, (2026, 6, 8))
         with pytest.raises(
             CanonicalSyncError,
-            match=r"openclaw on 'h' is 2026\.6\.7; brave plugin requires >= 2026\.6\.8",
+            match=r"openclaw on 'h' is 2026\.6\.8; brave plugin requires >= 2026\.6\.9",
         ):
             sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_exact_min_version_passes(self, monkeypatch):
-        self._setup(monkeypatch, (2026, 6, 8))
+        self._setup(monkeypatch, (2026, 6, 9))
         # Should not raise on the preflight; diffs are empty so the rest
         # of the pipeline is a no-op.
         sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_newer_than_min_version_passes(self, monkeypatch):
-        self._setup(monkeypatch, (2026, 6, 9))
+        self._setup(monkeypatch, (2026, 6, 10))
         sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_unknown_version_raises(self, monkeypatch):
@@ -1462,7 +1462,7 @@ class TestOpenclawBraveVersionPreflight:
         through to `_get_host_openclaw_version` — otherwise a Darwin
         host falls back to the Linux variant and the macOS home-path
         fork is dead code."""
-        self._setup(monkeypatch, (2026, 6, 8))
+        self._setup(monkeypatch, (2026, 6, 9))
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -1476,7 +1476,7 @@ class TestOpenclawBraveVersionPreflight:
 
         def _spy(_client, _agent_name, *, os_family, timeout=10):
             captured["os_family"] = os_family
-            return (2026, 6, 8), ""
+            return (2026, 6, 9), ""
 
         monkeypatch.setattr(lc, "_get_host_openclaw_version", _spy)
         sync_agent_canonical("oc", restart=False, verify=False)
@@ -1989,8 +1989,8 @@ class TestLoadOpenclawBravePin:
     def test_loads_pin_from_manifest(self):
         pin = lc._load_openclaw_brave_pin()
         assert pin["npm_package"] == "@openclaw/brave-plugin"
-        assert pin["version"] == "2026.6.8"
-        assert pin["min_host_version"] == (2026, 6, 8)
+        assert pin["version"] == "2026.6.9"
+        assert pin["min_host_version"] == (2026, 6, 9)
 
     def test_raises_when_pin_block_missing(self, monkeypatch):
         """Manifest with no `plugins.brave` block → hard fail. Never
