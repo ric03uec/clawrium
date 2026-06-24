@@ -70,6 +70,16 @@ cut. The `itx:release` skill archives this section into a new
   `hosts.json.agents.<name>.config.gateway.port`.
 - openclaw v2026.6.9 platform entries in the openclaw manifest
   (Ubuntu 24.04 x86_64, Ubuntu 22.04 x86_64, macOS ≥14 arm64).
+- openclaw workspace overlay end-to-end on macOS (#770). The
+  per-agent `workspace_macos.yaml` playbook is now a real copy pipeline
+  rather than the Phase-1 deferral stub. Files dropped under
+  `~/.config/clawrium/agents/openclaw/<name>/workspace/` mirror onto
+  darwin hosts at `/Users/<name>/.openclaw/workspace/` on every
+  `clawctl agent sync` and `clawctl agent configure`. The OS→home-root
+  mapping (`/home` vs `/Users`) lives in the single seam
+  `core.playbook_resolver.home_root_for`; `core.workspace_sync`
+  consumes it to keep its no-OS-literal invariant intact. zeroclaw and
+  hermes macOS variants remain deferred to Phases 5/6.
 
 ### Changed
 
