@@ -3356,3 +3356,614 @@ class TestConfigureAgentBravePreflight:
         )
         # If preflight ran, error would mention 'brave plugin requires'.
         assert "brave plugin requires" not in (error or "")
+
+
+class TestConfigureAgentDoesNotPersistOverlay:
+    """Issue #794 (Phase 2 of #790): the configure_agent updater must
+    strip `provider` / `providers` / `channels` from `persisted_config`
+    before writing to `hosts.json`, even though the same keys MUST still
+    reach the Ansible inventory so templates can render the model and
+    channel hulls. The canonical stores for those three keys live
+    elsewhere (tier-1 `agent_record["providers"]` + `providers.json`
+    for providers; `channels.json` for channels); persisting a mirror
+    is what caused the tier-2 staleness #790 fixed in the read path.
+    """
+
+    def _run_configure_capturing_persist(
+        self,
+        host: dict,
+        config_data: dict,
+        claw_type: str,
+        agent_name: str,
+        tmp_path: Path,
+    ) -> tuple[dict, dict, bool, str | None]:
+        """Run configure_agent end-to-end with ansible_runner + update_host
+        mocked. Returns (ansible_inventory, persisted_hosts_json,
+        success, error).
+        """
+        runner = MagicMock()
+        runner.status = "successful"
+        runner.events = []
+        artifacts_dir = tmp_path / "artifacts"
+        (artifacts_dir / "fact_cache").mkdir(parents=True)
+        runner.config.artifact_dir = str(artifacts_dir)
+
+        captured_inventory: dict = {}
+        captured_persisted: dict = {}
+
+        def capture_run(**kwargs):
+            captured_inventory.update(kwargs.get("inventory") or {})
+            return runner
+
+        def capture_update_host(_hostname: str, updater) -> bool:
+            # Mirror the initial-host shape so the updater sees a
+            # realistic dict to merge into.
+            h = {
+                "hostname": host["hostname"],
+                "agents": {k: dict(v) for k, v in host["agents"].items()},
+            }
+            captured_persisted.update(updater(h))
+            return True
+
+        key_path = tmp_path / "k"
+        key_path.write_text("k")
+        playbook_path = tmp_path / "configure.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                side_effect=capture_run,
+            ),
+            patch(
+                "clawrium.core.lifecycle.update_host",
+                side_effect=capture_update_host,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_config_dir",
+                return_value=tmp_path,
+            ),
+            patch(
+                "clawrium.core.providers.get_provider_api_key",
+                return_value="",
+            ),
+            patch(
+                "clawrium.core.providers.get_provider_aws_credentials",
+                return_value=("", ""),
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value={},
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_key",
+                return_value="test-key",
+            ),
+            patch(
+                "clawrium.core.integrations.get_agent_integrations",
+                return_value=[],
+            ),
+            patch(
+                "clawrium.core.lifecycle._hydrate_channels_from_canonical",
+                return_value=(True, None),
+            ),
+            patch.object(Path, "exists", return_value=True),
+        ):
+            from clawrium.core.lifecycle import configure_agent
+
+            success, error = configure_agent(
+                host["hostname"],
+                claw_type,
+                config_data,
+                agent_name=agent_name,
+            )
+        return captured_inventory, captured_persisted, success, error
+
+    def _openclaw_host(self) -> dict:
+        return {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-test": {
+                    "type": "openclaw",
+                    "agent_name": "opct",
+                    "onboarding": {"state": "ready"},
+                    "config": {"gateway": {"port": 40000, "bind": "lan"}},
+                    "providers": ["test-provider"],
+                }
+            },
+        }
+
+    def _hermes_host(self) -> dict:
+        return {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "hrm-test": {
+                    "type": "hermes",
+                    "agent_name": "hrmt",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 45000},
+                        "api_server": {
+                            "enabled": True,
+                            "host": "0.0.0.0",
+                            "port": 8642,
+                        },
+                    },
+                    "providers": [
+                        {"name": "anth", "role": "primary"},
+                    ],
+                }
+            },
+        }
+
+    def test_sync_agent_does_not_persist_provider_overlay(self, tmp_path: Path):
+        """Singleton path (openclaw/zeroclaw): config_data carries a
+        `provider` overlay so Ansible can render templates, but the
+        persisted hosts.json record MUST NOT contain
+        `config.provider`."""
+        host = self._openclaw_host()
+        config_data = {
+            "gateway": {"port": 40000, "bind": "lan"},
+            "provider": {
+                "name": "test-provider",
+                "type": "openai",
+                "endpoint": "https://api.openai.example",
+                "default_model": "gpt-4",
+            },
+        }
+
+        inv, persisted, success, error = self._run_configure_capturing_persist(
+            host, config_data, "openclaw", "opc-test", tmp_path
+        )
+        assert success is True, error
+
+        persisted_agent = persisted["agents"]["opc-test"]
+        persisted_config = persisted_agent["config"]
+        assert "provider" not in persisted_config, (
+            f"config.provider must not be persisted after sync; "
+            f"got {persisted_config.get('provider')!r}"
+        )
+        # Group B (gateway) must still be persisted.
+        assert persisted_config["gateway"]["port"] == 40000
+
+    def test_sync_agent_does_not_persist_providers_overlay_hermes(
+        self, tmp_path: Path
+    ):
+        """Multi-provider path (hermes): config_data carries both
+        `provider` (primary) and `providers` (list) overlays. Neither
+        may be persisted in hosts.json."""
+        host = self._hermes_host()
+        config_data = {
+            "gateway": {"port": 45000},
+            "api_server": {
+                "enabled": True,
+                "host": "0.0.0.0",
+                "port": 8642,
+            },
+            "provider": {
+                "name": "anth",
+                "type": "anthropic",
+                "endpoint": "https://api.anthropic.example",
+                "default_model": "claude-opus",
+            },
+            "providers": [
+                {
+                    "name": "anth",
+                    "type": "anthropic",
+                    "endpoint": "https://api.anthropic.example",
+                    "default_model": "claude-opus",
+                    "role": "primary",
+                    "model": "claude-opus",
+                }
+            ],
+        }
+        # Hermes needs a valid API server key in secrets to pass
+        # validation, and `configure_agent` pre-renders the canonical
+        # config via `render_hermes(build_render_inputs(...))` which
+        # reads on-disk hosts.json. Stub all three so the test stays
+        # focused on the persist-strip contract.
+        from clawrium.core.render import RenderedFiles
+
+        fake_rendered = RenderedFiles(
+            files={
+                ".hermes/.env": "stub-env",
+                ".hermes/config.yaml": "stub-yaml",
+            },
+        )
+        with (
+            patch(
+                "clawrium.core.install._is_valid_hermes_api_server_key",
+                return_value=True,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value={
+                    "HERMES_API_SERVER_KEY": {
+                        "value": "0" * 64,
+                    }
+                },
+            ),
+            patch(
+                "clawrium.core.render.build_render_inputs",
+                return_value={},
+            ),
+            patch(
+                "clawrium.core.render.render_hermes",
+                return_value=fake_rendered,
+            ),
+        ):
+            inv, persisted, success, error = (
+                self._run_configure_capturing_persist(
+                    host,
+                    config_data,
+                    "hermes",
+                    "hrm-test",
+                    tmp_path,
+                )
+            )
+        assert success is True, error
+
+        persisted_config = persisted["agents"]["hrm-test"]["config"]
+        assert "provider" not in persisted_config, (
+            f"hermes config.provider must not be persisted; "
+            f"got {persisted_config.get('provider')!r}"
+        )
+        assert "providers" not in persisted_config, (
+            f"hermes config.providers must not be persisted; "
+            f"got {persisted_config.get('providers')!r}"
+        )
+
+    def test_sync_agent_does_not_persist_channels(self, tmp_path: Path):
+        """Channels are now sourced from canonical channels.json via
+        `_hydrate_channels_from_canonical`. Even if a caller passes
+        a `channels` block in `config_data` (legacy code path),
+        configure_agent must strip it from persisted hosts.json so
+        a stale mirror cannot accumulate."""
+        host = self._openclaw_host()
+        config_data = {
+            "gateway": {"port": 40000, "bind": "lan"},
+            "provider": {
+                "name": "test-provider",
+                "type": "openai",
+                "endpoint": "https://api.openai.example",
+                "default_model": "gpt-4",
+            },
+            "channels": {
+                "discord": {
+                    "enabled": True,
+                    "guilds": {"123": {"channels": {"456": {}}}},
+                }
+            },
+        }
+        inv, persisted, success, error = self._run_configure_capturing_persist(
+            host, config_data, "openclaw", "opc-test", tmp_path
+        )
+        assert success is True, error
+
+        persisted_config = persisted["agents"]["opc-test"]["config"]
+        assert "channels" not in persisted_config, (
+            f"config.channels must not be persisted after sync; "
+            f"got {persisted_config.get('channels')!r}"
+        )
+        # ATX #794 iter-1 S1: pin all three strips per call. A per-key
+        # regression that only re-introduces one of the three would
+        # otherwise pass this test silently.
+        assert "provider" not in persisted_config
+        assert "providers" not in persisted_config
+
+    def _hermes_host_for_start(
+        self, *, providers: list | None = None
+    ) -> dict:
+        return {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "hrm-test": {
+                    "type": "hermes",
+                    "agent_name": "hrmt",
+                    "onboarding": {"state": "ready"},
+                    "config": {
+                        "gateway": {"port": 45000},
+                        "api_server": {
+                            "enabled": True,
+                            "host": "0.0.0.0",
+                            "port": 8642,
+                        },
+                    },
+                    "providers": (
+                        providers
+                        if providers is not None
+                        else [{"name": "anth", "role": "primary"}]
+                    ),
+                }
+            },
+        }
+
+    def test_start_agent_hermes_unregistered_provider_returns_error(
+        self, tmp_path: Path
+    ):
+        """ATX #794 iter-3 B3 part 1: when the hermes drift path hydrates
+        the overlay and the attached provider is not in providers.json,
+        `_build_provider_overlays_from_attachments` raises
+        `LifecycleError`. The start_agent except branch must convert
+        that into a structured `{success: False, error: '...'}` result
+        with a remediation hint, NOT propagate the exception or return
+        success."""
+        host = self._hermes_host_for_start()
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            # Unregistered provider — get_provider returns None.
+            patch(
+                "clawrium.core.providers.storage.get_provider",
+                return_value=None,
+            ),
+            patch(
+                "clawrium.core.lifecycle._hermes_env_token_matches_secrets",
+                return_value=(False, None),
+            ),
+        ):
+            result = start_agent("192.168.1.100", "hermes")
+
+        assert result["success"] is False
+        assert result["operation"] == "start"
+        assert "Pre-start reconfigure failed" in (result.get("error") or "")
+        assert "not registered" in (result.get("error") or "")
+
+    def test_start_agent_hermes_invalid_attachment_shape_returns_error(
+        self, tmp_path: Path
+    ):
+        """ATX #794 iter-3 B3 part 2: malformed attachment (two primary
+        roles) must surface as success=False through the new
+        LifecycleError branch, not via an uncaught exception."""
+        host = self._hermes_host_for_start(
+            providers=[
+                {"name": "anth", "role": "primary"},
+                {"name": "other", "role": "primary"},  # second primary → invalid
+            ]
+        )
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._hermes_env_token_matches_secrets",
+                return_value=(False, None),
+            ),
+        ):
+            result = start_agent("192.168.1.100", "hermes")
+
+        assert result["success"] is False
+        assert "Pre-start reconfigure failed" in (result.get("error") or "")
+        assert "invalid provider attachments" in (result.get("error") or "")
+
+    def test_start_agent_hermes_empty_attachments_still_runs_configure(
+        self, tmp_path: Path
+    ):
+        """ATX #794 iter-3 B3 part 3: `providers=[]` is a valid (if
+        unusual) shape — the hydration helper returns
+        `(None, None, None)`, neither `config_data['provider']` nor
+        `config_data['providers']` is set, and `configure_agent` still
+        runs (the configure playbook's post-render verifications skip
+        themselves when config.provider is undefined)."""
+        host = self._hermes_host_for_start(providers=[])
+
+        captured: dict = {}
+
+        def fake_configure(hostname, claw_name, config_data, **kwargs):
+            captured["config_data"] = dict(config_data)
+            return (True, None)
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._hermes_env_token_matches_secrets",
+                return_value=(False, None),
+            ),
+            patch(
+                "clawrium.core.lifecycle._run_lifecycle_playbook",
+                return_value=(True, None),
+            ),
+            patch(
+                "clawrium.core.lifecycle._update_agent_runtime",
+                return_value=True,
+            ),
+            patch(
+                "clawrium.core.lifecycle.configure_agent",
+                side_effect=fake_configure,
+            ),
+        ):
+            result = start_agent("192.168.1.100", "hermes")
+
+        assert result["success"] is True, result.get("error")
+        cfg = captured["config_data"]
+        assert "provider" not in cfg
+        assert "providers" not in cfg
+        # Other persisted state still flows through.
+        assert cfg["gateway"]["port"] == 45000
+
+    def test_start_agent_hydrates_provider_before_hermes_reconfigure(
+        self, tmp_path: Path
+    ):
+        """ATX #794 iter-2 B1 regression test: `start_agent`'s hermes
+        pre-start reconfigure (the API_SERVER_KEY drift path at
+        lifecycle.py:703-756) historically passed `claw_record.config`
+        directly to `configure_agent`. After Phase 2 stripped
+        `config.provider` from persisted hosts.json, the playbook's
+        post-render verification tasks (configure.yaml:208-264) were
+        silently skipping because they're gated on
+        `config.provider is defined`. The fix hydrates the overlay
+        from canonical attachments + providers.json before invoking
+        configure_agent — assert the inventory shipped to ansible
+        contains the resolved primary provider.
+        """
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "hrm-test": {
+                    "type": "hermes",
+                    "agent_name": "hrmt",
+                    "onboarding": {"state": "ready"},
+                    # Post-#794 shape: no config.provider mirror.
+                    "config": {
+                        "gateway": {"port": 45000},
+                        "api_server": {
+                            "enabled": True,
+                            "host": "0.0.0.0",
+                            "port": 8642,
+                        },
+                    },
+                    "providers": [
+                        {"name": "anth", "role": "primary"},
+                    ],
+                }
+            },
+        }
+
+        provider_record = {
+            "name": "anth",
+            "type": "anthropic",
+            "endpoint": "https://api.anthropic.example",
+            "default_model": "claude-opus",
+        }
+
+        mock_configure = MagicMock(return_value=(True, None))
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.providers.storage.get_provider",
+                return_value=provider_record,
+            ),
+            # Force the env-token drift branch so configure_agent runs.
+            patch(
+                "clawrium.core.lifecycle._hermes_env_token_matches_secrets",
+                return_value=(False, None),
+            ),
+            # Stub the start playbook + runtime update so the test
+            # focuses on the pre-start configure path.
+            patch(
+                "clawrium.core.lifecycle._run_lifecycle_playbook",
+                return_value=(True, None),
+            ),
+            patch(
+                "clawrium.core.lifecycle._update_agent_runtime",
+                return_value=True,
+            ),
+            patch(
+                "clawrium.core.lifecycle.configure_agent",
+                side_effect=mock_configure,
+            ),
+        ):
+            result = start_agent("192.168.1.100", "hermes")
+
+        assert result["success"] is True, result.get("error")
+        # ATX #794 iter-3 W10: pin the call shape so this regression
+        # test cannot pass on any other configure entry point (e.g.,
+        # a refactor that accidentally routes through `reason='configure'`).
+        mock_configure.assert_called_once()
+        call_kwargs = mock_configure.call_args.kwargs
+        assert call_kwargs.get("reason") == "start-precheck"
+        assert call_kwargs.get("agent_name") == "hrm-test"
+
+        # B1 fix: hydrated overlay reached configure_agent.
+        cfg = mock_configure.call_args.args[2]
+        assert cfg.get("provider") is not None, (
+            "start_agent hermes pre-start reconfigure shipped an empty "
+            "config.provider — the playbook's post-render verification "
+            "tasks would silently skip (ATX #794 iter-2 B1)"
+        )
+        assert cfg["provider"]["name"] == "anth"
+        assert cfg["provider"]["type"] == "anthropic"
+        assert cfg["provider"]["default_model"] == "claude-opus"
+        # And the multi-provider list is hydrated too (hermes).
+        assert isinstance(cfg.get("providers"), list)
+        assert cfg["providers"][0]["name"] == "anth"
+        assert cfg["providers"][0]["role"] == "primary"
+
+    def test_configure_agent_passes_channels_extravars(self, tmp_path: Path):
+        """ATX #794 iter-1 W3 (positive half for channels): even though
+        the persisted config strips `channels`, the Ansible inventory
+        MUST still carry the overlay so playbook templates can render
+        the channel hulls. Mirrors
+        `test_configure_agent_passes_provider_extravars` for the
+        channels surface."""
+        host = self._openclaw_host()
+        config_data = {
+            "gateway": {"port": 40000, "bind": "lan"},
+            "provider": {
+                "name": "test-provider",
+                "type": "openai",
+                "endpoint": "https://api.openai.example",
+                "default_model": "gpt-4",
+            },
+            "channels": {
+                "discord": {
+                    "enabled": True,
+                    "guilds": {"123": {"channels": {"456": {}}}},
+                }
+            },
+        }
+        inv, persisted, success, error = self._run_configure_capturing_persist(
+            host, config_data, "openclaw", "opc-test", tmp_path
+        )
+        assert success is True, error
+
+        ansible_channels = inv["all"]["vars"]["config"]["channels"]
+        assert ansible_channels["discord"]["enabled"] is True
+        assert ansible_channels["discord"]["guilds"]["123"]["channels"] == {
+            "456": {}
+        }
+        # Persist-strip still held on the same call.
+        assert "channels" not in persisted["agents"]["opc-test"]["config"]
+
+    def test_configure_agent_passes_provider_extravars(self, tmp_path: Path):
+        """Negative half of the contract: even though the persisted
+        config strips provider/providers, the Ansible inventory MUST
+        still carry the overlay so templates can render the model.
+        Mirrors the scaffold's `test_configure_agent_passes_provider_extravars`
+        — the "extravars" path here is `inventory.all.vars.config.provider`
+        (config_data is forwarded into ansible_vars as `config`).
+        """
+        host = self._openclaw_host()
+        config_data = {
+            "gateway": {"port": 40000, "bind": "lan"},
+            "provider": {
+                "name": "test-provider",
+                "type": "openai",
+                "endpoint": "https://api.openai.example",
+                "default_model": "gpt-4-overlay-marker",
+            },
+        }
+        inv, persisted, success, error = self._run_configure_capturing_persist(
+            host, config_data, "openclaw", "opc-test", tmp_path
+        )
+        assert success is True, error
+
+        ansible_provider = inv["all"]["vars"]["config"]["provider"]
+        assert ansible_provider["name"] == "test-provider"
+        assert ansible_provider["default_model"] == "gpt-4-overlay-marker"
+
+        # And confirm the persist strip still happened on the same run.
+        assert (
+            "provider" not in persisted["agents"]["opc-test"]["config"]
+        )

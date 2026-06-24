@@ -2829,11 +2829,15 @@ class TestZeroclawDiscordHydration:
     def test_discord_bot_token_stripped_from_hosts_json_zeroclaw(
         self, tmp_path: Path, canonical_channels
     ):
-        """ATX Round 1 B1: zeroclaw must mirror hermes's strip-before-persist
-        behavior so bot_token never lands in hosts.json. Without this, the
-        token roundtrips: hydrated → persisted → read into existing_config →
-        re-hydrated, defeating the B3 invariant that bot_token lives in
-        secrets.json only."""
+        """ATX Round 1 B1: zeroclaw must keep bot_token out of hosts.json.
+
+        Issue #794 generalized the previous targeted strip into a broader
+        invariant — the entire `channels` block is now removed from
+        persisted_config because `channels.json` is the canonical store
+        for channel state. The B3 isolation contract (bot_token never
+        in hosts.json) is therefore subsumed by the absence of the
+        whole key.
+        """
         token = "B" * 64
         cfg = {
             "allowed_users": ["740723459344302120"],
@@ -2896,16 +2900,12 @@ class TestZeroclawDiscordHydration:
 
         assert success is True, error
         persisted = captured_update["host"]["agents"]["zc-test"]["config"]
-        # The Discord block must be persisted (so re-configure can find it)
-        # but bot_token MUST be stripped — only secrets.json holds it.
-        assert "channels" in persisted
-        assert "discord" in persisted["channels"]
-        assert persisted["channels"]["discord"]["enabled"] is True
-        assert "bot_token" not in persisted["channels"]["discord"], (
-            f"bot_token leaked into hosts.json for zeroclaw — "
-            f"persisted shape: {persisted['channels']['discord']}"
+        # Issue #794: the entire `channels` block is stripped from
+        # persisted hosts.json. The B3 isolation contract (bot_token
+        # never in hosts.json) follows directly — there is no channels
+        # subtree where it could land. Re-configure rebuilds the block
+        # from `channels.json` via `_hydrate_channels_from_canonical`.
+        assert "channels" not in persisted, (
+            f"channels block leaked into hosts.json for zeroclaw — "
+            f"persisted shape: {persisted!r}"
         )
-        # Other persisted fields survive the strip (idempotency check).
-        assert persisted["channels"]["discord"]["allowed_users"] == [
-            "740723459344302120"
-        ]

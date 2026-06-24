@@ -797,12 +797,15 @@ def test_configure_agent_hydrates_channel_tokens_via_hydrate_helper(
 def test_configure_agent_strips_channel_tokens_from_persisted_hosts_json(
     hermes_configure_env, render_stores, monkeypatch
 ):
-    """W-NEW-4 companion (lifecycle.py:2542-2568). Sibling invariant to
-    W-NEW-3: the B3 secret-isolation block in the updater closure must
-    strip `discord.bot_token`, `slack.bot_token`, and `slack.app_token`
-    before persisting to hosts.json. Without this strip, the tokens
-    roundtrip hydrated→persisted→re-hydrated and defeat the secrets.json
-    isolation contract. (ATX iter-2 test-coverage B1.)
+    """W-NEW-4 companion (lifecycle.py persist closure). Sibling invariant
+    to W-NEW-3: channel state must not land in hosts.json.
+
+    Issue #794 generalized the previous targeted strip (only
+    `discord.bot_token`, `slack.bot_token`, `slack.app_token`) into a
+    broader invariant — the entire `channels` block is removed from
+    persisted_config because `channels.json` is the canonical store
+    for channel state. The B3 secret-isolation contract follows
+    directly: with no channels subtree on disk, no token can roundtrip.
     """
     _seed_single_provider(render_stores, hermes_configure_env)
     # Pre-migrate the bind so _migrate_bind doesn't fire and inflate
@@ -866,24 +869,15 @@ def test_configure_agent_strips_channel_tokens_from_persisted_hosts_json(
     assert len(update_host_calls) == 1
 
     # Apply the captured closure to a synthetic host shape and assert
-    # every token is stripped while non-secret fields survive.
+    # the entire channels block is absent post-#794.
     _hostname, persist_closure = update_host_calls[0]
     sample_host = {"hostname": "host-1", "agents": {"alpha": {"config": {}}}}
     mutated = persist_closure(sample_host)
-    persisted_channels = mutated["agents"]["alpha"]["config"]["channels"]
+    persisted_config = mutated["agents"]["alpha"]["config"]
 
-    # Discord: bot_token stripped, enabled flag preserved.
-    assert "bot_token" not in persisted_channels["discord"], (
-        f"discord bot_token leaked into hosts.json: {persisted_channels['discord']!r}"
+    # Issue #794: channels block stripped wholesale, not just the tokens.
+    assert "channels" not in persisted_config, (
+        f"channels block leaked into hosts.json: {persisted_config!r}"
     )
-    assert persisted_channels["discord"].get("enabled") is True
-    # Slack: bot_token + app_token stripped, enabled flag preserved.
-    assert "bot_token" not in persisted_channels["slack"], (
-        f"slack bot_token leaked into hosts.json: {persisted_channels['slack']!r}"
-    )
-    assert "app_token" not in persisted_channels["slack"], (
-        f"slack app_token leaked into hosts.json: {persisted_channels['slack']!r}"
-    )
-    assert persisted_channels["slack"].get("enabled") is True
     # api_server.key strip continues to hold on the same closure call.
-    assert "key" not in mutated["agents"]["alpha"]["config"]["api_server"]
+    assert "key" not in persisted_config["api_server"]
