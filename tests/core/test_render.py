@@ -1976,6 +1976,7 @@ _HERMES_BEDROCK_YAML = (
     "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
     "model:\n"
     "  provider: \"bedrock\"\n"
+    "  api_key: \"aws-sdk\"\n"
     "  default: 'anthropic.claude-opus-4-1-v1:0'\n"
     "bedrock:\n"
     "  region: 'us-east-1'\n"
@@ -2416,7 +2417,7 @@ _OPENCLAW_ENV_BEDROCK = (
     "OPENCLAW_GATEWAY_PORT=40000\n"
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
-    "OPENCLAW_DEFAULT_MODEL='bedrock/anthropic.claude-opus-4-1-v1:0'\n"
+    "OPENCLAW_DEFAULT_MODEL='amazon-bedrock/anthropic.claude-opus-4-1-v1:0'\n"
     "AWS_ACCESS_KEY_ID='AKIA-1'\n"
     "AWS_SECRET_ACCESS_KEY='secret-1'\n"
     "AWS_DEFAULT_REGION='us-east-1'\n"
@@ -3072,11 +3073,17 @@ def test_openclaw_git_integration_skipped():
 
 def test_openclaw_model_prefix_idempotent():
     """Round 2 S3: pre-prefixed model id must NOT double up.
-    (`openrouter/m` stays `openrouter/m`, not `openrouter/openrouter/m`.)"""
-    for ptype, model_id in [
-        ("openrouter", "openrouter/anthropic/claude-opus-4.7"),
-        ("bedrock", "bedrock/anthropic.claude-opus-4-1-v1:0"),
-    ]:
+    (`openrouter/m` stays `openrouter/m`; `amazon-bedrock/m` stays
+    `amazon-bedrock/m`, not `amazon-bedrock/amazon-bedrock/m`.)"""
+    cases = [
+        ("openrouter", "openrouter/", "openrouter/anthropic/claude-opus-4.7"),
+        (
+            "bedrock",
+            "amazon-bedrock/",
+            "amazon-bedrock/anthropic.claude-opus-4-1-v1:0",
+        ),
+    ]
+    for ptype, prefix, model_id in cases:
         if ptype == "openrouter":
             p = ProviderInputs(
                 name="or", type=ptype, default_model=model_id, api_key="sk-1"
@@ -3097,9 +3104,12 @@ def test_openclaw_model_prefix_idempotent():
             gateway=GatewayInputs(host="0.0.0.0", port=40000, bind="lan"),
         )
         env = render_openclaw(inputs).files[".openclaw/env"]
-        assert f"OPENCLAW_DEFAULT_MODEL='{model_id}'" in env
-        # Critical: prefix must not appear twice.
-        prefix = f"{ptype}/"
+        expected_line = f"OPENCLAW_DEFAULT_MODEL='{model_id}'"
+        # Exact-line match — substring would pass for a double-prefixed
+        # value that happens to contain the model id as a tail.
+        assert any(line == expected_line for line in env.splitlines()), (
+            f"expected exact line {expected_line!r} in:\n{env}"
+        )
         assert env.count(prefix + prefix) == 0
 
 

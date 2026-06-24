@@ -4,6 +4,14 @@
 # /Users/<agent>/.openclaw/ instead of /home/<agent>/.openclaw/, and
 # DOES NOT touch launchctl — lifecycle_macos.configure_agent triggers
 # a launchctl restart after this playbook returns.
+#
+# IMPORTANT: This playbook is NOT safe to invoke directly via
+# `ansible-playbook`. Direct invocation will write the rendered config
+# but leave the launchd daemon running the previous version of
+# `openclaw.json`. The supported entry point is
+# `clawctl agent configure` / `clawctl agent sync`, which routes
+# through `lifecycle_macos.configure_agent` and fires
+# `launchctl kickstart -k` after this playbook returns (W7).
 - hosts: all
   become: yes
   tasks:
@@ -25,7 +33,15 @@
       tags: [never, strict]
 
     - name: Check that agent user exists via dscl
-      ansible.builtin.command: "dscl . -read /Users/{{ agent_name | quote }} UniqueID"
+      ansible.builtin.command:
+        # argv form — no shell, no need for `| quote`. `agent_name`
+        # is already regex-validated above (S4).
+        argv:
+          - dscl
+          - "."
+          - -read
+          - "/Users/{{ agent_name }}"
+          - UniqueID
       register: agent_user_check
       changed_when: false
       failed_when: false
@@ -90,33 +106,59 @@
     # See configure.yaml (Linux) for the rationale on plugin install
     # ordering and sentinel gating. `no_log` is intentionally omitted
     # so npm errors surface; the npm package is public and no secrets
-    # are in scope. macOS PATH covers Homebrew (/opt/homebrew/bin on
-    # Apple Silicon, /usr/local/bin on Intel) plus nvm's default shim
-    # under /Users/<user>/.nvm. (#734 ATX iter 2 W3, W4)
-    - name: Install openclaw brave plugin (idempotent, gated by sentinel)
+    # are in scope.
+    #
+    # PATH covers Homebrew (/opt/homebrew/bin on Apple Silicon,
+    # /usr/local/bin on Intel) only. nvm shims live under
+    # /Users/<user>/.nvm/versions/node/<version>/bin where <version>
+    # is dynamic — Ansible's PATH-env hand-off cannot glob, so hosts
+    # whose only Node install is via nvm get an opaque
+    # "npm: command not found" without the probe below (W8).
+    #
+    # S2 iter-3: all brave-related tasks share the same predicate;
+    # wrap in a block so a fifth task doesn't need to remember the
+    # condition. Variables `become` / `become_user` / `environment`
+    # set on the block are inherited by each child task.
+    - name: Brave plugin install
+      when:
+        - integrations is defined
+        - integrations.values() | selectattr('type', 'equalto', 'brave') | list | length > 0
       become: yes
       become_user: "{{ agent_name }}"
       environment:
         PATH: "/Users/{{ agent_name }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-      ansible.builtin.command: >-
-        npm install --prefix /Users/{{ agent_name }}/.openclaw
-        {{ openclaw_brave_plugin_package }}@{{ openclaw_brave_plugin_version }}
-      args:
-        creates: "/Users/{{ agent_name }}/.openclaw/.brave-plugin-installed.{{ openclaw_brave_plugin_version }}"
-      when:
-        - integrations is defined
-        - integrations.values() | selectattr('type', 'equalto', 'brave') | list | length > 0
+      block:
+        - name: Probe for npm (brave plugin install prereq)
+          ansible.builtin.command:
+            argv:
+              - which
+              - npm
+          register: _npm_probe
+          changed_when: false
+          failed_when: false
 
-    - name: Stamp brave plugin install sentinel
-      become: yes
-      become_user: "{{ agent_name }}"
-      ansible.builtin.file:
-        path: "/Users/{{ agent_name }}/.openclaw/.brave-plugin-installed.{{ openclaw_brave_plugin_version }}"
-        state: touch
-        mode: "0600"
-      when:
-        - integrations is defined
-        - integrations.values() | selectattr('type', 'equalto', 'brave') | list | length > 0
+        - name: Fail with actionable hint when npm is missing
+          when: _npm_probe.rc != 0
+          ansible.builtin.fail:
+            msg: >-
+              npm not found on the agent host PATH
+              (/opt/homebrew/bin, /usr/local/bin). The brave plugin requires
+              a Homebrew-installed Node (`brew install node`); nvm-only
+              installs are not supported because the playbook cannot glob
+              /Users/{{ agent_name }}/.nvm/versions/node/*/bin into PATH.
+
+        - name: Install openclaw brave plugin (idempotent, gated by sentinel)
+          ansible.builtin.command: >-
+            npm install --prefix /Users/{{ agent_name }}/.openclaw
+            {{ openclaw_brave_plugin_package }}@{{ openclaw_brave_plugin_version }}
+          args:
+            creates: "/Users/{{ agent_name }}/.openclaw/.brave-plugin-installed.{{ openclaw_brave_plugin_version }}"
+
+        - name: Stamp brave plugin install sentinel
+          ansible.builtin.file:
+            path: "/Users/{{ agent_name }}/.openclaw/.brave-plugin-installed.{{ openclaw_brave_plugin_version }}"
+            state: touch
+            mode: "0600"
 
     - name: Write openclaw .env from template
       ansible.builtin.template:
@@ -197,7 +239,9 @@
         owner: "{{ agent_name }}"
         group: staff
         mode: "0600"
-        backup: yes
+        # W6: `backup: yes` accumulates `exec-approvals.json.NNNN~`
+        # siblings on every reconfigure; the previous value is
+        # recoverable from the template anyway.
       no_log: true
 
     - name: Verify exec approvals JSON is valid

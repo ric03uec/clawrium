@@ -75,10 +75,10 @@ def make_canonical_stubs(monkeypatch: pytest.MonkeyPatch):
         def fake_open_ssh(_host, *, timeout=15):
             return fake_client
 
-        def fake_restart_unit(_client, *, agent_type, agent_name):
+        def fake_restart_unit(_client, *, agent_type, agent_name, **_kwargs):
             calls.append(("restart", agent_type, agent_name))
 
-        def fake_verify_health(_client, *, agent_type, agent_name):
+        def fake_verify_health(_client, *, agent_type, agent_name, **_kwargs):
             calls.append(("verify", agent_type, agent_name))
 
         monkeypatch.setattr(

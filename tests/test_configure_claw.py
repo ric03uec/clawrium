@@ -2263,10 +2263,10 @@ class TestEnvTemplate:
             in rendered
         )
         env_map = self._parse_env(rendered)
-        # Bedrock models get prefixed with bedrock/
+        # Bedrock models get prefixed with amazon-bedrock/
         assert (
             env_map["OPENCLAW_DEFAULT_MODEL"]
-            == "bedrock/anthropic.claude-3-7-sonnet-20250219-v1:0"
+            == "amazon-bedrock/anthropic.claude-3-7-sonnet-20250219-v1:0"
         )
 
     def test_env_bedrock_credentials_with_special_chars(self):
@@ -2304,10 +2304,10 @@ class TestEnvTemplate:
         # No AWS credentials should be in output when not provided
         assert "AWS_ACCESS_KEY_ID" not in env_map
         assert "AWS_SECRET_ACCESS_KEY" not in env_map
-        # Bedrock models get prefixed with bedrock/
+        # Bedrock models get prefixed with amazon-bedrock/
         assert (
             env_map["OPENCLAW_DEFAULT_MODEL"]
-            == "bedrock/anthropic.claude-3-7-sonnet-20250219-v1:0"
+            == "amazon-bedrock/anthropic.claude-3-7-sonnet-20250219-v1:0"
         )
 
     def test_env_bedrock_provider_with_empty_string_credentials(self):
@@ -2333,7 +2333,7 @@ class TestEnvTemplate:
         # Model should still be prefixed correctly
         assert (
             env_map["OPENCLAW_DEFAULT_MODEL"]
-            == "bedrock/anthropic.claude-3-7-sonnet-20250219-v1:0"
+            == "amazon-bedrock/anthropic.claude-3-7-sonnet-20250219-v1:0"
         )
 
     def test_env_vertex_provider(self):

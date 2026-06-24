@@ -18,8 +18,8 @@
       "model": { "primary": {{ ("openrouter/" ~ config.provider.default_model) | tojson }} },
 {% elif config.provider.type == "ollama" and not config.provider.default_model.startswith("ollama/") %}
       "model": { "primary": {{ ("ollama/" ~ config.provider.default_model) | tojson }} },
-{% elif config.provider.type == "bedrock" and not config.provider.default_model.startswith("bedrock/") %}
-      "model": { "primary": {{ ("bedrock/" ~ config.provider.default_model) | tojson }} },
+{% elif config.provider.type == "bedrock" and not config.provider.default_model.startswith("amazon-bedrock/") %}
+      "model": { "primary": {{ ("amazon-bedrock/" ~ config.provider.default_model) | tojson }} },
 {% else %}
       "model": { "primary": {{ config.provider.default_model | tojson }} },
 {% endif %}

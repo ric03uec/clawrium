@@ -2498,3 +2498,136 @@ def test_install_hermes_dashboard_port_pool_exhausted(monkeypatch, tmp_path):
 
     with pytest.raises(InstallationError, match="[Pp]ool exhausted"):
         run_installation("hermes", "test-host", name="hermes-new")
+
+
+def test_install_hardware_unknown_raises(monkeypatch, tmp_path):
+    """Issue #720: install MUST fail when host hardware is unknown.
+
+    When check_compatibility returns matched_entry=None (no hardware facts
+    gathered), the install must refuse to proceed rather than guessing a
+    version. Guessing caused npm ETARGET errors with non-existent versions.
+    """
+    from clawrium.core.install import run_installation, InstallationError
+
+    # Mock load_manifest
+    mock_manifest = {
+        "name": "openclaw",
+        "platforms": [
+            {
+                "version": "2026.6.8",
+                "os": "macos",
+                "os_version": ">=14",
+                "arch": "arm64",
+            }
+        ],
+    }
+
+    import clawrium.core.install
+
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    # Host exists but has empty hardware (not yet gathered)
+    host_no_hardware = {
+        "hostname": "test-host.local",
+        "agent_name": "xclm",
+        "port": 22,
+        "hardware": {},
+        "agents": {},
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: host_no_hardware)
+
+    # check_compatibility with empty hardware returns compatible=True, matched_entry=None
+    compat_result = {
+        "compatible": True,
+        "matched_entry": None,
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: compat_result,
+    )
+
+    with pytest.raises(InstallationError, match="hardware information is not available"):
+        run_installation("openclaw", "test-host")
+
+
+def test_install_hardware_unknown_with_version_override_bypasses_check(monkeypatch, tmp_path):
+    """When --version is explicitly provided, hardware-unknown gate is skipped.
+
+    An explicit version override means the operator knows what they want —
+    the hardware check gate should not block them. We verify the code
+    proceeds past the hardware gate (it may fail later for other reasons,
+    but NOT with the 'hardware information is not available' error).
+    """
+    from clawrium.core.install import run_installation
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "openclaw",
+        "platforms": [
+            {
+                "version": "2026.6.8",
+                "os": "macos",
+                "os_version": ">=14",
+                "arch": "arm64",
+            }
+        ],
+    }
+
+    import clawrium.core.install
+
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    host_no_hardware = {
+        "hostname": "test-host.local",
+        "agent_name": "xclm",
+        "port": 22,
+        "hardware": {},
+        "agents": {},
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: host_no_hardware)
+
+    # compatible=True, matched_entry=None (hardware unknown)
+    compat_result = {
+        "compatible": True,
+        "matched_entry": None,
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: compat_result,
+    )
+
+    # Capture events so we can prove the version-override branch ran
+    # (rather than just observing "no hardware-unknown error" — which
+    # would also pass if some unrelated exception fired before the gate).
+    events: list[tuple[str, str]] = []
+
+    def _on_event(stage: str, message: str) -> None:
+        events.append((stage, message))
+
+    # We expect the code to proceed past the hardware gate. It will fail
+    # later (e.g. missing SSH key), but NOT with InstallationError about
+    # missing hardware.
+    from clawrium.core.install import InstallationError
+
+    with pytest.raises(InstallationError) as exc_info:
+        run_installation(
+            "openclaw",
+            "test-host",
+            on_event=_on_event,
+            version_override="2026.6.8",
+        )
+
+    # The error must NOT be about hardware being unavailable.
+    assert "hardware information is not available" not in str(exc_info.value)
+    # The version-override branch must have fired before the failure —
+    # this pins the branch entry so the assertion above can't pass
+    # vacuously on an unrelated early exit.
+    assert (
+        "validate",
+        "Version override: openclaw v2026.6.8",
+    ) in events

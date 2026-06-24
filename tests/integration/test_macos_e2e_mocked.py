@@ -89,7 +89,7 @@ class _Client:
         self.commands: list[str] = []
         self._sftp = _SFTP()
 
-    def exec_command(self, cmd: str):
+    def exec_command(self, cmd: str, **_kwargs):
         self.commands.append(cmd)
         return StringIO(), _Stream("", rc=0), _Stream("", rc=0)
 

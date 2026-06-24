@@ -33,7 +33,7 @@ class _FakeClient:
         self.commands = []
         self._responses = list(responses or [])
 
-    def exec_command(self, cmd):
+    def exec_command(self, cmd, **_kwargs):
         self.commands.append(cmd)
         rc, out, err = self._responses.pop(0) if self._responses else (0, "", "")
         return StringIO(), _Out(out, rc), _Out(err, rc)

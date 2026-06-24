@@ -177,7 +177,10 @@
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
-        backup: yes
+        # W6 (ATX iter-2): `backup: yes` accumulates
+        # `exec-approvals.json.NNNN~` siblings on every install/reconfigure
+        # with no rotation; the previous value is recoverable from the
+        # template anyway.
       no_log: true
 
     - name: Verify exec approvals JSON is valid

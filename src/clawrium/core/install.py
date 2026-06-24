@@ -325,10 +325,15 @@ def run_installation(
         matched_version = compat["matched_entry"]["version"]
         emit("validate", f"Compatible with {claw_name} v{matched_version}")
     else:
-        # Hardware not yet gathered — fall back to latest manifest version.
-        manifest = load_manifest(claw_name)
-        matched_version = manifest["platforms"][0]["version"]
-        emit("validate", f"Hardware unknown, using latest: {claw_name} v{matched_version}")
+        # Hardware not yet gathered — cannot determine correct version.
+        # Refuse to proceed: guessing a version risks installing an
+        # incompatible or non-existent package (see issue #720).
+        raise InstallationError(
+            f"Cannot determine compatible version for '{claw_name}': "
+            f"host hardware information is not available. "
+            f"Run 'clawctl host create' with SSH access first to gather "
+            f"hardware facts, then retry the install."
+        )
 
     # Step 4: Validate custom name if provided (format only, uniqueness checked in updater)
     if name is not None:
