@@ -50,6 +50,7 @@ import paramiko
 
 from clawrium.core.hosts import get_agent_by_name
 from clawrium.core.keys import get_host_private_key
+from clawrium.core.playbook_resolver import home_root_for
 from clawrium.core.render import (
     build_render_inputs,
     render_hermes,
@@ -234,6 +235,9 @@ def _get_host_openclaw_version_linux(
     """Linux variant: per-agent binary under `/home/<agent>/`, PATH
     fallback safelist matches Linux install.yaml lines ~50-57.
 
+    The `/home` literal is sourced via `home_root_for("linux")` so the
+    OS→home-root mapping stays in a single seam (issue #752 invariant).
+
     Returns `(version, stderr_tail)`. `version` is `None` when the
     binary is missing, the output is unparseable, or the resolved
     PATH binary is rejected by the safelist; `stderr_tail` is the
@@ -242,7 +246,7 @@ def _get_host_openclaw_version_linux(
     """
     cmd = _build_openclaw_version_probe(
         agent_name,
-        home_root="/home",
+        home_root=home_root_for("linux"),
         path_safelist=_LINUX_OPENCLAW_PATH_SAFELIST,
     )
     return _run_openclaw_version_probe(client, cmd, timeout=timeout)
@@ -254,13 +258,17 @@ def _get_host_openclaw_version_macos(
     """macOS (arm64) variant: per-agent binary under `/Users/<agent>/`,
     PATH fallback safelist matches install_macos.yaml line ~109.
 
+    The `/Users` literal is sourced via `home_root_for("darwin")` so
+    the OS→home-root mapping stays in a single seam (issue #752
+    invariant).
+
     Forked completely from the Linux variant — when a future macOS
     x86_64 platform is added, dispatch should fork further rather
     than retrofitting an arch branch into either function.
     """
     cmd = _build_openclaw_version_probe(
         agent_name,
-        home_root="/Users",
+        home_root=home_root_for("darwin"),
         path_safelist=_MACOS_OPENCLAW_PATH_SAFELIST,
     )
     return _run_openclaw_version_probe(client, cmd, timeout=timeout)
