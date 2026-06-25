@@ -1,0 +1,119 @@
+---
+# macOS counterpart to shell.yaml. Same shape: run an arbitrary command
+# on the host as the agent's unix user in a login bash shell
+# (`/bin/bash -lc '<cmd>'`), capturing stdout/stderr/rc via three
+# base64-tagged debug events (SHELL_STDOUT=, SHELL_STDERR=, SHELL_RC=).
+#
+# Kill window is enforced via Homebrew's `gtimeout` (coreutils) when
+# available. macOS ships no `/usr/bin/timeout`; without `gtimeout` we
+# fall back to running `bash -lc` directly and rely on the
+# ansible-runner outer timeout (`effective + _RUNNER_GRACE_S` in
+# core/agent_shell.py) as the kill backstop. The cost of the fallback
+# is a wider kill window (+25s); the user-facing rc=124 contract is
+# unchanged because runner status `timeout` already maps to rc=124 in
+# core.
+- hosts: all
+  gather_facts: false
+  tasks:
+    # No OS-family guard here: gather_facts is off (latency matters),
+    # so `ansible_os_family` would be undefined. The dispatcher in
+    # core/playbook_resolver.py is the routing source of truth.
+
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Validate cmd_b64 is defined and non-empty
+      # If `cmd_b64` is missing or empty the inline `b64decode` filter
+      # in the command task would emit a confusing Jinja error
+      # silenced by `no_log: true` (mirrors shell.yaml #761 iter-3 W3).
+      ansible.builtin.fail:
+        msg: "cmd_b64 must be a non-empty base64 string"
+      when:
+        - (cmd_b64 is not defined) or (cmd_b64 | length == 0)
+
+    - name: Validate shell_timeout is a positive integer
+      # Without this guard, `{{ shell_timeout | int }}` silently
+      # becomes `0`, which `gtimeout` interprets as "no kill window".
+      ansible.builtin.fail:
+        msg: "shell_timeout must be a positive integer (got {{ shell_timeout | default('undefined') }})"
+      when:
+        - (shell_timeout is not defined) or (shell_timeout | int < 1)
+
+    - name: Discover gtimeout (coreutils) as agent user
+      # Include `/opt/local/bin` so MacPorts installs are picked up
+      # alongside Homebrew arm64 (`/opt/homebrew/bin`) and x86_64
+      # (`/usr/local/bin`). `failed_when: false` (idiomatic Ansible)
+      # is the no-fail mechanism; `|| true` would be redundant.
+      ansible.builtin.shell: |
+        PATH=/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin which gtimeout
+      args:
+        executable: /bin/bash
+      become: true
+      become_user: "{{ agent_name }}"
+      register: gtimeout_which
+      changed_when: false
+      failed_when: false
+
+    - name: Resolve gtimeout binary
+      ansible.builtin.set_fact:
+        resolved_gtimeout: "{{ gtimeout_which.stdout | default('') | trim }}"
+
+    - name: Run command in login shell as agent user (with gtimeout)
+      # gtimeout enforces the kill window so the remote process is
+      # reaped even if ansible-runner is killed. `--kill-after=5`
+      # follows SIGTERM with SIGKILL 5s later if the process ignores
+      # TERM. Same `bash -lc` semantics + `cmd_b64 | b64decode` hop as
+      # shell.yaml so the user-supplied command never passes through
+      # Ansible's recursive Jinja templater.
+      ansible.builtin.command:
+        argv:
+          - "{{ resolved_gtimeout }}"
+          - "--kill-after=5"
+          - "{{ shell_timeout | int }}"
+          - /bin/bash
+          - -lc
+          - "{{ cmd_b64 | b64decode }}"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: shell_result
+      failed_when: false
+      changed_when: false
+      no_log: true
+      when: (resolved_gtimeout | length) > 0
+
+    - name: Run command in login shell as agent user (no gtimeout)
+      # Fallback when coreutils is not installed on the macOS host.
+      # ansible-runner's outer timeout (`effective + _RUNNER_GRACE_S`)
+      # is the kill backstop; status `timeout` already maps to rc=124
+      # in core/agent_shell.py.
+      ansible.builtin.command:
+        argv:
+          - /bin/bash
+          - -lc
+          - "{{ cmd_b64 | b64decode }}"
+      become: true
+      become_user: "{{ agent_name }}"
+      register: shell_result_fallback
+      failed_when: false
+      changed_when: false
+      no_log: true
+      when: (resolved_gtimeout | length) == 0
+
+    - name: Merge run-task result
+      ansible.builtin.set_fact:
+        shell_result: "{{ shell_result_fallback if ((resolved_gtimeout | length) == 0) else shell_result }}"
+
+    - name: Emit stdout
+      ansible.builtin.debug:
+        msg: "SHELL_STDOUT={{ shell_result.stdout | default('') | b64encode }}"
+
+    - name: Emit stderr
+      ansible.builtin.debug:
+        msg: "SHELL_STDERR={{ shell_result.stderr | default('') | b64encode }}"
+
+    - name: Emit rc
+      ansible.builtin.debug:
+        msg: "SHELL_RC={{ shell_result.rc | default(255) }}"

@@ -80,6 +80,7 @@ auxiliary:
 {% elif provider.type == 'bedrock' %}
 model:
   provider: "bedrock"
+  api_key: "aws-sdk"
   default: {{ provider.default_model | yq }}
 bedrock:
   region: {{ (provider.region or 'us-east-1') | yq }}

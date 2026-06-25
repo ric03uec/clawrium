@@ -25,14 +25,16 @@ Host record schema (extended):
 import hashlib
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, NotRequired, TypedDict
 
 import ansible_runner
 
+from clawrium.core._operator_platform import normalize as _normalize_operator_platform
 from clawrium.core.config import get_config_dir
-from clawrium.core.hosts import get_host, update_host
+from clawrium.core.hosts import get_host, update_host, set_gateway_auth
 from clawrium.core.keys import get_host_private_key
 from clawrium.core.lifecycle import _cleanup_ansible_artifacts, _resolve_agent_type
 from clawrium.core.names import (
@@ -258,6 +260,36 @@ def _openclaw_install_was_skipped(playbook_result: object) -> bool:
     return _install_was_skipped(playbook_result, "openclaw")
 
 
+def _prerender_openclaw_install_stub(
+    *, openclaw_port: int, gateway_auth_token: str
+) -> str:
+    """Pre-render `~/.openclaw/openclaw.json` for the install-time bootstrap.
+
+    Issue #756: at install time no provider is attached yet, so this
+    delegates to `_render_openclaw_json` with `provider=None` — yielding
+    the baseline scaffold plus the install-minted gateway bearer. Model
+    selection (`agents.defaults.model.primary` +
+    `models.providers.<litellm-name>`) is deferred until configure, where
+    `build_render_inputs` resolves the attached provider.
+
+    Extracted from `run_installation` so the install-path render branch
+    is unit-testable without standing up the full installer (B3 ATX
+    iter-2).
+    """
+    from clawrium.core.render import GatewayInputs, _render_openclaw_json
+
+    return _render_openclaw_json(
+        provider=None,
+        provider_default_model=None,
+        gateway=GatewayInputs(
+            port=openclaw_port,
+            bind="lan",
+            auth=gateway_auth_token,
+        ),
+        discord_channel=None,
+    )
+
+
 def run_installation(
     claw_name: str,
     hostname: str,
@@ -325,10 +357,15 @@ def run_installation(
         matched_version = compat["matched_entry"]["version"]
         emit("validate", f"Compatible with {claw_name} v{matched_version}")
     else:
-        # Hardware not yet gathered — fall back to latest manifest version.
-        manifest = load_manifest(claw_name)
-        matched_version = manifest["platforms"][0]["version"]
-        emit("validate", f"Hardware unknown, using latest: {claw_name} v{matched_version}")
+        # Hardware not yet gathered — cannot determine correct version.
+        # Refuse to proceed: guessing a version risks installing an
+        # incompatible or non-existent package (see issue #720).
+        raise InstallationError(
+            f"Cannot determine compatible version for '{claw_name}': "
+            f"host hardware information is not available. "
+            f"Run 'clawctl host create' with SSH access first to gather "
+            f"hardware facts, then retry the install."
+        )
 
     # Step 4: Validate custom name if provided (format only, uniqueness checked in updater)
     if name is not None:
@@ -818,6 +855,37 @@ def run_installation(
             },
         }
 
+    # Issue #756: pre-render `~/.openclaw/openclaw.json` via the canonical
+    # Python renderer at install time, so the install playbook can
+    # `copy: content:` the bytes instead of templating server-side. This
+    # collapses the previously divergent install/configure/sync write
+    # paths onto a single source of truth (`_render_openclaw_json`).
+    #
+    # At install time no provider is attached yet — `clawctl provider
+    # attach` runs after `clawctl agent create`. The renderer's
+    # `provider=None` branch yields the baseline scaffold plus the
+    # install-minted gateway bearer; model selection (`agents.defaults
+    # .model.primary` + `models.providers.<litellm-name>`) is deferred
+    # until configure, where `build_render_inputs` resolves the attached
+    # provider.
+    prerendered_openclaw_config_json = ""
+    if claw_name == "openclaw":
+        # R2 (#756 ATX iter-2 W2): every other failure path in
+        # run_installation wraps its raw cause in `InstallationError`
+        # with `... from exc` so hosts.json.status=failed is set
+        # consistently. The pre-render call can raise FileNotFoundError
+        # (baseline shipped missing) or JSONDecodeError (baseline
+        # malformed) — wrap it for parity.
+        try:
+            prerendered_openclaw_config_json = _prerender_openclaw_install_stub(
+                openclaw_port=openclaw_port,
+                gateway_auth_token=gateway_auth_token,
+            )
+        except Exception as exc:
+            raise InstallationError(
+                f"openclaw pre-render failed: {exc}"
+            ) from exc
+
     # Hermes: generate (or reuse) the API_SERVER_KEY that gates the local
     # OpenAI-compatible gateway on 127.0.0.1:8642. Generated once on first
     # install so reconfigure flows can rely on the same token across runs.
@@ -921,6 +989,24 @@ def run_installation(
                 "config": config,
                 "template_path": str(template_path),
                 "force_install": force,
+                # The OPERATOR's platform (`linux`/`darwin`/`win32`/
+                # `freebsd`/...). The openclaw pair script records
+                # this on the daemon's paired device entry; the chat
+                # client sends the same value on subsequent connects.
+                # If the two disagree, openclaw treats the connect as
+                # "device identity changed" and demands UI re-approval.
+                # Setting it here from clawctl's own process platform
+                # — the install pair script runs on the agent host but
+                # is paired ON BEHALF OF this clawctl install, so the
+                # operator platform is what matters, not the agent
+                # host's OS.
+                #
+                # `_normalize_operator_platform` strips Python's
+                # versioned-platform suffix (`freebsd13` → `freebsd`)
+                # so the install-time and chat-time values match
+                # across Python interpreter upgrades on the same
+                # operator machine.
+                "operator_platform": _normalize_operator_platform(sys.platform),
                 # ATX W2: scope dashboard_port to hermes only. Unconditional
                 # injection puts `dashboard_port: null` in non-hermes
                 # inventories where `when: dashboard_port is defined`
@@ -930,6 +1016,17 @@ def run_installation(
                     if dashboard_port is not None
                     else {}
                 ),
+                # Issue #756: pre-rendered openclaw.json bytes (canonical
+                # renderer, install-time no-provider branch). Consumed by
+                # `install.yaml`'s `ansible.builtin.copy` task. Empty
+                # string for non-openclaw installs (the playbook task is
+                # openclaw-only).
+                # Bearer embedded here is wiped by
+                # _cleanup_ansible_artifacts which strips inventory/
+                # after every playbook run. Same
+                # invariant as config.gateway.auth.token (pre-existing)
+                # and the hermes/zeroclaw bearers.
+                "prerendered_openclaw_config_json": prerendered_openclaw_config_json,
                 **secret_vars,  # Inject secrets as ansible vars
             },
         }
@@ -1261,7 +1358,14 @@ def run_installation(
                         h["agents"][agent_name]["config"]["gateway"] = {}
 
                     h["agents"][agent_name]["config"]["gateway"]["url"] = gateway_url
-                    h["agents"][agent_name]["config"]["gateway"]["auth"] = gateway_token
+                    # #820: route the single write of gateway.auth through
+                    # `set_gateway_auth` so all callers (install,
+                    # configure, sync, re-pair, downgrade) persist the
+                    # same on-disk shape.
+                    set_gateway_auth(
+                        h["agents"][agent_name]["config"]["gateway"],
+                        gateway_token,
+                    )
                     h["agents"][agent_name]["config"]["gateway"]["port"] = openclaw_port
 
                     # Store device credentials for operator scope auth

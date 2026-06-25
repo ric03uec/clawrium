@@ -74,47 +74,11 @@
         mode: "0644"
       when: identity_files is defined and identity_files.sync_workspace | default(false)
 
-    # Install the brave web-search plugin BEFORE writing the env file
-    # so that a fresh `BRAVE_API_KEY` lands on a host that already has
-    # the plugin manifest the env var feeds — avoids a one-restart-late
-    # state where the env exists but the plugin doesn't.
-    #
-    # Sentinel-gated by the pinned version: a bump in
-    # `openclaw_brave_plugin_version` automatically re-triggers
-    # install on every host on the next configure.
-    #
-    # `no_log` deliberately NOT set: the install pulls a public npm
-    # package with no secrets in scope, and suppressing output here
-    # hides legitimate failures (network 403, ENOSPC, postinstall
-    # error) which under the previous `no_log: true` masked all
-    # diagnostics. (#734 ATX iter 2 W4)
-    #
-    # PATH is exported so nvm/Homebrew Node hosts can resolve `npm`
-    # without an interactive login shell. (ATX iter 2 W3)
-    - name: Install openclaw brave plugin (idempotent, gated by sentinel)
-      become: yes
-      become_user: "{{ agent_name }}"
-      environment:
-        PATH: "/home/{{ agent_name }}/.local/bin:/usr/local/bin:/usr/bin:/bin"
-      ansible.builtin.command: >-
-        npm install --prefix /home/{{ agent_name }}/.openclaw
-        {{ openclaw_brave_plugin_package }}@{{ openclaw_brave_plugin_version }}
-      args:
-        creates: "/home/{{ agent_name }}/.openclaw/.brave-plugin-installed.{{ openclaw_brave_plugin_version }}"
-      when:
-        - integrations is defined
-        - integrations.values() | selectattr('type', 'equalto', 'brave') | list | length > 0
-
-    - name: Stamp brave plugin install sentinel
-      become: yes
-      become_user: "{{ agent_name }}"
-      ansible.builtin.file:
-        path: "/home/{{ agent_name }}/.openclaw/.brave-plugin-installed.{{ openclaw_brave_plugin_version }}"
-        state: touch
-        mode: "0600"
-      when:
-        - integrations is defined
-        - integrations.values() | selectattr('type', 'equalto', 'brave') | list | length > 0
+    # #755: openclaw plugin install lifted into the canonical sync
+    # pipeline (`core/lifecycle_canonical.py:_openclaw_install_plugins`).
+    # Configure stays scoped to onboarding stages (providers / identity
+    # / channels); plugin install fires on every `clawctl agent sync`,
+    # which is the operator's "flush declared state" entry point.
 
     - name: Write openclaw .env from template
       ansible.builtin.template:
@@ -183,15 +147,14 @@
           loop_control:
             label: "{{ item.key }}"
 
-    - name: Write openclaw config from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/openclaw.json.j2"
+    - name: Write openclaw config (pre-rendered)
+      ansible.builtin.copy:
+        content: "{{ prerendered_openclaw_config_json }}"
         dest: "/home/{{ agent_name }}/.openclaw/openclaw.json"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
       no_log: true
-      when: config.provider is defined and config.provider.default_model is defined
       notify: Restart openclaw service
 
     - name: Write exec approvals policy from template
@@ -201,7 +164,10 @@
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
-        backup: yes
+        # W6: `backup: yes` accumulates `exec-approvals.json.NNNN~`
+        # siblings on every reconfigure with no rotation; on
+        # hot-iterating agents this grows unbounded. The previous
+        # value is recoverable via git (template-rendered) anyway.
       no_log: true
       notify: Restart openclaw service
 

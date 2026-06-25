@@ -2,6 +2,24 @@
 - hosts: all
   become: yes
   tasks:
+    # W3 (ATX iter-4): a direct `ansible-playbook install.yaml` run
+    # (no `operator_platform` extravar) would otherwise pass these
+    # tasks and crash deep in the pair step with an opaque
+    # `AnsibleUndefinedVariable`. Fail early with a hint pointing at
+    # `clawctl agent create`, which is the only supported entry.
+    - name: Assert operator_platform is provided (set by core/install.py)
+      ansible.builtin.assert:
+        that:
+          - operator_platform is defined
+          - operator_platform | length > 0
+        fail_msg: >-
+          `operator_platform` extravar is required; the openclaw
+          pair script records it on the daemon's device entry. This
+          playbook is invoked by `clawctl agent create`
+          (core/install.py), which sets it from the operator
+          machine's `sys.platform`. A direct `ansible-playbook
+          install.yaml` invocation is not supported.
+
     - name: Normalize target OpenClaw version
       ansible.builtin.set_fact:
         openclaw_target_version: "{{ (claw_version | default('v2026.6.8')) | regex_replace('^v', '') }}"
@@ -155,9 +173,9 @@
     # Skip on already-installed path: rewriting openclaw.json would rotate the
     # gateway token in the running daemon and invalidate the credentials cached
     # in hosts.json. The existing config on disk is preserved verbatim.
-    - name: Write openclaw config from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/openclaw.json.j2"
+    - name: Write openclaw config (pre-rendered)
+      ansible.builtin.copy:
+        content: "{{ prerendered_openclaw_config_json }}"
         dest: "/home/{{ agent_name }}/.openclaw/openclaw.json"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -165,7 +183,7 @@
       when: not openclaw_already_installed
       # ATX iter-1 B1: openclaw.json embeds the gateway bearer token.
       # Every other secret-touching task in this playbook already carries
-      # `no_log: true`; this template write must too so `-v` ansible-runner
+      # `no_log: true`; this copy write must too so `-v` ansible-runner
       # logs don't leak the rendered file path / contents into the artifact
       # directory.
       no_log: true
@@ -177,7 +195,10 @@
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
-        backup: yes
+        # W6 (ATX iter-2): `backup: yes` accumulates
+        # `exec-approvals.json.NNNN~` siblings on every install/reconfigure
+        # with no rotation; the previous value is recoverable from the
+        # template anyway.
       no_log: true
 
     - name: Verify exec approvals JSON is valid
@@ -292,8 +313,19 @@
       when: not openclaw_already_installed
 
     - name: Run device pairing via localhost
+      # Pass the OPERATOR's platform (the clawctl machine that drove
+      # this install) as the 3rd arg so the daemon's paired record
+      # carries the same `platform` value the chat client will send
+      # on subsequent connects. Without this the daemon flags
+      # later connects as "device identity changed" and demands UI
+      # re-approval.
       ansible.builtin.command:
-        cmd: "node pair_device.mjs ws://127.0.0.1:{{ openclaw_port }} {{ gateway_token_result_stdout }}"
+        argv:
+          - node
+          - pair_device.mjs
+          - "ws://127.0.0.1:{{ openclaw_port }}"
+          - "{{ gateway_token_result_stdout }}"
+          - "{{ operator_platform }}"
         chdir: "/home/{{ agent_name }}"
       become_user: "{{ agent_name }}"
       register: pairing_result

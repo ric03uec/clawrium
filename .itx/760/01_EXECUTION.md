@@ -386,7 +386,7 @@ the bulk of the docs landing here is straightforward).
 
 **Entry Criteria**:
 - Phase 3 merged (Ubuntu slices complete).
-- `mac-test` host reachable (per AGENTS.md memory `mac_test_host`).
+- `esper-macmini` host reachable (espers-mac-mini.tailf7742d.ts.net, darwin/arm64).
 - Branch `feat/760-phase-4-openclaw-macos` from main.
 
 **Exit Criteria**:
@@ -397,7 +397,7 @@ the bulk of the docs landing here is straightforward).
 - Integration test: `os_family="darwin"` path through
   `sync_agent_canonical` lands files at `/Users/<name>/.openclaw/workspace/`
   with correct mode + owner.
-- E2E on `mac-test` for `ws-openclaw-mac` (analogous to §3.3.2 E1
+- E2E on `esper-macmini` for `ws-openclaw-mac` (analogous to §3.3.2 E1
   but at `/Users/...` instead of `/home/...`).
 - AGENTS.md updated to note macOS workspace overlay is GA.
 
@@ -412,7 +412,7 @@ is the home-dir root path).
 
 **Entry Criteria**: Phase 4 merged.
 
-**Exit Criteria**: as Phase 2's exit criteria, on `mac-test` with
+**Exit Criteria**: as Phase 2's exit criteria, on `esper-macmini` with
 `/Users/<name>/.zeroclaw/workspace/` destination. Bearer-rotation
 invariant must hold identically.
 
@@ -424,7 +424,7 @@ invariant must hold identically.
 
 **Entry Criteria**: Phase 5 merged.
 
-**Exit Criteria**: as Phase 3's exit criteria, on `mac-test` with
+**Exit Criteria**: as Phase 3's exit criteria, on `esper-macmini` with
 `/Users/<name>/.hermes/` destination and the full exclude list.
 
 **Dependencies**: Phase 5.
@@ -510,7 +510,7 @@ sub-issues of #760:
 - #772 — Phase 6: hermes workspace overlay end-to-end on macOS (deferred)
 
 macOS Phases 4–6 filed as deferred tracking issues per user request
-(will be closed if `mac-test` capacity does not materialize).
+(will be closed if `esper-macmini` capacity does not materialize).
 
 ## Execute (orchestrate)
 

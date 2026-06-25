@@ -1300,6 +1300,119 @@ def test_clean_secret_applied_to_gateway_auth_and_api_server_key(stores):
     assert inputs.gateway is not None and inputs.gateway.auth == "token"
 
 
+def _openclaw_stores_with_auth(stores, auth_value):
+    """Configure stores for an openclaw agent with the given
+    `gateway.auth` value. Used by the #820 parametrized tests."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "openclaw",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {
+                    "host": "0.0.0.0",
+                    "port": 40000,
+                    "auth": auth_value,
+                    "bind": "lan",
+                },
+            },
+        },
+    )
+    stores.providers["or"] = {
+        "name": "or",
+        "type": "openrouter",
+        "default_model": "m",
+    }
+    stores.provider_api_keys["or"] = "sk-1"
+
+
+_AUTH_TOKEN_820 = "deadbeefcafef00d"
+
+
+@pytest.mark.parametrize(
+    "auth_value,expected_token",
+    [
+        # Bare-string shape (the canonical on-disk form per AGENTS.md).
+        (_AUTH_TOKEN_820, _AUTH_TOKEN_820),
+        # Legacy dict shape — `read_gateway_auth` unwraps to the bare
+        # token so a manually patched hosts.json can still be rendered
+        # without crashing.
+        ({"mode": "token", "token": _AUTH_TOKEN_820}, _AUTH_TOKEN_820),
+    ],
+)
+def test_gateway_auth_accepts_dict_and_string_shapes_openclaw(
+    stores, auth_value, expected_token
+):
+    """#820: `read_gateway_auth` in `build_render_inputs` accepts
+    both the canonical bare-string shape and the legacy dict shape
+    so a hosts.json that picked up the dict form (manual edit /
+    operational recovery) does not crash the renderer. The pre-fix
+    bug was an `AttributeError: 'dict' object has no attribute
+    'replace'` from `_clean_secret` when fed the dict shape."""
+    _openclaw_stores_with_auth(stores, auth_value)
+    inputs = build_render_inputs("alpha")
+    assert inputs.gateway is not None and inputs.gateway.auth == expected_token
+    json_body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    assert f'"token": "{expected_token}"' in json_body
+    assert '"mode": "token"' in json_body
+
+
+def test_gateway_auth_byte_identical_across_string_and_dict_shapes(stores):
+    """#820: bare-string and dict-shape `gateway.auth` MUST produce
+    byte-identical render output so a hosts.json normalized by the
+    next sync's `set_gateway_auth` write is functionally equivalent
+    to one that already carried the canonical shape."""
+    _openclaw_stores_with_auth(stores, _AUTH_TOKEN_820)
+    out_str = render_openclaw(build_render_inputs("alpha"))
+    _openclaw_stores_with_auth(
+        stores, {"mode": "token", "token": _AUTH_TOKEN_820}
+    )
+    out_dict = render_openclaw(build_render_inputs("alpha"))
+    assert out_str.files == out_dict.files
+
+
+def test_gateway_auth_dict_shape_works_for_zeroclaw(stores):
+    """#820 review 2 W1: the dict-shape normalization in
+    `build_render_inputs` fires for any agent type with a gateway
+    blob — not just openclaw. Pin the zeroclaw branch separately so a
+    future install.py change that writes the dict shape for zeroclaw
+    does not regress this code path silently."""
+    token = "z" + _AUTH_TOKEN_820
+    stores.agent = (
+        {"hostname": "host-1"},
+        "zeroclaw",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {
+                    "host": "0.0.0.0",
+                    "port": 40000,
+                    "auth": {"mode": "token", "token": token},
+                    "bind": "lan",
+                },
+            },
+        },
+    )
+    stores.providers["or"] = {"name": "or", "type": "openrouter", "default_model": "m"}
+    stores.provider_api_keys["or"] = "sk-1"
+    inputs = build_render_inputs("alpha")
+    # The assembly-boundary normalization is agent-type-agnostic, so
+    # the dict unwrap must produce the same bare-token result for
+    # zeroclaw as it does for openclaw. The zeroclaw `config.toml`
+    # template does not currently render `gateway.auth` (the bearer
+    # is rotated and persisted via a separate path — see
+    # `gateway_token_rotated` in AGENTS.md), so the assertion stops
+    # at the inputs layer rather than the rendered TOML.
+    assert inputs.gateway is not None and inputs.gateway.auth == token
+    # The render path itself must still succeed end-to-end — a
+    # regression in the dict-unwrap branch that left a dict in
+    # `gateway.auth` would crash inside the TOML renderer.
+    rendered = render_zeroclaw(inputs)
+    assert ".zeroclaw/config.toml" in rendered.files
+
+
 def test_hermes_file_keys_are_exact_set():
     """W7: any silent rename of an output path must fail tests."""
     out = render_hermes(_baseline_inputs(ptype="openrouter"))
@@ -1976,6 +2089,7 @@ _HERMES_BEDROCK_YAML = (
     "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
     "model:\n"
     "  provider: \"bedrock\"\n"
+    "  api_key: \"aws-sdk\"\n"
     "  default: 'anthropic.claude-opus-4-1-v1:0'\n"
     "bedrock:\n"
     "  region: 'us-east-1'\n"
@@ -2416,7 +2530,7 @@ _OPENCLAW_ENV_BEDROCK = (
     "OPENCLAW_GATEWAY_PORT=40000\n"
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
-    "OPENCLAW_DEFAULT_MODEL='bedrock/anthropic.claude-opus-4-1-v1:0'\n"
+    "OPENCLAW_DEFAULT_MODEL='amazon-bedrock/anthropic.claude-opus-4-1-v1:0'\n"
     "AWS_ACCESS_KEY_ID='AKIA-1'\n"
     "AWS_SECRET_ACCESS_KEY='secret-1'\n"
     "AWS_DEFAULT_REGION='us-east-1'\n"
@@ -3072,11 +3186,17 @@ def test_openclaw_git_integration_skipped():
 
 def test_openclaw_model_prefix_idempotent():
     """Round 2 S3: pre-prefixed model id must NOT double up.
-    (`openrouter/m` stays `openrouter/m`, not `openrouter/openrouter/m`.)"""
-    for ptype, model_id in [
-        ("openrouter", "openrouter/anthropic/claude-opus-4.7"),
-        ("bedrock", "bedrock/anthropic.claude-opus-4-1-v1:0"),
-    ]:
+    (`openrouter/m` stays `openrouter/m`; `amazon-bedrock/m` stays
+    `amazon-bedrock/m`, not `amazon-bedrock/amazon-bedrock/m`.)"""
+    cases = [
+        ("openrouter", "openrouter/", "openrouter/anthropic/claude-opus-4.7"),
+        (
+            "bedrock",
+            "amazon-bedrock/",
+            "amazon-bedrock/anthropic.claude-opus-4-1-v1:0",
+        ),
+    ]
+    for ptype, prefix, model_id in cases:
         if ptype == "openrouter":
             p = ProviderInputs(
                 name="or", type=ptype, default_model=model_id, api_key="sk-1"
@@ -3097,9 +3217,12 @@ def test_openclaw_model_prefix_idempotent():
             gateway=GatewayInputs(host="0.0.0.0", port=40000, bind="lan"),
         )
         env = render_openclaw(inputs).files[".openclaw/env"]
-        assert f"OPENCLAW_DEFAULT_MODEL='{model_id}'" in env
-        # Critical: prefix must not appear twice.
-        prefix = f"{ptype}/"
+        expected_line = f"OPENCLAW_DEFAULT_MODEL='{model_id}'"
+        # Exact-line match — substring would pass for a double-prefixed
+        # value that happens to contain the model id as a tail.
+        assert any(line == expected_line for line in env.splitlines()), (
+            f"expected exact line {expected_line!r} in:\n{env}"
+        )
         assert env.count(prefix + prefix) == 0
 
 
@@ -4316,3 +4439,273 @@ def test_zeroclaw_brave_alongside_github_renders_both():
     assert 'Environment=GITHUB_TOKEN_GH_1="ghp_a"' in env
     assert 'Environment=BRAVE_API_KEY="bsk-1"' in env
     assert 'Environment=ZEROCLAW_web_search__search_provider="brave"' in env
+
+
+# ---------------------------------------------------------------------------
+# Issue #756: _render_openclaw_json no-provider branch (install bootstrap).
+# ---------------------------------------------------------------------------
+
+
+def test_render_openclaw_json_no_provider_returns_baseline_plus_gateway():
+    """Install-time bootstrap path: `provider=None` yields the baseline
+    JSON plus only the gateway overrides. Specifically:
+
+      - output parses as valid JSON;
+      - gateway block carries the supplied port / bind / auth token;
+      - `agents.defaults.model.primary` is NOT written beyond whatever
+        the baseline already ships (the legacy install template wrote
+        it from `config.provider.default_model`; the no-provider call
+        skips that step entirely).
+    """
+    import json
+
+    from clawrium.core.render import (
+        _openclaw_json_baseline,
+        _render_openclaw_json,
+    )
+
+    rendered = _render_openclaw_json(
+        provider=None,
+        provider_default_model=None,
+        gateway=GatewayInputs(port=41234, bind="lan", auth="bearer-XYZ"),
+        discord_channel=None,
+    )
+    parsed = json.loads(rendered)
+
+    # Gateway carries the install-time mint.
+    assert parsed["gateway"]["port"] == 41234
+    assert parsed["gateway"]["bind"] == "lan"
+    assert parsed["gateway"]["auth"] == {"mode": "token", "token": "bearer-XYZ"}
+
+    # `agents.defaults.model.primary` is exactly whatever the baseline
+    # shipped — the renderer did NOT add or overwrite it. If the baseline
+    # lacks the key, the no-provider render must lack it too.
+    baseline = json.loads(_openclaw_json_baseline())
+    baseline_primary = (
+        baseline.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+    )
+    rendered_primary = (
+        parsed.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+    )
+    assert rendered_primary == baseline_primary, (
+        f"no-provider render mutated agents.defaults.model.primary "
+        f"(baseline={baseline_primary!r}, rendered={rendered_primary!r})"
+    )
+
+    # S3 (#756 ATX iter-2): lock the full top-level key set so any
+    # accidental key addition (e.g. a future renderer step that creates
+    # a section the baseline doesn't ship) trips this test instead of
+    # silently shipping an unexpected on-host file shape.
+    assert set(parsed.keys()) == set(baseline.keys()), (
+        f"no-provider render altered top-level key set: "
+        f"baseline={sorted(baseline.keys())}, "
+        f"rendered={sorted(parsed.keys())}"
+    )
+
+
+def test_render_openclaw_json_no_provider_omits_models_providers_block():
+    """No-provider render must not add any `models.providers.<name>`
+    entry — the litellm custom-provider block is gated on
+    `provider.type == "litellm"`, and skipping the gate entirely when
+    `provider is None` keeps the install-time scaffold free of any
+    provider-specific routing config."""
+    import json
+
+    from clawrium.core.render import (
+        _openclaw_json_baseline,
+        _render_openclaw_json,
+    )
+
+    rendered = _render_openclaw_json(
+        provider=None,
+        provider_default_model=None,
+        gateway=GatewayInputs(port=40000, bind="lan", auth="t"),
+        discord_channel=None,
+    )
+    parsed = json.loads(rendered)
+
+    # If the baseline ships an empty `models.providers` map, the render
+    # must preserve it as-is; if the baseline omits `models` entirely,
+    # the no-provider render must too (the litellm branch is the only
+    # writer that adds the path, and it was skipped).
+    baseline = json.loads(_openclaw_json_baseline())
+    baseline_providers = baseline.get("models", {}).get("providers", {})
+    rendered_providers = parsed.get("models", {}).get("providers", {})
+    assert rendered_providers == baseline_providers, (
+        f"no-provider render mutated models.providers "
+        f"(baseline={baseline_providers!r}, rendered={rendered_providers!r})"
+    )
+
+
+def test_render_openclaw_json_no_provider_with_discord_channel():
+    """No-provider render + discord channel: gateway populated, model
+    skipped, discord allowlist populated. Pins that the discord block
+    write path is provider-independent (channels are configured via
+    `clawctl channel attach`, not `clawctl provider attach`)."""
+    import json
+
+    from clawrium.core.render import _render_openclaw_json
+
+    discord = ChannelInputs(
+        name="disc",
+        type="discord",
+        allowed_users=("user-1", "user-2"),
+        allowed_guilds=("guild-x",),
+        allowed_channels=("chan-a",),
+    )
+    rendered = _render_openclaw_json(
+        provider=None,
+        provider_default_model=None,
+        gateway=GatewayInputs(port=40500, bind="lan", auth="tkn"),
+        discord_channel=discord,
+    )
+    parsed = json.loads(rendered)
+
+    assert parsed["channels"]["discord"]["enabled"] is True
+    assert parsed["channels"]["discord"]["allowFrom"] == ["user-1", "user-2"]
+    assert "guild-x" in parsed["channels"]["discord"]["guilds"]
+    # Model still skipped.
+    rendered_primary = (
+        parsed.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+    )
+    # Baseline doesn't ship a primary key — confirm it's absent.
+    from clawrium.core.render import _openclaw_json_baseline
+
+    baseline = json.loads(_openclaw_json_baseline())
+    baseline_primary = (
+        baseline.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+    )
+    assert rendered_primary == baseline_primary
+
+
+# W1 + W3 (#756 ATX iter-2): an empty `default_model` on an attached
+# provider must hard-fail at the renderer assembly boundary instead of
+# silently writing `agents.defaults.model.primary = null`. The
+# no-provider path (where `provider_default_model` is also None) must
+# keep working because the renderer skips the write entirely. This
+# parametrize covers both branches in one test.
+@pytest.mark.parametrize(
+    "provider, default_model, expect_raises",
+    [
+        # provider attached + empty model → must raise
+        (
+            ProviderInputs(
+                name="or",
+                type="openrouter",
+                default_model="",
+                api_key="sk-1",
+            ),
+            "",
+            True,
+        ),
+        # provider attached + None model → must raise
+        (
+            ProviderInputs(
+                name="oa",
+                type="openai",
+                default_model="",
+                api_key="sk-1",
+            ),
+            None,
+            True,
+        ),
+        # no provider + empty/None model → must succeed (install-time
+        # bootstrap path).
+        (None, None, False),
+        (None, "", False),
+    ],
+)
+def test_render_openclaw_json_empty_default_model_handling(
+    provider, default_model, expect_raises
+):
+    from clawrium.core.render import _render_openclaw_json
+
+    gateway = GatewayInputs(port=40500, bind="lan", auth="bearer")
+    if expect_raises:
+        with pytest.raises(AgentConfigError) as exc_info:
+            _render_openclaw_json(
+                provider=provider,
+                provider_default_model=default_model,
+                gateway=gateway,
+                discord_channel=None,
+            )
+        assert "empty" in str(exc_info.value)
+    else:
+        rendered = _render_openclaw_json(
+            provider=provider,
+            provider_default_model=default_model,
+            gateway=gateway,
+            discord_channel=None,
+        )
+        # No provider attached: succeeds, returns valid JSON, model
+        # primary not written.
+        import json as _json
+
+        parsed = _json.loads(rendered)
+        assert parsed["gateway"]["port"] == 40500
+
+
+# R1 (#756 ATX iter-2 W1): the litellm branch prefixes the model_id as
+# `<provider-name>/<default_model>`, which is truthy even when
+# default_model is empty — bypassing the belt-and-suspenders guard in
+# `_render_openclaw_json`. Whitespace-only default_model has the same
+# problem for every provider type (`not "   "` is False). The fix
+# raises at `render_openclaw` BEFORE the prefix is built.
+@pytest.mark.parametrize(
+    "default_model, expect_raises",
+    [
+        ("", True),
+        (" ", True),
+        ("\t", True),
+        ("writer", False),
+    ],
+)
+def test_render_openclaw_validates_default_model_before_prefixing(
+    default_model, expect_raises
+):
+    base = _baseline_inputs(ptype="openrouter")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=default_model,
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type="openclaw",
+        provider=provider,
+        channels=(),
+        integrations=(),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tkn", bind="lan"),
+    )
+    if expect_raises:
+        with pytest.raises(AgentConfigError, match="empty or whitespace-only"):
+            render_openclaw(inputs)
+    else:
+        out = render_openclaw(inputs)
+        assert ".openclaw/openclaw.json" in out.files
+
+
+def test_render_openclaw_litellm_empty_default_model_raises_at_entry():
+    """R1 (#756 ATX iter-2 W1): for litellm specifically, the prefixed
+    `model_id` becomes `"<provider-name>/"` (truthy) when
+    `default_model == ""`, bypassing the `_render_openclaw_json` guard.
+    `render_openclaw` MUST reject before the prefix is built."""
+    base = _baseline_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type="litellm",
+        default_model="",
+        endpoint=base.provider.endpoint,
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type="openclaw",
+        provider=provider,
+        channels=(),
+        integrations=(),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tkn", bind="lan"),
+    )
+    with pytest.raises(AgentConfigError, match="empty or whitespace-only"):
+        render_openclaw(inputs)

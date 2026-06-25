@@ -2498,3 +2498,257 @@ def test_install_hermes_dashboard_port_pool_exhausted(monkeypatch, tmp_path):
 
     with pytest.raises(InstallationError, match="[Pp]ool exhausted"):
         run_installation("hermes", "test-host", name="hermes-new")
+
+
+def test_install_hardware_unknown_raises(monkeypatch, tmp_path):
+    """Issue #720: install MUST fail when host hardware is unknown.
+
+    When check_compatibility returns matched_entry=None (no hardware facts
+    gathered), the install must refuse to proceed rather than guessing a
+    version. Guessing caused npm ETARGET errors with non-existent versions.
+    """
+    from clawrium.core.install import run_installation, InstallationError
+
+    # Mock load_manifest
+    mock_manifest = {
+        "name": "openclaw",
+        "platforms": [
+            {
+                "version": "2026.6.8",
+                "os": "macos",
+                "os_version": ">=14",
+                "arch": "arm64",
+            }
+        ],
+    }
+
+    import clawrium.core.install
+
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    # Host exists but has empty hardware (not yet gathered)
+    host_no_hardware = {
+        "hostname": "test-host.local",
+        "agent_name": "xclm",
+        "port": 22,
+        "hardware": {},
+        "agents": {},
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: host_no_hardware)
+
+    # check_compatibility with empty hardware returns compatible=True, matched_entry=None
+    compat_result = {
+        "compatible": True,
+        "matched_entry": None,
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: compat_result,
+    )
+
+    with pytest.raises(InstallationError, match="hardware information is not available"):
+        run_installation("openclaw", "test-host")
+
+
+def test_install_hardware_unknown_with_version_override_bypasses_check(monkeypatch, tmp_path):
+    """When --version is explicitly provided, hardware-unknown gate is skipped.
+
+    An explicit version override means the operator knows what they want —
+    the hardware check gate should not block them. We verify the code
+    proceeds past the hardware gate (it may fail later for other reasons,
+    but NOT with the 'hardware information is not available' error).
+    """
+    from clawrium.core.install import run_installation
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "openclaw",
+        "platforms": [
+            {
+                "version": "2026.6.8",
+                "os": "macos",
+                "os_version": ">=14",
+                "arch": "arm64",
+            }
+        ],
+    }
+
+    import clawrium.core.install
+
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    host_no_hardware = {
+        "hostname": "test-host.local",
+        "agent_name": "xclm",
+        "port": 22,
+        "hardware": {},
+        "agents": {},
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: host_no_hardware)
+
+    # compatible=True, matched_entry=None (hardware unknown)
+    compat_result = {
+        "compatible": True,
+        "matched_entry": None,
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: compat_result,
+    )
+
+    # Capture events so we can prove the version-override branch ran
+    # (rather than just observing "no hardware-unknown error" — which
+    # would also pass if some unrelated exception fired before the gate).
+    events: list[tuple[str, str]] = []
+
+    def _on_event(stage: str, message: str) -> None:
+        events.append((stage, message))
+
+    # We expect the code to proceed past the hardware gate. It will fail
+    # later (e.g. missing SSH key), but NOT with InstallationError about
+    # missing hardware.
+    from clawrium.core.install import InstallationError
+
+    with pytest.raises(InstallationError) as exc_info:
+        run_installation(
+            "openclaw",
+            "test-host",
+            on_event=_on_event,
+            version_override="2026.6.8",
+        )
+
+    # The error must NOT be about hardware being unavailable.
+    assert "hardware information is not available" not in str(exc_info.value)
+    # The version-override branch must have fired before the failure —
+    # this pins the branch entry so the assertion above can't pass
+    # vacuously on an unrelated early exit.
+    assert (
+        "validate",
+        "Version override: openclaw v2026.6.8",
+    ) in events
+
+
+# ---------------------------------------------------------------------------
+# B1 (ATX iter-4 #719): `operator_platform` extravar must be threaded
+# from `sys.platform` (normalized) into the ansible inventory so the
+# openclaw pair script records the OPERATOR's platform on the daemon's
+# paired device entry — not the agent host's OS. A regression that
+# drops/renames this key would only surface on a live host at pair
+# time as `AnsibleUndefinedVariable`, reinstating the #719 bug
+# silently. Asserts the value via `mock_run.call_args` introspection
+# on the same fixture pattern as `test_install_success` above.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sys_platform_value, expected_normalized",
+    [
+        ("linux", "linux"),
+        ("darwin", "darwin"),
+        ("win32", "win32"),
+        # FreeBSD: Python returns versioned `freebsd13`; the normalizer
+        # must strip the version so the value matches what Node's
+        # `process.platform` (= bare `freebsd`) records on the daemon.
+        ("freebsd13", "freebsd"),
+        ("freebsd14", "freebsd"),
+        ("openbsd6.9", "openbsd"),
+    ],
+)
+def test_install_inventory_threads_normalized_operator_platform(
+    monkeypatch, tmp_path, sys_platform_value, expected_normalized
+):
+    """`run_installation` must inject `operator_platform` into the
+    ansible inventory vars dict, normalized to the bare family name
+    that matches Node's `process.platform` shape (see
+    clawrium.core._operator_platform)."""
+    import sys as _sys
+
+    monkeypatch.setattr(_sys, "platform", sys_platform_value)
+
+    from clawrium.core.install import run_installation
+    import clawrium.core.install
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    mock_manifest = {
+        "name": "openclaw",
+        "entries": [
+            {
+                "version": "0.1.0",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+                "sha256": "abc123",
+                "requirements": {
+                    "min_memory_mb": 2048,
+                    "gpu_required": False,
+                    "dependencies": {"python": ">=3.9"},
+                },
+            }
+        ],
+    }
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    key_file = tmp_path / "test_key"
+    key_file.write_text("fake key")
+
+    compatible_host = {
+        "hostname": "test-host",
+        "agent_name": "xclm",
+        "port": 22,
+        "key_id": "test-host",
+        "hardware": {
+            "architecture": "x86_64",
+            "os": "ubuntu",
+            "os_version": "24.04",
+            "memtotal_mb": 4096,
+        },
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: compatible_host)
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: {
+            "compatible": True,
+            "matched_entry": mock_manifest["entries"][0],
+            "reasons": [],
+        },
+    )
+    monkeypatch.setattr(
+        clawrium.core.install, "get_host_private_key", lambda x: key_file
+    )
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "update_host",
+        lambda h, u: u(clawrium.core.install.get_host(h)),
+    )
+    monkeypatch.setattr(
+        clawrium.core.install, "initialize_onboarding", lambda h, c: True
+    )
+
+    class SuccessfulResult:
+        status = "successful"
+
+    mock_run = Mock(return_value=SuccessfulResult())
+    import ansible_runner
+    monkeypatch.setattr(ansible_runner, "run", mock_run)
+
+    run_installation("openclaw", "test-host")
+
+    # Inspect the CLAW playbook call (second invocation; first is base).
+    assert mock_run.call_count == 2
+    claw_call_kwargs = mock_run.call_args_list[1].kwargs
+    inv_vars = claw_call_kwargs["inventory"]["all"]["vars"]
+    assert "operator_platform" in inv_vars, (
+        f"missing operator_platform; got keys: {sorted(inv_vars.keys())}"
+    )
+    assert inv_vars["operator_platform"] == expected_normalized, (
+        f"expected {expected_normalized!r} (normalized from "
+        f"sys.platform={sys_platform_value!r}); got "
+        f"{inv_vars['operator_platform']!r}"
+    )

@@ -28,6 +28,23 @@
         msg: "Invalid agent_name"
       when: agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
 
+    # W3 (ATX iter-4): paired with the Linux install.yaml guard. A
+    # direct `ansible-playbook install_macos.yaml` invocation lacks
+    # `operator_platform` and would crash deep in the pair step with
+    # `AnsibleUndefinedVariable`. Fail early with a hint.
+    - name: Assert operator_platform is provided (set by core/install.py)
+      ansible.builtin.assert:
+        that:
+          - operator_platform is defined
+          - operator_platform | length > 0
+        fail_msg: >-
+          `operator_platform` extravar is required; the openclaw
+          pair script records it on the daemon's device entry. This
+          playbook is invoked by `clawctl agent create`
+          (core/install.py), which sets it from the operator
+          machine's `sys.platform`. A direct `ansible-playbook
+          install_macos.yaml` invocation is not supported.
+
     - name: Normalize target OpenClaw version
       ansible.builtin.set_fact:
         openclaw_target_version: "{{ (claw_version | default('v2026.6.8')) | regex_replace('^v', '') }}"
@@ -211,9 +228,9 @@
         msg: "Invalid openclaw_port: must be digits only"
       when: openclaw_port | string is not regex('^[0-9]+$')
 
-    - name: Write openclaw config from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/openclaw.json.j2"
+    - name: Write openclaw config (pre-rendered)
+      ansible.builtin.copy:
+        content: "{{ prerendered_openclaw_config_json }}"
         dest: "/Users/{{ agent_name }}/.openclaw/openclaw.json"
         owner: "{{ agent_name }}"
         group: staff
@@ -362,12 +379,17 @@
       when: not openclaw_already_installed
 
     - name: Run device pairing via localhost
+      # 5th argv element is the OPERATOR's platform (the clawctl
+      # machine that drove this install). Daemon stores it on the
+      # paired record; chat client sends the same value via
+      # `sys.platform`. Mismatch → "device identity changed" rejects.
       ansible.builtin.command:
         argv:
           - /opt/homebrew/bin/node
           - pair_device.mjs
           - "ws://127.0.0.1:{{ openclaw_port }}"
           - "{{ gateway_token_result_stdout }}"
+          - "{{ operator_platform }}"
         chdir: "/Users/{{ agent_name }}"
       become_user: "{{ agent_name }}"
       environment:

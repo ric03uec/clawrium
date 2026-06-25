@@ -1,0 +1,31 @@
+{
+  "transport": "cli",
+  "iterations": [
+    {
+      "iteration": 1,
+      "task_id": "74bf444a-41e1-4fb5-81a7-60b4d1a36a4a",
+      "rating": 3,
+      "blockers": ["B1: non-dict non-string crash", "B2: dict missing token silent no-auth"],
+      "cost_usd": 1.9302937,
+      "duration_ms": 356439
+    },
+    {
+      "iteration": 2,
+      "task_id": "d73f7024-ac2c-4130-872d-6fae09de551e",
+      "rating": 3,
+      "blockers": ["B1: whitespace-only dict token bypass", "B2: whitespace-only bare-string auth bypass"],
+      "cost_usd": 3.0750577,
+      "duration_ms": 718365
+    },
+    {
+      "iteration": 3,
+      "task_id": "8e43dbab-0225-46e3-92ab-c728b5822299",
+      "rating": 4,
+      "blockers": [],
+      "cost_usd": 3.1295627,
+      "duration_ms": 456817
+    }
+  ],
+  "last_rating": 4,
+  "blocking": false
+}

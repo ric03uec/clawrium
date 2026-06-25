@@ -224,13 +224,13 @@ features:
       - <relpath>/             # trailing slash = dir-prefix match
 ```
 
-Per-type destinations (Ubuntu, this iteration):
+Per-type destinations:
 
-| Agent | `destination_root` | Notes |
-|---|---|---|
-| openclaw | `~/.openclaw/workspace` | No excludes — workspace zone is operator-owned |
-| zeroclaw | `~/.zeroclaw/workspace` | No excludes — workspace dir holds operator memory files; canonical render writes elsewhere. Every sync also rotates the gateway bearer (#437). |
-| hermes   | `~/.hermes` | Renderer-output paths excluded. Shares destination root with `core/render.py` output, `skills_apply.yaml` writes, and daemon state (SQLite + WAL companions). |
+| Agent | `destination_root` | Linux path | macOS path | Notes |
+|---|---|---|---|---|
+| openclaw | `~/.openclaw/workspace` | `/home/<name>/.openclaw/workspace` | `/Users/<name>/.openclaw/workspace` (#770) | No excludes — workspace zone is operator-owned. macOS GA via #770. |
+| zeroclaw | `~/.zeroclaw/workspace` | `/home/<name>/.zeroclaw/workspace` | `/Users/<name>/.zeroclaw/workspace` (#771) | No excludes — workspace dir holds operator memory files; canonical render writes elsewhere. Every sync also rotates the gateway bearer (#437); macOS GA via #771. |
+| hermes   | `~/.hermes` | `/home/<name>/.hermes` | `/Users/<name>/.hermes` (#772) | Renderer-output paths excluded. Shares destination root with `core/render.py` output, `skills_apply.yaml` writes, and daemon state (SQLite + WAL companions). macOS GA via #772 — the per-file `workspace_excluded` Jinja filter applies identically on darwin and Linux. |
 
 Hermes excludes (manifest source of truth):
 
@@ -267,20 +267,28 @@ CLI flags on `clawctl agent sync`:
 
 Host-write path is **Ansible only** — per-agent
 `playbooks/workspace.yaml` (Linux) and `playbooks/workspace_macos.yaml`
-(stub until Phases 4–6). The Python side stages files into a managed
-`tempfile.TemporaryDirectory` under
+(macOS; openclaw GA via #770, zeroclaw GA via #771, hermes GA via
+#772 — the workspace-overlay macOS matrix is complete). The Python
+side stages files into a
+managed `tempfile.TemporaryDirectory` under
 `${clawrium_config}/staging/workspace/<name>/` and passes the file
 list as the `workspace_files` extravar; ansible-runner reads the
 staged copies, never the operator's original path. Symlinks are
 rejected at enumeration (`os.path.islink`); `follow: no` on the
-`ansible.builtin.copy` task is belt-and-suspenders. The playbook
-asserts the rendered destination starts with `/home/{{ agent_name }}/`
-and NEVER references `ansible_user_dir` (B1 iter-3: `become_user`
-does not re-run `setup`, so the fact would resolve to the SSH user,
-not the agent user). This `ansible_user_dir` ban is a **project-wide
-invariant** — any new or refactored Ansible task that needs the agent
-user's home MUST use the literal `/home/{{ agent_name }}` pattern,
-not the fact.
+`ansible.builtin.copy` task is belt-and-suspenders. The Linux playbook
+asserts the rendered destination starts with `/home/{{ agent_name }}/`;
+the macOS playbook asserts `/Users/{{ agent_name }}/`. The OS→home-root
+mapping is centralized in `core.playbook_resolver.home_root_for` and
+consumed by `core.workspace_sync._expand_destination_root`; no other
+module is allowed to branch on os_family. Neither variant references
+`ansible_user_dir` (B1 iter-3: `become_user` does not re-run `setup`,
+so the fact would resolve to the SSH user, not the agent user). This
+`ansible_user_dir` ban is a **project-wide invariant** — any new or
+refactored Ansible task that needs the agent user's home MUST use the
+literal `/home/{{ agent_name }}` (Linux) or `/Users/{{ agent_name }}`
+(macOS) pattern, never the fact. The macOS playbook also hardcodes
+`group: staff` (gid 20) instead of the Linux `group: "{{ agent_name }}"`
+convention, because macOS does not create a per-user primary group.
 
 Secret-pattern files (`*.key`, `*.pem`, `*.env`, `.env`,
 `*credentials*`, `*secret*`, `*token*`, `*password*`) get `mode: '0600'`

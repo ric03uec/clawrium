@@ -43,7 +43,7 @@ class _FakeClient:
         self.commands: list[str] = []
         self._responses = list(responses or [])
 
-    def exec_command(self, cmd):  # noqa: ANN001
+    def exec_command(self, cmd, **_kwargs):  # noqa: ANN001
         self.commands.append(cmd)
         if self._responses:
             rc, out, err = self._responses.pop(0)

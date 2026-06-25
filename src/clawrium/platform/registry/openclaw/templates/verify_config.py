@@ -4,7 +4,17 @@
 This script is called by Ansible to verify the configuration file
 was rendered correctly. It reads the actual and expected config files
 and validates critical fields match.
+
+Runs on the agent host with whatever `python3` ships there. PEP 604
+union syntax (`X | Y`) became a legal *runtime* annotation in Python
+3.10; on Python 3.9 (which Apple/Xcode CLI tools ship as
+`/usr/bin/python3`) the same syntax raises `TypeError` when the
+function definition is evaluated. `from __future__ import annotations`
+defers all annotation evaluation to string form, keeping this script
+compatible back to Python 3.7.
 """
+
+from __future__ import annotations
 
 import json
 import sys
@@ -60,8 +70,21 @@ def main():
             return f"openrouter/{default_model}"
         if provider_type == "ollama" and not default_model.startswith("ollama/"):
             return f"ollama/{default_model}"
-        if provider_type == "bedrock" and not default_model.startswith("bedrock/"):
-            return f"bedrock/{default_model}"
+        if provider_type == "bedrock" and not default_model.startswith("amazon-bedrock/"):
+            return f"amazon-bedrock/{default_model}"
+        if provider_type == "litellm":
+            # Mirror clawrium.core.render's litellm rule (#756): the prefix
+            # is the clawctl provider name, not a static type-keyed string,
+            # because every litellm proxy is its own custom provider in
+            # `models.providers.<name>`. Without this branch the verify task
+            # always fails for litellm providers (#819) because the
+            # canonical render emits `<provider-name>/<model>` while this
+            # function would otherwise return the raw `default_model`.
+            provider_name = provider.get("name")
+            if isinstance(provider_name, str) and provider_name:
+                prefix = f"{provider_name}/"
+                if not default_model.startswith(prefix):
+                    return f"{prefix}{default_model}"
         return default_model
 
     # Verify model is set if provider configured
@@ -83,19 +106,21 @@ def main():
                     f"Model mismatch: expected '{expected_model}', got '{actual_model}'"
                 )
 
-    # Verify gateway port
-    if expected_config.get("gateway", {}).get("port"):
+    # Verify gateway port. Use `is not None` rather than truthy: a
+    # misconfigured `port: 0` (or `bind: ""`) would otherwise silently
+    # skip verification and let a broken render through (S7).
+    expected_port = expected_config.get("gateway", {}).get("port")
+    if expected_port is not None:
         gateway_port = config.get("gateway", {}).get("port")
-        expected_port = expected_config["gateway"]["port"]
         if gateway_port != expected_port:
             errors.append(
                 f"Gateway port mismatch: expected {expected_port}, got {gateway_port}"
             )
 
     # Verify gateway bind
-    if expected_config.get("gateway", {}).get("bind"):
+    expected_bind = expected_config.get("gateway", {}).get("bind")
+    if expected_bind is not None:
         gateway_bind = config.get("gateway", {}).get("bind")
-        expected_bind = expected_config["gateway"]["bind"]
         if gateway_bind != expected_bind:
             errors.append(
                 f"Gateway bind mismatch: expected {expected_bind}, got {gateway_bind}"

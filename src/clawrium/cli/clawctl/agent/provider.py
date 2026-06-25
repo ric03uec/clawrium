@@ -257,11 +257,8 @@ def detach(
 ) -> None:
     """Detach a provider from an agent.
 
-    Note: the provider config previously materialized into the agent's
-    `config.provider` block is preserved as last-known-good across
-    syncs. To switch providers, attach a replacement and run
-    `clawctl agent sync`; the new provider will overwrite the old.
-    See #426.
+    To switch providers, attach a replacement and run
+    `clawctl agent sync`. See #426.
 
     On hermes, detaching the primary while auxiliary attachments remain
     is rejected — promotion is out of scope (#612). Detach the aux
@@ -307,10 +304,6 @@ def detach(
     remaining = [e for e in current if e is not target]
     if not _set_attachments(hostname, agent_key, agent_type, remaining):
         emit_error(f"failed to detach provider {name!r} from agent {agent!r}")
-    # Issue #426 design decision: detach does NOT strip
-    # `agent.config.provider`. The provider config persists across
-    # sync runs as last-known-good so the remote keeps functioning
-    # until the user explicitly attaches a replacement.
     typer.echo(f"agent/{agent}: detached provider {name!r}")
 
 

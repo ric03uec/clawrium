@@ -200,7 +200,12 @@ class TestGetFleetDataLocal:
         assert summary["running"] == 0
 
     def test_local_fields_populated(self, isolated_config):
-        """Local fields (model, provider, gateway, uptime) should be present."""
+        """Local fields (model, provider, gateway, uptime) should be present.
+
+        Post-#790 the provider/model are resolved from the tier-1
+        attachment list + providers.json — not from the stale
+        ``config.provider`` mirror — so this fixture seeds both files.
+        """
         isolated_config.mkdir(parents=True, exist_ok=True)
         hosts = [
             {
@@ -211,12 +216,8 @@ class TestGetFleetDataLocal:
                         "type": "openclaw",
                         "version": "2.1.0",
                         "agent_name": "my-agent",
+                        "providers": [{"name": "my-provider"}],
                         "config": {
-                            "provider": {
-                                "name": "my-provider",
-                                "type": "bedrock",
-                                "default_model": "claude-3",
-                            },
                             "gateway": {"port": 8080},
                         },
                         "onboarding": {"state": "ready"},
@@ -225,6 +226,17 @@ class TestGetFleetDataLocal:
             }
         ]
         (isolated_config / "hosts.json").write_text(json.dumps(hosts))
+        (isolated_config / "providers.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "my-provider",
+                        "type": "bedrock",
+                        "default_model": "claude-3",
+                    }
+                ]
+            )
+        )
 
         agents, _ = get_fleet_data_local()
         agent = agents[0]

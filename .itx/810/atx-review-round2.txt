@@ -1,0 +1,168 @@
+Reviewing changes for /home/devashish/workspace/ric03uec/clawrium-issue-810...
+{"time":"2026-06-24T23:45:25.384317674-07:00","level":"INFO","msg":"review: no session for worktree, using git fallback","file_count":7,"working_dir":"/home/devashish/workspace/ric03uec/clawrium-issue-810"}
+{"time":"2026-06-24T23:45:25.398765793-07:00","level":"INFO","msg":"review: task created","task_id":"3e9d218a-39bf-4556-9327-4f8e6c4d41dc","project_port":30011}
+ATX review in progress. Using high effort (per-project) — leader may invoke up to 6 of 7 specialists.
+Task created (id: 3e9d218a-39bf-4556-9327-4f8e6c4d41dc), polling for completion...
+Waiting for review... (0s elapsed)
+Waiting for review... (1s elapsed)
+Waiting for review... (3s elapsed)
+Waiting for review... (7s elapsed)
+Waiting for review... (15s elapsed)
+Waiting for review... (25s elapsed)
+Waiting for review... (35s elapsed)
+Waiting for review... (45s elapsed)
+Waiting for review... (55s elapsed)
+Waiting for review... (1m5s elapsed)
+Waiting for review... (1m15s elapsed)
+Waiting for review... (1m25s elapsed)
+Waiting for review... (1m35s elapsed)
+Waiting for review... (1m45s elapsed)
+Waiting for review... (1m55s elapsed)
+Waiting for review... (2m5s elapsed)
+Waiting for review... (2m15s elapsed)
+Waiting for review... (2m25s elapsed)
+Waiting for review... (2m35s elapsed)
+Waiting for review... (2m45s elapsed)
+Waiting for review... (2m55s elapsed)
+Waiting for review... (3m5s elapsed)
+Waiting for review... (3m15s elapsed)
+Waiting for review... (3m25s elapsed)
+Waiting for review... (3m35s elapsed)
+Waiting for review... (3m45s elapsed)
+Waiting for review... (3m55s elapsed)
+Waiting for review... (4m5s elapsed)
+Waiting for review... (4m15s elapsed)
+Waiting for review... (4m25s elapsed)
+Waiting for review... (4m35s elapsed)
+Waiting for review... (4m45s elapsed)
+Waiting for review... (4m55s elapsed)
+Waiting for review... (5m5s elapsed)
+Waiting for review... (5m15s elapsed)
+Waiting for review... (5m25s elapsed)
+Waiting for review... (5m35s elapsed)
+Waiting for review... (5m45s elapsed)
+Waiting for review... (5m55s elapsed)
+Waiting for review... (6m5s elapsed)
+Waiting for review... (6m15s elapsed)
+Waiting for review... (6m25s elapsed)
+Waiting for review... (6m35s elapsed)
+Waiting for review... (6m45s elapsed)
+Waiting for review... (6m55s elapsed)
+Waiting for review... (7m5s elapsed)
+Waiting for review... (7m15s elapsed)
+Waiting for review... (7m25s elapsed)
+Waiting for review... (7m35s elapsed)
+Waiting for review... (7m45s elapsed)
+Waiting for review... (7m55s elapsed)
+Waiting for review... (8m5s elapsed)
+Waiting for review... (8m15s elapsed)
+Waiting for review... (8m25s elapsed)
+Waiting for review... (8m35s elapsed)
+Waiting for review... (8m45s elapsed)
+Waiting for review... (8m55s elapsed)
+Waiting for review... (9m5s elapsed)
+{"time":"2026-06-24T23:54:40.823012652-07:00","level":"INFO","msg":"review: task completed","task_id":"3e9d218a-39bf-4556-9327-4f8e6c4d41dc","status":"completed","duration_ms":548517}
+{"time":"2026-06-24T23:54:40.82304889-07:00","level":"INFO","msg":"review: completed","task_id":"3e9d218a-39bf-4556-9327-4f8e6c4d41dc","status":"completed","blocking":false,"files_reviewed":7,"cost_usd":4.832278850000001}
+Status: reviewed
+Summary: 
+## ATX Review — Issue #810, Iteration 2
+
+**Rating: 4/5 · No blocking issues**
+
+**Specialists activated:** lifecycle-core, platform-playbooks, security-reviewer, test-coverage
+
+---
+
+### Round 1 Fixes ...
+Files Reviewed: 7
+Cost: $4.8323
+Time: 9m 8s
+Rating: 4/5
+Models: claude-opus-4-7, claude-sonnet-4-6, claude-opus-4-6, zai-org/glm-5.1
+
+Agent Feedback:
+  [completed] leader (-) — 
+## ATX Review — Issue #810, Iteration 2
+
+**Rating: 4/5 · No blocking issues**
+
+**Specialists activated:** lifecycle-cor...
+  [completed] lifecycle-core (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "Iteration 2 cleanly addresses all three Round 1 findings (W1 changelog hint, W8 ...
+  [completed] platform-playbooks (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "Clean removal of the brave plugin task block from both Linux and macOS configure...
+  [completed] security-reviewer (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "The plugin install path is well-defended: every shell interpolation goes through...
+  [completed] test-coverage (3/5) — <output>
+{
+  "rating": 3,
+  "summary": "Round 1 items are all resolved correctly (W1 hint text, W8 workspace stub, S2 co...
+  [skipped] cli-ux (-) — 
+  [skipped] gui-routes (-) — 
+  [skipped] render-engine (-) — 
+
+Full Feedback:
+
+## ATX Review — Issue #810, Iteration 2
+
+**Rating: 4/5 · No blocking issues**
+
+**Specialists activated:** lifecycle-core, platform-playbooks, security-reviewer, test-coverage
+
+---
+
+### Round 1 Fixes — All Verified ✅
+
+| Item | Status | Detail |
+|------|--------|--------|
+| **W1** (CHANGELOG hint) | ✅ Fixed | Now correctly says `clawctl agent create <name> --type <type> --host <host> --cleanup-failed`. `assert 'upgrade' not in msg` in the test confirms no residual misleading hint. |
+| **W8** (`push_workspace_phase` stub) | ✅ Fixed | `_setup` in `TestSyncRefusesIncompleteInstall` patches `push_workspace_phase` with a real `WorkspacePhaseResult(success=True, ...)`. Applies to all six tests including `test_clean_record_passes_guard`. |
+| **S2** (#437 non-applicability comment) | ✅ Fixed | Comment at lifecycle_canonical.py:1097-1101 accurately explains why skipping bearer rotation is safe (`installed_at=None` → no daemon running → no bearer to drift). |
+
+---
+
+### Warnings
+
+| # | File | Issue |
+|---|------|-------|
+| W1 | `tests/core/test_lifecycle_canonical.py:2182-2200` | **Module-scope name collision:** `_FakeChannel` and `_FakeStream` are redefined at lines 2182/2193, silently shadowing the earlier pair at 743/751. Both expose the same interface currently, but a future edit to either definition will change behavior of `TestDiagnoseUnitFailure` without a traceable error. Rename to `_PluginFakeChannel`/`_PluginFakeStream` or scope as inner classes. |
+| W2 | `tests/core/test_lifecycle_canonical.py:2776-2798` | **Negative-only guard assertions:** `test_clean_record_passes_guard` and `test_empty_record_passes_guard` use try/except and only assert the error message does NOT contain `'incomplete installation'`. They pass silently when the pipeline fails for an unrelated reason (e.g. unstubbed `transition_state`). Capture the return value and assert `result.success is True` for a stronger regression signal. |
+| W3 | `tests/core/test_lifecycle_canonical.py:2453` | **Unnecessary internal mock:** `_diff_removes_secrets` is stubbed to return `set()`, but the real function returns `set()` on this diff shape (rendered body adds a key from an empty remote body — no removal). Removing the stub exercises the actual secret-removal gate without changing the test outcome. |
+
+### Suggestions
+
+| # | File | Suggestion |
+|---|------|------------|
+| S1 | `lifecycle_canonical.py:1319`, `lifecycle.py:2690` | The brave version-preflight at both sync and configure paths still emits `Run \`clawctl agent upgrade\` first` — the same operator trap that motivated #810. Follow-up to either fix `agent upgrade` to preserve attachments, or replace the hint. |
+| S2 | `lifecycle_canonical.py:1073-1120` | Extract the install-completeness check into a shared helper callable from both `configure_agent` and `sync_agent_canonical` — currently configure has no equivalent guard. |
+| S3 | `lifecycle_canonical.py:989-1015` | Remote stderr from `openclaw plugins install` is embedded verbatim in `CanonicalSyncError`. Bidi/zero-width codepoints from malicious npm packages could spoof terminal output. Route through `_sanitize.py:sanitize_passthrough` at the CLI render boundary (acknowledged as ATX iter-2 W3 follow-up). |
+| S4 | `configure_macos.yaml:108-110` | macOS replacement comment says "See the Linux configure.yaml header comment" — inlining the rationale is cheap insurance against the pointer dangling. |
+| S5 | `lifecycle_canonical.py:874-875` | Rename `install_timeout`/`probe_timeout` to `install_io_idle_timeout`/`probe_io_idle_timeout` to clarify they are paramiko per-channel I/O idle timeouts, not wall-clock budgets. |
+
+---
+
+### Security Assessment
+
+**No injection paths found.** All shell interpolations use `shlex.quote`; `agent_name` is independently constrained by `validate_agent_name` (`^[a-z][a-z0-9_-]{0,31}$`); `pkg`/`ver` originate from shipped manifest (not user input). `sudo -n -H -u` pattern is correct: `-n` prevents hang, `-H` resets HOME (required for 0700 `.openclaw`), `-u` switches user. Sentinel `chmod 0600` is stricter than necessary but harmless. Extravars removal touches only version strings, no credentials path changed.
+
+### Playbook Assessment
+
+Clean removal of brave plugin install from both Linux and macOS configure playbooks. No dangling `openclaw_brave_plugin_*` references. Dispatcher-only OS fork invariant (#734) preserved. The test at line 2163 flipped from "contains" to "not contains" assertions, correctly guarding against regression.
+
+### Test Coverage Assessment
+
+All 133 tests in `test_lifecycle_canonical.py` pass. New coverage:
+- **TestOpenclawInstallPlugins** (T1-T6 + 3): install, idempotent skip, pin bump, no-attachment, ordering via sync pipeline, install failure short-circuit, stamp failure, macos home root, malformed manifest
+- **TestLoadOpenclawPlugins**: full block, empty block, malformed block
+- **TestSyncRefusesIncompleteInstall**: status=failed, installing, installed-no-timestamp, clean record, empty record, workspace-only
+
+---
+
+**Recommendation:** Merge. All round 1 findings are addressed correctly. No blocking issues remain. W1-W3 are test hygiene items that can land as follow-ups without production risk.
+

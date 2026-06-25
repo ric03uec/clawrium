@@ -1,0 +1,30 @@
+=== TS ===
+2026-06-25T06:42:31Z
+=== systemd state BEFORE sync ===
+active
+bash: connect: Connection refused
+bash: line 1: /dev/tcp/127.0.0.1/40198: Connection refused
+rc=1
+
+=== uv run clawctl agent sync wolf-i (broken daemon, fix v2 with correct unit hint) ===
+agent/wolf-i: validating local state ...
+agent/wolf-i: pushing config (provider, skills, channels, env) ...
+agent/wolf-i: restarting unit ...
+agent/wolf-i: verifying health ...
+agent/wolf-i: validate: assembling render inputs for wolf-i
+agent/wolf-i: render: rendering canonical config for openclaw
+agent/wolf-i: diff: reading on-host files from wolf.tailf7742d.ts.net
+agent/wolf-i: brave_integration_configured: openclaw 2026.6.9 on wolf.tailf7742d.ts.net satisfies brave plugin min version
+agent/wolf-i: plugin_install: openclaw plugin brave@2026.6.9 already installed on wolf-i (sentinel present)
+agent/wolf-i: write: writing /home/wolf-i/.openclaw/env
+agent/wolf-i: push_workspace: {"state": "complete", "files_pushed": [], "files_excluded": []}
+agent/wolf-i: restart: restarting openclaw-wolf-i.service
+agent/wolf-i: verify: checking unit is active
+Error: sync failed: gateway port 40198 not accepting connections after 15s (agent=wolf-i). systemctl is-active reported the unit running but the daemon is not bound to its declared gateway port. Inspect `journalctl -u openclaw-wolf-i.service --since='2min ago'` on the agent host for the bind failure.
+exit_rc=1
+
+=== systemd state AFTER sync ===
+active
+bash: connect: Connection refused
+bash: line 1: /dev/tcp/127.0.0.1/40198: Connection refused
+rc=1

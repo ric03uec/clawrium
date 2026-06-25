@@ -1,7 +1,7 @@
 ---
 name: create-vhs
-description: Record a CLI demo (GIF or MP4) using VHS via a replay-first compile pipeline. Outputs are captured once on a live host, then a YAML spec drives both the tape and the ElevenLabs voiceover.
-argument-hint: "<scenario-name> [--description 'what to demo']"
+description: Record a clawrium CLI demo (MP4 or GIF) using VHS via the project's replay-first compile pipeline at docs/demos/lib/. Outputs are captured once on a live host, then scenes.yaml drives the tape, the recording, and (for MP4) the ElevenLabs voiceover. In the clawrium repo this skill shadows the global /global-create-vhs and should be used instead.
+argument-hint: "<scenario-slug> [--description 'what to demo']"
 ---
 
 # Demo Recording with VHS — replay-first pipeline
@@ -129,9 +129,14 @@ export PATH="${GOPATH:-$HOME/go}/bin:$PATH"
 vhs docs/demos/YYYYMMDD-<scenario-name>/tape.tape
 ```
 
-Output lands at `docs/demos/YYYYMMDD-<scenario-name>/recording.mp4`. Replay-first tapes run in roughly their on-screen duration (no live waits), so recording time ≈ recording duration.
+Output lands at `docs/demos/YYYYMMDD-<scenario-name>/recording.<ext>` — `.mp4` by default, `.gif` if `tape.output_format: gif` is set in `scenes.yaml`. Replay-first tapes run in roughly their on-screen duration (no live waits), so recording time ≈ recording duration.
 
 ### Step 6 — Layer narration (ElevenLabs)
+
+> **Skip this step for GIF demos.** GIF has no audio container, so the
+> narration beats in `scenes.yaml` are unused at render time. They still
+> drive `hold_seconds` extension during compile so on-screen pacing
+> matches the spoken cadence — keep them written.
 
 **One-time setup per machine:**
 

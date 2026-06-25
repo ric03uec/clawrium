@@ -1,0 +1,22 @@
+=== clawctl agent sync wolf-i ===
+2026-06-25T06:21:13Z
+agent/wolf-i: validating local state ...
+agent/wolf-i: pushing config (provider, skills, channels, env) ...
+agent/wolf-i: restarting unit ...
+agent/wolf-i: verifying health ...
+agent/wolf-i: validate: assembling render inputs for wolf-i
+agent/wolf-i: render: rendering canonical config for openclaw
+agent/wolf-i: diff: reading on-host files from wolf.tailf7742d.ts.net
+agent/wolf-i: push_workspace: {"state": "complete", "files_pushed": [], "files_excluded": []}
+agent/wolf-i: restart: skipped (no files changed)
+agent/wolf-i: sync: synced wolf-i: 0 written, 2 unchanged
+agent/wolf-i: synced  (drift=0, took 0s, 0 written, 2 unchanged)
+
+=== ss -tlnp | grep 40198 ===
+LISTEN 0      511                        0.0.0.0:40198      0.0.0.0:*    users:(("openclaw",pid=256562,fd=25))
+
+=== curl http://127.0.0.1:40198/ ===
+200
+
+=== systemctl status openclaw-wolf-i.service ===
+Failed to connect to bus: No medium found

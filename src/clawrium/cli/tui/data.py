@@ -15,6 +15,10 @@ from clawrium.core.health import (
     get_onboarding_status,
 )
 from clawrium.core.hosts import HostsFileCorruptedError, load_hosts
+from clawrium.core.providers.storage import (
+    ProvidersFileCorruptedError,
+    get_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,24 +28,84 @@ AGENT_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 _PROVIDER_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
-def _resolve_provider_name(claw_record: dict) -> str | None:
-    """Resolve the attached provider name from tier-1 only.
+def _resolve_provider_display(
+    claw_record: dict,
+) -> tuple[str | None, str | None, str]:
+    """Return ``(provider_name, provider_type, model)`` for display.
 
-    The top-level ``providers`` attachment list is the single source of truth
-    for which provider is attached — the same list ``build_render_inputs`` and
-    ``_first_provider`` read. The tier-2 ``config.provider`` render payload is
-    intentionally NOT consulted here; it is read separately for display-only
-    enrichment (default_model / type) that tier-1 does not carry.
+    Reads exclusively from the tier-1 ``providers`` attachment list plus
+    ``providers.json``. The tier-2 ``config.provider`` / ``config.providers``
+    mirror in ``hosts.json`` (kept in sync only by the lifecycle writer at
+    sync time) is intentionally NOT consulted — see #790. After a provider
+    swap that has not been followed by a sync, tier-2 is stale; reading it
+    surfaces the wrong model to the GUI and ``clawctl agent get``.
+
+    Precedence mirrors ``core/render.py:build_render_inputs`` (lines 644–646):
+
+    - ``model``: tier-1 entry's ``model`` override, else
+      ``providers.json[name].default_model``, else ``"-"``.
+    - ``provider_type``: ``providers.json[name].type``, else ``None``.
+    - ``provider_name``: the tier-1 entry's ``name``, else ``None``.
+
+    A tier-1 attachment whose provider record is missing from
+    ``providers.json`` resolves to ``("-", None, "-")`` with a logged
+    warning, representing "broken attachment" rather than "no
+    attachment" (which resolves to ``(None, None, "-")``).
     """
     attached = claw_record.get("providers")
     if not isinstance(attached, list) or not attached:
-        return None
+        return None, None, "-"
+
     first = attached[0]
+    entry_name: str | None = None
+    entry_model: str | None = None
     if isinstance(first, dict):
-        first = first.get("name")
-    if isinstance(first, str) and first and _PROVIDER_NAME_PATTERN.match(first):
-        return first
-    return None
+        raw_name = first.get("name")
+        if isinstance(raw_name, str):
+            entry_name = raw_name
+        raw_model = first.get("model")
+        if isinstance(raw_model, str) and raw_model:
+            entry_model = raw_model
+    elif isinstance(first, str):
+        entry_name = first
+
+    if not (
+        isinstance(entry_name, str)
+        and entry_name
+        and _PROVIDER_NAME_PATTERN.match(entry_name)
+    ):
+        return None, None, "-"
+
+    try:
+        record = get_provider(entry_name)
+    except (ProvidersFileCorruptedError, OSError) as exc:
+        # Storage IO / corruption — never crash the GUI. Programmer
+        # errors (TypeError, AttributeError) are intentionally NOT
+        # caught so future refactors surface them in test output
+        # rather than silently rendering "-" badges.
+        logger.warning("Failed to look up provider %r: %s", entry_name, exc)
+        return "-", None, "-"
+
+    if record is None:
+        logger.warning(
+            "Tier-1 attachment %r is not registered in providers.json",
+            entry_name,
+        )
+        return "-", None, "-"
+
+    provider_type_raw = record.get("type")
+    provider_type = (
+        provider_type_raw if isinstance(provider_type_raw, str) and provider_type_raw
+        else None
+    )
+    default_model_raw = record.get("default_model")
+    default_model = (
+        default_model_raw
+        if isinstance(default_model_raw, str) and default_model_raw
+        else ""
+    )
+    model = entry_model or default_model or "-"
+    return entry_name, provider_type, model
 
 
 class AgentViewModel(TypedDict):
@@ -171,26 +235,15 @@ def get_fleet_data_local(
             agent_type = claw_record.get("type", "unknown")
             version = claw_record.get("version", "?")
             config = claw_record.get("config", {})
-            model = "-"
-            provider_name = None
-            provider_type = None
+            provider_name, provider_type, model = _resolve_provider_display(
+                claw_record
+            )
             gateway_port = None
             gateway_url = None
             gateway_auth = None
             device_id = None
             device_private_key = None
             if isinstance(config, dict):
-                provider_cfg = config.get("provider")
-                if isinstance(provider_cfg, dict):
-                    model = provider_cfg.get("default_model", "-")
-                    provider_type = provider_cfg.get("type")
-                # Tier-1 attachment list is canonical for the provider name;
-                # fall back to the tier-2 render payload only for display.
-                provider_name = _resolve_provider_name(claw_record)
-                if provider_name is None and isinstance(provider_cfg, dict):
-                    provider_name = provider_cfg.get("name") or provider_cfg.get(
-                        "type"
-                    )
                 gateway_cfg = config.get("gateway")
                 if isinstance(gateway_cfg, dict):
                     port_val = gateway_cfg.get("port")
@@ -303,26 +356,15 @@ def get_fleet_data(
             agent_type = claw_record.get("type", "unknown")
             version = claw_record.get("version", "?")
             config = claw_record.get("config", {})
-            model = "-"
-            provider_name = None
-            provider_type = None
+            provider_name, provider_type, model = _resolve_provider_display(
+                claw_record
+            )
             gateway_port = None
             gateway_url = None
             gateway_auth = None
             device_id = None
             device_private_key = None
             if isinstance(config, dict):
-                provider_cfg = config.get("provider")
-                if isinstance(provider_cfg, dict):
-                    model = provider_cfg.get("default_model", "-")
-                    provider_type = provider_cfg.get("type")
-                # Tier-1 attachment list is canonical for the provider name;
-                # fall back to the tier-2 render payload only for display.
-                provider_name = _resolve_provider_name(claw_record)
-                if provider_name is None and isinstance(provider_cfg, dict):
-                    provider_name = provider_cfg.get("name") or provider_cfg.get(
-                        "type"
-                    )
                 gateway_cfg = config.get("gateway")
                 if isinstance(gateway_cfg, dict):
                     port_val = gateway_cfg.get("port")
@@ -496,22 +538,13 @@ def _build_agent_identity(
     agent_type = claw_record.get("type", "unknown")
     version = claw_record.get("version", "?")
     config = claw_record.get("config", {})
-    model = "-"
-    provider_name = None
-    provider_type = None
+    provider_name, provider_type, model = _resolve_provider_display(claw_record)
     gateway_port = None
     gateway_url = None
     gateway_auth = None
     device_id = None
     device_private_key = None
     if isinstance(config, dict):
-        provider_cfg = config.get("provider")
-        if isinstance(provider_cfg, dict):
-            model = provider_cfg.get("default_model", "-")
-            provider_type = provider_cfg.get("type")
-        provider_name = _resolve_provider_name(claw_record)
-        if provider_name is None and isinstance(provider_cfg, dict):
-            provider_name = provider_cfg.get("name") or provider_cfg.get("type")
         gateway_cfg = config.get("gateway")
         if isinstance(gateway_cfg, dict):
             port_val = gateway_cfg.get("port")

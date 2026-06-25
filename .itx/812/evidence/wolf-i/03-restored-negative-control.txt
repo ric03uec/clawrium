@@ -1,0 +1,25 @@
+=== TS ===
+2026-06-25T06:44:14Z
+=== systemd state BEFORE sync (healthy, brave detached) ===
+active
+rc=0
+
+=== uv run clawctl agent sync wolf-i (healthy openclaw, fix active) ===
+agent/wolf-i: validating local state ...
+agent/wolf-i: pushing config (provider, skills, channels, env) ...
+agent/wolf-i: restarting unit ...
+agent/wolf-i: verifying health ...
+agent/wolf-i: validate: assembling render inputs for wolf-i
+agent/wolf-i: render: rendering canonical config for openclaw
+agent/wolf-i: diff: reading on-host files from wolf.tailf7742d.ts.net
+agent/wolf-i: write: writing /home/wolf-i/.openclaw/env
+agent/wolf-i: push_workspace: {"state": "complete", "files_pushed": [], "files_excluded": []}
+agent/wolf-i: restart: restarting openclaw-wolf-i.service
+agent/wolf-i: verify: checking unit is active
+agent/wolf-i: sync: synced wolf-i: 1 written, 1 unchanged
+agent/wolf-i: synced  (drift=0, took 6s, 1 written, 1 unchanged)
+exit_rc=0
+
+=== systemd state AFTER sync ===
+active
+rc=0

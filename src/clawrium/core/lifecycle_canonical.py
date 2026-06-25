@@ -50,6 +50,7 @@ import paramiko
 
 from clawrium.core.hosts import get_agent_by_name
 from clawrium.core.keys import get_host_private_key
+from clawrium.core.playbook_resolver import home_root_for
 from clawrium.core.render import (
     build_render_inputs,
     render_hermes,
@@ -234,6 +235,9 @@ def _get_host_openclaw_version_linux(
     """Linux variant: per-agent binary under `/home/<agent>/`, PATH
     fallback safelist matches Linux install.yaml lines ~50-57.
 
+    The `/home` literal is sourced via `home_root_for("linux")` so the
+    OS→home-root mapping stays in a single seam (issue #752 invariant).
+
     Returns `(version, stderr_tail)`. `version` is `None` when the
     binary is missing, the output is unparseable, or the resolved
     PATH binary is rejected by the safelist; `stderr_tail` is the
@@ -242,7 +246,7 @@ def _get_host_openclaw_version_linux(
     """
     cmd = _build_openclaw_version_probe(
         agent_name,
-        home_root="/home",
+        home_root=home_root_for("linux"),
         path_safelist=_LINUX_OPENCLAW_PATH_SAFELIST,
     )
     return _run_openclaw_version_probe(client, cmd, timeout=timeout)
@@ -254,13 +258,17 @@ def _get_host_openclaw_version_macos(
     """macOS (arm64) variant: per-agent binary under `/Users/<agent>/`,
     PATH fallback safelist matches install_macos.yaml line ~109.
 
+    The `/Users` literal is sourced via `home_root_for("darwin")` so
+    the OS→home-root mapping stays in a single seam (issue #752
+    invariant).
+
     Forked completely from the Linux variant — when a future macOS
     x86_64 platform is added, dispatch should fork further rather
     than retrofitting an arch branch into either function.
     """
     cmd = _build_openclaw_version_probe(
         agent_name,
-        home_root="/Users",
+        home_root=home_root_for("darwin"),
         path_safelist=_MACOS_OPENCLAW_PATH_SAFELIST,
     )
     return _run_openclaw_version_probe(client, cmd, timeout=timeout)
@@ -444,7 +452,12 @@ def _open_ssh(host: dict, *, timeout: int = 15) -> paramiko.SSHClient:
     return client
 
 
-def _atomic_write(
+def _host_is_macos(host: dict) -> bool:
+    """Single OS-detection helper for the canonical pipeline dispatchers."""
+    return host.get("hardware", {}).get("os") == "macos"
+
+
+def _atomic_write_linux(
     client: paramiko.SSHClient,
     *,
     agent_name: str,
@@ -452,17 +465,8 @@ def _atomic_write(
     body: str,
     timeout: int = 30,
 ) -> None:
-    """Atomically replace `remote_path` with `body`, mode 0600, owned by agent.
-
-    Uses `sudo -n` to write a tmpfile under `/tmp` (xclm-writable) and
-    then `sudo -n install` to atomically move it into place with the
-    correct mode / owner. `install` is preferred over `mv` because it
-    sets mode + owner in one syscall and is universally available on
-    Linux hosts.
-    """
+    """Linux implementation: agent_name doubles as the primary group name."""
     quoted_path = shlex.quote(remote_path)
-    # mktemp -p /tmp: deterministic, world-writable location for the
-    # xclm user before sudo takes over for the final placement.
     _, stdout, _ = client.exec_command("mktemp /tmp/clawrium-sync.XXXXXX")
     if stdout.channel.recv_exit_status() != 0:
         raise CanonicalSyncError("mktemp failed on host")
@@ -476,9 +480,6 @@ def _atomic_write(
                 fh.write(body.encode("utf-8"))
         finally:
             sftp.close()
-        # `install -m 0600 -o <name> -g <name>` requires sudo (target
-        # dirs are root- or agent-owned). `install` is atomic w.r.t.
-        # the destination so a partial write is never visible.
         owner = shlex.quote(agent_name)
         cmd = (
             f"sudo -n install -m 0600 -o {owner} -g {owner} "
@@ -495,7 +496,42 @@ def _atomic_write(
         client.exec_command(f"rm -f {shlex.quote(tmp_path)}")
 
 
-def _restart_unit(
+def _atomic_write(
+    client: paramiko.SSHClient,
+    *,
+    agent_name: str,
+    remote_path: str,
+    body: str,
+    host: dict | None = None,
+    timeout: int = 30,
+) -> None:
+    """Dispatcher — routes to the Linux or macOS atomic-write impl by host OS.
+
+    `install` is atomic w.r.t. the destination on both platforms, so a
+    partial write is never visible. The OS split is purely about the
+    primary-group name passed to `install -g`: Linux uses a per-user
+    group matching `agent_name`; macOS uses the shared `staff` group.
+    """
+    if host is not None and _host_is_macos(host):
+        from clawrium.core.lifecycle_macos import atomic_write_macos
+
+        return atomic_write_macos(
+            client,
+            agent_name=agent_name,
+            remote_path=remote_path,
+            body=body,
+            timeout=timeout,
+        )
+    _atomic_write_linux(
+        client,
+        agent_name=agent_name,
+        remote_path=remote_path,
+        body=body,
+        timeout=timeout,
+    )
+
+
+def _restart_unit_linux(
     client: paramiko.SSHClient,
     *,
     agent_type: str,
@@ -509,8 +545,43 @@ def _restart_unit(
     if rc != 0:
         stderr_text = err.read().decode("utf-8", errors="replace")
         raise CanonicalSyncError(
-            f"systemctl restart {unit} failed (exit {rc}): {stderr_text.strip()}"
+            f"restart {unit} failed (exit {rc}): {stderr_text.strip()}"
         )
+
+
+def _restart_unit(
+    client: paramiko.SSHClient,
+    *,
+    agent_type: str,
+    agent_name: str,
+    host: dict | None = None,
+    on_event: Callable[[str, str], None] | None = None,
+    timeout: int = 30,
+) -> None:
+    """Dispatcher — routes to systemctl (Linux) or launchctl helpers (macOS).
+
+    macOS routes through `lifecycle_macos.restart_unit_macos` which
+    handles dual-label (gateway + dashboard for hermes), validates the
+    agent name via `label_for`, and falls back to a fresh bootstrap if
+    the unit was never loaded.
+    """
+    if host is not None and _host_is_macos(host):
+        from clawrium.core.lifecycle_macos import restart_unit_macos
+
+        return restart_unit_macos(
+            client,
+            host=host,
+            agent_name=agent_name,
+            agent_type=agent_type,
+            on_event=on_event,
+            timeout=timeout,
+        )
+    _restart_unit_linux(
+        client,
+        agent_type=agent_type,
+        agent_name=agent_name,
+        timeout=timeout,
+    )
 
 
 # #575: when a unit fails to come active after restart, capture the
@@ -683,8 +754,26 @@ def _verify_health(
     *,
     agent_type: str,
     agent_name: str,
+    host: dict | None = None,
+    gateway_port: int | None = None,
+    on_event: Callable[[str, str], None] | None = None,
     timeout: int = 15,
 ) -> None:
+    """Dispatcher — systemctl is-active + gateway port probe (Linux),
+    or `nc -z` port probe (macOS)."""
+    if host is not None and _host_is_macos(host):
+        from clawrium.core.lifecycle_macos import verify_health_macos
+
+        # macOS launchd needs longer than systemctl to stabilize after
+        # kickstart, especially if the daemon crash-looped previously.
+        return verify_health_macos(
+            client,
+            agent_name=agent_name,
+            gateway_port=gateway_port,
+            on_event=on_event,
+            timeout=max(timeout, 30),
+        )
+
     unit = f"{agent_type}-{agent_name}.service"
     cmd = f"systemctl is-active {shlex.quote(unit)}"
     _, out, _ = client.exec_command(cmd, timeout=timeout)
@@ -714,6 +803,398 @@ def _verify_health(
         if diagnostic:
             raise CanonicalSyncError(f"{base}. Diagnosis: {diagnostic}")
         raise CanonicalSyncError(base)
+
+    # #812: `Type=simple` units (our openclaw/zeroclaw/hermes systemd
+    # unit shape) report `active` as soon as the process is spawned —
+    # before the daemon has had a chance to bind its gateway port. A
+    # crashlooping daemon also flashes `active` between `RestartSec`
+    # windows. `is-active` alone therefore cannot prove the daemon is
+    # serving requests; only an out-of-band probe on the gateway port
+    # can. The macOS path (verify_health_macos) already does this; the
+    # Linux path now matches.
+    #
+    # ATX iter-2 W1: parity with `verify_health_macos`'s missing-port
+    # raise. A `hosts.json` that lacks a persisted `gateway.port` for an
+    # agent that declares one in its manifest means install.py never
+    # allocated one — the agent is not properly installed. A silent
+    # skip would let canonical sync write `state=READY` for a
+    # never-verified daemon and reintroduce exactly the silent-green
+    # failure mode #812 exists to close.
+    if gateway_port is None:
+        raise CanonicalSyncError(
+            f"_verify_health: no gateway port persisted for "
+            f"{agent_name!r}. install.py never allocated one — the "
+            f"agent install is incomplete. Re-run "
+            f"`clawctl agent create` or inspect "
+            f"hosts.json.agents.{agent_name}.config.gateway.port."
+        )
+    _verify_gateway_listening_linux(
+        client,
+        agent_type=agent_type,
+        agent_name=agent_name,
+        gateway_port=gateway_port,
+        timeout=timeout,
+    )
+
+
+# ATX iter-2 W2: precompiled regex modeled on `_NC_MISSING_RE` in
+# `lifecycle_macos.verify_health_macos`. Catches "bash not found" via
+# the standard shell-prelude shapes ("bash: not found",
+# "bash: command not found", "sh: 1: bash: not found", "command not
+# found: bash") without false-positiving on a `bashrc` that itself
+# emits "command not found" for some unrelated tool while bash is
+# fine. Bound with `\b` on each side so a stray substring cannot match.
+_BASH_MISSING_RE = re.compile(
+    r"(\bbash\b[^\n]*\bnot found\b|\bnot found\b[^\n]*\bbash\b)",
+    re.IGNORECASE,
+)
+
+# ATX iter-2 W3: bash compiled `--disable-net-redirections` (some
+# hardened distro images) emits this exact path-shaped error instead
+# of supporting `/dev/tcp`. Without this branch the operator chases a
+# `timeout`s "port not accepting" red herring against a perfectly
+# healthy daemon.
+_BASH_DEV_TCP_DISABLED_RE = re.compile(
+    r"/dev/tcp/[^:\s]+[^\n]*\bNo such file or directory\b",
+    re.IGNORECASE,
+)
+
+
+def _verify_gateway_listening_linux(
+    client: paramiko.SSHClient,
+    *,
+    agent_type: str,
+    agent_name: str,
+    gateway_port: int,
+    timeout: int = 15,
+) -> None:
+    """Poll the loopback gateway port via bash `/dev/tcp` until accept,
+    or raise `CanonicalSyncError` on timeout.
+
+    Mirrors `verify_health_macos` in shape so that the two paths share
+    the same operator-facing failure mode. `bash -c 'exec
+    3<>/dev/tcp/127.0.0.1/<port>'` is a TCP connect that succeeds when
+    the daemon is `accept()`-ing — it does not require `nc` (sometimes
+    absent on minimal Ubuntu cloud images) or `python3` startup
+    overhead. `/dev/tcp` is a bash builtin (not a real device file),
+    so bash MUST be invoked explicitly — `sh -c` (the default for
+    paramiko `exec_command`) on dash-shipping distros would silently
+    fail with "No such file or directory" on the path expansion.
+
+    The 15s default timeout matches the existing `_verify_health`
+    budget. With `Type=simple` + `Restart=always RestartSec=5s` a
+    crashlooping daemon completes ~3 bind-attempt cycles in 15s — more
+    polls just compound the wait without disambiguating a slow-bind
+    healthy daemon from a never-bind broken one. Field reports of
+    false positives should bump this, but 30s (the macOS budget) is
+    overkill because Linux already cleared `systemctl is-active`
+    above; macOS has no equivalent precheck.
+    """
+    from clawrium.cli.output._sanitize import sanitize_passthrough
+
+    import time as _time
+
+    # Reject hand-edited hosts.json shapes the same way macOS does.
+    # `type(...) is int` (not `isinstance`) so True/False are rejected:
+    # bool is an int subclass and a JSON parser that round-trips `true`
+    # through `int` would otherwise sail through.
+    if (
+        type(gateway_port) is not int
+        or not 0 < gateway_port < 65536
+    ):
+        raise CanonicalSyncError(
+            f"_verify_gateway_listening_linux: invalid gateway_port "
+            f"{gateway_port!r}"
+        )
+
+    probe = (
+        f"bash -c 'exec 3<>/dev/tcp/127.0.0.1/{gateway_port}' "
+        f"</dev/null 2>&1"
+    )
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        # ATX iter-2 B1: every other `exec_command` call site in this
+        # file is guarded against paramiko / OSError raises. A bare
+        # `paramiko.SSHException` (channel reset mid-poll) here would
+        # propagate raw through `sync_agent_canonical` instead of
+        # surfacing as a `CanonicalSyncError` the CLI knows how to
+        # render. ATX iter-3 S1: `EOFError` is paramiko's signal for
+        # an abrupt channel teardown and is NOT a subclass of either
+        # `SSHException` or `OSError` — must be caught explicitly.
+        channel = None
+        try:
+            try:
+                _, out, err = client.exec_command(probe, timeout=5)
+                channel = out.channel
+                stdout_text = out.read().decode("utf-8", errors="replace")
+                stderr_text = err.read().decode("utf-8", errors="replace")
+                rc = channel.recv_exit_status()
+            except (paramiko.SSHException, OSError, EOFError) as exc:
+                raise CanonicalSyncError(
+                    f"_verify_gateway_listening_linux: SSH channel "
+                    f"error while probing gateway port {gateway_port} "
+                    f"on {agent_name}: {exc!r}"
+                ) from exc
+        finally:
+            # ATX iter-3 S2/S8: close in `finally:` so the channel is
+            # released even if `out.read()` / `recv_exit_status()`
+            # raised mid-iteration. Each `exec_command` opens a fresh
+            # SSH channel; ~timeout-seconds-worth of file descriptors
+            # would otherwise leak per sync when operators chain syncs.
+            if channel is not None:
+                try:
+                    channel.close()
+                except Exception:  # noqa: BLE001 — cleanup, never fatal
+                    pass
+        if rc == 0:
+            return
+        combined = stderr_text + stdout_text
+        # ATX iter-2 W2: precompiled regex (see `_BASH_MISSING_RE` and
+        # `_BASH_DEV_TCP_DISABLED_RE` above) — both diagnose a
+        # tool-side problem rather than a daemon-side bind failure, so
+        # break early and point the operator at the host image, not
+        # the daemon.
+        if rc == 127 and _BASH_MISSING_RE.search(combined):
+            raise CanonicalSyncError(
+                f"_verify_gateway_listening_linux: `bash` is not "
+                f"available on the agent host (rc=127, output: "
+                f"{sanitize_passthrough(combined.strip())}). bash is "
+                f"required for the loopback /dev/tcp probe — install "
+                f"bash on the agent host."
+            )
+        if _BASH_DEV_TCP_DISABLED_RE.search(combined):
+            raise CanonicalSyncError(
+                f"_verify_gateway_listening_linux: bash on the agent "
+                f"host was built without `/dev/tcp` support "
+                f"(output: {sanitize_passthrough(combined.strip())}). "
+                f"This probe cannot run on a `--disable-net-"
+                f"redirections` bash; install a stock bash or run "
+                f"the gateway-port check manually."
+            )
+        _time.sleep(1)
+    unit = f"{agent_type}-{agent_name}.service"
+    raise CanonicalSyncError(
+        f"gateway port {gateway_port} not accepting connections after "
+        f"{timeout}s (agent={agent_name}). systemctl is-active reported "
+        f"the unit running but the daemon is not bound to its declared "
+        f"gateway port. Inspect "
+        f"`journalctl -u {unit} --since='2min ago'` on "
+        f"the agent host for the bind failure."
+    )
+
+
+# #755: openclaw plugin install on every sync.
+#
+# Before #755 the `@openclaw/brave-plugin` install lived only in
+# `playbooks/openclaw/configure.yaml` (+ the macOS sibling). That made
+# `clawctl agent integration attach <brave>` + `clawctl agent sync`
+# silently incomplete — the env was rendered with `BRAVE_API_KEY` but
+# the plugin manifest the var feeds was never written to host. Lifting
+# the install into the canonical sync pipeline makes sync the single
+# source of truth for declared state, the operator's mental model.
+#
+# Generalizes beyond brave: any entry in the openclaw manifest's
+# `plugins:` block whose key matches an attached integration's `type`
+# is installed at the pinned `npm_package@version`. Future plugin-
+# backed integrations need only a manifest row — no playbook change,
+# no Python wiring.
+def _load_openclaw_plugins() -> dict[str, dict]:
+    """Read the entire `plugins:` block from the openclaw manifest.
+
+    Returns a dict keyed by plugin name (matching integration `type`).
+    Raises `CanonicalSyncError` on a structural problem so the caller
+    cannot proceed with an undefined pin (mirrors
+    `_load_openclaw_brave_pin`'s hard-fail discipline)."""
+    import yaml as _yaml
+
+    manifest_path = (
+        Path(__file__).parent.parent
+        / "platform"
+        / "registry"
+        / "openclaw"
+        / "manifest.yaml"
+    )
+    try:
+        manifest = _yaml.safe_load(manifest_path.read_text())
+    except Exception as exc:
+        raise CanonicalSyncError(
+            f"openclaw plugin install: cannot read manifest: {exc}"
+        ) from exc
+    block = (manifest or {}).get("plugins") or {}
+    if not isinstance(block, dict):
+        raise CanonicalSyncError(
+            "openclaw manifest `plugins:` block is malformed (not a mapping)"
+        )
+    return block
+
+
+def _openclaw_plugin_paths(
+    agent_name: str, *, os_family: str
+) -> tuple[str, str]:
+    """Return `(openclaw_home, openclaw_bin)` for `agent_name` on the
+    given `os_family`. `/home` vs `/Users` is sourced via
+    `home_root_for(os_family)` so the OS→home-root mapping stays in
+    one seam (#770 invariant). `openclaw_bin` is the per-agent
+    `openclaw` shim installed by `install.yaml` — invoked by absolute
+    path so PATH lookup is not load-bearing here."""
+    home = f"{home_root_for(os_family)}/{agent_name}/.openclaw"
+    openclaw_bin = f"{home}/bin/openclaw"
+    return home, openclaw_bin
+
+
+def _openclaw_install_plugins(
+    client: paramiko.SSHClient,
+    agent_name: str,
+    *,
+    os_family: str,
+    inputs,
+    on_event: Callable[[str, str], None] | None = None,
+    install_timeout: int = 180,
+    probe_timeout: int = 15,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Install openclaw plugins required by attached integrations.
+
+    For each entry in the openclaw manifest's `plugins:` block whose
+    key matches an attached integration `type`, run
+    `npm install --prefix ~<agent>/.openclaw <npm_package>@<version>`
+    on the host (as the agent user) when the per-version sentinel file
+    `<openclaw_home>/.<plugin>-plugin-installed.<version>` is missing.
+
+    Idempotency: a sentinel file whose name encodes the version. A pin
+    bump changes the sentinel filename so the install re-fires; a same-
+    version repeat is a no-op (the probe short-circuits before npm
+    runs). This is the same gating shape the configure playbook
+    historically used (`creates:` arg on the `npm install` task at
+    `configure.yaml:133`), lifted intact into Python so the canonical
+    sync pipeline owns it.
+
+    Returns `(installed, skipped)` — tuples of plugin keys (e.g.
+    `("brave",)`) for the caller's event payloads. The `skipped`
+    bucket includes both "sentinel already present" and "no attached
+    integration for this plugin"; the latter is the common-case empty
+    branch.
+
+    Raises `CanonicalSyncError` on any per-host failure (npm missing,
+    install non-zero, sentinel stamp failed) so the caller can
+    short-circuit before `_restart_unit`. The agent is never restarted
+    on a half-installed plugin set."""
+    plugins_block = _load_openclaw_plugins()
+    if not plugins_block:
+        return (), ()
+
+    attached_types = {i.type for i in inputs.integrations}
+    home, openclaw_bin = _openclaw_plugin_paths(
+        agent_name, os_family=os_family
+    )
+    quoted_agent = shlex.quote(agent_name)
+    quoted_bin = shlex.quote(openclaw_bin)
+
+    installed: list[str] = []
+    skipped: list[str] = []
+
+    for plugin_key, spec in plugins_block.items():
+        if plugin_key not in attached_types:
+            skipped.append(plugin_key)
+            continue
+        pkg = (spec or {}).get("npm_package")
+        ver = (spec or {}).get("version")
+        if not pkg or not ver:
+            raise CanonicalSyncError(
+                f"openclaw manifest plugin {plugin_key!r} is missing "
+                f"npm_package or version — clawrium build is corrupt; "
+                f"reinstall via `uv tool install clawrium`."
+            )
+        sentinel = f"{home}/.{plugin_key}-plugin-installed.{ver}"
+        quoted_sentinel = shlex.quote(sentinel)
+
+        # Sentinel probe — cheap fast-path that short-circuits the
+        # ~Node-startup cost of `openclaw plugins install` on every
+        # subsequent sync at the same pin. The sentinel filename
+        # encodes the version, so a pin bump auto-fires reinstall
+        # via the missing-sentinel branch below. Runs as the agent
+        # user because `~<agent>/.openclaw` is mode 0700 and the
+        # SSH user (xclm) cannot stat inside it. `sudo -n -H` resets
+        # HOME to the agent user's home — required for `openclaw
+        # plugins install` downstream which writes plugin state into
+        # `~<agent>/.openclaw/state/` (surfaced live during #755 UAT
+        # on esper-mac-oc, where the install otherwise inherited
+        # `/Users/xclm` as HOME and failed EACCES on the state DB).
+        probe = (
+            f"sudo -n -H -u {quoted_agent} test -f {quoted_sentinel}"
+        )
+        _, p_out, _ = client.exec_command(probe, timeout=probe_timeout)
+        if p_out.channel.recv_exit_status() == 0:
+            if on_event is not None:
+                on_event(
+                    "plugin_install",
+                    f"openclaw plugin {plugin_key}@{ver} already "
+                    f"installed on {agent_name} (sentinel present)",
+                )
+            skipped.append(plugin_key)
+            continue
+
+        if on_event is not None:
+            on_event(
+                "plugin_install",
+                f"installing openclaw plugin {pkg}@{ver} on {agent_name}",
+            )
+
+        # `openclaw plugins install <npm-spec>` is openclaw's own
+        # plugin install path — it writes to the per-agent plugin
+        # store that `openclaw plugins list` scans (`~<agent>/.openclaw/
+        # node_modules/` alone is NOT scanned, surfaced live during
+        # #755 UAT). `--force` overwrites a prior pin so a bumped
+        # version takes effect even if the previous install lingers;
+        # `--pin` records the resolved `<name>@<version>` exactly so a
+        # transitive upgrade cannot smuggle in a new floor.
+        install_cmd = (
+            f"sudo -n -H -u {quoted_agent} {quoted_bin} plugins install "
+            f"--force --pin {shlex.quote(f'{pkg}@{ver}')}"
+        )
+        _, i_out, i_err = client.exec_command(
+            install_cmd, timeout=install_timeout
+        )
+        # ATX iter-2 W1: drain stdout + stderr BEFORE recv_exit_status.
+        # `openclaw plugins install` proxies `npm install` whose output
+        # can exceed the ~64KB SSH pipe buffer on fresh-host installs
+        # (download progress, peer-dep warnings, audit reports). With
+        # the buffer full the remote write blocks before exit-status is
+        # sent, so `recv_exit_status()` hangs indefinitely — surfaced as
+        # an apparent freeze of `clawctl agent sync` with no diagnostic.
+        # Matches the established `_run_openclaw_version_probe` pattern.
+        _ = i_out.read()
+        err_bytes = i_err.read()
+        rc = i_out.channel.recv_exit_status()
+        if rc != 0:
+            err_text = err_bytes.decode("utf-8", errors="replace")
+            raise CanonicalSyncError(
+                f"openclaw plugin {pkg}@{ver} install failed on "
+                f"{agent_name} (exit {rc}): {err_text.strip()}"
+            )
+
+        # Stamp sentinel — touch + chmod in one round-trip. Failure
+        # here means a future sync would re-install (sentinel absent),
+        # but the plugin itself is already present; surface as an
+        # error so the operator can investigate fs / perms now rather
+        # than seeing repeated installs on every subsequent sync.
+        stamp_inner = (
+            f"touch {quoted_sentinel} && chmod 0600 {quoted_sentinel}"
+        )
+        stamp = (
+            f"sudo -n -H -u {quoted_agent} sh -c {shlex.quote(stamp_inner)}"
+        )
+        _, s_out, s_err = client.exec_command(stamp, timeout=probe_timeout)
+        if s_out.channel.recv_exit_status() != 0:
+            err_text = s_err.read().decode("utf-8", errors="replace")
+            raise CanonicalSyncError(
+                f"openclaw plugin {pkg}@{ver} installed on {agent_name} "
+                f"but sentinel stamp at {sentinel!r} failed: "
+                f"{err_text.strip()}. Run `clawctl agent sync "
+                f"{agent_name}` again to retry."
+            )
+        installed.append(plugin_key)
+
+    return tuple(installed), tuple(skipped)
 
 
 def sync_agent_canonical(
@@ -770,6 +1251,51 @@ def sync_agent_canonical(
         )
     host, agent_key, _claw_record = resolved
     hostname = host.get("hostname", "")
+
+    # Issue #810 — refuse sync on an incomplete installation.
+    # A `clawctl agent create` that failed mid-playbook leaves the
+    # record at `status="failed", installed_at=None` while preserving
+    # any attachments accumulated before the failure. The downstream
+    # version-gate (e.g. brave plugin's minHostVersion at line ~1245)
+    # then trips against the *broken* on-host binary, suggesting
+    # `clawctl agent upgrade` — which itself trips the
+    # `clawctl_upgrade_strips_attachments` class. The operator is
+    # forced to manually `integration detach` to unblock, even though
+    # they never asked to detach.
+    #
+    # Short-circuit here, before SSH/render, with a clear hint at the
+    # actual repair path (`clawctl agent create <name> --type <type>
+    # --host <host> --cleanup-failed`, see `cli/clawctl/agent/create.py`
+    # and `core/install.py:449` for the status=='failed' retry branch).
+    # The hint deliberately avoids `clawctl agent upgrade` so we don't
+    # cascade into the `clawctl_upgrade_strips_attachments` class. The
+    # empty `_claw_record` shape ({}) used by legacy / pre-status
+    # records MUST pass through unchanged, so the second clause
+    # requires `status is not None`.
+    #
+    # Not a #437 anti-pattern: the gateway-bearer-rotation invariant
+    # applies to lifecycle ops that touch a *running* daemon. The
+    # record we are refusing here has `installed_at=None` — there is
+    # no daemon to drift out of sync with, so skipping the rotation
+    # cannot strand a remote chat session on a stale bearer.
+    install_status = _claw_record.get("status")
+    installed_at = _claw_record.get("installed_at")
+    install_incomplete = install_status in {"failed", "installing"} or (
+        install_status is not None and installed_at is None
+    )
+    if install_incomplete:
+        recovery_hint = (
+            f"clawctl agent create {agent_name} "
+            f"--type {inputs.agent_type} --host {hostname} "
+            f"--cleanup-failed"
+        )
+        raise CanonicalSyncError(
+            f"agent {agent_name!r} on {hostname!r} has an incomplete "
+            f"installation (status={install_status!r}, "
+            f"installed_at={installed_at!r}); refusing to sync. Run "
+            f"`{recovery_hint}` to finish the install first — your "
+            f"attachments are preserved."
+        )
 
     # Issue #760 §1.4 `--workspace-only` short-circuit. Skip canonical
     # render / diff / write / restart / verify entirely; push the
@@ -977,6 +1503,25 @@ def sync_agent_canonical(
                 f"satisfies brave plugin min version",
             )
 
+        # #755: openclaw plugin install — moved out of configure.yaml so
+        # `clawctl agent integration attach <brave>` + `clawctl agent
+        # sync` actually materializes the plugin on host (operator's
+        # mental model: sync flushes EVERYTHING the control plane has
+        # declared). Runs BEFORE the file-write loop so the daemon picks
+        # up both the new plugin AND a freshly-rendered env carrying its
+        # credential in a single restart. A failure here raises
+        # CanonicalSyncError and short-circuits before `_restart_unit`,
+        # mirroring the workspace-overlay phase: never restart the unit
+        # on a half-installed plugin set.
+        if inputs.agent_type == "openclaw":
+            _openclaw_install_plugins(
+                client,
+                agent_name,
+                os_family=host.get("os_family", "linux"),
+                inputs=inputs,
+                on_event=on_event,
+            )
+
         for d in diffs:
             if not d.unified_diff:
                 files_unchanged.append(d.path)
@@ -987,6 +1532,7 @@ def sync_agent_canonical(
                 agent_name=agent_name,
                 remote_path=d.remote_path,
                 body=d.rendered_body,
+                host=host,
             )
             files_written.append(d.path)
 
@@ -1061,13 +1607,24 @@ def sync_agent_canonical(
                 client,
                 agent_type=inputs.agent_type,
                 agent_name=agent_name,
+                host=host,
+                on_event=on_event,
             )
             if verify:
                 emit("verify", "checking unit is active")
+                gateway_port = (
+                    ((host.get("agents") or {}).get(agent_name) or {})
+                    .get("config", {})
+                    .get("gateway", {})
+                    .get("port")
+                )
                 _verify_health(
                     client,
                     agent_type=inputs.agent_type,
                     agent_name=agent_name,
+                    host=host,
+                    gateway_port=gateway_port,
+                    on_event=on_event,
                 )
         elif restart and not files_written:
             emit("restart", "skipped (no files changed)")

@@ -1,0 +1,193 @@
+Reviewing changes for /home/devashish/workspace/ric03uec/clawrium-issue-810...
+{"time":"2026-06-24T23:31:57.416592776-07:00","level":"INFO","msg":"review: no session for worktree, using git fallback","file_count":7,"working_dir":"/home/devashish/workspace/ric03uec/clawrium-issue-810"}
+{"time":"2026-06-24T23:31:57.433086016-07:00","level":"INFO","msg":"review: task created","task_id":"e64ae739-1641-4de5-88fc-64b4a0f4efc6","project_port":30011}
+ATX review in progress. Using high effort (per-project) — leader may invoke up to 6 of 7 specialists.
+Task created (id: e64ae739-1641-4de5-88fc-64b4a0f4efc6), polling for completion...
+Waiting for review... (0s elapsed)
+Waiting for review... (1s elapsed)
+Waiting for review... (3s elapsed)
+Waiting for review... (7s elapsed)
+Waiting for review... (15s elapsed)
+Waiting for review... (25s elapsed)
+Waiting for review... (35s elapsed)
+Waiting for review... (45s elapsed)
+Waiting for review... (55s elapsed)
+Waiting for review... (1m5s elapsed)
+Waiting for review... (1m15s elapsed)
+Waiting for review... (1m25s elapsed)
+Waiting for review... (1m35s elapsed)
+Waiting for review... (1m45s elapsed)
+Waiting for review... (1m55s elapsed)
+Waiting for review... (2m5s elapsed)
+Waiting for review... (2m15s elapsed)
+Waiting for review... (2m25s elapsed)
+Waiting for review... (2m35s elapsed)
+Waiting for review... (2m45s elapsed)
+Waiting for review... (2m55s elapsed)
+Waiting for review... (3m5s elapsed)
+Waiting for review... (3m15s elapsed)
+Waiting for review... (3m25s elapsed)
+Waiting for review... (3m35s elapsed)
+Waiting for review... (3m45s elapsed)
+Waiting for review... (3m55s elapsed)
+Waiting for review... (4m5s elapsed)
+Waiting for review... (4m15s elapsed)
+Waiting for review... (4m25s elapsed)
+Waiting for review... (4m35s elapsed)
+Waiting for review... (4m45s elapsed)
+Waiting for review... (4m55s elapsed)
+Waiting for review... (5m5s elapsed)
+Waiting for review... (5m15s elapsed)
+Waiting for review... (5m25s elapsed)
+Waiting for review... (5m35s elapsed)
+Waiting for review... (5m45s elapsed)
+Waiting for review... (5m55s elapsed)
+Waiting for review... (6m5s elapsed)
+Waiting for review... (6m15s elapsed)
+Waiting for review... (6m25s elapsed)
+Waiting for review... (6m35s elapsed)
+Waiting for review... (6m45s elapsed)
+Waiting for review... (6m55s elapsed)
+Waiting for review... (7m5s elapsed)
+Waiting for review... (7m15s elapsed)
+Waiting for review... (7m25s elapsed)
+Waiting for review... (7m35s elapsed)
+Waiting for review... (7m45s elapsed)
+Waiting for review... (7m55s elapsed)
+Waiting for review... (8m5s elapsed)
+Waiting for review... (8m15s elapsed)
+Waiting for review... (8m25s elapsed)
+Waiting for review... (8m35s elapsed)
+Waiting for review... (8m45s elapsed)
+Waiting for review... (8m55s elapsed)
+Waiting for review... (9m5s elapsed)
+Waiting for review... (9m15s elapsed)
+Waiting for review... (9m25s elapsed)
+Waiting for review... (9m35s elapsed)
+Waiting for review... (9m45s elapsed)
+Waiting for review... (9m55s elapsed)
+Waiting for review... (10m5s elapsed)
+Waiting for review... (10m15s elapsed)
+Waiting for review... (10m26s elapsed)
+Waiting for review... (10m36s elapsed)
+Waiting for review... (10m46s elapsed)
+Waiting for review... (10m56s elapsed)
+Waiting for review... (11m6s elapsed)
+{"time":"2026-06-24T23:43:12.980372926-07:00","level":"INFO","msg":"review: task completed","task_id":"e64ae739-1641-4de5-88fc-64b4a0f4efc6","status":"completed","duration_ms":669112}
+{"time":"2026-06-24T23:43:12.980434903-07:00","level":"INFO","msg":"review: completed","blocking":false,"files_reviewed":7,"cost_usd":4.68388515,"task_id":"e64ae739-1641-4de5-88fc-64b4a0f4efc6","status":"completed"}
+Status: reviewed
+Summary: 
+## Review Summary
+
+**Overall Rating: 3.5/5** — Solid architecture and security posture; test coverage has meaningful gaps that should be addressed before merge.
+
+---
+
+### Specialist Results
+
+| Specia...
+Files Reviewed: 7
+Cost: $4.6839
+Time: 11m 9s
+Rating: 4/5
+Models: claude-opus-4-7, claude-sonnet-4-6, claude-opus-4-6, zai-org/glm-5.1
+
+Agent Feedback:
+  [completed] leader (-) — 
+## Review Summary
+
+**Overall Rating: 3.5/5** — Solid architecture and security posture; test coverage has meaningful ga...
+  [skipped] cli-ux (-) — 
+  [skipped] gui-routes (-) — 
+  [skipped] render-engine (-) — 
+  [completed] test-coverage (3/5) — <output>
+{
+  "rating": 3,
+  "summary": "The new tests are structurally solid: T5 genuinely instruments the pipeline (not...
+  [completed] lifecycle-core (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "Both changes are solid. The lifecycle.py refactor correctly preserves the minHos...
+  [completed] platform-playbooks (5/5) — <output>
+{
+  "rating": 5,
+  "summary": "Clean removal of the Brave plugin install block in both Linux and macOS configur...
+  [completed] security-reviewer (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "The `_openclaw_install_plugins` helper handles the security-sensitive surfaces (...
+
+Full Feedback:
+
+## Review Summary
+
+**Overall Rating: 3.5/5** — Solid architecture and security posture; test coverage has meaningful gaps that should be addressed before merge.
+
+---
+
+### Specialist Results
+
+| Specialist | Rating | Blockers | Warnings | Suggestions |
+|---|---|---|---|---|
+| lifecycle-core | 4/5 | 0 | 2 | 3 |
+| platform-playbooks | 5/5 | 0 | 0 | 1 |
+| security-reviewer | 4/5 | 0 | 0 | 4 |
+| test-coverage | 3/5 | 0 | 6 | 3 |
+
+---
+
+### Blocking Issues
+
+None.
+
+---
+
+### Warnings (actionable before merge)
+
+| # | Source | File | Issue |
+|---|---|---|---|
+| W1 | lifecycle-core | `CHANGELOG.md:204` | Recovery hint says `clawctl agent install <name>` — that command does not exist. The code at `lifecycle_canonical.py:1102` correctly emits `clawctl agent create <name> --type <type> --host <host> --cleanup-failed`. Operators following the CHANGELOG verbatim will hit `No such command 'install'`. **Fix the CHANGELOG to match the code.** |
+| W2 | lifecycle-core | `lifecycle_canonical.py:1306` | Pre-existing brave-preflight error also references `clawctl agent install` (same non-existent command). Track as follow-up. |
+| W3 | test-coverage | `test_lifecycle_canonical.py:2293` | T1 does NOT assert `sudo -n -H` in the install command. `-H` was the literal root cause of the #755 UAT failure on esper-mac-oc (EACCES on state DB). A regression dropping `-H` passes T1. Add `assert 'sudo -n -H' in install_cmd`. |
+| W4 | test-coverage | `test_lifecycle_canonical.py:2182-2200` | `_FakeChannel` and `_FakeStream` are defined twice at module scope — the second definition shadows the first. Tests pass today only because the two classes happen to be positionally compatible. Rename the second pair to avoid silent breakage. |
+| W5 | test-coverage | `test_lifecycle_canonical.py:2246` | No test exercises the multi-plugin iteration path. A bug dropping the `if plugin_key not in attached_types` guard would not be caught. Add a two-plugin fixture with mixed attachment states. |
+| W6 | test-coverage | `test_lifecycle_canonical.py:2267` | No test verifies `on_event` emissions (`'plugin_install'` stage events). These drive CLI progress output. A regression silencing them is undetectable. |
+| W7 | test-coverage | `test_lifecycle_canonical.py:2153` | `test_neither_configure_playbook_contains_brave_install_task` uses name-based negative assertions. Reintroducing the install under renamed variables passes silently. Supplement with a semantic check for `npm` module calls or `command: npm install` patterns. |
+| W8 | test-coverage | `test_lifecycle_canonical.py:2759` | `test_clean_record_passes_guard` doesn't stub `push_workspace_phase`. A non-`CanonicalSyncError` from that path masks what the test actually checks. Add the stub. |
+
+---
+
+### Suggestions (non-blocking)
+
+| # | Source | Issue |
+|---|---|---|
+| S1 | lifecycle-core | Drain `s_out.read()` / `s_err.read()` before `recv_exit_status()` on the sentinel-stamp command for consistency with the install drain pattern. |
+| S2 | lifecycle-core | Add a comment to the #810 guard noting the sync-refusal skip is not the #437 anti-pattern (no live daemon → no stale-auth concern). |
+| S3 | lifecycle-core | Track `install_timeout=180` as paramiko I/O timeout (not wall-clock) — a continuously-chattering npm install has no ceiling. |
+| S4 | security | Route remote stderr through `sanitize_passthrough` at the CLI emit_error boundary (ATX iter-2 W3 follow-up — bidi/zero-width spoofing). |
+| S5 | security | Add belt-and-suspenders comment near line 920 documenting that manifest-sourced `pkg`/`ver` are trusted-but-quoted. |
+| S6 | platform-playbooks | Optional: duplicate the 4-line rationale in `configure_macos.yaml` so each file is self-explanatory (currently just cross-references Linux). |
+| S7 | test-coverage | Add `test_manifest_missing_version_raises` — symmetric to the existing `test_manifest_missing_npm_package_raises`. |
+| S8 | test-coverage | Add a test calling `_openclaw_install_plugins` with an empty plugins block to exercise the early-return path. |
+| S9 | test-coverage | Fix `_verify_health` stub signature: `lambda **_: None` → `lambda *_a, **_kw: None`. |
+
+---
+
+### What's Good
+
+- **Architecture**: Plugin install correctly lifted from Ansible into the canonical sync pipeline. Install-before-restart ordering is enforced and spy-tested.
+- **Security**: `shlex.quote` applied to all user-controlled strings. `BRAVE_API_KEY` never enters SSH commands. Sentinel permissions `0600`. Paramiko buffer drain on npm install prevents deadlock.
+- **Playbook cleanup**: Both configure playbooks cleanly stripped of the plugin install block. Dispatcher-only OS fork convention maintained. No orphaned extravar references.
+- **#810 guard**: Correct logic for failed/installing/status-without-timestamp. Empty/legacy records pass through. Recovery hint in code points to the right command.
+- **Test infrastructure**: `_ScriptedSSHClient` with shared-channel semantics faithfully models paramiko behavior.
+
+---
+
+### Recommended Actions
+
+1. **Must fix**: CHANGELOG recovery hint (W1) — change `clawctl agent install` to `clawctl agent create ... --cleanup-failed`.
+2. **Should fix before merge**: Assert `sudo -n -H` in T1 (W3) — this was the literal UAT root cause.
+3. **Should fix before merge**: Rename shadowed `_FakeChannel`/`_FakeStream` (W4) — ticking time bomb for future test edits.
+4. **Should fix**: Add multi-plugin test (W5) and `on_event` assertions (W6).
+5. **Track as follow-up**: W2 (pre-existing `clawctl agent install` reference), S3 (wall-clock timeout), S4 (bidi sanitization).
+

@@ -1,0 +1,330 @@
+Requesting review for /home/devashish/workspace/ric03uec/clawrium...
+{"time":"2026-06-23T14:55:01.583108991-07:00","level":"INFO","msg":"request_review: starting","project_root":"/home/devashish/workspace/ric03uec/clawrium"}
+{"time":"2026-06-23T14:55:01.610133012-07:00","level":"INFO","msg":"request_review: task created","task_id":"49093e0e-76e5-4298-8b11-5e5805edc150","project_port":30011}
+ATX review in progress. Using high effort (per-call-override) — leader may invoke up to 6 of 7 specialists.
+Task created (id: 49093e0e-76e5-4298-8b11-5e5805edc150), polling for completion...
+Waiting for review... (0s elapsed)
+Waiting for review... (1s elapsed)
+Waiting for review... (3s elapsed)
+Waiting for review... (7s elapsed)
+Waiting for review... (15s elapsed)
+Waiting for review... (25s elapsed)
+Waiting for review... (35s elapsed)
+Waiting for review... (45s elapsed)
+Waiting for review... (55s elapsed)
+Waiting for review... (1m5s elapsed)
+Waiting for review... (1m15s elapsed)
+Waiting for review... (1m25s elapsed)
+Waiting for review... (1m35s elapsed)
+Waiting for review... (1m45s elapsed)
+Waiting for review... (1m55s elapsed)
+Waiting for review... (2m5s elapsed)
+Waiting for review... (2m15s elapsed)
+Waiting for review... (2m25s elapsed)
+Waiting for review... (2m35s elapsed)
+Waiting for review... (2m45s elapsed)
+Waiting for review... (2m55s elapsed)
+Waiting for review... (3m5s elapsed)
+Waiting for review... (3m15s elapsed)
+Waiting for review... (3m25s elapsed)
+Waiting for review... (3m35s elapsed)
+Waiting for review... (3m45s elapsed)
+Waiting for review... (3m55s elapsed)
+Waiting for review... (4m5s elapsed)
+Waiting for review... (4m15s elapsed)
+Waiting for review... (4m25s elapsed)
+Waiting for review... (4m35s elapsed)
+Waiting for review... (4m45s elapsed)
+Waiting for review... (4m55s elapsed)
+Waiting for review... (5m5s elapsed)
+Waiting for review... (5m15s elapsed)
+Waiting for review... (5m25s elapsed)
+Waiting for review... (5m35s elapsed)
+Waiting for review... (5m45s elapsed)
+Waiting for review... (5m55s elapsed)
+Waiting for review... (6m5s elapsed)
+Waiting for review... (6m15s elapsed)
+Waiting for review... (6m25s elapsed)
+Waiting for review... (6m35s elapsed)
+Waiting for review... (6m45s elapsed)
+Waiting for review... (6m55s elapsed)
+Waiting for review... (7m5s elapsed)
+Waiting for review... (7m15s elapsed)
+Waiting for review... (7m25s elapsed)
+Waiting for review... (7m35s elapsed)
+Waiting for review... (7m45s elapsed)
+Waiting for review... (7m55s elapsed)
+Waiting for review... (8m5s elapsed)
+Waiting for review... (8m15s elapsed)
+Waiting for review... (8m25s elapsed)
+Waiting for review... (8m35s elapsed)
+Waiting for review... (8m45s elapsed)
+Waiting for review... (8m55s elapsed)
+Waiting for review... (9m5s elapsed)
+Waiting for review... (9m15s elapsed)
+Waiting for review... (9m25s elapsed)
+Waiting for review... (9m35s elapsed)
+Waiting for review... (9m46s elapsed)
+Waiting for review... (9m56s elapsed)
+Waiting for review... (10m6s elapsed)
+Waiting for review... (10m16s elapsed)
+Waiting for review... (10m26s elapsed)
+Waiting for review... (10m36s elapsed)
+Waiting for review... (10m46s elapsed)
+Waiting for review... (10m56s elapsed)
+Waiting for review... (11m6s elapsed)
+Waiting for review... (11m16s elapsed)
+Waiting for review... (11m26s elapsed)
+Waiting for review... (11m36s elapsed)
+Waiting for review... (11m46s elapsed)
+Waiting for review... (11m56s elapsed)
+Waiting for review... (12m6s elapsed)
+Waiting for review... (12m16s elapsed)
+Waiting for review... (12m26s elapsed)
+Waiting for review... (12m36s elapsed)
+Waiting for review... (12m46s elapsed)
+Waiting for review... (12m56s elapsed)
+Waiting for review... (13m6s elapsed)
+Waiting for review... (13m16s elapsed)
+Waiting for review... (13m26s elapsed)
+Waiting for review... (13m36s elapsed)
+Waiting for review... (13m46s elapsed)
+Waiting for review... (13m56s elapsed)
+Waiting for review... (14m6s elapsed)
+Waiting for review... (14m16s elapsed)
+Waiting for review... (14m26s elapsed)
+Waiting for review... (14m36s elapsed)
+Waiting for review... (14m46s elapsed)
+Waiting for review... (14m56s elapsed)
+Waiting for review... (15m6s elapsed)
+Waiting for review... (15m16s elapsed)
+Waiting for review... (15m26s elapsed)
+Waiting for review... (15m36s elapsed)
+Waiting for review... (15m46s elapsed)
+Waiting for review... (15m56s elapsed)
+Waiting for review... (16m6s elapsed)
+Waiting for review... (16m16s elapsed)
+Waiting for review... (16m26s elapsed)
+Waiting for review... (16m36s elapsed)
+Waiting for review... (16m46s elapsed)
+Waiting for review... (16m56s elapsed)
+Waiting for review... (17m6s elapsed)
+{"time":"2026-06-23T15:12:17.56754668-07:00","level":"INFO","msg":"review: task completed","task_id":"49093e0e-76e5-4298-8b11-5e5805edc150","status":"completed","duration_ms":1027919}
+{"time":"2026-06-23T15:12:17.567784647-07:00","level":"INFO","msg":"request_review: completed","status":"completed","blocking":true,"files_reviewed":0,"cost_usd":8.56233115,"task_id":"49093e0e-76e5-4298-8b11-5e5805edc150"}
+Status: reviewed
+Blocking: YES
+Summary: ## ATX Review — fix/openclaw-macos-bundle-20260623
+
+**Overall rating: 1.5 / 5 — DO NOT MERGE**
+
+13 blocking issues, 14 warnings. Three categories own the blockers: `make test` is currently broken in a...
+Cost: $8.5623
+Time: 17m 7s
+Rating: 2.5/5
+Models: claude-opus-4-7, claude-sonnet-4-6
+
+Agent Feedback:
+  [completed] leader (-) — ## ATX Review — fix/openclaw-macos-bundle-20260623
+
+**Overall rating: 1.5 / 5 — DO NOT MERGE**
+
+13 blocking issues, 14 w...
+  [completed] security-reviewer (3/5) — <output>
+{
+  "rating": 3,
+  "summary": "No exploitable command injection given current upstream validation, but the new ...
+  [completed] test-coverage (2/5) — <output>
+{
+  "rating": 2,
+  "summary": "The patch fixes ONE stub signature but leaves four other identical stubs broken ...
+  [completed] lifecycle-core (2/5) — <output>
+{
+  "rating": 2,
+  "summary": "The label format `ai.clawrium.<agent_type>.<agent_name>` and `group='staff'` cho...
+  [completed] cli-ux (3/5) — <output>
+{
+  "rating": 3,
+  "summary": "The guard is functionally necessary (without it the next line would crash with T...
+  [completed] platform-playbooks (3/5) — <output>{
+  "rating": 3,
+  "summary": "The manifest additions are structurally correct and the `>=14` matcher works as a...
+  [completed] render-engine (1/5) — <output>
+{
+  "rating": 1,
+  "summary": "The bedrock prefix change is incomplete: three test files still assert the legac...
+  [skipped] gui-routes (-) — 
+
+Full Feedback:
+## ATX Review — fix/openclaw-macos-bundle-20260623
+
+**Overall rating: 1.5 / 5 — DO NOT MERGE**
+
+13 blocking issues, 14 warnings. Three categories own the blockers: `make test` is currently broken in at least 11 places, the macOS lifecycle architecture violates a documented project invariant, and the bedrock prefix rename has no migration guard and will corrupt existing operator configs on next sync.
+
+---
+
+## Blocking Issues
+
+### B1–B2 · test stub signatures broken — `test_workspace_phase_ordering.py` + `test_workspace_zeroclaw_bearer_rotation.py`
+*Specialist: test-coverage*
+
+The patch applied `**kwargs` to one stub (`test_sync.py`) but missed two other files with identical stubs:
+
+- `tests/test_workspace_phase_ordering.py:71,74` — `fake_restart_unit(_client, *, agent_type, agent_name)` and `fake_verify_health(...)` lack `**kwargs`. Every test that reaches the restart phase will `TypeError`.
+- `tests/test_workspace_zeroclaw_bearer_rotation.py:78,81` — same `fake_restart_unit` / `fake_verify_health` inside `make_canonical_stubs`; at least 4 tests call `sync_agent_canonical(restart=True)` and will fail.
+
+**Fix:** Add `, **kwargs` to both stub signatures in both files. Optionally capture `host_os` in the call recorder to assert the #437 bearer-rotation path propagates correctly on macOS.
+
+---
+
+### B3 · Five failing assertions on old `bedrock/` prefix — `test_configure_claw.py` + `test_render.py`
+*Specialist: test-coverage, render-engine*
+
+Tests NOT updated by this patch:
+
+| File | Location | Assertion |
+|------|----------|-----------|
+| `tests/test_configure_claw.py` | :2269, :2310, :2336 | `OPENCLAW_DEFAULT_MODEL='bedrock/anthropic.claude-3-7-sonnet-...'` — now renders `amazon-bedrock/` |
+| `tests/core/test_render.py` | :2420 `_OPENCLAW_ENV_BEDROCK` | fixture still contains `bedrock/anthropic.claude-opus-4-1-v1:0` |
+| `tests/core/test_render.py` | :3079 `test_openclaw_model_prefix_idempotent` | passes `bedrock/<id>` model → new code double-prefixes to `amazon-bedrock/bedrock/<id>`, breaking the assertion at :3104 |
+
+**Fix:** Update all five string literals to `amazon-bedrock/...`. The idempotency test at :3079 also needs to be rewritten for the new prefix scheme — see B12 below.
+
+---
+
+### B4 · Zero test coverage for all three new macOS code paths
+*Specialist: test-coverage, lifecycle-core*
+
+`_atomic_write(host_os='macos')` (group=staff), `_restart_unit(host_os='macos')` (launchctl kickstart), and `_verify_health(host_os='macos', gateway_port=N)` (lsof poll) have no tests at all. The command strings, label formats, and timeout behavior are entirely unasserted.
+
+**Fix:** Add `_FakeSSHClient`-scripted tests asserting exact command strings, e.g.:
+- `sudo -n install -m 0600 -o alpha -g staff /tmp/... /path/...`
+- `sudo -n launchctl kickstart -k system/ai.clawrium.openclaw.alpha`
+- `lsof -i :40000 -P -sTCP:LISTEN`
+
+Cover: success, port-poll timeout raise, and `gateway_port=None` silent-return.
+
+---
+
+### B5 · `test_install_hardware_unknown_with_version_override_bypasses_check` — weak-assertion anti-pattern
+*Specialist: test-coverage*
+
+```python
+with pytest.raises(Exception) as exc_info:
+    run_installation("openclaw", "test-host", version_override="2026.6.8")
+assert "hardware information is not available" not in str(exc_info.value)
+```
+
+This passes whenever ANY exception is raised for any reason. It does not prove the `version_override` branch was entered. A future regression (different `InstallationError`, `KeyError`, missing SSH key) still passes.
+
+**Fix:** Capture on_event callbacks and assert `('validate', 'Version override: openclaw v2026.6.8') in events`. Narrow `pytest.raises` to the specific downstream exception type, not `Exception`.
+
+---
+
+### B6 · In-file `if host_os == 'macos'` branching violates dispatcher-only OS fork invariant
+*Specialist: lifecycle-core*
+
+`_restart_unit`, `_atomic_write`, and `_verify_health` in `lifecycle_canonical.py` now contain `if host_os == 'macos':` branches. This violates the explicit project rule (MEMORY.md `feedback_dispatcher_only_os_fork`, AGENTS.md):
+
+> *Dispatcher-only OS fork: Mac/Linux split via parallel \*\_macos.yaml playbooks, never `if Darwin` guards inside existing files*
+
+A parallel implementation already exists in `lifecycle_macos.py` (`restart_agent_macos`, `_kickstart`, `install_service`, `_bootstrap_with_tolerance`). The canonical sync should route to those helpers via a dispatcher, not re-implement them inline.
+
+**Fix:** Add a thin dispatcher (e.g. `_restart_unit_for_host(host, ...)`) that selects between the Linux path in `lifecycle_canonical.py` and the existing helpers in `lifecycle_macos.py`. Apply the same pattern to `_atomic_write` and `_verify_health`.
+
+---
+
+### B7 · Hermes macOS sync restarts only the gateway label — dashboard label never restarted
+*Specialist: lifecycle-core*
+
+The new `_restart_unit` constructs only `ai.clawrium.hermes.<name>` (gateway label). Hermes on macOS runs a SECOND launchd unit `ai.clawrium.hermes.<name>.dashboard` (see `core/launchd.py:91`, `hermes/templates/dashboard.plist.j2:18`, `lifecycle_macos.restart_agent_macos:368-370`). On Linux, `PartOf=` propagates the restart automatically; on macOS, only the gateway is kicked. After `sync_agent_canonical` rewrites `hermes-config.canonical.yaml` on macOS, the dashboard continues serving stale config.
+
+**Fix:** Enumerate both labels for hermes on macOS, mirroring `restart_agent_macos`. Reuse `lifecycle_macos._kickstart` rather than constructing labels inline.
+
+---
+
+### B8 · `launchctl kickstart -k` hard-fails on stopped/unbootstrapped agents — no bootstrap fallback
+*Specialist: lifecycle-core*
+
+`kickstart -k` returns non-zero with "Could not find service" when the unit was never bootstrapped or was booted-out (e.g. after `clawctl agent stop` or partial install). The new code unconditionally raises `CanonicalSyncError`. The existing `restart_agent_macos:382-416` detects exactly this stderr and falls back to `install_service` + `bootstrap` + `kickstart`. Canonical sync on a stopped macOS agent will hard-fail where both the Linux path and the existing macOS helper recover cleanly.
+
+**Fix:** Route through `restart_agent_macos` (preferred) or replicate the not-loaded → bootstrap-fallback branch.
+
+---
+
+### B9–B11 · Bedrock prefix rename has no legacy-prefix migration — will corrupt existing configs
+*Specialist: render-engine, platform-playbooks*
+
+The idempotency guards now check `not startswith('amazon-bedrock/')`. Any operator whose `hosts.json.agents.<name>.config.provider.default_model` already stores `bedrock/<id>` (persisted by previous install or hand-edited) will be silently rewritten to `amazon-bedrock/bedrock/<id>` on the next `clawctl agent sync`. The daemon then routes to a non-existent model and fails at runtime.
+
+This is the same double-prefix class the idempotency test at `test_render.py:3079` was written to prevent — and that test is now also broken because it exercises exactly this path with the old prefix form.
+
+Affected locations: `render.py:1455`, `.env.j2:23-24`, `openclaw.json.j2:21-22`, `verify_config.py:63-64`.
+
+**Fix:**
+1. Add legacy-prefix stripping before the new-prefix prepend in all four locations: `if model_id.startswith('bedrock/'): model_id = model_id[len('bedrock/'):]` before the `amazon-bedrock/` prepend.
+2. Update `test_openclaw_model_prefix_idempotent` to: (a) use `amazon-bedrock/<id>` as the idempotent case, (b) add a migration case that asserts `bedrock/<id>` → `amazon-bedrock/<id>` (single prefix, not double).
+3. Add a `### BREAKING` entry in `CHANGELOG.md [Unreleased]` documenting the rename and auto-migration behavior. Required per AGENTS.md changelog rules.
+
+---
+
+## Warnings
+
+| # | Location | Issue |
+|---|----------|-------|
+| W1 | `lifecycle_canonical.py:1030,1105,1113` | `host.get('hardware', {}).get('os', 'linux')` — default 'linux' is not a value `hardware.py` ever writes (writes 'ubuntu', 'debian', etc.). Safe today (only compared with `== 'macos'`) but misleads future code. Change to `is_macos = host.get('hardware', {}).get('os') == 'macos'` and pass bool. |
+| W2 | `lifecycle_canonical.py:1114` | 5-level `.get()` chain for gateway_port — if any intermediate value is explicitly `null` in hosts.json, `None.get('port')` raises `AttributeError`. Use `(host.get('agents') or {})` guard or extract a helper. |
+| W3 | `lifecycle_canonical.py:704-723` | `_verify_health` silently returns when `gateway_port is None` on macOS — a broken agent passes health check. At minimum emit a `verify_skipped` event so the operator sees nothing was verified. |
+| W4 | `lifecycle_canonical.py:519-524` | Error message regression: removed unit/label name from restart error string. Include the label and command in the `CanonicalSyncError` message. |
+| W5 | `cli/install.py:250` | `selected_claw` interpolated raw into Rich message — every other `[red]Error:[/red]` in this file wraps it with `escape(selected_claw)`. Bidi/Rich injection risk. |
+| W6 | `cli/install.py:251-252` | Remediation hint is wrong: `clawctl host create` registers a host with `hardware: {}` and never calls `gather_hardware`. No `clawctl` command currently re-gathers hardware. Either point at the real command or file a gap issue and say so explicitly in the hint. |
+| W7 | `cli/install.py:248-253` vs `core/install.py:329-334` | Same message text duplicated in two layers — will drift. Extract to a shared constant in `core/install.py` and import in the CLI guard. Also: CLI guard prints `[red]Error:[/red]` while the `except InstallationError` handler at line 357 prints `[red]Installation failed:[/red]` — inconsistent prefix. |
+| W8 | `hermes-config.canonical.yaml.j2:83` | `api_key: "aws-sdk"` is an undocumented magic-string sentinel. Add a Jinja comment citing the upstream hermes schema requirement (LiteLLM boto3 credential chain sentinel). Cross-reference in AGENTS.md hermes section. |
+| W9 | `test_render.py:3101` | `f"OPENCLAW_DEFAULT_MODEL='{model_id}'" in env` substring check passes even when model_id is a substring of a double-prefixed string. Use exact-line match: `any(line == f"..." for line in env.splitlines())`. |
+| W10 | `manifest.yaml:12-13` | `brave min_host_version` bumped to 2026.6.9 with no CHANGELOG entry. Hard-fails preflight on hosts running openclaw <2026.6.9 with brave attached. Needs `### BREAKING` entry or keep floor at 2026.6.8. Also: `openclaw/playbooks/install.yaml:7` default still references v2026.6.8. |
+| W11 | `manifest.yaml + install.yaml` | `requirements.dependencies.nodejs` is declarative-only — `check_compatibility()` never reads it, and install.yaml does not check node version before npm install. Ubuntu 22.04 ships node 12.x; `>=18.0.0` claim is unenforced. |
+| W12 | `lifecycle_canonical.py:516` | `agent_type` and `agent_name` interpolated into launchctl label without calling `_validate_agent_name()`. `launchd.py` explicitly enforces this at every public entry point as defense-in-depth. Reuse `launchd.label_for(agent_name, kind='gateway', agent_type=agent_type)` — it also errors explicitly on unsupported combos (e.g. zeroclaw on macOS). |
+| W13 | `lifecycle_canonical.py:720` | `gateway_port` not validated as `int` before f-string interpolation into `lsof` command. Type annotation says `int | None` but hosts.json is hand-editable. Add `isinstance(gateway_port, int) and 0 < gateway_port < 65536` guard before the f-string. |
+| W14 | `tests/ (missing)` | No test pins that `host_os='macos'` zeroclaw bearer-rotation (#437 invariant) still runs. A macOS sync that silently skips rotation is the exact regression class #437 fixed. |
+
+---
+
+## Suggestions
+
+| # | Issue |
+|---|-------|
+| S1 | Parametrize `test_install_hardware_unknown_raises` + `test_install_hardware_unknown_with_version_override_bypasses_check` into one `@pytest.mark.parametrize` per project convention (see `test_render.py:1994`). |
+| S2 | `import time as _time` inside `_verify_health` body — hoist to module level so tests can monkeypatch `lifecycle_canonical.time.sleep` cleanly. |
+| S3 | `openclaw/playbooks/install.yaml:7` version default should track manifest (`v2026.6.8` → `v2026.6.9`). |
+| S4 | CLI guard in `cli/install.py` only fires through the legacy `cli/agent.py:install` shim (not the canonical `clawctl agent create` path per issue #707 split). Consider deleting the guard as part of #707 cleanup rather than maintaining parallel error text. |
+
+---
+
+## What the ~21 Pre-existing Failures Look Like vs. Patch-Introduced
+
+| Category | Count | Nature |
+|----------|-------|--------|
+| `fake_restart_unit` / `fake_verify_health` `**kwargs` missing in `test_workspace_*` | ~11 | **Introduced by this patch** — new `host_os` kwarg not plumbed in |
+| `bedrock/` → `amazon-bedrock/` assertion string drift | ~5 | **Introduced by this patch** — test fixtures not updated |
+| macOS branch coverage failures | 0 now, risk later | **Introduced by this patch** — net-new untested code |
+| Other pre-existing failures (unrelated to patch) | ~5 | Pre-existing — not caused by this patch |
+
+The 5 "cosmetic" pre-existing failures should be documented but don't block this PR. The ~16 patch-introduced failures are blockers.
+
+---
+
+## Required Before Merge (Summary)
+
+1. Add `**kwargs` to stubs in `test_workspace_phase_ordering.py` and `test_workspace_zeroclaw_bearer_rotation.py` (B1–B2)
+2. Update 5 test fixtures from `bedrock/` → `amazon-bedrock/` (B3)
+3. Add macOS unit tests for `_atomic_write`, `_restart_unit`, `_verify_health` (B4)
+4. Strengthen `test_install_hardware_unknown_with_version_override_bypasses_check` assertion (B5)
+5. Extract macOS branches from `lifecycle_canonical.py` to `lifecycle_macos.py` via dispatcher (B6)
+6. Fix hermes dual-label restart on macOS (B7)
+7. Add not-loaded bootstrap fallback for launchctl (B8)
+8. Add legacy `bedrock/` → `amazon-bedrock/` migration stripping in all four render locations (B9–B11)
+9. Add `### BREAKING` CHANGELOG entry for bedrock prefix rename (B9–B11)
+10. Fix `escape(selected_claw)` in CLI error message (W5)
+11. Fix remediation hint to point at a real hardware-gathering command (W6)
+12. Add `isinstance(gateway_port, int)` guard before lsof f-string (W13)
+

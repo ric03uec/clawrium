@@ -398,7 +398,7 @@ def test_canonical_sync_repairs_zeroclaw_even_with_no_drift(
 
     restart_calls: list[str] = []
 
-    def fake_restart(client, *, agent_type, agent_name):
+    def fake_restart(client, *, agent_type, agent_name, **kwargs):
         restart_calls.append(agent_name)
 
     monkeypatch.setattr(lifecycle_canonical, "_restart_unit", fake_restart)

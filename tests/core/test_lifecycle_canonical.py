@@ -1304,12 +1304,20 @@ class TestVerifyHealthDiagnosticWrap:
         assert "Diagnosis:" not in msg
         assert "state='failed'" in msg
 
-    def test_active_unit_no_diagnosis_no_raise(self):
+    def test_active_unit_skips_journalctl_and_requires_gateway_port(self):
+        # ATX iter-3 W4: renamed from `test_active_unit_no_diagnosis_no_raise`
+        # — that name says the opposite of what now happens. Post-#812
+        # pins two invariants: (1) `is-active=active` skips the
+        # journalctl diagnostic round trip, (2) `gateway_port=None`
+        # on Linux raises for install-incompleteness (parity with macOS).
         scripted = [("is-active", 0, b"active\n")]
         client = _FakeSSHClient(scripted)
-        # No exception.
-        lc._verify_health(client, agent_type="hermes", agent_name="x")
-        # And no second `journalctl` call — happy path is one round trip.
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"no gateway port persisted",
+        ):
+            lc._verify_health(client, agent_type="hermes", agent_name="x")
+        # No second `journalctl` call — happy-path is one round trip.
         assert all("journalctl" not in c for c in client.calls)
 
     def test_diagnose_helper_raise_does_not_mask_health_verdict(
@@ -1337,6 +1345,446 @@ class TestVerifyHealthDiagnosticWrap:
         # Crucial: the catalog raise must NOT mask the verdict.
         assert "Diagnosis:" not in msg
         assert "catalog blew up" not in msg
+
+
+# ---------------------------------------------------------------------------
+# #812: _verify_health Linux gateway-port probe (parity with macOS).
+# ---------------------------------------------------------------------------
+
+
+class _LinuxProbeStream:
+    """Separate-stderr stub for `_verify_gateway_listening_linux`. The
+    probe command ends with `2>&1` so in production bash's stderr is
+    merged into stdout and `err.read()` is empty; tests that want to
+    drive the missing-bash / disabled-/dev/tcp diagnostic shapes
+    populate the `stderr_bytes` slot of `_LinuxProbeClient` script
+    entries — the diagnostic helper's `combined = stderr_text +
+    stdout_text` covers both stream layouts.
+
+    ATX iter-3 W1: `_Ch.close()` is a no-op so the production
+    `try: channel.close(); except Exception: pass` cleanup path is
+    actually exercised by tests rather than silently swallowing an
+    `AttributeError`.
+    """
+
+    def __init__(self, payload: bytes, exit_status: int) -> None:
+        self._payload = payload
+
+        class _Ch:
+            def __init__(self, rc):
+                self._rc = rc
+
+            def recv_exit_status(self):
+                return self._rc
+
+            def close(self):
+                pass
+
+        self.channel = _Ch(exit_status)
+
+    def read(self) -> bytes:
+        return self._payload
+
+
+class _LinuxProbeClient:
+    """Fake paramiko SSHClient. Each entry in `script` is
+    (substring, exit_status, stdout_bytes, stderr_bytes). First match
+    is consumed. Unmatched commands raise so a typo fails loudly.
+
+    `raise_for` (cmd-substring → exception) lets a test inject a
+    paramiko / OSError raise at `exec_command` time without scripting
+    a stream — exercises the B1 SSH-channel-error wrap.
+
+    `assert_all_consumed()` lets a test verify it didn't over-script
+    (e.g. a "this entry should fire on the second poll" that never
+    actually did) — silent over-scripting was the W5 dead-code bug.
+    """
+
+    def __init__(
+        self,
+        script: list[tuple[str, int, bytes, bytes]] | None = None,
+        raise_for: dict[str, BaseException] | None = None,
+    ) -> None:
+        self.calls: list[str] = []
+        self._script = list(script or [])
+        self._raise_for = dict(raise_for or {})
+
+    def exec_command(self, cmd: str, timeout: int | None = None):
+        self.calls.append(cmd)
+        for needle, exc in self._raise_for.items():
+            if needle in cmd:
+                raise exc
+        for i, (needle, rc, out, err) in enumerate(self._script):
+            if needle in cmd:
+                self._script.pop(i)
+                return (
+                    None,
+                    _LinuxProbeStream(out, rc),
+                    _LinuxProbeStream(err, rc),
+                )
+        raise AssertionError(f"_LinuxProbeClient: unscripted command: {cmd!r}")
+
+    def assert_all_consumed(self) -> None:
+        if self._script:
+            raise AssertionError(
+                f"_LinuxProbeClient: {len(self._script)} scripted "
+                f"entries never consumed: {self._script!r}"
+            )
+
+
+def _stub_monotonic_linux(monkeypatch, ticks: list[float]) -> None:
+    """Mirror of the macOS dispatch test helper. Pop one tick per call
+    to `time.monotonic`; sleep is a no-op. Tests that under-feed ticks
+    raise loudly rather than silently fall through wall-clock."""
+    import time as time_mod
+
+    feed = list(ticks)
+
+    def _next_tick() -> float:
+        if not feed:
+            raise AssertionError(
+                "test under-fed monotonic ticks — extend the list"
+            )
+        return feed.pop(0)
+
+    monkeypatch.setattr(time_mod, "monotonic", _next_tick)
+    monkeypatch.setattr(time_mod, "sleep", lambda _s: None)
+
+
+class TestVerifyHealthLinuxGatewayProbe:
+    """#812: post-`is-active` probe of the gateway port. The Linux
+    systemd unit shape we ship (`Type=simple`) reports `active` as soon
+    as the daemon process is spawned — before it has bound the gateway
+    port and (for a crashlooping daemon) potentially between restart
+    cycles. Bringing the Linux verify path to parity with the macOS
+    `nc -z` probe stops sync from printing `synced (drift=0)` when the
+    daemon is not actually serving requests."""
+
+    def test_probe_returns_immediately_on_first_poll(self, monkeypatch):
+        # ATX iter-2 S5: stub monotonic for consistency with the other
+        # tests in this class (and so a future regression that turned
+        # this loop into a 15s wall-clock wait fails fast in CI).
+        _stub_monotonic_linux(monkeypatch, [0.0, 1.0])
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                ("/dev/tcp/127.0.0.1/40198", 0, b"", b""),
+            ]
+        )
+        lc._verify_health(
+            client,
+            agent_type="openclaw",
+            agent_name="alpha",
+            gateway_port=40198,
+        )
+        client.assert_all_consumed()
+        # Exactly one probe — happy path is one round trip.
+        assert sum(1 for c in client.calls if "/dev/tcp" in c) == 1
+        # The probe shape MUST invoke `bash` explicitly — `/dev/tcp` is
+        # a bash builtin, not a real device. A regression that dropped
+        # to `sh -c …` would silently fail on dash-shipping distros.
+        probe_calls = [c for c in client.calls if "/dev/tcp" in c]
+        assert all(c.startswith("bash -c ") for c in probe_calls)
+
+    def test_delayed_success_exercises_polling_loop(self, monkeypatch):
+        """A regression that short-circuited on the first non-zero rc
+        would pass the happy-path test but break here. Two failed
+        connects then a success; assert the loop kept polling."""
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                ("/dev/tcp/127.0.0.1/40198", 1, b"", b""),
+                ("/dev/tcp/127.0.0.1/40198", 1, b"", b""),
+                ("/dev/tcp/127.0.0.1/40198", 0, b"", b""),
+            ]
+        )
+        # Feed: initial deadline calc + 3 loop-head checks well under
+        # deadline. We never miss the deadline before the connect
+        # returns 0.
+        _stub_monotonic_linux(monkeypatch, [0.0, 1.0, 2.0, 3.0])
+
+        lc._verify_health(
+            client,
+            agent_type="openclaw",
+            agent_name="alpha",
+            gateway_port=40198,
+            timeout=30,
+        )
+        client.assert_all_consumed()
+        probe_calls = [c for c in client.calls if "/dev/tcp" in c]
+        assert len(probe_calls) == 3, probe_calls
+
+    def test_timeout_raises_with_port_in_message(self, monkeypatch):
+        """Port never opens → operator gets a precise error naming the
+        port and the agent. Sync MUST NOT print `synced (drift=0)`
+        in this case — that's the whole point of #812.
+
+        ATX iter-2 W5: ticks `[0.0, 0.5, 999.0]` so the probe actually
+        fires once (loop enters at 0.5 < deadline=1.0) before the
+        deadline expires on the next check. The previous `[0.0, 999.0]`
+        skipped the loop body entirely; the scripted probe entry was
+        dead code (over-scripting is now caught by `assert_all_consumed`).
+        """
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                ("/dev/tcp/127.0.0.1/40198", 1, b"", b""),
+            ]
+        )
+        _stub_monotonic_linux(monkeypatch, [0.0, 0.5, 999.0])
+
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"gateway port 40198 not accepting connections",
+        ) as exc:
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=40198,
+                timeout=1,
+            )
+        client.assert_all_consumed()
+        # The probe MUST have actually fired before the timeout — a
+        # regression that left it as dead code is exactly what W5
+        # iter-2 caught the first time around.
+        assert sum(1 for c in client.calls if "/dev/tcp" in c) == 1
+        # The error MUST also point operators at the journal for the
+        # actual root-cause — anything weaker just relocates the
+        # "now what?" problem. The unit name MUST include the agent
+        # *type* (`openclaw-alpha.service`, not bare `alpha.service`)
+        # so the suggested `journalctl -u …` command is copy-pasteable
+        # — surfaced live on wolf-i during #812 UAT round 1.
+        msg = str(exc.value)
+        assert "journalctl -u openclaw-alpha.service" in msg
+
+    @pytest.mark.parametrize(
+        "stderr_text",
+        [
+            # dash / sh shape — `\bbash\b … \bnot found\b` arm
+            b"sh: 1: bash: not found\n",
+            # bash-from-PATH-shape — `\bbash\b … \bnot found\b` arm
+            b"bash: command not found\n",
+            # Alpine / busybox shape — `\bnot found\b … \bbash\b` arm
+            # (the second alternation in `_BASH_MISSING_RE`). Without
+            # a test that matches this arm only, a regression that
+            # tightens the regex to a single direction goes silent
+            # on Alpine images (ATX iter-2 W6).
+            b"sh: command not found: bash\n",
+        ],
+    )
+    def test_bash_missing_breaks_early_with_diagnostic(
+        self, monkeypatch, stderr_text
+    ):
+        """If `bash` is not on PATH the probe surfaces as rc=127 with
+        a "not found"-shaped error. The helper must break early with a
+        diagnostic pointing at the missing tool — not chase the 15s
+        deadline and misdirect operators at the daemon."""
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                (
+                    "/dev/tcp/127.0.0.1/40198",
+                    127,
+                    b"",
+                    stderr_text,
+                ),
+            ]
+        )
+        _stub_monotonic_linux(monkeypatch, [0.0, 0.5])
+
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"`bash` is not available",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=40198,
+                timeout=30,
+            )
+        client.assert_all_consumed()
+        # MUST break on the first probe — not retry until the deadline.
+        assert sum(1 for c in client.calls if "/dev/tcp" in c) == 1
+
+    def test_gateway_port_none_raises_for_install_incompleteness(self):
+        """ATX iter-2 W1: parity with `verify_health_macos`. A persisted
+        `gateway.port` of `None` for a Linux agent that declares one in
+        its manifest means install.py never allocated one — silent
+        success here would write `state=READY` for a never-verified
+        daemon and reintroduce the silent-green failure mode #812
+        closes."""
+        client = _LinuxProbeClient(
+            [("systemctl is-active", 0, b"active\n", b"")]
+        )
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"no gateway port persisted.*install\.py never allocated",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=None,
+            )
+        # No probe attempted.
+        assert not any("/dev/tcp" in c for c in client.calls)
+
+    @pytest.mark.parametrize(
+        "invalid_port",
+        [
+            "40198",  # string-typed (hand-edited hosts.json)
+            0,        # zero — POSIX reserved
+            -1,       # negative
+            65536,    # exact upper-bound off-by-one
+            3.14,     # float
+            True,     # bool (subclass of int)
+            False,    # also a bool
+        ],
+    )
+    def test_invalid_port_rejected_before_probe(self, invalid_port):
+        """Refuse to interpolate hand-edited junk into the shell probe.
+        Mirrors the macOS dispatch invariant."""
+        client = _LinuxProbeClient(
+            [("systemctl is-active", 0, b"active\n", b"")]
+        )
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"invalid gateway_port",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=invalid_port,  # type: ignore[arg-type]
+            )
+        # No probe attempted — we raise before any SSH probe.
+        assert not any("/dev/tcp" in c for c in client.calls)
+
+    def test_unit_not_active_raises_before_probe(self):
+        """When `is-active` already failed the diagnostic path runs and
+        raises — the port probe must NOT also fire (would only
+        compound the noise and waste a round trip)."""
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 3, b"activating\n", b""),
+                ("journalctl", 0, b"", b""),
+            ]
+        )
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"not active after restart",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=40198,
+            )
+        assert not any("/dev/tcp" in c for c in client.calls)
+
+    @pytest.mark.parametrize("valid_port", [1, 1024, 40198, 65535])
+    def test_valid_port_boundary_values_accepted(self, monkeypatch, valid_port):
+        """ATX iter-2 W7: the highest legal port (65535) and lowest
+        legal port (1) must succeed through the validator. Combined
+        with the 65536 / 0 / -1 invalid cases above, this pins the
+        exact `0 < port < 65536` invariant — a regression that
+        tightened the guard to `< 65535` or `> 1024` would silently
+        misclassify legitimate operator-chosen ports as invalid."""
+        _stub_monotonic_linux(monkeypatch, [0.0, 1.0])
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                (f"/dev/tcp/127.0.0.1/{valid_port}", 0, b"", b""),
+            ]
+        )
+        lc._verify_health(
+            client,
+            agent_type="openclaw",
+            agent_name="alpha",
+            gateway_port=valid_port,
+        )
+        assert any(f"/dev/tcp/127.0.0.1/{valid_port}" in c for c in client.calls)
+
+    def test_dev_tcp_disabled_breaks_early_with_diagnostic(self, monkeypatch):
+        """ATX iter-2 W3: a bash compiled `--disable-net-redirections`
+        emits `bash: connect: /dev/tcp/127.0.0.1/N: No such file or
+        directory` with rc=1. Without a dedicated branch the operator
+        chases the 15s "port not accepting" red herring against a
+        perfectly healthy daemon."""
+        stderr = b"bash: /dev/tcp/127.0.0.1/40198: No such file or directory\n"
+        # ATX iter-3 W6: trimmed from `[0.0, 0.5, 0.6]` to `[0.0, 0.5]`
+        # — the early-break path consumes exactly two ticks (deadline
+        # calc + one loop-head check) before raising.
+        _stub_monotonic_linux(monkeypatch, [0.0, 0.5])
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                ("/dev/tcp/127.0.0.1/40198", 1, b"", stderr),
+            ]
+        )
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"bash on the agent host was built without `/dev/tcp`",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=40198,
+                timeout=30,
+            )
+        client.assert_all_consumed()
+        # MUST break on the first probe — not retry until the deadline.
+        assert sum(1 for c in client.calls if "/dev/tcp" in c) == 1
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            # paramiko-shape channel error
+            pytest.param(
+                __import__("paramiko").SSHException("channel reset by peer"),
+                id="SSHException",
+            ),
+            # plain OSError shape (e.g. transport-level socket error)
+            pytest.param(
+                OSError("Connection reset by peer"),
+                id="OSError",
+            ),
+            # ATX iter-3 S1: paramiko raises bare EOFError on abrupt
+            # teardown; NOT a subclass of SSHException or OSError, so
+            # a regression that dropped it from the except tuple would
+            # propagate raw without this parametrize arm.
+            pytest.param(EOFError("transport closed"), id="EOFError"),
+        ],
+    )
+    def test_ssh_channel_error_wrapped_as_canonical_error(
+        self, monkeypatch, exc
+    ):
+        """ATX iter-2 B1 + ATX iter-3 W3/S1: every exception type
+        paramiko can raise mid-poll MUST surface as
+        `CanonicalSyncError`, not propagate raw through
+        `sync_agent_canonical`. Parametrized across SSHException,
+        OSError, and EOFError so a regression dropping any one arm
+        from the except tuple is caught."""
+        _stub_monotonic_linux(monkeypatch, [0.0, 0.5])
+        client = _LinuxProbeClient(
+            script=[("systemctl is-active", 0, b"active\n", b"")],
+            raise_for={"/dev/tcp/127.0.0.1/40198": exc},
+        )
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"SSH channel error while probing gateway port 40198",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=40198,
+                timeout=30,
+            )
+        client.assert_all_consumed()
 
 
 # ---------------------------------------------------------------------------
@@ -1398,34 +1846,40 @@ class TestOpenclawBraveVersionPreflight:
             "_get_host_openclaw_version",
             lambda *_a, **_kw: (host_version, ""),
         )
+        # #755: stub the new plugin-install helper — this test class
+        # targets the preflight specifically; install behavior has its
+        # own coverage in TestOpenclawInstallPlugins.
+        monkeypatch.setattr(
+            lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
+        )
 
     def test_below_min_version_raises(self, monkeypatch):
         self._setup(monkeypatch, (2026, 3, 13))
         with pytest.raises(
             CanonicalSyncError,
-            match=r"openclaw on 'h' is 2026\.3\.13; brave plugin requires >= 2026\.6\.8",
+            match=r"openclaw on 'h' is 2026\.3\.13; brave plugin requires >= 2026\.6\.9",
         ):
             sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_one_below_floor_raises(self, monkeypatch):
-        """Off-by-one boundary: 2026.6.7 must be rejected. The far-below
-        case (2026.3.13) wouldn't catch a comparator regression that
-        treated the floor as `< min` instead of `<= min`. (W3 ATX iter 2)"""
-        self._setup(monkeypatch, (2026, 6, 7))
+        """Off-by-one boundary: pin-floor minus one must be rejected. The
+        far-below case wouldn't catch a comparator regression that treated
+        the floor as `< min` instead of `<= min`. (W3 ATX iter 2)"""
+        self._setup(monkeypatch, (2026, 6, 8))
         with pytest.raises(
             CanonicalSyncError,
-            match=r"openclaw on 'h' is 2026\.6\.7; brave plugin requires >= 2026\.6\.8",
+            match=r"openclaw on 'h' is 2026\.6\.8; brave plugin requires >= 2026\.6\.9",
         ):
             sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_exact_min_version_passes(self, monkeypatch):
-        self._setup(monkeypatch, (2026, 6, 8))
+        self._setup(monkeypatch, (2026, 6, 9))
         # Should not raise on the preflight; diffs are empty so the rest
         # of the pipeline is a no-op.
         sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_newer_than_min_version_passes(self, monkeypatch):
-        self._setup(monkeypatch, (2026, 6, 9))
+        self._setup(monkeypatch, (2026, 6, 10))
         sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_unknown_version_raises(self, monkeypatch):
@@ -1462,7 +1916,7 @@ class TestOpenclawBraveVersionPreflight:
         through to `_get_host_openclaw_version` — otherwise a Darwin
         host falls back to the Linux variant and the macOS home-path
         fork is dead code."""
-        self._setup(monkeypatch, (2026, 6, 8))
+        self._setup(monkeypatch, (2026, 6, 9))
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -1476,7 +1930,7 @@ class TestOpenclawBraveVersionPreflight:
 
         def _spy(_client, _agent_name, *, os_family, timeout=10):
             captured["os_family"] = os_family
-            return (2026, 6, 8), ""
+            return (2026, 6, 9), ""
 
         monkeypatch.setattr(lc, "_get_host_openclaw_version", _spy)
         sync_agent_canonical("oc", restart=False, verify=False)
@@ -1526,6 +1980,13 @@ class TestOpenclawBraveVersionPreflight:
 
         monkeypatch.setattr(
             lc, "_get_host_openclaw_version", _should_not_be_called
+        )
+        # ATX iter-2 W5: stub `_openclaw_install_plugins` so this test
+        # does not implicitly exercise it (and the disk-bound
+        # `_load_openclaw_plugins` it would call) — the test targets
+        # ONLY the version preflight skip.
+        monkeypatch.setattr(
+            lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
         )
         sync_agent_canonical("oc", restart=False, verify=False)
         assert called == [], "_get_host_openclaw_version was invoked"
@@ -1791,6 +2252,84 @@ class TestGetHostOpenclawVersionDispatcher:
         assert "/Users/wolf-m/.openclaw/bin/openclaw" in probe.commands[0]
 
 
+class TestGetHostOpenclawVersionHomeRootSeam:
+    """Issue #752: the OS→home-root mapping must come from the single
+    `core.playbook_resolver.home_root_for` seam, NOT from a hardcoded
+    `/home` or `/Users` literal in this module. These tests pin the
+    integration so a future change to `home_root_for` (e.g., adding
+    bsd or moving macOS to `/private/var/users`) propagates into the
+    openclaw version probe automatically — and conversely, that
+    nobody re-introduces the OS literal here as a shortcut.
+    """
+
+    def test_linux_variant_uses_home_root_for_linux(self, monkeypatch):
+        """Patch `home_root_for` to return a sentinel root and confirm
+        the Linux variant assembles the probe under that root.
+
+        The `raise ValueError` (instead of `assert`) inside the fake
+        survives `python -O` and produces a clearly labeled error
+        distinguishable from a test assertion failure (ATX iter 1 S1).
+        """
+
+        def _fake_home_root_for(os_family: str) -> str:
+            if os_family != "linux":
+                raise ValueError(
+                    f"expected linux, got {os_family!r}"
+                )
+            return "/SENTINEL-LINUX"
+
+        monkeypatch.setattr(lc, "home_root_for", _fake_home_root_for)
+        probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        lc._get_host_openclaw_version_linux(probe.as_client(), "wolf-i")
+        cmd = probe.commands[0]
+        assert "/SENTINEL-LINUX/wolf-i/.openclaw/bin/openclaw" in cmd
+        # And NOT the historical Linux literal — proves the variant
+        # is sourcing the root from the seam, not a duplicate literal.
+        assert "/home/wolf-i/.openclaw/bin/openclaw" not in cmd
+
+    def test_macos_variant_uses_home_root_for_darwin(self, monkeypatch):
+        """Symmetric pin for the macOS variant."""
+
+        def _fake_home_root_for(os_family: str) -> str:
+            if os_family != "darwin":
+                raise ValueError(
+                    f"expected darwin, got {os_family!r}"
+                )
+            return "/SENTINEL-DARWIN"
+
+        monkeypatch.setattr(lc, "home_root_for", _fake_home_root_for)
+        probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        lc._get_host_openclaw_version_macos(probe.as_client(), "wolf-m")
+        cmd = probe.commands[0]
+        assert "/SENTINEL-DARWIN/wolf-m/.openclaw/bin/openclaw" in cmd
+        assert "/Users/wolf-m/.openclaw/bin/openclaw" not in cmd
+
+    def test_resolver_currently_maps_to_expected_roots(self):
+        """End-to-end pin: assert the variants produce `/home/...` on
+        Linux and `/Users/...` on macOS *today*, using literal strings
+        as the expected values (NOT the resolver output — that would
+        be tautological and pass even against a hardcoded-literal
+        revert, ATX iter 1 B1).
+
+        Together with the sentinel monkeypatch tests above:
+        - The monkeypatch pair proves the variants *call* the seam.
+        - This test proves the seam *currently* maps to the values
+          historically expected by the playbooks (Linux `/home`,
+          macOS `/Users`).
+        """
+        probe_l = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        lc._get_host_openclaw_version_linux(probe_l.as_client(), "wolf-i")
+        assert (
+            "/home/wolf-i/.openclaw/bin/openclaw" in probe_l.commands[0]
+        )
+
+        probe_m = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        lc._get_host_openclaw_version_macos(probe_m.as_client(), "wolf-m")
+        assert (
+            "/Users/wolf-m/.openclaw/bin/openclaw" in probe_m.commands[0]
+        )
+
+
 class TestGetHostOpenclawVersionMacosInjection:
     """S6 ATX iter 2: mirror the Linux shell-injection guard on the
     macOS variant so a regression that drops `shlex.quote` from the
@@ -1989,8 +2528,8 @@ class TestLoadOpenclawBravePin:
     def test_loads_pin_from_manifest(self):
         pin = lc._load_openclaw_brave_pin()
         assert pin["npm_package"] == "@openclaw/brave-plugin"
-        assert pin["version"] == "2026.6.8"
-        assert pin["min_host_version"] == (2026, 6, 8)
+        assert pin["version"] == "2026.6.9"
+        assert pin["min_host_version"] == (2026, 6, 9)
 
     def test_raises_when_pin_block_missing(self, monkeypatch):
         """Manifest with no `plugins.brave` block → hard fail. Never
@@ -2059,20 +2598,671 @@ class TestOpenclawConfigureDispatch:
         assert path.name == "configure.yaml"
         assert path.exists()
 
-    def test_both_configure_playbooks_contain_brave_install_task(self):
-        """Symmetric brave plugin install on Linux + macOS. If a future
-        edit removes the install task from one but not the other the
-        dispatch test still passes — pin both files explicitly."""
+    def test_neither_configure_playbook_contains_brave_install_task(self):
+        """#755 (T7): brave plugin install was lifted out of both
+        configure playbooks into `lifecycle_canonical._openclaw_install_plugins`.
+        Configure stays scoped to onboarding stages (providers /
+        identity / channels). A regression that reintroduces the
+        playbook install would double-install on every configure-then-
+        sync cycle and re-create the "sync doesn't install plugins"
+        UX gap #755 fixed."""
         from clawrium.core.playbook_resolver import resolve_agent_playbook
 
         linux = resolve_agent_playbook("openclaw", "configure", "linux")
         darwin = resolve_agent_playbook("openclaw", "configure", "darwin")
         for path in (linux, darwin):
             body = path.read_text()
-            assert "openclaw_brave_plugin_package" in body, path
-            assert "openclaw_brave_plugin_version" in body, path
-            assert "no_log: true" in body, path
+            assert "openclaw_brave_plugin_package" not in body, path
+            assert "openclaw_brave_plugin_version" not in body, path
+            assert "brave-plugin-installed" not in body, path
+            assert "@openclaw/brave-plugin" not in body, path
             # No Darwin-conditional inside either file (dispatcher-only
-            # OS fork — #734 invariant).
+            # OS fork — #734 invariant; #755 keeps it).
             assert "ansible_os_family == 'Darwin'" not in body, path
             assert 'ansible_os_family == "Darwin"' not in body, path
+
+
+# ---------------------------------------------------------------------------
+# Openclaw plugin install on sync (#755).
+# ---------------------------------------------------------------------------
+
+
+class _FakeChannel:
+    """Minimal stand-in for paramiko's channel object — only the bits
+    `_openclaw_install_plugins` reads."""
+
+    def __init__(self, exit_status: int):
+        self._exit_status = exit_status
+
+    def recv_exit_status(self) -> int:
+        return self._exit_status
+
+
+class _FakeStream:
+    def __init__(self, body: bytes = b"", exit_status: int = 0):
+        self._body = body
+        self.channel = _FakeChannel(exit_status)
+
+    def read(self) -> bytes:
+        return self._body
+
+
+class _ScriptedSSHClient:
+    """Records every `exec_command` call and replays a scripted set of
+    `(stdout_body, stderr_body, exit_status)` triples in order. Tests
+    that don't care about ordering can rely on the captured `calls`
+    list.
+
+    ATX iter-2 W4: both stdout and stderr share the same `_FakeChannel`
+    so a future code change that reads `stderr.channel.recv_exit_status()`
+    instead of `stdout.channel.recv_exit_status()` does not spuriously
+    pass at rc=0. Real paramiko returns a single shared channel for
+    both streams."""
+
+    def __init__(self, script: list[tuple[bytes, bytes, int]]):
+        self._script = list(script)
+        self.calls: list[str] = []
+
+    def exec_command(self, cmd: str, timeout: int | None = None):
+        self.calls.append(cmd)
+        if not self._script:
+            raise AssertionError(
+                f"unexpected extra exec_command: {cmd!r}"
+            )
+        stdout_body, stderr_body, rc = self._script.pop(0)
+        shared_channel = _FakeChannel(rc)
+        stdout = _FakeStream(stdout_body, rc)
+        stderr = _FakeStream(stderr_body, rc)
+        stdout.channel = shared_channel
+        stderr.channel = shared_channel
+        return _FakeStream(), stdout, stderr
+
+
+def _inputs_with_integrations(types: list[str]):
+    """Build a minimal `RenderInputs`-like object — only `.integrations`
+    is read by `_openclaw_install_plugins`."""
+    from clawrium.core.render import IntegrationInputs
+
+    integrations = tuple(
+        IntegrationInputs(name=f"my-{t}", type=t) for t in types
+    )
+    inputs = MagicMock()
+    inputs.integrations = integrations
+    return inputs
+
+
+class TestOpenclawInstallPlugins:
+    """#755 T1-T6: lifted plugin install. Drives off the openclaw
+    manifest's `plugins:` block; sentinel-gated for idempotency; raises
+    `CanonicalSyncError` on any per-host failure so the caller can
+    short-circuit before restart."""
+
+    _PIN = {
+        "brave": {
+            "npm_package": "@openclaw/brave-plugin",
+            "version": "2026.6.9",
+            "min_host_version": "2026.6.9",
+        }
+    }
+
+    def _patch_pin(self, monkeypatch, plugins=None):
+        monkeypatch.setattr(
+            lc,
+            "_load_openclaw_plugins",
+            lambda: plugins if plugins is not None else self._PIN,
+        )
+
+    def test_t1_installs_when_attached_and_missing(self, monkeypatch):
+        """T1: brave attached, sentinel absent → `openclaw plugins
+        install` is invoked AND sentinel is stamped, in order. The
+        install command must use openclaw's own CLI (not raw `npm
+        install`) because a raw npm install into `~<agent>/.openclaw/
+        node_modules/` is NOT discovered by `openclaw plugins list` —
+        UAT on esper-mac-oc proved this is the failure mode that masked
+        the pre-#755 playbook approach for the entire #734 lifetime."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient(
+            [
+                (b"", b"", 1),  # sentinel probe: absent (test -f exit 1)
+                (b"installed", b"", 0),  # openclaw plugins install
+                (b"", b"", 0),  # sentinel stamp
+            ]
+        )
+        inputs = _inputs_with_integrations(["brave"])
+        installed, skipped = lc._openclaw_install_plugins(
+            client,
+            "wolf-i",
+            os_family="linux",
+            inputs=inputs,
+        )
+        assert installed == ("brave",)
+        assert skipped == ()
+        install_cmd = client.calls[1]
+        # Must use openclaw's own CLI, NOT raw `npm install --prefix`.
+        assert "openclaw plugins install" in install_cmd
+        assert "npm install --prefix" not in install_cmd
+        # --force lets a pin bump overwrite a prior install; --pin
+        # records the resolved name@version exactly so a transitive
+        # upgrade cannot smuggle in a new floor.
+        assert "--force" in install_cmd
+        assert "--pin" in install_cmd
+        assert "@openclaw/brave-plugin@2026.6.9" in install_cmd
+        assert "/home/wolf-i/.openclaw/bin/openclaw" in install_cmd
+        # Sentinel path encodes the version so a pin bump auto-fires.
+        stamp_cmd = client.calls[2]
+        assert ".brave-plugin-installed.2026.6.9" in stamp_cmd
+
+    def test_t2_skips_install_when_sentinel_present(self, monkeypatch):
+        """T2: pin matches what's already installed → sentinel probe
+        succeeds → no install runs, no further commands."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient([(b"", b"", 0)])  # sentinel probe: ok
+        inputs = _inputs_with_integrations(["brave"])
+        installed, skipped = lc._openclaw_install_plugins(
+            client,
+            "wolf-i",
+            os_family="linux",
+            inputs=inputs,
+        )
+        assert installed == ()
+        assert skipped == ("brave",)
+        # Only the sentinel probe ran — no install, no stamp.
+        assert len(client.calls) == 1
+        assert "test -f" in client.calls[0]
+        assert ".brave-plugin-installed.2026.6.9" in client.calls[0]
+
+    def test_t3_reinstalls_when_pin_version_differs(self, monkeypatch):
+        """T3: a pin bump changes the sentinel filename (which encodes
+        the version), so the prior-version sentinel no longer matches.
+        Probe returns absent → install fires at the new pinned version."""
+        self._patch_pin(
+            monkeypatch,
+            plugins={
+                "brave": {
+                    "npm_package": "@openclaw/brave-plugin",
+                    "version": "2027.1.0",
+                    "min_host_version": "2027.1.0",
+                }
+            },
+        )
+        client = _ScriptedSSHClient(
+            [
+                (b"", b"", 1),  # sentinel for 2027.1.0 absent
+                (b"installed", b"", 0),  # openclaw plugins install
+                (b"", b"", 0),  # sentinel stamp
+            ]
+        )
+        inputs = _inputs_with_integrations(["brave"])
+        installed, _ = lc._openclaw_install_plugins(
+            client,
+            "wolf-i",
+            os_family="linux",
+            inputs=inputs,
+        )
+        assert installed == ("brave",)
+        install_cmd = client.calls[1]
+        assert "@openclaw/brave-plugin@2027.1.0" in install_cmd
+        assert "openclaw plugins install" in install_cmd
+
+    def test_t4_does_not_install_when_brave_not_attached(self, monkeypatch):
+        """T4: no brave integration → no per-plugin SSH commands fire.
+        The helper still consults the manifest but exits with empty
+        installed + the manifest key in skipped (the "not attached"
+        bucket)."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient([])  # zero commands expected
+        inputs = _inputs_with_integrations([])
+        installed, skipped = lc._openclaw_install_plugins(
+            client,
+            "wolf-i",
+            os_family="linux",
+            inputs=inputs,
+        )
+        assert installed == ()
+        assert skipped == ("brave",)
+        assert client.calls == []
+
+    def test_t5_install_runs_before_restart_via_sync(self, monkeypatch):
+        """T5 (ATX iter-2 B1): the install helper MUST run before
+        `_restart_unit` inside `sync_agent_canonical`. Iter-1 had a
+        vacuous variant that called both functions directly from the
+        test body — that proved Python executes consecutive statements
+        in order but said nothing about the wiring inside
+        `sync_agent_canonical`. This rewrite drives the whole pipeline
+        and asserts ordering via spies on the IO surface, so a future
+        edit that moves `_openclaw_install_plugins` below
+        `_restart_unit` actually fails."""
+        from clawrium.core.render import (
+            GatewayInputs,
+            IntegrationInputs,
+            ProviderInputs,
+            RenderInputs,
+            RenderedFiles,
+        )
+
+        order: list[str] = []
+
+        def spy_install(*_a, **_kw):
+            order.append("install_plugins")
+            return ((), ())
+
+        def spy_restart(*_a, **_kw):
+            order.append("restart_unit")
+
+        inputs = RenderInputs(
+            agent_name="wolf-i",
+            agent_type="openclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="m",
+            ),
+            gateway=GatewayInputs(host="h", port=40000, auth="a"),
+            integrations=(
+                IntegrationInputs(
+                    name="my-brave",
+                    type="brave",
+                    credentials=(("BRAVE_API_KEY", "bsk"),),
+                ),
+            ),
+        )
+        rendered = RenderedFiles(
+            files={
+                ".openclaw/env": "BRAVE_API_KEY='bsk'\n",
+                ".openclaw/openclaw.json": "{}",
+            }
+        )
+
+        # Force a non-empty write path so `_restart_unit` is reached
+        # (sync only restarts when files were written or zeroclaw).
+        fake_diff = MagicMock()
+        fake_diff.unified_diff = "+x"
+        fake_diff.path = ".openclaw/env"
+        fake_diff.remote_path = "/home/wolf-i/.openclaw/env"
+        fake_diff.rendered_body = "BRAVE_API_KEY='bsk'\n"
+        fake_diff.remote_body = ""
+
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: ({"hostname": "h"}, "openclaw:wolf-i", {}),
+        )
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [fake_diff])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(
+            lc,
+            "_get_host_openclaw_version",
+            lambda *_a, **_kw: ((2026, 6, 9), ""),
+        )
+        monkeypatch.setattr(
+            lc, "_diff_removes_secrets", lambda _d: set()
+        )
+        monkeypatch.setattr(lc, "_atomic_write", lambda *_a, **_kw: None)
+        monkeypatch.setattr(lc, "_openclaw_install_plugins", spy_install)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+        monkeypatch.setattr(lc, "_verify_health", lambda **_: None)
+        # workspace_sync push: stub at import site
+        monkeypatch.setattr(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            lambda **_kw: MagicMock(
+                success=True, files_pushed=(), files_excluded=(), error=None
+            ),
+        )
+
+        sync_agent_canonical("wolf-i", verify=False)
+        assert order == ["install_plugins", "restart_unit"]
+
+    def test_install_failure_short_circuits_before_restart(
+        self, monkeypatch
+    ):
+        """Companion to T5: when `_openclaw_install_plugins` raises,
+        `_restart_unit` MUST NOT run. The agent is never restarted on
+        a half-installed plugin set — mirrors the workspace-overlay
+        contract."""
+        from clawrium.core.render import (
+            GatewayInputs,
+            IntegrationInputs,
+            ProviderInputs,
+            RenderInputs,
+            RenderedFiles,
+        )
+
+        restart_called: list[bool] = []
+
+        def boom_install(*_a, **_kw):
+            raise CanonicalSyncError("plugin install boom")
+
+        def spy_restart(*_a, **_kw):
+            restart_called.append(True)
+
+        inputs = RenderInputs(
+            agent_name="wolf-i",
+            agent_type="openclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="m",
+            ),
+            gateway=GatewayInputs(host="h", port=40000, auth="a"),
+            integrations=(
+                IntegrationInputs(
+                    name="my-brave",
+                    type="brave",
+                    credentials=(("BRAVE_API_KEY", "bsk"),),
+                ),
+            ),
+        )
+        rendered = RenderedFiles(
+            files={".openclaw/env": "BRAVE_API_KEY='bsk'\n"}
+        )
+
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: ({"hostname": "h"}, "openclaw:wolf-i", {}),
+        )
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(
+            lc,
+            "_get_host_openclaw_version",
+            lambda *_a, **_kw: ((2026, 6, 9), ""),
+        )
+        monkeypatch.setattr(lc, "_openclaw_install_plugins", boom_install)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+
+        with pytest.raises(CanonicalSyncError, match=r"plugin install boom"):
+            sync_agent_canonical("wolf-i", verify=False)
+        assert restart_called == []
+
+    def test_stamp_failure_after_successful_install_raises(
+        self, monkeypatch
+    ):
+        """ATX iter-2 B2: the sentinel-stamp failure branch had zero
+        coverage in iter-1. Distinct from install-failure: at this
+        point the plugin IS installed; the only fallout is that a
+        future sync will re-install. Surfacing as
+        `CanonicalSyncError` (vs swallow + warn) is deliberate so the
+        operator investigates the FS / perms regression immediately
+        rather than seeing silent re-installs forever."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient(
+            [
+                (b"", b"", 1),  # sentinel probe: absent
+                (b"installed", b"", 0),  # openclaw install OK
+                (
+                    b"",
+                    b"touch: EACCES /home/wolf-i/.openclaw",
+                    1,
+                ),  # stamp fails
+            ]
+        )
+        inputs = _inputs_with_integrations(["brave"])
+        with pytest.raises(CanonicalSyncError) as excinfo:
+            lc._openclaw_install_plugins(
+                client,
+                "wolf-i",
+                os_family="linux",
+                inputs=inputs,
+            )
+        msg = str(excinfo.value)
+        assert "sentinel stamp" in msg
+        assert ".brave-plugin-installed.2026.6.9" in msg
+        assert "EACCES" in msg
+        # The plugin was installed, so the install command did run
+        # before the stamp step.
+        assert "openclaw plugins install" in client.calls[1]
+
+    def test_t6_propagates_install_failure_with_pkg_and_stderr(
+        self, monkeypatch
+    ):
+        """T6: a non-zero install raises CanonicalSyncError whose
+        message names both the npm package and the captured stderr —
+        the operator's actionable signal."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient(
+            [
+                (b"", b"", 1),  # sentinel absent
+                (b"", b"E403 forbidden", 1),  # openclaw install failure
+            ]
+        )
+        inputs = _inputs_with_integrations(["brave"])
+        with pytest.raises(CanonicalSyncError) as excinfo:
+            lc._openclaw_install_plugins(
+                client,
+                "wolf-i",
+                os_family="linux",
+                inputs=inputs,
+            )
+        msg = str(excinfo.value)
+        assert "@openclaw/brave-plugin@2026.6.9" in msg
+        assert "E403 forbidden" in msg
+
+    def test_macos_uses_users_home_root(self, monkeypatch):
+        """OS-family dispatch: darwin → `/Users/<n>/.openclaw`. The
+        mapping flows through `home_root_for` so the no-OS-literal
+        invariant (#770) holds inside this helper."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient(
+            [
+                (b"", b"", 1),  # sentinel absent
+                (b"installed", b"", 0),  # openclaw install
+                (b"", b"", 0),  # sentinel stamp
+            ]
+        )
+        inputs = _inputs_with_integrations(["brave"])
+        lc._openclaw_install_plugins(
+            client,
+            "wolf-i",
+            os_family="darwin",
+            inputs=inputs,
+        )
+        joined = " ".join(client.calls)
+        assert "/Users/wolf-i/.openclaw/bin/openclaw" in joined
+        assert "/home/wolf-i/.openclaw" not in joined
+
+    def test_manifest_missing_npm_package_raises(self, monkeypatch):
+        """Defensive: a malformed plugin spec must hard fail at the
+        Python boundary, not silently invoke `npm install @<empty>@<v>`
+        on the host."""
+        self._patch_pin(
+            monkeypatch,
+            plugins={"brave": {"version": "2026.6.9"}},
+        )
+        client = _ScriptedSSHClient([])
+        inputs = _inputs_with_integrations(["brave"])
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"missing npm_package or version",
+        ):
+            lc._openclaw_install_plugins(
+                client,
+                "wolf-i",
+                os_family="linux",
+                inputs=inputs,
+            )
+
+
+class TestLoadOpenclawPlugins:
+    """#755: the full-block loader is the manifest seam for the generic
+    install helper. Mirrors `_load_openclaw_brave_pin`'s hard-fail
+    discipline."""
+
+    def test_loads_full_block(self):
+        plugins = lc._load_openclaw_plugins()
+        assert "brave" in plugins
+        assert plugins["brave"]["npm_package"] == "@openclaw/brave-plugin"
+
+    def test_empty_block_returns_empty_dict(self, monkeypatch):
+        import yaml
+
+        monkeypatch.setattr(yaml, "safe_load", lambda _txt: {})
+        assert lc._load_openclaw_plugins() == {}
+
+    def test_malformed_block_raises(self, monkeypatch):
+        import yaml
+
+        monkeypatch.setattr(
+            yaml, "safe_load", lambda _txt: {"plugins": "not-a-mapping"}
+        )
+        with pytest.raises(
+            CanonicalSyncError, match=r"not a mapping"
+        ):
+            lc._load_openclaw_plugins()
+
+
+class TestSyncRefusesIncompleteInstall:
+    """Issue #810: `sync_agent_canonical` must short-circuit when the
+    agent record reflects an incomplete `clawctl agent create` (status
+    in {failed, installing}, or a status-bearing record without an
+    `installed_at` timestamp). Without this guard the brave version-gate
+    (and other downstream checks) run against a known-broken host and
+    surface a misleading "Run `clawctl agent upgrade`" hint that itself
+    trips the `clawctl_upgrade_strips_attachments` class — forcing
+    operators to manually detach integrations to recover."""
+
+    def _setup(self, monkeypatch, claw_record):
+        from clawrium.core.render import (
+            GatewayInputs,
+            ProviderInputs,
+            RenderInputs,
+            RenderedFiles,
+        )
+
+        inputs = RenderInputs(
+            agent_name="oc",
+            agent_type="openclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="m",
+            ),
+            gateway=GatewayInputs(host="h", port=40000, auth="a"),
+            integrations=(),
+        )
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        rendered = RenderedFiles(files={".openclaw/openclaw.json": "{}"})
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: ({"hostname": "h"}, "openclaw:oc", claw_record),
+        )
+        # If the guard does NOT short-circuit, these stubs let the
+        # rest of the pipeline reach a clean exit so a regression
+        # surfaces as "no raise" rather than as a SSH/diff KeyError.
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(
+            lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
+        )
+        # ATX review W8: stub `push_workspace_phase` so the clean-record
+        # path reaches a deterministic return value instead of bubbling
+        # an unrelated workspace-sync failure that could mask the
+        # negative-guard assertion.
+        from clawrium.core import workspace_sync as _ws
+
+        def _ok_phase(**_kw):
+            return _ws.WorkspacePhaseResult(
+                success=True,
+                files_pushed=(),
+                files_excluded=(),
+            )
+
+        monkeypatch.setattr(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            _ok_phase,
+        )
+        # ATX iter-2 W2: also stub the post-write state-transition
+        # so the result reaches `success=True` deterministically.
+        # `sync_agent_canonical` calls `transition_state(...,
+        # OnboardingState.READY)` near the end; without a stub it
+        # raises `AgentNotFoundError` against the empty fake
+        # hosts.json and sets `success=False` (the "registration ...
+        # Inspect hosts.json" error string).
+        monkeypatch.setattr(
+            "clawrium.core.onboarding.transition_state",
+            lambda *_a, **_kw: True,
+        )
+
+    def test_status_failed_raises(self, monkeypatch):
+        self._setup(
+            monkeypatch,
+            {"status": "failed", "installed_at": None},
+        )
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"incomplete installation.*clawctl agent create.*--cleanup-failed",
+        ) as exc:
+            sync_agent_canonical("oc", restart=False, verify=False)
+        msg = str(exc.value)
+        # The misleading `agent upgrade` hint MUST NOT appear — that's
+        # the whole point of the guard.
+        assert "upgrade" not in msg
+        # Operator reassurance: attachments are preserved across the
+        # refusal (we don't want them preemptively detaching).
+        assert "attachments are preserved" in msg
+
+    def test_status_installing_raises(self, monkeypatch):
+        self._setup(
+            monkeypatch,
+            {"status": "installing", "installed_at": None},
+        )
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"status='installing'",
+        ):
+            sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_status_installed_no_timestamp_raises(self, monkeypatch):
+        """Mirrors the install.py:186 "corrupt state" branch: a record
+        carries a status but never finished setting `installed_at`. Treat
+        it as incomplete."""
+        self._setup(
+            monkeypatch,
+            {"status": "installed", "installed_at": None},
+        )
+        with pytest.raises(CanonicalSyncError, match=r"incomplete installation"):
+            sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_clean_record_passes_guard(self, monkeypatch):
+        """A complete install record must NOT trigger the new guard.
+        ATX iter-2 W2: assert the pipeline returns a green result, not
+        just "no incomplete-install error" — the negative-only form
+        could pass silently on an unrelated downstream failure."""
+        self._setup(
+            monkeypatch,
+            {"status": "installed", "installed_at": "2026-06-19T20:34:07Z"},
+        )
+        result = sync_agent_canonical("oc", restart=False, verify=False)
+        assert result.success is True
+
+    def test_empty_record_passes_guard(self, monkeypatch):
+        """Regression guard: every existing test in this file uses an
+        empty `_claw_record={}` mock. The new precondition MUST NOT fire
+        on those — `status is None` short-circuits the second clause.
+        Same iter-2 W2 stricture: assert success, don't just exclude
+        the new error string."""
+        self._setup(monkeypatch, {})
+        result = sync_agent_canonical("oc", restart=False, verify=False)
+        assert result.success is True
+
+    def test_workspace_only_also_refused(self, monkeypatch):
+        """`--workspace-only` is just another sync entry point and is
+        bound by the same precondition. Writing operator overlay onto a
+        half-installed daemon makes recovery harder, not easier."""
+        self._setup(
+            monkeypatch,
+            {"status": "failed", "installed_at": None},
+        )
+        with pytest.raises(CanonicalSyncError, match=r"incomplete installation"):
+            sync_agent_canonical(
+                "oc", restart=False, verify=False, workspace_only=True
+            )

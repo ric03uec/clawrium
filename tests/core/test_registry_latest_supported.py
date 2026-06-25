@@ -10,8 +10,8 @@ from clawrium.core.registry import latest_supported_version
 @pytest.mark.parametrize(
     "claw_name,os_,os_version,arch,expected",
     [
-        ("openclaw", "ubuntu", "24.04", "x86_64", "2026.6.8"),
-        ("openclaw", "ubuntu", "22.04", "x86_64", "2026.6.8"),
+        ("openclaw", "ubuntu", "24.04", "x86_64", "2026.6.9"),
+        ("openclaw", "ubuntu", "22.04", "x86_64", "2026.6.9"),
         ("hermes", "ubuntu", "24.04", "x86_64", "2026.5.29.2"),
         ("hermes", "ubuntu", "22.04", "x86_64", "2026.5.29.2"),
         ("hermes", "macos", "14.5", "arm64", "2026.5.29.2"),

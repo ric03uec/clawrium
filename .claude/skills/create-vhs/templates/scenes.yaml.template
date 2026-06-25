@@ -23,6 +23,8 @@ tape:
   height: 900
   theme: Catppuccin Mocha
   typing_speed_ms: 50
+  # output_format: mp4   # mp4 (default) | gif. GIF skips the ElevenLabs
+  #                       narration step — GIFs have no audio container.
 
 # Hidden setup: runs in a VHS Hide block. Does NOT advance the recording's
 # visible timeline. Use for venv activation, source-of-truth state resets,

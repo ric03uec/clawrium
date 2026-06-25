@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import sys
 import time
 import uuid
 from collections import deque
@@ -15,6 +16,7 @@ import websockets
 from websockets.exceptions import WebSocketException
 
 from clawrium import __version__
+from clawrium.core._operator_platform import normalize as _normalize_operator_platform
 
 __all__ = [
     "ChatError",
@@ -228,13 +230,38 @@ class OpenClawChatClient:
             role = "operator"
             scopes = ["operator.read", "operator.write"]
 
+            # openclaw stores the `platform` field on the paired
+            # device record. A subsequent connect that reports a
+            # different platform is treated as "device identity
+            # changed" and rejected pending UI re-approval — even when
+            # the deviceId + publicKey + signature all match. The
+            # install pair script runs the pairing handshake from the
+            # AGENT HOST via localhost (a Mac mini → `darwin`), but
+            # the operator's clawctl that drives chat actually lives
+            # on a different machine (Linux/macOS workstation). Send
+            # the OPERATOR's platform, not a hardcoded value, so the
+            # pair-time and chat-time `platform` strings agree.
+            #
+            # `_normalize_operator_platform` strips Python's
+            # versioned-platform suffix (`freebsd13` → `freebsd`) so
+            # the value matches Node's `process.platform` shape that
+            # `pair_device.mjs` records on the daemon side — without
+            # this a Python 3.11→3.12 bump on a FreeBSD operator
+            # would trigger the exact "device identity changed"
+            # rejection this code was written to prevent.
             connect_params: dict[str, Any] = {
+                # openclaw v2026.6.9 dropped protocol 3 — the daemon
+                # rejects min=3/max=3 handshakes with "expected=4
+                # probeMin=4" (verified live against esper-mac-oc,
+                # see .itx/719/01_EXECUTION.md). Negotiate 3..4 so
+                # the client stays compatible with both older daemons
+                # still on proto 3 and v2026.6.9+ on proto 4.
                 "minProtocol": 3,
-                "maxProtocol": 3,
+                "maxProtocol": 4,
                 "client": {
                     "id": client_id,
                     "version": __version__,
-                    "platform": "linux",
+                    "platform": _normalize_operator_platform(sys.platform),
                     "mode": client_mode,
                 },
                 "role": role,

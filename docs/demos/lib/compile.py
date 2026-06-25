@@ -217,6 +217,12 @@ def compile_demo(demo_dir: Path) -> tuple[Path, Path]:
     theme = tape_cfg.get("theme", DEFAULT_THEME)
     audio_cps = float(tape_cfg.get("audio_cps", DEFAULT_AUDIO_CPS))
     narration_buffer = float(tape_cfg.get("narration_buffer_seconds", DEFAULT_NARRATION_BUFFER))
+    output_format = str(tape_cfg.get("output_format", "mp4")).lower()
+    if output_format not in ("mp4", "gif"):
+        raise ValueError(
+            f"tape.output_format must be 'mp4' or 'gif', got {output_format!r}"
+        )
+    recording_filename = f"recording.{output_format}"
 
     # Stage 2 refinement: real durations from prior narrate.py run, if any.
     actual_durations = _load_actual_durations(demo_dir)
@@ -261,11 +267,11 @@ def compile_demo(demo_dir: Path) -> tuple[Path, Path]:
         f"#   Edit scenes.yaml then re-run: uv run docs/demos/lib/compile.py {rel_demo}",
         "#",
         "# Records: title card -> checklist -> N scenes (replay) -> outro card.",
-        "# Output : recording.mp4 alongside this tape (gitignored).",
+        f"# Output : {recording_filename} alongside this tape (gitignored).",
         "",
         "Require vhs",
         "",
-        f"Output {rel_demo}/recording.mp4",
+        f"Output {rel_demo}/{recording_filename}",
         "",
         'Set Shell "bash"',
         "Set FontSize 18",

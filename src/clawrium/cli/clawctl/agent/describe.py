@@ -80,7 +80,7 @@ def describe(
     for integration in integration_names:
         lines.append(f"  {_s(integration)}  (configured)")
 
-    channels = (config.get("channels") or claw_record.get("channels") or []) or []
+    channels = (claw_record.get("channels") or []) or []
     lines.append("")
     if channels:
         lines.append(f"Channels ({len(channels)}):")

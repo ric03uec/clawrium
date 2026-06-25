@@ -19,9 +19,16 @@ from rich.panel import Panel
 
 from clawrium.cli.agent_skill import agent_skill_app
 from clawrium.cli.install import install as install_command
+from clawrium.cli.output._sanitize import sanitize_passthrough
 from clawrium.cli.status import status as status_command
 from clawrium.core.config import get_config_dir
-from clawrium.core.hosts import get_host, load_hosts, HostsFileCorruptedError
+from clawrium.core.hosts import (
+    get_host,
+    load_hosts,
+    HostsFileCorruptedError,
+    read_gateway_auth,
+    set_gateway_auth,
+)
 from clawrium.core.onboarding import (
     OnboardingState,
     StageStatus,
@@ -356,7 +363,10 @@ def _sync_provider_config(
     if "url" in existing_gateway:
         gateway_config["url"] = existing_gateway["url"]
     if "auth" in existing_gateway:
-        gateway_config["auth"] = existing_gateway["auth"]
+        # #820: route copy-through of the bearer through the read/write
+        # helpers so a legacy dict shape on disk normalizes to the bare
+        # string at the boundary.
+        set_gateway_auth(gateway_config, read_gateway_auth(existing_gateway))
 
     # Build provider config
     provider_config = {
@@ -373,10 +383,6 @@ def _sync_provider_config(
 
     # Build complete config data
     config_data = {"gateway": gateway_config, "provider": provider_config}
-
-    # Preserve existing channels config (Discord pairing, etc.)
-    if "channels" in existing_config:
-        config_data["channels"] = existing_config["channels"]
 
     # Preserve existing api_server block (Hermes loopback gateway auth).
     # configure_agent re-hydrates this from hosts.json too, but carrying it
@@ -728,7 +734,6 @@ def _sync_channel_config(
     agents = host_data.get("agents", {})
     agent = agents.get(agent_name, {})
 
-    # Merge channels into existing config
     existing_config = agent.get("config", {})
 
     # Guard against configuring channels before a provider is attached (B4).
@@ -742,7 +747,14 @@ def _sync_channel_config(
             f"'clawctl agent provider attach <provider> --agent {agent_name}' first."
         )
 
-    existing_config["channels"] = channels_config
+    # Issue #794: the legacy `clm agent configure --stage channels` flow
+    # used to merge channels_config into existing_config so the Ansible
+    # extravar payload received it. That merge is gone — `configure_agent`
+    # now hydrates channels from canonical `channels.json` (hermes /
+    # zeroclaw / ethos via `_hydrate_channels_from_canonical`) and the
+    # updater strips `channels` from persisted_config before write.
+    # The modern channel surface is `clawctl channel attach <channel>
+    # --agent <agent>` + `clawctl agent sync <agent>`.
 
     # Call configure_agent to sync
     success, error = configure_agent(
@@ -804,6 +816,62 @@ def _run_channels_stage(
     Returns:
         True if stage completed successfully
     """
+    # This wizard is deprecated. Channel state is canonical in
+    # `channels.json` (with secrets in secrets.json); tokens this wizard
+    # prompted for are no longer persisted anywhere. Fail loudly and
+    # direct the operator at the modern `clawctl channel` surface.
+    #
+    # WARNING (orig audit: ATX #794 iter-2 W5): the body below the
+    # raise contains unguarded `typer.prompt(hide_input=True)` calls.
+    # Demoting the `raise typer.Exit(code=2)` to conditional (e.g.
+    # behind a feature flag) silently restores an interactive
+    # token-prompt path — keep the raise unconditional until the dead
+    # body is removed alongside the legacy `clm` driver retirement
+    # (#707).
+    # Channel-type hint must mirror `_hydrate_channels_from_canonical`
+    # in `core/lifecycle.py` (`if resolved_type in ("hermes", "zeroclaw",
+    # "ethos"):`). Only those three types pull channels from the
+    # canonical store on configure; openclaw and nemoclaw have no
+    # canonical channel hydration today, so directing their operators
+    # at `clawctl channel attach` would silently no-op on sync
+    # (ATX #794 iter-4 W1). zeroclaw has no native Slack channel
+    # (#422), so only discord is listed there. `cli` is an in-process
+    # selector in the dead wizard body, not a registry channel type;
+    # it is intentionally absent.
+    _channel_types_by_agent = {
+        "hermes": "discord, slack",
+        "ethos": "discord, slack",
+        "zeroclaw": "discord",
+    }
+    channel_examples = _channel_types_by_agent.get(claw_type)
+    safe_agent_name = sanitize_passthrough(
+        installed_name or "<agent-name>"
+    )
+    if channel_examples is None:
+        # openclaw / nemoclaw / unknown — no canonical hydration path.
+        console.print(
+            "[yellow]This wizard is deprecated.[/yellow] "
+            f"`{claw_type}` does not currently support attaching "
+            "channels via the canonical store. Channel configuration "
+            "for this agent type is tracked as a follow-up under #790."
+        )
+    else:
+        console.print(
+            "[yellow]This wizard is deprecated.[/yellow] "
+            "Channel state is now managed via `channels.json`.\n"
+            "Use the modern surface instead "
+            f"(supported types: {channel_examples}):\n"
+            "  clawctl channel registry create <channel-name> "
+            "--type <type> --token <bot-token>  "
+            "(stores token in secrets.json)\n"
+            "  clawctl agent channel attach <channel-name> --agent "
+            f"{safe_agent_name}\n"
+            f"  clawctl agent sync {safe_agent_name}"
+        )
+    raise typer.Exit(code=2)
+    # mypy/runtime never reach below — the original wizard body remains
+    # only so the parent state-machine references in `STAGES` and
+    # `STATE_RESUME_IDX` still resolve until Phase 4.
     from clawrium.core.secrets import get_instance_key, set_instance_secret
 
     # Channel menu per agent type. ZeroClaw v0.7.5 has no native Slack
