@@ -1,0 +1,164 @@
+Requesting review for /home/devashish/workspace/ric03uec/clawrium-issue-820...
+{"time":"2026-06-24T14:55:33.934043971-07:00","level":"INFO","msg":"request_review: starting","project_root":"/home/devashish/workspace/ric03uec/clawrium"}
+{"time":"2026-06-24T14:55:33.955969376-07:00","level":"INFO","msg":"request_review: task created","task_id":"d73f7024-ac2c-4130-872d-6fae09de551e","project_port":30011}
+ATX review in progress. Using high effort (per-project) — leader may invoke up to 6 of 7 specialists.
+Task created (id: d73f7024-ac2c-4130-872d-6fae09de551e), polling for completion...
+Waiting for review... (0s elapsed)
+Waiting for review... (1s elapsed)
+Waiting for review... (3s elapsed)
+Waiting for review... (7s elapsed)
+Waiting for review... (15s elapsed)
+Waiting for review... (25s elapsed)
+Waiting for review... (35s elapsed)
+Waiting for review... (45s elapsed)
+Waiting for review... (55s elapsed)
+Waiting for review... (1m5s elapsed)
+Waiting for review... (1m15s elapsed)
+Waiting for review... (1m25s elapsed)
+Waiting for review... (1m35s elapsed)
+Waiting for review... (1m45s elapsed)
+Waiting for review... (1m55s elapsed)
+Waiting for review... (2m5s elapsed)
+Waiting for review... (2m15s elapsed)
+Waiting for review... (2m25s elapsed)
+Waiting for review... (2m35s elapsed)
+Waiting for review... (2m45s elapsed)
+Waiting for review... (2m55s elapsed)
+Waiting for review... (3m5s elapsed)
+Waiting for review... (3m15s elapsed)
+Waiting for review... (3m25s elapsed)
+Waiting for review... (3m35s elapsed)
+Waiting for review... (3m45s elapsed)
+Waiting for review... (3m55s elapsed)
+Waiting for review... (4m5s elapsed)
+Waiting for review... (4m15s elapsed)
+Waiting for review... (4m25s elapsed)
+Waiting for review... (4m35s elapsed)
+Waiting for review... (4m45s elapsed)
+Waiting for review... (4m55s elapsed)
+Waiting for review... (5m5s elapsed)
+Waiting for review... (5m15s elapsed)
+Waiting for review... (5m25s elapsed)
+Waiting for review... (5m35s elapsed)
+Waiting for review... (5m45s elapsed)
+Waiting for review... (5m55s elapsed)
+Waiting for review... (6m5s elapsed)
+Waiting for review... (6m15s elapsed)
+Waiting for review... (6m25s elapsed)
+Waiting for review... (6m35s elapsed)
+Waiting for review... (6m45s elapsed)
+Waiting for review... (6m55s elapsed)
+Waiting for review... (7m5s elapsed)
+Waiting for review... (7m15s elapsed)
+Waiting for review... (7m25s elapsed)
+Waiting for review... (7m35s elapsed)
+Waiting for review... (7m45s elapsed)
+Waiting for review... (7m55s elapsed)
+Waiting for review... (8m5s elapsed)
+Waiting for review... (8m15s elapsed)
+Waiting for review... (8m25s elapsed)
+Waiting for review... (8m35s elapsed)
+Waiting for review... (8m45s elapsed)
+Waiting for review... (8m55s elapsed)
+Waiting for review... (9m5s elapsed)
+Waiting for review... (9m15s elapsed)
+Waiting for review... (9m25s elapsed)
+Waiting for review... (9m35s elapsed)
+Waiting for review... (9m45s elapsed)
+Waiting for review... (9m55s elapsed)
+Waiting for review... (10m5s elapsed)
+Waiting for review... (10m15s elapsed)
+Waiting for review... (10m25s elapsed)
+Waiting for review... (10m35s elapsed)
+Waiting for review... (10m45s elapsed)
+Waiting for review... (10m55s elapsed)
+Waiting for review... (11m6s elapsed)
+Waiting for review... (11m16s elapsed)
+Waiting for review... (11m26s elapsed)
+Waiting for review... (11m36s elapsed)
+Waiting for review... (11m46s elapsed)
+Waiting for review... (11m56s elapsed)
+{"time":"2026-06-24T15:07:39.514715517-07:00","level":"INFO","msg":"review: task completed","task_id":"d73f7024-ac2c-4130-872d-6fae09de551e","status":"completed","duration_ms":718365}
+{"time":"2026-06-24T15:07:39.514753688-07:00","level":"INFO","msg":"request_review: completed","task_id":"d73f7024-ac2c-4130-872d-6fae09de551e","status":"completed","blocking":true,"files_reviewed":0,"cost_usd":3.0750577499999996}
+{
+  "status": "reviewed",
+  "blocking": true,
+  "summary": "## ATX Review — Issue #820, Iteration 2\n\n**Rating: 3 / 5** | Specialists: render-engine (2/5), security-reviewer (4/5), test-coverage (4/5)\n\n---\n\n### Review-1 Items — All Closed ✅\n\n| Item | Status | V...",
+  "feedback": "## ATX Review — Issue #820, Iteration 2\n\n**Rating: 3 / 5** | Specialists: render-engine (2/5), security-reviewer (4/5), test-coverage (4/5)\n\n---\n\n### Review-1 Items — All Closed ✅\n\n| Item | Status | Verification |\n|------|--------|-------------|\n| B1 | ✅ Closed | Non-string non-dict types (list, int) now raise `AgentConfigError` at line 610–613 |\n| B2 | ✅ Closed | Dict missing `token` key raises at line 604 (`None` fails `isinstance(token, str)`) |\n| W1 | ✅ Closed | Unknown `mode` raises at line 598–600 (`mode != \"token\"`) |\n| W3 | ✅ Closed | Independent dict-path render assertion checks JSON body for token + mode |\n| W4 | ✅ Closed | NUL-in-dict-token parametrize case exercises `_clean_secret` stripping through dict path |\n| W5 | ✅ Closed | Explicit `token: None` fails `isinstance(token, str)` and raises |\n\n---\n\n### New Findings\n\n| # | Severity | File | Issue |\n|---|----------|------|-------|\n| B1 | **Blocking** | `render.py:604` | **Whitespace-only token in dict form bypasses validation.** `not isinstance(token, str) or not token` accepts `\"   \"` (truthy non-empty str). After `_clean_secret` (strips NUL/CR/LF but not spaces), `GatewayInputs.auth=\"   \"` flows to `_render_openclaw_json` which emits `{\"mode\": \"token\", \"token\": \"   \"}` — a no-auth gateway violating the #437 invariant. The `gateway.host` field has `.strip()` at line 578; `auth` needs the same. **Fix:** `not token.strip()` instead of `not token`. |\n| B2 | **Blocking** | `render.py:623` | **Bare-string whitespace-only auth also accepted.** `auth_raw = \"   \"` passes the `elif` guard, goes through `_clean_secret(\"   \") → \"   \"`, and the truthy whitespace string is emitted as a bearer token. Same root cause as B1. **Fix:** `auth=_clean_secret(auth_raw).strip()` at line 623, mirroring the host-field pattern. |\n| W1 | Warning | `test_render.py:1303–1418` | **No zeroclaw coverage for the dict-shape code path.** The unwrapping at `render.py:596–614` is agent-type-agnostic — fires for any agent with a gateway blob. All new tests use `agent_type='openclaw'` exclusively. If zeroclaw's `install.py` is updated to write the dict shape, the behavior is untested. **Fix:** Add one test with `agent_type='zeroclaw'` + dict auth + `render_zeroclaw`. |\n| W2 | Warning | `test_render.py:1410–1433` | **No whitespace-only test cases.** Neither the success nor error parametrize covers `\"   \"` as bare-string auth or `{\"mode\": \"token\", \"token\": \"   \"}`. The B1/B2 fix would be unguarded. **Fix:** Add both cases to the error-path parametrize once `.strip()` is applied. |\n| S1 | Suggestion | `test_render.py:1344–1348` | Add a CR/LF variant to the dict-token parametrize (e.g., `token + \"\\r\\ninjection\"`) to match parity with `test_clean_secret_applied_to_gateway_auth_and_api_server_key`. |\n| S2 | Suggestion | `render.py:597–602` | When dict lacks `mode` entirely, the error says `unsupported mode None` — slightly misleading. Consider splitting: `if \"mode\" not in auth_raw: raise ...(\"missing 'mode' field\")` before the `mode != \"token\"` branch. |\n\n---\n\n### Recommendations\n\n1. **Apply `.strip()` to both paths** — dict validation (`not token.strip()`) and final assembly (`auth=_clean_secret(auth_raw).strip()`), mirroring the existing `host_raw` defense at line 578.\n2. **Add whitespace-only test cases** to the error-path parametrize once the `.strip()` fix lands.\n3. **Add one zeroclaw dict-auth test** to cover the agent-type-agnostic code path for the other gateway-bearing agent type.\n\n---\n\n**Bottom line:** All six review-1 items are closed. Two new blocking issues (same root cause — whitespace-only tokens bypass validation) need fixing before this is ready. Both are one-line `.strip()` additions following the existing `host_raw` pattern.",
+  "agent_feedback": [
+    {
+      "agent_id": "a13a9b15-3250-4f4b-adce-c781fb471731",
+      "agent_name": "leader",
+      "status": "completed",
+      "result": "## ATX Review — Issue #820, Iteration 2\n\n**Rating: 3 / 5** | Specialists: render-engine (2/5), security-reviewer (4/5), test-coverage (4/5)\n\n---\n\n### Review-1 Items — All Closed ✅\n\n| Item | Status | Verification |\n|------|--------|-------------|\n| B1 | ✅ Closed | Non-string non-dict types (list, int) now raise `AgentConfigError` at line 610–613 |\n| B2 | ✅ Closed | Dict missing `token` key raises at line 604 (`None` fails `isinstance(token, str)`) |\n| W1 | ✅ Closed | Unknown `mode` raises at line 598–600 (`mode != \"token\"`) |\n| W3 | ✅ Closed | Independent dict-path render assertion checks JSON body for token + mode |\n| W4 | ✅ Closed | NUL-in-dict-token parametrize case exercises `_clean_secret` stripping through dict path |\n| W5 | ✅ Closed | Explicit `token: None` fails `isinstance(token, str)` and raises |\n\n---\n\n### New Findings\n\n| # | Severity | File | Issue |\n|---|----------|------|-------|\n| B1 | **Blocking** | `render.py:604` | **Whitespace-only token in dict form bypasses validation.** `not isinstance(token, str) or not token` accepts `\"   \"` (truthy non-empty str). After `_clean_secret` (strips NUL/CR/LF but not spaces), `GatewayInputs.auth=\"   \"` flows to `_render_openclaw_json` which emits `{\"mode\": \"token\", \"token\": \"   \"}` — a no-auth gateway violating the #437 invariant. The `gateway.host` field has `.strip()` at line 578; `auth` needs the same. **Fix:** `not token.strip()` instead of `not token`. |\n| B2 | **Blocking** | `render.py:623` | **Bare-string whitespace-only auth also accepted.** `auth_raw = \"   \"` passes the `elif` guard, goes through `_clean_secret(\"   \") → \"   \"`, and the truthy whitespace string is emitted as a bearer token. Same root cause as B1. **Fix:** `auth=_clean_secret(auth_raw).strip()` at line 623, mirroring the host-field pattern. |\n| W1 | Warning | `test_render.py:1303–1418` | **No zeroclaw coverage for the dict-shape code path.** The unwrapping at `render.py:596–614` is agent-type-agnostic — fires for any agent with a gateway blob. All new tests use `agent_type='openclaw'` exclusively. If zeroclaw's `install.py` is updated to write the dict shape, the behavior is untested. **Fix:** Add one test with `agent_type='zeroclaw'` + dict auth + `render_zeroclaw`. |\n| W2 | Warning | `test_render.py:1410–1433` | **No whitespace-only test cases.** Neither the success nor error parametrize covers `\"   \"` as bare-string auth or `{\"mode\": \"token\", \"token\": \"   \"}`. The B1/B2 fix would be unguarded. **Fix:** Add both cases to the error-path parametrize once `.strip()` is applied. |\n| S1 | Suggestion | `test_render.py:1344–1348` | Add a CR/LF variant to the dict-token parametrize (e.g., `token + \"\\r\\ninjection\"`) to match parity with `test_clean_secret_applied_to_gateway_auth_and_api_server_key`. |\n| S2 | Suggestion | `render.py:597–602` | When dict lacks `mode` entirely, the error says `unsupported mode None` — slightly misleading. Consider splitting: `if \"mode\" not in auth_raw: raise ...(\"missing 'mode' field\")` before the `mode != \"token\"` branch. |\n\n---\n\n### Recommendations\n\n1. **Apply `.strip()` to both paths** — dict validation (`not token.strip()`) and final assembly (`auth=_clean_secret(auth_raw).strip()`), mirroring the existing `host_raw` defense at line 578.\n2. **Add whitespace-only test cases** to the error-path parametrize once the `.strip()` fix lands.\n3. **Add one zeroclaw dict-auth test** to cover the agent-type-agnostic code path for the other gateway-bearing agent type.\n\n---\n\n**Bottom line:** All six review-1 items are closed. Two new blocking issues (same root cause — whitespace-only tokens bypass validation) need fixing before this is ready. Both are one-line `.strip()` additions following the existing `host_raw` pattern.",
+      "rating": 0,
+      "cost_usd": 1.2186852499999998,
+      "delegated_to": [
+        "e5323802-3973-44c7-a934-53da9bea7eae",
+        "49fbebd6-8745-4b35-81b4-0bb0bf680f37",
+        "d79463ac-884b-4e03-b34f-fb6017c83027",
+        "2f559a42-9fca-4be1-a67d-1601b2edbe8b",
+        "96cf24db-1fca-48da-8f6f-2d799acb293a",
+        "2b6bb653-42cd-4aa5-aac5-6edc8b274fd0",
+        "e8462619-249e-41f6-8cb0-a7169ae20d74"
+      ]
+    },
+    {
+      "agent_id": "e5323802-3973-44c7-a934-53da9bea7eae",
+      "agent_name": "cli-ux",
+      "status": "skipped",
+      "rating": 0
+    },
+    {
+      "agent_id": "49fbebd6-8745-4b35-81b4-0bb0bf680f37",
+      "agent_name": "gui-routes",
+      "status": "skipped",
+      "rating": 0
+    },
+    {
+      "agent_id": "d79463ac-884b-4e03-b34f-fb6017c83027",
+      "agent_name": "lifecycle-core",
+      "status": "skipped",
+      "rating": 0
+    },
+    {
+      "agent_id": "2f559a42-9fca-4be1-a67d-1601b2edbe8b",
+      "agent_name": "platform-playbooks",
+      "status": "skipped",
+      "rating": 0
+    },
+    {
+      "agent_id": "96cf24db-1fca-48da-8f6f-2d799acb293a",
+      "agent_name": "test-coverage",
+      "status": "completed",
+      "result": "\u003coutput\u003e\n{\n  \"rating\": 4,\n  \"summary\": \"All five review-1 items are resolved and the new tests are well-structured. The parametrized success and error-path tests together exercise every branch added in the #820 production fix. One warning: the dict-shape unwrapping in build_render_inputs is agent-type-agnostic (applies to zeroclaw and hermes gateway blobs equally), but all three new success cases and all seven error-path cases use agent_type='openclaw' exclusively — zeroclaw has no coverage for the new code path.\",\n  \"findings\": [\n    {\n      \"severity\": \"warning\",\n      \"location\": \"tests/core/test_render.py:1303-1418\",\n      \"issue\": \"The dict-shape unwrapping added at render.py:596-614 is agent-type-agnostic: the isinstance(auth_raw, dict) branch fires for any agent whose hosts.json gateway blob carries a dict auth. Both zeroclaw and hermes have gateway blobs and are subject to the same code path. All three new success tests (_openclaw_stores_with_auth) and all seven error-path cases in test_gateway_auth_rejects_malformed_shapes set agent_type='openclaw'. There are no tests verifying dict-shape handling for zeroclaw. The existing zeroclaw gateway tests (test_gateway_host_defaults_to_wildcard_when_blank, test_gateway_host_default_round_trips_through_render_zeroclaw) all use bare-string auth ('tk'), so the dict branch is never hit for zeroclaw. If zeroclaw's install.py is ever updated to write the dict shape (a plausible migration path), the behavior is untested.\",\n      \"suggestion\": \"Add a single test setting agent_type='zeroclaw' with a dict-shape auth and calling render_zeroclaw to cover the missing branch. Reuse the _openclaw_stores_with_auth pattern with a zeroclaw variant.\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"tests/core/test_render.py:1344-1348\",\n      \"issue\": \"The NUL-in-dict-token case (third parametrize case) exercises _clean_secret stripping only NUL. The same function also strips CR and LF. For the bare-string path, test_clean_secret_applied_to_gateway_auth_and_api_server_key at line 1281 explicitly covers CR/LF in gateway.auth. The dict-token path has no equivalent CR/LF case. Risk is low since _clean_secret is tested independently, but a regression that breaks CR/LF stripping specifically in the dict-unwrap path would not be caught here.\",\n      \"suggestion\": \"Add a fourth parametrize case: ({\\\"mode\\\": \\\"token\\\", \\\"token\\\": _AUTH_TOKEN_820 + \\\"\\\\r\\\\ninjection\\\"}, _AUTH_TOKEN_820 + \\\"injection\\\") to pin CR/LF stripping through the dict path.\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"tests/core/test_render.py:1370-1372\",\n      \"issue\": \"JSON body assertions use substring string matching rather than parsing the JSON and checking data[\\\"gateway\\\"][\\\"auth\\\"][\\\"token\\\"] structurally. Consistent with the file's existing style, but a token appearing in an unexpected JSON location would still pass.\",\n      \"suggestion\": \"Optionally add parsed assertion: import json; data = json.loads(json_body); assert data[\\\"gateway\\\"][\\\"auth\\\"][\\\"token\\\"] == expected_token to verify structural placement directly.\"\n    }\n  ],\n  \"recommendations\": [\n    \"Add a zeroclaw-typed variant of the dict-shape assembly test (agent_type='zeroclaw', dict auth, call render_zeroclaw) to cover the agent-type-agnostic production fix for zeroclaw.\",\n    \"Extend the NUL-in-dict-token parametrize case with a CR/LF variant to match the parity already present in test_clean_secret_applied_to_gateway_auth_and_api_server_key.\"\n  ],\n  \"metadata\": {\n    \"files_reviewed\": 2,\n    \"domain\": \"test-coverage / render-assembly\"\n  }\n}\n\u003c/output\u003e",
+      "rating": 4,
+      "cost_usd": 0.8442234
+    },
+    {
+      "agent_id": "2b6bb653-42cd-4aa5-aac5-6edc8b274fd0",
+      "agent_name": "render-engine",
+      "status": "completed",
+      "result": "Good. I've thoroughly examined the code. Now let me compile my findings.\n\n**Review-1 resolution check:**\n- B1 (non-string non-dict types like list/int crashing `_clean_secret`): **Resolved** — line 610-613 now raises `AgentConfigError` for non-string non-dict types before they reach `_clean_secret`.\n- B2 (dict missing `token` key producing empty bearer): **Resolved** — line 604 raises when `token` is missing (`.get(\"token\")` returns `None`, which fails `isinstance(token, str)`).\n- W1 (unknown mode silently accepted): **Resolved** — line 598-600 raises for `mode != \"token\"`.\n- W5 (explicit `token: None` fell through): **Resolved** — `None` fails `isinstance(token, str)` at line 604.\n\n**New issues:**\n\n1. **Whitespace-only string token in dict form**: The check at line 604 is `not isinstance(token, str) or not token`. A whitespace-only string like `\"   \"` is a `str` and is truthy (non-empty), so it passes validation. Then `_clean_secret(\"   \")` strips NUL/CR/LF but NOT spaces/tabs, returning `\"   \"`. This truthy value goes into `GatewayInputs.auth=\"   \"`, and at `_render_openclaw_json` line 1776 (`if gateway.auth:`), it emits `gw[\"auth\"] = {\"mode\": \"token\", \"token\": \"   \"}` — a whitespace-only bearer that violates the #437 gateway-token invariant exactly the same way as an empty one would. The `host` field has an explicit `.strip()` before the `or \"0.0.0.0\"` default (line 578), but `auth` does not. This is the same pattern from checklist item #3 (whitespace stripping before `or` defaults), applied to a field that's even more security-sensitive. Severity: **blocking**.\n\n2. **Whitespace-only bare string auth**: Similarly, `auth_raw = \"   \"` (bare string) passes the `elif` branch (it IS a string), goes through `_clean_secret(\"   \")` which returns `\"   \"`, and the same downstream issue applies. However, for the bare string case this is arguably less critical since the `host` field also has this gap and was fixed with `.strip()` — `auth` needs the same treatment. Severity: **blocking** (same root cause as #1).\n\nWait, let me re-check the host handling pattern more carefully. Line 578: `host_raw = _clean_secret(gateway_blob.get(\"host\")).strip()` then line 619: `host=host_raw or \"0.0.0.0\"`. The `.strip()` ensures `\"   \"` → `\"\"` → `\"0.0.0.0\"` default. But for `auth`, line 623: `auth=_clean_secret(auth_raw)` — no `.strip()`, and `GatewayInputs.auth` has no default/fallback. A whitespace-only auth stays truthy.\n\n\u003coutput\u003e\n{\n  \"rating\": 2,\n  \"summary\": \"All four review-1 items (B1, B2, W1, W5) are resolved. However, a new whitespace-only token bypass is introduced: the dict-path validation at line 604 checks `not token` which accepts whitespace-only strings like `\\\"   \\\"`, and neither the dict-path nor the bare-string path applies `.strip()` before `_clean_secret` — the same defense that exists for `gateway.host`. A whitespace-only auth token violates the #437 gateway-token invariant the same way an empty one would.\",\n  \"findings\": [\n    {\n      \"severity\": \"blocking\",\n      \"location\": \"src/clawrium/core/render.py:604\",\n      \"issue\": \"Whitespace-only string token in dict form bypasses validation. `not isinstance(token, str) or not token` accepts `\\\"   \\\"` because it is a truthy non-empty str. After `_clean_secret` (which strips NUL/CR/LF but not spaces/tabs), `GatewayInputs.auth=\\\"   \\\"` flows to `_render_openclaw_json` which emits `{\\\"mode\\\": \\\"token\\\", \\\"token\\\": \\\"   \\\"}` — a no-auth gateway violating the #437 invariant. The `gateway.host` field has an explicit `.strip()` before the `or \\\"0.0.0.0\\\"` default (line 578), but `auth` has no equivalent stripping.\",\n      \"suggestion\": \"Add `.strip()` before the emptiness check, mirroring the host-field pattern: `if not isinstance(token, str) or not token.strip():`. For the bare-string path, also apply `.strip()` to `auth_raw` before `_clean_secret` or after it: `auth=_clean_secret(auth_raw).strip()` (or store the intermediate like `host_raw`).\"\n    },\n    {\n      \"severity\": \"blocking\",\n      \"location\": \"src/clawrium/core/render.py:623\",\n      \"issue\": \"Bare-string whitespace-only auth is also accepted. `auth_raw = \\\"   \\\"` passes the `elif` guard (is a str, is not None), goes through `_clean_secret(\\\"   \\\") → \\\"   \\\"`, and the truthy whitespace string is emitted as a bearer token. Same class of bug as the dict-path case — same root cause as checklist item #3.\",\n      \"suggestion\": \"After `_clean_secret(auth_raw)`, strip whitespace before the truthiness gate that `_render_openclaw_json` uses. E.g., `auth=_clean_secret(auth_raw).strip()` so `\\\"   \\\" → \\\"\\\" →` empty auth, which `_render_openclaw_json` correctly omits.\"\n    },\n    {\n      \"severity\": \"warning\",\n      \"location\": \"tests/core/test_render.py:1410-1433\",\n      \"issue\": \"The error-path parametrized test covers empty-string token (`\\\"\\\"`) and None token but does NOT cover whitespace-only string token (`\\\"   \\\"`) in dict form, nor whitespace-only bare-string auth. The gap means the blocking issue above would not be caught by existing tests.\",\n      \"suggestion\": \"Add parametrized cases: `(\\\"   \\\")` as bare-string auth and `{\\\"mode\\\": \\\"token\\\", \\\"token\\\": \\\"   \\\"}` as dict auth — both should raise `AgentConfigError` once the `.strip()` fix is applied.\"\n    }\n  ],\n  \"recommendations\": [\n    \"Apply `.strip()` to the token field in the dict validation (line 604: `not token.strip()` instead of `not token`) and to the auth value after `_clean_secret` on line 623 (`auth=_clean_secret(auth_raw).strip()`), mirroring the existing host-field defense at line 578.\",\n    \"Add whitespace-only token test cases to the parametrized error-path test at line 1410.\"\n  ],\n  \"metadata\": {\n    \"files_reviewed\": 2,\n    \"domain\": \"clawrium/core/render.py\"\n  }\n}\n\u003c/output\u003e",
+      "rating": 2,
+      "cost_usd": 0.3734026
+    },
+    {
+      "agent_id": "e8462619-249e-41f6-8cb0-a7169ae20d74",
+      "agent_name": "security-reviewer",
+      "status": "completed",
+      "result": "\u003coutput\u003e\n{\n  \"rating\": 4,\n  \"summary\": \"The dict-shape unwrap is well-scoped, preserves _clean_secret's str|None contract, and closes the silent-empty-bearer path for the dict shape that motivated #820. Error messages do not leak the token value. One residual asymmetry — the bare-empty-string case — is pre-existing and out of scope for this fix.\",\n  \"findings\": [\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"src/clawrium/core/render.py:610-614\",\n      \"issue\": \"Non-string non-dict types now raise AgentConfigError correctly. Verified: bool also routes here (isinstance(True, dict) is False), list/int/float all raise. The `type(auth_raw).__name__!r` formatting only emits the class name, not the value — no token leak. Contract preserved: after this block auth_raw is either str (validated non-empty for dict-derived) or None. _clean_secret(str|None) contract intact.\",\n      \"suggestion\": \"No action; addresses checks #2, #3, #4 cleanly.\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"src/clawrium/core/render.py:595-614 vs render.py:1776-1781\",\n      \"issue\": \"Concern #1 (silent empty/no-auth gateway): the dict-shape unwrap correctly rejects {missing token, empty token, wrong mode}. However a bare-string empty value (`gateway.auth: \\\"\\\"`) still flows through `_clean_secret` to `auth=\\\"\\\"`, and the openclaw renderer at line 1776-1781 then drops the `auth` block (`gw.pop(\\\"auth\\\", None)`) — producing exactly the no-auth gateway the comment claims to prevent. This is pre-existing behavior preserved by the patch; install.py and lifecycle.py always write the dict shape so the gap is unreachable through supported flows, but the comment at lines 588-591 overstates the invariant — it only holds for the dict shape.\",\n      \"suggestion\": \"Either (a) tighten by also raising on `isinstance(auth_raw, str) and not auth_raw.strip()` when `gateway_blob` declares an auth key, or (b) soften the comment to scope the invariant to the dict shape and reference where the bare-string contract is enforced (install.py / lifecycle rotation).\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"src/clawrium/core/render.py:597-602\",\n      \"issue\": \"When the dict lacks `mode` entirely, `mode = auth_raw.get(\\\"mode\\\")` is None and the operator-facing message becomes `unsupported mode None (only 'token' is supported)`. Functionally correct (still raises and blocks the silent-empty path), but slightly misleading diagnostics for the missing-key case.\",\n      \"suggestion\": \"Split: `if \\\"mode\\\" not in auth_raw: raise ...(\\\"missing 'mode' field\\\")` before the `mode != \\\"token\\\"` branch. Minor UX polish.\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"src/clawrium/core/render.py:595-614\",\n      \"issue\": \"Secret hygiene in error paths is clean. Confirmed: (a) `mode!r` emits only the mode value (not the token), (b) the missing/empty-token branch never echoes the token, (c) the type-error branch echoes only `type(...).__name__`. No token-value leak in any AgentConfigError raised here. Concern #4 satisfied.\",\n      \"suggestion\": \"None.\"\n    },\n    {\n      \"severity\": \"suggestion\",\n      \"location\": \"src/clawrium/core/render.py:595, 623\",\n      \"issue\": \"Concern #5: `auth_raw = None` (no `auth` key on the gateway blob) falls through both the `isinstance(dict)` and the `elif ... not isinstance(str)` branches and reaches `_clean_secret(None)` → `\\\"\\\"`. Correct behavior for agents that legitimately omit gateway.auth — hermes never reads inputs.gateway, and the openclaw renderer drops the auth key cleanly when empty.\",\n      \"suggestion\": \"None — behavior matches the documented contract.\"\n    }\n  ],\n  \"recommendations\": [\n    \"Tighten the comment at lines 586-594 to scope the invariant to the dict shape, or add a parallel check that rejects whitespace-only bare-string auth so the comment's claim holds for both shapes.\",\n    \"Optionally add a unit test matrix covering: (a) dict with mode=None, (b) dict with mode='Token' (case), (c) bare empty string '', (d) bare whitespace '   ', (e) bool/int/list/tuple, (f) None — to lock the validation surface.\"\n  ],\n  \"metadata\": {\"files_reviewed\": 1, \"domain\": \"security-reviewer\"}\n}\n\u003c/output\u003e",
+      "rating": 4,
+      "cost_usd": 0.6387464999999999
+    }
+  ],
+  "rating": 4,
+  "review_cost_usd": 3.0750577499999996,
+  "duration_ms": 718365,
+  "models": [
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
+    "zai-org/glm-5.1"
+  ]
+}

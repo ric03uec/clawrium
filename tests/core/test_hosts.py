@@ -18,7 +18,9 @@ from clawrium.core.hosts import (
     _PRUNED_AGENT_CONFIG_KEYS,
     HOSTS_FILE,
     load_hosts,
+    read_gateway_auth,
     save_hosts,
+    set_gateway_auth,
 )
 
 
@@ -409,3 +411,89 @@ def test_load_hosts_prunes_across_multiple_hosts_and_agents(tmp_path, monkeypatc
     d = hosts[1]["agents"]["d"]["config"]
     assert "providers" not in d
     assert d["api_server"] == {"port": 41001}
+
+
+# #820: read/write helpers for `gateway.auth`. The contract is a
+# single on-disk shape (bare string); `read_gateway_auth` tolerates the
+# legacy dict shape so a manually patched hosts.json still renders.
+
+
+@pytest.mark.parametrize(
+    "gateway_blob,expected",
+    [
+        # Canonical bare-string shape.
+        ({"auth": "deadbeef"}, "deadbeef"),
+        # Legacy dict shape (the form `core/install.py` used to write
+        # via the playbook template before #820, and the form
+        # `~/.openclaw/openclaw.json` still carries on the agent host).
+        ({"auth": {"mode": "token", "token": "deadbeef"}}, "deadbeef"),
+        # Absent auth key.
+        ({}, ""),
+        # Explicit None auth.
+        ({"auth": None}, ""),
+        # Empty bare string.
+        ({"auth": ""}, ""),
+        # Dict missing the token key.
+        ({"auth": {"mode": "token"}}, ""),
+        # Dict with non-string token.
+        ({"auth": {"mode": "token", "token": None}}, ""),
+        # Unrecognized type (list / int) — return "" rather than
+        # crash; `_clean_secret` downstream sees an empty string.
+        ({"auth": ["x"]}, ""),
+        ({"auth": 42}, ""),
+        # Gateway blob itself is None / not a dict.
+        (None, ""),
+        # Whitespace-only bare-string: returned verbatim — the
+        # reader is intentionally lenient. Collapsing whitespace at
+        # the read side would silently mutate any token an operator
+        # persisted with surrounding whitespace (e.g. a copy/paste
+        # accident). Downstream (`_clean_secret` only strips NUL/
+        # CR/LF) decides what to do with it.
+        ({"auth": "   "}, "   "),
+        # Same lenient contract for the dict shape.
+        ({"auth": {"mode": "token", "token": "   "}}, "   "),
+        # Wrong `mode` value: `read_gateway_auth` ignores `mode`
+        # entirely and returns the embedded token. Pins the
+        # "mode-agnostic" half of the lenient contract — if `mode`
+        # validation is ever wanted, it lives at the write side, not
+        # the read side.
+        ({"auth": {"mode": "basic", "token": "x"}}, "x"),
+    ],
+)
+def test_read_gateway_auth_shapes(gateway_blob, expected):
+    assert read_gateway_auth(gateway_blob) == expected
+
+
+def test_set_gateway_auth_writes_bare_string():
+    block: dict = {"port": 40000}
+    set_gateway_auth(block, "deadbeef")
+    assert block == {"port": 40000, "auth": "deadbeef"}
+
+
+def test_set_gateway_auth_normalizes_legacy_dict():
+    """A block that already carries the legacy dict shape gets
+    rewritten to the bare-string shape on the next write — this is
+    what self-heals existing dict-shape hosts.json files on the
+    first sync after the fix."""
+    block: dict = {"auth": {"mode": "token", "token": "old"}, "port": 40000}
+    set_gateway_auth(block, "new")
+    assert block["auth"] == "new"
+
+
+def test_read_then_set_normalizes_dict_to_bare_string():
+    """The composition `set_gateway_auth(dst, read_gateway_auth(src))`
+    — used by `cli/agent.py:_sync_provider_config` and
+    `lifecycle.configure_agent` to propagate auth from the persisted
+    record onto a fresh gateway_config block — must collapse a
+    legacy dict-shape source to a bare-string destination. Pins the
+    call-site contract directly, since the live function is wired to
+    Ansible and not easy to unit-test end-to-end."""
+    src = {"auth": {"mode": "token", "token": "deadbeef"}, "port": 40000}
+    dst: dict = {"port": 40000}
+    set_gateway_auth(dst, read_gateway_auth(src))
+    assert dst["auth"] == "deadbeef"
+    # And the canonical bare-string source must round-trip unchanged.
+    src2 = {"auth": "cafef00d", "port": 40000}
+    dst2: dict = {"port": 40000}
+    set_gateway_auth(dst2, read_gateway_auth(src2))
+    assert dst2["auth"] == "cafef00d"

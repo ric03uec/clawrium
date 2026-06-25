@@ -170,6 +170,28 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- `clawctl agent sync <openclaw-agent>` no longer crashes with
+  `AttributeError: 'dict' object has no attribute 'replace'` when
+  `hosts.json.agents.<name>.config.gateway.auth` is dict-shaped
+  (`{"mode": "token", "token": "<hex>"}`). Reachable today only via
+  manual `hosts.json` patches or operational recovery — install no
+  longer writes the dict shape directly — but still a latent crash.
+  All install / lifecycle / configure write paths and the renderer
+  now route through two helpers in `core/hosts.py`:
+  `read_gateway_auth` (tolerates the legacy dict shape and returns
+  the bare token) and `set_gateway_auth` (single write contract,
+  always persists the bare string). Read-only consumers in
+  `cli/chat.py`, `core/validation.py`, the GUI fleet/agents routes,
+  and the TUI fleet view continue to read directly — they only need
+  presence/truthiness and never crash on a dict shape. The on-disk
+  contract for `hosts.json.agents.<name>.config.gateway.auth` is now
+  the bare-string bearer token; the `{mode, token}` shape lives only
+  inside `~/.openclaw/openclaw.json` on the agent host, written by
+  the renderer. Dict-shape `auth` self-normalizes back to the bare
+  string on the next `clawctl agent configure`, zeroclaw `sync` /
+  `restart` (bearer rotation), or fresh install. Openclaw `sync`
+  does not write `gateway.auth` and therefore does not normalize
+  a pre-existing dict shape, but it no longer crashes on one (#820).
 - `clawctl agent configure <name> --stage providers --provider <litellm>`
   no longer fails at the `Verify openclaw.json configuration`
   Ansible task for litellm providers. `verify_config.py`

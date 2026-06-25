@@ -34,7 +34,7 @@ import ansible_runner
 
 from clawrium.core._operator_platform import normalize as _normalize_operator_platform
 from clawrium.core.config import get_config_dir
-from clawrium.core.hosts import get_host, update_host
+from clawrium.core.hosts import get_host, update_host, set_gateway_auth
 from clawrium.core.keys import get_host_private_key
 from clawrium.core.lifecycle import _cleanup_ansible_artifacts, _resolve_agent_type
 from clawrium.core.names import (
@@ -1358,7 +1358,14 @@ def run_installation(
                         h["agents"][agent_name]["config"]["gateway"] = {}
 
                     h["agents"][agent_name]["config"]["gateway"]["url"] = gateway_url
-                    h["agents"][agent_name]["config"]["gateway"]["auth"] = gateway_token
+                    # #820: route the single write of gateway.auth through
+                    # `set_gateway_auth` so all callers (install,
+                    # configure, sync, re-pair, downgrade) persist the
+                    # same on-disk shape.
+                    set_gateway_auth(
+                        h["agents"][agent_name]["config"]["gateway"],
+                        gateway_token,
+                    )
                     h["agents"][agent_name]["config"]["gateway"]["port"] = openclaw_port
 
                     # Store device credentials for operator scope auth

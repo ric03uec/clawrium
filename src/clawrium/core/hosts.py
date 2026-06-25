@@ -22,6 +22,8 @@ __all__ = [
     "update_host",
     "remove_agent_from_host",
     "get_agent_by_name",
+    "read_gateway_auth",
+    "set_gateway_auth",
     "alias_exists",
     "add_address_to_host",
     "remove_address_from_host",
@@ -523,6 +525,53 @@ def remove_agent_from_host(hostname: str, agent_identifier: str) -> bool:
         return h
 
     return update_host(hostname, updater)
+
+
+# #820: single read/write path for `gateway.auth`.
+#
+# Contract: hosts.json carries the **bare-string** token (per AGENTS.md
+# "openclaw additionally requires the gateway bearer token at the
+# WebSocket handshake … flat string; the nested `.token` form only
+# appears inside `~/.openclaw/openclaw.json` on the agent host"). All
+# write paths (install, configure, sync, re-pair, downgrade, anything
+# else that mints or rotates the bearer) MUST go through
+# `set_gateway_auth` so there is one and only one shape on disk. The
+# render-side wrap from bare string → daemon dict happens in
+# `core/render.py:_render_openclaw_json`.
+#
+# `read_gateway_auth` tolerates the legacy/manually-patched dict shape
+# (`{"mode": "token", "token": "<hex>"}`) so a hosts.json that picked
+# up the dict form (e.g. via direct edit during operational recovery)
+# can still be sync'd without crashing. The next sync's
+# `set_gateway_auth` call normalizes the shape back to the bare string.
+
+
+def read_gateway_auth(gateway_blob: dict | None) -> str:
+    """Return the bare-string bearer token from a `gateway` config blob.
+
+    Accepts both the canonical bare-string shape and the legacy
+    `{"mode": "token", "token": "<hex>"}` dict shape so manually
+    patched or pre-migration hosts.json files do not crash the
+    renderer. Empty / missing / unrecognized → `""`.
+    """
+    if not isinstance(gateway_blob, dict):
+        return ""
+    raw = gateway_blob.get("auth")
+    if isinstance(raw, dict):
+        token = raw.get("token")
+        return token if isinstance(token, str) else ""
+    return raw if isinstance(raw, str) else ""
+
+
+def set_gateway_auth(gateway_block: dict, token: str) -> None:
+    """Persist the bearer into a `gateway` config block in-place.
+
+    The single write path for `hosts.json.agents.<name>.config.
+    gateway.auth`. Always writes the bare-string shape so the on-disk
+    contract is uniform regardless of caller (install, configure,
+    sync, re-pair, downgrade).
+    """
+    gateway_block["auth"] = token
 
 
 def get_agent_by_name(agent_name: str) -> tuple[dict, str, dict] | None:

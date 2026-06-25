@@ -22,7 +22,13 @@ from clawrium.cli.install import install as install_command
 from clawrium.cli.output._sanitize import sanitize_passthrough
 from clawrium.cli.status import status as status_command
 from clawrium.core.config import get_config_dir
-from clawrium.core.hosts import get_host, load_hosts, HostsFileCorruptedError
+from clawrium.core.hosts import (
+    get_host,
+    load_hosts,
+    HostsFileCorruptedError,
+    read_gateway_auth,
+    set_gateway_auth,
+)
 from clawrium.core.onboarding import (
     OnboardingState,
     StageStatus,
@@ -357,7 +363,10 @@ def _sync_provider_config(
     if "url" in existing_gateway:
         gateway_config["url"] = existing_gateway["url"]
     if "auth" in existing_gateway:
-        gateway_config["auth"] = existing_gateway["auth"]
+        # #820: route copy-through of the bearer through the read/write
+        # helpers so a legacy dict shape on disk normalizes to the bare
+        # string at the boundary.
+        set_gateway_auth(gateway_config, read_gateway_auth(existing_gateway))
 
     # Build provider config
     provider_config = {
