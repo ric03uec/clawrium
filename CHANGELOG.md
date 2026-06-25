@@ -236,6 +236,16 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- Internal: `_get_host_openclaw_version_linux` and
+  `_get_host_openclaw_version_macos` in `core/lifecycle_canonical.py`
+  now source their per-OS home root via
+  `core.playbook_resolver.home_root_for("linux" | "darwin")` instead
+  of hardcoded `/home` and `/Users` literals. Behaviorally
+  equivalent — the literals already matched the resolver output —
+  but consolidates the OS→home-root mapping behind the single seam
+  required by the no-OS-literal invariant in CLAUDE.md/AGENTS.md.
+  Adds regression-guard tests that monkeypatch the seam to a
+  sentinel root and assert the variant picks it up (#752).
 - `clm agent configure --stage channels` (the legacy `clm` wizard) now
   prints a deprecation banner and exits with code 2 on entry. The
   wizard's prompt + Ansible-push flow no longer worked after the #794

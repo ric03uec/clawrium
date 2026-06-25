@@ -1791,6 +1791,84 @@ class TestGetHostOpenclawVersionDispatcher:
         assert "/Users/wolf-m/.openclaw/bin/openclaw" in probe.commands[0]
 
 
+class TestGetHostOpenclawVersionHomeRootSeam:
+    """Issue #752: the OS→home-root mapping must come from the single
+    `core.playbook_resolver.home_root_for` seam, NOT from a hardcoded
+    `/home` or `/Users` literal in this module. These tests pin the
+    integration so a future change to `home_root_for` (e.g., adding
+    bsd or moving macOS to `/private/var/users`) propagates into the
+    openclaw version probe automatically — and conversely, that
+    nobody re-introduces the OS literal here as a shortcut.
+    """
+
+    def test_linux_variant_uses_home_root_for_linux(self, monkeypatch):
+        """Patch `home_root_for` to return a sentinel root and confirm
+        the Linux variant assembles the probe under that root.
+
+        The `raise ValueError` (instead of `assert`) inside the fake
+        survives `python -O` and produces a clearly labeled error
+        distinguishable from a test assertion failure (ATX iter 1 S1).
+        """
+
+        def _fake_home_root_for(os_family: str) -> str:
+            if os_family != "linux":
+                raise ValueError(
+                    f"expected linux, got {os_family!r}"
+                )
+            return "/SENTINEL-LINUX"
+
+        monkeypatch.setattr(lc, "home_root_for", _fake_home_root_for)
+        probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        lc._get_host_openclaw_version_linux(probe.as_client(), "wolf-i")
+        cmd = probe.commands[0]
+        assert "/SENTINEL-LINUX/wolf-i/.openclaw/bin/openclaw" in cmd
+        # And NOT the historical Linux literal — proves the variant
+        # is sourcing the root from the seam, not a duplicate literal.
+        assert "/home/wolf-i/.openclaw/bin/openclaw" not in cmd
+
+    def test_macos_variant_uses_home_root_for_darwin(self, monkeypatch):
+        """Symmetric pin for the macOS variant."""
+
+        def _fake_home_root_for(os_family: str) -> str:
+            if os_family != "darwin":
+                raise ValueError(
+                    f"expected darwin, got {os_family!r}"
+                )
+            return "/SENTINEL-DARWIN"
+
+        monkeypatch.setattr(lc, "home_root_for", _fake_home_root_for)
+        probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        lc._get_host_openclaw_version_macos(probe.as_client(), "wolf-m")
+        cmd = probe.commands[0]
+        assert "/SENTINEL-DARWIN/wolf-m/.openclaw/bin/openclaw" in cmd
+        assert "/Users/wolf-m/.openclaw/bin/openclaw" not in cmd
+
+    def test_resolver_currently_maps_to_expected_roots(self):
+        """End-to-end pin: assert the variants produce `/home/...` on
+        Linux and `/Users/...` on macOS *today*, using literal strings
+        as the expected values (NOT the resolver output — that would
+        be tautological and pass even against a hardcoded-literal
+        revert, ATX iter 1 B1).
+
+        Together with the sentinel monkeypatch tests above:
+        - The monkeypatch pair proves the variants *call* the seam.
+        - This test proves the seam *currently* maps to the values
+          historically expected by the playbooks (Linux `/home`,
+          macOS `/Users`).
+        """
+        probe_l = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        lc._get_host_openclaw_version_linux(probe_l.as_client(), "wolf-i")
+        assert (
+            "/home/wolf-i/.openclaw/bin/openclaw" in probe_l.commands[0]
+        )
+
+        probe_m = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
+        lc._get_host_openclaw_version_macos(probe_m.as_client(), "wolf-m")
+        assert (
+            "/Users/wolf-m/.openclaw/bin/openclaw" in probe_m.commands[0]
+        )
+
+
 class TestGetHostOpenclawVersionMacosInjection:
     """S6 ATX iter 2: mirror the Linux shell-injection guard on the
     macOS variant so a regression that drops `shlex.quote` from the
