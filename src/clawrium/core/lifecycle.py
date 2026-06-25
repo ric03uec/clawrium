@@ -17,7 +17,13 @@ import ansible_runner
 import paramiko
 
 from clawrium.core.config import get_config_dir
-from clawrium.core.hosts import get_host, update_host, remove_agent_from_host
+from clawrium.core.hosts import (
+    get_host,
+    update_host,
+    remove_agent_from_host,
+    read_gateway_auth,
+    set_gateway_auth,
+)
 from clawrium.core import keys as core_keys
 from clawrium.core import provider_attachments as _pa
 from clawrium.core.onboarding import OnboardingState
@@ -1265,7 +1271,10 @@ def _zeroclaw_repair_after_start(
     # POST /api/pairing/initiate with this bearer when /pair/code returns
     # null. Empty string is acceptable on the fresh-boot branch since
     # /pair/code will return a usable code and the locked branch never fires.
-    existing_gateway_auth = gateway_cfg.get("auth") or ""
+    # #820: read via the single helper so a legacy dict-shape `auth`
+    # cannot leak into the Ansible extra-vars as a dict (which would
+    # malform the Authorization header in the locked-pair branch).
+    existing_gateway_auth = read_gateway_auth(gateway_cfg)
 
     key_id = host.get("key_id") or hostname
     ssh_key = get_host_private_key(key_id)
@@ -1363,14 +1372,22 @@ def _zeroclaw_repair_after_start(
                 f"check `journalctl --unit zeroclaw-{agent_key}`.",
             )
 
-        old_token = agent_record.get("config", {}).get("gateway", {}).get("auth")
+        # #820: read via the single helper so a legacy dict-shape
+        # `auth` resolves to the bare token for rotation-event
+        # comparison (otherwise a dict survives `isinstance(str)`
+        # checks downstream and the rotation event is silently
+        # suppressed).
+        old_token = read_gateway_auth(
+            agent_record.get("config", {}).get("gateway")
+        )
 
         def updater(h: dict) -> dict:
             agents = h.setdefault("agents", {})
             record = agents.setdefault(agent_key, {})
             config = record.setdefault("config", {})
             gateway = config.setdefault("gateway", {})
-            gateway["auth"] = new_token
+            # #820: single write path for gateway.auth.
+            set_gateway_auth(gateway, new_token)
             gateway["url"] = new_url
             return h
 
@@ -2324,10 +2341,12 @@ def configure_agent(
     if resolved_type == "zeroclaw":
         gw_block = config_data.setdefault("gateway", {})
         if not gw_block.get("auth"):
-            record_auth = (
-                agent_record.get("config", {}).get("gateway", {}).get("auth") or ""
+            # #820: single read/write path for gateway.auth — tolerates a
+            # legacy dict shape on disk and writes back the bare string.
+            record_auth = read_gateway_auth(
+                agent_record.get("config", {}).get("gateway")
             )
-            gw_block["auth"] = record_auth
+            set_gateway_auth(gw_block, record_auth)
 
     # Validate required gateway fields
     required_gateway_fields = ["port"]
@@ -2918,7 +2937,8 @@ def configure_agent(
             if not isinstance(existing_gateway, dict):
                 existing_gateway = {}
             existing_gateway = dict(existing_gateway)
-            existing_gateway["auth"] = zc_gateway_token
+            # #820: single write path for gateway.auth.
+            set_gateway_auth(existing_gateway, zc_gateway_token)
             existing_gateway["url"] = zc_gateway_url
             config_data["gateway"] = existing_gateway
 
@@ -2927,8 +2947,9 @@ def configure_agent(
             # the write means a failed write would still surface the
             # yellow "rotated" notice while hosts.json still holds the
             # old bearer, contradicting the invariant).
-            prior_zc_token = (
-                agent_record.get("config", {}).get("gateway", {}).get("auth")
+            # #820: same single-read-path concern as the re-pair branch.
+            prior_zc_token = read_gateway_auth(
+                agent_record.get("config", {}).get("gateway")
             )
 
         # B2: Only update hosts.json after Ansible succeeds

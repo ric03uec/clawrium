@@ -1300,6 +1300,119 @@ def test_clean_secret_applied_to_gateway_auth_and_api_server_key(stores):
     assert inputs.gateway is not None and inputs.gateway.auth == "token"
 
 
+def _openclaw_stores_with_auth(stores, auth_value):
+    """Configure stores for an openclaw agent with the given
+    `gateway.auth` value. Used by the #820 parametrized tests."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "openclaw",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {
+                    "host": "0.0.0.0",
+                    "port": 40000,
+                    "auth": auth_value,
+                    "bind": "lan",
+                },
+            },
+        },
+    )
+    stores.providers["or"] = {
+        "name": "or",
+        "type": "openrouter",
+        "default_model": "m",
+    }
+    stores.provider_api_keys["or"] = "sk-1"
+
+
+_AUTH_TOKEN_820 = "deadbeefcafef00d"
+
+
+@pytest.mark.parametrize(
+    "auth_value,expected_token",
+    [
+        # Bare-string shape (the canonical on-disk form per AGENTS.md).
+        (_AUTH_TOKEN_820, _AUTH_TOKEN_820),
+        # Legacy dict shape — `read_gateway_auth` unwraps to the bare
+        # token so a manually patched hosts.json can still be rendered
+        # without crashing.
+        ({"mode": "token", "token": _AUTH_TOKEN_820}, _AUTH_TOKEN_820),
+    ],
+)
+def test_gateway_auth_accepts_dict_and_string_shapes_openclaw(
+    stores, auth_value, expected_token
+):
+    """#820: `read_gateway_auth` in `build_render_inputs` accepts
+    both the canonical bare-string shape and the legacy dict shape
+    so a hosts.json that picked up the dict form (manual edit /
+    operational recovery) does not crash the renderer. The pre-fix
+    bug was an `AttributeError: 'dict' object has no attribute
+    'replace'` from `_clean_secret` when fed the dict shape."""
+    _openclaw_stores_with_auth(stores, auth_value)
+    inputs = build_render_inputs("alpha")
+    assert inputs.gateway is not None and inputs.gateway.auth == expected_token
+    json_body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    assert f'"token": "{expected_token}"' in json_body
+    assert '"mode": "token"' in json_body
+
+
+def test_gateway_auth_byte_identical_across_string_and_dict_shapes(stores):
+    """#820: bare-string and dict-shape `gateway.auth` MUST produce
+    byte-identical render output so a hosts.json normalized by the
+    next sync's `set_gateway_auth` write is functionally equivalent
+    to one that already carried the canonical shape."""
+    _openclaw_stores_with_auth(stores, _AUTH_TOKEN_820)
+    out_str = render_openclaw(build_render_inputs("alpha"))
+    _openclaw_stores_with_auth(
+        stores, {"mode": "token", "token": _AUTH_TOKEN_820}
+    )
+    out_dict = render_openclaw(build_render_inputs("alpha"))
+    assert out_str.files == out_dict.files
+
+
+def test_gateway_auth_dict_shape_works_for_zeroclaw(stores):
+    """#820 review 2 W1: the dict-shape normalization in
+    `build_render_inputs` fires for any agent type with a gateway
+    blob — not just openclaw. Pin the zeroclaw branch separately so a
+    future install.py change that writes the dict shape for zeroclaw
+    does not regress this code path silently."""
+    token = "z" + _AUTH_TOKEN_820
+    stores.agent = (
+        {"hostname": "host-1"},
+        "zeroclaw",
+        {
+            "agent_name": "alpha",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {
+                    "host": "0.0.0.0",
+                    "port": 40000,
+                    "auth": {"mode": "token", "token": token},
+                    "bind": "lan",
+                },
+            },
+        },
+    )
+    stores.providers["or"] = {"name": "or", "type": "openrouter", "default_model": "m"}
+    stores.provider_api_keys["or"] = "sk-1"
+    inputs = build_render_inputs("alpha")
+    # The assembly-boundary normalization is agent-type-agnostic, so
+    # the dict unwrap must produce the same bare-token result for
+    # zeroclaw as it does for openclaw. The zeroclaw `config.toml`
+    # template does not currently render `gateway.auth` (the bearer
+    # is rotated and persisted via a separate path — see
+    # `gateway_token_rotated` in AGENTS.md), so the assertion stops
+    # at the inputs layer rather than the rendered TOML.
+    assert inputs.gateway is not None and inputs.gateway.auth == token
+    # The render path itself must still succeed end-to-end — a
+    # regression in the dict-unwrap branch that left a dict in
+    # `gateway.auth` would crash inside the TOML renderer.
+    rendered = render_zeroclaw(inputs)
+    assert ".zeroclaw/config.toml" in rendered.files
+
+
 def test_hermes_file_keys_are_exact_set():
     """W7: any silent rename of an output path must fail tests."""
     out = render_hermes(_baseline_inputs(ptype="openrouter"))

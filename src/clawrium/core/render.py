@@ -291,7 +291,7 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
         get_channel,
         get_channel_token,
     )
-    from clawrium.core.hosts import get_agent_by_name
+    from clawrium.core.hosts import get_agent_by_name, read_gateway_auth
     from clawrium.core.integrations import (
         INTEGRATION_TYPES,
         get_agent_integrations,
@@ -584,7 +584,12 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
             host=host_raw or "0.0.0.0",
             port=int(gateway_blob.get("port", 0) or 0),
             # Same systemd-truncation hazard as api_server.key above.
-            auth=_clean_secret(gateway_blob.get("auth")),
+            # #820: `read_gateway_auth` is the single read path for
+            # `gateway.auth` — tolerates the dict shape (manually
+            # patched / legacy) and returns the bare token. All write
+            # paths go through `set_gateway_auth` in `hosts.py`,
+            # which only ever persists the bare string.
+            auth=_clean_secret(read_gateway_auth(gateway_blob)),
             bind=str(gateway_blob.get("bind", "")),
             allow_public_bind=bool(gateway_blob.get("allow_public_bind", True)),
         )
