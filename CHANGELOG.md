@@ -198,6 +198,18 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- `clawctl agent sync` on Linux no longer prints `synced (drift=0)`
+  when the agent's gateway port is not actually accepting connections.
+  The Linux `_verify_health` step previously only checked
+  `systemctl is-active`, which our `Type=simple` units report as
+  `active` the moment the daemon process is spawned — before it has
+  bound the gateway port, and (for a crashlooping daemon) between
+  restart cycles. Sync now follows the macOS path and also probes
+  the loopback gateway port via `bash -c 'exec
+  3<>/dev/tcp/127.0.0.1/<port>'`; if the port is not accepting
+  within the verify timeout, sync raises `CanonicalSyncError` and
+  exits non-zero with a journal-pointing remediation hint instead of
+  reporting green (#812).
 - `clawctl agent sync <openclaw-agent>` no longer crashes with
   `AttributeError: 'dict' object has no attribute 'replace'` when
   `hosts.json.agents.<name>.config.gateway.auth` is dict-shaped
