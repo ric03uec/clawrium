@@ -1252,6 +1252,51 @@ def sync_agent_canonical(
     host, agent_key, _claw_record = resolved
     hostname = host.get("hostname", "")
 
+    # Issue #810 — refuse sync on an incomplete installation.
+    # A `clawctl agent create` that failed mid-playbook leaves the
+    # record at `status="failed", installed_at=None` while preserving
+    # any attachments accumulated before the failure. The downstream
+    # version-gate (e.g. brave plugin's minHostVersion at line ~1245)
+    # then trips against the *broken* on-host binary, suggesting
+    # `clawctl agent upgrade` — which itself trips the
+    # `clawctl_upgrade_strips_attachments` class. The operator is
+    # forced to manually `integration detach` to unblock, even though
+    # they never asked to detach.
+    #
+    # Short-circuit here, before SSH/render, with a clear hint at the
+    # actual repair path (`clawctl agent create <name> --type <type>
+    # --host <host> --cleanup-failed`, see `cli/clawctl/agent/create.py`
+    # and `core/install.py:449` for the status=='failed' retry branch).
+    # The hint deliberately avoids `clawctl agent upgrade` so we don't
+    # cascade into the `clawctl_upgrade_strips_attachments` class. The
+    # empty `_claw_record` shape ({}) used by legacy / pre-status
+    # records MUST pass through unchanged, so the second clause
+    # requires `status is not None`.
+    #
+    # Not a #437 anti-pattern: the gateway-bearer-rotation invariant
+    # applies to lifecycle ops that touch a *running* daemon. The
+    # record we are refusing here has `installed_at=None` — there is
+    # no daemon to drift out of sync with, so skipping the rotation
+    # cannot strand a remote chat session on a stale bearer.
+    install_status = _claw_record.get("status")
+    installed_at = _claw_record.get("installed_at")
+    install_incomplete = install_status in {"failed", "installing"} or (
+        install_status is not None and installed_at is None
+    )
+    if install_incomplete:
+        recovery_hint = (
+            f"clawctl agent create {agent_name} "
+            f"--type {inputs.agent_type} --host {hostname} "
+            f"--cleanup-failed"
+        )
+        raise CanonicalSyncError(
+            f"agent {agent_name!r} on {hostname!r} has an incomplete "
+            f"installation (status={install_status!r}, "
+            f"installed_at={installed_at!r}); refusing to sync. Run "
+            f"`{recovery_hint}` to finish the install first — your "
+            f"attachments are preserved."
+        )
+
     # Issue #760 §1.4 `--workspace-only` short-circuit. Skip canonical
     # render / diff / write / restart / verify entirely; push the
     # operator overlay and (for zeroclaw, in later phases) rotate the

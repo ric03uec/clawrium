@@ -3115,3 +3115,154 @@ class TestLoadOpenclawPlugins:
             CanonicalSyncError, match=r"not a mapping"
         ):
             lc._load_openclaw_plugins()
+
+
+class TestSyncRefusesIncompleteInstall:
+    """Issue #810: `sync_agent_canonical` must short-circuit when the
+    agent record reflects an incomplete `clawctl agent create` (status
+    in {failed, installing}, or a status-bearing record without an
+    `installed_at` timestamp). Without this guard the brave version-gate
+    (and other downstream checks) run against a known-broken host and
+    surface a misleading "Run `clawctl agent upgrade`" hint that itself
+    trips the `clawctl_upgrade_strips_attachments` class — forcing
+    operators to manually detach integrations to recover."""
+
+    def _setup(self, monkeypatch, claw_record):
+        from clawrium.core.render import (
+            GatewayInputs,
+            ProviderInputs,
+            RenderInputs,
+            RenderedFiles,
+        )
+
+        inputs = RenderInputs(
+            agent_name="oc",
+            agent_type="openclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="m",
+            ),
+            gateway=GatewayInputs(host="h", port=40000, auth="a"),
+            integrations=(),
+        )
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        rendered = RenderedFiles(files={".openclaw/openclaw.json": "{}"})
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: ({"hostname": "h"}, "openclaw:oc", claw_record),
+        )
+        # If the guard does NOT short-circuit, these stubs let the
+        # rest of the pipeline reach a clean exit so a regression
+        # surfaces as "no raise" rather than as a SSH/diff KeyError.
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(
+            lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
+        )
+        # ATX review W8: stub `push_workspace_phase` so the clean-record
+        # path reaches a deterministic return value instead of bubbling
+        # an unrelated workspace-sync failure that could mask the
+        # negative-guard assertion.
+        from clawrium.core import workspace_sync as _ws
+
+        def _ok_phase(**_kw):
+            return _ws.WorkspacePhaseResult(
+                success=True,
+                files_pushed=(),
+                files_excluded=(),
+            )
+
+        monkeypatch.setattr(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            _ok_phase,
+        )
+        # ATX iter-2 W2: also stub the post-write state-transition
+        # so the result reaches `success=True` deterministically.
+        # `sync_agent_canonical` calls `transition_state(...,
+        # OnboardingState.READY)` near the end; without a stub it
+        # raises `AgentNotFoundError` against the empty fake
+        # hosts.json and sets `success=False` (the "registration ...
+        # Inspect hosts.json" error string).
+        monkeypatch.setattr(
+            "clawrium.core.onboarding.transition_state",
+            lambda *_a, **_kw: True,
+        )
+
+    def test_status_failed_raises(self, monkeypatch):
+        self._setup(
+            monkeypatch,
+            {"status": "failed", "installed_at": None},
+        )
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"incomplete installation.*clawctl agent create.*--cleanup-failed",
+        ) as exc:
+            sync_agent_canonical("oc", restart=False, verify=False)
+        msg = str(exc.value)
+        # The misleading `agent upgrade` hint MUST NOT appear — that's
+        # the whole point of the guard.
+        assert "upgrade" not in msg
+        # Operator reassurance: attachments are preserved across the
+        # refusal (we don't want them preemptively detaching).
+        assert "attachments are preserved" in msg
+
+    def test_status_installing_raises(self, monkeypatch):
+        self._setup(
+            monkeypatch,
+            {"status": "installing", "installed_at": None},
+        )
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"status='installing'",
+        ):
+            sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_status_installed_no_timestamp_raises(self, monkeypatch):
+        """Mirrors the install.py:186 "corrupt state" branch: a record
+        carries a status but never finished setting `installed_at`. Treat
+        it as incomplete."""
+        self._setup(
+            monkeypatch,
+            {"status": "installed", "installed_at": None},
+        )
+        with pytest.raises(CanonicalSyncError, match=r"incomplete installation"):
+            sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_clean_record_passes_guard(self, monkeypatch):
+        """A complete install record must NOT trigger the new guard.
+        ATX iter-2 W2: assert the pipeline returns a green result, not
+        just "no incomplete-install error" — the negative-only form
+        could pass silently on an unrelated downstream failure."""
+        self._setup(
+            monkeypatch,
+            {"status": "installed", "installed_at": "2026-06-19T20:34:07Z"},
+        )
+        result = sync_agent_canonical("oc", restart=False, verify=False)
+        assert result.success is True
+
+    def test_empty_record_passes_guard(self, monkeypatch):
+        """Regression guard: every existing test in this file uses an
+        empty `_claw_record={}` mock. The new precondition MUST NOT fire
+        on those — `status is None` short-circuits the second clause.
+        Same iter-2 W2 stricture: assert success, don't just exclude
+        the new error string."""
+        self._setup(monkeypatch, {})
+        result = sync_agent_canonical("oc", restart=False, verify=False)
+        assert result.success is True
+
+    def test_workspace_only_also_refused(self, monkeypatch):
+        """`--workspace-only` is just another sync entry point and is
+        bound by the same precondition. Writing operator overlay onto a
+        half-installed daemon makes recovery harder, not easier."""
+        self._setup(
+            monkeypatch,
+            {"status": "failed", "installed_at": None},
+        )
+        with pytest.raises(CanonicalSyncError, match=r"incomplete installation"):
+            sync_agent_canonical(
+                "oc", restart=False, verify=False, workspace_only=True
+            )

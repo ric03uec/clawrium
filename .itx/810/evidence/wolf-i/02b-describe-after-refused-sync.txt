@@ -1,0 +1,27 @@
+Name:       wolf-i
+Kind:       agent
+Type:       openclaw
+Version:    2026.6.8
+Host:       wolf-i (wolf.tailf7742d.ts.net)
+Provider:   clawrium-gtm-litellm
+Status:     failed
+Age:        0s
+Installed:  -
+
+Config:
+  Port:    -
+  Identity: -
+
+Skills (0):
+
+Integrations (1):
+  wolf-brave  (configured)
+
+Channels (1):
+  discord-wolf-i
+
+Onboarding:
+  providers  complete   (2026-06-19T20:33:09.600093+00:00)
+  identity   complete   (2026-06-19T20:33:09.892761+00:00)
+  channels   complete   (2026-06-19T20:33:47.045171+00:00)
+  validate   complete   (2026-06-19T20:34:07.104345+00:00)

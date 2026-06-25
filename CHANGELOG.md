@@ -210,6 +210,20 @@ cut. The `itx:release` skill archives this section into a new
   within the verify timeout, sync raises `CanonicalSyncError` and
   exits non-zero with a journal-pointing remediation hint instead of
   reporting green (#812).
+- `clawctl agent sync <name>` now refuses to run on an agent whose
+  install is incomplete (`status` is `failed` / `installing`, or any
+  status-bearing record missing `installed_at`) and points the operator
+  at `clawctl agent create <name> --type <type> --host <host>
+  --cleanup-failed` to clear the half-installed record and retry the
+  install. Previously a failed-install record with an attached
+  integration whose `minHostVersion` exceeded the on-host openclaw
+  would surface as `brave plugin requires >= 2026.6.9. Run \`clawctl
+  agent upgrade\` first.` — but `agent upgrade` itself strips
+  attachments (`clawctl_upgrade_strips_attachments`), so the only
+  manual workaround was a detach/reattach loop. The new guard
+  preserves attachments across the refusal and routes the operator
+  to the existing retry-on-failure path in `core/install.py:449`
+  (#810).
 - `clawctl agent sync <openclaw-agent>` no longer crashes with
   `AttributeError: 'dict' object has no attribute 'replace'` when
   `hosts.json.agents.<name>.config.gateway.auth` is dict-shaped
