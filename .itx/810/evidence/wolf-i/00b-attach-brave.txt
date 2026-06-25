@@ -1,0 +1,1 @@
+agent/wolf-i: attached integration 'wolf-brave'
