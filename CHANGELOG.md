@@ -187,8 +187,20 @@ cut. The `itx:release` skill archives this section into a new
   contract for `hosts.json.agents.<name>.config.gateway.auth` is now
   the bare-string bearer token; the `{mode, token}` shape lives only
   inside `~/.openclaw/openclaw.json` on the agent host, written by
-  the renderer. The first sync after this fix self-normalizes any
-  pre-existing dict-shape `auth` back to the bare string (#820).
+  the renderer. Dict-shape `auth` self-normalizes back to the bare
+  string on the next `clawctl agent configure`, zeroclaw `sync` /
+  `restart` (bearer rotation), or fresh install. Openclaw `sync`
+  does not write `gateway.auth` and therefore does not normalize
+  a pre-existing dict shape, but it no longer crashes on one (#820).
+- `clawctl agent configure <name> --stage providers --provider <litellm>`
+  no longer fails at the `Verify openclaw.json configuration`
+  Ansible task for litellm providers. `verify_config.py`
+  (`_expected_model_id`) was missing a litellm branch and fell
+  through to the raw `default_model`, so the verify step mismatched
+  the correctly-rendered `<provider-name>/<model>` on disk. The
+  script now mirrors `clawrium.core.render`'s litellm prefix rule
+  (#819). Direct follow-up to #756 / PR #818 — the canonical render
+  was right; the downstream verifier was stale.
 - openclaw with a litellm provider now correctly emits
   `agents.defaults.model.primary` as `<provider-name>/<model>` on
   `clawctl agent configure`. Previously the configure path used the

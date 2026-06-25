@@ -174,6 +174,7 @@ def test_verify_config_bedrock_already_prefixed_not_double_prefixed(tmp_path: Pa
     assert result.returncode == 0, (
         f"verify failed: stdout={result.stdout!r} stderr={result.stderr!r}"
     )
+    assert "Configuration verified successfully" in result.stdout
 
 
 def test_verify_config_rejects_legacy_bedrock_prefix_on_host(tmp_path: Path):
@@ -198,6 +199,137 @@ def test_verify_config_rejects_legacy_bedrock_prefix_on_host(tmp_path: Path):
     assert "Model mismatch" in result.stderr
     assert "amazon-bedrock/zai.glm-5" in result.stderr  # expected (rendered)
     assert "bedrock/zai.glm-5" in result.stderr  # actual (on host)
+
+
+# ---------------------------------------------------------------------------
+# Litellm prefix (issue #819) — the canonical renderer in
+# `clawrium.core.render` prefixes litellm models with the *provider's
+# clawctl name* (not a static type-keyed string), because each litellm
+# proxy is its own custom provider in `models.providers.<name>`. The
+# verify script was missing this branch, so every `clawctl agent
+# configure --stage providers --provider <litellm>` failed at the
+# `Verify openclaw.json configuration` task with a mismatch between the
+# correctly-rendered file on disk and the raw `default_model` this
+# script expected. These tests pin the new branch end-to-end against
+# the script — a future regression would surface in CI.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "provider_name, raw_model, rendered_model",
+    [
+        # The production case: hyphenated provider name, single-segment model.
+        ("clawrium-gtm-litellm", "writer", "clawrium-gtm-litellm/writer"),
+        # Provider name with underscores + dots; model with a hyphen. Pins
+        # that the prefix is treated as a literal string, not a regex.
+        ("my_lit.proxy", "model-id", "my_lit.proxy/model-id"),
+        # Multi-segment model (litellm proxies routinely fan out to
+        # `<subdir>/<model>` shapes). Exercises the `startswith` guard
+        # against false-positive idempotency on the wrong prefix.
+        ("myproxy", "subdir/model", "myproxy/subdir/model"),
+    ],
+)
+def test_verify_config_normalizes_litellm_prefix(
+    tmp_path: Path, provider_name: str, raw_model: str, rendered_model: str
+):
+    config = {
+        "agents": {"defaults": {"model": {"primary": rendered_model}}},
+        "gateway": {"port": 40198, "bind": "lan"},
+    }
+    expected = {
+        "provider": {
+            "type": "litellm",
+            "name": provider_name,
+            "default_model": raw_model,
+        },
+        "gateway": {"port": 40198, "bind": "lan"},
+    }
+    result = _run_verify_script(tmp_path, config, expected)
+    assert result.returncode == 0, (
+        f"verify failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "Configuration verified successfully" in result.stdout
+
+
+def test_verify_config_litellm_already_prefixed_not_double_prefixed(tmp_path: Path):
+    """If `provider.default_model` already starts with `<name>/`, do not
+    double-prefix to `<name>/<name>/<model>` — that's a value the
+    gateway would reject."""
+    model_id = "clawrium-gtm-litellm/writer"
+    config = {
+        "agents": {"defaults": {"model": {"primary": model_id}}},
+        "gateway": {"port": 40198, "bind": "lan"},
+    }
+    expected = {
+        "provider": {
+            "type": "litellm",
+            "name": "clawrium-gtm-litellm",
+            "default_model": model_id,
+        },
+        "gateway": {"port": 40198, "bind": "lan"},
+    }
+    result = _run_verify_script(tmp_path, config, expected)
+    assert result.returncode == 0, (
+        f"verify failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "Configuration verified successfully" in result.stdout
+
+
+def test_verify_config_rejects_litellm_unprefixed_on_host(tmp_path: Path):
+    """Negative case: if the on-host `openclaw.json` carries the raw
+    model id without the provider-name prefix, verify must mismatch."""
+    config = {
+        "agents": {"defaults": {"model": {"primary": "writer"}}},
+        "gateway": {"port": 40198, "bind": "lan"},
+    }
+    expected = {
+        "provider": {
+            "type": "litellm",
+            "name": "clawrium-gtm-litellm",
+            "default_model": "writer",
+        },
+        "gateway": {"port": 40198, "bind": "lan"},
+    }
+    result = _run_verify_script(tmp_path, config, expected)
+    assert result.returncode == 1
+    assert "Model mismatch" in result.stderr
+    assert "clawrium-gtm-litellm/writer" in result.stderr  # expected (rendered)
+    # Anchor the assertion to the `got '<actual>'` half of the mismatch
+    # message so a future format-string change surfaces here instead of
+    # silently degrading the assertion to a one-sided check.
+    assert "got 'writer'" in result.stderr
+
+
+@pytest.mark.parametrize("name_value", [None, ""])
+def test_verify_config_litellm_without_name_falls_through(
+    tmp_path: Path, name_value
+):
+    """Defensive: if the provider overlay somehow lacks `name` (a bug
+    upstream of this script), the litellm branch must fall through to
+    the raw default_model rather than crashing or returning a malformed
+    `'/<model>'`. The on-host renderer would have failed earlier, but
+    this script must still produce a usable comparison.
+
+    Parametrized over `None` (missing key) and `""` (empty string) —
+    `lifecycle.py:605` uses `provider_record.get("name", "")`, so the
+    empty-string branch is the realistic case if a provider was
+    registered without a name."""
+    config = {
+        "agents": {"defaults": {"model": {"primary": "writer"}}},
+        "gateway": {"port": 40198, "bind": "lan"},
+    }
+    provider = {"type": "litellm", "default_model": "writer"}
+    if name_value is not None:
+        provider["name"] = name_value
+    expected = {
+        "provider": provider,
+        "gateway": {"port": 40198, "bind": "lan"},
+    }
+    result = _run_verify_script(tmp_path, config, expected)
+    assert result.returncode == 0, (
+        f"verify failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "Configuration verified successfully" in result.stdout
 
 
 # ---------------------------------------------------------------------------
