@@ -3995,3 +3995,92 @@ class TestConfigureAgentDoesNotPersistOverlay:
         assert (
             "provider" not in persisted["agents"]["opc-test"]["config"]
         )
+
+
+# ---------------------------------------------------------------------------
+# #811 iter-6: lifecycle.start_agent / configure_agent probe coverage.
+# ---------------------------------------------------------------------------
+
+
+class TestAssertInstallPresent:
+    """Direct coverage on the new `_assert_install_present` helper."""
+
+    @pytest.mark.no_install_probe_stub
+    def test_raises_lifecycle_error_when_unit_missing(self, monkeypatch):
+        """A failing probe (unit missing) must raise LifecycleError
+        with the actionable reinstall hint — matching the
+        `AgentInstallMissingError` shape sync uses."""
+        from clawrium.core import lifecycle as _lc
+        from clawrium.core.lifecycle_canonical import HostInstallProbe
+
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle_canonical._open_ssh",
+            lambda _h, **__: MagicMock(),
+        )
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle_canonical.probe_host_install",
+            lambda *_a, **_kw: HostInstallProbe(
+                unit_present=False,
+                home_present=True,
+                unit_path="/etc/systemd/system/zeroclaw-alpha.service",
+                home_path="/home/alpha/.zeroclaw",
+            ),
+        )
+        host = {"hostname": "h", "alias": "wolf-i"}
+        with pytest.raises(LifecycleError) as excinfo:
+            _lc._assert_install_present(
+                host, agent_type="zeroclaw", agent_name="alpha"
+            )
+        msg = str(excinfo.value)
+        # Real verbs in the repair hint (iter-5 B1 regression guard).
+        assert "clawctl agent delete alpha" in msg
+        assert "clawctl agent create alpha" in msg
+        assert "clawctl agent doctor alpha" in msg
+        assert "clawctl agent install" not in msg
+        # The missing artifact is named.
+        assert "zeroclaw-alpha.service" in msg
+        # And the host alias.
+        assert "--host wolf-i" in msg
+
+    @pytest.mark.no_install_probe_stub
+    def test_passes_silently_when_probe_ok(self, monkeypatch):
+        """Both artifacts present → no raise, no return value."""
+        from clawrium.core import lifecycle as _lc
+        from clawrium.core.lifecycle_canonical import HostInstallProbe
+
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle_canonical._open_ssh",
+            lambda _h, **__: MagicMock(),
+        )
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle_canonical.probe_host_install",
+            lambda *_a, **_kw: HostInstallProbe(
+                unit_present=True,
+                home_present=True,
+                unit_path="/etc/systemd/system/zeroclaw-alpha.service",
+                home_path="/home/alpha/.zeroclaw",
+            ),
+        )
+        # No raise, no return → no assertion needed beyond reaching here.
+        _lc._assert_install_present(
+            {"hostname": "h"}, agent_type="zeroclaw", agent_name="alpha"
+        )
+
+    @pytest.mark.no_install_probe_stub
+    def test_wraps_open_ssh_failure_in_lifecycle_error(self, monkeypatch):
+        """`_open_ssh` raising `CanonicalSyncError` (auth, transport)
+        must surface as `LifecycleError` so callers see the project's
+        typed error shape."""
+        from clawrium.core import lifecycle as _lc
+        from clawrium.core.lifecycle_canonical import CanonicalSyncError
+
+        def _boom(_h, **__):
+            raise CanonicalSyncError("ssh auth failed")
+
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle_canonical._open_ssh", _boom
+        )
+        with pytest.raises(LifecycleError, match="ssh auth failed"):
+            _lc._assert_install_present(
+                {"hostname": "h"}, agent_type="zeroclaw", agent_name="alpha"
+            )

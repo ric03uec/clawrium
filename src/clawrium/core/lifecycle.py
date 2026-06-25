@@ -56,6 +56,68 @@ class LifecycleError(Exception):
     pass
 
 
+def _assert_install_present(
+    host: dict, *, agent_type: str, agent_name: str
+) -> None:
+    """Raise `LifecycleError` if the agent's on-host install is missing (#811).
+
+    `start_agent`, `restart_agent` (via `start_agent`), and
+    `configure_agent` all share the same wedge as `sync_agent_canonical`:
+    the local `hosts.json` record says the agent is installed, but the
+    systemd unit / launchd plist or agent home directory was removed
+    out-of-band. Without this probe, those entry points crash with
+    the same opaque `Unit ...service not found. (exit 5)` shape the
+    original #811 fix addressed for sync.
+
+    Reuses `lifecycle_canonical.probe_host_install` so the wire
+    format, sudo-refusal heuristic, and OS dispatch stay in a single
+    seam. Wraps the probe's typed errors as `LifecycleError` to match
+    the rest of this module's contract.
+    """
+    from clawrium.core.lifecycle_canonical import (
+        AgentInstallMissingError,
+        CanonicalSyncError,
+        _open_ssh,
+        probe_host_install,
+    )
+
+    try:
+        client = _open_ssh(host)
+    except CanonicalSyncError as exc:
+        # SSH/auth/network failures: treat as a probe-inconclusive
+        # branch and surface as LifecycleError so the operator sees
+        # the same error shape they would for any other connectivity
+        # issue in this module.
+        raise LifecycleError(str(exc)) from exc
+    try:
+        probe = probe_host_install(
+            client,
+            agent_type=agent_type,
+            agent_name=agent_name,
+            host=host,
+        )
+    except AgentInstallMissingError as exc:
+        # Should not happen — probe_host_install only raises this via
+        # the sync wrapper today. Defensive re-raise just in case.
+        raise LifecycleError(str(exc)) from exc
+    except CanonicalSyncError as exc:
+        # Probe transport / sudo-refusal / unparseable output —
+        # surface verbatim so the operator can act on it.
+        raise LifecycleError(str(exc)) from exc
+    finally:
+        client.close()
+    if not probe.ok:
+        host_alias = host.get("alias") or host.get("hostname") or ""
+        raise LifecycleError(
+            f"refusing to operate on {agent_name!r}: on-host install "
+            f"is incomplete (missing {probe.missing_summary()}). "
+            f"Recover with `clawctl agent delete {agent_name}` then "
+            f"`clawctl agent create {agent_name} "
+            f"--type {agent_type} --host {host_alias}`, or "
+            f"`clawctl agent doctor {agent_name}` for diagnosis."
+        )
+
+
 class LifecycleResult(TypedDict):
     """Result of lifecycle operation."""
 
@@ -781,6 +843,16 @@ def start_agent(
     if not resolved:
         raise LifecycleError(f"Agent '{target}' not installed on '{hostname}'")
     agent_key, agent_type, claw_record = resolved
+
+    # #811: probe the on-host install before starting. start_agent is
+    # the load-bearing callee of restart_agent, so this also covers
+    # the `clawctl agent restart` path the auditor flagged as
+    # unprotected in iter-6. Without this, a wedged agent (record
+    # says installed but unit/home gone) crashes systemctl with the
+    # same opaque error #811 was filed against.
+    _assert_install_present(
+        host, agent_type=agent_type, agent_name=agent_key
+    )
 
     onboarding = claw_record.get("onboarding", {})
     state_value = onboarding.get("state", "pending")
@@ -2074,6 +2146,17 @@ def configure_agent(
     agent_key, resolved_type, agent_record = resolved
     # Use inner agent_name (Unix username) if available, otherwise fall back to dict key
     unix_agent_name = agent_record.get("agent_name") or agent_key
+
+    # #811: probe the on-host install before configure. configure
+    # renders extravars + writes templates that depend on the agent
+    # home + systemd unit existing; without this guard a wedged
+    # agent (record says installed but unit/home gone) crashes
+    # mid-playbook with an opaque ansible error. Matches the
+    # protection sync_agent_canonical added in the iter-1..5 work
+    # and that start_agent / restart_agent added in iter-6.
+    _assert_install_present(
+        host, agent_type=resolved_type, agent_name=agent_key
+    )
 
     # Hermes: hydrate the persisted api_server block (non-sensitive shape from
     # hosts.json) PLUS the bearer token from secrets.json into config_data so

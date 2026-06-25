@@ -48,7 +48,9 @@ target. macOS coverage rides on the esper-macmini transcripts.
 | Linux, unit missing only | systemd | `/home` | wolf-i clawrium-d01 | ✓ probe failure caught |
 | Linux, both missing | systemd | `/home` | kevin synthetic | ✓ probe failure caught |
 | Linux, only home missing | n/a | n/a | (unit-test only) | unit test `test_probe_failure_with_home_missing_names_home` |
-| macOS, both present | launchd plist | `/Users` | esper-macmini esper-mac-oc | ✓ happy path |
-| macOS, both missing | launchd plist | `/Users` | esper-macmini synthetic | ✓ probe failure caught |
+| macOS, both present | launchd plist | `/Users` | esper-macmini esper-mac-oc | ✓ happy path (real installed openclaw) |
+| macOS, both missing | launchd plist | `/Users` | esper-macmini **synthetic** | ✓ probe failure caught — synthetic agent record, not a real install-then-remove cycle. Real-divergence macOS coverage rides on the unit tests (`test_probe_openclaw_darwin_uses_plist`, `test_darwin_zeroclaw_raises_value_error`). |
 | Health probe → INSTALL_MISSING | systemd | `/home` | wolf-i clawrium-d01 | ✓ status transitions correctly |
 | Health probe → RUNNING (regression) | n/a | n/a | wolf-i clawrium-triage | ✓ install probe skipped on running agents |
+| **Restart now fast-fails** (#811 iter-6) | systemd | `/home` | wolf-i clawrium-d01 (`91-restart-after-fix.txt`) | ✓ `clawctl agent restart` raises `LifecycleError` with same actionable repair hint as sync — closes auditor's gap that flagged `restart_agent` + `configure_agent` were unprotected |
+| **Describe is local-only (intentional)** | n/a | n/a | wolf-i clawrium-d01 (`90-describe-after-fix.txt`) | `Status: ready` — the documented position. Detection lives in the SSH-touching surfaces (sync validate, fleet/health) per the plan §3 rationale, not in this CLI-script-friendly local-only view. |

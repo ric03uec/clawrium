@@ -214,6 +214,16 @@ cut. The `itx:release` skill archives this section into a new
   `--dry-run` runs as well — a dry-run that would "change N
   files" against a missing daemon is misleading, not
   informational.
+- `clawctl agent restart <name>` and `clawctl agent configure <name>`
+  now perform the same on-host install probe as `clawctl agent
+  sync`. Without this guard, an operator who hit the wedged
+  zeroclaw-clawrium-d01 state from `clawctl agent restart` would
+  still have seen the same opaque `Unit ...service not found.
+  (exit 5)` shape #811 was filed against. The shared probe lives
+  in `lifecycle._assert_install_present` and wraps the same
+  `probe_host_install` helper sync uses, so the failure message
+  and reinstall hint are byte-identical across all three lifecycle
+  entry points (#811).
 - `core/health.check_claw_health` and the GUI `/fleet/health`
   endpoint now reclassify stopped agents whose on-host install is
   gone as a new `ClawStatus.INSTALL_MISSING` (instead of stale

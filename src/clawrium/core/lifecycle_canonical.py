@@ -394,11 +394,16 @@ def probe_host_install(
     The unit check (`test -e /etc/systemd/system/*.service` /
     `/Library/LaunchDaemons/*.plist`) does not need sudo — both
     directories are world-readable. The home check DOES need
-    `sudo -n`: the agent's `$HOME` (mode 0750, owned by the agent
-    user) blocks the `xclm` management user from `test -d` on any
-    path inside it. We learned this on wolf-i during #811 UAT —
-    without sudo, the probe falsely reported the home dir missing
-    on every healthy agent.
+    `sudo -n`: the agent's parent `$HOME` is owned by the agent
+    user and (on every wolf-i installation we observed) is
+    `drwxr-x---` (0750) — the world-execute bit is unset, which
+    blocks the `xclm` management user from `test -d` on any path
+    inside it regardless of the inner directory's permissions.
+    The exact mode varies by installer version (sometimes 0750,
+    sometimes 0755 on legacy installs) but the missing world-x
+    bit on the agent's home is what trips us. We learned this on
+    wolf-i during #811 UAT — without sudo, the probe falsely
+    reported the home dir missing on every healthy agent.
 
     Failure-mode discipline (ATX review #811 iter-1 B1/B2/W1):
 

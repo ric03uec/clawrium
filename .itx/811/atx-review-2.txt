@@ -1,0 +1,151 @@
+Requesting review for /home/devashish/workspace/ric03uec/clawrium-issue-811...
+{"time":"2026-06-25T00:04:13.156031485-07:00","level":"INFO","msg":"request_review: starting","project_root":"/home/devashish/workspace/ric03uec/clawrium"}
+{"time":"2026-06-25T00:04:13.179754727-07:00","level":"INFO","msg":"request_review: task created","task_id":"0012212a-3ea0-4770-abfc-69e3e42cc854","project_port":30011}
+ATX review in progress. Using high effort (per-project) — leader may invoke up to 6 of 7 specialists.
+Task created (id: 0012212a-3ea0-4770-abfc-69e3e42cc854), polling for completion...
+Waiting for review... (0s elapsed)
+Waiting for review... (1s elapsed)
+Waiting for review... (3s elapsed)
+Waiting for review... (7s elapsed)
+Waiting for review... (15s elapsed)
+Waiting for review... (25s elapsed)
+Waiting for review... (35s elapsed)
+Waiting for review... (45s elapsed)
+Waiting for review... (55s elapsed)
+Waiting for review... (1m5s elapsed)
+Waiting for review... (1m15s elapsed)
+Waiting for review... (1m25s elapsed)
+Waiting for review... (1m35s elapsed)
+Waiting for review... (1m45s elapsed)
+Waiting for review... (1m55s elapsed)
+Waiting for review... (2m5s elapsed)
+Waiting for review... (2m15s elapsed)
+Waiting for review... (2m25s elapsed)
+Waiting for review... (2m35s elapsed)
+Waiting for review... (2m45s elapsed)
+Waiting for review... (2m55s elapsed)
+Waiting for review... (3m5s elapsed)
+Waiting for review... (3m15s elapsed)
+Waiting for review... (3m25s elapsed)
+Waiting for review... (3m35s elapsed)
+Waiting for review... (3m45s elapsed)
+Waiting for review... (3m55s elapsed)
+Waiting for review... (4m5s elapsed)
+Waiting for review... (4m15s elapsed)
+Waiting for review... (4m25s elapsed)
+Waiting for review... (4m35s elapsed)
+Waiting for review... (4m45s elapsed)
+Waiting for review... (4m55s elapsed)
+Waiting for review... (5m5s elapsed)
+Waiting for review... (5m15s elapsed)
+Waiting for review... (5m25s elapsed)
+Waiting for review... (5m35s elapsed)
+Waiting for review... (5m45s elapsed)
+Waiting for review... (5m55s elapsed)
+Waiting for review... (6m5s elapsed)
+Waiting for review... (6m15s elapsed)
+Waiting for review... (6m25s elapsed)
+Waiting for review... (6m35s elapsed)
+Waiting for review... (6m45s elapsed)
+Waiting for review... (6m55s elapsed)
+Waiting for review... (7m5s elapsed)
+Waiting for review... (7m15s elapsed)
+Waiting for review... (7m25s elapsed)
+Waiting for review... (7m35s elapsed)
+Waiting for review... (7m45s elapsed)
+Waiting for review... (7m55s elapsed)
+Waiting for review... (8m5s elapsed)
+Waiting for review... (8m15s elapsed)
+Waiting for review... (8m25s elapsed)
+Waiting for review... (8m35s elapsed)
+Waiting for review... (8m45s elapsed)
+Waiting for review... (8m55s elapsed)
+Waiting for review... (9m5s elapsed)
+Waiting for review... (9m15s elapsed)
+Waiting for review... (9m25s elapsed)
+Waiting for review... (9m36s elapsed)
+Waiting for review... (9m46s elapsed)
+Waiting for review... (9m56s elapsed)
+Waiting for review... (10m6s elapsed)
+{"time":"2026-06-25T00:14:28.720240432-07:00","level":"INFO","msg":"review: task completed","task_id":"0012212a-3ea0-4770-abfc-69e3e42cc854","status":"completed","duration_ms":607175}
+{"time":"2026-06-25T00:14:28.7203511-07:00","level":"INFO","msg":"request_review: completed","status":"completed","blocking":true,"files_reviewed":0,"cost_usd":4.095532199999999,"task_id":"0012212a-3ea0-4770-abfc-69e3e42cc854"}
+Status: reviewed
+Blocking: YES
+Summary: ## ATX Review — #811 iter-2
+
+**Rating: 3 / 5**
+**Specialists: lifecycle-core (3/5), security-reviewer (3/5), test-coverage (3/5)**
+
+iter-2 lands the shared helpers cleanly and the failure-mode discipl...
+Cost: $4.0955
+Time: 10m 7s
+Rating: 3/5
+Models: claude-opus-4-7, claude-sonnet-4-6, claude-opus-4-6, zai-org/glm-5.1
+
+Agent Feedback:
+  [completed] leader (-) — ## ATX Review — #811 iter-2
+
+**Rating: 3 / 5**
+**Specialists: lifecycle-core (3/5), security-reviewer (3/5), test-covera...
+  [skipped] cli-ux (-) — 
+  [skipped] gui-routes (-) — 
+  [skipped] platform-playbooks (-) — 
+  [skipped] render-engine (-) — 
+  [completed] test-coverage (3/5) — <output>
+{
+  "rating": 3,
+  "summary": "Core coverage for the #811 validate-phase probe is solid — happy paths, three fa...
+  [completed] lifecycle-core (3/5) — <output>
+{
+  "rating": 3,
+  "summary": "iter-2 lands the shared helpers cleanly and the failure-mode discipline (B1/B2/B...
+  [completed] security-reviewer (3/5) — <output>
+{
+  "rating": 3,
+  "summary": "The lifecycle-canonical probe path is well-defended: command construction uses `...
+
+Full Feedback:
+## ATX Review — #811 iter-2
+
+**Rating: 3 / 5**
+**Specialists: lifecycle-core (3/5), security-reviewer (3/5), test-coverage (3/5)**
+
+iter-2 lands the shared helpers cleanly and the failure-mode discipline (B1–B4) is correctly implemented. The validate-phase placement is sound — probe runs before render, blocks workspace-only and dry-run, and short-circuits before any bearer rotation. The single blocking issue is a symmetry drift between the two probe call sites on sudo-refusal handling, which is exactly the invariant the shared-helper extraction was supposed to guarantee.
+
+---
+
+### Blocking Issues
+
+| # | File | Issue |
+|---|------|-------|
+| B1 | `src/clawrium/core/health.py:647-655` | **Health probe does not inspect stderr for sudo refusals.** `_probe_install_artifacts` reads only `stdout` from `runner_on_ok` events and never calls `_looks_like_sudo_refusal`. When `sudo -n test -d <home>` is refused, the compound emits `unit:1\nhome:0` (parsed=True, home_present=False), so the health caller flips the agent to `INSTALL_MISSING` — the exact mis-flag the lifecycle-canonical guard (W1) was added to prevent. The GUI fleet pill consumes `check_claw_health`, so every health sweep against a host whose `xclm` user lost passwordless sudo silently marks every agent INSTALL_MISSING. **Fix:** Capture `event_data.res.stderr` in the same loop, run `_looks_like_sudo_refusal(stderr)` when `home_present=False` and `unit_present=True`, and return `None` (do-not-reclassify) on match. |
+
+### Warnings
+
+| # | File | Issue |
+|---|------|-------|
+| W1 | `lifecycle_canonical.py:545-552` | **`_SUDO_REFUSAL_PATTERNS` misses common denial messages.** Missing: `"not in the sudoers"` (the classic `Sorry, user xclm is not in the sudoers file`), `"may not run sudo"` (distro variant of the denial), `"incident will be reported"`. The docstring says the pattern list is kept broad to prevent false negatives — these three omissions contradict that. Also: all patterns are English-only; hosts with non-English `LC_MESSAGES` will slip through entirely. Consider prefixing the probe command with `LC_ALL=C` to make the heuristic locale-stable. |
+| W2 | `playbook_resolver.py:67-73` | **`unit_path_for` Linux branch lacks `agent_type` validation.** Darwin validates via `_label_prefix_for` (ValueError on unknown type). Linux returns `/etc/systemd/system/{agent_type}-{agent_name}.service` for any string — typos, empty strings, junk. Asymmetric validation surface. Add `agent_type in ("hermes", "zeroclaw", "openclaw")` guard at the top of the function, symmetric with the darwin branch. |
+| W3 | `lifecycle_canonical.py:1328-1337` | **Extra SSH connection for probe.** The probe opens its own `paramiko.SSHClient` via `_open_ssh(host)`, closes it, then sync opens another for render/write/restart. Two connect+handshake round-trips (~50–200ms each on LAN). Consider passing the probe client through to downstream paramiko stages or hoisting a connection-scoped context manager. |
+| W4 | `test_lifecycle_canonical.py:3089` | **Only 2 of 6 `_SUDO_REFUSAL_PATTERNS` tested.** The sudo-refusal test uses `"sudo: a password is required"`, which matches two patterns. Four patterns are untouched: `"not allowed to execute"`, `"is not allowed to run sudo"`, `"no tty present"`, `"sudo: a terminal is required"`. Add a `@pytest.mark.parametrize` test directly on `_looks_like_sudo_refusal` — 6 lines, closes the regression gap. |
+| W5 | `tests/test_health.py` | **Health probe timeout + exception paths untested.** `_probe_install_artifacts` has three fallthrough branches: `result.status == "timeout"` → return None; `except Exception` → return None; `agent_type not in (...)` → return None. None are exercised. Add two tests: one with `probe_runner.status = "timeout"`, one with `ansible_runner.run` raising on the third call. Both should assert fallthrough to onboarding-state, not INSTALL_MISSING. |
+
+### Suggestions
+
+| # | File | Suggestion |
+|---|------|------------|
+| S1 | `health.py:603-606` | **Cross-module import of underscore-prefixed names.** `_agent_home_path`, `_build_probe_command`, `_parse_probe_output` are private by convention. Either promote to public names in `__all__`, or extract to a shared `core/_probe.py` module. |
+| S2 | `lifecycle_canonical.py` | **AgentInstallMissingError embeds raw stderr/paths.** Fine for CLI. If this exception ever reaches a GUI route, it leaks sudoers banners and absolute paths. Add a comment warning future GUI-route authors to sanitize before crossing an HTTP boundary. |
+| S3 | `lifecycle_canonical.py:probe_host_install` | **sudo-refusal + unit-missing overlap.** When both `unit_present=False` and `home_present=False` but stderr matches sudo refusal, the operator gets the "sudo refused" message even though the unit check (no sudo) showed the systemd unit is genuinely missing. Surface the `unit_present` verdict in the error. |
+| S4 | `lifecycle_canonical.py:481` | **`_agent_home_path` has no direct unit test.** Only exercised transitively through probe tests. Add a 4-line parametrized test: `(linux, zeroclaw, alpha) → /home/alpha/.zeroclaw` and `(darwin, hermes, bob) → /Users/bob/.hermes`. |
+| S5 | `tests/test_health.py:1652` | **Comment mismatch on runner call order.** Comments say "Second runner call = install probe" but actual order is pgrep → sysinfo → probe (third call). Same mismatch at lines 1731, 1786, 1839. Fix to prevent a maintainer from reordering the list to match the comment. |
+| S6 | `test_lifecycle_canonical.py:38` | **`_default_probe_present` autouse fixture is file-scoped.** Tests in `test_workspace_phase_ordering.py` and `test_workspace_zeroclaw_bearer_rotation.py` compensate via their own stubs, but a new `sync_agent_canonical` call added by a contributor unaware of the probe will hit the real function. Consider moving to `tests/core/conftest.py` or adding a comment. |
+| S7 | `lifecycle_canonical.py:455-461` | **Paramiko timeout is per-recv, not wall-clock.** A slow-drip remote emitting one byte every 9.9s could keep the read alive indefinitely. Vanishingly small risk for a 14-byte probe output, but the docstring implies bounded latency. |
+
+### Recommendations
+
+1. **Fix B1 before merge** — the sudo-refusal drift in health.py is the exact symmetry guarantee the shared helpers were supposed to provide. Add a test asserting both probes return the same verdict for the same (stdout, stderr) pair.
+2. **Extend `_SUDO_REFUSAL_PATTERNS`** with `"not in the sudoers"`, `"may not run sudo"`, and `"incident will be reported"`. Consider `LC_ALL=C` in the probe command for locale stability.
+3. **Parametrize `_looks_like_sudo_refusal`** to hit each pattern directly — prevents silent regression if a pattern is dropped.
+4. **Add health probe timeout + exception tests** for the three fallthrough branches.
+5. **Validate `agent_type` on the Linux branch** of `unit_path_for` for symmetric strictness with darwin.
