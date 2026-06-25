@@ -172,6 +172,29 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
               {start.isPending ? "Starting..." : "Start"}
             </Button>
           )}
+          {liveStatus === "install_missing" && (
+            // #811: hosts.json claims this agent is installed, but the
+            // on-host service-manager artifact and/or home directory are
+            // gone. Start/Stop/Restart would all fail at the systemd
+            // / launchctl boundary; surface a reinstall hint instead.
+            // ATX iter-5 B1: there is no `clawctl agent install` verb
+            // — the install path is `agent create`. ATX iter-4 W2 /
+            // iter-5 W1: `role="alert"` instead of `role="status"`
+            // because the span is conditionally mounted; screen
+            // readers don't announce initial mounts of polite
+            // (status) live regions but DO announce assertive
+            // (alert) ones.
+            <span className="text-xs text-status-error" role="alert">
+              On-host install missing — run{" "}
+              <code className="font-mono">
+                clawctl agent doctor {agent.agent_name}
+              </code>
+              , then reinstall via{" "}
+              <code className="font-mono">clawctl agent delete</code>
+              {" "}+{" "}
+              <code className="font-mono">clawctl agent create</code>.
+            </span>
+          )}
           {isRunning && (
             <>
               <Button

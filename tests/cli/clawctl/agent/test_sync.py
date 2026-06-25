@@ -178,6 +178,47 @@ def test_sync_surfaces_canonical_sync_error(fleet_dir, monkeypatch) -> None:
     assert "ssh probe failed" in result.output
 
 
+def test_sync_surfaces_agent_install_missing_error(fleet_dir, monkeypatch) -> None:
+    """#811 ATX iter-1 W6: validate-phase probe failure must surface
+    the actionable repair hint to the operator. ATX iter-5 B1: the
+    repair path uses `clawctl agent create` (not the nonexistent
+    `clawctl agent install`); pin both that the message names the
+    real verbs AND that the missing artifact text reaches the
+    operator."""
+    from clawrium.core.lifecycle_canonical import AgentInstallMissingError
+
+    _patch_canonical(
+        monkeypatch,
+        AgentInstallMissingError(
+            "refusing to sync 'wise-hypatia': on-host install is "
+            "incomplete (missing service unit "
+            "'/etc/systemd/system/zeroclaw-wise-hypatia.service'). "
+            "Recover with `clawctl agent delete wise-hypatia` then "
+            "`clawctl agent create wise-hypatia --type zeroclaw "
+            "--host wolf-i`, or `clawctl agent doctor wise-hypatia` "
+            "for diagnosis."
+        ),
+    )
+    result = runner.invoke(app, ["agent", "sync", "wise-hypatia"])
+    assert result.exit_code != 0
+    # Dedicated except clause in cli/clawctl/agent/sync.py: the
+    # exception message already starts with "refusing to sync";
+    # the CLI surfaces it via `emit_error` so the operator sees
+    # `Error: refusing to sync …` (NOT the double-framed
+    # `sync failed: refusing to sync …` the generic
+    # CanonicalSyncError handler would have produced).
+    assert "Error: refusing to sync 'wise-hypatia'" in result.output
+    # The repair hint must name the real verbs.
+    assert "clawctl agent delete wise-hypatia" in result.output
+    assert "clawctl agent create wise-hypatia" in result.output
+    assert "clawctl agent doctor wise-hypatia" in result.output
+    # The original missing-artifact name must reach the operator.
+    assert "on-host install is" in result.output
+    # Regression guard against the iter-5 B1 bug: the nonexistent
+    # `agent install` verb must not slip back into the hint.
+    assert "clawctl agent install" not in result.output
+
+
 def test_sync_surfaces_remote_read_error(fleet_dir, monkeypatch) -> None:
     from clawrium.core.render_diff import RemoteReadError
 
@@ -250,6 +291,15 @@ def test_canonical_sync_advances_state_to_ready(monkeypatch, fleet_dir) -> None:
     )
     monkeypatch.setattr(
         lifecycle_canonical, "_open_ssh", lambda host, timeout=15: MagicMock()
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "probe_host_install",
+        lambda *_a, **_kw: lifecycle_canonical.HostInstallProbe(
+            unit_present=True, home_present=True,
+            unit_path="/etc/systemd/system/x.service",
+            home_path="/home/x/.x",
+        ),
     )
     monkeypatch.setattr(
         lifecycle_canonical,
@@ -327,6 +377,15 @@ def test_canonical_sync_repairs_zeroclaw_gateway(monkeypatch, fleet_dir) -> None
     monkeypatch.setattr(
         lifecycle_canonical, "_open_ssh", lambda host, timeout=15: MagicMock()
     )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "probe_host_install",
+        lambda *_a, **_kw: lifecycle_canonical.HostInstallProbe(
+            unit_present=True, home_present=True,
+            unit_path="/etc/systemd/system/x.service",
+            home_path="/home/x/.x",
+        ),
+    )
     monkeypatch.setattr(lifecycle_canonical, "_atomic_write", lambda *a, **kw: None)
     monkeypatch.setattr(lifecycle_canonical, "_restart_unit", lambda *a, **kw: None)
     monkeypatch.setattr(lifecycle_canonical, "_verify_health", lambda *a, **kw: None)
@@ -393,6 +452,15 @@ def test_canonical_sync_repairs_zeroclaw_even_with_no_drift(
     monkeypatch.setattr(lifecycle_canonical, "diff_files", lambda **kw: [])
     monkeypatch.setattr(
         lifecycle_canonical, "_open_ssh", lambda host, timeout=15: MagicMock()
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "probe_host_install",
+        lambda *_a, **_kw: lifecycle_canonical.HostInstallProbe(
+            unit_present=True, home_present=True,
+            unit_path="/etc/systemd/system/x.service",
+            home_path="/home/x/.x",
+        ),
     )
     monkeypatch.setattr(lifecycle_canonical, "_atomic_write", lambda *a, **kw: None)
 
@@ -470,6 +538,15 @@ def test_canonical_sync_propagates_repair_failure(monkeypatch, fleet_dir) -> Non
     )
     monkeypatch.setattr(
         lifecycle_canonical, "_open_ssh", lambda host, timeout=15: MagicMock()
+    )
+    monkeypatch.setattr(
+        lifecycle_canonical,
+        "probe_host_install",
+        lambda *_a, **_kw: lifecycle_canonical.HostInstallProbe(
+            unit_present=True, home_present=True,
+            unit_path="/etc/systemd/system/x.service",
+            home_path="/home/x/.x",
+        ),
     )
     monkeypatch.setattr(lifecycle_canonical, "_atomic_write", lambda *a, **kw: None)
     monkeypatch.setattr(lifecycle_canonical, "_restart_unit", lambda *a, **kw: None)

@@ -4,8 +4,13 @@ import { Card } from "@/components/ui/card";
 import { useFleet } from "@/hooks";
 import type { AgentStatus } from "@/lib/types";
 
+// ATX #811 iter-4 W1: typed `Record<AgentStatus, ...>` so TS fails
+// the build when an `AgentStatus` variant is added without a
+// corresponding STATUS_CONFIG entry. Previously this was
+// `Record<string, ...>` and `checking` had silently fallen
+// through to `unknown` for ages.
 const STATUS_CONFIG: Record<
-  string,
+  AgentStatus,
   { label: string; color: string; bgColor: string }
 > = {
   running: { label: "Running", color: "#10B981", bgColor: "#D1FAE5" },
@@ -15,6 +20,8 @@ const STATUS_CONFIG: Record<
   onboarding: { label: "Onboarding", color: "#0EA5E9", bgColor: "#E0F2FE" },
   ready: { label: "Ready", color: "#0EA5E9", bgColor: "#E0F2FE" },
   not_installed: { label: "Not Installed", color: "#94A3B8", bgColor: "#F1F5F9" },
+  install_missing: { label: "Install Missing", color: "#EF4444", bgColor: "#FEE2E2" },  // #811
+  checking: { label: "Checking", color: "#94A3B8", bgColor: "#F1F5F9" },
   unknown: { label: "Unknown", color: "#94A3B8", bgColor: "#F1F5F9" },
 };
 
@@ -43,7 +50,14 @@ export function StatusChart() {
           {/* Stacked bar */}
           <div className="flex h-6 rounded-full overflow-hidden">
             {entries.map(([status, count]) => {
-              const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.unknown;
+              // ATX iter-5 B2: STATUS_CONFIG is typed
+              // `Record<AgentStatus, ...>` (W1 iter-4) but
+              // `Object.entries(counts)` yields `[string, number][]`,
+              // so a cast at the call site is required under strict
+              // TS. The runtime guard via `??` still catches stray
+              // backend statuses.
+              const config =
+                STATUS_CONFIG[status as AgentStatus] ?? STATUS_CONFIG.unknown;
               const pct = (count / total) * 100;
               return (
                 <div
@@ -62,7 +76,14 @@ export function StatusChart() {
           {/* Legend */}
           <div className="flex flex-col gap-2 mt-2">
             {entries.map(([status, count]) => {
-              const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.unknown;
+              // ATX iter-5 B2: STATUS_CONFIG is typed
+              // `Record<AgentStatus, ...>` (W1 iter-4) but
+              // `Object.entries(counts)` yields `[string, number][]`,
+              // so a cast at the call site is required under strict
+              // TS. The runtime guard via `??` still catches stray
+              // backend statuses.
+              const config =
+                STATUS_CONFIG[status as AgentStatus] ?? STATUS_CONFIG.unknown;
               return (
                 <div key={status} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">

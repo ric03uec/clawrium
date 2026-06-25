@@ -1,0 +1,11 @@
+total 28
+drwxrwxr-x 2 clawrium-d01 clawrium-d01  4096 Jun 24 08:55 .
+drwxr-x--- 8 clawrium-d01 clawrium-d01  4096 Jun 24 08:54 ..
+-rw------- 1 clawrium-d01 clawrium-d01 15334 Jun 24 08:55 config.toml
+-rw------- 1 clawrium-d01 clawrium-d01   360 Jun 24 08:54 zeroclaw-env.conf
+---
+zeroclaw-e2e-test-pair.service.d
+---
+Failed to connect to bus: No medium found
+---
+Unit zeroclaw-clawrium-d01.service could not be found.

@@ -80,6 +80,7 @@ class DetailCards(Grid):
             ClawStatus.PENDING_ONBOARD: "pending onboard",
             ClawStatus.ONBOARDING: "onboarding",
             ClawStatus.READY: "ready",
+            ClawStatus.INSTALL_MISSING: "install missing",  # #811
             ClawStatus.UNKNOWN: "unknown",
         }.get(status, "unknown")
 

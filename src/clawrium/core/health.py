@@ -99,6 +99,17 @@ class ClawStatus(str, Enum):
     ONBOARDING = "onboarding"  # Onboarding in progress
     READY = "ready"  # Onboarding complete, can be started
     CHECKING = "checking"  # Health check in progress, status not yet known
+    # #811: hosts.json claims this agent is installed but the on-host
+    # service-manager artifact (systemd unit / launchd plist) and/or
+    # the agent home directory are missing. Distinct from
+    # NOT_INSTALLED (which means hosts.json has no record at all) and
+    # from STOPPED (which means the install is intact but the
+    # process isn't running). Surfaced by `check_claw_health` after
+    # `pgrep` returns "no process" — the divergence is invisible to
+    # the local-only `clawctl agent get` / `agent describe` paths by
+    # design (see #811 plan), so the SSH-touching health surface is
+    # where it has to land.
+    INSTALL_MISSING = "install_missing"
 
 
 class HealthResult(TypedDict):
@@ -494,6 +505,54 @@ def check_claw_health(
                     "memory_total_mb": memory_total_mb,
                 }
         else:
+            # #811: process is down — distinguish "install intact, just
+            # not running" from "install gone, hosts.json is wrong".
+            # The check here is the SSH-touching side of the same
+            # detection that `sync_agent_canonical`'s validate phase
+            # does at action time; surfacing it in the fleet/health
+            # sweep means the GUI pill flips to `install_missing`
+            # without an operator having to attempt a sync first.
+            install_probe = _probe_install_artifacts(
+                inventory=inventory,
+                hostname=hostname,
+                agent_type=agent_type,
+                agent_user=claw_user,
+                tmpdir=tmpdir,
+                os_family=host.get("os_family", "linux"),
+            )
+            if install_probe is not None and not install_probe["ok"]:
+                # ATX #811 iter-1 W3: use `claw_name` in the repair
+                # hint, not `claw_user`. They coincide today
+                # (agent_name == OS username by convention) but are
+                # different fields in the data model — `clawctl
+                # agent doctor <NAME>` takes the agent name.
+                # ATX iter-5 B1: there is no `clawctl agent install`
+                # verb; the install path is `agent create`. The
+                # health probe doesn't have agent_type / host_alias
+                # handy at this call site (would require another
+                # lookup), so emit the shorter `doctor` hint and the
+                # create-flow breadcrumb. The fully-formed recovery
+                # command lives in the sync-time
+                # AgentInstallMissingError.
+                return {
+                    "agent": claw_name,
+                    "host": hostname,
+                    "status": ClawStatus.INSTALL_MISSING,
+                    "agent_name": claw_user,
+                    "error": (
+                        f"on-host install incomplete: missing "
+                        f"{install_probe['missing']}. Run "
+                        f"`clawctl agent doctor {claw_name}` and "
+                        f"reinstall via `clawctl agent delete` + "
+                        f"`clawctl agent create` to recover."
+                    ),
+                    "missing_secrets": None,
+                    "onboarding_step": None,
+                    "process_running": False,
+                    "onboarding_stages": None,
+                    "cpu_count": cpu_count,
+                    "memory_total_mb": memory_total_mb,
+                }
             status, step = get_onboarding_status(claw_record)
             onboarding_stages = None
             if status in (
@@ -516,6 +575,137 @@ def check_claw_health(
                 "cpu_count": cpu_count,
                 "memory_total_mb": memory_total_mb,
             }
+
+
+def _probe_install_artifacts(
+    *,
+    inventory: dict,
+    hostname: str,
+    agent_type: str,
+    agent_user: str,
+    tmpdir: str,
+    os_family: str,
+) -> dict | None:
+    """Probe the host for the agent's service-unit + home directory.
+
+    Mirrors `core.lifecycle_canonical.probe_host_install` but uses
+    `ansible_runner` shell (the same transport the rest of
+    `check_claw_health` uses) rather than paramiko, so it shares the
+    inventory/timeout/error path the function already established.
+
+    Returns one of:
+
+    - `None` — probe could not run (transport error, timeout, or an
+      unknown agent_type). The caller treats this as "do not
+      reclassify"; we fall through to the existing onboarding-state
+      path so a transient SSH hiccup never silently flips an agent
+      to `INSTALL_MISSING`.
+    - `{"ok": True, ...}` — both artifacts present; caller proceeds
+      with the existing logic.
+    - `{"ok": False, "missing": "...", ...}` — at least one artifact
+      missing; caller returns `ClawStatus.INSTALL_MISSING`.
+
+    OS routing lives entirely inside
+    `core.playbook_resolver.unit_path_for` so this function carries
+    no OS literals beyond the home-root delegation, matching the
+    dispatcher-only OS-fork invariant.
+    """
+    from clawrium.core.lifecycle_canonical import (
+        _agent_home_path,
+        _build_probe_command,
+        _looks_like_sudo_refusal,
+        _parse_probe_output,
+    )
+    from clawrium.core.playbook_resolver import (
+        _SUPPORTED_AGENT_TYPES,
+        unit_path_for,
+    )
+
+    # ATX #811 iter-4 W5: single source of truth for the supported
+    # agent-type allowlist lives in playbook_resolver; duplicating
+    # it here would drift the day someone adds a new agent type.
+    if agent_type not in _SUPPORTED_AGENT_TYPES:
+        return None
+    try:
+        unit_path = unit_path_for(os_family, agent_type, agent_user)
+    except ValueError:
+        # ATX #811 iter-1 B3: zeroclaw on darwin (and any future
+        # unsupported pair) — `unit_path_for` raises `ValueError`.
+        # Treat as "cannot probe" → caller falls through. The
+        # lifecycle-canonical probe wraps this in CanonicalSyncError
+        # because sync needs an actionable error; the health probe
+        # is a passive sweep and "do not reclassify" is the right
+        # default.
+        return None
+    home_path = _agent_home_path(os_family, agent_type, agent_user)
+    cmd = _build_probe_command(unit_path, home_path)
+    try:
+        result = ansible_runner.run(
+            private_data_dir=tmpdir,
+            inventory=inventory,
+            host_pattern=hostname,
+            module="shell",
+            module_args=cmd,
+            quiet=True,
+            timeout=10,
+        )
+    except Exception as exc:
+        logger.debug("install-artifact probe failed: %s", exc)
+        return None
+    if result.status == "timeout":
+        logger.debug(
+            "install-artifact probe timed out for %s/%s",
+            hostname,
+            agent_user,
+        )
+        return None
+    stdout = ""
+    stderr = ""
+    for event in result.events:
+        if event.get("event") != "runner_on_ok":
+            continue
+        res = event.get("event_data", {}).get("res", {})
+        stdout = res.get("stdout", "")
+        stderr = res.get("stderr", "")
+        break
+    parsed, unit_present, home_present = _parse_probe_output(stdout)
+    if not parsed:
+        return None
+    # ATX #811 iter-2 B1: symmetric sudo-refusal handling. If the
+    # home check failed AND stderr looks like a sudo refusal, the
+    # `home_present=False` verdict is not trustworthy. Returning
+    # None falls the caller through to the existing onboarding-
+    # state path — same defense the lifecycle-canonical probe
+    # provides, just with a passive recovery (do-not-reclassify)
+    # instead of an active raise (the GUI fleet sweep cannot
+    # surface an exception to the operator the way a sync command
+    # can).
+    if (
+        not home_present
+        and stderr
+        and _looks_like_sudo_refusal(stderr)
+    ):
+        logger.debug(
+            "install-artifact probe for %s/%s: sudo refused "
+            "(%s); not reclassifying",
+            hostname,
+            agent_user,
+            stderr.strip(),
+        )
+        return None
+    missing_parts: list[str] = []
+    if not unit_present:
+        missing_parts.append(f"service unit {unit_path!r}")
+    if not home_present:
+        missing_parts.append(f"agent home {home_path!r}")
+    return {
+        "ok": unit_present and home_present,
+        "unit_present": unit_present,
+        "home_present": home_present,
+        "unit_path": unit_path,
+        "home_path": home_path,
+        "missing": ", ".join(missing_parts),
+    }
 
 
 def check_all_claws_on_host(host: dict) -> list[HealthResult]:

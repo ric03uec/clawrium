@@ -224,6 +224,13 @@ def status(
                 status_display = f"[cyan]onboarding ({completed}/{total})[/cyan]"
             elif live_status == ClawStatus.READY:
                 status_display = "[blue]ready (stopped)[/blue]"
+            elif live_status == ClawStatus.INSTALL_MISSING:
+                # #811: hosts.json claims this agent is installed but
+                # the on-host service-manager artifact / home dir is
+                # gone. Render in the same severity family as STOPPED
+                # so the operator immediately distinguishes it from a
+                # benign onboarding state.
+                status_display = "[red]install missing[/red]"
             else:
                 error_detail = result.get("error") if result else None
                 if error_detail and isinstance(error_detail, str):

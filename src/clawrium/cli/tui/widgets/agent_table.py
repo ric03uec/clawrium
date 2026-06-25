@@ -23,6 +23,7 @@ def status_color(status: ClawStatus) -> str:
         ClawStatus.PENDING_ONBOARD: "warning",
         ClawStatus.ONBOARDING: "cyan",
         ClawStatus.READY: "cyan",
+        ClawStatus.INSTALL_MISSING: "error",  # #811: same family as STOPPED
         ClawStatus.UNKNOWN: "warning",
     }
     return color_map.get(status, "text")
@@ -37,6 +38,7 @@ def status_dot(status: ClawStatus) -> str:
         ClawStatus.PENDING_ONBOARD: "[warning]○[/warning]",
         ClawStatus.ONBOARDING: "[cyan]○[/cyan]",
         ClawStatus.READY: "[cyan]○[/cyan]",
+        ClawStatus.INSTALL_MISSING: "[error]●[/error]",  # #811
         ClawStatus.UNKNOWN: "[warning]○[/warning]",
     }
     return dot_map.get(status, "[warning]○[/warning]")
@@ -51,6 +53,7 @@ def status_label(status: ClawStatus, error: str | None = None) -> str:
         ClawStatus.PENDING_ONBOARD: "pending onboard",
         ClawStatus.ONBOARDING: "onboarding",
         ClawStatus.READY: "ready",
+        ClawStatus.INSTALL_MISSING: "install missing",  # #811
         ClawStatus.UNKNOWN: "unknown",
     }
     label = label_map.get(status, "unknown")

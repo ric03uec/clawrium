@@ -275,3 +275,25 @@ def hosts_with_installed_claw(isolated_config):
     hosts_path.write_text(json.dumps(hosts_data))
 
     return isolated_config
+
+
+@pytest.fixture(autouse=True)
+def _default_install_probe_present(request, monkeypatch):
+    """#811 iter-6: every lifecycle test that doesn't explicitly
+    exercise the new `_assert_install_present` probe gets a no-op
+    stub so the new SSH round-trip in
+    `lifecycle.start_agent` / `configure_agent` is invisible.
+
+    Tests that want to exercise the real probe declare
+    `@pytest.mark.no_install_probe_stub` (symmetric to the
+    `no_probe_stub` marker in tests/core/test_lifecycle_canonical.py).
+    Marking autouse keeps the dozens of existing lifecycle test
+    fixtures from each having to re-state the stub.
+    """
+    if request.node.get_closest_marker("no_install_probe_stub") is not None:
+        return
+    try:
+        from clawrium.core import lifecycle as _lc
+    except ImportError:
+        return
+    monkeypatch.setattr(_lc, "_assert_install_present", lambda *a, **kw: None)

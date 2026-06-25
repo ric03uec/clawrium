@@ -1,0 +1,199 @@
+Requesting review for /home/devashish/workspace/ric03uec/clawrium-issue-811...
+{"time":"2026-06-25T00:47:27.612421351-07:00","level":"INFO","msg":"request_review: starting","project_root":"/home/devashish/workspace/ric03uec/clawrium"}
+{"time":"2026-06-25T00:47:27.638359302-07:00","level":"INFO","msg":"request_review: task created","task_id":"f3e066fe-c9ef-48e5-9213-dbb79dae9620","project_port":30011}
+ATX review in progress. Using high effort (per-project) — leader may invoke up to 6 of 7 specialists.
+Task created (id: f3e066fe-c9ef-48e5-9213-dbb79dae9620), polling for completion...
+Waiting for review... (0s elapsed)
+Waiting for review... (1s elapsed)
+Waiting for review... (3s elapsed)
+Waiting for review... (7s elapsed)
+Waiting for review... (15s elapsed)
+Waiting for review... (25s elapsed)
+Waiting for review... (35s elapsed)
+Waiting for review... (45s elapsed)
+Waiting for review... (55s elapsed)
+Waiting for review... (1m5s elapsed)
+Waiting for review... (1m15s elapsed)
+Waiting for review... (1m25s elapsed)
+Waiting for review... (1m35s elapsed)
+Waiting for review... (1m45s elapsed)
+Waiting for review... (1m55s elapsed)
+Waiting for review... (2m5s elapsed)
+Waiting for review... (2m15s elapsed)
+Waiting for review... (2m25s elapsed)
+Waiting for review... (2m35s elapsed)
+Waiting for review... (2m45s elapsed)
+Waiting for review... (2m55s elapsed)
+Waiting for review... (3m5s elapsed)
+Waiting for review... (3m15s elapsed)
+Waiting for review... (3m25s elapsed)
+Waiting for review... (3m35s elapsed)
+Waiting for review... (3m45s elapsed)
+Waiting for review... (3m55s elapsed)
+Waiting for review... (4m5s elapsed)
+Waiting for review... (4m15s elapsed)
+Waiting for review... (4m25s elapsed)
+Waiting for review... (4m35s elapsed)
+Waiting for review... (4m45s elapsed)
+Waiting for review... (4m55s elapsed)
+Waiting for review... (5m5s elapsed)
+Waiting for review... (5m15s elapsed)
+Waiting for review... (5m25s elapsed)
+Waiting for review... (5m35s elapsed)
+Waiting for review... (5m45s elapsed)
+Waiting for review... (5m55s elapsed)
+Waiting for review... (6m5s elapsed)
+Waiting for review... (6m15s elapsed)
+Waiting for review... (6m25s elapsed)
+Waiting for review... (6m35s elapsed)
+Waiting for review... (6m45s elapsed)
+Waiting for review... (6m55s elapsed)
+Waiting for review... (7m5s elapsed)
+Waiting for review... (7m15s elapsed)
+Waiting for review... (7m25s elapsed)
+Waiting for review... (7m35s elapsed)
+Waiting for review... (7m45s elapsed)
+Waiting for review... (7m55s elapsed)
+Waiting for review... (8m5s elapsed)
+Waiting for review... (8m15s elapsed)
+Waiting for review... (8m25s elapsed)
+Waiting for review... (8m35s elapsed)
+Waiting for review... (8m45s elapsed)
+Waiting for review... (8m55s elapsed)
+Waiting for review... (9m5s elapsed)
+Waiting for review... (9m15s elapsed)
+Waiting for review... (9m25s elapsed)
+Waiting for review... (9m35s elapsed)
+Waiting for review... (9m45s elapsed)
+Waiting for review... (9m55s elapsed)
+Waiting for review... (10m6s elapsed)
+Waiting for review... (10m16s elapsed)
+Waiting for review... (10m26s elapsed)
+Waiting for review... (10m36s elapsed)
+Waiting for review... (10m46s elapsed)
+Waiting for review... (10m56s elapsed)
+Waiting for review... (11m6s elapsed)
+Waiting for review... (11m16s elapsed)
+Waiting for review... (11m26s elapsed)
+Waiting for review... (11m36s elapsed)
+Waiting for review... (11m46s elapsed)
+Waiting for review... (11m56s elapsed)
+Waiting for review... (12m6s elapsed)
+Waiting for review... (12m16s elapsed)
+{"time":"2026-06-25T00:59:53.286588832-07:00","level":"INFO","msg":"review: task completed","task_id":"f3e066fe-c9ef-48e5-9213-dbb79dae9620","status":"completed","duration_ms":737410}
+{"time":"2026-06-25T00:59:53.286828081-07:00","level":"INFO","msg":"request_review: completed","task_id":"f3e066fe-c9ef-48e5-9213-dbb79dae9620","status":"completed","blocking":false,"files_reviewed":0,"cost_usd":6.691562950000001}
+Status: reviewed
+Summary: ## ATX Review — iter-5 #811
+
+**Composite Rating: 3 / 5** · 6 specialists · 1 confirmed blocker, 1 conditional blocker, 8 warnings
+
+---
+
+### Blocking Issues
+
+| # | Source | Location | Issue |
+|---|----...
+Cost: $6.6916
+Time: 12m 17s
+Rating: 2.5/5
+Models: claude-opus-4-7, claude-sonnet-4-6, claude-opus-4-6, zai-org/glm-5.1
+
+Agent Feedback:
+  [completed] leader (-) — ## ATX Review — iter-5 #811
+
+**Composite Rating: 3 / 5** · 6 specialists · 1 confirmed blocker, 1 conditional blocker, 8...
+  [skipped] render-engine (-) — 
+  [completed] cli-ux (2/5) — <output>
+{
+  "rating": 2,
+  "summary": "One blocking defect — `clawctl agent install` is not a registered subcommand; th...
+  [completed] lifecycle-core (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "Iter-5 conforms to every blocking project invariant: OS routing flows through un...
+  [completed] gui-routes (2/5) — <output>
+{
+  "rating": 2,
+  "summary": "The `install_missing` variant is logically wired correctly: type union, StatusDo...
+  [completed] security-reviewer (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "Iter-5 is security-conscious: shell injection is neutralized by shlex.quote, bid...
+  [completed] test-coverage (3/5) — <output>
+{
+  "rating": 3,
+  "summary": "Iter-5 closes the parametrized sudo-refusal matrix and adds 'sudo: command not f...
+  [completed] platform-playbooks (2/5) — <output>{
+  "rating": 2,
+  "summary": "Function shape and OS-routing intent are sound, but `_SUPPORTED_AGENT_TYPES` omit...
+
+Full Feedback:
+## ATX Review — iter-5 #811
+
+**Composite Rating: 3 / 5** · 6 specialists · 1 confirmed blocker, 1 conditional blocker, 8 warnings
+
+---
+
+### Blocking Issues
+
+| # | Source | Location | Issue |
+|---|--------|----------|-------|
+| B1 | cli-ux | `lifecycle_canonical.py:1367`, `health.py:536`, `agent-header.tsx:182`, `CHANGELOG.md:209` | **`clawctl agent install` does not exist.** The cli-ux specialist verified `src/clawrium/cli/clawctl/agent/__init__.py` — registered verbs are: create, get, describe, delete, edit, configure, start, stop, restart, sync, upgrade, doctor, logs, chat, open, port-forward, exec, shell, audit. No `install`. The repair hint in `AgentInstallMissingError`, `_probe_install_artifacts` error text, the GUI agent-header, and the CHANGELOG all reference a command that will exit with `No such command 'install'`. The real reinstall path is `clawctl agent create <name> --type <type> --host <host>`. Fix must cascade across all four files + tests (`test_sync.py:195-203` hardcodes the nonexistent command in the mock exception message). |
+| B2 | gui-routes | `status-chart.tsx:53, :72` | **Potential TS7053 from `Record<AgentStatus, ...>` indexing.** The iter-4 W1 fix tightened `STATUS_CONFIG` to `Record<AgentStatus, ...>` but `Object.entries(counts)` yields `[string, number][]` — accessing `STATUS_CONFIG[status]` with a `string` key is TS7053 under strict mode. You attest that frontend lint passes, so this may be a tsconfig-permissiveness gap rather than a build break. **Verify**: run `npx tsc --noEmit --strict` in `gui/`. If it passes, downgrade to warning; if it errors, cast at both call sites: `STATUS_CONFIG[status as AgentStatus] ?? STATUS_CONFIG.unknown`. |
+
+---
+
+### Warnings
+
+| # | Source | Location | Issue |
+|---|--------|----------|-------|
+| W1 | gui-routes | `agent-header.tsx:180` | `role="status"` should be `role="alert"`. ARIA live regions only announce content *changes* to existing containers — they don't announce initial-mount text. Since this `<span>` is conditionally rendered (enters DOM only when `liveStatus === "install_missing"`), VoiceOver/NVDA/JAWS silently skip it. `role="alert"` is an assertive live region announced on mount. Recommend promoting from deferred W2. |
+| W2 | cli-ux | `cli/clawctl/agent/sync.py` | `AgentInstallMissingError` falls through to the generic `CanonicalSyncError` handler which wraps it as `"sync failed: {exc}"`. Combined with the exception message starting `"sync refused for…"`, operators see `"sync failed: sync refused for 'x':…"` — double-framed. Add a dedicated `except AgentInstallMissingError` clause before the generic catch (matching the `SecretRemovalRefused` pattern). |
+| W3 | cli-ux | `lifecycle_canonical.py:1365` | Phrasing inconsistency: `AgentInstallMissingError` uses `"sync refused for"` while `SecretRemovalRefused` uses `"refusing to sync"`. Align to the existing `"refusing to sync"` convention. |
+| W4 | test-coverage | `tests/test_health.py` | Missing symmetric test: `test_health_check_install_missing_unit_only` covers unit=0/home=1, but the inverse (unit=1/home=0 with clean stderr) is untested. This is a distinct code path producing a different error payload. |
+| W5 | test-coverage | `lifecycle_canonical.py:549` | Pattern 0 of `_SUDO_REFUSAL_PATTERNS` (`"a password is required"`) is dead code — pattern 1 (`"password is required"`) is a strict substring that always matches first. No parametrized test can independently pin pattern 0. Either remove it or document that it exists as defense-in-depth against future list reordering. |
+| W6 | test-coverage | `health.py:620-630` | The `except ValueError: return None` branch in `_probe_install_artifacts` (zeroclaw-on-darwin path) has zero direct test coverage. The existing `unsupported_agent_type` test uses `'unknownclaw'` which exits at the `_SUPPORTED_AGENT_TYPES` guard before reaching `unit_path_for`. Add a `(darwin, zeroclaw)` test case. |
+| W7 | lifecycle-core, security, platform-playbooks | `health.py:606-616`, `playbook_resolver.py:54` | Cross-module import of `_SUPPORTED_AGENT_TYPES` (underscore-prefixed = module-private). Both lifecycle-core and security specialists recommend extracting shared probe helpers into `core/probe_common.py` or renaming to `SUPPORTED_AGENT_TYPES` (matching `SUPPORTED_OS` style). Not a correctness bug, but the underscore convention is a strong signal to future refactors. |
+| W8 | test-coverage | `tests/test_health.py:1658-1661` | Positional `calls.pop(0)` runner-stub pattern is fragile. A future refactor that reorders pgrep→sysinfo→probe calls silently feeds the wrong runner into the wrong slot. Replace with a `module_args`-dispatching function. |
+
+---
+
+### Deferred Findings — No Promotion Needed
+
+The following iter-4 deferrals were reviewed by specialists and confirmed as correctly deferred:
+
+- **W4 (cross-module private imports)** — real but non-blocking; follow-up to extract `core/probe_common.py` is the right resolution.
+- **W6 (dedicated SSH connection for probe)** — perf optimization, ~50-100ms extra LAN round-trip. lifecycle-core confirms this is not a correctness issue.
+- **W2 (alert role)** — **should be promoted** to W1 above; the ARIA semantics are verifiably wrong.
+- **W3 (agent-header test)** — two iterations deferred now; gui-routes recommends adding it but agrees it's not blocking.
+
+---
+
+### Platform-Playbooks Note
+
+The platform-playbooks specialist flagged `ethos` as missing from `_SUPPORTED_AGENT_TYPES`. However, `ethos` does not appear in AGENTS.md, the project context, or any documentation as a shipped agent type. The three documented types with service-manager conventions are hermes, zeroclaw, and openclaw. `nemoclaw` is referenced in AGENTS.md as an agent type but may not have the same systemd/launchd artifact convention — verify whether it needs to be in the allowlist. If nemoclaw has no service-unit convention, the current frozenset is correct and the `test_linux_unknown_agent_type_raises` test using `'ethos'` as a fictional name is fine.
+
+---
+
+### Suggestions (non-blocking)
+
+| # | Source | Detail |
+|---|--------|--------|
+| S1 | security | Validate `agent_name` in `unit_path_for` / `_agent_home_path` on the Linux branch — darwin branch gets regex validation from `launchd._AGENT_NAME_RE`, Linux does not. `shlex.quote` prevents injection but the contract is asymmetric. |
+| S2 | security | Cap embedded `body`/`stderr_text` in `CanonicalSyncError` messages to ~200 chars to limit MOTD/banner echo. |
+| S3 | lifecycle-core | Add hostname to `AgentInstallMissingError` text for fleet-wide triage. |
+| S4 | lifecycle-core | Promote `logger.debug` to `logger.info` in `_probe_install_artifacts` timeout/exception paths for #575-style triage visibility. |
+| S5 | gui-routes | Dead `bgColor` field in `STATUS_CONFIG` — either wire it to the legend swatch or remove from type + entries. |
+| S6 | test-coverage | Add `test_partial_input_home_only` to `TestParseProbeOutput` for the symmetric parser case. |
+
+---
+
+### Action Items for iter-6
+
+1. **Fix B1**: Replace `clawctl agent install` with `clawctl agent create` (or the correct reinstall command) across all five locations + tests.
+2. **Verify B2**: Run `npx tsc --noEmit --strict` — fix with cast if it fails, downgrade if it passes.
+3. **Fix W1**: `role="alert"` on `agent-header.tsx:180`.
+4. **Fix W2-W3**: Dedicated `except AgentInstallMissingError` clause; align phrasing to `"refusing to sync"`.
+5. **Add W4 + W6 tests**: symmetric home-only health test + darwin/zeroclaw ValueError branch.
+
+Remaining warnings (W5 dead pattern, W7 private imports, W8 fragile stubs) are legitimate but can land as a follow-up PR without blocking merge.

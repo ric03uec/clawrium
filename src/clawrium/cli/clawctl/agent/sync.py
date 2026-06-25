@@ -398,6 +398,7 @@ def sync(
     # atomic-write → restart sequence. The legacy ansible extravar
     # path and the `--canonical` opt-in flag were dropped in #560.
     from clawrium.core.lifecycle_canonical import (
+        AgentInstallMissingError,
         CanonicalSyncError,
         SecretRemovalRefused,
         sync_agent_canonical,
@@ -549,6 +550,14 @@ def sync(
             on_event=canonical_event,
         )
     except SecretRemovalRefused as exc:
+        emit_error(str(exc))
+        return
+    except AgentInstallMissingError as exc:
+        # #811: dedicated branch so the message reads cleanly. The
+        # exception body already starts with "refusing to sync…";
+        # routing it through the generic `sync failed: {exc}`
+        # handler below would double-frame it as
+        # "sync failed: refusing to sync…" (iter-5 W2).
         emit_error(str(exc))
         return
     except (AgentConfigError, CanonicalSyncError, RemoteReadError) as exc:

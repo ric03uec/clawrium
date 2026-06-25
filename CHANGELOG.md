@@ -198,6 +198,44 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- `clawctl agent sync <name>` now fails fast in a new validate-phase
+  host probe (`AgentInstallMissingError`) when the agent's on-host
+  service-manager artifact (systemd unit / launchd plist) or home
+  directory is missing — previously, sync ran through render +
+  diff + write + workspace push and only discovered the missing
+  install at `_restart_unit`, leaving half-rendered config on a
+  host that couldn't restart it (#811). The probe runs one SSH
+  round-trip before any render; failure surfaces with a concrete
+  recovery hint: `clawctl agent delete <name>` then
+  `clawctl agent create <name> --type <type> --host <host>`, or
+  `clawctl agent doctor <name>` for diagnosis. Short-circuits
+  the `--workspace-only` path too, so operator overlays never
+  land on an uninstalled agent. The probe pays its cost on
+  `--dry-run` runs as well — a dry-run that would "change N
+  files" against a missing daemon is misleading, not
+  informational.
+- `clawctl agent restart <name>` and `clawctl agent configure <name>`
+  now perform the same on-host install probe as `clawctl agent
+  sync`. Without this guard, an operator who hit the wedged
+  zeroclaw-clawrium-d01 state from `clawctl agent restart` would
+  still have seen the same opaque `Unit ...service not found.
+  (exit 5)` shape #811 was filed against. The shared probe lives
+  in `lifecycle._assert_install_present` and wraps the same
+  `probe_host_install` helper sync uses, so the failure message
+  and reinstall hint are byte-identical across all three lifecycle
+  entry points (#811).
+- `core/health.check_claw_health` and the GUI `/fleet/health`
+  endpoint now reclassify stopped agents whose on-host install is
+  gone as a new `ClawStatus.INSTALL_MISSING` (instead of stale
+  `READY` / `ONBOARDING`). The probe runs only when the `pgrep`
+  process check returns "no process", so healthy agents pay no
+  additional cost. An unparseable probe result or a sudo-refusal
+  banner falls through to the existing onboarding-state path so a
+  transient SSH hiccup or a sudoers regression never silently flips
+  an agent to `INSTALL_MISSING`. GUI status pill renders red (same
+  family as `stopped`); the agent-detail header surfaces a
+  `clawctl agent doctor` + reinstall hint in place of the
+  Start/Stop/Restart buttons (#811).
 - `clawctl agent sync` on Linux no longer prints `synced (drift=0)`
   when the agent's gateway port is not actually accepting connections.
   The Linux `_verify_health` step previously only checked

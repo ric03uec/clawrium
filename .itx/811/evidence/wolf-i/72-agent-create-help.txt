@@ -1,0 +1,15 @@
+Usage: clawctl agent create [OPTIONS] NAME
+
+  Install an agent on a host.
+
+Arguments:
+  NAME  Name for the new agent instance.  [required]
+
+Options:
+  -t, --type TEXT      Agent type (e.g., openclaw, zeroclaw, hermes).
+  -H, --host TEXT      Target host (name or alias).
+  -P, --provider TEXT  Initial provider name to attach.
+  -y, --yes            Skip confirmation prompts.
+  -f, --force          Reinstall even if same version present.
+  --cleanup-failed     Remove failed installation before retry.
+  --help               Show this message and exit.

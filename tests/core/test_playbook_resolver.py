@@ -125,3 +125,83 @@ class TestShellRcPrepend:
         glue the source statement to whatever follows."""
         for os_family in ("linux", "darwin"):
             assert shell_rc_prepend(os_family).rstrip().endswith(";"), os_family
+
+
+# ---------------------------------------------------------------------------
+# #811: unit_path_for — sync validate-phase + health probe seam
+# ---------------------------------------------------------------------------
+
+
+class TestUnitPathFor:
+    def test_linux_returns_systemd_unit_path(self):
+        from clawrium.core.playbook_resolver import unit_path_for
+
+        assert (
+            unit_path_for("linux", "zeroclaw", "alpha")
+            == "/etc/systemd/system/zeroclaw-alpha.service"
+        )
+
+    def test_linux_hermes(self):
+        from clawrium.core.playbook_resolver import unit_path_for
+
+        assert (
+            unit_path_for("linux", "hermes", "bob")
+            == "/etc/systemd/system/hermes-bob.service"
+        )
+
+    def test_darwin_returns_plist_path(self):
+        from clawrium.core.playbook_resolver import unit_path_for
+
+        path = unit_path_for("darwin", "hermes", "alpha")
+        assert path.startswith("/Library/LaunchDaemons/")
+        assert path.endswith(".plist")
+        # The label is whatever core.launchd computes; assert the
+        # agent_name and agent_type both appear.
+        assert "alpha" in path
+        assert "hermes" in path
+
+    def test_unknown_os_family_raises(self):
+        import pytest as _pytest
+        from clawrium.core.playbook_resolver import unit_path_for
+
+        with _pytest.raises(ValueError, match="unsupported os_family"):
+            unit_path_for("windows", "hermes", "alpha")
+
+    def test_darwin_openclaw_uses_plist(self):
+        """ATX iter-1 W7: openclaw-on-darwin coverage (was hermes-only)."""
+        from clawrium.core.playbook_resolver import unit_path_for
+
+        path = unit_path_for("darwin", "openclaw", "oc1")
+        assert path.startswith("/Library/LaunchDaemons/")
+        assert path.endswith(".plist")
+        assert "oc1" in path
+        assert "openclaw" in path
+
+    def test_linux_unknown_agent_type_raises(self):
+        """ATX iter-3 W7: linux branch was previously unvalidated and
+        would happily materialize a service path for any string. The
+        iter-2 W2 fix added a `_SUPPORTED_AGENT_TYPES` check on both
+        branches; this regression guard pins the linux branch.
+        Without it, a typo in hosts.json (`ethos` → systemd unit
+        path) would slip past the probe and surface only at restart
+        — defeating the whole point of #811."""
+        import pytest as _pytest
+        from clawrium.core.playbook_resolver import unit_path_for
+
+        with _pytest.raises(ValueError, match="unsupported agent_type"):
+            unit_path_for("linux", "ethos", "alpha")
+
+    def test_darwin_zeroclaw_raises_value_error(self):
+        """ATX iter-1 B3: zeroclaw has no launchd label prefix
+        registered in `core.launchd._LABEL_PREFIX_BY_TYPE` (zeroclaw
+        is linux-only today). `unit_path_for("darwin", "zeroclaw",
+        ...)` must raise `ValueError` so the probe call sites can
+        wrap it in their typed errors. A regression in
+        `_LABEL_PREFIX_BY_TYPE` (e.g. adding a zeroclaw entry
+        without also adding the platform support) would otherwise
+        silently materialize a bogus plist path."""
+        import pytest as _pytest
+        from clawrium.core.playbook_resolver import unit_path_for
+
+        with _pytest.raises(ValueError):
+            unit_path_for("darwin", "zeroclaw", "alpha")

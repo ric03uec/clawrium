@@ -79,6 +79,8 @@ python_functions = ["test_*"]
 markers = [
     "slow: real-host integration tests; skipped by default. Run via `pytest -m slow`.",
     "container: parent #555 F6 render-matrix tests; require a disposable container host (CLAWRIUM_TEST_CONTAINER_HOST env var). Skipped otherwise.",
+    "no_probe_stub: opt out of the autouse host-install-probe stub in tests/core/test_lifecycle_canonical.py — exercise the real probe code (#811).",
+    "no_install_probe_stub: opt out of the autouse `_assert_install_present` stub in tests/conftest.py — exercise the real lifecycle probe code (#811 iter-6).",
 ]
 # Fail loudly when a `@pytest.mark.parametrize` body comes back empty —
 # without this, a regression in the parametrize source (e.g.

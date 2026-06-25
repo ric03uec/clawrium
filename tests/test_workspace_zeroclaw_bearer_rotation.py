@@ -102,6 +102,20 @@ def make_canonical_stubs(monkeypatch: pytest.MonkeyPatch):
             lifecycle_canonical, "diff_files", fake_diff_files
         )
         monkeypatch.setattr(lifecycle_canonical, "_open_ssh", fake_open_ssh)
+        # #811: validate-phase host probe defaults to "install present"
+        # so the bearer-rotation invariants under test stay isolated
+        # from the new short-circuit. Tests that want to exercise the
+        # missing-install path re-monkeypatch this in their body.
+        monkeypatch.setattr(
+            lifecycle_canonical,
+            "probe_host_install",
+            lambda *_a, **_kw: lifecycle_canonical.HostInstallProbe(
+                unit_present=True,
+                home_present=True,
+                unit_path="/etc/systemd/system/x.service",
+                home_path="/home/x/.x",
+            ),
+        )
         monkeypatch.setattr(
             lifecycle_canonical, "_restart_unit", fake_restart_unit
         )
