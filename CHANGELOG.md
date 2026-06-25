@@ -117,6 +117,34 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- `clawctl agent sync <openclaw-agent>` now installs the openclaw
+  plugins required by attached integrations (`@openclaw/brave-plugin`
+  today; generalizes via the `plugins:` block in the openclaw
+  manifest). Previously the plugin install lived in
+  `playbooks/openclaw/configure.yaml` only, so an operator who ran
+  `clawctl agent integration attach <brave> --agent <name>` followed
+  by `clawctl agent sync <name>` got a daemon with `BRAVE_API_KEY` in
+  its env but no plugin to consume it — sync had to be followed by a
+  separate `clawctl agent configure --stage <...>` dance for the
+  plugin to materialize. With #755 the canonical sync pipeline owns
+  plugin install end-to-end: install runs after the brave preflight
+  and BEFORE the systemd restart, fails-loud-and-short-circuits on
+  any install error (the unit is never restarted on a half-installed
+  plugin), and is idempotent via a per-version sentinel
+  (`.<plugin>-plugin-installed.<version>`). Install uses openclaw's
+  own `openclaw plugins install --force --pin <pkg>@<ver>` CLI so
+  `openclaw plugins list` actually discovers the plugin — UAT on
+  esper-mac-oc proved that the pre-#755 `npm install --prefix
+  ~/.openclaw` approach wrote files but did not register the plugin
+  with the daemon. **Operator workflow change:** the canonical
+  sequence is now `attach <integration> → sync`. The
+  `attach → configure → start` path documented in the quickstart
+  no longer installs plugins (configure is scoped to onboarding
+  stages — providers / identity / channels — only); operators on
+  the configure-then-start path must add a `clawctl agent sync` in
+  between to materialize plugins. No automated migration; the next
+  `clawctl agent sync` against any openclaw agent with brave
+  attached will install the plugin in-place.
 - openclaw `~/.openclaw/openclaw.json` is now written through the
   canonical Python renderer (`clawrium.core.render._render_openclaw_json`)
   on every code path: `clawctl agent create` (install) pre-renders a

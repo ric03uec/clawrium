@@ -74,69 +74,11 @@
         mode: "0644"
       when: identity_files is defined and identity_files.sync_workspace | default(false)
 
-    # Install the brave web-search plugin BEFORE writing the env file
-    # so that a fresh `BRAVE_API_KEY` lands on a host that already has
-    # the plugin manifest the env var feeds — avoids a one-restart-late
-    # state where the env exists but the plugin doesn't.
-    #
-    # Sentinel-gated by the pinned version: a bump in
-    # `openclaw_brave_plugin_version` automatically re-triggers
-    # install on every host on the next configure.
-    #
-    # `no_log` deliberately NOT set: the install pulls a public npm
-    # package with no secrets in scope, and suppressing output here
-    # hides legitimate failures (network 403, ENOSPC, postinstall
-    # error) which under the previous `no_log: true` masked all
-    # diagnostics. (#734 ATX iter 2 W4)
-    #
-    # PATH is exported so Homebrew/apt/dnf Node hosts can resolve
-    # `npm` without an interactive login shell. nvm-only Node
-    # installs are NOT supported (same caveat as the macOS playbook
-    # — Ansible's PATH-env hand-off cannot glob the version-dynamic
-    # ~/.nvm/versions/node/<v>/bin shim).
-    #
-    # S3 iter-3: brave-related tasks share the same predicate;
-    # wrap in a block so a fifth task can't drift the condition.
-    - name: Brave plugin install
-      when:
-        - integrations is defined
-        - integrations.values() | selectattr('type', 'equalto', 'brave') | list | length > 0
-      become: yes
-      become_user: "{{ agent_name }}"
-      environment:
-        PATH: "/home/{{ agent_name }}/.local/bin:/usr/local/bin:/usr/bin:/bin"
-      block:
-        - name: Probe for npm (brave plugin install prereq)
-          ansible.builtin.command:
-            argv:
-              - which
-              - npm
-          register: _npm_probe
-          changed_when: false
-          failed_when: false
-
-        - name: Fail with actionable hint when npm is missing
-          when: _npm_probe.rc != 0
-          ansible.builtin.fail:
-            msg: >-
-              npm not found on the agent host PATH
-              (/usr/local/bin, /usr/bin, /bin). The brave plugin requires
-              a system Node install (apt/dnf/Homebrew); nvm-only installs
-              are not supported because the playbook cannot glob
-              /home/{{ agent_name }}/.nvm/versions/node/*/bin into PATH.
-
-        - name: Install openclaw brave plugin (idempotent, gated by sentinel)
-          ansible.builtin.command: >-
-            npm install --prefix /home/{{ agent_name }}/.openclaw
-            {{ openclaw_brave_plugin_package }}@{{ openclaw_brave_plugin_version }}
-          args:
-            creates: "/home/{{ agent_name }}/.openclaw/.brave-plugin-installed.{{ openclaw_brave_plugin_version }}"
-
-        - name: Stamp brave plugin install sentinel
-          ansible.builtin.file:
-            path: "/home/{{ agent_name }}/.openclaw/.brave-plugin-installed.{{ openclaw_brave_plugin_version }}"
-            state: touch
-            mode: "0600"
+    # #755: openclaw plugin install lifted into the canonical sync
+    # pipeline (`core/lifecycle_canonical.py:_openclaw_install_plugins`).
+    # Configure stays scoped to onboarding stages (providers / identity
+    # / channels); plugin install fires on every `clawctl agent sync`,
+    # which is the operator's "flush declared state" entry point.
 
     - name: Write openclaw .env from template
       ansible.builtin.template:

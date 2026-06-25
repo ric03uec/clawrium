@@ -804,6 +804,220 @@ def _verify_health(
         raise CanonicalSyncError(base)
 
 
+# #755: openclaw plugin install on every sync.
+#
+# Before #755 the `@openclaw/brave-plugin` install lived only in
+# `playbooks/openclaw/configure.yaml` (+ the macOS sibling). That made
+# `clawctl agent integration attach <brave>` + `clawctl agent sync`
+# silently incomplete — the env was rendered with `BRAVE_API_KEY` but
+# the plugin manifest the var feeds was never written to host. Lifting
+# the install into the canonical sync pipeline makes sync the single
+# source of truth for declared state, the operator's mental model.
+#
+# Generalizes beyond brave: any entry in the openclaw manifest's
+# `plugins:` block whose key matches an attached integration's `type`
+# is installed at the pinned `npm_package@version`. Future plugin-
+# backed integrations need only a manifest row — no playbook change,
+# no Python wiring.
+def _load_openclaw_plugins() -> dict[str, dict]:
+    """Read the entire `plugins:` block from the openclaw manifest.
+
+    Returns a dict keyed by plugin name (matching integration `type`).
+    Raises `CanonicalSyncError` on a structural problem so the caller
+    cannot proceed with an undefined pin (mirrors
+    `_load_openclaw_brave_pin`'s hard-fail discipline)."""
+    import yaml as _yaml
+
+    manifest_path = (
+        Path(__file__).parent.parent
+        / "platform"
+        / "registry"
+        / "openclaw"
+        / "manifest.yaml"
+    )
+    try:
+        manifest = _yaml.safe_load(manifest_path.read_text())
+    except Exception as exc:
+        raise CanonicalSyncError(
+            f"openclaw plugin install: cannot read manifest: {exc}"
+        ) from exc
+    block = (manifest or {}).get("plugins") or {}
+    if not isinstance(block, dict):
+        raise CanonicalSyncError(
+            "openclaw manifest `plugins:` block is malformed (not a mapping)"
+        )
+    return block
+
+
+def _openclaw_plugin_paths(
+    agent_name: str, *, os_family: str
+) -> tuple[str, str]:
+    """Return `(openclaw_home, openclaw_bin)` for `agent_name` on the
+    given `os_family`. `/home` vs `/Users` is sourced via
+    `home_root_for(os_family)` so the OS→home-root mapping stays in
+    one seam (#770 invariant). `openclaw_bin` is the per-agent
+    `openclaw` shim installed by `install.yaml` — invoked by absolute
+    path so PATH lookup is not load-bearing here."""
+    home = f"{home_root_for(os_family)}/{agent_name}/.openclaw"
+    openclaw_bin = f"{home}/bin/openclaw"
+    return home, openclaw_bin
+
+
+def _openclaw_install_plugins(
+    client: paramiko.SSHClient,
+    agent_name: str,
+    *,
+    os_family: str,
+    inputs,
+    on_event: Callable[[str, str], None] | None = None,
+    install_timeout: int = 180,
+    probe_timeout: int = 15,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Install openclaw plugins required by attached integrations.
+
+    For each entry in the openclaw manifest's `plugins:` block whose
+    key matches an attached integration `type`, run
+    `npm install --prefix ~<agent>/.openclaw <npm_package>@<version>`
+    on the host (as the agent user) when the per-version sentinel file
+    `<openclaw_home>/.<plugin>-plugin-installed.<version>` is missing.
+
+    Idempotency: a sentinel file whose name encodes the version. A pin
+    bump changes the sentinel filename so the install re-fires; a same-
+    version repeat is a no-op (the probe short-circuits before npm
+    runs). This is the same gating shape the configure playbook
+    historically used (`creates:` arg on the `npm install` task at
+    `configure.yaml:133`), lifted intact into Python so the canonical
+    sync pipeline owns it.
+
+    Returns `(installed, skipped)` — tuples of plugin keys (e.g.
+    `("brave",)`) for the caller's event payloads. The `skipped`
+    bucket includes both "sentinel already present" and "no attached
+    integration for this plugin"; the latter is the common-case empty
+    branch.
+
+    Raises `CanonicalSyncError` on any per-host failure (npm missing,
+    install non-zero, sentinel stamp failed) so the caller can
+    short-circuit before `_restart_unit`. The agent is never restarted
+    on a half-installed plugin set."""
+    plugins_block = _load_openclaw_plugins()
+    if not plugins_block:
+        return (), ()
+
+    attached_types = {i.type for i in inputs.integrations}
+    home, openclaw_bin = _openclaw_plugin_paths(
+        agent_name, os_family=os_family
+    )
+    quoted_agent = shlex.quote(agent_name)
+    quoted_bin = shlex.quote(openclaw_bin)
+
+    installed: list[str] = []
+    skipped: list[str] = []
+
+    for plugin_key, spec in plugins_block.items():
+        if plugin_key not in attached_types:
+            skipped.append(plugin_key)
+            continue
+        pkg = (spec or {}).get("npm_package")
+        ver = (spec or {}).get("version")
+        if not pkg or not ver:
+            raise CanonicalSyncError(
+                f"openclaw manifest plugin {plugin_key!r} is missing "
+                f"npm_package or version — clawrium build is corrupt; "
+                f"reinstall via `uv tool install clawrium`."
+            )
+        sentinel = f"{home}/.{plugin_key}-plugin-installed.{ver}"
+        quoted_sentinel = shlex.quote(sentinel)
+
+        # Sentinel probe — cheap fast-path that short-circuits the
+        # ~Node-startup cost of `openclaw plugins install` on every
+        # subsequent sync at the same pin. The sentinel filename
+        # encodes the version, so a pin bump auto-fires reinstall
+        # via the missing-sentinel branch below. Runs as the agent
+        # user because `~<agent>/.openclaw` is mode 0700 and the
+        # SSH user (xclm) cannot stat inside it. `sudo -n -H` resets
+        # HOME to the agent user's home — required for `openclaw
+        # plugins install` downstream which writes plugin state into
+        # `~<agent>/.openclaw/state/` (surfaced live during #755 UAT
+        # on esper-mac-oc, where the install otherwise inherited
+        # `/Users/xclm` as HOME and failed EACCES on the state DB).
+        probe = (
+            f"sudo -n -H -u {quoted_agent} test -f {quoted_sentinel}"
+        )
+        _, p_out, _ = client.exec_command(probe, timeout=probe_timeout)
+        if p_out.channel.recv_exit_status() == 0:
+            if on_event is not None:
+                on_event(
+                    "plugin_install",
+                    f"openclaw plugin {plugin_key}@{ver} already "
+                    f"installed on {agent_name} (sentinel present)",
+                )
+            skipped.append(plugin_key)
+            continue
+
+        if on_event is not None:
+            on_event(
+                "plugin_install",
+                f"installing openclaw plugin {pkg}@{ver} on {agent_name}",
+            )
+
+        # `openclaw plugins install <npm-spec>` is openclaw's own
+        # plugin install path — it writes to the per-agent plugin
+        # store that `openclaw plugins list` scans (`~<agent>/.openclaw/
+        # node_modules/` alone is NOT scanned, surfaced live during
+        # #755 UAT). `--force` overwrites a prior pin so a bumped
+        # version takes effect even if the previous install lingers;
+        # `--pin` records the resolved `<name>@<version>` exactly so a
+        # transitive upgrade cannot smuggle in a new floor.
+        install_cmd = (
+            f"sudo -n -H -u {quoted_agent} {quoted_bin} plugins install "
+            f"--force --pin {shlex.quote(f'{pkg}@{ver}')}"
+        )
+        _, i_out, i_err = client.exec_command(
+            install_cmd, timeout=install_timeout
+        )
+        # ATX iter-2 W1: drain stdout + stderr BEFORE recv_exit_status.
+        # `openclaw plugins install` proxies `npm install` whose output
+        # can exceed the ~64KB SSH pipe buffer on fresh-host installs
+        # (download progress, peer-dep warnings, audit reports). With
+        # the buffer full the remote write blocks before exit-status is
+        # sent, so `recv_exit_status()` hangs indefinitely — surfaced as
+        # an apparent freeze of `clawctl agent sync` with no diagnostic.
+        # Matches the established `_run_openclaw_version_probe` pattern.
+        _ = i_out.read()
+        err_bytes = i_err.read()
+        rc = i_out.channel.recv_exit_status()
+        if rc != 0:
+            err_text = err_bytes.decode("utf-8", errors="replace")
+            raise CanonicalSyncError(
+                f"openclaw plugin {pkg}@{ver} install failed on "
+                f"{agent_name} (exit {rc}): {err_text.strip()}"
+            )
+
+        # Stamp sentinel — touch + chmod in one round-trip. Failure
+        # here means a future sync would re-install (sentinel absent),
+        # but the plugin itself is already present; surface as an
+        # error so the operator can investigate fs / perms now rather
+        # than seeing repeated installs on every subsequent sync.
+        stamp_inner = (
+            f"touch {quoted_sentinel} && chmod 0600 {quoted_sentinel}"
+        )
+        stamp = (
+            f"sudo -n -H -u {quoted_agent} sh -c {shlex.quote(stamp_inner)}"
+        )
+        _, s_out, s_err = client.exec_command(stamp, timeout=probe_timeout)
+        if s_out.channel.recv_exit_status() != 0:
+            err_text = s_err.read().decode("utf-8", errors="replace")
+            raise CanonicalSyncError(
+                f"openclaw plugin {pkg}@{ver} installed on {agent_name} "
+                f"but sentinel stamp at {sentinel!r} failed: "
+                f"{err_text.strip()}. Run `clawctl agent sync "
+                f"{agent_name}` again to retry."
+            )
+        installed.append(plugin_key)
+
+    return tuple(installed), tuple(skipped)
+
+
 def sync_agent_canonical(
     agent_name: str,
     *,
@@ -1063,6 +1277,25 @@ def sync_agent_canonical(
                 "brave_integration_configured",
                 f"openclaw {'.'.join(str(p) for p in version)} on {hostname} "
                 f"satisfies brave plugin min version",
+            )
+
+        # #755: openclaw plugin install — moved out of configure.yaml so
+        # `clawctl agent integration attach <brave>` + `clawctl agent
+        # sync` actually materializes the plugin on host (operator's
+        # mental model: sync flushes EVERYTHING the control plane has
+        # declared). Runs BEFORE the file-write loop so the daemon picks
+        # up both the new plugin AND a freshly-rendered env carrying its
+        # credential in a single restart. A failure here raises
+        # CanonicalSyncError and short-circuits before `_restart_unit`,
+        # mirroring the workspace-overlay phase: never restart the unit
+        # on a half-installed plugin set.
+        if inputs.agent_type == "openclaw":
+            _openclaw_install_plugins(
+                client,
+                agent_name,
+                os_family=host.get("os_family", "linux"),
+                inputs=inputs,
+                on_event=on_event,
             )
 
         for d in diffs:

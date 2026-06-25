@@ -2620,17 +2620,15 @@ def configure_agent(
             # as a clean (False, msg) instead of an unhandled traceback.
             return False, f"Openclaw render failed (internal): {exc}"
 
-    # #734 Openclaw brave plugin pin. Single source of truth lives in
-    # `lifecycle_canonical._load_openclaw_brave_pin()` (W2 ATX iter 1),
-    # which reads `plugins.brave` from the openclaw manifest and
-    # hard-fails if any of (npm_package, version, min_host_version) is
-    # missing — so a typo'd manifest never lets npm install
-    # `@openclaw/brave-plugin@` with an empty version (W3 ATX iter 1).
-    # Default empty strings are used for non-openclaw runs where the
-    # vars are referenced but the install task is skipped by
-    # `integrations | selectattr(...)`.
-    openclaw_brave_plugin_package = ""
-    openclaw_brave_plugin_version = ""
+    # #734 / #755 Openclaw brave plugin preflight on the configure
+    # path. Plugin install itself now lives in
+    # `lifecycle_canonical._openclaw_install_plugins` (lifted out of
+    # the configure playbook by #755) — the configure path keeps only
+    # the minHostVersion preflight so `clawctl agent attach + configure`
+    # against a too-old host still fails loud at the configure boundary
+    # rather than surfacing later as an opaque npm error on the next
+    # sync. Pin loader is the single source of truth for the
+    # manifest read (`lifecycle_canonical._load_openclaw_brave_pin`).
     if resolved_type == "openclaw":
         from clawrium.core.lifecycle_canonical import (
             CanonicalSyncError,
@@ -2638,23 +2636,14 @@ def configure_agent(
             _load_openclaw_brave_pin,
         )
 
-        try:
-            _pin = _load_openclaw_brave_pin()
-        except CanonicalSyncError as exc:
-            return False, str(exc)
-        openclaw_brave_plugin_package = _pin["npm_package"]
-        openclaw_brave_plugin_version = _pin["version"]
-
-        # ATX iter 2 B1: openclaw minHostVersion preflight now runs on
-        # the configure path too. Without it, `clawctl agent attach +
-        # configure` on a host below 2026.4.10 would fire `npm install
-        # @openclaw/brave-plugin@2026.6.8` against a host the plugin's
-        # manifest does not support, and surface as an opaque runtime
-        # failure later. Mirrors the `sync_agent_canonical` preflight.
         if any(
             (entry or {}).get("type") == "brave"
             for entry in integrations_data.values()
         ):
+            try:
+                _pin = _load_openclaw_brave_pin()
+            except CanonicalSyncError as exc:
+                return False, str(exc)
             _min_ver = _pin["min_host_version"]
             _min_str = ".".join(str(p) for p in _min_ver)
             _private_key = get_host_private_key(key_id)
@@ -2716,8 +2705,6 @@ def configure_agent(
         "slack_bot_token": slack_bot_token,
         "slack_app_token": slack_app_token,
         "integrations": integrations_data,
-        "openclaw_brave_plugin_package": openclaw_brave_plugin_package,
-        "openclaw_brave_plugin_version": openclaw_brave_plugin_version,
         "prerendered_zeroclaw_config_toml": prerendered_files.get(
             ".zeroclaw/config.toml", ""
         ),

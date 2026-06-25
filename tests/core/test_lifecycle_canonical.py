@@ -1398,6 +1398,12 @@ class TestOpenclawBraveVersionPreflight:
             "_get_host_openclaw_version",
             lambda *_a, **_kw: (host_version, ""),
         )
+        # #755: stub the new plugin-install helper — this test class
+        # targets the preflight specifically; install behavior has its
+        # own coverage in TestOpenclawInstallPlugins.
+        monkeypatch.setattr(
+            lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
+        )
 
     def test_below_min_version_raises(self, monkeypatch):
         self._setup(monkeypatch, (2026, 3, 13))
@@ -1526,6 +1532,13 @@ class TestOpenclawBraveVersionPreflight:
 
         monkeypatch.setattr(
             lc, "_get_host_openclaw_version", _should_not_be_called
+        )
+        # ATX iter-2 W5: stub `_openclaw_install_plugins` so this test
+        # does not implicitly exercise it (and the disk-bound
+        # `_load_openclaw_plugins` it would call) — the test targets
+        # ONLY the version preflight skip.
+        monkeypatch.setattr(
+            lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
         )
         sync_agent_canonical("oc", restart=False, verify=False)
         assert called == [], "_get_host_openclaw_version was invoked"
@@ -2137,20 +2150,520 @@ class TestOpenclawConfigureDispatch:
         assert path.name == "configure.yaml"
         assert path.exists()
 
-    def test_both_configure_playbooks_contain_brave_install_task(self):
-        """Symmetric brave plugin install on Linux + macOS. If a future
-        edit removes the install task from one but not the other the
-        dispatch test still passes — pin both files explicitly."""
+    def test_neither_configure_playbook_contains_brave_install_task(self):
+        """#755 (T7): brave plugin install was lifted out of both
+        configure playbooks into `lifecycle_canonical._openclaw_install_plugins`.
+        Configure stays scoped to onboarding stages (providers /
+        identity / channels). A regression that reintroduces the
+        playbook install would double-install on every configure-then-
+        sync cycle and re-create the "sync doesn't install plugins"
+        UX gap #755 fixed."""
         from clawrium.core.playbook_resolver import resolve_agent_playbook
 
         linux = resolve_agent_playbook("openclaw", "configure", "linux")
         darwin = resolve_agent_playbook("openclaw", "configure", "darwin")
         for path in (linux, darwin):
             body = path.read_text()
-            assert "openclaw_brave_plugin_package" in body, path
-            assert "openclaw_brave_plugin_version" in body, path
-            assert "no_log: true" in body, path
+            assert "openclaw_brave_plugin_package" not in body, path
+            assert "openclaw_brave_plugin_version" not in body, path
+            assert "brave-plugin-installed" not in body, path
+            assert "@openclaw/brave-plugin" not in body, path
             # No Darwin-conditional inside either file (dispatcher-only
-            # OS fork — #734 invariant).
+            # OS fork — #734 invariant; #755 keeps it).
             assert "ansible_os_family == 'Darwin'" not in body, path
             assert 'ansible_os_family == "Darwin"' not in body, path
+
+
+# ---------------------------------------------------------------------------
+# Openclaw plugin install on sync (#755).
+# ---------------------------------------------------------------------------
+
+
+class _FakeChannel:
+    """Minimal stand-in for paramiko's channel object — only the bits
+    `_openclaw_install_plugins` reads."""
+
+    def __init__(self, exit_status: int):
+        self._exit_status = exit_status
+
+    def recv_exit_status(self) -> int:
+        return self._exit_status
+
+
+class _FakeStream:
+    def __init__(self, body: bytes = b"", exit_status: int = 0):
+        self._body = body
+        self.channel = _FakeChannel(exit_status)
+
+    def read(self) -> bytes:
+        return self._body
+
+
+class _ScriptedSSHClient:
+    """Records every `exec_command` call and replays a scripted set of
+    `(stdout_body, stderr_body, exit_status)` triples in order. Tests
+    that don't care about ordering can rely on the captured `calls`
+    list.
+
+    ATX iter-2 W4: both stdout and stderr share the same `_FakeChannel`
+    so a future code change that reads `stderr.channel.recv_exit_status()`
+    instead of `stdout.channel.recv_exit_status()` does not spuriously
+    pass at rc=0. Real paramiko returns a single shared channel for
+    both streams."""
+
+    def __init__(self, script: list[tuple[bytes, bytes, int]]):
+        self._script = list(script)
+        self.calls: list[str] = []
+
+    def exec_command(self, cmd: str, timeout: int | None = None):
+        self.calls.append(cmd)
+        if not self._script:
+            raise AssertionError(
+                f"unexpected extra exec_command: {cmd!r}"
+            )
+        stdout_body, stderr_body, rc = self._script.pop(0)
+        shared_channel = _FakeChannel(rc)
+        stdout = _FakeStream(stdout_body, rc)
+        stderr = _FakeStream(stderr_body, rc)
+        stdout.channel = shared_channel
+        stderr.channel = shared_channel
+        return _FakeStream(), stdout, stderr
+
+
+def _inputs_with_integrations(types: list[str]):
+    """Build a minimal `RenderInputs`-like object — only `.integrations`
+    is read by `_openclaw_install_plugins`."""
+    from clawrium.core.render import IntegrationInputs
+
+    integrations = tuple(
+        IntegrationInputs(name=f"my-{t}", type=t) for t in types
+    )
+    inputs = MagicMock()
+    inputs.integrations = integrations
+    return inputs
+
+
+class TestOpenclawInstallPlugins:
+    """#755 T1-T6: lifted plugin install. Drives off the openclaw
+    manifest's `plugins:` block; sentinel-gated for idempotency; raises
+    `CanonicalSyncError` on any per-host failure so the caller can
+    short-circuit before restart."""
+
+    _PIN = {
+        "brave": {
+            "npm_package": "@openclaw/brave-plugin",
+            "version": "2026.6.9",
+            "min_host_version": "2026.6.9",
+        }
+    }
+
+    def _patch_pin(self, monkeypatch, plugins=None):
+        monkeypatch.setattr(
+            lc,
+            "_load_openclaw_plugins",
+            lambda: plugins if plugins is not None else self._PIN,
+        )
+
+    def test_t1_installs_when_attached_and_missing(self, monkeypatch):
+        """T1: brave attached, sentinel absent → `openclaw plugins
+        install` is invoked AND sentinel is stamped, in order. The
+        install command must use openclaw's own CLI (not raw `npm
+        install`) because a raw npm install into `~<agent>/.openclaw/
+        node_modules/` is NOT discovered by `openclaw plugins list` —
+        UAT on esper-mac-oc proved this is the failure mode that masked
+        the pre-#755 playbook approach for the entire #734 lifetime."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient(
+            [
+                (b"", b"", 1),  # sentinel probe: absent (test -f exit 1)
+                (b"installed", b"", 0),  # openclaw plugins install
+                (b"", b"", 0),  # sentinel stamp
+            ]
+        )
+        inputs = _inputs_with_integrations(["brave"])
+        installed, skipped = lc._openclaw_install_plugins(
+            client,
+            "wolf-i",
+            os_family="linux",
+            inputs=inputs,
+        )
+        assert installed == ("brave",)
+        assert skipped == ()
+        install_cmd = client.calls[1]
+        # Must use openclaw's own CLI, NOT raw `npm install --prefix`.
+        assert "openclaw plugins install" in install_cmd
+        assert "npm install --prefix" not in install_cmd
+        # --force lets a pin bump overwrite a prior install; --pin
+        # records the resolved name@version exactly so a transitive
+        # upgrade cannot smuggle in a new floor.
+        assert "--force" in install_cmd
+        assert "--pin" in install_cmd
+        assert "@openclaw/brave-plugin@2026.6.9" in install_cmd
+        assert "/home/wolf-i/.openclaw/bin/openclaw" in install_cmd
+        # Sentinel path encodes the version so a pin bump auto-fires.
+        stamp_cmd = client.calls[2]
+        assert ".brave-plugin-installed.2026.6.9" in stamp_cmd
+
+    def test_t2_skips_install_when_sentinel_present(self, monkeypatch):
+        """T2: pin matches what's already installed → sentinel probe
+        succeeds → no install runs, no further commands."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient([(b"", b"", 0)])  # sentinel probe: ok
+        inputs = _inputs_with_integrations(["brave"])
+        installed, skipped = lc._openclaw_install_plugins(
+            client,
+            "wolf-i",
+            os_family="linux",
+            inputs=inputs,
+        )
+        assert installed == ()
+        assert skipped == ("brave",)
+        # Only the sentinel probe ran — no install, no stamp.
+        assert len(client.calls) == 1
+        assert "test -f" in client.calls[0]
+        assert ".brave-plugin-installed.2026.6.9" in client.calls[0]
+
+    def test_t3_reinstalls_when_pin_version_differs(self, monkeypatch):
+        """T3: a pin bump changes the sentinel filename (which encodes
+        the version), so the prior-version sentinel no longer matches.
+        Probe returns absent → install fires at the new pinned version."""
+        self._patch_pin(
+            monkeypatch,
+            plugins={
+                "brave": {
+                    "npm_package": "@openclaw/brave-plugin",
+                    "version": "2027.1.0",
+                    "min_host_version": "2027.1.0",
+                }
+            },
+        )
+        client = _ScriptedSSHClient(
+            [
+                (b"", b"", 1),  # sentinel for 2027.1.0 absent
+                (b"installed", b"", 0),  # openclaw plugins install
+                (b"", b"", 0),  # sentinel stamp
+            ]
+        )
+        inputs = _inputs_with_integrations(["brave"])
+        installed, _ = lc._openclaw_install_plugins(
+            client,
+            "wolf-i",
+            os_family="linux",
+            inputs=inputs,
+        )
+        assert installed == ("brave",)
+        install_cmd = client.calls[1]
+        assert "@openclaw/brave-plugin@2027.1.0" in install_cmd
+        assert "openclaw plugins install" in install_cmd
+
+    def test_t4_does_not_install_when_brave_not_attached(self, monkeypatch):
+        """T4: no brave integration → no per-plugin SSH commands fire.
+        The helper still consults the manifest but exits with empty
+        installed + the manifest key in skipped (the "not attached"
+        bucket)."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient([])  # zero commands expected
+        inputs = _inputs_with_integrations([])
+        installed, skipped = lc._openclaw_install_plugins(
+            client,
+            "wolf-i",
+            os_family="linux",
+            inputs=inputs,
+        )
+        assert installed == ()
+        assert skipped == ("brave",)
+        assert client.calls == []
+
+    def test_t5_install_runs_before_restart_via_sync(self, monkeypatch):
+        """T5 (ATX iter-2 B1): the install helper MUST run before
+        `_restart_unit` inside `sync_agent_canonical`. Iter-1 had a
+        vacuous variant that called both functions directly from the
+        test body — that proved Python executes consecutive statements
+        in order but said nothing about the wiring inside
+        `sync_agent_canonical`. This rewrite drives the whole pipeline
+        and asserts ordering via spies on the IO surface, so a future
+        edit that moves `_openclaw_install_plugins` below
+        `_restart_unit` actually fails."""
+        from clawrium.core.render import (
+            GatewayInputs,
+            IntegrationInputs,
+            ProviderInputs,
+            RenderInputs,
+            RenderedFiles,
+        )
+
+        order: list[str] = []
+
+        def spy_install(*_a, **_kw):
+            order.append("install_plugins")
+            return ((), ())
+
+        def spy_restart(*_a, **_kw):
+            order.append("restart_unit")
+
+        inputs = RenderInputs(
+            agent_name="wolf-i",
+            agent_type="openclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="m",
+            ),
+            gateway=GatewayInputs(host="h", port=40000, auth="a"),
+            integrations=(
+                IntegrationInputs(
+                    name="my-brave",
+                    type="brave",
+                    credentials=(("BRAVE_API_KEY", "bsk"),),
+                ),
+            ),
+        )
+        rendered = RenderedFiles(
+            files={
+                ".openclaw/env": "BRAVE_API_KEY='bsk'\n",
+                ".openclaw/openclaw.json": "{}",
+            }
+        )
+
+        # Force a non-empty write path so `_restart_unit` is reached
+        # (sync only restarts when files were written or zeroclaw).
+        fake_diff = MagicMock()
+        fake_diff.unified_diff = "+x"
+        fake_diff.path = ".openclaw/env"
+        fake_diff.remote_path = "/home/wolf-i/.openclaw/env"
+        fake_diff.rendered_body = "BRAVE_API_KEY='bsk'\n"
+        fake_diff.remote_body = ""
+
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: ({"hostname": "h"}, "openclaw:wolf-i", {}),
+        )
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [fake_diff])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(
+            lc,
+            "_get_host_openclaw_version",
+            lambda *_a, **_kw: ((2026, 6, 9), ""),
+        )
+        monkeypatch.setattr(
+            lc, "_diff_removes_secrets", lambda _d: set()
+        )
+        monkeypatch.setattr(lc, "_atomic_write", lambda *_a, **_kw: None)
+        monkeypatch.setattr(lc, "_openclaw_install_plugins", spy_install)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+        monkeypatch.setattr(lc, "_verify_health", lambda **_: None)
+        # workspace_sync push: stub at import site
+        monkeypatch.setattr(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            lambda **_kw: MagicMock(
+                success=True, files_pushed=(), files_excluded=(), error=None
+            ),
+        )
+
+        sync_agent_canonical("wolf-i", verify=False)
+        assert order == ["install_plugins", "restart_unit"]
+
+    def test_install_failure_short_circuits_before_restart(
+        self, monkeypatch
+    ):
+        """Companion to T5: when `_openclaw_install_plugins` raises,
+        `_restart_unit` MUST NOT run. The agent is never restarted on
+        a half-installed plugin set — mirrors the workspace-overlay
+        contract."""
+        from clawrium.core.render import (
+            GatewayInputs,
+            IntegrationInputs,
+            ProviderInputs,
+            RenderInputs,
+            RenderedFiles,
+        )
+
+        restart_called: list[bool] = []
+
+        def boom_install(*_a, **_kw):
+            raise CanonicalSyncError("plugin install boom")
+
+        def spy_restart(*_a, **_kw):
+            restart_called.append(True)
+
+        inputs = RenderInputs(
+            agent_name="wolf-i",
+            agent_type="openclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="m",
+            ),
+            gateway=GatewayInputs(host="h", port=40000, auth="a"),
+            integrations=(
+                IntegrationInputs(
+                    name="my-brave",
+                    type="brave",
+                    credentials=(("BRAVE_API_KEY", "bsk"),),
+                ),
+            ),
+        )
+        rendered = RenderedFiles(
+            files={".openclaw/env": "BRAVE_API_KEY='bsk'\n"}
+        )
+
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: ({"hostname": "h"}, "openclaw:wolf-i", {}),
+        )
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(
+            lc,
+            "_get_host_openclaw_version",
+            lambda *_a, **_kw: ((2026, 6, 9), ""),
+        )
+        monkeypatch.setattr(lc, "_openclaw_install_plugins", boom_install)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+
+        with pytest.raises(CanonicalSyncError, match=r"plugin install boom"):
+            sync_agent_canonical("wolf-i", verify=False)
+        assert restart_called == []
+
+    def test_stamp_failure_after_successful_install_raises(
+        self, monkeypatch
+    ):
+        """ATX iter-2 B2: the sentinel-stamp failure branch had zero
+        coverage in iter-1. Distinct from install-failure: at this
+        point the plugin IS installed; the only fallout is that a
+        future sync will re-install. Surfacing as
+        `CanonicalSyncError` (vs swallow + warn) is deliberate so the
+        operator investigates the FS / perms regression immediately
+        rather than seeing silent re-installs forever."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient(
+            [
+                (b"", b"", 1),  # sentinel probe: absent
+                (b"installed", b"", 0),  # openclaw install OK
+                (
+                    b"",
+                    b"touch: EACCES /home/wolf-i/.openclaw",
+                    1,
+                ),  # stamp fails
+            ]
+        )
+        inputs = _inputs_with_integrations(["brave"])
+        with pytest.raises(CanonicalSyncError) as excinfo:
+            lc._openclaw_install_plugins(
+                client,
+                "wolf-i",
+                os_family="linux",
+                inputs=inputs,
+            )
+        msg = str(excinfo.value)
+        assert "sentinel stamp" in msg
+        assert ".brave-plugin-installed.2026.6.9" in msg
+        assert "EACCES" in msg
+        # The plugin was installed, so the install command did run
+        # before the stamp step.
+        assert "openclaw plugins install" in client.calls[1]
+
+    def test_t6_propagates_install_failure_with_pkg_and_stderr(
+        self, monkeypatch
+    ):
+        """T6: a non-zero install raises CanonicalSyncError whose
+        message names both the npm package and the captured stderr —
+        the operator's actionable signal."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient(
+            [
+                (b"", b"", 1),  # sentinel absent
+                (b"", b"E403 forbidden", 1),  # openclaw install failure
+            ]
+        )
+        inputs = _inputs_with_integrations(["brave"])
+        with pytest.raises(CanonicalSyncError) as excinfo:
+            lc._openclaw_install_plugins(
+                client,
+                "wolf-i",
+                os_family="linux",
+                inputs=inputs,
+            )
+        msg = str(excinfo.value)
+        assert "@openclaw/brave-plugin@2026.6.9" in msg
+        assert "E403 forbidden" in msg
+
+    def test_macos_uses_users_home_root(self, monkeypatch):
+        """OS-family dispatch: darwin → `/Users/<n>/.openclaw`. The
+        mapping flows through `home_root_for` so the no-OS-literal
+        invariant (#770) holds inside this helper."""
+        self._patch_pin(monkeypatch)
+        client = _ScriptedSSHClient(
+            [
+                (b"", b"", 1),  # sentinel absent
+                (b"installed", b"", 0),  # openclaw install
+                (b"", b"", 0),  # sentinel stamp
+            ]
+        )
+        inputs = _inputs_with_integrations(["brave"])
+        lc._openclaw_install_plugins(
+            client,
+            "wolf-i",
+            os_family="darwin",
+            inputs=inputs,
+        )
+        joined = " ".join(client.calls)
+        assert "/Users/wolf-i/.openclaw/bin/openclaw" in joined
+        assert "/home/wolf-i/.openclaw" not in joined
+
+    def test_manifest_missing_npm_package_raises(self, monkeypatch):
+        """Defensive: a malformed plugin spec must hard fail at the
+        Python boundary, not silently invoke `npm install @<empty>@<v>`
+        on the host."""
+        self._patch_pin(
+            monkeypatch,
+            plugins={"brave": {"version": "2026.6.9"}},
+        )
+        client = _ScriptedSSHClient([])
+        inputs = _inputs_with_integrations(["brave"])
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"missing npm_package or version",
+        ):
+            lc._openclaw_install_plugins(
+                client,
+                "wolf-i",
+                os_family="linux",
+                inputs=inputs,
+            )
+
+
+class TestLoadOpenclawPlugins:
+    """#755: the full-block loader is the manifest seam for the generic
+    install helper. Mirrors `_load_openclaw_brave_pin`'s hard-fail
+    discipline."""
+
+    def test_loads_full_block(self):
+        plugins = lc._load_openclaw_plugins()
+        assert "brave" in plugins
+        assert plugins["brave"]["npm_package"] == "@openclaw/brave-plugin"
+
+    def test_empty_block_returns_empty_dict(self, monkeypatch):
+        import yaml
+
+        monkeypatch.setattr(yaml, "safe_load", lambda _txt: {})
+        assert lc._load_openclaw_plugins() == {}
+
+    def test_malformed_block_raises(self, monkeypatch):
+        import yaml
+
+        monkeypatch.setattr(
+            yaml, "safe_load", lambda _txt: {"plugins": "not-a-mapping"}
+        )
+        with pytest.raises(
+            CanonicalSyncError, match=r"not a mapping"
+        ):
+            lc._load_openclaw_plugins()
