@@ -51,6 +51,45 @@ def home_root_for(os_family: str) -> str:
     return _HOME_ROOT_BY_OS[os_family]
 
 
+_SUPPORTED_AGENT_TYPES: frozenset[str] = frozenset(
+    {"hermes", "zeroclaw", "openclaw"}
+)
+
+
+def unit_path_for(os_family: str, agent_type: str, agent_name: str) -> str:
+    """Return the absolute path of the agent's service-manager artifact.
+
+    - Linux: `/etc/systemd/system/<agent_type>-<agent_name>.service`
+    - macOS: `/Library/LaunchDaemons/<label_for(...)>.plist`
+
+    Used by the sync validate-phase host probe (#811) so the
+    "is this agent actually installed" check has a single source of
+    truth for both OS families. Imports the launchd helper lazily to
+    avoid pulling jinja into the linux-only call path.
+
+    Validates `agent_type` against the platform-supported set
+    (ATX #811 iter-2 W2) on BOTH OS branches — darwin would
+    already raise `ValueError` from `_label_prefix_for`, the
+    Linux branch was previously unvalidated and would
+    cheerfully build a path for any string. Symmetric strictness
+    keeps the contract uniform.
+    """
+    if os_family not in SUPPORTED_OS:
+        raise ValueError(
+            f"unsupported os_family: {os_family!r} (expected one of {sorted(SUPPORTED_OS)})"
+        )
+    if agent_type not in _SUPPORTED_AGENT_TYPES:
+        raise ValueError(
+            f"unsupported agent_type: {agent_type!r} (expected one of "
+            f"{sorted(_SUPPORTED_AGENT_TYPES)})"
+        )
+    if os_family == "darwin":
+        from clawrium.core.launchd import plist_path_for
+
+        return plist_path_for(agent_name, kind="gateway", agent_type=agent_type)
+    return f"/etc/systemd/system/{agent_type}-{agent_name}.service"
+
+
 def resolve_base_playbook(os_family: str) -> Path:
     """Return the path to the system-prerequisites playbook for this OS family.
 

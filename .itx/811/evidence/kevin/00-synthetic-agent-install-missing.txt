@@ -1,0 +1,5 @@
+agent: kevin-zc-synthetic
+host: 192.168.1.35
+status: unknown
+process_running: None
+error: Unexpected exit code: 2

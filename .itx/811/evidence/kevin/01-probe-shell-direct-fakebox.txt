@@ -1,0 +1,4 @@
+unit:0
+home:0
+uid=1002(xclm) gid=1002(xclm) groups=1002(xclm)
+sudo-ok

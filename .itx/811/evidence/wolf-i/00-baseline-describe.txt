@@ -1,0 +1,27 @@
+Name:       clawrium-d01
+Kind:       agent
+Type:       zeroclaw
+Version:    0.7.5
+Host:       wolf-i (wolf.tailf7742d.ts.net)
+Provider:   clawrium-glm51
+Status:     ready
+Age:        37d
+Installed:  2026-05-19T03:53:39.295491+00:00
+
+Config:
+  Port:    -
+  Identity: -
+
+Skills (0):
+
+Integrations (1):
+  clawrium-d01-github  (configured)
+
+Channels (1):
+  discord-clawrium-d01
+
+Onboarding:
+  providers  complete   (2026-05-19T04:17:01.505682+00:00)
+  identity   skipped   (2026-05-19T04:19:34.811577+00:00)
+  channels   complete   (2026-05-19T04:19:45.929939+00:00)
+  validate   complete   (2026-05-19T04:19:45.959331+00:00)

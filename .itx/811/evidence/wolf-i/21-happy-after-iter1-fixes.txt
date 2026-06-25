@@ -1,0 +1,13 @@
+agent/clawrium-triage: validating local state ...
+agent/clawrium-triage: pushing config (provider, skills, channels, env) ...
+agent/clawrium-triage: restarting unit ...
+agent/clawrium-triage: verifying health ...
+agent/clawrium-triage: validate: assembling render inputs for clawrium-triage
+agent/clawrium-triage: validate: checking host install for clawrium-triage
+agent/clawrium-triage: render: rendering canonical config for hermes
+agent/clawrium-triage: diff: reading on-host files from wolf.tailf7742d.ts.net
+agent/clawrium-triage: push_workspace: {"state": "complete", "files_pushed": [], "files_excluded": []}
+agent/clawrium-triage: restart: skipped (no files changed)
+agent/clawrium-triage: sync: warning: registry record missing for hermes after sync: Agent 'hermes' not found on host 'wolf.tailf7742d.ts.net'. Inspect hosts.json before running clawctl agent start.
+agent/clawrium-triage: sync: synced clawrium-triage: 0 written, 2 unchanged
+agent/clawrium-triage: synced  (drift=0, took 1s, 0 written, 2 unchanged)

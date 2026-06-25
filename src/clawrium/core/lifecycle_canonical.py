@@ -50,7 +50,7 @@ import paramiko
 
 from clawrium.core.hosts import get_agent_by_name
 from clawrium.core.keys import get_host_private_key
-from clawrium.core.playbook_resolver import home_root_for
+from clawrium.core.playbook_resolver import home_root_for, unit_path_for
 from clawrium.core.render import (
     build_render_inputs,
     render_hermes,
@@ -65,9 +65,12 @@ from clawrium.core.render_diff import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "AgentInstallMissingError",
     "CanonicalSyncError",
     "SecretRemovalRefused",
     "CanonicalSyncResult",
+    "HostInstallProbe",
+    "probe_host_install",
     "sync_agent_canonical",
 ]
 
@@ -322,6 +325,260 @@ class SecretRemovalRefused(CanonicalSyncError):
     re-run with `--force` if the removal is intentional (e.g. they
     actually did `clawctl agent channel detach`).
     """
+
+
+class AgentInstallMissingError(CanonicalSyncError):
+    """Raised when the validate-phase host probe finds the agent's
+    on-host install missing (#811).
+
+    Both the service-manager artifact (systemd unit / launchd plist)
+    and the agent home directory are checked. The exception names
+    every missing artifact so the operator sees the full gap in one
+    pass and routes to the `clawctl agent delete` + `clawctl
+    agent create` reinstall flow rather than discovering it
+    piecemeal after a half-applied sync. (ATX iter-5 B1: there is
+    no `clawctl agent install` verb today; the install path is
+    `agent create`.)
+    """
+
+
+@dataclass(frozen=True)
+class HostInstallProbe:
+    """Result of probe_host_install — a single SSH round-trip.
+
+    `unit_present` and `home_present` reflect what `test -e` / `test -d`
+    saw on the host. The resolved absolute paths are returned so the
+    caller can interpolate them into operator-facing error text without
+    re-deriving them from `os_family`/`agent_type`/`agent_name`.
+    """
+
+    unit_present: bool
+    home_present: bool
+    unit_path: str
+    home_path: str
+
+    @property
+    def ok(self) -> bool:
+        return self.unit_present and self.home_present
+
+    def missing_summary(self) -> str:
+        """Render a one-line, ordered summary of what's missing."""
+        parts: list[str] = []
+        if not self.unit_present:
+            parts.append(f"service unit {self.unit_path!r}")
+        if not self.home_present:
+            parts.append(f"agent home {self.home_path!r}")
+        return ", ".join(parts)
+
+
+def probe_host_install(
+    client: paramiko.SSHClient,
+    *,
+    agent_type: str,
+    agent_name: str,
+    host: dict,
+    timeout: int = 10,
+) -> HostInstallProbe:
+    """Probe the host for the agent's install artifacts (#811).
+
+    Runs a single `bash -c` over SSH that prints `unit:0|1` and
+    `home:0|1` based on `test -e` / `test -d` results. One round-trip
+    keeps the latency cost ~50–100ms on LAN; the failure mode it
+    prevents is an entire render/diff/write/restart pipeline executed
+    against a missing daemon (the original #811 wedge on wolf-i).
+
+    OS routing goes through `unit_path_for` + `home_root_for` so this
+    function carries no OS literals — the dispatcher-only OS-fork
+    invariant stays intact.
+
+    The unit check (`test -e /etc/systemd/system/*.service` /
+    `/Library/LaunchDaemons/*.plist`) does not need sudo — both
+    directories are world-readable. The home check DOES need
+    `sudo -n`: the agent's `$HOME` (mode 0750, owned by the agent
+    user) blocks the `xclm` management user from `test -d` on any
+    path inside it. We learned this on wolf-i during #811 UAT —
+    without sudo, the probe falsely reported the home dir missing
+    on every healthy agent.
+
+    Failure-mode discipline (ATX review #811 iter-1 B1/B2/W1):
+
+    - Unparseable / partial stdout MUST NOT be silently treated as
+      "both missing" (which would raise `AgentInstallMissingError`
+      against a healthy host whose probe blipped). The function
+      raises `CanonicalSyncError` with the raw body on ANY
+      parse failure.
+    - Transport exceptions from paramiko (`SSHException`,
+      `socket.timeout`, `OSError`) are wrapped in
+      `CanonicalSyncError` so callers see the project's typed
+      error shape instead of a raw traceback.
+    - `unit_path_for` raises `ValueError` for an unsupported
+      (agent_type, os_family) pair — e.g. zeroclaw on darwin,
+      which has no launchd plist convention. We wrap that in
+      `CanonicalSyncError` so a malformed hosts.json row produces
+      an actionable typed error.
+    - `sudo -n` stderr is captured: if sudo refused (`password
+      required`, `not allowed`), the probe raises
+      `CanonicalSyncError` rather than silently flagging the home
+      as missing.
+    """
+    os_family = host.get("os_family", "linux")
+    try:
+        unit_path = unit_path_for(os_family, agent_type, agent_name)
+    except ValueError as exc:
+        raise CanonicalSyncError(
+            f"cannot probe host install for agent_type="
+            f"{agent_type!r} on os_family={os_family!r}: {exc}. "
+            f"This (agent_type, os_family) pair has no service-"
+            f"manager artifact convention in this clawrium build."
+        ) from exc
+    home_path = _agent_home_path(os_family, agent_type, agent_name)
+    cmd = _build_probe_command(unit_path, home_path)
+    try:
+        _, out, err = client.exec_command(cmd, timeout=timeout)
+        body = out.read().decode("utf-8", errors="replace")
+        stderr_text = err.read().decode("utf-8", errors="replace")
+    except (paramiko.SSHException, OSError) as exc:
+        raise CanonicalSyncError(
+            f"host install probe transport failure for "
+            f"{agent_name!r}: {exc}"
+        ) from exc
+    parsed, unit_present, home_present = _parse_probe_output(body)
+    if not parsed:
+        # Empty / garbage stdout — could be a sudo-denied banner on
+        # stderr, an SSH MOTD interleaved into stdout, or a
+        # transport hiccup. Raise the typed error rather than
+        # invent a "both missing" verdict.
+        hint = (
+            f" stderr: {stderr_text.strip()!r}"
+            if stderr_text.strip()
+            else ""
+        )
+        raise CanonicalSyncError(
+            f"host install probe for {agent_name!r} returned "
+            f"unparseable output: {body!r}.{hint}"
+        )
+    # sudo -n stderr inspection. If only the home check failed AND
+    # stderr looks like a sudo refusal, we cannot trust the
+    # home_present verdict — raise instead of mis-flagging the
+    # agent as INSTALL_MISSING.
+    if (
+        not home_present
+        and stderr_text
+        and _looks_like_sudo_refusal(stderr_text)
+    ):
+        raise CanonicalSyncError(
+            f"host install probe for {agent_name!r} could not "
+            f"verify {home_path!r}: sudo refused on host "
+            f"({stderr_text.strip()}). Re-run `clawctl host "
+            f"create` to restore passwordless sudo, or inspect "
+            f"the host's sudoers configuration."
+        )
+    return HostInstallProbe(
+        unit_present=unit_present,
+        home_present=home_present,
+        unit_path=unit_path,
+        home_path=home_path,
+    )
+
+
+def _agent_home_path(
+    os_family: str, agent_type: str, agent_name: str
+) -> str:
+    """Single source of truth for the agent's `.<type>` home dir.
+
+    Mirrored by `health._probe_install_artifacts`. Extracted (ATX
+    iter-1 W2/S2) so a future change to the home-dir convention
+    only has to land here, not in both probe call sites.
+    """
+    return f"{home_root_for(os_family)}/{agent_name}/.{agent_type}"
+
+
+def _build_probe_command(unit_path: str, home_path: str) -> str:
+    """Build the `bash -c`-shaped probe command (ATX iter-1 W2/S1).
+
+    Newline-separated `unit:0|1\\nhome:0|1\\n` so the parser does
+    not have to know how the writer joined the tokens. Both probes
+    in `lifecycle_canonical` and `health` consume this builder so
+    the wire format cannot drift between the two transports.
+
+    `LC_ALL=C` is prepended (ATX #811 iter-2 W1) as a
+    best-effort hint to keep sudo's refusal banner in English
+    on hosts with a non-default `LANG`. It is NOT a strong
+    guarantee — `sudoers`' default `env_reset` scrubs the
+    inherited env, and sudo's actual message locale is
+    governed by the `sudoers_locale` defaults entry. The
+    broad `_SUDO_REFUSAL_PATTERNS` list is the load-bearing
+    defense; the env hint just narrows the window where
+    pattern matching fails open against a hardened sudoers
+    config (ATX iter-4 W8).
+    """
+    return (
+        f"LC_ALL=C; export LC_ALL; "
+        f"unit=0; home=0; "
+        f"test -e {shlex.quote(unit_path)} && unit=1; "
+        f"sudo -n test -d {shlex.quote(home_path)} && home=1; "
+        f'printf "unit:%s\\nhome:%s\\n" "$unit" "$home"'
+    )
+
+
+def _parse_probe_output(body: str) -> tuple[bool, bool, bool]:
+    """Parse `_build_probe_command` stdout. Returns (parsed, unit, home).
+
+    `parsed=False` means neither key was recognized — the caller
+    must treat that as an inconclusive probe, never as "both
+    missing." (ATX iter-1 B1.)
+    """
+    unit_present = False
+    home_present = False
+    parsed = False
+    for line in body.splitlines():
+        key, _, value = line.partition(":")
+        if key == "unit":
+            unit_present = value.strip() == "1"
+            parsed = True
+        elif key == "home":
+            home_present = value.strip() == "1"
+            parsed = True
+    return parsed, unit_present, home_present
+
+
+# ATX #811 iter-2 W1: the pattern list MUST stay broad. A miss here
+# silently turns a sudo-denied host into a fleet-wide spurious
+# INSTALL_MISSING flag (the lifecycle probe raises but the health
+# probe falls through — both depend on this list). Locale-stability
+# is enforced separately by prefixing the probe command with
+# `LC_ALL=C` so sudo's message stays English on `LANG=*` hosts.
+_SUDO_REFUSAL_PATTERNS = (
+    "a password is required",
+    "password is required",
+    "not allowed to execute",
+    "is not allowed to run sudo",
+    "not in the sudoers",
+    "may not run sudo",
+    "incident will be reported",
+    "no tty present",
+    "sudo: a terminal is required",
+    # ATX #811 iter-4 W7: sudo binary absent → shell emits this
+    # before any banner. The probe should NOT treat the resulting
+    # `home_present=False` as authoritative.
+    "sudo: command not found",
+)
+
+
+def _looks_like_sudo_refusal(stderr_text: str) -> bool:
+    """Heuristic for "sudo -n said no" (ATX iter-1 W1).
+
+    Matched against lowercased stderr. False positives surface as
+    `CanonicalSyncError`("sudo refused") on an actually-missing
+    home — annoying but safe; the operator's next step is the
+    same (`clawctl host create` to fix sudoers, OR
+    `clawctl agent create` to reinstall the missing home).
+    False
+    negatives leave the original mis-flag-as-missing bug intact
+    for that one host, so the pattern list is kept broad.
+    """
+    lower = stderr_text.lower()
+    return any(p in lower for p in _SUDO_REFUSAL_PATTERNS)
 
 
 @dataclass(frozen=True)
@@ -1072,6 +1329,56 @@ def sync_agent_canonical(
         )
     host, agent_key, _claw_record = resolved
     hostname = host.get("hostname", "")
+
+    # Issue #811: validate-phase host probe.
+    #
+    # Before the legacy path, sync ran render + diff + write + workspace
+    # push and only then discovered the agent's systemd unit was missing
+    # — at `_restart_unit`, which surfaced as the opaque
+    # `Unit ...service not found. (exit 5)` shape on the original
+    # wolf-i baseline. The probe runs one SSH round-trip BEFORE render
+    # to detect that wedge up-front and route the operator to the
+    # `clawctl agent delete` + `clawctl agent create` reinstall flow,
+    # so:
+    #
+    # - no half-rendered files land on a host that can't restart them
+    # - zeroclaw bearer rotation never fires against a missing daemon
+    # - the workspace-only branch (below) also short-circuits, since
+    #   pushing an operator overlay onto an uninstalled agent is the
+    #   same wedge in a different costume
+    # - dry-run pays the probe cost too: a dry-run that "would change
+    #   N files" against a missing unit is misleading, and the probe
+    #   is cheap enough that paying it on inspection runs is the right
+    #   trade.
+    #
+    # OS-routing for the probe lives entirely inside `probe_host_install`
+    # / `unit_path_for`; this call site stays OS-agnostic per the
+    # dispatcher-only OS-fork invariant.
+    emit("validate", f"checking host install for {agent_name}")
+    probe_client = _open_ssh(host)
+    try:
+        probe = probe_host_install(
+            probe_client,
+            agent_type=inputs.agent_type,
+            agent_name=agent_name,
+            host=host,
+        )
+    finally:
+        probe_client.close()
+    if not probe.ok:
+        # ATX iter-5 B1: there is no `clawctl agent install` verb —
+        # the install path is `agent create`. ATX iter-5 W3: align
+        # phrasing on the `refusing to sync` wording the sibling
+        # `SecretRemovalRefused` already uses.
+        host_alias = host.get("alias") or host.get("hostname") or ""
+        raise AgentInstallMissingError(
+            f"refusing to sync {agent_name!r}: on-host install is "
+            f"incomplete (missing {probe.missing_summary()}). "
+            f"Recover with `clawctl agent delete {agent_name}` "
+            f"then `clawctl agent create {agent_name} "
+            f"--type {inputs.agent_type} --host {host_alias}`, "
+            f"or `clawctl agent doctor {agent_name}` for diagnosis."
+        )
 
     # Issue #760 §1.4 `--workspace-only` short-circuit. Skip canonical
     # render / diff / write / restart / verify entirely; push the

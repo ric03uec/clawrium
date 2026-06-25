@@ -1,0 +1,4 @@
+agent: clawrium-d01
+status: install_missing
+process_running: False
+error: on-host install incomplete: missing service unit '/etc/systemd/system/zeroclaw-clawrium-d01.service'. Run `clawctl agent install clawrium-d01` to recover.
