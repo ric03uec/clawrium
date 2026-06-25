@@ -1,0 +1,17 @@
+=== Step 1: detach brave from failed wolf-i ===
+agent/wolf-i: detached integration 'wolf-brave'
+
+=== Step 2: sync should STILL refuse (record is still failed) ===
+agent/wolf-i: validating local state ...
+agent/wolf-i: pushing config (provider, skills, channels, env) ...
+agent/wolf-i: restarting unit ...
+agent/wolf-i: verifying health ...
+agent/wolf-i: validate: assembling render inputs for wolf-i
+Error: sync failed: agent 'wolf-i' on 'wolf.tailf7742d.ts.net' has an incomplete installation (status='failed', installed_at=None); refusing to sync. Run `clawctl agent create wolf-i --type openclaw --host wolf.tailf7742d.ts.net --cleanup-failed` to finish the install first — your attachments are preserved.
+
+=== Step 3: reattach brave (restore baseline state) ===
+agent/wolf-i: attached integration 'wolf-brave'
+
+=== Step 4: confirm record state ===
+NAME         AGENT
+wolf-brave   wolf-i

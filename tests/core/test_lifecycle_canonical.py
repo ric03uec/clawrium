@@ -1363,12 +1363,20 @@ class TestVerifyHealthDiagnosticWrap:
         assert "Diagnosis:" not in msg
         assert "state='failed'" in msg
 
-    def test_active_unit_no_diagnosis_no_raise(self):
+    def test_active_unit_skips_journalctl_and_requires_gateway_port(self):
+        # ATX iter-3 W4: renamed from `test_active_unit_no_diagnosis_no_raise`
+        # — that name says the opposite of what now happens. Post-#812
+        # pins two invariants: (1) `is-active=active` skips the
+        # journalctl diagnostic round trip, (2) `gateway_port=None`
+        # on Linux raises for install-incompleteness (parity with macOS).
         scripted = [("is-active", 0, b"active\n")]
         client = _FakeSSHClient(scripted)
-        # No exception.
-        lc._verify_health(client, agent_type="hermes", agent_name="x")
-        # And no second `journalctl` call — happy path is one round trip.
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"no gateway port persisted",
+        ):
+            lc._verify_health(client, agent_type="hermes", agent_name="x")
+        # No second `journalctl` call — happy-path is one round trip.
         assert all("journalctl" not in c for c in client.calls)
 
     def test_diagnose_helper_raise_does_not_mask_health_verdict(
@@ -1396,6 +1404,446 @@ class TestVerifyHealthDiagnosticWrap:
         # Crucial: the catalog raise must NOT mask the verdict.
         assert "Diagnosis:" not in msg
         assert "catalog blew up" not in msg
+
+
+# ---------------------------------------------------------------------------
+# #812: _verify_health Linux gateway-port probe (parity with macOS).
+# ---------------------------------------------------------------------------
+
+
+class _LinuxProbeStream:
+    """Separate-stderr stub for `_verify_gateway_listening_linux`. The
+    probe command ends with `2>&1` so in production bash's stderr is
+    merged into stdout and `err.read()` is empty; tests that want to
+    drive the missing-bash / disabled-/dev/tcp diagnostic shapes
+    populate the `stderr_bytes` slot of `_LinuxProbeClient` script
+    entries — the diagnostic helper's `combined = stderr_text +
+    stdout_text` covers both stream layouts.
+
+    ATX iter-3 W1: `_Ch.close()` is a no-op so the production
+    `try: channel.close(); except Exception: pass` cleanup path is
+    actually exercised by tests rather than silently swallowing an
+    `AttributeError`.
+    """
+
+    def __init__(self, payload: bytes, exit_status: int) -> None:
+        self._payload = payload
+
+        class _Ch:
+            def __init__(self, rc):
+                self._rc = rc
+
+            def recv_exit_status(self):
+                return self._rc
+
+            def close(self):
+                pass
+
+        self.channel = _Ch(exit_status)
+
+    def read(self) -> bytes:
+        return self._payload
+
+
+class _LinuxProbeClient:
+    """Fake paramiko SSHClient. Each entry in `script` is
+    (substring, exit_status, stdout_bytes, stderr_bytes). First match
+    is consumed. Unmatched commands raise so a typo fails loudly.
+
+    `raise_for` (cmd-substring → exception) lets a test inject a
+    paramiko / OSError raise at `exec_command` time without scripting
+    a stream — exercises the B1 SSH-channel-error wrap.
+
+    `assert_all_consumed()` lets a test verify it didn't over-script
+    (e.g. a "this entry should fire on the second poll" that never
+    actually did) — silent over-scripting was the W5 dead-code bug.
+    """
+
+    def __init__(
+        self,
+        script: list[tuple[str, int, bytes, bytes]] | None = None,
+        raise_for: dict[str, BaseException] | None = None,
+    ) -> None:
+        self.calls: list[str] = []
+        self._script = list(script or [])
+        self._raise_for = dict(raise_for or {})
+
+    def exec_command(self, cmd: str, timeout: int | None = None):
+        self.calls.append(cmd)
+        for needle, exc in self._raise_for.items():
+            if needle in cmd:
+                raise exc
+        for i, (needle, rc, out, err) in enumerate(self._script):
+            if needle in cmd:
+                self._script.pop(i)
+                return (
+                    None,
+                    _LinuxProbeStream(out, rc),
+                    _LinuxProbeStream(err, rc),
+                )
+        raise AssertionError(f"_LinuxProbeClient: unscripted command: {cmd!r}")
+
+    def assert_all_consumed(self) -> None:
+        if self._script:
+            raise AssertionError(
+                f"_LinuxProbeClient: {len(self._script)} scripted "
+                f"entries never consumed: {self._script!r}"
+            )
+
+
+def _stub_monotonic_linux(monkeypatch, ticks: list[float]) -> None:
+    """Mirror of the macOS dispatch test helper. Pop one tick per call
+    to `time.monotonic`; sleep is a no-op. Tests that under-feed ticks
+    raise loudly rather than silently fall through wall-clock."""
+    import time as time_mod
+
+    feed = list(ticks)
+
+    def _next_tick() -> float:
+        if not feed:
+            raise AssertionError(
+                "test under-fed monotonic ticks — extend the list"
+            )
+        return feed.pop(0)
+
+    monkeypatch.setattr(time_mod, "monotonic", _next_tick)
+    monkeypatch.setattr(time_mod, "sleep", lambda _s: None)
+
+
+class TestVerifyHealthLinuxGatewayProbe:
+    """#812: post-`is-active` probe of the gateway port. The Linux
+    systemd unit shape we ship (`Type=simple`) reports `active` as soon
+    as the daemon process is spawned — before it has bound the gateway
+    port and (for a crashlooping daemon) potentially between restart
+    cycles. Bringing the Linux verify path to parity with the macOS
+    `nc -z` probe stops sync from printing `synced (drift=0)` when the
+    daemon is not actually serving requests."""
+
+    def test_probe_returns_immediately_on_first_poll(self, monkeypatch):
+        # ATX iter-2 S5: stub monotonic for consistency with the other
+        # tests in this class (and so a future regression that turned
+        # this loop into a 15s wall-clock wait fails fast in CI).
+        _stub_monotonic_linux(monkeypatch, [0.0, 1.0])
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                ("/dev/tcp/127.0.0.1/40198", 0, b"", b""),
+            ]
+        )
+        lc._verify_health(
+            client,
+            agent_type="openclaw",
+            agent_name="alpha",
+            gateway_port=40198,
+        )
+        client.assert_all_consumed()
+        # Exactly one probe — happy path is one round trip.
+        assert sum(1 for c in client.calls if "/dev/tcp" in c) == 1
+        # The probe shape MUST invoke `bash` explicitly — `/dev/tcp` is
+        # a bash builtin, not a real device. A regression that dropped
+        # to `sh -c …` would silently fail on dash-shipping distros.
+        probe_calls = [c for c in client.calls if "/dev/tcp" in c]
+        assert all(c.startswith("bash -c ") for c in probe_calls)
+
+    def test_delayed_success_exercises_polling_loop(self, monkeypatch):
+        """A regression that short-circuited on the first non-zero rc
+        would pass the happy-path test but break here. Two failed
+        connects then a success; assert the loop kept polling."""
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                ("/dev/tcp/127.0.0.1/40198", 1, b"", b""),
+                ("/dev/tcp/127.0.0.1/40198", 1, b"", b""),
+                ("/dev/tcp/127.0.0.1/40198", 0, b"", b""),
+            ]
+        )
+        # Feed: initial deadline calc + 3 loop-head checks well under
+        # deadline. We never miss the deadline before the connect
+        # returns 0.
+        _stub_monotonic_linux(monkeypatch, [0.0, 1.0, 2.0, 3.0])
+
+        lc._verify_health(
+            client,
+            agent_type="openclaw",
+            agent_name="alpha",
+            gateway_port=40198,
+            timeout=30,
+        )
+        client.assert_all_consumed()
+        probe_calls = [c for c in client.calls if "/dev/tcp" in c]
+        assert len(probe_calls) == 3, probe_calls
+
+    def test_timeout_raises_with_port_in_message(self, monkeypatch):
+        """Port never opens → operator gets a precise error naming the
+        port and the agent. Sync MUST NOT print `synced (drift=0)`
+        in this case — that's the whole point of #812.
+
+        ATX iter-2 W5: ticks `[0.0, 0.5, 999.0]` so the probe actually
+        fires once (loop enters at 0.5 < deadline=1.0) before the
+        deadline expires on the next check. The previous `[0.0, 999.0]`
+        skipped the loop body entirely; the scripted probe entry was
+        dead code (over-scripting is now caught by `assert_all_consumed`).
+        """
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                ("/dev/tcp/127.0.0.1/40198", 1, b"", b""),
+            ]
+        )
+        _stub_monotonic_linux(monkeypatch, [0.0, 0.5, 999.0])
+
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"gateway port 40198 not accepting connections",
+        ) as exc:
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=40198,
+                timeout=1,
+            )
+        client.assert_all_consumed()
+        # The probe MUST have actually fired before the timeout — a
+        # regression that left it as dead code is exactly what W5
+        # iter-2 caught the first time around.
+        assert sum(1 for c in client.calls if "/dev/tcp" in c) == 1
+        # The error MUST also point operators at the journal for the
+        # actual root-cause — anything weaker just relocates the
+        # "now what?" problem. The unit name MUST include the agent
+        # *type* (`openclaw-alpha.service`, not bare `alpha.service`)
+        # so the suggested `journalctl -u …` command is copy-pasteable
+        # — surfaced live on wolf-i during #812 UAT round 1.
+        msg = str(exc.value)
+        assert "journalctl -u openclaw-alpha.service" in msg
+
+    @pytest.mark.parametrize(
+        "stderr_text",
+        [
+            # dash / sh shape — `\bbash\b … \bnot found\b` arm
+            b"sh: 1: bash: not found\n",
+            # bash-from-PATH-shape — `\bbash\b … \bnot found\b` arm
+            b"bash: command not found\n",
+            # Alpine / busybox shape — `\bnot found\b … \bbash\b` arm
+            # (the second alternation in `_BASH_MISSING_RE`). Without
+            # a test that matches this arm only, a regression that
+            # tightens the regex to a single direction goes silent
+            # on Alpine images (ATX iter-2 W6).
+            b"sh: command not found: bash\n",
+        ],
+    )
+    def test_bash_missing_breaks_early_with_diagnostic(
+        self, monkeypatch, stderr_text
+    ):
+        """If `bash` is not on PATH the probe surfaces as rc=127 with
+        a "not found"-shaped error. The helper must break early with a
+        diagnostic pointing at the missing tool — not chase the 15s
+        deadline and misdirect operators at the daemon."""
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                (
+                    "/dev/tcp/127.0.0.1/40198",
+                    127,
+                    b"",
+                    stderr_text,
+                ),
+            ]
+        )
+        _stub_monotonic_linux(monkeypatch, [0.0, 0.5])
+
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"`bash` is not available",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=40198,
+                timeout=30,
+            )
+        client.assert_all_consumed()
+        # MUST break on the first probe — not retry until the deadline.
+        assert sum(1 for c in client.calls if "/dev/tcp" in c) == 1
+
+    def test_gateway_port_none_raises_for_install_incompleteness(self):
+        """ATX iter-2 W1: parity with `verify_health_macos`. A persisted
+        `gateway.port` of `None` for a Linux agent that declares one in
+        its manifest means install.py never allocated one — silent
+        success here would write `state=READY` for a never-verified
+        daemon and reintroduce the silent-green failure mode #812
+        closes."""
+        client = _LinuxProbeClient(
+            [("systemctl is-active", 0, b"active\n", b"")]
+        )
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"no gateway port persisted.*install\.py never allocated",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=None,
+            )
+        # No probe attempted.
+        assert not any("/dev/tcp" in c for c in client.calls)
+
+    @pytest.mark.parametrize(
+        "invalid_port",
+        [
+            "40198",  # string-typed (hand-edited hosts.json)
+            0,        # zero — POSIX reserved
+            -1,       # negative
+            65536,    # exact upper-bound off-by-one
+            3.14,     # float
+            True,     # bool (subclass of int)
+            False,    # also a bool
+        ],
+    )
+    def test_invalid_port_rejected_before_probe(self, invalid_port):
+        """Refuse to interpolate hand-edited junk into the shell probe.
+        Mirrors the macOS dispatch invariant."""
+        client = _LinuxProbeClient(
+            [("systemctl is-active", 0, b"active\n", b"")]
+        )
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"invalid gateway_port",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=invalid_port,  # type: ignore[arg-type]
+            )
+        # No probe attempted — we raise before any SSH probe.
+        assert not any("/dev/tcp" in c for c in client.calls)
+
+    def test_unit_not_active_raises_before_probe(self):
+        """When `is-active` already failed the diagnostic path runs and
+        raises — the port probe must NOT also fire (would only
+        compound the noise and waste a round trip)."""
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 3, b"activating\n", b""),
+                ("journalctl", 0, b"", b""),
+            ]
+        )
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"not active after restart",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=40198,
+            )
+        assert not any("/dev/tcp" in c for c in client.calls)
+
+    @pytest.mark.parametrize("valid_port", [1, 1024, 40198, 65535])
+    def test_valid_port_boundary_values_accepted(self, monkeypatch, valid_port):
+        """ATX iter-2 W7: the highest legal port (65535) and lowest
+        legal port (1) must succeed through the validator. Combined
+        with the 65536 / 0 / -1 invalid cases above, this pins the
+        exact `0 < port < 65536` invariant — a regression that
+        tightened the guard to `< 65535` or `> 1024` would silently
+        misclassify legitimate operator-chosen ports as invalid."""
+        _stub_monotonic_linux(monkeypatch, [0.0, 1.0])
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                (f"/dev/tcp/127.0.0.1/{valid_port}", 0, b"", b""),
+            ]
+        )
+        lc._verify_health(
+            client,
+            agent_type="openclaw",
+            agent_name="alpha",
+            gateway_port=valid_port,
+        )
+        assert any(f"/dev/tcp/127.0.0.1/{valid_port}" in c for c in client.calls)
+
+    def test_dev_tcp_disabled_breaks_early_with_diagnostic(self, monkeypatch):
+        """ATX iter-2 W3: a bash compiled `--disable-net-redirections`
+        emits `bash: connect: /dev/tcp/127.0.0.1/N: No such file or
+        directory` with rc=1. Without a dedicated branch the operator
+        chases the 15s "port not accepting" red herring against a
+        perfectly healthy daemon."""
+        stderr = b"bash: /dev/tcp/127.0.0.1/40198: No such file or directory\n"
+        # ATX iter-3 W6: trimmed from `[0.0, 0.5, 0.6]` to `[0.0, 0.5]`
+        # — the early-break path consumes exactly two ticks (deadline
+        # calc + one loop-head check) before raising.
+        _stub_monotonic_linux(monkeypatch, [0.0, 0.5])
+        client = _LinuxProbeClient(
+            [
+                ("systemctl is-active", 0, b"active\n", b""),
+                ("/dev/tcp/127.0.0.1/40198", 1, b"", stderr),
+            ]
+        )
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"bash on the agent host was built without `/dev/tcp`",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=40198,
+                timeout=30,
+            )
+        client.assert_all_consumed()
+        # MUST break on the first probe — not retry until the deadline.
+        assert sum(1 for c in client.calls if "/dev/tcp" in c) == 1
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            # paramiko-shape channel error
+            pytest.param(
+                __import__("paramiko").SSHException("channel reset by peer"),
+                id="SSHException",
+            ),
+            # plain OSError shape (e.g. transport-level socket error)
+            pytest.param(
+                OSError("Connection reset by peer"),
+                id="OSError",
+            ),
+            # ATX iter-3 S1: paramiko raises bare EOFError on abrupt
+            # teardown; NOT a subclass of SSHException or OSError, so
+            # a regression that dropped it from the except tuple would
+            # propagate raw without this parametrize arm.
+            pytest.param(EOFError("transport closed"), id="EOFError"),
+        ],
+    )
+    def test_ssh_channel_error_wrapped_as_canonical_error(
+        self, monkeypatch, exc
+    ):
+        """ATX iter-2 B1 + ATX iter-3 W3/S1: every exception type
+        paramiko can raise mid-poll MUST surface as
+        `CanonicalSyncError`, not propagate raw through
+        `sync_agent_canonical`. Parametrized across SSHException,
+        OSError, and EOFError so a regression dropping any one arm
+        from the except tuple is caught."""
+        _stub_monotonic_linux(monkeypatch, [0.0, 0.5])
+        client = _LinuxProbeClient(
+            script=[("systemctl is-active", 0, b"active\n", b"")],
+            raise_for={"/dev/tcp/127.0.0.1/40198": exc},
+        )
+        with pytest.raises(
+            lc.CanonicalSyncError,
+            match=r"SSH channel error while probing gateway port 40198",
+        ):
+            lc._verify_health(
+                client,
+                agent_type="openclaw",
+                agent_name="alpha",
+                gateway_port=40198,
+                timeout=30,
+            )
+        client.assert_all_consumed()
 
 
 # ---------------------------------------------------------------------------
@@ -3319,3 +3767,154 @@ def test_build_probe_command_includes_lc_all_c():
         "/etc/systemd/system/zeroclaw-a.service", "/home/a/.zeroclaw"
     )
     assert "LC_ALL=C" in cmd
+
+
+class TestSyncRefusesIncompleteInstall:
+    """Issue #810: `sync_agent_canonical` must short-circuit when the
+    agent record reflects an incomplete `clawctl agent create` (status
+    in {failed, installing}, or a status-bearing record without an
+    `installed_at` timestamp). Without this guard the brave version-gate
+    (and other downstream checks) run against a known-broken host and
+    surface a misleading "Run `clawctl agent upgrade`" hint that itself
+    trips the `clawctl_upgrade_strips_attachments` class — forcing
+    operators to manually detach integrations to recover."""
+
+    def _setup(self, monkeypatch, claw_record):
+        from clawrium.core.render import (
+            GatewayInputs,
+            ProviderInputs,
+            RenderInputs,
+            RenderedFiles,
+        )
+
+        inputs = RenderInputs(
+            agent_name="oc",
+            agent_type="openclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="m",
+            ),
+            gateway=GatewayInputs(host="h", port=40000, auth="a"),
+            integrations=(),
+        )
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        rendered = RenderedFiles(files={".openclaw/openclaw.json": "{}"})
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: ({"hostname": "h"}, "openclaw:oc", claw_record),
+        )
+        # If the guard does NOT short-circuit, these stubs let the
+        # rest of the pipeline reach a clean exit so a regression
+        # surfaces as "no raise" rather than as a SSH/diff KeyError.
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(
+            lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
+        )
+        # ATX review W8: stub `push_workspace_phase` so the clean-record
+        # path reaches a deterministic return value instead of bubbling
+        # an unrelated workspace-sync failure that could mask the
+        # negative-guard assertion.
+        from clawrium.core import workspace_sync as _ws
+
+        def _ok_phase(**_kw):
+            return _ws.WorkspacePhaseResult(
+                success=True,
+                files_pushed=(),
+                files_excluded=(),
+            )
+
+        monkeypatch.setattr(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            _ok_phase,
+        )
+        # ATX iter-2 W2: also stub the post-write state-transition
+        # so the result reaches `success=True` deterministically.
+        # `sync_agent_canonical` calls `transition_state(...,
+        # OnboardingState.READY)` near the end; without a stub it
+        # raises `AgentNotFoundError` against the empty fake
+        # hosts.json and sets `success=False` (the "registration ...
+        # Inspect hosts.json" error string).
+        monkeypatch.setattr(
+            "clawrium.core.onboarding.transition_state",
+            lambda *_a, **_kw: True,
+        )
+
+    def test_status_failed_raises(self, monkeypatch):
+        self._setup(
+            monkeypatch,
+            {"status": "failed", "installed_at": None},
+        )
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"incomplete installation.*clawctl agent create.*--cleanup-failed",
+        ) as exc:
+            sync_agent_canonical("oc", restart=False, verify=False)
+        msg = str(exc.value)
+        # The misleading `agent upgrade` hint MUST NOT appear — that's
+        # the whole point of the guard.
+        assert "upgrade" not in msg
+        # Operator reassurance: attachments are preserved across the
+        # refusal (we don't want them preemptively detaching).
+        assert "attachments are preserved" in msg
+
+    def test_status_installing_raises(self, monkeypatch):
+        self._setup(
+            monkeypatch,
+            {"status": "installing", "installed_at": None},
+        )
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"status='installing'",
+        ):
+            sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_status_installed_no_timestamp_raises(self, monkeypatch):
+        """Mirrors the install.py:186 "corrupt state" branch: a record
+        carries a status but never finished setting `installed_at`. Treat
+        it as incomplete."""
+        self._setup(
+            monkeypatch,
+            {"status": "installed", "installed_at": None},
+        )
+        with pytest.raises(CanonicalSyncError, match=r"incomplete installation"):
+            sync_agent_canonical("oc", restart=False, verify=False)
+
+    def test_clean_record_passes_guard(self, monkeypatch):
+        """A complete install record must NOT trigger the new guard.
+        ATX iter-2 W2: assert the pipeline returns a green result, not
+        just "no incomplete-install error" — the negative-only form
+        could pass silently on an unrelated downstream failure."""
+        self._setup(
+            monkeypatch,
+            {"status": "installed", "installed_at": "2026-06-19T20:34:07Z"},
+        )
+        result = sync_agent_canonical("oc", restart=False, verify=False)
+        assert result.success is True
+
+    def test_empty_record_passes_guard(self, monkeypatch):
+        """Regression guard: every existing test in this file uses an
+        empty `_claw_record={}` mock. The new precondition MUST NOT fire
+        on those — `status is None` short-circuits the second clause.
+        Same iter-2 W2 stricture: assert success, don't just exclude
+        the new error string."""
+        self._setup(monkeypatch, {})
+        result = sync_agent_canonical("oc", restart=False, verify=False)
+        assert result.success is True
+
+    def test_workspace_only_also_refused(self, monkeypatch):
+        """`--workspace-only` is just another sync entry point and is
+        bound by the same precondition. Writing operator overlay onto a
+        half-installed daemon makes recovery harder, not easier."""
+        self._setup(
+            monkeypatch,
+            {"status": "failed", "installed_at": None},
+        )
+        with pytest.raises(CanonicalSyncError, match=r"incomplete installation"):
+            sync_agent_canonical(
+                "oc", restart=False, verify=False, workspace_only=True
+            )

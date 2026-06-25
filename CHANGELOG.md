@@ -226,6 +226,32 @@ cut. The `itx:release` skill archives this section into a new
   family as `stopped`); the agent-detail header surfaces a
   `clawctl agent doctor` + reinstall hint in place of the
   Start/Stop/Restart buttons (#811).
+- `clawctl agent sync` on Linux no longer prints `synced (drift=0)`
+  when the agent's gateway port is not actually accepting connections.
+  The Linux `_verify_health` step previously only checked
+  `systemctl is-active`, which our `Type=simple` units report as
+  `active` the moment the daemon process is spawned — before it has
+  bound the gateway port, and (for a crashlooping daemon) between
+  restart cycles. Sync now follows the macOS path and also probes
+  the loopback gateway port via `bash -c 'exec
+  3<>/dev/tcp/127.0.0.1/<port>'`; if the port is not accepting
+  within the verify timeout, sync raises `CanonicalSyncError` and
+  exits non-zero with a journal-pointing remediation hint instead of
+  reporting green (#812).
+- `clawctl agent sync <name>` now refuses to run on an agent whose
+  install is incomplete (`status` is `failed` / `installing`, or any
+  status-bearing record missing `installed_at`) and points the operator
+  at `clawctl agent create <name> --type <type> --host <host>
+  --cleanup-failed` to clear the half-installed record and retry the
+  install. Previously a failed-install record with an attached
+  integration whose `minHostVersion` exceeded the on-host openclaw
+  would surface as `brave plugin requires >= 2026.6.9. Run \`clawctl
+  agent upgrade\` first.` — but `agent upgrade` itself strips
+  attachments (`clawctl_upgrade_strips_attachments`), so the only
+  manual workaround was a detach/reattach loop. The new guard
+  preserves attachments across the refusal and routes the operator
+  to the existing retry-on-failure path in `core/install.py:449`
+  (#810).
 - `clawctl agent sync <openclaw-agent>` no longer crashes with
   `AttributeError: 'dict' object has no attribute 'replace'` when
   `hosts.json.agents.<name>.config.gateway.auth` is dict-shaped
