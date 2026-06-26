@@ -136,12 +136,24 @@ auxiliary:
    in `.env` (verified against the upstream docs:
    https://hermes-agent.nousresearch.com/docs/integrations/providers#litellm-proxy--multi-provider-gateway).
    No auxiliary.title_generation pin — like ollama, the proxy may front
-   local models; pinning to a remote default would defeat that use case. #}
+   local models; pinning to a remote default would defeat that use case.
+
+   #831: `context_length:` is emitted only when the operator set a
+   non-zero `context_window` on the providers.json record. Hermes'
+   custom provider falls back to an internal default (~65k) when the
+   key is absent — for proxies fronting larger-context models
+   (Qwen3-Next 131072, Llama-3.1 128k, etc.) operators must pin the
+   value explicitly. We omit the key when 0/unset so the daemon's
+   default still applies and the renderer doesn't lie about the
+   number. Mirrored inside the aux loop below. #}
 model:
   provider: "custom"
   base_url: {{ litellm_base_url | yq }}
   api_key: {{ provider.api_key | yq }}
   default: {{ provider.default_model | yq }}
+{% if provider.context_window %}
+  context_length: {{ provider.context_window }}
+{% endif %}
 {% if aux_attachments %}
 auxiliary:
 {% for entry in aux_attachments %}
@@ -151,6 +163,9 @@ auxiliary:
     base_url: {{ entry.base_url | yq }}
     api_key: {{ entry.api_key | yq }}
     model: {{ entry.model | yq }}
+{% if entry.context_window %}
+    context_length: {{ entry.context_window }}
+{% endif %}
 {% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}

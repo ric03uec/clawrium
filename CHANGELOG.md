@@ -50,6 +50,11 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- `clawctl provider registry create/edit --type litellm --context-window N`
+  pins the hermes / openclaw rendered `context_length` so litellm proxies
+  fronting large-context models (e.g. Qwen3-Next-80B at 131072) no longer
+  silently truncate to hermes' built-in ~65k default (#831).
+
 - `clawctl agent shell <name> -- <cmd>` now works against macOS hosts
   (#808). The new `shell_macos.yaml` playbook is selected per-OS via
   `core.playbook_resolver.resolve_shell_playbook`; the kill window is

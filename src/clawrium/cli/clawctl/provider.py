@@ -235,6 +235,16 @@ def create(
         "--litellm-url",
         help="LiteLLM (OpenAI-compatible) proxy URL (LiteLLM).",
     ),
+    context_window: Optional[int] = typer.Option(
+        None,
+        "--context-window",
+        help=(
+            "Override the model's context window (tokens). LiteLLM only. "
+            "Without this, hermes' custom provider falls back to a built-in "
+            "default (~65k). Pin to match your upstream model "
+            "(e.g. 131072 for Qwen3-Next-80B)."
+        ),
+    ),
 ) -> None:
     """Register a provider non-interactively when flags are supplied."""
     try:
@@ -245,6 +255,21 @@ def create(
         validate_provider_type(provider_type)
     except InvalidProviderTypeError as exc:
         emit_error(str(exc))
+
+    # #831: --context-window is litellm-only (same pattern as
+    # --litellm-url / --ollama-url). Reject upfront so the operator
+    # doesn't silently get an ignored value persisted on, e.g., a
+    # bedrock record.
+    if context_window is not None and provider_type != "litellm":
+        emit_error(
+            "--context-window only valid for litellm providers",
+            hint="omit --context-window for this provider type",
+        )
+    if context_window is not None and context_window <= 0:
+        emit_error(
+            "--context-window must be a positive integer",
+            hint="pin to the model's actual context window (e.g. 131072)",
+        )
 
     try:
         if get_provider(name):
@@ -321,6 +346,11 @@ def create(
             "created_at": now,
             "updated_at": now,
         }
+        # #831: persist operator-supplied context_window so render_hermes
+        # / render_openclaw emit it on the next configure / sync. Same
+        # field is shared by both render paths.
+        if context_window is not None:
+            record["context_window"] = context_window
         try:
             add_provider(record)
         except DuplicateProviderError as exc:
@@ -589,6 +619,15 @@ def edit(
         "--litellm-url",
         help="New LiteLLM proxy URL (LiteLLM).",
     ),
+    context_window: Optional[int] = typer.Option(
+        None,
+        "--context-window",
+        help=(
+            "Override the model's context window (tokens). LiteLLM only. "
+            "Re-render with `clawctl agent sync` to push the new value to "
+            "the hermes config.yaml on the agent host."
+        ),
+    ),
 ) -> None:
     """Edit an existing provider record."""
     record = _safe_get_provider(name)
@@ -604,15 +643,30 @@ def edit(
             region,
             ollama_url,
             litellm_url,
+            context_window is not None,
         ]
     ):
         emit_error(
             "no changes specified",
             hint=(
                 "pass --model / --api-key / --access-key / --secret-key / "
-                "--region / --ollama-url / --litellm-url"
+                "--region / --ollama-url / --litellm-url / --context-window"
             ),
         )
+
+    # #831: --context-window is litellm-only. Reject upfront on the
+    # existing record's type (mirrors --litellm-url gating below).
+    if context_window is not None:
+        if ptype != "litellm":
+            emit_error(
+                "--context-window only valid for litellm providers",
+                hint=f"provider {name!r} is type {ptype!r}",
+            )
+        if context_window <= 0:
+            emit_error(
+                "--context-window must be a positive integer",
+                hint="pin to the model's actual context window (e.g. 131072)",
+            )
 
     available: Optional[list[str]] = None
     if ollama_url is not None:
@@ -680,6 +734,11 @@ def edit(
                 p["available_models"] = available
         if region:
             p["region"] = region
+        # #831: persist litellm context_window override. The next
+        # `clawctl agent sync` for any hermes/openclaw agent attached
+        # to this provider will re-render with the new value.
+        if context_window is not None:
+            p["context_window"] = context_window
         p["updated_at"] = _now_iso()
         return p
 
