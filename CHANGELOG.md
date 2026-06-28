@@ -50,6 +50,16 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- Hermes: render `model.context_length` (and the same key on each litellm
+  auxiliary slot) in `~/.hermes/config.yaml` for litellm providers when
+  `context_window` is set on the provider record — proxies fronting
+  large-context models (e.g. Qwen3-Next-80B at 131072) no longer silently
+  truncate to hermes' built-in ~65k default (#831).
+- `clawctl provider registry create|edit --context-window N` (litellm only)
+  to persist the value on a provider record — consumed by both the hermes
+  YAML renderer (`context_length`) and the pre-existing openclaw JSON
+  renderer (`contextWindow`, available since #723) (#831).
+
 - `clawctl agent shell <name> -- <cmd>` now works against macOS hosts
   (#808). The new `shell_macos.yaml` playbook is selected per-OS via
   `core.playbook_resolver.resolve_shell_playbook`; the kill window is

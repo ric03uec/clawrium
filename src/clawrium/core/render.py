@@ -168,6 +168,13 @@ class AttachedProviderInputs:
     # See ProviderInputs.api_key — same repr-leak rationale.
     api_key: str = field(default="", repr=False)
     base_url: str = ""
+    # Optional context-window override for litellm aux attachments
+    # (#831). Mirrors `ProviderInputs.context_window` semantics: 0
+    # means "renderer omits the key entirely" (the hermes template
+    # only emits `context_length:` when this is truthy). Stays 0 for
+    # every non-litellm aux type — the template only reads it inside
+    # the `entry.type == 'litellm'` branch of the aux loop.
+    context_window: int = 0
 
 
 @dataclass(frozen=True)
@@ -743,6 +750,18 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
                     f"is declared supported for agent {agent_type} but has "
                     f"no credential fetch wired in build_render_inputs"
                 )
+            # #831: pull the operator-set context_window override off
+            # the providers.json record for litellm aux slots. Mirrors
+            # the same field that ProviderInputs.context_window reads
+            # for the primary slot — single source of truth on the
+            # provider record. Stays 0 for every non-litellm type;
+            # the hermes template only reads it inside the litellm
+            # branch of the aux loop.
+            entry_context_window = (
+                int(entry_record.get("context_window") or 0)
+                if entry_type == "litellm"
+                else 0
+            )
             attached.append(
                 AttachedProviderInputs(
                     name=entry_name,
@@ -753,6 +772,7 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
                     region=entry_region,
                     api_key=entry_api_key,
                     base_url=entry_base_url,
+                    context_window=entry_context_window,
                 )
             )
         hermes_bundle = HermesProviderBundle(
