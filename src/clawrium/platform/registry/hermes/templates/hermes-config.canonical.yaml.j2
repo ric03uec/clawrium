@@ -21,6 +21,10 @@ auxiliary:
     base_url: {{ entry.base_url | yq }}
     api_key: {{ entry.api_key | yq }}
     model: {{ entry.model | yq }}
+{# #831 B1: litellm aux context_length — see anthropic branch below. #}
+{% if entry.context_window %}
+    context_length: {{ entry.context_window }}
+{% endif %}
 {% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}
@@ -44,6 +48,14 @@ auxiliary:
     base_url: {{ entry.base_url | yq }}
     api_key: {{ entry.api_key | yq }}
     model: {{ entry.model | yq }}
+{# #831: bare int is valid YAML — emit context_length unquoted so the
+   daemon parses it as a number, not a string. Mirrors the primary
+   litellm branch below. Must be emitted in every primary-type aux
+   sub-branch (B1) so litellm aux slots fronting large-context models
+   pin the right window regardless of primary type. #}
+{% if entry.context_window %}
+    context_length: {{ entry.context_window }}
+{% endif %}
 {% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}
@@ -67,6 +79,10 @@ auxiliary:
     base_url: {{ entry.base_url | yq }}
     api_key: {{ entry.api_key | yq }}
     model: {{ entry.model | yq }}
+{# #831 B1: litellm aux context_length — see anthropic branch above. #}
+{% if entry.context_window %}
+    context_length: {{ entry.context_window }}
+{% endif %}
 {% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}
@@ -93,6 +109,10 @@ auxiliary:
     base_url: {{ entry.base_url | yq }}
     api_key: {{ entry.api_key | yq }}
     model: {{ entry.model | yq }}
+{# #831 B1: litellm aux context_length — see anthropic branch above. #}
+{% if entry.context_window %}
+    context_length: {{ entry.context_window }}
+{% endif %}
 {% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}
@@ -123,6 +143,10 @@ auxiliary:
     base_url: {{ entry.base_url | yq }}
     api_key: {{ entry.api_key | yq }}
     model: {{ entry.model | yq }}
+{# #831 B1: litellm aux context_length — see anthropic branch above. #}
+{% if entry.context_window %}
+    context_length: {{ entry.context_window }}
+{% endif %}
 {% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}
@@ -190,6 +214,10 @@ auxiliary:
     base_url: {{ entry.base_url | yq }}
     api_key: {{ entry.api_key | yq }}
     model: {{ entry.model | yq }}
+{# #831 B1: litellm aux context_length — see anthropic branch above. #}
+{% if entry.context_window %}
+    context_length: {{ entry.context_window }}
+{% endif %}
 {% else %}
     provider: "{{ entry.type }}"
     model: {{ entry.model | yq }}

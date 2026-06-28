@@ -844,6 +844,116 @@ def test_hermes_litellm_aux_with_context_window_emits_context_length():
     assert "\n  context_length: 200000\n" in yaml
     # Aux emits 131072 at four-space indent (under `auxiliary.curator:`).
     assert "\n    context_length: 131072\n" in yaml
+    # Count discipline: exactly two `context_length:` lines (primary + aux).
+    # Catches a future regression that double-emits via a buggy macro
+    # refactor or template duplication.
+    assert yaml.count("context_length:") == 2
+
+
+def test_hermes_litellm_aux_unset_context_window_omits_context_length():
+    """LiteLLM primary set + litellm aux with `context_window=0` → only primary emits.
+
+    Exercises the falsy branch of `{% if entry.context_window %}` on the
+    aux loop, which round-1 ATX flagged as untested. A regression that
+    emitted `context_length: 0` (or `context_length: null`) for default
+    aux slots would silently break operator setups.
+    """
+    base = _baseline_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=base.provider.default_model,
+        endpoint=base.provider.endpoint,
+        api_key=base.provider.api_key,
+        context_window=131072,
+    )
+    bundle = HermesProviderBundle(
+        attachments=(
+            AttachedProviderInputs(
+                name=base.provider.name,
+                type="litellm",
+                role="primary",
+                model=base.provider.default_model,
+            ),
+            AttachedProviderInputs(
+                name="inx-litellm",
+                type="litellm",
+                role="curator",
+                model="gemma4:31b",
+                endpoint="http://192.168.1.17:4000",
+                api_key="sk-litellm-aux",
+                base_url="http://192.168.1.17:4000/v1",
+                # context_window left at default (0).
+            ),
+        ),
+        api_keys=(),
+        aws_credentials=(),
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        api_server=base.api_server,
+        gateway=base.gateway,
+        hermes=bundle,
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    # Exactly one `context_length:` — primary only.
+    assert yaml.count("context_length:") == 1
+    assert "\n  context_length: 131072\n" in yaml
+    # No four-space-indented (aux-level) emission. Catches a regression
+    # that emitted `context_length: 0` or `context_length: null` for
+    # default aux slots.
+    assert "    context_length:" not in yaml
+
+
+def test_hermes_openrouter_primary_with_litellm_aux_emits_aux_context_length():
+    """#831 B1 regression guard: openrouter primary + litellm aux with
+    `context_window` set on the aux emits `context_length:` inside the
+    aux block. Before B1's fix, only the litellm-primary branch carried
+    the emission, so this case silently dropped the operator's pin.
+    """
+    base = _baseline_inputs(ptype="openrouter")
+    bundle = HermesProviderBundle(
+        attachments=(
+            AttachedProviderInputs(
+                name=base.provider.name,
+                type="openrouter",
+                role="primary",
+                model=base.provider.default_model,
+            ),
+            AttachedProviderInputs(
+                name="inx-litellm",
+                type="litellm",
+                role="curator",
+                model="writer",
+                endpoint="http://192.168.1.17:4000",
+                api_key="sk-litellm-aux",
+                base_url="http://192.168.1.17:4000/v1",
+                context_window=131072,
+            ),
+        ),
+        api_keys=(("openrouter", "sk-or"),),
+        aws_credentials=(),
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        api_server=base.api_server,
+        gateway=base.gateway,
+        hermes=bundle,
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    # Exactly one `context_length:` line — the aux's. Openrouter primary
+    # never emits the key (no context_window on its ProviderInputs).
+    assert yaml.count("context_length:") == 1
+    # Indented four spaces under the aux block.
+    assert "\n    context_length: 131072\n" in yaml
 
 
 def test_hermes_litellm_primary_with_openrouter_aux_does_not_emit_aux_context_length():

@@ -565,7 +565,7 @@ def test_create_context_window_rejects_non_positive(
 def test_edit_litellm_adds_context_window(fleet_dir, stdin_not_tty) -> None:
     """`edit --context-window N` on an existing litellm record persists the value."""
     with _mock_litellm_probe():
-        runner.invoke(
+        create_result = runner.invoke(
             app,
             [
                 "provider",
@@ -582,6 +582,9 @@ def test_edit_litellm_adds_context_window(fleet_dir, stdin_not_tty) -> None:
                 "sk-y",
             ],
         )
+    # S4 (ATX round 1): assert the setup `create` actually succeeded.
+    # Otherwise the assertions below would mask a CLI regression.
+    assert create_result.exit_code == 0, create_result.output
     # Sanity: field absent before edit.
     assert "context_window" not in (get_provider("lt-edit") or {})
 
@@ -604,7 +607,7 @@ def test_edit_context_window_rejected_for_non_litellm(
     fleet_dir, stdin_not_tty
 ) -> None:
     """`edit --context-window` on a non-litellm provider exits non-zero."""
-    runner.invoke(
+    create_result = runner.invoke(
         app,
         [
             "provider",
@@ -617,6 +620,8 @@ def test_edit_context_window_rejected_for_non_litellm(
             "k",
         ],
     )
+    # S4 (ATX round 1): verify setup succeeded before exercising edit.
+    assert create_result.exit_code == 0, create_result.output
     result = runner.invoke(
         app,
         [
@@ -630,3 +635,48 @@ def test_edit_context_window_rejected_for_non_litellm(
     )
     assert result.exit_code != 0
     assert "--context-window only valid for litellm" in result.output
+
+
+def test_edit_context_window_rejects_non_positive(
+    fleet_dir, stdin_not_tty
+) -> None:
+    """S5 (ATX round 1): `edit --context-window 0` (or negative) on an existing
+    litellm record exits non-zero. Mirrors `test_create_context_window_rejects_non_positive`
+    to exercise the guard at `provider.py:665`.
+    """
+    with _mock_litellm_probe():
+        create_result = runner.invoke(
+            app,
+            [
+                "provider",
+                "registry",
+                "create",
+                "lt-edit-bad",
+                "--type",
+                "litellm",
+                "--litellm-url",
+                "http://10.0.0.5:4000",
+                "--model",
+                "writer",
+                "--api-key",
+                "sk-z",
+            ],
+        )
+    assert create_result.exit_code == 0, create_result.output
+
+    result = runner.invoke(
+        app,
+        [
+            "provider",
+            "registry",
+            "edit",
+            "lt-edit-bad",
+            "--context-window",
+            "0",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--context-window must be a positive integer" in result.output
+
+    # Record must NOT have been mutated.
+    assert "context_window" not in (get_provider("lt-edit-bad") or {})
