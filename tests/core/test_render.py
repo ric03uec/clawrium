@@ -999,6 +999,125 @@ def test_hermes_litellm_primary_with_openrouter_aux_does_not_emit_aux_context_le
     # Exactly one `context_length:` line in the entire YAML — the primary's.
     assert yaml.count("context_length:") == 1
     assert "context_length: 131072" in yaml
+    # ATX r2 S3: also pin the indentation so a regression that emitted
+    # the primary at four-space indent (under aux) wouldn't slip through
+    # just because the count stayed 1.
+    assert "\n  context_length: 131072\n" in yaml
+
+
+# ATX r2 W1: parametrize the litellm-aux context_length emission across
+# all 5 primary-type branches that received the B1 patch but weren't
+# individually covered (anthropic, openai, bedrock, ollama, opencode).
+# A typo or indentation regression in any branch is now caught — same
+# class of bug B1 itself was. openrouter+litellm-aux is exercised by
+# the dedicated test above; litellm+litellm-aux by the existing
+# `test_hermes_litellm_aux_with_context_window_emits_context_length`.
+@pytest.mark.parametrize(
+    "primary_ptype,api_keys",
+    [
+        ("anthropic", (("anthropic", "sk-ant-p"),)),
+        ("openai", (("openai", "sk-oa-p"),)),
+        ("bedrock", ()),  # bedrock primary uses AWS creds, not bearer
+        ("ollama", ()),  # ollama primary needs no env credential
+        ("opencode", ()),  # opencode reads bearer inline in YAML
+    ],
+)
+def test_hermes_non_litellm_primary_with_litellm_aux_emits_aux_context_length(
+    primary_ptype, api_keys
+):
+    """ATX r2 W1: every non-litellm primary-type aux loop emits
+    `context_length:` for a litellm aux carrying `context_window=131072`.
+    Locks the duplicated B1 emission pattern in all 6 aux sub-branches.
+    """
+    base = _baseline_inputs(ptype=primary_ptype)
+    aws_credentials: tuple = ()
+    if primary_ptype == "bedrock":
+        # Bedrock primary credentials live on the bundle's aws_credentials
+        # — name keyed to the provider name from _baseline_inputs.
+        aws_credentials = ((base.provider.name, ("AKIA-1", "secret-1", "us-east-1")),)
+    bundle = HermesProviderBundle(
+        attachments=(
+            AttachedProviderInputs(
+                name=base.provider.name,
+                type=primary_ptype,
+                role="primary",
+                model=base.provider.default_model,
+            ),
+            AttachedProviderInputs(
+                name="inx-litellm-aux",
+                type="litellm",
+                role="curator",
+                model="writer",
+                endpoint="http://192.168.1.17:4000",
+                api_key="sk-litellm-aux",
+                base_url="http://192.168.1.17:4000/v1",
+                context_window=131072,
+            ),
+        ),
+        api_keys=api_keys,
+        aws_credentials=aws_credentials,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        api_server=base.api_server,
+        gateway=base.gateway,
+        hermes=bundle,
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    # Exactly one `context_length:` — the aux's. Primary-type
+    # ProviderInputs in `_baseline_inputs` does not set context_window,
+    # so the primary block never emits the key.
+    assert yaml.count("context_length:") == 1, (
+        f"{primary_ptype}: expected exactly one context_length emission, "
+        f"got:\n{yaml}"
+    )
+    # Four-space indent under the aux block.
+    assert "\n    context_length: 131072\n" in yaml, (
+        f"{primary_ptype}: aux context_length missing or wrongly indented:\n{yaml}"
+    )
+
+
+# ATX r2 W2: end-to-end build_render_inputs coverage for the litellm-aux
+# context_window derivation. Every existing #831 render test constructs
+# AttachedProviderInputs directly, bypassing the providers.json →
+# AttachedProviderInputs path at render.py:760-764. A bug in the field
+# name (e.g. "context_length" vs "context_window") or the int() cast
+# would be silent without this.
+def test_831_build_render_inputs_threads_litellm_aux_context_window(stores):
+    """`providers.json.<aux>.context_window` flows into the
+    `AttachedProviderInputs.context_window` field via `build_render_inputs`.
+    """
+    stores.agent = _hermes_multi_agent_record(
+        [
+            {"name": "anthropic-prod", "role": "primary", "model": ""},
+            {"name": "litellm-aux", "role": "compression", "model": "writer"},
+        ]
+    )
+    _seed_provider(stores, name="anthropic-prod", ptype="anthropic")
+    # Seed the litellm aux record with the operator-set context_window.
+    stores.providers["litellm-aux"] = {
+        "name": "litellm-aux",
+        "type": "litellm",
+        "default_model": "writer",
+        "endpoint": "http://192.168.1.17:4000",
+        "context_window": 131072,
+    }
+    stores.provider_api_keys["anthropic-prod"] = "sk-ant"
+    stores.provider_api_keys["litellm-aux"] = "sk-litellm"
+
+    inputs = build_render_inputs("wolf")
+    assert inputs.hermes is not None
+    by_name = {a.name: a for a in inputs.hermes.attachments}
+    # The operator's pin survives the providers.json → RenderInputs
+    # transform with the correct int type.
+    assert by_name["litellm-aux"].context_window == 131072
+    assert isinstance(by_name["litellm-aux"].context_window, int)
+    # Non-litellm aux never carries the field (defense: stays 0).
+    assert by_name["anthropic-prod"].context_window == 0
 
 
 def test_hermes_renders_integrations_in_input_order_and_bare_github_token():

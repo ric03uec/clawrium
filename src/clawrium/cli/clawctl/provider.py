@@ -239,11 +239,9 @@ def create(
         None,
         "--context-window",
         help=(
-            "Override the model's context window (tokens). LiteLLM only. "
-            "Honoured by both the hermes and openclaw renderers — without "
-            "it each renderer falls back to its built-in default (hermes "
-            "~65k; openclaw's per-provider default). Pin to match your "
-            "upstream model (e.g. 131072 for Qwen3-Next-80B)."
+            "Model context window in tokens (LiteLLM only). Honoured by "
+            "hermes and openclaw renderers; both fall back to ~65k (65536) "
+            "when unset."
         ),
     ),
 ) -> None:
@@ -624,11 +622,9 @@ def edit(
         None,
         "--context-window",
         help=(
-            "Override the model's context window (tokens). LiteLLM only. "
-            "Honoured by both the hermes and openclaw renderers; re-render "
-            "with `clawctl agent sync` to push the new value to the agent "
-            "host's config (hermes `~/.hermes/config.yaml`, openclaw "
-            "`~/.openclaw/openclaw.json`)."
+            "Model context window in tokens (LiteLLM only). Honoured by "
+            "hermes and openclaw renderers; re-render with `clawctl agent "
+            "sync` to push the new value to the agent host."
         ),
     ),
 ) -> None:
