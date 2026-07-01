@@ -12,6 +12,7 @@ from clawrium.core.registry import latest_supported_version
     [
         ("openclaw", "ubuntu", "24.04", "x86_64", "2026.6.11"),
         ("openclaw", "ubuntu", "22.04", "x86_64", "2026.6.11"),
+        ("openclaw", "macos", "14.5", "arm64", "2026.6.11"),
         ("hermes", "ubuntu", "24.04", "x86_64", "2026.5.29.2"),
         ("hermes", "ubuntu", "22.04", "x86_64", "2026.5.29.2"),
         ("hermes", "macos", "14.5", "arm64", "2026.5.29.2"),
@@ -24,8 +25,25 @@ def test_latest_supported_per_host_filter(
     assert latest_supported_version(claw_name, hardware) == expected
 
 
+@pytest.mark.parametrize(
+    "os_,os_version,arch",
+    [
+        ("macos", "13.7", "arm64"),
+        ("macos", "14.5", "x86_64"),
+    ],
+)
+def test_openclaw_macos_boundary_exclusions(os_, os_version, arch):
+    """openclaw macOS entries: arm64-only and require os_version >=14."""
+    hardware = {"os": os_, "os_version": os_version, "architecture": arch}
+    assert latest_supported_version("openclaw", hardware) is None
+
+
 def test_latest_supported_returns_none_when_no_platform_matches():
-    """openclaw is x86_64-only — aarch64 host returns None."""
+    """openclaw has no Linux aarch64 entry — ubuntu/aarch64 host returns None.
+
+    (macOS/arm64 is supported since 2026.5.28; see the macos row in the
+    parametrize table above.)
+    """
     hardware = {"os": "ubuntu", "os_version": "24.04", "architecture": "aarch64"}
     assert latest_supported_version("openclaw", hardware) is None
 

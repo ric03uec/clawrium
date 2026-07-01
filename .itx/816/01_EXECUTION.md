@@ -41,8 +41,6 @@ from a Claude session that only has the worktree checkout). PR opens
 with the UAT boxes unticked; the user is expected to run the matrix
 before merging. Recorded as a Callout.
 
-## Prompt Log
-
 ## execution
 
 **Stage**: execution

@@ -154,12 +154,12 @@ def test_upgrade_happy_path_openclaw(isolated_config: Path, _patch_drift_clean):
         # Simulate the real write at install.py:562.
         path = isolated_config / "hosts.json"
         data = json.loads(path.read_text())
-        data[0]["agents"]["test-agent"]["version"] = "2026.6.8"
+        data[0]["agents"]["test-agent"]["version"] = "2026.6.11"
         path.write_text(json.dumps(data, indent=2))
         return {
             "success": True,
             "agent": "openclaw",
-            "version": "2026.6.8",
+            "version": "2026.6.11",
             "host": hostname,
             "playbooks_run": [],
             "error": None,
@@ -180,7 +180,7 @@ def test_upgrade_happy_path_openclaw(isolated_config: Path, _patch_drift_clean):
         # First positional is claw_name
         call_kwargs.setdefault("claw_name", mock_install.call_args.args[0])
     assert call_kwargs.get("force") is True
-    assert _read_version(isolated_config) == "2026.6.8"
+    assert _read_version(isolated_config) == "2026.6.11"
 
 
 def test_upgrade_happy_path_hermes(isolated_config: Path, _patch_drift_clean):
@@ -220,7 +220,7 @@ def test_upgrade_json_output_mode(isolated_config: Path, _patch_drift_clean):
         return {
             "success": True,
             "agent": "openclaw",
-            "version": "2026.6.8",
+            "version": "2026.6.11",
             "host": "192.168.1.100",
             "playbooks_run": [],
             "error": None,
@@ -243,7 +243,7 @@ def test_upgrade_json_output_mode(isolated_config: Path, _patch_drift_clean):
     assert payload is not None, result.output
     assert payload["agent"] == "test-agent"
     assert payload["from_version"] == "2026.4.2"
-    assert payload["to_version"] == "2026.6.8"
+    assert payload["to_version"] == "2026.6.11"
 
 
 def test_upgrade_retries_after_previous_failed_install(
@@ -255,7 +255,12 @@ def test_upgrade_retries_after_previous_failed_install(
     the operator forever. Confirm the retry path calls run_installation
     even when installed == manifest max.
     """
-    _write_host(isolated_config, "openclaw", "2026.6.8")
+    # Seed at the current manifest max so the ONLY reason
+    # `run_installation` fires is the `status=failed` flag — otherwise
+    # this test silently degrades into the ordinary "installed < max"
+    # upgrade path and would still pass if the failed-status retry
+    # branch were deleted.
+    _write_host(isolated_config, "openclaw", "2026.6.11")
     # Flip the status to 'failed' to simulate the trap.
     data = json.loads((isolated_config / "hosts.json").read_text())
     data[0]["agents"]["test-agent"]["status"] = "failed"
@@ -265,7 +270,7 @@ def test_upgrade_retries_after_previous_failed_install(
         return {
             "success": True,
             "agent": "openclaw",
-            "version": "2026.6.8",
+            "version": "2026.6.11",
             "host": "192.168.1.100",
             "playbooks_run": [],
             "error": None,
