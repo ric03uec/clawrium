@@ -179,6 +179,15 @@ cut. The `itx:release` skill archives this section into a new
   before upgrading, then re-attach provider + channels and run
   `clawctl agent sync <name>` afterward to re-materialize them on the
   host.
+- zeroclaw upstream pin bumped `0.7.5 → 0.8.2` (#817). New
+  `clawctl agent create --type zeroclaw` installs 0.8.2 on supported
+  hosts; existing 0.7.5 instances continue to work and can opt in
+  via `clawctl agent upgrade`. Five new `platforms[]` entries are
+  appended to the zeroclaw manifest (armv7l Debian 13, aarch64
+  Ubuntu 22.04/24.04, x86_64 Ubuntu 22.04/24.04), mirroring the
+  0.7.5 shape. Each new entry's `sha256` is sourced directly from
+  the release SHA256SUMS at
+  https://github.com/zeroclaw-labs/zeroclaw/releases/download/v0.8.2/SHA256SUMS.
 - `clawctl agent sync <openclaw-agent>` now installs the openclaw
   plugins required by attached integrations (`@openclaw/brave-plugin`
   today; generalizes via the `plugins:` block in the openclaw

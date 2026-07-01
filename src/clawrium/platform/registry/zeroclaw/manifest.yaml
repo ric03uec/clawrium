@@ -169,3 +169,58 @@ platforms:
       gpu_required: false
       dependencies:
         python: ">=3.9"
+  # --- v0.8.2 (#817) — sha256 sourced from
+  # https://github.com/zeroclaw-labs/zeroclaw/releases/download/v0.8.2/SHA256SUMS
+  # Raspberry Pi 2/3 (armv7l) - Debian 13 (trixie)
+  - version: "0.8.2"
+    os: debian
+    os_version: "13"
+    arch: armv7l
+    sha256: "7c17ebdb7a89005cce78831a102812eca93be50e803b21cba9ee6d8e373c4614"
+    requirements:
+      min_memory_mb: 512  # Pi 2 has ~920MB usable (1GB - video mem)
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"
+  # Raspberry Pi 4/5 (aarch64) - Ubuntu
+  - version: "0.8.2"
+    os: ubuntu
+    os_version: "22.04"
+    arch: aarch64
+    sha256: "d395ccb57e6d94c26a96d565183b7965f326d741244503b4dac2fa7c3124ec14"
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"
+  - version: "0.8.2"
+    os: ubuntu
+    os_version: "24.04"
+    arch: aarch64
+    sha256: "d395ccb57e6d94c26a96d565183b7965f326d741244503b4dac2fa7c3124ec14"
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"
+  # Desktop/Server x86_64 - Ubuntu
+  - version: "0.8.2"
+    os: ubuntu
+    os_version: "22.04"
+    arch: x86_64
+    sha256: "6b9f7e9d9877a56b86d9d8597066b92173ff16252c961a7145e93e9a0d9adfd9"
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"
+  - version: "0.8.2"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    sha256: "6b9f7e9d9877a56b86d9d8597066b92173ff16252c961a7145e93e9a0d9adfd9"
+    requirements:
+      min_memory_mb: 1024
+      gpu_required: false
+      dependencies:
+        python: ">=3.9"
