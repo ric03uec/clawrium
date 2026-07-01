@@ -63,6 +63,8 @@ def test_group_help_exits_zero(group: str) -> None:
         # `mcp registry` remains a placeholder per plan §4 (no MCP
         # implementation yet). `agent exec` was implemented in #413;
         # its tests live in `tests/cli/clawctl/agent/test_exec.py`.
+        # #834 (B10): mcp stubs now exit 1 with a slack-integration
+        # redirect hint following the canonical line.
         (["mcp", "registry", "get"], "Not implemented: mcp registry get"),
         (
             ["mcp", "registry", "describe", "foo"],
@@ -72,8 +74,12 @@ def test_group_help_exits_zero(group: str) -> None:
 )
 def test_stub_verb_emits_canonical_line(argv: list[str], expected: str) -> None:
     result = runner.invoke(app, argv)
-    assert result.exit_code == 0
-    assert result.output.strip() == expected
+    assert result.exit_code == 1
+    # First line is the canonical `Not implemented:` string; the redirect
+    # hint follows on its own line.
+    lines = result.output.strip().splitlines()
+    assert lines[0] == expected
+    assert "clawctl integration registry create" in result.output
 
 
 def test_pattern_a_registry_subgroup_exposed() -> None:

@@ -30,6 +30,36 @@
               | selectattr('value.type', 'equalto', 'atlassian')
               | list | length > 0)
       }}
+    # Pinned korotovsky/slack-mcp-server release + per-arch sha256 map.
+    # The release ships single Go binaries (not tarballs), so no
+    # unarchive step — `get_url` writes the binary directly to
+    # ~/.local/bin/slack-mcp-server with `mode: '0755'`. Bumping this
+    # pin MUST land in the same commit as the corresponding sha256 map
+    # bumps AND the `_HERMES_MCP_SLACK_VERSION` constant in
+    # `clawrium/core/render.py` — otherwise the checksum guard fails
+    # on the first configure after upgrade. #834 (B6 fix).
+    #
+    # armv7l is NOT shipped by upstream as of v1.3.0 (linux amd64/arm64
+    # + darwin amd64/arm64 only). This blocks `slack-*` integrations on
+    # armv7l hosts — the arch-guard task below fails fast with a clear
+    # message pointing at the upstream release page. Tracked as the
+    # Phase 3 (zeroclaw armv7l) coverage gap in #499.
+    mcp_slack_version: "v1.3.0"
+    mcp_slack_arch_map:
+      x86_64: "linux-amd64"
+      aarch64: "linux-arm64"
+    mcp_slack_sha256_map:
+      x86_64: "d1525962e9b9dbfdd2eaf48d0a81ca1eca7d8f1862b8d34931b812c850b3e568"
+      aarch64: "a307a48d16c2261346bdc257274cdcdb8b2027c867dc971b41d52cef36472c88"
+    # Precomputed convenience flag — true iff this run has at least one
+    # slack integration (slack-user or slack-cookie) assigned.
+    slack_integration_assigned: >-
+      {{
+        integrations is defined
+        and (integrations | dict2items
+              | selectattr('value.type', 'in', ['slack-user', 'slack-cookie'])
+              | list | length > 0)
+      }}
   tasks:
     - name: Check if agent user exists
       ansible.builtin.getent:
@@ -444,6 +474,46 @@
       no_log: true
       when:
         - atlassian_integration_assigned | bool
+
+    # #834: install korotovsky/slack-mcp-server for slack-* integrations.
+    # Distinct from the mcp-atlassian install block above because the
+    # Slack MCP is a single Go binary (no uv, no venv). Guarded by
+    # `slack_integration_assigned`, so agents without slack pay no cost.
+    - name: Fail early if host architecture is unsupported by the slack-mcp arch map
+      ansible.builtin.fail:
+        msg: >-
+          slack-mcp-server install: ansible_architecture='{{ ansible_architecture }}'
+          is not mapped to a korotovsky/slack-mcp-server release asset
+          (upstream {{ mcp_slack_version }} ships linux amd64/arm64 + darwin
+          amd64/arm64 only — no armv7l). Supported here: {{ mcp_slack_arch_map.keys() | list | join(', ') }}.
+          See https://github.com/korotovsky/slack-mcp-server/releases/tag/{{ mcp_slack_version }}.
+      when:
+        - slack_integration_assigned | bool
+        - ansible_architecture not in mcp_slack_arch_map
+
+    - name: Ensure ~/.local/bin exists for slack-mcp-server binary
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.local/bin"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: '0755'
+      become: true
+      when:
+        - slack_integration_assigned | bool
+
+    - name: Download pinned slack-mcp-server binary
+      ansible.builtin.get_url:
+        url: "https://github.com/korotovsky/slack-mcp-server/releases/download/{{ mcp_slack_version }}/slack-mcp-server-{{ mcp_slack_arch_map[ansible_architecture] }}"
+        dest: "/home/{{ agent_name }}/.local/bin/slack-mcp-server"
+        checksum: "sha256:{{ mcp_slack_sha256_map[ansible_architecture] }}"
+        validate_certs: yes
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: '0755'
+      become: true
+      when:
+        - slack_integration_assigned | bool
 
     # Force the restart handler to fire NOW so probes below run against the
     # newly-rendered config.

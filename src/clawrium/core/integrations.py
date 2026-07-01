@@ -141,6 +141,31 @@ INTEGRATION_TYPES: dict[str, dict] = {
             },
         ],
     },
+    "slack-user": {
+        "description": "Slack workspace (recommended: user OAuth token — xoxp)",
+        "credentials": [
+            {
+                "key": "SLACK_MCP_XOXP_TOKEN",
+                "description": "Slack user OAuth token (xoxp-...) — recommended path",
+                "required": True,
+            },
+        ],
+    },
+    "slack-cookie": {
+        "description": "Slack workspace via browser session cookies (xoxc + xoxd) — fragile fallback; abuse-detection prone",
+        "credentials": [
+            {
+                "key": "SLACK_MCP_XOXC_TOKEN",
+                "description": "Slack workspace token from browser session (xoxc-...)",
+                "required": True,
+            },
+            {
+                "key": "SLACK_MCP_XOXD_TOKEN",
+                "description": "Slack `d` cookie value (xoxd-...) — rotates; expect breakage",
+                "required": True,
+            },
+        ],
+    },
     "git": {
         "description": "Git commit identity and ~/.gitconfig defaults (forge-agnostic)",
         "credentials": [

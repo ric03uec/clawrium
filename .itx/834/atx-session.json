@@ -1,0 +1,11 @@
+{
+  "session_id": null,
+  "transport": "cli",
+  "commit_sha": "bafee7eadf919815509915213b636a5ec3b41220",
+  "iteration": 0,
+  "last_rating": null,
+  "last_blockers": [],
+  "started_at": "2026-07-01T23:20:02Z",
+  "updated_at": "2026-07-01T23:20:02Z",
+  "notes": "Operator override: use atx CLI (not MCP). Iteration ceiling 3, then open PR with [ITX-STUCK] marker if blockers remain."
+}

@@ -123,8 +123,25 @@ class TestIntegrationTypes:
             "notion",
             "git",
             "brave",
+            # #834: Slack MCP integration for hermes (Phase 1 of #499).
+            "slack-user",
+            "slack-cookie",
         }
         assert set(INTEGRATION_TYPES.keys()) == expected_types
+
+    def test_slack_user_requires_xoxp(self):
+        """#834: slack-user requires exactly SLACK_MCP_XOXP_TOKEN."""
+        entry = INTEGRATION_TYPES["slack-user"]
+        keys = [c["key"] for c in entry["credentials"] if c.get("required")]
+        assert keys == ["SLACK_MCP_XOXP_TOKEN"]
+
+    def test_slack_cookie_requires_xoxc_and_xoxd(self):
+        """#834: slack-cookie requires both SLACK_MCP_XOXC_TOKEN and
+        SLACK_MCP_XOXD_TOKEN — missing one silently ships a broken
+        integration."""
+        entry = INTEGRATION_TYPES["slack-cookie"]
+        keys = {c["key"] for c in entry["credentials"] if c.get("required")}
+        assert keys == {"SLACK_MCP_XOXC_TOKEN", "SLACK_MCP_XOXD_TOKEN"}
 
     def test_each_type_has_description_and_credentials(self):
         """Each integration type has description and credentials."""
