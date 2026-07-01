@@ -71,15 +71,17 @@ def attach(
     # coming-soon contract in #499 is meant to prevent. `None` means
     # the renderer does not know this agent type, in which case we
     # fall through to the legacy render-time enforcement.
-    integration_type = (record or {}).get("type")
+    # `_safe_get_integration` is NoReturn on failure, so `record` is
+    # always a non-empty dict here.
+    integration_type = record.get("type")
     supported = supported_integrations_for_agent_type(atype)
     if supported is not None and integration_type not in supported:
         emit_error(
             f"agent type {atype!r} does not support integration type "
             f"{integration_type!r} (integration {name!r})",
             hint=(
-                "run `clawctl integration registry get` for supported "
-                "agent types — see #499"
+                "run `clawctl integration registry get --types` to list "
+                "supported integration types — see #499"
             ),
             exit_code=2,
         )

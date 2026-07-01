@@ -1,11 +1,16 @@
 {
   "session_id": null,
   "transport": "cli",
-  "commit_sha": "bafee7eadf919815509915213b636a5ec3b41220",
-  "iteration": 0,
-  "last_rating": null,
-  "last_blockers": [],
+  "commit_sha": "ab39c83",
+  "iteration": 1,
+  "last_rating": 3,
+  "last_blockers": [
+    "B1: hermes-config template hardcodes /home/ but macOS installs to /Users/",
+    "B2: cross-type slug collision (atlassian vs slack) undetected",
+    "B3: _HERMES_MCP_SLACK_VERSION is dead code (never threaded into template)",
+    "B4: test_attach_slack_cookie_to_openclaw_rejected has weak assertion"
+  ],
   "started_at": "2026-07-01T23:20:02Z",
-  "updated_at": "2026-07-01T23:20:02Z",
-  "notes": "Operator override: use atx CLI (not MCP). Iteration ceiling 3, then open PR with [ITX-STUCK] marker if blockers remain."
+  "updated_at": "2026-07-01T23:55:00Z",
+  "notes": "Iter 1 rating 3/5, 4 blockers. Fixing all four in iter 2."
 }

@@ -2656,7 +2656,14 @@ def configure_agent(
 
         try:
             render_inputs = build_render_inputs(unix_agent_name)
-            rendered = render_hermes(render_inputs)
+            # #834 (B1): pass the target host's os_family so `render_hermes`
+            # emits `/home/…` on Linux and `/Users/…` on darwin for every
+            # per-agent binary path (mcp_servers.*.command). Missing this
+            # produces a rendered ~/.hermes/config.yaml on darwin that
+            # points at a nonexistent `slack-mcp-server` path — daemon
+            # silently fails to spawn.
+            os_family = (host.get("os_family") if host else None) or "linux"
+            rendered = render_hermes(render_inputs, os_family=os_family)
             prerendered_files[".hermes/.env"] = rendered.files[".hermes/.env"]
             prerendered_files[".hermes/config.yaml"] = (
                 rendered.files[".hermes/config.yaml"]

@@ -941,7 +941,9 @@ _HERMES_MCP_ATLASSIAN_VERSION = "0.21.1"
 _HERMES_MCP_SLACK_VERSION = "v1.3.0"
 
 
-def render_hermes(inputs: RenderInputs) -> RenderedFiles:
+def render_hermes(
+    inputs: RenderInputs, *, os_family: str = "linux"
+) -> RenderedFiles:
     """Render hermes' on-host config files from canonical inputs.
 
     Produces:
@@ -953,8 +955,19 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
     `inputs.provider.type`. Every field declared on `inputs` flows into
     exactly one output line; the function does NOT conditionally emit a
     section based on whether a hosts.json field happened to be populated.
+
+    #834 (B1 fix): `os_family` picks the home root prefix for every
+    per-agent binary path (`/home/<name>/…` on Linux, `/Users/<name>/…`
+    on darwin). Default `linux` keeps the pre-#834 render bytes intact.
+    Callers on macOS MUST pass `os_family="darwin"` — otherwise the
+    rendered `mcp_servers.*.command` points at a nonexistent path on
+    darwin hermes and the daemon silently fails to spawn the subprocess.
     """
     _validate_agent_name(inputs.agent_name)
+    # Centralized: mirrors `core.playbook_resolver.home_root_for`. Kept
+    # local (rather than imported) to avoid a cycle between core.render
+    # and core.playbook_resolver during test collection.
+    home_root = "/Users" if os_family == "darwin" else "/home"
 
     ptype = inputs.provider.type
     if ptype not in _HERMES_SUPPORTED_PROVIDERS:
@@ -999,8 +1012,12 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
     integration_views: list[dict] = []
     atlassian_views: list[dict] = []
     slack_views: list[dict] = []
-    seen_atlassian_slugs: set[str] = set()
-    seen_slack_slugs: set[str] = set()
+    # #834 (B2 fix): atlassian and slack both emit keys under the same
+    # `mcp_servers:` YAML mapping. Two distinct slug-tracking sets would
+    # let an atlassian integration named `work` and a slack integration
+    # named `work` slug-collide silently (YAML last-key-wins). One shared
+    # set catches the cross-type collision.
+    seen_mcp_slugs: set[str] = set()
     last_github_token = ""
     for integration in inputs.integrations:
         creds = dict(integration.credentials)
@@ -1027,13 +1044,14 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
                     f"render_hermes: integration name {integration.name!r} "
                     f"slugifies to empty — refusing to emit an unnamed YAML key"
                 )
-            if lo_slug in seen_atlassian_slugs:
+            if lo_slug in seen_mcp_slugs:
                 raise AgentConfigError(
-                    f"render_hermes: atlassian integration names collide on "
-                    f"YAML key {lo_slug!r}; rename one of the integrations to "
-                    f"differentiate after slugification"
+                    f"render_hermes: mcp_servers integration names collide "
+                    f"on YAML key {lo_slug!r} (atlassian branch); another "
+                    f"attached integration already claims this slug — "
+                    f"rename one to differentiate after slugification"
                 )
-            seen_atlassian_slugs.add(lo_slug)
+            seen_mcp_slugs.add(lo_slug)
             url = creds.get("ATLASSIAN_URL", "").rstrip("/")
             atlassian_views.append(
                 {
@@ -1054,24 +1072,63 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
                     f"render_hermes: integration name {integration.name!r} "
                     f"slugifies to empty — refusing to emit an unnamed YAML key"
                 )
-            if lo_slug in seen_slack_slugs:
+            if lo_slug in seen_mcp_slugs:
                 raise AgentConfigError(
-                    f"render_hermes: slack integration names collide on "
-                    f"YAML key {lo_slug!r}; rename one of the integrations "
-                    f"to differentiate after slugification"
+                    f"render_hermes: mcp_servers integration names collide "
+                    f"on YAML key {lo_slug!r} (slack branch); another "
+                    f"attached integration already claims this slug — "
+                    f"rename one to differentiate after slugification"
                 )
-            seen_slack_slugs.add(lo_slug)
-            slack_views.append(
-                {
-                    "slug": lo_slug,
-                    "auth": (
-                        "user" if integration.type == "slack-user" else "cookie"
-                    ),
-                    "xoxp_token": creds.get("SLACK_MCP_XOXP_TOKEN", ""),
-                    "xoxc_token": creds.get("SLACK_MCP_XOXC_TOKEN", ""),
-                    "xoxd_token": creds.get("SLACK_MCP_XOXD_TOKEN", ""),
-                }
-            )
+            seen_mcp_slugs.add(lo_slug)
+            # #834 (ATX iter-1 W2): validate required tokens are non-empty
+            # before threading into the template. `_clean_secret` in
+            # `build_render_inputs` already strips NUL/CR/LF, so an empty
+            # string here means the operator never set the credential.
+            # Emitting `SLACK_MCP_XOXP_TOKEN: ''` renders green but the
+            # daemon fails with an opaque 401 at first Slack API call.
+            if integration.type == "slack-user":
+                xoxp = _clean_secret(creds.get("SLACK_MCP_XOXP_TOKEN", ""))
+                if not xoxp:
+                    raise AgentConfigError(
+                        f"render_hermes: slack-user integration "
+                        f"{integration.name!r} is missing "
+                        f"SLACK_MCP_XOXP_TOKEN in its credential store"
+                    )
+                slack_views.append(
+                    {
+                        "slug": lo_slug,
+                        "auth": "user",
+                        "xoxp_token": xoxp,
+                        "xoxc_token": "",
+                        "xoxd_token": "",
+                    }
+                )
+            else:  # slack-cookie
+                xoxc = _clean_secret(creds.get("SLACK_MCP_XOXC_TOKEN", ""))
+                xoxd = _clean_secret(creds.get("SLACK_MCP_XOXD_TOKEN", ""))
+                if not xoxc or not xoxd:
+                    missing = [
+                        k
+                        for k, v in (
+                            ("SLACK_MCP_XOXC_TOKEN", xoxc),
+                            ("SLACK_MCP_XOXD_TOKEN", xoxd),
+                        )
+                        if not v
+                    ]
+                    raise AgentConfigError(
+                        f"render_hermes: slack-cookie integration "
+                        f"{integration.name!r} is missing "
+                        f"{', '.join(missing)} in its credential store"
+                    )
+                slack_views.append(
+                    {
+                        "slug": lo_slug,
+                        "auth": "cookie",
+                        "xoxp_token": "",
+                        "xoxc_token": xoxc,
+                        "xoxd_token": xoxd,
+                    }
+                )
         integration_views.append(
             {"type": integration.type, "slug": slug, "creds": creds}
         )
@@ -1154,6 +1211,8 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
         atlassian_integrations=atlassian_views,
         mcp_atlassian_version=_HERMES_MCP_ATLASSIAN_VERSION,
         slack_integrations=slack_views,
+        mcp_slack_version=_HERMES_MCP_SLACK_VERSION,
+        home_root=home_root,
     )
 
     return RenderedFiles(

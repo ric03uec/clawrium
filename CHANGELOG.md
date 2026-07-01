@@ -14,6 +14,18 @@ cut. The `itx:release` skill archives this section into a new
 
 ### BREAKING
 
+- **`clawctl mcp registry get` and `clawctl mcp registry describe` now exit
+  1 (previously 0)** and print a redirect hint pointing operators at
+  `clawctl integration registry create --type slack-user`. The stubs
+  were silently exit-0 before, which let `clawctl mcp registry get &&
+  next_cmd` chain past an unimplemented verb in scripts. Slack-backed
+  MCP is now a real integration type; generic MCP support is tracked in
+  the #499 follow-up. **Recovery:** any script that relied on
+  `clawctl mcp registry get` exiting 0 must either drop the invocation
+  or replace it with `clawctl integration registry get --types` (lists
+  integration types including `slack-user` and `slack-cookie`). No
+  automated migration. (#834)
+
 - **openclaw bedrock model prefix renamed `bedrock/` → `amazon-bedrock/`.**
   The openclaw gateway's Bedrock provider is registered as
   `amazon-bedrock` upstream; the previous `bedrock/<id>` prefix caused
@@ -146,13 +158,6 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
-- `clawctl mcp registry get` and `clawctl mcp registry describe` now exit
-  1 (previously 0) and print a redirect hint pointing operators at
-  `clawctl integration registry create --type slack-user`. The stubs
-  were silently exit-0 before, which let `clawctl mcp registry get &&
-  next_cmd` chain past an unimplemented verb in scripts. Slack-backed
-  MCP is now a real integration type; generic MCP support is tracked
-  in the #499 follow-up. (#834)
 - `clawctl agent sync <openclaw-agent>` now installs the openclaw
   plugins required by attached integrations (`@openclaw/brave-plugin`
   today; generalizes via the `plugins:` block in the openclaw
