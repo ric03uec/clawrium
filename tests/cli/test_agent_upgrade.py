@@ -90,7 +90,7 @@ def _patch_drift_clean():
 
 def test_upgrade_no_op_when_already_at_max(isolated_config: Path):
     """Already at manifest max → exit 0, no install, no version mutation."""
-    _write_host(isolated_config, "openclaw", "2026.6.9")
+    _write_host(isolated_config, "openclaw", "2026.6.11")
     with patch("clawrium.core.install.run_installation") as mock_install:
         result = runner.invoke(
             app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
@@ -98,7 +98,7 @@ def test_upgrade_no_op_when_already_at_max(isolated_config: Path):
     assert result.exit_code == 0, result.output
     assert "already at latest" in result.output.lower()
     mock_install.assert_not_called()
-    assert _read_version(isolated_config) == "2026.6.9"
+    assert _read_version(isolated_config) == "2026.6.11"
 
 
 def test_upgrade_nochange_zeroclaw_exits_zero(isolated_config: Path):

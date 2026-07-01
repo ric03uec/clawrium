@@ -127,6 +127,13 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- openclaw upstream pin bumped `2026.6.9` → `2026.6.11`. New
+  `platforms[]` entries for ubuntu 24.04/x86_64, ubuntu 22.04/x86_64,
+  and macos ≥14/arm64 land in
+  `src/clawrium/platform/registry/openclaw/manifest.yaml`.
+  `clawctl agent create --type openclaw` on a supported host now
+  installs 2026.6.11; existing instances continue to work and can opt
+  in via `clawctl agent upgrade` (#816).
 - `clawctl agent sync <openclaw-agent>` now installs the openclaw
   plugins required by attached integrations (`@openclaw/brave-plugin`
   today; generalizes via the `plugins:` block in the openclaw

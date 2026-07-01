@@ -245,3 +245,30 @@ platforms:
       gpu_required: false
       dependencies:
         nodejs: ">=20.0.0"
+  - version: "2026.6.11"
+    os: ubuntu
+    os_version: "24.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=20.0.0"
+  - version: "2026.6.11"
+    os: ubuntu
+    os_version: "22.04"
+    arch: x86_64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=18.0.0"
+  - version: "2026.6.11"
+    os: macos
+    os_version: ">=14"
+    arch: arm64
+    requirements:
+      min_memory_mb: 2048
+      gpu_required: false
+      dependencies:
+        nodejs: ">=20.0.0"
