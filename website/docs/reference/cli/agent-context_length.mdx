@@ -1,0 +1,51 @@
+---
+title: "context_length"
+sidebar_position: 100
+description: "Command reference for the context_length subcommand of clawctl agent"
+---
+
+# clawctl agent context_length
+
+Set or view the context length for a running agent.
+
+## Usage
+
+```bash
+clawctl agent context_length <agent-name> [value]
+```
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--get` | Show current context length (default if no value provided) |
+| `--set <n>` | Set context length to n tokens (e.g., 4096) |
+| `--min` | Show minimum allowed context length |
+| `--max` | Show maximum allowed context length |
+| `--help` | Show this help message |
+
+## Examples
+
+```bash
+# View current context length
+clawctl agent context_length opc-work
+
+# Set context length to 8192
+clawctl agent context_length opc-work --set 8192
+
+# Show maximum allowed value
+clawctl agent context_length opc-work --max
+```
+
+## Notes
+
+- The context length controls how many tokens the agent can remember in its conversation history.
+- Setting a value higher than the model's maximum will be rejected.
+- This setting is persisted in the agent's config and survives restarts.
+- Requires the agent to be in RUNNING or READY state.
+
+## Related
+
+- [clawctl agent describe](./agent.md#status) - View agent status and config
+- [clawctl agent configure](./agent.md#configure) - Configure agent settings interactively
+- [litellm context length](https://docs.litellm.ai/docs/completion#context-length) - Model-specific context limits
