@@ -33,7 +33,17 @@ max_pending_codes = 3
 [providers]
 fallback = "{{ provider.type | toq }}"
 
-[providers.models.{{ provider.type }}]
+# #817: zeroclaw ≥0.8.2 requires the THREE-level provider table
+# `[providers.models.<type>.<alias>]`. The two-level shape used up
+# through 0.7.5 (`[providers.models.<type>]`) is no longer recognized
+# by the boot-time model_provider resolver — the gateway boots in
+# `needs_quickstart` mode and refuses chat with "Chat endpoints will
+# return 503 needs_quickstart until at least one
+# [providers.models.<type>.<alias>] model = \"...\" is set"
+# (crates/zeroclaw-gateway/src/lib.rs line 708).
+# Alias key = agent_name so the `[agents.<alias>].model_provider`
+# reference below stays in lockstep.
+[providers.models.{{ provider.type }}.{{ agent_name }}]
 model = "{{ provider.default_model | toq }}"
 {% if provider.type == "ollama" %}base_url = "{{ provider.endpoint | toq }}"
 {% elif provider.type in ("opencode", "opencode-go") %}base_url = "{{ provider.endpoint | toq }}"
@@ -174,6 +184,40 @@ loop_ignore_tools = [
 ]
 
 [agents]
+
+# Per-agent alias sub-table required by zeroclaw ≥0.8.2. The gateway's
+# `/ws/chat` endpoint refuses connections without `?agent=<alias>` AND
+# a matching `[agents.<alias>]` entry (crates/zeroclaw-gateway/src/ws.rs
+# line 204). Every clawctl-managed agent gets exactly one alias whose
+# name equals `agent_name`.
+#
+# `model_provider` MUST resolve to `<type>.<alias>` — a reference into
+# the three-level `[providers.models.<type>.<alias>]` table rendered
+# above. Alias key equals `agent_name` on both sides so a
+# single-provider agent always has exactly one alias to point at.
+# `risk_profile` and `runtime_profile` must both name a configured
+# entry: `AliasedAgentConfig::is_dispatchable` demands all three
+# refs are non-empty
+# (crates/zeroclaw-config/src/schema.rs line 3541). Both point at
+# `default` since we don't split policy per-agent; the daemon's
+# schema/v2.rs migration folds legacy settings into a
+# `[risk_profiles.default]` + `[runtime_profiles.default]` entry
+# that gets materialized when the config is first loaded on 0.8.2.
+[agents.{{ agent_name }}]
+model_provider = "{{ provider.type }}.{{ agent_name }}"
+risk_profile = "default"
+runtime_profile = "default"
+
+# `[risk_profiles.<alias>]` and `[runtime_profiles.<alias>]` must exist
+# for the refs above to resolve — the daemon errors with "does not
+# name a configured risk_profiles entry" otherwise. Both structs
+# carry `#[serde(default)]` on every field and a full `Default`
+# impl (crates/zeroclaw-config/src/schema.rs lines 10589, 10684), so
+# empty stanzas are valid — the daemon materializes safety-first
+# defaults matching what a legacy config would have migrated into.
+[risk_profiles.default]
+
+[runtime_profiles.default]
 
 [backup]
 compress = true

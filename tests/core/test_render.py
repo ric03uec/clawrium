@@ -1162,10 +1162,28 @@ def test_zeroclaw_renders_discord_channel_and_mandatory_blocks():
     # #555: canonical zeroclaw schema — provider selection lives in
     # [providers] block as `fallback`, not as a top-level `default_provider`.
     assert '[providers]\nfallback = "openrouter"' in toml
-    assert "[providers.models.openrouter]" in toml
+    # #817: zeroclaw ≥0.8.2 requires the three-level provider table
+    # `[providers.models.<type>.<alias>]`. Alias key = agent name so
+    # a single-provider agent has exactly one alias.
+    assert f"[providers.models.openrouter.{inputs.agent_name}]" in toml
     assert "[channels.discord]" in toml
     assert 'bot_token = "discord-bot"' in toml
     assert "mention_only = true" in toml
+    # #817: zeroclaw ≥0.8.2 gateway /ws/chat rejects the WebSocket
+    # upgrade unless `?agent=<alias>` matches a `[agents.<alias>]`
+    # sub-table pointing at a configured model_provider + risk_profile
+    # + runtime_profile.
+    assert f"[agents.{inputs.agent_name}]" in toml
+    assert (
+        f'model_provider = "openrouter.{inputs.agent_name}"' in toml
+    ), "agent alias must reference the three-level provider table"
+    assert 'risk_profile = "default"' in toml
+    assert 'runtime_profile = "default"' in toml
+    # And the referenced profile stanzas must ship or the daemon
+    # rejects the config with "does not name a configured
+    # risk_profiles entry".
+    assert "[risk_profiles.default]" in toml
+    assert "[runtime_profiles.default]" in toml
     # B3: configure.yaml greps `^shell_env_passthrough\s*=` — must exist.
     assert "[autonomy]" in toml
     assert "shell_env_passthrough" in toml
@@ -1252,7 +1270,8 @@ def test_openclaw_openrouter_prefixes_model():
 def test_zeroclaw_opencode_renders_base_url_and_api_key():
     inputs = _zeroclaw_inputs(ptype="opencode")
     toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
-    assert '[providers.models.opencode]' in toml
+    # #817: three-level provider table (see the discord/mandatory test).
+    assert f'[providers.models.opencode.{inputs.agent_name}]' in toml
     assert 'base_url = "https://opencode.ai/zen/v1"' in toml
     assert 'api_key = "sk-opencode-1"' in toml
 
@@ -1260,7 +1279,8 @@ def test_zeroclaw_opencode_renders_base_url_and_api_key():
 def test_zeroclaw_opencode_go_renders_base_url_and_api_key():
     inputs = _zeroclaw_inputs(ptype="opencode-go")
     toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
-    assert '[providers.models.opencode-go]' in toml
+    # #817: three-level provider table.
+    assert f'[providers.models.opencode-go.{inputs.agent_name}]' in toml
     assert 'base_url = "https://opencode.ai/zen/go/v1"' in toml
     assert 'api_key = "sk-opencode-go-1"' in toml
 
@@ -2054,8 +2074,9 @@ def test_zeroclaw_toml_injection_payload_nul_and_cr():
     assert "\x00" not in toml_body
     parsed = tomllib.loads(toml_body)
     # NUL stripped, CR + LF preserved via escape, quote/backslash escaped.
+    # #817: three-level provider table — alias key is the agent name.
     assert (
-        parsed["providers"]["models"]["openrouter"]["api_key"]
+        parsed["providers"]["models"]["openrouter"][inputs.agent_name]["api_key"]
         == 'sk-\r\n"\\evil'
     )
     assert parsed["gateway"]["host"] == "1.2.3.4\r"
@@ -2326,12 +2347,13 @@ def test_zeroclaw_toml_string_interpolations_escape_special_chars():
 
     # Provider values round-trip.
     assert parsed["providers"]["fallback"] == "openrouter"
+    # #817: three-level provider table — alias key = agent_name.
     assert (
-        parsed["providers"]["models"]["openrouter"]["model"]
+        parsed["providers"]["models"]["openrouter"][inputs.agent_name]["model"]
         == 'evil"\\model\n'
     )
     assert (
-        parsed["providers"]["models"]["openrouter"]["api_key"]
+        parsed["providers"]["models"]["openrouter"][inputs.agent_name]["api_key"]
         == 'sk-"]\\evil\n'
     )
 

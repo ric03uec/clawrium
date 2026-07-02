@@ -698,6 +698,13 @@ def _build_zeroclaw_backend(
     The path-suffix `/ws/chat` is appended if the persisted URL was only
     the gateway origin. ZeroClaw's chat endpoint is `GET /ws/chat`; older
     persisted records (or hand-edited ones) may omit the path.
+
+    The agent instance name is passed through as `agent_alias`. Since
+    zeroclaw ≥0.8.2 the daemon requires `?agent=<alias>` on the
+    handshake and a matching `[agents.<alias>]` sub-table in
+    config.toml (both landed in #817). The canonical renderer emits
+    the sub-table using the same instance name, so the two ends stay
+    in lockstep.
     """
     gateway = _extract_gateway_config(agent_record, host_record)
     url = gateway["url"]
@@ -705,10 +712,12 @@ def _build_zeroclaw_backend(
     # gateway rejects connections at the bare root path.
     if "/ws/chat" not in url:
         url = url.rstrip("/") + "/ws/chat"
+    agent_alias = agent_record.get("agent_name") or agent_record.get("name")
     return ZeroClawChatBackend(
         gateway_url=url,
         auth_token=SecretStr(gateway["auth"]),
         timeout_seconds=response_timeout_seconds,
+        agent_alias=str(agent_alias) if agent_alias else None,
     )
 
 

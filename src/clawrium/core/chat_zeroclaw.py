@@ -145,6 +145,32 @@ def _warn_if_token_in_cleartext(gateway_url: str) -> None:
     )
 
 
+def _with_agent_alias_query(gateway_url: str, agent_alias: str | None) -> str:
+    """Append `?agent=<alias>` to `gateway_url` if `agent_alias` is set.
+
+    ZeroClaw ≥0.8.2 rejects `GET /ws/chat` with HTTP 400 unless the
+    upgrade carries a non-empty `agent` query parameter matching a
+    `[agents.<alias>]` entry in config.toml
+    (crates/zeroclaw-gateway/src/ws.rs line 204). `agent_alias=None`
+    preserves the legacy 0.7.5 URL untouched so a hosts.json record
+    pointing at an older daemon keeps working; callers on 0.8.2+
+    supply the agent instance name and get the required `?agent=`.
+
+    Idempotent: if the URL already carries an `agent` query key we
+    leave it alone rather than double-appending.
+    """
+    if not agent_alias:
+        return gateway_url
+    from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+    parsed = urlparse(gateway_url)
+    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    if any(k == "agent" for k, _ in query_pairs):
+        return gateway_url
+    query_pairs.append(("agent", agent_alias))
+    return urlunparse(parsed._replace(query=urlencode(query_pairs)))
+
+
 class ZeroClawChatBackend:
     """WebSocket chat client for ZeroClaw's `/ws/chat` endpoint.
 
@@ -163,12 +189,14 @@ class ZeroClawChatBackend:
         gateway_url: str,
         auth_token: SecretStr | str,
         timeout_seconds: float = 120.0,
+        agent_alias: str | None = None,
     ) -> None:
-        self.gateway_url = gateway_url
+        self.gateway_url = _with_agent_alias_query(gateway_url, agent_alias)
         self._auth_token = (
             auth_token if isinstance(auth_token, SecretStr) else SecretStr(auth_token)
         )
         self._timeout_seconds = timeout_seconds
+        self._agent_alias = agent_alias
         self._ws: Any | None = None
 
     async def connect(self) -> None:
