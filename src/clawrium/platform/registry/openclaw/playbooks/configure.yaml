@@ -157,6 +157,12 @@
       no_log: true
       notify: Restart openclaw service
 
+    # #835: slack MCP binary install lives in a dedicated sync-time
+    # runbook (`install_slack_mcp.yaml` + `_macos` sibling) invoked
+    # from `core.lifecycle_canonical._openclaw_install_slack_mcp`.
+    # See AGENTS.md §"Integration Binary Install" — configure.yaml
+    # is not the entry point the modern kubectl-style CLI takes.
+
     - name: Write exec approvals policy from template
       ansible.builtin.template:
         src: "{{ template_path }}/exec-approvals.json.j2"

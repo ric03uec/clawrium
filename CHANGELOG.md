@@ -79,10 +79,28 @@ cut. The `itx:release` skill archives this section into a new
 - **Architectural pattern**: "Integration Binary Install" — new
   section in [`AGENTS.md`](AGENTS.md#integration-binary-install-architectural-pattern)
   documenting the sync-time-runbook contract every future integration
-  binary MUST follow. Slack (this PR) and openclaw brave (#755) are
+  binary MUST follow. Slack (#834) and openclaw brave (#755) are
   the two canonical examples. Prevents the "sync doesn't install the
   binary" regression class where a rendered config points at a path
   the host never receives. (#834)
+- Slack integration for openclaw agents — Phase 2 of #499. The
+  `slack-user` and `slack-cookie` types now attach to openclaw agents
+  and emit an `mcp.servers.<slug>` block in
+  `~/.openclaw/openclaw.json` referencing the same
+  SHA256-pinned korotovsky/slack-mcp-server binary that hermes uses.
+  The `mcp` key is emitted **conditionally**: openclaw agents without
+  a slack integration attached render byte-identical to pre-#835
+  output — no drift on the on-host `openclaw.json` after upgrade.
+  Binary install follows the same sync-time-runbook pattern Phase 1
+  established — new `openclaw/playbooks/install_slack_mcp.yaml` +
+  `_macos` sibling invoked from `_openclaw_install_slack_mcp` in
+  `core.lifecycle_canonical`, wired into `sync_agent_canonical`
+  alongside the hermes helper. Attach gate now accepts openclaw +
+  `slack-*` pairs; render-time enforcement remains as
+  defense-in-depth. Zeroclaw slack support lands in Phase 3. GUI
+  attach flow is generic (no per-agent-type card) — server-side
+  gate flip is sufficient. macOS openclaw (GA per #770) covered via
+  `install_slack_mcp_macos.yaml`. (#835, #499)
 - CLI attach-time agent-type / integration-type gate:
   `clawctl agent integration attach <name> --agent <agent>` now rejects
   `(agent-type, integration-type)` pairs that the renderer does not

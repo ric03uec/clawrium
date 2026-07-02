@@ -35,6 +35,29 @@ _HOME_ROOT_BY_OS: dict[str, str] = {
 }
 
 
+def normalize_os_family(host: dict | None) -> str:
+    """Return a normalized `os_family` string for a hosts.json record.
+
+    Reads `host.get("os_family")`, strips whitespace + lowercases, and
+    coerces the common `mac` / `macos` / `osx` aliases to `darwin`.
+    Legacy or missing host records fall back to `linux` (mirrors the
+    `load_hosts` migration default at `core/hosts.py:330`).
+
+    Callers pass the normalized value into per-OS APIs
+    (`render_hermes(..., os_family=of)`, `render_openclaw(..., os_family=of)`)
+    — each raises on any final value outside `{'linux', 'darwin'}` so
+    an exotic input surfaces loudly at the per-API boundary rather
+    than getting silently coerced to `linux` here. Extracted (ATX
+    #835 iter-1 W2) so `lifecycle.configure_agent`'s previously-
+    duplicated coercion blocks stay in lockstep.
+    """
+    raw = (host.get("os_family") if host else None) or "linux"
+    of = str(raw).strip().lower()
+    if of in ("mac", "macos", "osx"):
+        of = "darwin"
+    return of
+
+
 def home_root_for(os_family: str) -> str:
     """Return the per-OS user home-directory root.
 
@@ -163,6 +186,8 @@ _SHELL_RC_PREPEND_BY_OS: dict[str, str] = {
         ' [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc";'
     ),
 }
+
+
 
 
 def shell_rc_prepend(os_family: str) -> str:

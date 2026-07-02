@@ -261,7 +261,7 @@ def test_canonical_sync_advances_state_to_ready(monkeypatch, fleet_dir) -> None:
             ),
         )
 
-    def fake_render(inputs):
+    def fake_render(inputs, **_kw):
         from clawrium.core.render import RenderedFiles
 
         return RenderedFiles(files={".openclaw/.env": "OPENROUTER_API_KEY=k\n"})
@@ -346,7 +346,7 @@ def test_canonical_sync_repairs_zeroclaw_gateway(monkeypatch, fleet_dir) -> None
             ),
         )
 
-    def fake_render(inputs):
+    def fake_render(inputs, **_kw):
         from clawrium.core.render import RenderedFiles
 
         return RenderedFiles(files={".zeroclaw/config.toml": "[gateway]\n"})
@@ -434,7 +434,7 @@ def test_canonical_sync_repairs_zeroclaw_even_with_no_drift(
             ),
         )
 
-    def fake_render(inputs):
+    def fake_render(inputs, **_kw):
         from clawrium.core.render import RenderedFiles
 
         return RenderedFiles(files={".zeroclaw/config.toml": "[gateway]\n"})
@@ -508,7 +508,7 @@ def test_canonical_sync_propagates_repair_failure(monkeypatch, fleet_dir) -> Non
             ),
         )
 
-    def fake_render(inputs):
+    def fake_render(inputs, **_kw):
         from clawrium.core.render import RenderedFiles
 
         return RenderedFiles(files={".zeroclaw/config.toml": "[gateway]\n"})

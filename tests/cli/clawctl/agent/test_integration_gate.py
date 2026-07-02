@@ -80,11 +80,30 @@ def _create_integration(name: str, type_: str, credentials: dict[str, str]) -> N
 # ---------------------------------------------------------------------------
 
 
-def test_attach_slack_user_to_openclaw_rejected(fleet_dir, stdin_not_tty) -> None:
-    """openclaw does not (yet) support slack-user in Phase 1. The
-    CLI must reject at attach time with exit 2 and a hint referencing
-    #499. Enforcement at render time alone would still write the
-    attachment to hosts.json — the exact regression #499 targets."""
+def _hosts_json_agent_integrations(fleet_dir, agent_name: str) -> list[str]:
+    """Read back the persisted integration list for an agent so
+    positive-path tests can assert the write actually happened.
+
+    The seed hosts.json keys agents by type (`openclaw`, `hermes`, …)
+    not by `agent_name`, so we walk every agent record and match on
+    `agent_name` to stay symmetric with how the CLI's
+    `safe_resolve_agent` picks the record."""
+    import json
+
+    hosts = json.loads((fleet_dir / "hosts.json").read_text())
+    for host in hosts:
+        for _key, agent in host.get("agents", {}).items():
+            if agent.get("agent_name") == agent_name:
+                return list(agent.get("integrations", []))
+    raise AssertionError(f"agent {agent_name!r} not found in hosts.json")
+
+
+def test_attach_slack_user_to_openclaw_succeeds(fleet_dir, stdin_not_tty) -> None:
+    """#835 (Phase 2): openclaw NOW supports slack-user. The gate must
+    let the attach through AND persist to hosts.json — an exit-0 that
+    silently skipped the write is the exact regression pattern the
+    coming-soon contract in #499 is meant to prevent. (ATX #835 iter-2
+    W6)."""
     _create_integration(
         "slack-work", "slack-user", {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
     )
@@ -92,21 +111,15 @@ def test_attach_slack_user_to_openclaw_rejected(fleet_dir, stdin_not_tty) -> Non
         app,
         ["agent", "integration", "attach", "slack-work", "--agent", "wise-hypatia"],
     )
-    assert result.exit_code == 2, result.output
-    combined = result.output + (result.stderr or "")
-    # Pin to the specific gate error string — a loose disjunct with just
-    # `'slack-user' in combined` would pass on unrelated exit-2 paths
-    # (e.g. the integration name echoed in a different error).
-    assert "does not support integration type 'slack-user'" in combined
-    assert "#499" in combined
+    assert result.exit_code == 0, result.output
+    assert "slack-work" in _hosts_json_agent_integrations(
+        fleet_dir, "wise-hypatia"
+    )
 
 
-def test_attach_slack_cookie_to_openclaw_rejected(fleet_dir, stdin_not_tty) -> None:
-    """openclaw also rejects slack-cookie in Phase 1.
-
-    #834 (ATX iter-1 B4): assert on the specific error string, not
-    just exit_code == 2. Any unrelated exit-2 path (e.g. arg parser
-    failure) would silently pass a broken gate otherwise."""
+def test_attach_slack_cookie_to_openclaw_succeeds(fleet_dir, stdin_not_tty) -> None:
+    """#835 (Phase 2): cookie mode is also accepted on openclaw. Also
+    asserts hosts.json persistence per ATX #835 iter-2 W6."""
     _create_integration(
         "slack-legacy",
         "slack-cookie",
@@ -123,10 +136,10 @@ def test_attach_slack_cookie_to_openclaw_rejected(fleet_dir, stdin_not_tty) -> N
             "wise-hypatia",
         ],
     )
-    assert result.exit_code == 2, result.output
-    combined = result.output + (result.stderr or "")
-    assert "does not support integration type 'slack-cookie'" in combined
-    assert "#499" in combined
+    assert result.exit_code == 0, result.output
+    assert "slack-legacy" in _hosts_json_agent_integrations(
+        fleet_dir, "wise-hypatia"
+    )
 
 
 def test_attach_slack_user_to_zeroclaw_rejected(fleet_dir, stdin_not_tty) -> None:

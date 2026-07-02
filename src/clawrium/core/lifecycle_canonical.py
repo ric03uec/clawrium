@@ -1540,6 +1540,82 @@ def _hermes_install_slack_mcp(
         )
 
 
+# #835: openclaw slack MCP subprocess installer. Sibling of the hermes
+# helper directly above — same binary, same version pin, same runbook
+# shape; separate helper because `_run_lifecycle_playbook` resolves the
+# runbook path under `platform/registry/<agent_type>/playbooks/`, so a
+# hermes-scoped call cannot reach `openclaw/playbooks/install_slack_mcp.yaml`.
+# The one-runbook-per-(agent_type, binary) contract is Rule 1 of the
+# "Integration Binary Install" architectural pattern in AGENTS.md.
+_OPENCLAW_SLACK_TYPES = frozenset({"slack-user", "slack-cookie"})
+
+
+def _openclaw_install_slack_mcp(
+    agent_name: str,
+    hostname: str,
+    host: dict,
+    inputs,
+    *,
+    on_event: Callable[[str, str], None] | None = None,
+    timeout: int = 180,
+) -> None:
+    """Install slack-mcp-server on `hostname` via the openclaw runbook.
+
+    Structural mirror of `_hermes_install_slack_mcp` above — the only
+    difference is the `agent_type="openclaw"` argument threaded into
+    `_run_lifecycle_playbook`, which routes the runbook lookup to
+    `platform/registry/openclaw/playbooks/install_slack_mcp[_macos].yaml`.
+
+    Gated on: at least one `slack-user` or `slack-cookie` integration
+    in `inputs.integrations`. When no slack integration is attached,
+    this is a fast no-op — no SSH, no ansible-runner spawn.
+
+    Dispatches per `host.get("os_family")`: darwin picks the
+    `install_slack_mcp_macos.yaml` sibling. All other values (including
+    the empty / missing case) fall through to the Linux runbook, which
+    is safe because Linux is the fleet default and the runbook itself
+    guards with `ansible_os_family == "Darwin"` at task-0.
+
+    Raises `CanonicalSyncError` on any playbook failure so
+    `sync_agent_canonical` short-circuits before `_restart_unit`. The
+    daemon is never restarted with a rendered openclaw.json pointing at
+    a `mcp.servers.<slug>.command` path whose binary failed to land.
+    """
+    if not any(i.type in _OPENCLAW_SLACK_TYPES for i in inputs.integrations):
+        return
+
+    # Lazy import to sidestep the lifecycle ↔ lifecycle_canonical cycle
+    # (same rationale as the hermes helper above).
+    from clawrium.core.lifecycle import _run_lifecycle_playbook
+
+    os_family = str(host.get("os_family") or "linux").strip().lower()
+    if os_family in ("mac", "macos", "osx"):
+        os_family = "darwin"
+    operation = (
+        "install_slack_mcp_macos" if os_family == "darwin" else "install_slack_mcp"
+    )
+
+    if on_event is not None:
+        on_event(
+            "slack_mcp_install",
+            f"installing slack-mcp-server for {agent_name} via openclaw/{operation}.yaml",
+        )
+
+    success, err = _run_lifecycle_playbook(
+        agent_type="openclaw",
+        agent_name=agent_name,
+        hostname=hostname,
+        operation=operation,
+        host=host,
+        timeout=timeout,
+    )
+    if not success:
+        # Single-purpose runbook — any failure is a real install error.
+        raise CanonicalSyncError(
+            f"slack-mcp-server install failed for {agent_name!r}: {err}"
+        )
+
+
 def sync_agent_canonical(
     agent_name: str,
     *,
@@ -1823,7 +1899,21 @@ def sync_agent_canonical(
         )
 
     emit("render", f"rendering canonical config for {inputs.agent_type}")
-    rendered = renderer(inputs)
+    # #835 (ATX iter-1 W1 → iter-2 W1 tightened): thread os_family into
+    # hermes/openclaw renderers so `clawctl agent sync` produces the
+    # same binary paths `configure` does on darwin. Test stubs across
+    # `test_lifecycle_canonical.py`, `test_workspace_*`, and
+    # `test_sync.py` accept `**_kw` — no TypeError shim, so any future
+    # stub that drops kwarg support fails loudly instead of silently
+    # falling back to a linux-only render (the iter-2 reviewer flagged
+    # the shim as silencing a programming-error class).
+    from clawrium.core.playbook_resolver import normalize_os_family
+
+    _os_family = normalize_os_family(host)
+    if inputs.agent_type in ("hermes", "openclaw"):
+        rendered = renderer(inputs, os_family=_os_family)
+    else:
+        rendered = renderer(inputs)
 
     emit("diff", f"reading on-host files from {hostname}")
     diffs = diff_files(
@@ -1933,6 +2023,20 @@ def sync_agent_canonical(
         # no slack integration is attached.
         if inputs.agent_type == "hermes":
             _hermes_install_slack_mcp(
+                agent_name,
+                hostname,
+                host,
+                inputs,
+                on_event=on_event,
+            )
+
+        # #835: openclaw slack-mcp-server install. Same slot + same
+        # short-circuit contract as the hermes helper above; separate
+        # entry-point because the runbook lookup is agent-type-scoped
+        # (`platform/registry/openclaw/playbooks/install_slack_mcp*.yaml`).
+        # Fast no-op when no slack integration is attached.
+        if inputs.agent_type == "openclaw":
+            _openclaw_install_slack_mcp(
                 agent_name,
                 hostname,
                 host,
