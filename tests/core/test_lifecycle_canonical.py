@@ -36,6 +36,31 @@ from clawrium.core.lifecycle_canonical import (
 from clawrium.core.render_diff import FileDiff
 
 
+@pytest.fixture(autouse=True)
+def _default_probe_present(request, monkeypatch):
+    """#811: every sync test that doesn't explicitly exercise the
+    validate-phase probe gets a "both artifacts present" stub so the
+    new SSH round-trip in `sync_agent_canonical` is invisible.
+
+    Tests that want to exercise the real probe declare
+    `@pytest.mark.no_probe_stub` (ATX iter-1 B4 — marker-based opt-
+    out instead of a class-name string literal that would silently
+    decay if the class is renamed).
+    """
+    if request.node.get_closest_marker("no_probe_stub") is not None:
+        return
+    monkeypatch.setattr(
+        lc,
+        "probe_host_install",
+        lambda *_a, **_kw: lc.HostInstallProbe(
+            unit_present=True,
+            home_present=True,
+            unit_path="/etc/systemd/system/x.service",
+            home_path="/home/x/.x",
+        ),
+    )
+
+
 def _catalog_pattern_containing(needle: str) -> str:
     """Look up a `_KNOWN_UNIT_FATAL_PATTERNS` regex by content
     instead of positional index — ATX iter-4 S2. Inserting a new
@@ -198,6 +223,20 @@ def _stub_sync_environment(monkeypatch, *, agent_type: str = "hermes"):
     monkeypatch.setattr(lc, "_atomic_write", lambda *a, **kw: None)
     monkeypatch.setattr(lc, "_restart_unit", lambda *a, **kw: None)
     monkeypatch.setattr(lc, "_verify_health", lambda *a, **kw: None)
+    # #811: stub the validate-phase host probe to "install intact" so
+    # the new validate-phase short-circuit doesn't fire on tests that
+    # exercise downstream sync behavior. Tests that want to exercise
+    # the missing-install path override this explicitly.
+    monkeypatch.setattr(
+        lc,
+        "probe_host_install",
+        lambda *_a, **_kw: lc.HostInstallProbe(
+            unit_present=True,
+            home_present=True,
+            unit_path="/etc/systemd/system/x.service",
+            home_path="/home/alpha/.x",
+        ),
+    )
     events: list[tuple[str, str]] = []
     return events, inputs
 
@@ -421,6 +460,16 @@ def test_zeroclaw_sync_repair_failure_raises(monkeypatch):
     monkeypatch.setattr(lc, "_atomic_write", lambda *a, **kw: None)
     monkeypatch.setattr(lc, "_restart_unit", lambda *a, **kw: None)
     monkeypatch.setattr(lc, "_verify_health", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        lc,
+        "probe_host_install",
+        lambda *_a, **_kw: lc.HostInstallProbe(
+            unit_present=True,
+            home_present=True,
+            unit_path="/etc/systemd/system/zeroclaw-zc.service",
+            home_path="/home/zc/.zeroclaw",
+        ),
+    )
 
     with patch(
         "clawrium.core.lifecycle._zeroclaw_repair_after_start",
@@ -538,6 +587,16 @@ def test_sync_force_bypass_writes_through_secret_removal(monkeypatch):
     )
     monkeypatch.setattr(lc, "diff_files", lambda **_: [diff])
     monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+    monkeypatch.setattr(
+        lc,
+        "probe_host_install",
+        lambda *_a, **_kw: lc.HostInstallProbe(
+            unit_present=True,
+            home_present=True,
+            unit_path="/etc/systemd/system/hermes-alpha.service",
+            home_path="/home/alpha/.hermes",
+        ),
+    )
     # W7 (ATX #555 polish round 2): capture remote_path so we can
     # assert the rendered body actually reaches `_atomic_write`.
     written: list = []
@@ -3115,6 +3174,599 @@ class TestLoadOpenclawPlugins:
             CanonicalSyncError, match=r"not a mapping"
         ):
             lc._load_openclaw_plugins()
+
+
+# ---------------------------------------------------------------------------
+# #811: probe_host_install + AgentInstallMissingError + sync validate-phase
+# ---------------------------------------------------------------------------
+
+
+class _FakeSSHExec:
+    """A minimal paramiko-shaped stand-in that records the last exec_command
+    call and returns a stdout body the probe can parse."""
+
+    def __init__(self, body: str):
+        self._body = body
+        self.last_cmd: str | None = None
+
+    def exec_command(self, cmd, timeout=None):  # noqa: D401
+        self.last_cmd = cmd
+
+        class _C:
+            def __init__(self, body):
+                self._body = body
+
+            def read(self):
+                return self._body.encode("utf-8")
+
+        return None, _C(self._body), _C("")
+
+
+@pytest.mark.no_probe_stub
+class TestProbeHostInstall:
+    def test_both_present_linux(self):
+        client = _FakeSSHExec("unit:1\nhome:1\n")
+        host = {"hostname": "h", "os_family": "linux"}
+        from clawrium.core.lifecycle_canonical import probe_host_install as _probe
+        result = _probe(
+            client,
+            agent_type="zeroclaw",
+            agent_name="alpha",
+            host=host,
+        )
+        assert result.ok is True
+        assert result.unit_present is True
+        assert result.home_present is True
+        assert result.unit_path == "/etc/systemd/system/zeroclaw-alpha.service"
+        assert result.home_path == "/home/alpha/.zeroclaw"
+        assert result.missing_summary() == ""
+        # The probe used the dispatcher-resolved paths, not hard-coded literals.
+        assert "/etc/systemd/system/zeroclaw-alpha.service" in client.last_cmd
+        assert "/home/alpha/.zeroclaw" in client.last_cmd
+
+    def test_unit_missing_only(self):
+        client = _FakeSSHExec("unit:0\nhome:1\n")
+        from clawrium.core.lifecycle_canonical import probe_host_install as _probe
+        result = _probe(
+            client,
+            agent_type="zeroclaw",
+            agent_name="alpha",
+            host={"hostname": "h", "os_family": "linux"},
+        )
+        assert result.ok is False
+        assert result.unit_present is False
+        assert result.home_present is True
+        assert "service unit" in result.missing_summary()
+        assert "agent home" not in result.missing_summary()
+
+    def test_home_missing_only(self):
+        client = _FakeSSHExec("unit:1\nhome:0\n")
+        from clawrium.core.lifecycle_canonical import probe_host_install as _probe
+        result = _probe(
+            client,
+            agent_type="hermes",
+            agent_name="alpha",
+            host={"hostname": "h", "os_family": "linux"},
+        )
+        assert result.ok is False
+        assert "agent home" in result.missing_summary()
+        assert "service unit" not in result.missing_summary()
+
+    def test_both_missing_lists_both(self):
+        client = _FakeSSHExec("unit:0\nhome:0\n")
+        from clawrium.core.lifecycle_canonical import probe_host_install as _probe
+        result = _probe(
+            client,
+            agent_type="zeroclaw",
+            agent_name="alpha",
+            host={"hostname": "h", "os_family": "linux"},
+        )
+        assert result.ok is False
+        summary = result.missing_summary()
+        assert "service unit" in summary
+        assert "agent home" in summary
+
+    def test_macos_uses_plist_path(self):
+        client = _FakeSSHExec("unit:1\nhome:1\n")
+        from clawrium.core.lifecycle_canonical import probe_host_install as _probe
+        result = _probe(
+            client,
+            agent_type="hermes",
+            agent_name="alpha",
+            host={"hostname": "h", "os_family": "darwin"},
+        )
+        assert result.unit_path.startswith("/Library/LaunchDaemons/")
+        assert result.unit_path.endswith(".plist")
+        assert result.home_path == "/Users/alpha/.hermes"
+        # Probe command actually referenced the plist + Users home.
+        assert "/Library/LaunchDaemons/" in client.last_cmd
+        assert "/Users/alpha/.hermes" in client.last_cmd
+
+    def test_malformed_output_raises_canonical_sync_error(self):
+        """ATX iter-1 B1: an unparseable response MUST raise
+        `CanonicalSyncError` rather than fabricate "both missing"
+        (which would fire `AgentInstallMissingError` against a
+        healthy host whose probe transiently blipped). See the
+        `TestProbeHostInstallFailureModes` block below for the
+        full failure-mode matrix."""
+        from clawrium.core.lifecycle_canonical import (
+            CanonicalSyncError,
+            probe_host_install as _probe,
+        )
+
+        client = _FakeSSHExec("garbage\nnotaprobeoutput\n")
+        with pytest.raises(CanonicalSyncError, match="unparseable output"):
+            _probe(
+                client,
+                agent_type="zeroclaw",
+                agent_name="alpha",
+                host={"hostname": "h", "os_family": "linux"},
+            )
+
+
+class TestSyncValidatePhaseProbe:
+    def _make_probe(self, *, unit: bool, home: bool, agent_type: str = "zeroclaw"):
+        # Pre-resolve paths so the stub returns the same shape the real
+        # helper would.
+        from clawrium.core.playbook_resolver import home_root_for, unit_path_for
+
+        return lc.HostInstallProbe(
+            unit_present=unit,
+            home_present=home,
+            unit_path=unit_path_for("linux", agent_type, "alpha"),
+            home_path=f"{home_root_for('linux')}/alpha/.{agent_type}",
+        )
+
+    def test_probe_failure_short_circuits_before_render(self, monkeypatch):
+        events, _ = _stub_sync_environment(monkeypatch, agent_type="zeroclaw")
+        # Force probe failure: unit missing.
+        monkeypatch.setattr(
+            lc,
+            "probe_host_install",
+            lambda *_a, **_kw: self._make_probe(unit=False, home=True),
+        )
+        # Sentinel: renderer must NEVER be called.
+        renderer_called = {"count": 0}
+
+        def _sentinel_renderer(_inputs):
+            renderer_called["count"] += 1
+            raise AssertionError("renderer must not run when probe fails")
+
+        monkeypatch.setitem(lc._RENDERERS, "zeroclaw", _sentinel_renderer)
+        # diff_files must also not run.
+        diff_called = {"count": 0}
+
+        def _sentinel_diff(**_kw):
+            diff_called["count"] += 1
+            raise AssertionError("diff_files must not run when probe fails")
+
+        monkeypatch.setattr(lc, "diff_files", _sentinel_diff)
+        with pytest.raises(lc.AgentInstallMissingError) as excinfo:
+            sync_agent_canonical(
+                "alpha",
+                restart=False,
+                verify=False,
+                on_event=lambda s, m: events.append((s, m)),
+            )
+        msg = str(excinfo.value)
+        assert "zeroclaw-alpha.service" in msg
+        # ATX iter-5 B1: there is no `clawctl agent install` verb;
+        # the repair hint points at `delete` + `create` (the real
+        # reinstall flow) and `doctor` (for diagnosis).
+        assert "clawctl agent delete alpha" in msg
+        assert "clawctl agent create alpha" in msg
+        assert "clawctl agent doctor alpha" in msg
+        # Regression guard against the iter-5 B1 bug.
+        assert "clawctl agent install" not in msg
+        # The validate emit fired.
+        assert any(
+            s == "validate" and "checking host install" in m for s, m in events
+        )
+        assert renderer_called["count"] == 0
+        assert diff_called["count"] == 0
+
+    def test_probe_failure_with_home_missing_names_home(self, monkeypatch):
+        events, _ = _stub_sync_environment(monkeypatch, agent_type="zeroclaw")
+        monkeypatch.setattr(
+            lc,
+            "probe_host_install",
+            lambda *_a, **_kw: self._make_probe(unit=True, home=False),
+        )
+        with pytest.raises(lc.AgentInstallMissingError) as excinfo:
+            sync_agent_canonical("alpha", restart=False, verify=False,
+                                 on_event=lambda s, m: events.append((s, m)))
+        assert "/home/alpha/.zeroclaw" in str(excinfo.value)
+
+    def test_probe_failure_lists_both_missing_artifacts(self, monkeypatch):
+        events, _ = _stub_sync_environment(monkeypatch, agent_type="zeroclaw")
+        monkeypatch.setattr(
+            lc,
+            "probe_host_install",
+            lambda *_a, **_kw: self._make_probe(unit=False, home=False),
+        )
+        with pytest.raises(lc.AgentInstallMissingError) as excinfo:
+            sync_agent_canonical("alpha", restart=False, verify=False,
+                                 on_event=lambda s, m: events.append((s, m)))
+        msg = str(excinfo.value)
+        assert "zeroclaw-alpha.service" in msg
+        assert "/home/alpha/.zeroclaw" in msg
+
+    def test_probe_failure_blocks_workspace_only_sync(self, monkeypatch):
+        """A `--workspace-only` sync must also short-circuit before the
+        overlay push and before the zeroclaw bearer rotation."""
+        events, _ = _stub_sync_environment(monkeypatch, agent_type="zeroclaw")
+        monkeypatch.setattr(
+            lc,
+            "probe_host_install",
+            lambda *_a, **_kw: self._make_probe(unit=False, home=True),
+        )
+        # Sentinels: neither overlay push nor zeroclaw repair may run.
+        from clawrium.core import workspace_sync, lifecycle
+
+        def _sentinel_push(**_kw):
+            raise AssertionError("overlay push must not run when probe fails")
+
+        def _sentinel_repair(*_a, **_kw):
+            raise AssertionError("zeroclaw repair must not run when probe fails")
+
+        monkeypatch.setattr(
+            workspace_sync, "push_workspace_phase", _sentinel_push
+        )
+        monkeypatch.setattr(
+            lifecycle, "_zeroclaw_repair_after_start", _sentinel_repair
+        )
+        with pytest.raises(lc.AgentInstallMissingError):
+            sync_agent_canonical(
+                "alpha",
+                restart=False,
+                verify=False,
+                workspace_only=True,
+                on_event=lambda s, m: events.append((s, m)),
+            )
+
+    def test_probe_pass_proceeds_normally(self, monkeypatch):
+        """When the probe reports both artifacts present, sync must
+        continue through render/diff/write/restart as it did before
+        the validate-phase was introduced. Guards against the probe
+        becoming a regression on the happy path."""
+        events, _ = _stub_sync_environment(monkeypatch, agent_type="hermes")
+        monkeypatch.setattr(
+            "clawrium.core.onboarding.transition_state",
+            lambda *a, **kw: None,
+        )
+        result = sync_agent_canonical(
+            "alpha",
+            restart=True,
+            verify=False,
+            on_event=lambda s, m: events.append((s, m)),
+        )
+        assert result.success
+        # `write` stage fired — proves we got past validate.
+        assert any(s == "write" for s, _ in events)
+
+
+# ---------------------------------------------------------------------------
+# #811 ATX iter-1 follow-ups: B1/B2/B3 + W5 + S4/S8 coverage on the probe.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.no_probe_stub
+class TestProbeHostInstallFailureModes:
+    """Failure-mode discipline — every non-happy code path."""
+
+    def test_unparseable_output_raises_canonical_sync_error(self):
+        """ATX iter-1 B1: empty / garbage stdout MUST raise
+        `CanonicalSyncError` rather than silently report "both
+        missing" (which would fire `AgentInstallMissingError`
+        against a healthy host)."""
+        from clawrium.core.lifecycle_canonical import (
+            CanonicalSyncError,
+            probe_host_install,
+        )
+
+        client = _FakeSSHExec("totally not the probe output\n")
+        with pytest.raises(
+            CanonicalSyncError, match="unparseable output"
+        ):
+            probe_host_install(
+                client,
+                agent_type="zeroclaw",
+                agent_name="alpha",
+                host={"hostname": "h", "os_family": "linux"},
+            )
+
+    def test_sshexception_wrapped_in_canonical_sync_error(self):
+        """ATX iter-1 B2: paramiko `SSHException` from `exec_command`
+        is wrapped in `CanonicalSyncError`, not propagated raw."""
+        import paramiko
+
+        from clawrium.core.lifecycle_canonical import (
+            CanonicalSyncError,
+            probe_host_install,
+        )
+
+        class _Boom:
+            def exec_command(self, _cmd, timeout=None):
+                raise paramiko.SSHException("session lost")
+
+        with pytest.raises(
+            CanonicalSyncError, match="transport failure"
+        ):
+            probe_host_install(
+                _Boom(),
+                agent_type="zeroclaw",
+                agent_name="alpha",
+                host={"hostname": "h", "os_family": "linux"},
+            )
+
+    def test_oserror_wrapped_in_canonical_sync_error(self):
+        """ATX iter-1 B2: `OSError` (network reset, broken pipe) wraps too."""
+        from clawrium.core.lifecycle_canonical import (
+            CanonicalSyncError,
+            probe_host_install,
+        )
+
+        class _Broken:
+            def exec_command(self, _cmd, timeout=None):
+                raise OSError("connection reset by peer")
+
+        with pytest.raises(
+            CanonicalSyncError, match="transport failure"
+        ):
+            probe_host_install(
+                _Broken(),
+                agent_type="zeroclaw",
+                agent_name="alpha",
+                host={"hostname": "h", "os_family": "linux"},
+            )
+
+    def test_zeroclaw_on_darwin_raises_canonical_sync_error(self):
+        """ATX iter-1 B3: `unit_path_for("darwin", "zeroclaw", ...)` raises
+        `ValueError` (no plist convention). The probe wraps it in
+        `CanonicalSyncError` so a malformed hosts.json row gets an
+        operator-readable error instead of an opaque traceback."""
+        from clawrium.core.lifecycle_canonical import (
+            CanonicalSyncError,
+            probe_host_install,
+        )
+
+        client = _FakeSSHExec("ignored")
+        with pytest.raises(
+            CanonicalSyncError, match="no service-manager artifact convention"
+        ):
+            probe_host_install(
+                client,
+                agent_type="zeroclaw",
+                agent_name="alpha",
+                host={"hostname": "h", "os_family": "darwin"},
+            )
+
+    def test_sudo_refusal_raises_distinct_canonical_sync_error(self):
+        """ATX iter-1 W1: sudo -n stderr matches a refusal pattern
+        AND home_present=False → distinct CanonicalSyncError
+        (not AgentInstallMissingError, not a silent mis-flag)."""
+        from clawrium.core.lifecycle_canonical import (
+            CanonicalSyncError,
+            probe_host_install,
+        )
+
+        class _SudoDenied:
+            def exec_command(self, _cmd, timeout=None):
+                class _C:
+                    def __init__(self, body):
+                        self._body = body
+
+                    def read(self):
+                        return self._body.encode("utf-8")
+
+                # Unit present, home failed because sudo refused.
+                return (
+                    None,
+                    _C("unit:1\nhome:0\n"),
+                    _C(
+                        "sudo: a password is required\n"
+                    ),
+                )
+
+        with pytest.raises(CanonicalSyncError, match="sudo refused"):
+            probe_host_install(
+                _SudoDenied(),
+                agent_type="zeroclaw",
+                agent_name="alpha",
+                host={"hostname": "h", "os_family": "linux"},
+            )
+
+    def test_probe_command_uses_sudo_n_for_home(self):
+        """ATX iter-1 S4: regression guard — without `sudo -n` the
+        probe falsely reports the home dir missing on every healthy
+        Linux agent (the bug found during wolf-i UAT)."""
+        from clawrium.core.lifecycle_canonical import probe_host_install
+
+        client = _FakeSSHExec("unit:1\nhome:1\n")
+        probe_host_install(
+            client,
+            agent_type="zeroclaw",
+            agent_name="alpha",
+            host={"hostname": "h", "os_family": "linux"},
+        )
+        assert "sudo -n test -d" in client.last_cmd
+
+    def test_probe_openclaw_linux_path(self):
+        """ATX iter-1 S8: openclaw was previously unexercised at the
+        probe level. Cover both that the dispatcher resolves the
+        right unit path and that the probe shells the right home
+        dir for openclaw."""
+        from clawrium.core.lifecycle_canonical import probe_host_install
+
+        client = _FakeSSHExec("unit:1\nhome:1\n")
+        r = probe_host_install(
+            client,
+            agent_type="openclaw",
+            agent_name="oc1",
+            host={"hostname": "h", "os_family": "linux"},
+        )
+        assert r.unit_path == "/etc/systemd/system/openclaw-oc1.service"
+        assert r.home_path == "/home/oc1/.openclaw"
+        assert "/etc/systemd/system/openclaw-oc1.service" in client.last_cmd
+        assert "/home/oc1/.openclaw" in client.last_cmd
+
+    def test_probe_openclaw_darwin_uses_plist(self):
+        """ATX iter-1 W7: openclaw-on-darwin should resolve through
+        the launchd plist convention, not raise."""
+        from clawrium.core.lifecycle_canonical import probe_host_install
+
+        client = _FakeSSHExec("unit:1\nhome:1\n")
+        r = probe_host_install(
+            client,
+            agent_type="openclaw",
+            agent_name="oc1",
+            host={"hostname": "h", "os_family": "darwin"},
+        )
+        assert r.unit_path.startswith("/Library/LaunchDaemons/")
+        assert r.unit_path.endswith(".plist")
+        assert r.home_path == "/Users/oc1/.openclaw"
+
+
+def test_sync_dry_run_with_probe_failure_still_short_circuits(monkeypatch):
+    """ATX iter-1 W5: dry-run must pay the probe cost — a dry-run
+    that "would change N files" against a missing daemon is
+    misleading. Probe failure short-circuits even on dry-run."""
+    events, _ = _stub_sync_environment(monkeypatch, agent_type="zeroclaw")
+    monkeypatch.setattr(
+        lc,
+        "probe_host_install",
+        lambda *_a, **_kw: lc.HostInstallProbe(
+            unit_present=False,
+            home_present=True,
+            unit_path="/etc/systemd/system/zeroclaw-alpha.service",
+            home_path="/home/alpha/.zeroclaw",
+        ),
+    )
+    with pytest.raises(lc.AgentInstallMissingError):
+        sync_agent_canonical(
+            "alpha",
+            restart=False,
+            verify=False,
+            dry_run=True,
+            on_event=lambda s, m: events.append((s, m)),
+        )
+
+
+class TestParseProbeOutput:
+    """Direct coverage on the shared parser (ATX iter-1 S1)."""
+
+    def test_recognizes_both_keys(self):
+        from clawrium.core.lifecycle_canonical import _parse_probe_output
+
+        parsed, unit, home = _parse_probe_output("unit:1\nhome:0\n")
+        assert parsed is True
+        assert unit is True
+        assert home is False
+
+    def test_partial_input_still_parsed(self):
+        """Only the `unit` key present — parsed=True, home defaults False."""
+        from clawrium.core.lifecycle_canonical import _parse_probe_output
+
+        parsed, unit, home = _parse_probe_output("unit:1\n")
+        assert parsed is True
+        assert unit is True
+        assert home is False
+
+    def test_empty_body_parsed_false(self):
+        from clawrium.core.lifecycle_canonical import _parse_probe_output
+
+        parsed, unit, home = _parse_probe_output("")
+        assert parsed is False
+        assert unit is False
+        assert home is False
+
+    def test_garbage_parsed_false(self):
+        from clawrium.core.lifecycle_canonical import _parse_probe_output
+
+        parsed, _u, _h = _parse_probe_output("nope\nnothing\n")
+        assert parsed is False
+
+
+# ---------------------------------------------------------------------------
+# #811 ATX iter-2: pattern + helper direct coverage
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "sudo: a password is required",
+        # ATX iter-3 W6: isolated coverage for the bare "password
+        # is required" pattern; the entry above doubles up with
+        # "a password is required" so the parametrize matrix
+        # previously left this entry only transitively exercised.
+        "sudo: password is required to access this resource",
+        "Sorry, user xclm is not allowed to execute '/usr/bin/test' as root on h.",
+        "Sorry, xclm is not allowed to run sudo on h.",
+        "xclm is not in the sudoers file. This incident will be reported.",
+        # ATX iter-4 B1: isolated coverage for the "incident will
+        # be reported" pattern — the entry above doubles up with
+        # "not in the sudoers" so removing pattern 7 from the
+        # tuple would otherwise still leave the matrix green.
+        "sudo: this incident will be reported to the administrator.",
+        "xclm may not run sudo on h.",
+        "sudo: no tty present and no askpass program specified",
+        "sudo: a terminal is required to read the password",
+        # ATX iter-4 W7: sudo binary missing entirely.
+        "bash: sudo: command not found",
+    ],
+)
+def test_looks_like_sudo_refusal_matches_each_pattern(stderr):
+    """ATX iter-2 W4: every documented pattern in
+    `_SUDO_REFUSAL_PATTERNS` must be detected. Without this
+    parametrized guard, a regression that drops a pattern goes
+    undetected by the existing single-sample test."""
+    from clawrium.core.lifecycle_canonical import _looks_like_sudo_refusal
+
+    assert _looks_like_sudo_refusal(stderr), stderr
+
+
+def test_looks_like_sudo_refusal_does_not_match_benign_stderr():
+    """The pattern list MUST NOT match arbitrary stderr — e.g.
+    a probe whose stderr contains shell traces, SSH MOTD, or
+    unrelated warnings should not trip the sudo-refusal branch."""
+    from clawrium.core.lifecycle_canonical import _looks_like_sudo_refusal
+
+    assert not _looks_like_sudo_refusal("warning: unrelated noise")
+    assert not _looks_like_sudo_refusal("")
+    assert not _looks_like_sudo_refusal(
+        "ssh: connect to host x: connection refused"
+    )
+
+
+@pytest.mark.parametrize(
+    "os_family,agent_type,agent_name,expected",
+    [
+        ("linux", "zeroclaw", "alpha", "/home/alpha/.zeroclaw"),
+        ("linux", "hermes", "bob", "/home/bob/.hermes"),
+        ("linux", "openclaw", "oc1", "/home/oc1/.openclaw"),
+        ("darwin", "hermes", "mac1", "/Users/mac1/.hermes"),
+        ("darwin", "openclaw", "mac2", "/Users/mac2/.openclaw"),
+    ],
+)
+def test_agent_home_path_matrix(os_family, agent_type, agent_name, expected):
+    """ATX iter-2 S4: direct coverage on the home-path helper.
+    Previously only exercised transitively through probe tests."""
+    from clawrium.core.lifecycle_canonical import _agent_home_path
+
+    assert _agent_home_path(os_family, agent_type, agent_name) == expected
+
+
+def test_build_probe_command_includes_lc_all_c():
+    """ATX iter-2 W1: locale stability. `LC_ALL=C` must be exported
+    so sudo's refusal banner stays in English regardless of host
+    locale."""
+    from clawrium.core.lifecycle_canonical import _build_probe_command
+
+    cmd = _build_probe_command(
+        "/etc/systemd/system/zeroclaw-a.service", "/home/a/.zeroclaw"
+    )
+    assert "LC_ALL=C" in cmd
 
 
 class TestSyncRefusesIncompleteInstall:

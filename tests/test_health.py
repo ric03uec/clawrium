@@ -1619,3 +1619,621 @@ class TestProcessNameByAgentType:
         first_call = mock_run.call_args_list[0]
         module_args = first_call.kwargs.get("module_args", "")
         assert "pgrep -u empty-user node" == module_args
+
+
+# ---------------------------------------------------------------------------
+# #811: ClawStatus.INSTALL_MISSING + _probe_install_artifacts
+# ---------------------------------------------------------------------------
+
+
+def test_install_missing_status_exists():
+    """The enum variant must exist and round-trip to its string value
+    so the GUI serializer (which calls `.value`) emits a stable key."""
+    assert ClawStatus.INSTALL_MISSING.value == "install_missing"
+
+
+def test_health_check_install_missing_when_unit_and_home_absent():
+    """Process not running + on-host install probe reports both unit
+    and home missing → status INSTALL_MISSING with a repair hint."""
+    host = {
+        "hostname": "h",
+        "port": 22,
+        "key_id": "k",
+        "os_family": "linux",
+        "agents": {
+            "alpha": {
+                "type": "zeroclaw",
+                "version": "0.7.5",
+                "status": "installed",
+                "agent_name": "alpha",
+            }
+        },
+    }
+    # `check_claw_health` invokes `ansible_runner.run` in this
+    # order (ATX iter-2 S5):
+    #   1. pgrep — process not running.
+    #   2. _collect_system_info — CPU + memory.
+    #   3. install probe — both artifacts absent.
+    # `calls.pop(0)` feeds them positionally; if a future change
+    # reorders the calls (e.g. drops sysinfo on the
+    # INSTALL_MISSING path), the wrong runner lands in the wrong
+    # slot. Re-anchor the stub list before editing this test.
+    pgrep_runner = MagicMock()
+    pgrep_runner.status = "failed"
+    pgrep_runner.events = [
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
+    ]
+    sysinfo_runner = MagicMock()
+    sysinfo_runner.status = "successful"
+    sysinfo_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "4\n8000000"}},
+        }
+    ]
+    probe_runner = MagicMock()
+    probe_runner.status = "successful"
+    probe_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "unit:0\nhome:0\n"}},
+        }
+    ]
+    calls = [pgrep_runner, sysinfo_runner, probe_runner]
+    with patch(
+        "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+    ):
+        with patch(
+            "clawrium.core.health.ansible_runner.run",
+            side_effect=lambda *a, **kw: calls.pop(0),
+        ):
+            result = check_claw_health("alpha", host)
+    assert result["status"] == ClawStatus.INSTALL_MISSING
+    assert result["process_running"] is False
+    assert result["error"] is not None
+    assert "zeroclaw-alpha.service" in result["error"]
+    assert "/home/alpha/.zeroclaw" in result["error"]
+    # ATX iter-5 B1: there is no `clawctl agent install` verb; the
+    # repair hint points operators at `agent doctor` + the
+    # `agent delete` / `agent create` reinstall flow.
+    assert "clawctl agent doctor alpha" in result["error"]
+    assert "clawctl agent delete" in result["error"]
+    assert "clawctl agent create" in result["error"]
+    assert "clawctl agent install" not in result["error"]
+
+
+def test_health_check_install_missing_unit_only_still_install_missing():
+    """When ONLY the unit is gone (home still present from a previous
+    mkdir), the agent is still wedged and the probe must flag it."""
+    host = {
+        "hostname": "h",
+        "port": 22,
+        "key_id": "k",
+        "os_family": "linux",
+        "agents": {
+            "alpha": {
+                "type": "zeroclaw",
+                "version": "0.7.5",
+                "status": "installed",
+                "agent_name": "alpha",
+            }
+        },
+    }
+    pgrep_runner = MagicMock()
+    pgrep_runner.status = "failed"
+    pgrep_runner.events = [
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
+    ]
+    sysinfo_runner = MagicMock()
+    sysinfo_runner.status = "successful"
+    sysinfo_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "4\n8000000"}},
+        }
+    ]
+    probe_runner = MagicMock()
+    probe_runner.status = "successful"
+    probe_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "unit:0\nhome:1\n"}},
+        }
+    ]
+    calls = [pgrep_runner, sysinfo_runner, probe_runner]
+    with patch(
+        "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+    ):
+        with patch(
+            "clawrium.core.health.ansible_runner.run",
+            side_effect=lambda *a, **kw: calls.pop(0),
+        ):
+            result = check_claw_health("alpha", host)
+    assert result["status"] == ClawStatus.INSTALL_MISSING
+    assert "zeroclaw-alpha.service" in result["error"]
+    # Home is present so it should not be in the missing list.
+    assert "agent home" not in result["error"]
+
+
+def test_health_check_install_present_falls_through_to_onboarding():
+    """When the probe reports both artifacts present, the existing
+    onboarding-state path runs — regression guard for stopped agents
+    that are actually intact."""
+    host = {
+        "hostname": "h",
+        "port": 22,
+        "key_id": "k",
+        "os_family": "linux",
+        "agents": {
+            "alpha": {
+                "type": "zeroclaw",
+                "version": "0.7.5",
+                "status": "installed",
+                "agent_name": "alpha",
+                "onboarding": {"state": "ready"},
+            }
+        },
+    }
+    pgrep_runner = MagicMock()
+    pgrep_runner.status = "failed"
+    pgrep_runner.events = [
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
+    ]
+    sysinfo_runner = MagicMock()
+    sysinfo_runner.status = "successful"
+    sysinfo_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "4\n8000000"}},
+        }
+    ]
+    probe_runner = MagicMock()
+    probe_runner.status = "successful"
+    probe_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "unit:1\nhome:1\n"}},
+        }
+    ]
+    calls = [pgrep_runner, sysinfo_runner, probe_runner]
+    with patch(
+        "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+    ):
+        with patch(
+            "clawrium.core.health.ansible_runner.run",
+            side_effect=lambda *a, **kw: calls.pop(0),
+        ):
+            result = check_claw_health("alpha", host)
+    assert result["status"] == ClawStatus.READY
+    assert result["process_running"] is False
+
+
+def test_health_check_probe_unparseable_falls_through_safely():
+    """If the install probe returns garbage (transport hiccup, ansible
+    weirdness), the function falls through to the existing onboarding
+    path rather than mis-classifying as INSTALL_MISSING."""
+    host = {
+        "hostname": "h",
+        "port": 22,
+        "key_id": "k",
+        "os_family": "linux",
+        "agents": {
+            "alpha": {
+                "type": "zeroclaw",
+                "version": "0.7.5",
+                "status": "installed",
+                "agent_name": "alpha",
+                "onboarding": {"state": "ready"},
+            }
+        },
+    }
+    pgrep_runner = MagicMock()
+    pgrep_runner.status = "failed"
+    pgrep_runner.events = [
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
+    ]
+    sysinfo_runner = MagicMock()
+    sysinfo_runner.status = "successful"
+    sysinfo_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "4\n8000000"}},
+        }
+    ]
+    probe_runner = MagicMock()
+    probe_runner.status = "successful"
+    probe_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "totally not the probe output"}},
+        }
+    ]
+    calls = [pgrep_runner, sysinfo_runner, probe_runner]
+    with patch(
+        "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+    ):
+        with patch(
+            "clawrium.core.health.ansible_runner.run",
+            side_effect=lambda *a, **kw: calls.pop(0),
+        ):
+            result = check_claw_health("alpha", host)
+    # Falls through to onboarding state (READY in this host fixture).
+    assert result["status"] == ClawStatus.READY
+
+
+# ---------------------------------------------------------------------------
+# #811 ATX iter-2: B1 (sudo-refusal symmetry) + W5 (fallthrough paths)
+# ---------------------------------------------------------------------------
+
+
+def test_health_check_sudo_refusal_falls_through_not_install_missing():
+    """ATX iter-2 B1: when `sudo -n test -d` is refused and the
+    probe stdout shows `home_present=False`, the health probe MUST
+    fall through to the existing onboarding-state path — NOT flip
+    the agent to INSTALL_MISSING. Without this guard, a host whose
+    `xclm` user loses passwordless sudo silently marks every agent
+    INSTALL_MISSING in every fleet sweep."""
+    host = {
+        "hostname": "h",
+        "port": 22,
+        "key_id": "k",
+        "os_family": "linux",
+        "agents": {
+            "alpha": {
+                "type": "zeroclaw",
+                "version": "0.7.5",
+                "status": "installed",
+                "agent_name": "alpha",
+                "onboarding": {"state": "ready"},
+            }
+        },
+    }
+    pgrep_runner = MagicMock()
+    pgrep_runner.status = "failed"
+    pgrep_runner.events = [
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
+    ]
+    sysinfo_runner = MagicMock()
+    sysinfo_runner.status = "successful"
+    sysinfo_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "4\n8000000"}},
+        }
+    ]
+    # Probe response: unit present (no sudo needed), home failed
+    # because sudo refused. stderr carries the refusal banner.
+    probe_runner = MagicMock()
+    probe_runner.status = "successful"
+    probe_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {
+                "res": {
+                    "stdout": "unit:1\nhome:0\n",
+                    "stderr": "sudo: a password is required",
+                }
+            },
+        }
+    ]
+    calls = [pgrep_runner, sysinfo_runner, probe_runner]
+    with patch(
+        "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+    ):
+        with patch(
+            "clawrium.core.health.ansible_runner.run",
+            side_effect=lambda *a, **kw: calls.pop(0),
+        ):
+            result = check_claw_health("alpha", host)
+    # Falls through to onboarding state (READY) — NOT INSTALL_MISSING.
+    assert result["status"] == ClawStatus.READY
+
+
+def test_health_check_install_probe_timeout_falls_through():
+    """ATX iter-2 W5: install probe timeout → do-not-reclassify
+    (return None from `_probe_install_artifacts`) → caller falls
+    through to onboarding-state path."""
+    host = {
+        "hostname": "h",
+        "port": 22,
+        "key_id": "k",
+        "os_family": "linux",
+        "agents": {
+            "alpha": {
+                "type": "zeroclaw",
+                "version": "0.7.5",
+                "status": "installed",
+                "agent_name": "alpha",
+                "onboarding": {"state": "ready"},
+            }
+        },
+    }
+    pgrep_runner = MagicMock()
+    pgrep_runner.status = "failed"
+    pgrep_runner.events = [
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
+    ]
+    sysinfo_runner = MagicMock()
+    sysinfo_runner.status = "successful"
+    sysinfo_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "4\n8000000"}},
+        }
+    ]
+    probe_runner = MagicMock()
+    probe_runner.status = "timeout"
+    probe_runner.events = []
+    calls = [pgrep_runner, sysinfo_runner, probe_runner]
+    with patch(
+        "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+    ):
+        with patch(
+            "clawrium.core.health.ansible_runner.run",
+            side_effect=lambda *a, **kw: calls.pop(0),
+        ):
+            result = check_claw_health("alpha", host)
+    assert result["status"] == ClawStatus.READY
+
+
+def test_health_check_install_probe_exception_falls_through():
+    """ATX iter-2 W5: `ansible_runner.run` raising on the probe
+    call → caught and treated as do-not-reclassify."""
+    host = {
+        "hostname": "h",
+        "port": 22,
+        "key_id": "k",
+        "os_family": "linux",
+        "agents": {
+            "alpha": {
+                "type": "zeroclaw",
+                "version": "0.7.5",
+                "status": "installed",
+                "agent_name": "alpha",
+                "onboarding": {"state": "ready"},
+            }
+        },
+    }
+    pgrep_runner = MagicMock()
+    pgrep_runner.status = "failed"
+    pgrep_runner.events = [
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
+    ]
+    sysinfo_runner = MagicMock()
+    sysinfo_runner.status = "successful"
+    sysinfo_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "4\n8000000"}},
+        }
+    ]
+    # The third call (install probe) raises.
+    calls = [pgrep_runner, sysinfo_runner]
+    def _runner(*a, **kw):
+        if calls:
+            return calls.pop(0)
+        raise RuntimeError("ansible runner exploded")
+
+    with patch(
+        "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+    ):
+        with patch(
+            "clawrium.core.health.ansible_runner.run", side_effect=_runner
+        ):
+            result = check_claw_health("alpha", host)
+    assert result["status"] == ClawStatus.READY
+
+
+def test_health_check_install_probe_unsupported_agent_type_falls_through():
+    """ATX iter-2 W5: an unknown agent_type → no unit-path
+    convention → `_probe_install_artifacts` returns None → caller
+    falls through. Guards the existing 'unknown agent type'
+    branch in the probe."""
+    host = {
+        "hostname": "h",
+        "port": 22,
+        "key_id": "k",
+        "os_family": "linux",
+        "agents": {
+            "alpha": {
+                "type": "unknownclaw",
+                "version": "0.0.1",
+                "status": "installed",
+                "agent_name": "alpha",
+                "onboarding": {"state": "ready"},
+            }
+        },
+    }
+    pgrep_runner = MagicMock()
+    pgrep_runner.status = "failed"
+    pgrep_runner.events = [
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
+    ]
+    sysinfo_runner = MagicMock()
+    sysinfo_runner.status = "successful"
+    sysinfo_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "4\n8000000"}},
+        }
+    ]
+    # _probe_install_artifacts returns None before reaching
+    # ansible_runner, so we only need 2 stubs.
+    calls = [pgrep_runner, sysinfo_runner]
+    with patch(
+        "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+    ):
+        with patch(
+            "clawrium.core.health.ansible_runner.run",
+            side_effect=lambda *a, **kw: calls.pop(0),
+        ):
+            # pgrep on unknown type falls into the `else` clause →
+            # `node` check; with no process, it falls into onboarding.
+            result = check_claw_health("alpha", host)
+    assert result["status"] == ClawStatus.READY
+
+
+def test_running_agent_does_not_invoke_install_probe():
+    """ATX iter-3 B2: regression guard for the CHANGELOG claim
+    'The probe runs only when the pgrep process check returns
+    no process'. A refactor that hoists `_probe_install_artifacts`
+    above the `if process_running:` branch would pass every
+    existing test silently — this one asserts the call count.
+
+    Two runner calls are expected (pgrep-ok + sysinfo); a third
+    `ansible_runner.run` invocation would be the install probe
+    firing on a running agent."""
+    host = {
+        "hostname": "h",
+        "port": 22,
+        "key_id": "k",
+        "os_family": "linux",
+        "agents": {
+            "alpha": {
+                "type": "zeroclaw",
+                "version": "0.7.5",
+                "status": "installed",
+                "agent_name": "alpha",
+            }
+        },
+    }
+    pgrep_runner = MagicMock()
+    pgrep_runner.status = "successful"
+    pgrep_runner.events = [
+        {"event": "runner_on_ok", "event_data": {"res": {"rc": 0}}}
+    ]
+    sysinfo_runner = MagicMock()
+    sysinfo_runner.status = "successful"
+    sysinfo_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "4\n8000000"}},
+        }
+    ]
+    with patch(
+        "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+    ):
+        with patch(
+            "clawrium.core.health.get_required_secrets", return_value=[]
+        ):
+            with patch(
+                "clawrium.core.health.ansible_runner.run",
+                side_effect=[pgrep_runner, sysinfo_runner],
+            ) as mock_run:
+                result = check_claw_health("alpha", host)
+    assert result["status"] == ClawStatus.RUNNING
+    assert mock_run.call_count == 2, (
+        f"install probe must not run when process is up; got "
+        f"{mock_run.call_count} runner calls"
+    )
+
+
+def test_health_check_install_missing_home_only_with_clean_stderr():
+    """ATX iter-5 W4: symmetric to
+    `test_health_check_install_missing_unit_only_still_install_missing`.
+    Covers the unit=1/home=0 path with CLEAN stderr (no sudo
+    refusal banner) — the home dir is genuinely missing, so the
+    agent must still flip to INSTALL_MISSING and the error must
+    name the home path."""
+    host = {
+        "hostname": "h",
+        "port": 22,
+        "key_id": "k",
+        "os_family": "linux",
+        "agents": {
+            "alpha": {
+                "type": "zeroclaw",
+                "version": "0.7.5",
+                "status": "installed",
+                "agent_name": "alpha",
+            }
+        },
+    }
+    pgrep_runner = MagicMock()
+    pgrep_runner.status = "failed"
+    pgrep_runner.events = [
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
+    ]
+    sysinfo_runner = MagicMock()
+    sysinfo_runner.status = "successful"
+    sysinfo_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "4\n8000000"}},
+        }
+    ]
+    probe_runner = MagicMock()
+    probe_runner.status = "successful"
+    probe_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {
+                "res": {"stdout": "unit:1\nhome:0\n", "stderr": ""}
+            },
+        }
+    ]
+    calls = [pgrep_runner, sysinfo_runner, probe_runner]
+    with patch(
+        "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+    ):
+        with patch(
+            "clawrium.core.health.ansible_runner.run",
+            side_effect=lambda *a, **kw: calls.pop(0),
+        ):
+            result = check_claw_health("alpha", host)
+    assert result["status"] == ClawStatus.INSTALL_MISSING
+    # Unit was present; only the home dir is in the missing list.
+    assert "/home/alpha/.zeroclaw" in result["error"]
+    assert "zeroclaw-alpha.service" not in result["error"]
+
+
+def test_health_check_zeroclaw_on_darwin_falls_through():
+    """ATX iter-5 W6: direct coverage on the
+    `_probe_install_artifacts` `except ValueError: return None`
+    branch. zeroclaw on darwin has no launchd label prefix
+    registered; `unit_path_for` raises `ValueError`, which the
+    health probe catches and treats as do-not-reclassify.
+    Previously only exercised via `unknownclaw` which exits at
+    the `_SUPPORTED_AGENT_TYPES` guard before reaching
+    `unit_path_for`."""
+    host = {
+        "hostname": "h",
+        "port": 22,
+        "key_id": "k",
+        "os_family": "darwin",
+        "agents": {
+            "alpha": {
+                "type": "zeroclaw",
+                "version": "0.7.5",
+                "status": "installed",
+                "agent_name": "alpha",
+                "onboarding": {"state": "ready"},
+            }
+        },
+    }
+    pgrep_runner = MagicMock()
+    pgrep_runner.status = "failed"
+    pgrep_runner.events = [
+        {"event": "runner_on_failed", "event_data": {"res": {"rc": 1}}}
+    ]
+    sysinfo_runner = MagicMock()
+    sysinfo_runner.status = "successful"
+    sysinfo_runner.events = [
+        {
+            "event": "runner_on_ok",
+            "event_data": {"res": {"stdout": "4\n8000000"}},
+        }
+    ]
+    # No probe_runner stub needed — the ValueError fallthrough
+    # short-circuits before ansible_runner is invoked for the probe.
+    calls = [pgrep_runner, sysinfo_runner]
+    with patch(
+        "clawrium.core.health.get_host_private_key", return_value="/fake/key"
+    ):
+        with patch(
+            "clawrium.core.health.ansible_runner.run",
+            side_effect=lambda *a, **kw: calls.pop(0),
+        ):
+            result = check_claw_health("alpha", host)
+    # Falls through to onboarding state (READY) — NOT INSTALL_MISSING.
+    assert result["status"] == ClawStatus.READY

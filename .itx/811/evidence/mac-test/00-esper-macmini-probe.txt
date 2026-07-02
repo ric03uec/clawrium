@@ -1,0 +1,7 @@
+Darwin Espers-Mac-mini.local 25.5.0 Darwin Kernel Version 25.5.0: Mon Apr 27 20:41:26 PDT 2026; root:xnu-12377.121.6~2/RELEASE_ARM64_T8132 arm64
+ai.clawrium.openclaw.esper-mac-oc.plist
+ai.clawrium.openclaw.macmini-openclaw.plist
+ai.clawrium.openclaw.uat-820-mac.plist
+--- synthetic probe ---
+unit:0
+home:0

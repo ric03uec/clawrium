@@ -1,0 +1,159 @@
+Requesting review for /home/devashish/workspace/ric03uec/clawrium-issue-811...
+{"time":"2026-06-24T23:46:45.711861003-07:00","level":"INFO","msg":"request_review: starting","project_root":"/home/devashish/workspace/ric03uec/clawrium"}
+{"time":"2026-06-24T23:46:45.736911283-07:00","level":"INFO","msg":"request_review: task created","task_id":"dc0382a1-fb52-4524-be99-6f9a9e40df47","project_port":30011}
+ATX review in progress. Using high effort (per-project) — leader may invoke up to 6 of 7 specialists.
+Task created (id: dc0382a1-fb52-4524-be99-6f9a9e40df47), polling for completion...
+Waiting for review... (0s elapsed)
+Waiting for review... (1s elapsed)
+Waiting for review... (3s elapsed)
+Waiting for review... (7s elapsed)
+Waiting for review... (15s elapsed)
+Waiting for review... (25s elapsed)
+Waiting for review... (35s elapsed)
+Waiting for review... (45s elapsed)
+Waiting for review... (55s elapsed)
+Waiting for review... (1m5s elapsed)
+Waiting for review... (1m15s elapsed)
+Waiting for review... (1m25s elapsed)
+Waiting for review... (1m35s elapsed)
+Waiting for review... (1m45s elapsed)
+Waiting for review... (1m55s elapsed)
+Waiting for review... (2m5s elapsed)
+Waiting for review... (2m15s elapsed)
+Waiting for review... (2m25s elapsed)
+Waiting for review... (2m35s elapsed)
+Waiting for review... (2m45s elapsed)
+Waiting for review... (2m55s elapsed)
+Waiting for review... (3m5s elapsed)
+Waiting for review... (3m15s elapsed)
+Waiting for review... (3m25s elapsed)
+Waiting for review... (3m35s elapsed)
+Waiting for review... (3m45s elapsed)
+Waiting for review... (3m55s elapsed)
+Waiting for review... (4m5s elapsed)
+Waiting for review... (4m15s elapsed)
+Waiting for review... (4m25s elapsed)
+Waiting for review... (4m35s elapsed)
+Waiting for review... (4m45s elapsed)
+Waiting for review... (4m55s elapsed)
+Waiting for review... (5m5s elapsed)
+Waiting for review... (5m15s elapsed)
+Waiting for review... (5m25s elapsed)
+Waiting for review... (5m35s elapsed)
+Waiting for review... (5m45s elapsed)
+Waiting for review... (5m55s elapsed)
+Waiting for review... (6m5s elapsed)
+Waiting for review... (6m15s elapsed)
+Waiting for review... (6m25s elapsed)
+Waiting for review... (6m35s elapsed)
+Waiting for review... (6m45s elapsed)
+Waiting for review... (6m55s elapsed)
+Waiting for review... (7m5s elapsed)
+Waiting for review... (7m15s elapsed)
+Waiting for review... (7m25s elapsed)
+Waiting for review... (7m35s elapsed)
+Waiting for review... (7m45s elapsed)
+Waiting for review... (7m55s elapsed)
+Waiting for review... (8m5s elapsed)
+Waiting for review... (8m15s elapsed)
+Waiting for review... (8m25s elapsed)
+Waiting for review... (8m35s elapsed)
+Waiting for review... (8m45s elapsed)
+Waiting for review... (8m55s elapsed)
+Waiting for review... (9m5s elapsed)
+Waiting for review... (9m15s elapsed)
+Waiting for review... (9m25s elapsed)
+{"time":"2026-06-24T23:56:21.177988254-07:00","level":"INFO","msg":"review: task completed","task_id":"dc0382a1-fb52-4524-be99-6f9a9e40df47","status":"completed","duration_ms":570159}
+{"time":"2026-06-24T23:56:21.178065228-07:00","level":"INFO","msg":"request_review: completed","status":"completed","blocking":true,"files_reviewed":0,"cost_usd":5.335744500000001,"task_id":"dc0382a1-fb52-4524-be99-6f9a9e40df47"}
+Status: reviewed
+Blocking: YES
+Summary: 
+## ATX Review — Issue #811: Validate-Phase Host Probe + ClawStatus.INSTALL_MISSING
+
+**Specialists activated**: lifecycle-core (4/5), security-reviewer (4/5), test-coverage (3/5), platform-playbooks (...
+Cost: $5.3357
+Time: 9m 30s
+Rating: 3.5/5
+Models: claude-opus-4-7, claude-sonnet-4-6, claude-opus-4-6, zai-org/glm-5.1
+
+Agent Feedback:
+  [completed] leader (-) — 
+## ATX Review — Issue #811: Validate-Phase Host Probe + ClawStatus.INSTALL_MISSING
+
+**Specialists activated**: lifecycl...
+  [skipped] cli-ux (-) — 
+  [skipped] gui-routes (-) — 
+  [skipped] render-engine (-) — 
+  [completed] platform-playbooks (3/5) — <output>
+{
+  "rating": 3,
+  "summary": "The `unit_path_for` dispatcher is structurally correct and follows the establish...
+  [completed] security-reviewer (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "The probe code is reasonably well-defended against shell injection — both interp...
+  [completed] test-coverage (3/5) — <output>
+{
+  "rating": 3,
+  "summary": "The #811 probe tests cover the core matrix (both present, each missing, malforme...
+  [completed] lifecycle-core (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "Solid design: the validate-phase probe is correctly placed before render/diff/wr...
+
+Full Feedback:
+
+## ATX Review — Issue #811: Validate-Phase Host Probe + ClawStatus.INSTALL_MISSING
+
+**Specialists activated**: lifecycle-core (4/5), security-reviewer (4/5), test-coverage (3/5), platform-playbooks (3/5)
+**Overall rating: 3/5** — Solid architecture and correct placement, but several converging issues need resolution before merge.
+
+---
+
+### Blocking Issues
+
+| # | File | Issue | Specialist(s) |
+|---|------|-------|---------------|
+| B1 | `lifecycle_canonical.py:418-437` | **Lifecycle probe conflates transport failure with "both missing."** Unlike the health probe (which returns `None` on unparseable output → safe fallthrough), the paramiko-based `probe_host_install` treats empty/partial stdout as `unit_present=False, home_present=False` and returns a valid `HostInstallProbe` → `AgentInstallMissingError` fires against a healthy host experiencing a transient SSH hiccup. The comment "a non-zero exit… surfaces as 'both missing' rather than a spurious traceback" describes the bug, not the intent. | lifecycle-core, security |
+| B2 | `lifecycle_canonical.py:418-419` | **Unhandled paramiko exceptions from `exec_command`/`read`.** `socket.timeout`, `paramiko.SSHException`, and `OSError` propagate as raw tracebacks instead of the wrapped `CanonicalSyncError` shape the rest of the module maintains. The `try/finally` around the call site closes the client but doesn't catch the exception. | lifecycle-core |
+| B3 | `lifecycle_canonical.py:1213-1220` | **`probe_host_install` doesn't catch `ValueError` from `unit_path_for` on darwin+zeroclaw.** Zeroclaw is not in `core.launchd._LABEL_PREFIX_BY_TYPE`, so a stray darwin/zeroclaw hosts.json row crashes sync with an opaque `ValueError` from a deeply-nested call instead of a typed `CanonicalSyncError`. | platform-playbooks |
+| B4 | `test_lifecycle_canonical.py:49` | **Autouse fixture skip guard uses class-name string literal.** `cls.__name__ == 'TestProbeHostInstall'` — if the class is renamed, the fixture silently stubs over the real probe, all 7 tests pass against the stub, and the actual parsing logic has zero coverage. | test-coverage |
+
+### Warnings
+
+| # | File | Issue | Specialist(s) |
+|---|------|-------|---------------|
+| W1 | `lifecycle_canonical.py:411-415`, `health.py:625-629` | **`sudo -n` false positive.** If sudoers requires a password or disallows `test` for the management user, `sudo -n test -d` returns non-zero → `home_present=False` on every healthy agent → spurious `AgentInstallMissingError` on every sync. Neither probe captures stderr to distinguish "dir missing" from "sudo denied." The health probe returns `None` (safe), but the lifecycle probe raises a destructive error. | lifecycle-core, security |
+| W2 | `health.py:563-668` vs `lifecycle_canonical.py:380-440` | **Two probes for one logical check with drifting formats.** Health uses `printf "unit:%s home:%s"` (space-separated, `.split()`). Lifecycle uses `printf "unit:%s\nhome:%s\n"` (newline-separated, `.splitlines()`). Home-path derivation is also duplicated. Comments claim they mirror each other — they don't structurally. | lifecycle-core, platform-playbooks |
+| W3 | `health.py:528` | **Error message uses `claw_user` instead of `claw_name`.** The repair hint reads `clawctl agent install {claw_user}` — `claw_user` is the OS user, `claw_name` is the agent name. They coincide by convention today but are different fields in the data model. | lifecycle-core |
+| W4 | `test_health.py:1676` | **Health test mock ordering is fragile.** `calls.pop(0)` assumes `check_claw_health` calls `ansible_runner.run` in exactly pgrep→sysinfo→probe order. If sysinfo is ever skipped on the INSTALL_MISSING path, the second pop returns the probe runner to sysinfo, and the third pop fails or returns wrong data. | test-coverage |
+| W5 | `test_lifecycle_canonical.py` (TestSyncValidatePhaseProbe) | **`dry_run=True` + probe failure is untested.** The source code explicitly documents that dry-run pays the probe cost, but no test passes `dry_run=True` with a failing probe stub. | test-coverage |
+| W6 | `tests/cli/clawctl/agent/test_sync.py` | **No CLI-surface test for `AgentInstallMissingError`.** The error is exported in `__all__` with a user-facing repair hint, but no test verifies the CLI surfaces the `clawctl agent install` message to the operator. | test-coverage |
+| W7 | `test_playbook_resolver.py:147-165` | **Darwin coverage is hermes-only.** No test for openclaw-on-darwin (different label prefix) or the zeroclaw-on-darwin `ValueError` (B3). A regression in the plist prefix would slip through. | test-coverage, platform-playbooks |
+| W8 | `lifecycle_canonical.py:1213 + 1388` | **Probe opens a dedicated SSH connection that is discarded immediately.** `sync_agent_canonical` then opens a second one for render-diff. Three connect/auth round-trips per sync on hosts with low `MaxSessions`/`MaxStartups` creates a new failure surface. | lifecycle-core, security |
+
+### Suggestions
+
+| # | Issue | Specialist |
+|---|-------|-----------|
+| S1 | Extract `_build_probe_command(unit_path, home_path) → str` and `_parse_probe_output(stdout) → (parsed, unit, home)` into a shared module consumed by both probes. Transport differs; command+parser should not. | lifecycle-core, platform-playbooks |
+| S2 | Add `agent_home_for(os_family, agent_type, agent_name)` to `playbook_resolver` alongside `unit_path_for` for symmetry — the `f"{home_root_for(os_family)}/{agent_name}/.{agent_type}"` convention is duplicated in both probes. | lifecycle-core |
+| S3 | Add `agent_type` allowlist or validation in `unit_path_for` itself (not just in health.py caller) so the function's contract is uniform across OS branches. | platform-playbooks |
+| S4 | Add `assert 'sudo -n test -d' in client.last_cmd` to `test_both_present_linux` — the `sudo -n` requirement was discovered during UAT and removing it would break every healthy agent, but no test guards it. | test-coverage |
+| S5 | Log `result.status == 'timeout'` at debug in the health probe — currently the timeout branch returns `None` silently. | security |
+| S6 | Drain stderr from `paramiko.exec_command` to match the project-wide pattern in `_diagnose_unit_failure` and `_atomic_write_linux`. | security |
+| S7 | Document in `unit_path_for` docstring that the darwin branch is narrower (hermes/openclaw only) than the linux branch. | platform-playbooks |
+| S8 | Add `test_openclaw_linux` variant to `TestProbeHostInstall` — openclaw is completely unexercised at the probe level. | test-coverage |
+
+---
+
+### Recommendations (Priority Order)
+
+1. **Fix B1**: Mirror the health-side `parsed` flag in `probe_host_install` — unparseable/empty stdout must raise a distinct `CanonicalSyncError('could not probe host install…')`, not `AgentInstallMissingError`.
+2. **Fix B2**: Wrap `exec_command`+`read` in `try/except (paramiko.SSHException, socket.timeout, OSError)` and raise `CanonicalSyncError`.
+3. **Fix B3**: Catch `ValueError` from `unit_path_for` in the probe and re-raise as `CanonicalSyncError` with agent_type in the message.
+4. **Fix B4**: Replace `cls.__name__` guard with a `@pytest.mark.no_probe_stub` marker.
+5. **Address W1**: Capture stderr from `sudo -n` and treat "password required" / "not allowed" as probe-inconclusive rather than home-missing.
+6. **Address W2+S1**: Extract shared probe command builder + parser to eliminate format drift.
+7. **Add missing tests**: dry-run + probe failure (W5), CLI error surface (W6), openclaw-on-darwin + zeroclaw-on-darwin negative (W7), `sudo -n` in command (S4).
+

@@ -9,6 +9,7 @@ const STATUS_COLORS: Record<AgentStatus, string> = {
   onboarding: "bg-status-info",
   ready: "bg-status-info",
   checking: "bg-gray-400",
+  install_missing: "bg-status-error",  // #811: same family as `stopped`
   unknown: "bg-gray-400",
 };
 

@@ -1,0 +1,20 @@
+Name:    clawrium-d01
+Type:    zeroclaw
+Status:  ok
+
+Declared attachments:
+  providers:    ['clawrium-glm51']
+  channels:     ['discord-clawrium-d01']
+  integrations: ['clawrium-d01-github']
+  skills:       -
+
+Resolved provider:
+  name:           clawrium-glm51
+  type:           openrouter
+  default_model:  z-ai/glm-5
+  api_key:        present
+
+Resolved channels (1):
+  discord-clawrium-d01  type=discord  bot_token=present
+
+Resolved integrations (1):

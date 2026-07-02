@@ -59,6 +59,7 @@ export type AgentStatus =
   | "onboarding"
   | "ready"
   | "checking"
+  | "install_missing"  // #811: hosts.json claims installed but on-host artifacts are gone
   | "unknown";
 
 export interface AgentDetail extends AgentSummary {

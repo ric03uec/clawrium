@@ -1,0 +1,6 @@
+esper-mac-oc: ok | (both present)
+  unit_path: /Library/LaunchDaemons/ai.clawrium.openclaw.esper-mac-oc.plist
+  home_path: /Users/esper-mac-oc/.openclaw
+fakeagent (synthetic): MISSING | service unit '/Library/LaunchDaemons/ai.clawrium.hermes.fakeagent.plist', agent home '/Users/fakeagent/.hermes'
+  unit_path: /Library/LaunchDaemons/ai.clawrium.hermes.fakeagent.plist
+  home_path: /Users/fakeagent/.hermes

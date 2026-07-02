@@ -1,0 +1,168 @@
+Requesting review for /home/devashish/workspace/ric03uec/clawrium-issue-811...
+{"time":"2026-06-25T00:18:14.406643917-07:00","level":"INFO","msg":"request_review: starting","project_root":"/home/devashish/workspace/ric03uec/clawrium"}
+{"time":"2026-06-25T00:18:14.430741893-07:00","level":"INFO","msg":"request_review: task created","task_id":"a4f66002-12d8-43b3-bb1f-134ed179ecda","project_port":30011}
+ATX review in progress. Using high effort (per-project) — leader may invoke up to 6 of 7 specialists.
+Task created (id: a4f66002-12d8-43b3-bb1f-134ed179ecda), polling for completion...
+Waiting for review... (0s elapsed)
+Waiting for review... (1s elapsed)
+Waiting for review... (3s elapsed)
+Waiting for review... (7s elapsed)
+Waiting for review... (15s elapsed)
+Waiting for review... (25s elapsed)
+Waiting for review... (35s elapsed)
+Waiting for review... (45s elapsed)
+Waiting for review... (55s elapsed)
+Waiting for review... (1m5s elapsed)
+Waiting for review... (1m15s elapsed)
+Waiting for review... (1m25s elapsed)
+Waiting for review... (1m35s elapsed)
+Waiting for review... (1m45s elapsed)
+Waiting for review... (1m55s elapsed)
+Waiting for review... (2m5s elapsed)
+Waiting for review... (2m15s elapsed)
+Waiting for review... (2m25s elapsed)
+Waiting for review... (2m35s elapsed)
+Waiting for review... (2m45s elapsed)
+Waiting for review... (2m55s elapsed)
+Waiting for review... (3m5s elapsed)
+Waiting for review... (3m15s elapsed)
+Waiting for review... (3m25s elapsed)
+Waiting for review... (3m35s elapsed)
+Waiting for review... (3m45s elapsed)
+Waiting for review... (3m55s elapsed)
+Waiting for review... (4m5s elapsed)
+Waiting for review... (4m15s elapsed)
+Waiting for review... (4m25s elapsed)
+Waiting for review... (4m35s elapsed)
+Waiting for review... (4m45s elapsed)
+Waiting for review... (4m55s elapsed)
+Waiting for review... (5m5s elapsed)
+Waiting for review... (5m15s elapsed)
+Waiting for review... (5m25s elapsed)
+Waiting for review... (5m35s elapsed)
+Waiting for review... (5m45s elapsed)
+Waiting for review... (5m55s elapsed)
+Waiting for review... (6m5s elapsed)
+Waiting for review... (6m15s elapsed)
+Waiting for review... (6m25s elapsed)
+Waiting for review... (6m35s elapsed)
+Waiting for review... (6m45s elapsed)
+Waiting for review... (6m55s elapsed)
+Waiting for review... (7m5s elapsed)
+Waiting for review... (7m15s elapsed)
+Waiting for review... (7m25s elapsed)
+Waiting for review... (7m35s elapsed)
+Waiting for review... (7m45s elapsed)
+Waiting for review... (7m55s elapsed)
+Waiting for review... (8m5s elapsed)
+Waiting for review... (8m15s elapsed)
+Waiting for review... (8m25s elapsed)
+Waiting for review... (8m35s elapsed)
+Waiting for review... (8m45s elapsed)
+Waiting for review... (8m55s elapsed)
+Waiting for review... (9m5s elapsed)
+Waiting for review... (9m15s elapsed)
+Waiting for review... (9m25s elapsed)
+Waiting for review... (9m35s elapsed)
+Waiting for review... (9m45s elapsed)
+Waiting for review... (9m56s elapsed)
+Waiting for review... (10m6s elapsed)
+Waiting for review... (10m16s elapsed)
+Waiting for review... (10m26s elapsed)
+{"time":"2026-06-25T00:28:49.984652046-07:00","level":"INFO","msg":"review: task completed","task_id":"a4f66002-12d8-43b3-bb1f-134ed179ecda","status":"completed","duration_ms":630751}
+{"time":"2026-06-25T00:28:49.984715886-07:00","level":"INFO","msg":"request_review: completed","task_id":"a4f66002-12d8-43b3-bb1f-134ed179ecda","status":"completed","blocking":true,"files_reviewed":0,"cost_usd":6.7647207}
+Status: reviewed
+Blocking: YES
+Summary: 
+## ATX Review — #811 iter-3
+
+**Rating: 3/5** — Two blockers, multiple actionable warnings. The core probe logic is architecturally sound and the iter-2 feedback was addressed correctly, but a GUI typ...
+Cost: $6.7647
+Time: 10m 30s
+Rating: 4/5
+Models: claude-opus-4-7, claude-sonnet-4-6, claude-opus-4-6, zai-org/glm-5.1
+
+Agent Feedback:
+  [completed] leader (-) — 
+## ATX Review — #811 iter-3
+
+**Rating: 3/5** — Two blockers, multiple actionable warnings. The core probe logic is arch...
+  [skipped] cli-ux (-) — 
+  [skipped] render-engine (-) — 
+  [completed] gui-routes (2/5) — <output>
+{
+  "rating": 2,
+  "summary": "The backend health.py and Flask/FastAPI route changes are structurally clean — s...
+  [completed] security-reviewer (4/5) — <output>{
+  "rating": 4,
+  "summary": "Iter-3 security posture is solid. shlex.quote is correctly applied to all path in...
+  [completed] lifecycle-core (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "Iter-3 implementation is solid: probe correctly short-circuits all sync paths (r...
+  [completed] platform-playbooks (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "The `unit_path_for` implementation is correct and aligned with the dispatcher-on...
+  [completed] test-coverage (2/5) — {"response_type": "text", "content": "<output>\n{\n  \"rating\": 2,\n  \"summary\": \"The new probe machinery (TestProbe...
+
+Full Feedback:
+
+## ATX Review — #811 iter-3
+
+**Rating: 3/5** — Two blockers, multiple actionable warnings. The core probe logic is architecturally sound and the iter-2 feedback was addressed correctly, but a GUI type gap and a missing behavioral-invariant test prevent merge.
+
+---
+
+### Blocking Issues
+
+| # | Location | Issue | Recommendation |
+|---|----------|-------|----------------|
+| B1 | `gui/src/lib/types.ts:53-62` | `AgentStatus` union does not include `'install_missing'`. `STATUS_COLORS["install_missing"]` evaluates to `undefined` at runtime — the StatusDot renders with no pill color, and AgentHeader shows no lifecycle CTA (Start/Stop/Restart all absent). Every `INSTALL_MISSING` agent is a silent blank in the GUI. | Add `\| "install_missing"` to the union, add entries to `STATUS_COLORS` (status-dot.tsx) and `STATUS_CONFIG` (status-chart.tsx), and add an explicit branch in AgentHeader showing a reinstall hint when `liveStatus === 'install_missing'`. |
+| B2 | `tests/test_health.py` (absent) | No test asserts that `_probe_install_artifacts` is NOT invoked when `pgrep` returns success. The CHANGELOG documents "The probe runs only when the pgrep process check returns no process" — this behavioral invariant has zero regression coverage. A refactor that hoists the probe above the `if process_running:` branch would pass every existing test. | Add `test_running_agent_does_not_invoke_install_probe`: use `side_effect` with exactly 2 runners (pgrep-ok + sysinfo) and assert `ansible_runner.run.call_count == 2`. |
+
+---
+
+### Warnings
+
+| # | Location | Issue | Recommendation |
+|---|----------|-------|----------------|
+| W1 | `lifecycle_canonical.py:454` (`_parse_probe_output`) | Parser matches bare `unit` / `home` keys via `line.partition(':')`. An SSH MOTD banner or shell-rc echo like `unit: 0 errors` would produce a false negative, flipping a healthy host to `INSTALL_MISSING`. | Emit a unique sentinel prefix (e.g. `__CLAWPROBE__unit:%s`) in `_build_probe_command` and require it in the parser. |
+| W2 | `lifecycle_canonical.py:412` (`_build_probe_command`) | `LC_ALL=C` is set in the parent shell, but sudo's `env_reset` scrubs the environment before emitting its refusal banner. On hosts with hardened sudoers that drop `LC_*`, sudo emits non-English refusal text and `_looks_like_sudo_refusal` falls through → lifecycle raises `AgentInstallMissingError` against a healthy host. | Consider a structural check: sudo exit-status ≠ 0 + non-empty stderr containing the literal `sudo:` prefix as a locale-independent refusal signal, rather than matching English-only message bodies. |
+| W3 | `health.py:670` (sudo-refusal fallthrough) | Sudo refusal logged at DEBUG and returns `None` (do-not-reclassify). Correct recovery semantics, but a fleet-wide sudoers regression becomes invisible — the GUI sweep keeps reporting STOPPED/READY while every sync attempt raises. The lifecycle probe raises loudly; the health probe is silent at DEBUG. | Bump to `logger.warning(...)` — keep `return None` semantics, just make the failure observable at default log levels. |
+| W4 | `tests/test_health.py:58,787,1063` (21 stopped-process tests) | 21 pre-existing stopped-process tests pass via accidental probe fall-through (`runner_on_failed` events aren't consumed by `_probe_install_artifacts`'s event loop → stdout=`''` → parsed=`False` → `None` → falls through). If the event-filtering logic changes, all 21 tests spuriously flip to `INSTALL_MISSING`. | Add explicit 3rd probe-runner stubs (`unit:1\nhome:1`) to each stopped-process test, matching the pattern already used in the new `INSTALL_MISSING` tests. |
+| W5 | `health.py:508-545` + fleet timeout | Install probe adds a 3rd `ansible_runner.run()` call (timeout=10s) to every stopped-agent health check. With pgrep (15s) + sysinfo (10s) + probe (10s) sequential per agent, 3 stopped agents reach 75s — 25% over `_FLEET_HEALTH_TIMEOUT_S=60`. Realistic in homelab patching cycles. | Raise `_FLEET_HEALTH_TIMEOUT_S` to 90s, or enforce a per-agent wall-clock budget. Document the updated latency model. |
+| W6 | `test_lifecycle_canonical.py:3240-3259` | `test_looks_like_sudo_refusal_matches_each_pattern` has 7 parametrized cases for 9 patterns. Pattern #2 (`'password is required'`) is only covered as a substring of pattern #1's input (`'sudo: a password is required'`). No isolated test string matches #2 independently. | Add an 8th parametrized case like `'sudo: password is required to run this command'` that matches pattern #2 independently. |
+| W7 | `tests/core/test_playbook_resolver.py` (absent) | No test covers the Linux-branch `agent_type` validation from iter-2 W2. `test_darwin_zeroclaw_raises_value_error` covers darwin but the Linux-branch raise is a new code path with zero regression guard. | Add `test_linux_unknown_agent_type_raises` asserting `unit_path_for('linux', 'ethos', 'x')` raises `ValueError`. |
+
+---
+
+### Suggestions
+
+| # | Location | Suggestion |
+|---|----------|------------|
+| S1 | `lifecycle_canonical.py:599` | `health._probe_install_artifacts` imports 4 leading-underscore privates from `lifecycle_canonical`. Promote `_agent_home_path`, `_build_probe_command`, `_parse_probe_output`, `_looks_like_sudo_refusal` + `HostInstallProbe` + `_SUDO_REFUSAL_PATTERNS` to a shared `core/host_probe.py` module. |
+| S2 | `lifecycle_canonical.py:1346` | Probe opens a dedicated SSH connection that's immediately closed; render/write opens another; zeroclaw repair opens a third. Consider reusing the probe's `SSHClient` for downstream phases (~150-300ms saved on LAN). |
+| S3 | `playbook_resolver.py:54` + `health.py:612` + `lifecycle_canonical.py:78` | The `{'hermes','zeroclaw','openclaw'}` allowlist is now in 3 places. Expose `CANONICAL_AGENT_TYPES` from one module and import elsewhere. |
+| S4 | `playbook_resolver.py:82` | `agent_name` is interpolated into the unit path with no character validation. Defense-in-depth: add `re.fullmatch(r'[a-zA-Z0-9_-]+', agent_name)` assertion. |
+| S5 | `test_lifecycle_canonical.py:2757` | `TestProbeHostInstall` works via direct import but lacks `@pytest.mark.no_probe_stub`. A future test added inside this class using `lc.probe_host_install(...)` would silently get the stub. |
+| S6 | `test_lifecycle_canonical.py:3293` | `test_build_probe_command_includes_lc_all_c` only checks `LC_ALL=C`. Extend to assert `sudo -n test -d`, `test -e`, and the `printf` format tokens to test the builder↔parser contract. |
+| S7 | `health.py:115` (pre-existing) | `HealthResult` TypedDict declares `user: str | None` but all return paths use `agent_name`. Track the fix separately if #811 scope is frozen. |
+| S8 | `health.py:534` | Error message uses CLI-flavored backtick markup (`\`clawctl agent install\``) — GUI renders literal backticks. Consider neutral phrasing for the GUI-facing path. |
+
+---
+
+### What's Working Well
+
+- **Shared helper extraction** (`_build_probe_command`, `_parse_probe_output`, `_looks_like_sudo_refusal`) eliminates duplication between the two probe transports — single source of truth is achieved.
+- **Asymmetric failure semantics** — lifecycle raises (actionable), health falls through (passive sweep) — is a well-reasoned design choice, correctly documented and tested.
+- **Autouse fixture + marker-based opt-out** is the right pattern for the probe stubs, preventing existing test breakage while allowing real-probe tests to declare their intent.
+- **Iter-2 B1 fix** is correctly implemented — sudo-refusal in health.py now returns `None` rather than `INSTALL_MISSING`, symmetric with the lifecycle guard's intent (even if the mechanism differs: raise vs fall-through).
+- **wolf-i UAT** confirms the production wedge state is correctly detected and surfaced.
+
+---
+
+### Merge Verdict
+
+Fix **B1** (GUI types) and **B2** (missing running-agent probe test) before merge. W1-W7 are actionable and should be addressed in this or a tracked follow-up; W2 (locale bypass) and W4 (21 fragile tests) carry the highest regression risk among the warnings.
+

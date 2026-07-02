@@ -1,0 +1,169 @@
+Requesting review for /home/devashish/workspace/ric03uec/clawrium-issue-811...
+{"time":"2026-06-25T00:33:03.772418915-07:00","level":"INFO","msg":"request_review: starting","project_root":"/home/devashish/workspace/ric03uec/clawrium"}
+{"time":"2026-06-25T00:33:03.794655925-07:00","level":"INFO","msg":"request_review: task created","task_id":"09ddefc9-6212-4b32-bbe4-a9a1d55cccac","project_port":30011}
+ATX review in progress. Using high effort (per-project) — leader may invoke up to 6 of 7 specialists.
+Task created (id: 09ddefc9-6212-4b32-bbe4-a9a1d55cccac), polling for completion...
+Waiting for review... (0s elapsed)
+Waiting for review... (1s elapsed)
+Waiting for review... (3s elapsed)
+Waiting for review... (7s elapsed)
+Waiting for review... (15s elapsed)
+Waiting for review... (25s elapsed)
+Waiting for review... (35s elapsed)
+Waiting for review... (45s elapsed)
+Waiting for review... (55s elapsed)
+Waiting for review... (1m5s elapsed)
+Waiting for review... (1m15s elapsed)
+Waiting for review... (1m25s elapsed)
+Waiting for review... (1m35s elapsed)
+Waiting for review... (1m45s elapsed)
+Waiting for review... (1m55s elapsed)
+Waiting for review... (2m5s elapsed)
+Waiting for review... (2m15s elapsed)
+Waiting for review... (2m25s elapsed)
+Waiting for review... (2m35s elapsed)
+Waiting for review... (2m45s elapsed)
+Waiting for review... (2m55s elapsed)
+Waiting for review... (3m5s elapsed)
+Waiting for review... (3m15s elapsed)
+Waiting for review... (3m25s elapsed)
+Waiting for review... (3m35s elapsed)
+Waiting for review... (3m45s elapsed)
+Waiting for review... (3m55s elapsed)
+Waiting for review... (4m5s elapsed)
+Waiting for review... (4m15s elapsed)
+Waiting for review... (4m25s elapsed)
+Waiting for review... (4m35s elapsed)
+Waiting for review... (4m45s elapsed)
+Waiting for review... (4m55s elapsed)
+Waiting for review... (5m5s elapsed)
+Waiting for review... (5m15s elapsed)
+Waiting for review... (5m25s elapsed)
+Waiting for review... (5m35s elapsed)
+Waiting for review... (5m45s elapsed)
+Waiting for review... (5m55s elapsed)
+Waiting for review... (6m5s elapsed)
+Waiting for review... (6m15s elapsed)
+Waiting for review... (6m25s elapsed)
+Waiting for review... (6m35s elapsed)
+Waiting for review... (6m45s elapsed)
+Waiting for review... (6m55s elapsed)
+Waiting for review... (7m5s elapsed)
+Waiting for review... (7m15s elapsed)
+Waiting for review... (7m25s elapsed)
+Waiting for review... (7m35s elapsed)
+Waiting for review... (7m45s elapsed)
+Waiting for review... (7m55s elapsed)
+Waiting for review... (8m5s elapsed)
+Waiting for review... (8m15s elapsed)
+Waiting for review... (8m25s elapsed)
+Waiting for review... (8m35s elapsed)
+Waiting for review... (8m45s elapsed)
+Waiting for review... (8m55s elapsed)
+Waiting for review... (9m5s elapsed)
+Waiting for review... (9m15s elapsed)
+Waiting for review... (9m25s elapsed)
+Waiting for review... (9m35s elapsed)
+Waiting for review... (9m45s elapsed)
+Waiting for review... (9m55s elapsed)
+Waiting for review... (10m5s elapsed)
+Waiting for review... (10m15s elapsed)
+Waiting for review... (10m25s elapsed)
+Waiting for review... (10m35s elapsed)
+Waiting for review... (10m46s elapsed)
+Waiting for review... (10m56s elapsed)
+Waiting for review... (11m6s elapsed)
+Waiting for review... (11m16s elapsed)
+Waiting for review... (11m26s elapsed)
+Waiting for review... (11m36s elapsed)
+Waiting for review... (11m46s elapsed)
+Waiting for review... (11m56s elapsed)
+Waiting for review... (12m6s elapsed)
+{"time":"2026-06-25T00:45:19.381668329-07:00","level":"INFO","msg":"review: task completed","task_id":"09ddefc9-6212-4b32-bbe4-a9a1d55cccac","status":"completed","duration_ms":732910}
+{"time":"2026-06-25T00:45:19.381784417-07:00","level":"INFO","msg":"request_review: completed","blocking":false,"files_reviewed":0,"cost_usd":4.9514606,"task_id":"09ddefc9-6212-4b32-bbe4-a9a1d55cccac","status":"completed"}
+Status: reviewed
+Summary: ## #811 iter-4 Review — Consolidated
+
+**Overall Rating: 3/5** — One blocking issue from test-coverage; no blockers from GUI, lifecycle-core, or security. The production code is solid. Fix B1 below and...
+Cost: $4.9515
+Time: 12m 12s
+Rating: 3.5/5
+Models: claude-opus-4-7, claude-sonnet-4-6, claude-opus-4-6, zai-org/glm-5.1
+
+Agent Feedback:
+  [completed] leader (-) — ## #811 iter-4 Review — Consolidated
+
+**Overall Rating: 3/5** — One blocking issue from test-coverage; no blockers from ...
+  [skipped] cli-ux (-) — 
+  [skipped] platform-playbooks (-) — 
+  [skipped] render-engine (-) — 
+  [completed] gui-routes (3/5) — <output>
+{
+  "rating": 3,
+  "summary": "The `install_missing` variant is correctly wired through the type union, StatusD...
+  [completed] test-coverage (2/5) — {"response_type": "text", "content": "<output>\n{\n  \"rating\": 2,\n  \"summary\": \"50+ new test cases cover the core ...
+  [completed] security-reviewer (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "Iter-4 of #811 is security-clean. Command injection is defended in depth (agent_...
+  [completed] lifecycle-core (4/5) — <output>
+{
+  "rating": 4,
+  "summary": "iter-4 lands a careful validate-phase probe with symmetric error handling across...
+
+Full Feedback:
+## #811 iter-4 Review — Consolidated
+
+**Overall Rating: 3/5** — One blocking issue from test-coverage; no blockers from GUI, lifecycle-core, or security. The production code is solid. Fix B1 below and this is merge-ready.
+
+---
+
+### Blocking Issues
+
+| # | Source | Location | Issue | Fix |
+|---|--------|----------|-------|-----|
+| B1 | test-coverage | `tests/core/test_lifecycle_canonical.py:3240-3264` | `_SUDO_REFUSAL_PATTERNS` pattern 7 (`"incident will be reported"`) has no isolated parametrize case. Case 5 (`"xclm is not in the sudoers file. This incident will be reported."`) matches BOTH pattern 5 (`"not in the sudoers"`) AND pattern 7 — deleting pattern 7 from the tuple leaves all 8 cases green. This is the exact same overlap class that iter-3 W6 fixed for patterns 1+2. | Add a 9th parametrize case matching only pattern 7, e.g. `"This incident will be reported."` (without the `"not in the sudoers"` prefix). |
+
+---
+
+### Warnings
+
+| # | Source | Location | Issue |
+|---|--------|----------|-------|
+| W1 | gui-routes | `gui/src/components/dashboard/status-chart.tsx:7-9` | `STATUS_CONFIG` is typed `Record<string, ...>` not `Record<AgentStatus, ...>`. No compile-time guarantee every variant has an entry; `checking` is already missing and falls to `unknown`. Change to `Record<AgentStatus, ...>` and add `checking`. |
+| W2 | gui-routes | `gui/src/components/agent-detail/agent-header.tsx:180` | `role="status"` on a conditionally-mounted span — screen readers don't announce live-region initial insertion. Use `role="alert"` instead (announced on mount). |
+| W3 | gui-routes | `gui/src/components/agent-detail/agent-header.test.tsx` | No test covers the `install_missing` branch. The reinstall hint, absence of Start/Stop/Restart buttons — all untested. Add a describe block with `makeHealth({ status: 'install_missing' })`. |
+| W4 | lifecycle-core | `src/clawrium/core/health.py:601-606` | `_probe_install_artifacts` imports four underscore-prefixed private symbols from `lifecycle_canonical`. Cross-module private imports create silent coupling. Promote to public names + `__all__`, or extract to a shared `core/probe_internal.py`. |
+| W5 | lifecycle-core | `src/clawrium/core/health.py:611` | Hardcoded agent-type allowlist `('hermes', 'zeroclaw', 'openclaw')` duplicates `_SUPPORTED_AGENT_TYPES` in `playbook_resolver`. Import the single source of truth instead. |
+| W6 | lifecycle-core | `src/clawrium/core/lifecycle_canonical.py:1347-1356` | Probe opens a fresh SSH connection that's immediately closed, then sync opens another. Two full TCP+SSH handshakes per sync. Hoist the connect above the probe and reuse the client. |
+| W7 | lifecycle-core | `lifecycle_canonical.py:_SUDO_REFUSAL_PATTERNS` | Missing `'sudo: command not found'` pattern. If sudo binary is absent, probe accepts `home_present=False` as authoritative → misleading `AgentInstallMissingError`. Low probability on managed hosts but wrong remediation text. |
+| W8 | security | `lifecycle_canonical.py:_build_probe_command` (LC_ALL=C) | Docstring overstates robustness. `sudoers` default `env_reset` scrubs caller's `LC_ALL`; sudo emits messages using `sudoers_locale` (configurable, not always C). The broad pattern list is the actual primary defense — soften the docstring. |
+| W9 | test-coverage | `tests/test_health.py:1373, 1497` | `test_hermes_pgrep_returns_stopped_when_no_process` asserts `status in (STOPPED, PENDING_ONBOARD)` but `STOPPED` is unreachable from `check_claw_health` when process is down. Tighten to `== PENDING_ONBOARD`. |
+| W10 | test-coverage | `tests/test_health.py:2119` | `test_running_agent_does_not_invoke_install_probe` pins `mock_run.call_count == 2`. Couples probe-guard and sysinfo-present invariants. If sysinfo is refactored away, test fails with false-positive. Prefer `side_effect` StopIteration as the probe guard + outcome assertion on `ClawStatus.RUNNING`. |
+| W11 | test-coverage | `tests/core/test_lifecycle_canonical.py:2736-2754` | `_FakeSSHExec` hardwires empty stderr, forcing per-test inline SSH stubs for sudo-refusal tests. Add optional `stderr` param to unify. |
+
+---
+
+### Suggestions
+
+| # | Source | Location | Suggestion |
+|---|--------|----------|------------|
+| S1 | gui-routes | `status-chart.tsx:8-9` | `bgColor` is defined on every `STATUS_CONFIG` entry but never referenced in JSX. Dead code — prune or wire to legend swatch. |
+| S2 | gui-routes | `agent-metrics.tsx:38` | `status.replace("_", " ")` replaces only first underscore; `agent-info-modal.tsx:64` uses `/_/g`. Inconsistency — standardize on regex. |
+| S3 | lifecycle-core | `playbook_resolver.py:54-91` | Supported `(os_family, agent_type)` pairs are split across two modules (`_SUPPORTED_AGENT_TYPES` + `launchd._LABEL_PREFIX_BY_TYPE`). Track as explicit matrix in one place. |
+| S4 | security | `lifecycle_canonical.py:probe_host_install error messages` | Error text interpolates raw `stderr_text`. If GUI routes ever catch these exceptions, host stderr (user names, sudoers config) could leak to browser clients. Consider sanitized `operator_message` + raw `debug_detail` attributes. |
+| S5 | security | `playbook_resolver.py:unit_path_for` | `agent_name` interpolated raw into unit path. Defense-in-depth: revalidate against `validate_agent_name` regex inside `unit_path_for`, or document the caller-must-validate contract. |
+| S6 | test-coverage | `test_lifecycle_canonical.py:39-61 + 172-239` | Double-stubbing: autouse `_default_probe_present` + `_stub_sync_environment` both set `probe_host_install` to same value. Remove from `_stub_sync_environment` and document that autouse provides the default. |
+
+---
+
+### Summary by Specialist
+
+| Specialist | Rating | Blockers | Warnings | Suggestions |
+|------------|--------|----------|----------|-------------|
+| gui-routes | 3/5 | 0 | 3 (W1-W3) | 2 (S1-S2) |
+| lifecycle-core | 4/5 | 0 | 4 (W4-W7) | 1 (S3) |
+| security-reviewer | 4/5 | 0 | 1 (W8) | 2 (S4-S5) |
+| test-coverage | 2/5 | 1 (B1) | 3 (W9-W11) | 1 (S6) |
+
+**Action required**: Fix B1 (add isolated parametrize case for sudo pattern 7). The remaining warnings are non-blocking per the iter-4 scope statement — W1-W3 (GUI type-safety + test + a11y) are worth addressing in this PR if convenient; W4-W11 are hardening items that can land as follow-ups.
