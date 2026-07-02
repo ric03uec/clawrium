@@ -1,0 +1,21 @@
+{
+  "session_id": "074c2b68-9750-45bc-a6b0-d8b6565a7ac2",
+  "transport": "cli",
+  "commit_sha": "db3cdc4e4fa2bb9b49da07b20b5f590a39dfa1a1",
+  "iteration": 2,
+  "last_rating": 3.5,
+  "iter1_rating": 3.5,
+  "iter2_status": "failed_rate_limit",
+  "iter2_error": "review task failed: LLM generation failed: CLI execution failed: claude returned error: You've hit your limit · resets 8:40pm (America/Los_Angeles)",
+  "last_blockers": [
+    {"severity": "warning", "domain": "render-engine", "file": "docs/agent-support/integrations/slack.md:199", "issue": "ZeroClaw TOML example shows name = \"my_slack\" but template hardcodes name = \"slack-{{ entry.slug }}\"", "status": "Fixed in iter-2 fixes"},
+    {"severity": "warning", "domain": "render-engine", "file": "docs/agent-support/integrations/slack.md:5,213", "issue": "Binary install path missing <agent-name>/ prefix", "status": "Fixed in iter-2 fixes"},
+    {"severity": "warning", "domain": "platform-playbooks", "file": "docs/agent-support/integrations/slack.md:217-220", "issue": "Asset column lists .tar.gz filenames but playbooks download bare binaries", "status": "Fixed in iter-2 fixes"},
+    {"severity": "warning", "domain": "platform-playbooks", "file": "docs/agent-support/integrations/slack.md:89 and throughout", "issue": "Ambiguous ~/<agent-name>/ notation; missing macOS variants", "status": "Fixed in iter-2 fixes"},
+    {"severity": "suggestion", "domain": "security-reviewer", "file": "docs/agent-support/integrations/slack.md:112", "issue": "Cookie extraction description imprecise", "status": "Fixed in iter-2 fixes"},
+    {"severity": "suggestion", "domain": "security-reviewer", "file": "docs/agent-support/integrations/slack.md:128", "issue": "Abuse-detection language attributes internal Slack behavior not publicly documented", "status": "Fixed in iter-2 fixes"},
+    {"severity": "suggestion", "domain": "security-reviewer", "file": "docs/agent-support/integrations/slack.md:248", "issue": "CI code-path claim unverifiable", "status": "Fixed in iter-2 fixes"}
+  ],
+  "started_at": "2026-07-01T18:57:00Z",
+  "updated_at": "2026-07-01T19:17:26Z"
+}
