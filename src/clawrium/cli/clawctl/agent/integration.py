@@ -26,6 +26,7 @@ from clawrium.core.integrations import (
     get_integration,
     remove_agent_integration,
 )
+from clawrium.core.render import supported_integrations_for_agent_type
 
 __all__ = ["integration_app"]
 
@@ -58,10 +59,32 @@ def attach(
     agent: str = typer.Option(..., "--agent", help="Agent instance name."),
 ) -> None:
     """Attach a registered integration to an agent."""
-    _safe_get_integration(name)
-    host, _atype, _claw = safe_resolve_agent(agent)
+    record = _safe_get_integration(name)
+    host, atype, _claw = safe_resolve_agent(agent)
     hostname = host["hostname"]
     agent_key = resolve_agent_key(host, agent)
+
+    # #834 (B8): reject unsupported (agent-type, integration-type)
+    # pairs at attach time. Without this, `add_agent_integration`
+    # writes hosts.json unconditionally and the render layer is the
+    # only guard — repeating the #555-class regression the
+    # coming-soon contract in #499 is meant to prevent. `None` means
+    # the renderer does not know this agent type, in which case we
+    # fall through to the legacy render-time enforcement.
+    # `_safe_get_integration` is NoReturn on failure, so `record` is
+    # always a non-empty dict here.
+    integration_type = record.get("type")
+    supported = supported_integrations_for_agent_type(atype)
+    if supported is not None and integration_type not in supported:
+        emit_error(
+            f"agent type {atype!r} does not support integration type "
+            f"{integration_type!r} (integration {name!r})",
+            hint=(
+                "run `clawctl integration registry get --types` to list "
+                "supported integration types — see #499"
+            ),
+            exit_code=2,
+        )
 
     if add_agent_integration(hostname, agent_key, name):
         typer.echo(f"agent/{agent}: attached integration {name!r}")

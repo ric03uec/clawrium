@@ -449,7 +449,7 @@ def test_configure_agent_hermes_unexpected_render_exception_surfaces_cleanly(
     as an unhandled traceback that leaves the lifecycle half-walked."""
     _seed_single_provider(render_stores, hermes_configure_env)
 
-    def _boom(_inputs):
+    def _boom(_inputs, *, os_family="linux"):
         raise RuntimeError("simulated jinja TemplateError")
 
     # configure_agent does `from clawrium.core.render import render_hermes`

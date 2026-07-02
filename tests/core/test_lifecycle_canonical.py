@@ -3918,3 +3918,413 @@ class TestSyncRefusesIncompleteInstall:
             sync_agent_canonical(
                 "oc", restart=False, verify=False, workspace_only=True
             )
+
+
+# ---------------------------------------------------------------------------
+# #834: Hermes Slack MCP install at sync time.
+# ---------------------------------------------------------------------------
+
+
+class TestHermesInstallSlackMCP:
+    """`_hermes_install_slack_mcp` mirrors `_openclaw_install_plugins`:
+    dedicated single-purpose runbook, invoked from the sync pipeline
+    before the file-write loop, raises `CanonicalSyncError` on failure
+    so the daemon never restarts on a half-installed integration.
+    Contract lives in AGENTS.md §"Integration Binary Install"."""
+
+    def _stub_playbook(self, monkeypatch, *, success=True, err=None):
+        """Monkey-patch `_run_lifecycle_playbook` to capture the
+        (agent_type, operation) tuple it was invoked with and return a
+        canned success/failure pair — sidesteps ansible-runner and SSH."""
+        calls: list[dict] = []
+
+        def _fake(
+            agent_type,
+            agent_name,
+            hostname,
+            operation,
+            host,
+            timeout=60,
+        ):
+            calls.append(
+                {
+                    "agent_type": agent_type,
+                    "agent_name": agent_name,
+                    "hostname": hostname,
+                    "operation": operation,
+                    "host": host,
+                    "timeout": timeout,
+                }
+            )
+            return success, err
+
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle._run_lifecycle_playbook", _fake
+        )
+        return calls
+
+    def test_no_slack_integration_is_noop(self, monkeypatch):
+        """Gate: helper must not touch ansible-runner (no SSH, no
+        playbook spawn) when the agent has no slack integration
+        attached. Fast path — every non-slack sync would otherwise pay
+        the ansible-runner cold-start cost."""
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["github", "atlassian"])
+
+        lc._hermes_install_slack_mcp(
+            "maurice", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert calls == []
+
+    def test_slack_user_triggers_linux_runbook(self, monkeypatch):
+        """slack-user attached on a linux host → the Linux runbook is
+        picked (not the darwin sibling). Agent_type argument is
+        `"hermes"` — the runbook lives under `hermes/playbooks/`."""
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._hermes_install_slack_mcp(
+            "maurice", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["agent_type"] == "hermes"
+        assert calls[0]["operation"] == "install_slack_mcp"
+        assert calls[0]["agent_name"] == "maurice"
+        assert calls[0]["hostname"] == "wolf-i"
+
+    def test_slack_cookie_also_triggers_install(self, monkeypatch):
+        """The gate covers BOTH slack-user and slack-cookie. A future
+        refactor that only checked `slack-user` would silently skip
+        cookie-mode installs."""
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-cookie"])
+
+        lc._hermes_install_slack_mcp(
+            "maurice", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["operation"] == "install_slack_mcp"
+
+    def test_darwin_host_picks_macos_runbook(self, monkeypatch):
+        """os_family='darwin' → dedicated `_macos` sibling. Names ≠
+        Linux so the arch-map divergence (arm64/x86_64 vs
+        aarch64/x86_64) does not silently mismatch."""
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._hermes_install_slack_mcp(
+            "mac-test", "mac-test", {"os_family": "darwin"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["operation"] == "install_slack_mcp_macos"
+
+    def test_os_family_typo_normalized_to_darwin(self, monkeypatch):
+        """Defense-in-depth: `macos`/`mac`/`osx`/`Darwin` all fold to
+        `darwin` before dispatching. Without this, a legacy hosts.json
+        record with `os_family="macos"` renders the Linux runbook on a
+        Mac host and reopens the B1 class of bug (path mismatch)."""
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        for value in ("Darwin", "macos", "MacOS", "osx", "mac"):
+            calls.clear()
+            lc._hermes_install_slack_mcp(
+                "mac-test", "mac-test", {"os_family": value}, inputs
+            )
+            assert len(calls) == 1, value
+            assert calls[0]["operation"] == "install_slack_mcp_macos", value
+
+    def test_missing_os_family_defaults_to_linux(self, monkeypatch):
+        """Legacy hosts.json records may omit `os_family` entirely.
+        Linux fleet default → picks the Linux runbook. Runbook itself
+        also has an ansible_os_family guard at task-0 as belt-and-
+        suspenders."""
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._hermes_install_slack_mcp("maurice", "wolf-i", {}, inputs)
+        assert len(calls) == 1
+        assert calls[0]["operation"] == "install_slack_mcp"
+
+    def test_playbook_failure_raises_canonical_sync_error(self, monkeypatch):
+        """Playbook non-success MUST propagate as `CanonicalSyncError`
+        so `sync_agent_canonical` short-circuits before `_restart_unit`.
+        The daemon is never restarted on a half-installed binary set.
+        Error message must carry BOTH the framing (`slack-mcp-server
+        install failed for ...`) and the ansible-runner payload so a
+        truncation regression doesn't silently pass — ATX iter-4 W4."""
+        self._stub_playbook(
+            monkeypatch,
+            success=False,
+            err="get_url: checksum mismatch",
+        )
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"slack-mcp-server install failed for .*maurice.*: "
+            r"get_url: checksum mismatch",
+        ):
+            lc._hermes_install_slack_mcp(
+                "maurice", "wolf-i", {"os_family": "linux"}, inputs
+            )
+
+    def test_emits_event_when_installing(self, monkeypatch):
+        """`on_event` callback fires exactly once when the install
+        proceeds — so `clawctl agent sync`'s progress stream surfaces
+        the phase, matching the `_openclaw_install_plugins` pattern."""
+        self._stub_playbook(monkeypatch)
+        events: list[tuple[str, str]] = []
+
+        inputs = _inputs_with_integrations(["slack-user"])
+        lc._hermes_install_slack_mcp(
+            "maurice",
+            "wolf-i",
+            {"os_family": "linux"},
+            inputs,
+            on_event=lambda stage, msg: events.append((stage, msg)),
+        )
+        assert len(events) == 1
+        stage, msg = events[0]
+        assert stage == "slack_mcp_install"
+        assert "maurice" in msg
+        assert "install_slack_mcp.yaml" in msg
+
+    def test_darwin_emits_macos_runbook_name_in_event(self, monkeypatch):
+        """S6 (ATX iter-4): the darwin path emits the `_macos` variant
+        name in its event payload. Without this, `clawctl agent sync`
+        on a macOS hermes would surface the Linux runbook name,
+        misleading operators debugging install failures."""
+        self._stub_playbook(monkeypatch)
+        events: list[tuple[str, str]] = []
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._hermes_install_slack_mcp(
+            "mac-test",
+            "mac-test",
+            {"os_family": "darwin"},
+            inputs,
+            on_event=lambda stage, msg: events.append((stage, msg)),
+        )
+        assert len(events) == 1
+        assert events[0][0] == "slack_mcp_install"
+        assert "install_slack_mcp_macos.yaml" in events[0][1]
+
+    def test_mixed_integrations_still_triggers_install(self, monkeypatch):
+        """S5 (ATX iter-4): a fleet-common mix of integrations (github +
+        slack-user + atlassian) must trip the gate — regression guard
+        against a future refactor narrowing `any(t in slack_types
+        for i in ...)` to equality against a single type."""
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(
+            ["github", "slack-user", "atlassian"]
+        )
+
+        lc._hermes_install_slack_mcp(
+            "maurice", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["operation"] == "install_slack_mcp"
+
+    def test_timeout_pinned_at_180s(self, monkeypatch):
+        """S7 (ATX iter-4) + W2 (ATX iter-5): the helper passes
+        `timeout=180` to `_run_lifecycle_playbook`. The runbook's
+        `get_url` timeout is 120s — the 60s gap gives get_url room
+        to fire its own (clearer) timeout error before ansible-runner
+        trips its generic `operation timed out`. A future edit that
+        collapses the gap risks a confusing runner-timeout on slow
+        links. Pin the default."""
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._hermes_install_slack_mcp(
+            "maurice", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["timeout"] == 180
+
+
+class TestHermesSlackInstallRunsBeforeRestart:
+    """ATX iter-4 B1/B2: prove `_hermes_install_slack_mcp` is wired
+    into `sync_agent_canonical` in the right slot (before file writes
+    and before `_restart_unit`) AND that a failure short-circuits
+    restart. Direct-call unit tests alone can't catch a wiring
+    regression that moves the helper below the restart. Mirrors the
+    openclaw pattern at `TestOpenclawInstallPlugins.test_t5_install_
+    runs_before_restart_via_sync` / `test_install_failure_short_
+    circuits_before_restart`."""
+
+    def _hermes_render_stub(self):
+        """Minimal `RenderedFiles` for hermes — sync_agent_canonical
+        only iterates `files` keys against the diff list, so any
+        non-empty mapping works for wiring-verification."""
+        from clawrium.core.render import RenderedFiles
+
+        return RenderedFiles(
+            files={
+                ".hermes/.env": "SLACK_MCP_XOXP_TOKEN='xoxp-1'\n",
+                ".hermes/config.yaml": "model:\n  provider: openrouter\n",
+            }
+        )
+
+    def _hermes_inputs(self):
+        from clawrium.core.render import (
+            IntegrationInputs,
+            ProviderInputs,
+            RenderInputs,
+        )
+
+        return RenderInputs(
+            agent_name="maurice",
+            agent_type="hermes",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="claude-opus-4-7",
+            ),
+            integrations=(
+                IntegrationInputs(
+                    name="slack-work",
+                    type="slack-user",
+                    credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+                ),
+            ),
+        )
+
+    def _wire_sync_agent_canonical_stubs(self, monkeypatch):
+        """Common stub set — everything sync_agent_canonical needs
+        beyond the install helper and `_restart_unit`. Callers of this
+        fixture install their own spy on `_hermes_install_slack_mcp`
+        and `_restart_unit`."""
+        inputs = self._hermes_inputs()
+        rendered = self._hermes_render_stub()
+
+        # Force a non-empty diff so the write loop AND restart branch
+        # both reach — mirrors openclaw's `test_t5` shape.
+        fake_diff = MagicMock()
+        fake_diff.unified_diff = "+SLACK_MCP_XOXP_TOKEN='xoxp-1'"
+        fake_diff.path = ".hermes/.env"
+        fake_diff.remote_path = "/home/maurice/.hermes/.env"
+        fake_diff.rendered_body = "SLACK_MCP_XOXP_TOKEN='xoxp-1'\n"
+        fake_diff.remote_body = ""
+
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        monkeypatch.setitem(lc._RENDERERS, "hermes", lambda _: rendered)
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: (
+                {
+                    "hostname": "wolf.tailf7742d.ts.net",
+                    "os_family": "linux",
+                },
+                "hermes:maurice",
+                # Complete install record so the #810 "refuse on
+                # incomplete installation" gate at ~1639 does not fire
+                # and short-circuit before the install helper.
+                {
+                    "status": "installed",
+                    "installed_at": "2026-05-01T00:00:00Z",
+                },
+            ),
+        )
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [fake_diff])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(lc, "_diff_removes_secrets", lambda _d: set())
+        monkeypatch.setattr(lc, "_atomic_write", lambda *_a, **_kw: None)
+        monkeypatch.setattr(lc, "_verify_health", lambda **_: None)
+        monkeypatch.setattr(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            lambda **_kw: MagicMock(
+                success=True, files_pushed=(), files_excluded=(), error=None
+            ),
+        )
+
+    def test_b1_install_runs_before_restart_via_sync(self, monkeypatch):
+        """B1 (ATX iter-4): the install helper MUST run before
+        `_restart_unit` inside `sync_agent_canonical`. Direct-call
+        unit tests would keep passing if the helper were moved below
+        the file-write loop or below restart — Python executes
+        consecutive statements in order regardless. Drive the full
+        pipeline with ordering spies on the IO surface so a wiring
+        regression trips this test."""
+        self._wire_sync_agent_canonical_stubs(monkeypatch)
+
+        order: list[str] = []
+
+        def spy_install(*_a, **_kw):
+            order.append("slack_mcp_install")
+
+        def spy_restart(*_a, **_kw):
+            order.append("restart_unit")
+
+        monkeypatch.setattr(lc, "_hermes_install_slack_mcp", spy_install)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+
+        sync_agent_canonical("maurice", verify=False)
+
+        assert order == ["slack_mcp_install", "restart_unit"]
+
+    def test_b2_install_failure_short_circuits_before_restart(
+        self, monkeypatch
+    ):
+        """B2 (ATX iter-4): when `_hermes_install_slack_mcp` raises,
+        `_restart_unit` MUST NOT run — the daemon is never restarted
+        on a rendered config pointing at a binary that failed to land.
+        Mirrors the workspace-overlay short-circuit contract and the
+        openclaw equivalent at `test_install_failure_short_circuits_
+        before_restart`."""
+        self._wire_sync_agent_canonical_stubs(monkeypatch)
+
+        restart_called: list[bool] = []
+
+        def boom_install(*_a, **_kw):
+            raise CanonicalSyncError(
+                "slack-mcp-server install failed for 'maurice': "
+                "get_url: checksum mismatch"
+            )
+
+        def spy_restart(*_a, **_kw):
+            restart_called.append(True)
+
+        monkeypatch.setattr(lc, "_hermes_install_slack_mcp", boom_install)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+
+        with pytest.raises(
+            CanonicalSyncError, match=r"slack-mcp-server install failed"
+        ):
+            sync_agent_canonical("maurice", verify=False)
+
+        assert restart_called == []
+
+
+class TestConfigurePlaybooksNoSlackInstall:
+    """#834: the slack install lives in a dedicated runbook, NOT in
+    configure.yaml. A regression that re-baked the install into
+    configure would double-install on every configure-then-sync cycle
+    AND recreate the "sync doesn't install binaries" UX gap that #755
+    (openclaw) and #834 (hermes) both closed."""
+
+    def test_neither_hermes_configure_playbook_contains_slack_install(self):
+        """Slack install must not appear in configure.yaml or
+        configure_macos.yaml. Mirrors the openclaw brave regression
+        guard at `test_neither_configure_playbook_contains_brave_install_task`."""
+        from pathlib import Path
+
+        base = (
+            Path(__file__).parent.parent.parent
+            / "src"
+            / "clawrium"
+            / "platform"
+            / "registry"
+            / "hermes"
+            / "playbooks"
+        )
+        for name in ("configure.yaml", "configure_macos.yaml"):
+            body = (base / name).read_text()
+            assert "mcp_slack_version" not in body, name
+            assert "mcp_slack_arch_map" not in body, name
+            assert "mcp_slack_sha256_map" not in body, name
+            assert "slack_integration_assigned" not in body, name
+            assert "slack-mcp-server" not in body, name

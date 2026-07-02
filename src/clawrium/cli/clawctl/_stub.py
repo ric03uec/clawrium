@@ -11,9 +11,27 @@ import typer
 __all__ = ["echo_not_implemented", "register_stub"]
 
 
-def echo_not_implemented(group: str, verb: str) -> None:
-    """Print the canonical placeholder line. Exit 0."""
+def echo_not_implemented(
+    group: str,
+    verb: str,
+    *,
+    hint: str | None = None,
+    exit_code: int = 0,
+) -> None:
+    """Print the canonical placeholder line, optionally exit non-zero.
+
+    `hint`, when set, is printed on its own line after the canonical
+    `Not implemented: ...` line. `exit_code`, when non-zero, raises
+    `typer.Exit(code=exit_code)` after printing — flips the stub from
+    silent-success (which lets `<cmd> && next` chain past unimplemented
+    verbs) to a hard failure. Both default to legacy behavior so
+    stubs that have not opted in stay byte-identical.
+    """
     typer.echo(f"Not implemented: {group} {verb}")
+    if hint:
+        typer.echo(hint)
+    if exit_code != 0:
+        raise typer.Exit(code=exit_code)
 
 
 def register_stub(

@@ -1,5 +1,10 @@
 "use client";
 
+// #834: slack-user and slack-cookie both map to the same Slack icon
+// (they are one workspace with two auth flows). The SVG asset itself
+// is a Phase 4 (docs/branding) follow-up — the fallback badge in this
+// component renders `SL` from the type string, which is acceptable for
+// the driver slice.
 const ICON_PATHS: Record<string, string> = {
   github: "/integration-icons/github.svg",
   gitlab: "/integration-icons/gitlab.svg",

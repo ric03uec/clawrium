@@ -249,8 +249,9 @@ def test_skill_registry_get_noninteractive(fleet_dir, stdin_not_tty) -> None:
 
 
 def test_mcp_registry_get_noninteractive(fleet_dir, stdin_not_tty) -> None:
+    # #834 (B10): mcp stubs exit 1 with a slack-integration redirect.
     result = runner.invoke(app, ["mcp", "registry", "get"])
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "Not implemented" in result.output
 
 
@@ -430,6 +431,7 @@ def test_skill_registry_describe_noninteractive(fleet_dir, stdin_not_tty) -> Non
 
 
 def test_mcp_registry_describe_noninteractive(fleet_dir, stdin_not_tty) -> None:
+    # #834 (B10): mcp stubs exit 1 with a slack-integration redirect.
     result = runner.invoke(app, ["mcp", "registry", "describe", "foo"])
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "Not implemented" in result.output

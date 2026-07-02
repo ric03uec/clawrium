@@ -229,7 +229,7 @@ auxiliary:
     model: "openai/gpt-5-nano"
 {% endif %}
 {% endif %}
-{% if atlassian_integrations %}
+{% if atlassian_integrations or slack_integrations %}
 mcp_servers:
 {% for entry in atlassian_integrations %}
 {# W6 (ATX round 1): the slug is already restricted to `[a-z0-9_]` by
@@ -245,7 +245,7 @@ mcp_servers:
        launched build in lockstep with the playbook's `uv tool install`
        pin (configure.yaml :: mcp_atlassian_version). Bump both
        together. #}
-    command: "/home/{{ agent_name }}/.local/bin/uvx"
+    command: "{{ home_root }}/{{ agent_name }}/.local/bin/uvx"
     args: ["--from", "mcp-atlassian=={{ mcp_atlassian_version }}", "mcp-atlassian"]
     env:
       JIRA_URL: {{ entry.url | yq }}
@@ -254,5 +254,38 @@ mcp_servers:
       CONFLUENCE_URL: {{ entry.confluence_url | yq }}
       CONFLUENCE_USERNAME: {{ entry.email | yq }}
       CONFLUENCE_API_TOKEN: {{ entry.token | yq }}
+{% endfor %}
+{% for entry in slack_integrations %}
+{# #834: Slack MCP subprocess (korotovsky/slack-mcp-server, pinned
+   {{ mcp_slack_version }} — lockstep with configure.yaml's
+   mcp_slack_version + mcp_slack_sha256_map). The binary lands at
+   {{ home_root }}/<agent>/.local/bin/slack-mcp-server via the
+   playbook's `get_url` task, keyed on ansible_architecture and the
+   caller-supplied os_family. `--transport stdio` is the only transport
+   we currently ship. Two auth modes:
+     - slack-user: single SLACK_MCP_XOXP_TOKEN
+     - slack-cookie: SLACK_MCP_XOXC_TOKEN + SLACK_MCP_XOXD_TOKEN (fragile
+       fallback; xoxd rotates; documented on `add` + every sync). #}
+  {{ entry.slug }}:
+    command: "{{ home_root }}/{{ agent_name }}/.local/bin/slack-mcp-server"
+    args: ["--transport", "stdio"]
+    env:
+{% if entry.auth == 'user' %}
+      SLACK_MCP_XOXP_TOKEN: {{ entry.xoxp_token | yq }}
+{% elif entry.auth == 'cookie' %}
+      SLACK_MCP_XOXC_TOKEN: {{ entry.xoxc_token | yq }}
+      SLACK_MCP_XOXD_TOKEN: {{ entry.xoxd_token | yq }}
+{% else %}
+{# Defensive: Python view-builder is the source of truth for `entry.auth`
+   ('user' or 'cookie'). If a future refactor drifts the vocabulary, this
+   branch emits a fixed sentinel key with `entry.auth` as its VALUE
+   (value-only — NEVER interpolate `entry.auth` into the YAML KEY
+   position; the value goes through the `yq` filter, but the key does
+   not). The daemon reads the sentinel as an unknown env var and skips
+   it, so the Slack MCP subprocess starts without any auth token and
+   fails-fast at the first API call. That is much louder than the
+   silent last-write-wins behavior a stray `xoxc: ...` would produce. #}
+      _unknown_slack_auth_mode: {{ entry.auth | yq }}
+{% endif %}
 {% endfor %}
 {% endif %}

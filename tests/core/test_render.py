@@ -5090,3 +5090,420 @@ def test_render_openclaw_litellm_empty_default_model_raises_at_entry():
     )
     with pytest.raises(AgentConfigError, match="empty or whitespace-only"):
         render_openclaw(inputs)
+
+
+# ---------------------------------------------------------------------------
+# #834 (Phase 1): Slack MCP integration — hermes end-to-end.
+# ---------------------------------------------------------------------------
+
+
+def test_hermes_slack_user_mcp_byte_lock():
+    """#834: full byte-lock of the slack-user branch. Field order and
+    the single SLACK_MCP_XOXP_TOKEN env line are contract — any silent
+    reorder would drift the on-host config from what tests validated."""
+    base = _baseline_inputs(ptype="anthropic")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+        ),
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    expected = (
+        "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+        "model:\n"
+        "  provider: \"anthropic\"\n"
+        "  default: 'claude-opus-4-7'\n"
+        "auxiliary:\n"
+        "  title_generation:\n"
+        "    model: \"claude-haiku-4-5-20251001\"\n"
+        "mcp_servers:\n"
+        "  slack_work:\n"
+        '    command: "/home/alpha/.local/bin/slack-mcp-server"\n'
+        '    args: ["--transport", "stdio"]\n'
+        "    env:\n"
+        "      SLACK_MCP_XOXP_TOKEN: 'xoxp-1'\n"
+    )
+    assert yaml == expected
+
+
+def test_hermes_slack_cookie_mcp_byte_lock():
+    """#834: byte-lock the slack-cookie branch. Two env vars, in
+    declared order (XOXC then XOXD) — mirrors the Slack MCP server's
+    documented env convention."""
+    base = _baseline_inputs(ptype="anthropic")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="slack-legacy",
+                type="slack-cookie",
+                credentials=(
+                    ("SLACK_MCP_XOXC_TOKEN", "xoxc-1"),
+                    ("SLACK_MCP_XOXD_TOKEN", "xoxd-1"),
+                ),
+            ),
+        ),
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    expected = (
+        "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+        "model:\n"
+        "  provider: \"anthropic\"\n"
+        "  default: 'claude-opus-4-7'\n"
+        "auxiliary:\n"
+        "  title_generation:\n"
+        "    model: \"claude-haiku-4-5-20251001\"\n"
+        "mcp_servers:\n"
+        "  slack_legacy:\n"
+        '    command: "/home/alpha/.local/bin/slack-mcp-server"\n'
+        '    args: ["--transport", "stdio"]\n'
+        "    env:\n"
+        "      SLACK_MCP_XOXC_TOKEN: 'xoxc-1'\n"
+        "      SLACK_MCP_XOXD_TOKEN: 'xoxd-1'\n"
+    )
+    assert yaml == expected
+
+
+def test_hermes_atlassian_and_slack_coexist_in_mcp_servers():
+    """#834: both branches can share a single `mcp_servers:` block.
+    Atlassian entries emit first (loop order in template), slack
+    entries follow. Verifies neither guard-clause suppresses the other."""
+    base = _baseline_inputs(ptype="anthropic")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="my-atl",
+                type="atlassian",
+                credentials=(
+                    ("ATLASSIAN_API_TOKEN", "atl-tk"),
+                    ("ATLASSIAN_EMAIL", "u@x.com"),
+                    ("ATLASSIAN_URL", "https://acme.atlassian.net/"),
+                ),
+            ),
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+        ),
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    assert "mcp_servers:" in yaml
+    # Atlassian block present
+    assert "  my_atl:" in yaml
+    assert "mcp-atlassian==0.21.1" in yaml
+    # Slack block present, following atlassian in template loop order
+    assert "  slack_work:" in yaml
+    assert "/home/alpha/.local/bin/slack-mcp-server" in yaml
+    assert "SLACK_MCP_XOXP_TOKEN: 'xoxp-1'" in yaml
+    # Order: atlassian entry precedes slack entry
+    assert yaml.index("my_atl:") < yaml.index("slack_work:")
+
+
+def test_hermes_no_slack_baseline_unchanged():
+    """#834: regression guard. Rendering without any slack integration
+    must be byte-identical to pre-change output — no stray blank line
+    or template artifact. Uses openrouter to avoid overlap with the
+    atlassian byte-lock which uses anthropic."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(),
+    )
+    yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+    expected = (
+        "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+        "model:\n"
+        "  provider: \"openrouter\"\n"
+        "  base_url: \"https://openrouter.ai/api/v1\"\n"
+        "  default: 'anthropic/claude-opus-4.7'\n"
+        "auxiliary:\n"
+        "  title_generation:\n"
+        "    model: \"anthropic/claude-haiku-4.5\"\n"
+    )
+    assert yaml == expected
+
+
+def test_hermes_slack_slug_collision_raises():
+    """#834: distinct integration names that slug-collide must raise
+    rather than silently drop one entry (mirrors atlassian guard)."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        integrations=(
+            IntegrationInputs(
+                name="slack-a", type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "x1"),),
+            ),
+            IntegrationInputs(
+                name="slack_a", type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "x2"),),
+            ),
+        ),
+        api_server=base.api_server,
+    )
+    with pytest.raises(AgentConfigError, match="collide on YAML key"):
+        render_hermes(inputs)
+
+
+def test_hermes_slack_empty_slug_raises():
+    """#834: integration names that slugify to empty must raise
+    rather than emit an unnamed YAML key (mirrors atlassian guard)."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        integrations=(
+            IntegrationInputs(
+                name="!!!",
+                type="slack-cookie",
+                credentials=(
+                    ("SLACK_MCP_XOXC_TOKEN", "xc"),
+                    ("SLACK_MCP_XOXD_TOKEN", "xd"),
+                ),
+            ),
+        ),
+        api_server=base.api_server,
+    )
+    with pytest.raises(AgentConfigError, match="slugifies to empty"):
+        render_hermes(inputs)
+
+
+def test_hermes_slack_user_darwin_byte_lock():
+    """#834 (ATX iter-1 B1): on darwin, the mcp_servers.*.command path
+    MUST use `/Users/…` — configure_macos.yaml installs the binary
+    there. Byte-lock guards against regressing to the Linux hardcode."""
+    base = _baseline_inputs(ptype="anthropic")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+        ),
+    )
+    yaml = render_hermes(inputs, os_family="darwin").files[".hermes/config.yaml"]
+    expected = (
+        "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
+        "model:\n"
+        "  provider: \"anthropic\"\n"
+        "  default: 'claude-opus-4-7'\n"
+        "auxiliary:\n"
+        "  title_generation:\n"
+        "    model: \"claude-haiku-4-5-20251001\"\n"
+        "mcp_servers:\n"
+        "  slack_work:\n"
+        '    command: "/Users/alpha/.local/bin/slack-mcp-server"\n'
+        '    args: ["--transport", "stdio"]\n'
+        "    env:\n"
+        "      SLACK_MCP_XOXP_TOKEN: 'xoxp-1'\n"
+    )
+    assert yaml == expected
+
+
+def test_hermes_atlassian_darwin_home_root_applied():
+    """#834 (ATX iter-1 B1): atlassian's uvx path must also flip to
+    `/Users/` on darwin. atlassian is not currently installed on darwin,
+    but the render layer is OS-agnostic — the moment atlassian ships on
+    darwin, the hardcode would break silently. Cover it now."""
+    base = _baseline_inputs(ptype="anthropic")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="my-atl",
+                type="atlassian",
+                credentials=(
+                    ("ATLASSIAN_API_TOKEN", "tk"),
+                    ("ATLASSIAN_EMAIL", "u@x.com"),
+                    ("ATLASSIAN_URL", "https://a.atlassian.net/"),
+                ),
+            ),
+        ),
+    )
+    yaml = render_hermes(inputs, os_family="darwin").files[".hermes/config.yaml"]
+    assert '    command: "/Users/alpha/.local/bin/uvx"\n' in yaml
+
+
+def test_hermes_slack_atlassian_cross_type_slug_collision_raises():
+    """#834 (ATX iter-1 B2): atlassian and slack both emit under the
+    same `mcp_servers:` YAML mapping. Two integrations that slugify to
+    the same key MUST raise — one shared set catches the cross-type
+    collision that the two-set implementation would silently
+    last-write-wins."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        integrations=(
+            IntegrationInputs(
+                name="work",
+                type="atlassian",
+                credentials=(
+                    ("ATLASSIAN_API_TOKEN", "tk"),
+                    ("ATLASSIAN_EMAIL", "u@x"),
+                    ("ATLASSIAN_URL", "https://x"),
+                ),
+            ),
+            IntegrationInputs(
+                name="work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+        ),
+        api_server=base.api_server,
+    )
+    with pytest.raises(AgentConfigError, match="collide on YAML key"):
+        render_hermes(inputs)
+
+
+def test_hermes_slack_user_missing_xoxp_raises():
+    """#834 (ATX iter-1 W2): missing SLACK_MCP_XOXP_TOKEN must raise
+    at render time — emitting an empty-string token to the daemon
+    produces opaque 401s hours after configure returned green."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(),  # no SLACK_MCP_XOXP_TOKEN
+            ),
+        ),
+        api_server=base.api_server,
+    )
+    with pytest.raises(AgentConfigError, match="SLACK_MCP_XOXP_TOKEN"):
+        render_hermes(inputs)
+
+
+def test_hermes_slack_cookie_missing_xoxd_raises():
+    """#834 (ATX iter-1 W2): slack-cookie needs BOTH xoxc and xoxd —
+    missing one silently ships a broken integration otherwise."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        integrations=(
+            IntegrationInputs(
+                name="slack-legacy",
+                type="slack-cookie",
+                credentials=(("SLACK_MCP_XOXC_TOKEN", "xc-only"),),
+            ),
+        ),
+        api_server=base.api_server,
+    )
+    with pytest.raises(AgentConfigError, match="SLACK_MCP_XOXD_TOKEN"):
+        render_hermes(inputs)
+
+
+def test_render_hermes_rejects_unknown_os_family():
+    """#834 (ATX iter-2): render_hermes validates os_family against
+    {'linux', 'darwin'} and raises on typos. Without this, `"Darwin"`,
+    `"macos"`, `"osx"`, or any typo silently falls through to `/home/`
+    prefix on darwin — reopening B1 by another name."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(),
+    )
+    for bad in ("Darwin", "macos", "osx", "MacOS", "", "unknown"):
+        with pytest.raises(AgentConfigError, match="unsupported os_family"):
+            render_hermes(inputs, os_family=bad)
+
+
+def test_render_hermes_home_root_matches_playbook_resolver():
+    """#834 (ATX iter-2 suggestion): the render.py home_root logic is a
+    manual copy of `core.playbook_resolver.home_root_for`. Assert both
+    resolve identically for every supported os_family so silent drift
+    on a future OS-family addition is caught."""
+    from clawrium.core.playbook_resolver import home_root_for
+
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+        ),
+    )
+    for os_family in ("linux", "darwin"):
+        yaml = render_hermes(inputs, os_family=os_family).files[
+            ".hermes/config.yaml"
+        ]
+        # home_root_for returns `/home` or `/Users`; the render must
+        # emit the same prefix on the mcp_servers.*.command line.
+        expected = f'{home_root_for(os_family)}/alpha/.local/bin/slack-mcp-server'
+        assert expected in yaml, (
+            f"render_hermes({os_family!r}) drifted from home_root_for: "
+            f"expected {expected!r} in rendered YAML"
+        )
+
+
+def test_supported_integrations_for_agent_type():
+    """#834 (B8): the helper backs the CLI attach gate. hermes must
+    include both slack types; zeroclaw/openclaw must NOT (their support
+    lands in Phases 2+3). Unknown agent types return None so the gate
+    can fall through to render-time enforcement."""
+    from clawrium.core.render import supported_integrations_for_agent_type
+
+    hermes = supported_integrations_for_agent_type("hermes")
+    assert hermes is not None
+    assert "slack-user" in hermes
+    assert "slack-cookie" in hermes
+    assert "atlassian" in hermes  # regression guard
+
+    zc = supported_integrations_for_agent_type("zeroclaw")
+    assert zc is not None
+    assert "slack-user" not in zc
+    assert "slack-cookie" not in zc
+
+    oc = supported_integrations_for_agent_type("openclaw")
+    assert oc is not None
+    assert "slack-user" not in oc
+    assert "slack-cookie" not in oc
+
+    assert supported_integrations_for_agent_type("ethos") is None
+    assert supported_integrations_for_agent_type("unknown") is None

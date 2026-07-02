@@ -43,6 +43,7 @@ __all__ = [
     "render_hermes",
     "render_zeroclaw",
     "render_openclaw",
+    "supported_integrations_for_agent_type",
 ]
 
 
@@ -911,7 +912,17 @@ _HERMES_SUPPORTED_PROVIDERS = frozenset(
 )
 _HERMES_SUPPORTED_CHANNELS = frozenset({"discord", "slack"})
 _HERMES_SUPPORTED_INTEGRATIONS = frozenset(
-    {"github", "atlassian", "linear", "notion", "gitlab", "git", "brave"}
+    {
+        "github",
+        "atlassian",
+        "linear",
+        "notion",
+        "gitlab",
+        "git",
+        "brave",
+        "slack-user",
+        "slack-cookie",
+    }
 )
 # Lockstep with hermes' configure.yaml playbook
 # (`mcp_atlassian_version: "0.21.1"`). Without this pin in the rendered
@@ -920,9 +931,19 @@ _HERMES_SUPPORTED_INTEGRATIONS = frozenset(
 # installed onto the host, so a fresh tool venv would silently get a
 # different MCP build than the one tested.
 _HERMES_MCP_ATLASSIAN_VERSION = "0.21.1"
+# Lockstep with hermes' configure.yaml `mcp_slack_version` +
+# `mcp_slack_sha256_map`. The korotovsky/slack-mcp-server release
+# ships a single Go binary per (os, arch); the playbook downloads it
+# via `get_url` with a sha256 pin. Bumping this pin MUST land in the
+# same commit as the corresponding sha256 map bumps in configure.yaml
+# and configure_macos.yaml — otherwise the checksum guard fails on
+# the first configure after upgrade. #834 (B6 fix).
+_HERMES_MCP_SLACK_VERSION = "v1.3.0"
 
 
-def render_hermes(inputs: RenderInputs) -> RenderedFiles:
+def render_hermes(
+    inputs: RenderInputs, *, os_family: str = "linux"
+) -> RenderedFiles:
     """Render hermes' on-host config files from canonical inputs.
 
     Produces:
@@ -934,8 +955,27 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
     `inputs.provider.type`. Every field declared on `inputs` flows into
     exactly one output line; the function does NOT conditionally emit a
     section based on whether a hosts.json field happened to be populated.
+
+    #834 (B1 fix): `os_family` picks the home root prefix for every
+    per-agent binary path (`/home/<name>/…` on Linux, `/Users/<name>/…`
+    on darwin). Default `linux` keeps the pre-#834 render bytes intact.
+    Callers on macOS MUST pass `os_family="darwin"` — otherwise the
+    rendered `mcp_servers.*.command` points at a nonexistent path on
+    darwin hermes and the daemon silently fails to spawn the subprocess.
     """
     _validate_agent_name(inputs.agent_name)
+    # #834 (ATX iter-2): validate os_family up front. Mirrors
+    # `core.playbook_resolver.home_root_for`'s contract (kept local
+    # rather than imported to avoid a cycle between core.render and
+    # core.playbook_resolver at test-collection time). Without this
+    # guard, any typo (`"Darwin"`, `"macos"`, `"osx"`) silently falls
+    # through to `/home` — reopening B1 by another name.
+    if os_family not in ("linux", "darwin"):
+        raise AgentConfigError(
+            f"render_hermes: unsupported os_family {os_family!r}. "
+            f"Supported: ['darwin', 'linux']"
+        )
+    home_root = "/Users" if os_family == "darwin" else "/home"
 
     ptype = inputs.provider.type
     if ptype not in _HERMES_SUPPORTED_PROVIDERS:
@@ -979,7 +1019,13 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
 
     integration_views: list[dict] = []
     atlassian_views: list[dict] = []
-    seen_atlassian_slugs: set[str] = set()
+    slack_views: list[dict] = []
+    # #834 (B2 fix): atlassian and slack both emit keys under the same
+    # `mcp_servers:` YAML mapping. Two distinct slug-tracking sets would
+    # let an atlassian integration named `work` and a slack integration
+    # named `work` slug-collide silently (YAML last-key-wins). One shared
+    # set catches the cross-type collision.
+    seen_mcp_slugs: set[str] = set()
     last_github_token = ""
     for integration in inputs.integrations:
         creds = dict(integration.credentials)
@@ -1006,13 +1052,14 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
                     f"render_hermes: integration name {integration.name!r} "
                     f"slugifies to empty — refusing to emit an unnamed YAML key"
                 )
-            if lo_slug in seen_atlassian_slugs:
+            if lo_slug in seen_mcp_slugs:
                 raise AgentConfigError(
-                    f"render_hermes: atlassian integration names collide on "
-                    f"YAML key {lo_slug!r}; rename one of the integrations to "
-                    f"differentiate after slugification"
+                    f"render_hermes: mcp_servers integration names collide "
+                    f"on YAML key {lo_slug!r} (atlassian branch); another "
+                    f"attached integration already claims this slug — "
+                    f"rename one to differentiate after slugification"
                 )
-            seen_atlassian_slugs.add(lo_slug)
+            seen_mcp_slugs.add(lo_slug)
             url = creds.get("ATLASSIAN_URL", "").rstrip("/")
             atlassian_views.append(
                 {
@@ -1023,6 +1070,73 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
                     "confluence_url": url + "/wiki",
                 }
             )
+        if integration.type in ("slack-user", "slack-cookie"):
+            # Slack MCP subprocess (korotovsky/slack-mcp-server). Slug is
+            # already restricted by `_integration_slug` (alnum + underscore)
+            # so it is safe to emit as an unquoted YAML key downstream.
+            lo_slug = slug.lower()
+            if not lo_slug:
+                raise AgentConfigError(
+                    f"render_hermes: integration name {integration.name!r} "
+                    f"slugifies to empty — refusing to emit an unnamed YAML key"
+                )
+            if lo_slug in seen_mcp_slugs:
+                raise AgentConfigError(
+                    f"render_hermes: mcp_servers integration names collide "
+                    f"on YAML key {lo_slug!r} (slack branch); another "
+                    f"attached integration already claims this slug — "
+                    f"rename one to differentiate after slugification"
+                )
+            seen_mcp_slugs.add(lo_slug)
+            # #834 (ATX iter-1 W2): validate required tokens are non-empty
+            # before threading into the template. `_clean_secret` in
+            # `build_render_inputs` already strips NUL/CR/LF, so an empty
+            # string here means the operator never set the credential.
+            # Emitting `SLACK_MCP_XOXP_TOKEN: ''` renders green but the
+            # daemon fails with an opaque 401 at first Slack API call.
+            if integration.type == "slack-user":
+                xoxp = _clean_secret(creds.get("SLACK_MCP_XOXP_TOKEN", ""))
+                if not xoxp:
+                    raise AgentConfigError(
+                        f"render_hermes: slack-user integration "
+                        f"{integration.name!r} is missing "
+                        f"SLACK_MCP_XOXP_TOKEN in its credential store"
+                    )
+                slack_views.append(
+                    {
+                        "slug": lo_slug,
+                        "auth": "user",
+                        "xoxp_token": xoxp,
+                        "xoxc_token": "",
+                        "xoxd_token": "",
+                    }
+                )
+            else:  # slack-cookie
+                xoxc = _clean_secret(creds.get("SLACK_MCP_XOXC_TOKEN", ""))
+                xoxd = _clean_secret(creds.get("SLACK_MCP_XOXD_TOKEN", ""))
+                if not xoxc or not xoxd:
+                    missing = [
+                        k
+                        for k, v in (
+                            ("SLACK_MCP_XOXC_TOKEN", xoxc),
+                            ("SLACK_MCP_XOXD_TOKEN", xoxd),
+                        )
+                        if not v
+                    ]
+                    raise AgentConfigError(
+                        f"render_hermes: slack-cookie integration "
+                        f"{integration.name!r} is missing "
+                        f"{', '.join(missing)} in its credential store"
+                    )
+                slack_views.append(
+                    {
+                        "slug": lo_slug,
+                        "auth": "cookie",
+                        "xoxp_token": "",
+                        "xoxc_token": xoxc,
+                        "xoxd_token": xoxd,
+                    }
+                )
         integration_views.append(
             {"type": integration.type, "slug": slug, "creds": creds}
         )
@@ -1104,6 +1218,9 @@ def render_hermes(inputs: RenderInputs) -> RenderedFiles:
         opencode_base_url=opencode_base_url,
         atlassian_integrations=atlassian_views,
         mcp_atlassian_version=_HERMES_MCP_ATLASSIAN_VERSION,
+        slack_integrations=slack_views,
+        mcp_slack_version=_HERMES_MCP_SLACK_VERSION,
+        home_root=home_root,
     )
 
     return RenderedFiles(
@@ -1808,3 +1925,27 @@ def _render_openclaw_json(
         discord["guilds"] = {}
 
     return json.dumps(baseline, indent=2, sort_keys=False) + "\n"
+
+
+# Public accessor for the per-agent-type supported-integrations frozensets.
+# The CLI attach-time gate (`clawctl agent integration attach`) uses this
+# to reject `attach <openclaw|zeroclaw> slack-*` at attach time instead of
+# waiting for the render layer to raise — closes the #555-class regression
+# window described in #499 plan §"Coming-soon contract". #834 (B8 fix).
+_AGENT_TYPE_INTEGRATION_SUPPORT: dict[str, frozenset[str]] = {
+    "hermes": _HERMES_SUPPORTED_INTEGRATIONS,
+    "zeroclaw": _ZEROCLAW_SUPPORTED_INTEGRATIONS,
+    "openclaw": _OPENCLAW_SUPPORTED_INTEGRATIONS,
+}
+
+
+def supported_integrations_for_agent_type(agent_type: str) -> frozenset[str] | None:
+    """Return the frozenset of integration types supported by `agent_type`.
+
+    Returns `None` when the agent type is unknown to the renderer (e.g.
+    `ethos` today, or a third-party agent installed from a custom
+    manifest). Callers use `None` as "cannot gate; fall through to
+    render-time enforcement" — hard-failing here would break any agent
+    type the renderer does not personally know about.
+    """
+    return _AGENT_TYPE_INTEGRATION_SUPPORT.get(agent_type)
