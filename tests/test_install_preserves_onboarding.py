@@ -182,6 +182,77 @@ class TestReinstallPreservesOnboarding:
             state = get_onboarding_state("192.168.1.100", "work")
             assert state == OnboardingState.PENDING
 
+    def test_reinstall_preserves_attachments(
+        self, host_with_ready_agent, monkeypatch
+    ):
+        """#816: provider/channel/integration/skill attach lists survive a re-install.
+
+        Reproduces the `clawctl_upgrade_strips_attachments` regression
+        observed on wolf-i (2026-06-18 and again 2026-07-01). Prior to
+        the fix in `install.py`, the wholesale record overwrite in
+        `set_installing` cleared providers/channels/integrations/skills
+        even though onboarding was preserved.
+        """
+        # Seed attach lists onto the existing agent record.
+        host = get_host("192.168.1.100")
+        agent_rec = host["agents"]["work"]
+        agent_rec["providers"] = ["clawrium-gtm-litellm"]
+        agent_rec["channels"] = ["discord-wolf-i"]
+        agent_rec["integrations"] = ["wolf-brave"]
+        agent_rec["skills"] = ["tdd"]
+        # Persist via the isolated hosts.json path used by other tests
+        # in this file.
+        (host_with_ready_agent / "hosts.json").write_text(json.dumps([host], indent=2))
+
+        mock_result = MagicMock()
+        mock_result.status = "successful"
+        mock_result.rc = 0
+        with patch("clawrium.core.install.ansible_runner.run") as mock_run:
+            mock_run.return_value = mock_result
+            run_installation("openclaw", "192.168.1.100", name="work")
+
+        host = get_host("192.168.1.100")
+        post = host["agents"]["work"]
+        assert post["providers"] == ["clawrium-gtm-litellm"]
+        assert post["channels"] == ["discord-wolf-i"]
+        assert post["integrations"] == ["wolf-brave"]
+        assert post["skills"] == ["tdd"]
+
+    def test_failed_reinstall_preserves_attachments(
+        self, host_with_ready_agent, monkeypatch
+    ):
+        """#816: attachments survive a FAILED re-install too.
+
+        The wolf-i 2026-07-01 UAT observed that the failure path
+        (`set_failed`) left attachments cleared even though it never
+        called `set_installed`. `set_failed` now restores them
+        symmetrically from the same `preserved_attachments` snapshot.
+        """
+        host = get_host("192.168.1.100")
+        agent_rec = host["agents"]["work"]
+        agent_rec["providers"] = ["clawrium-gtm-litellm"]
+        agent_rec["channels"] = ["discord-wolf-i"]
+        agent_rec["integrations"] = ["wolf-brave"]
+        (host_with_ready_agent / "hosts.json").write_text(json.dumps([host], indent=2))
+
+        # ansible-runner returns non-zero → run_installation raises
+        # InstallationError, hits the set_failed branch.
+        mock_result = MagicMock()
+        mock_result.status = "failed"
+        mock_result.rc = 2
+        with patch("clawrium.core.install.ansible_runner.run") as mock_run:
+            mock_run.return_value = mock_result
+            with pytest.raises(Exception):
+                run_installation("openclaw", "192.168.1.100", name="work")
+
+        host = get_host("192.168.1.100")
+        post = host["agents"]["work"]
+        assert post["status"] == "failed"
+        # Attachments must have survived the failure.
+        assert post["providers"] == ["clawrium-gtm-litellm"]
+        assert post["channels"] == ["discord-wolf-i"]
+        assert post["integrations"] == ["wolf-brave"]
+
     def test_initialize_onboarding_skips_if_exists(self, host_with_ready_agent):
         """initialize_onboarding() is idempotent - skips if onboarding already exists."""
         # Get pre-initialization state
