@@ -47,7 +47,10 @@ def canonical_stubs(monkeypatch: pytest.MonkeyPatch):
     def fake_build_render_inputs(agent_name: str):
         return inputs
 
-    def fake_renderer(_inputs):
+    def fake_renderer(_inputs, **_kwargs):
+        # #835: hermes / openclaw canonical render accepts `os_family=`
+        # keyword; accept and ignore so this stub stays signature-
+        # agnostic across agent types.
         return MagicMock(files={})
 
     def fake_get_agent_by_name(agent_name: str):

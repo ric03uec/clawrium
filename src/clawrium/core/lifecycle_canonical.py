@@ -1742,7 +1742,21 @@ def sync_agent_canonical(
         )
 
     emit("render", f"rendering canonical config for {inputs.agent_type}")
-    rendered = renderer(inputs)
+    # #835 (ATX iter-1 W1 → iter-2 W1 tightened): thread os_family into
+    # hermes/openclaw renderers so `clawctl agent sync` produces the
+    # same binary paths `configure` does on darwin. Test stubs across
+    # `test_lifecycle_canonical.py`, `test_workspace_*`, and
+    # `test_sync.py` accept `**_kw` — no TypeError shim, so any future
+    # stub that drops kwarg support fails loudly instead of silently
+    # falling back to a linux-only render (the iter-2 reviewer flagged
+    # the shim as silencing a programming-error class).
+    from clawrium.core.playbook_resolver import normalize_os_family
+
+    _os_family = normalize_os_family(host)
+    if inputs.agent_type in ("hermes", "openclaw"):
+        rendered = renderer(inputs, os_family=_os_family)
+    else:
+        rendered = renderer(inputs)
 
     emit("diff", f"reading on-host files from {hostname}")
     diffs = diff_files(

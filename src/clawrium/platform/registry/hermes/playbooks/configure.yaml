@@ -30,27 +30,21 @@
               | selectattr('value.type', 'equalto', 'atlassian')
               | list | length > 0)
       }}
-    # Pinned korotovsky/slack-mcp-server release + per-arch sha256 map.
-    # The release ships single Go binaries (not tarballs), so no
-    # unarchive step — `get_url` writes the binary directly to
-    # ~/.local/bin/slack-mcp-server with `mode: '0755'`. Bumping this
-    # pin MUST land in the same commit as the corresponding sha256 map
-    # bumps AND the `_HERMES_MCP_SLACK_VERSION` constant in
-    # `clawrium/core/render.py` — otherwise the checksum guard fails
-    # on the first configure after upgrade. #834 (B6 fix).
+    # #835 (B9 fix): `mcp_slack_version`, `mcp_slack_arch_map`, and
+    # `mcp_slack_sha256_map` are threaded in as extravars by
+    # `clawrium.core.lifecycle.configure_agent`. Single Python source of
+    # truth is `clawrium.core.playbook_resolver._MCP_SLACK_VERSION` +
+    # the per-OS sha256 maps in the same module. Both hermes and
+    # openclaw configure playbooks (Linux + macOS) consume the same
+    # extravars — closes the pin-drift risk of maintaining the same
+    # values in four YAML files.
     #
     # armv7l is NOT shipped by upstream as of v1.3.0 (linux amd64/arm64
     # + darwin amd64/arm64 only). This blocks `slack-*` integrations on
     # armv7l hosts — the arch-guard task below fails fast with a clear
     # message pointing at the upstream release page. Tracked as the
     # Phase 3 (zeroclaw armv7l) coverage gap in #499.
-    mcp_slack_version: "v1.3.0"
-    mcp_slack_arch_map:
-      x86_64: "linux-amd64"
-      aarch64: "linux-arm64"
-    mcp_slack_sha256_map:
-      x86_64: "d1525962e9b9dbfdd2eaf48d0a81ca1eca7d8f1862b8d34931b812c850b3e568"
-      aarch64: "a307a48d16c2261346bdc257274cdcdb8b2027c867dc971b41d52cef36472c88"
+    #
     # Precomputed convenience flag — true iff this run has at least one
     # slack integration (slack-user or slack-cookie) assigned.
     slack_integration_assigned: >-

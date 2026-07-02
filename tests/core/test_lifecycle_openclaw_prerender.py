@@ -446,7 +446,10 @@ def test_configure_agent_openclaw_unexpected_render_exception_surfaces_cleanly(
     unhandled traceback that leaves the lifecycle half-walked."""
     _seed_openclaw_openrouter(render_stores, openclaw_configure_env)
 
-    def _boom(_inputs):
+    def _boom(_inputs, **_kwargs):
+        # #835: configure_agent now threads os_family= into render_openclaw.
+        # Accept and ignore so the stub raises via the exception under test
+        # and not via TypeError on the kwarg.
         raise RuntimeError("simulated json baseline IOError")
 
     # configure_agent does `from clawrium.core.render import render_openclaw`
@@ -467,4 +470,42 @@ def test_configure_agent_openclaw_unexpected_render_exception_surfaces_cleanly(
     assert err is not None
     assert "Openclaw render failed" in err
     assert "simulated json baseline IOError" in err
+    assert "inventory" not in openclaw_configure_env.captured
+
+
+def test_configure_agent_openclaw_mcp_slack_extravars_bad_os_family(
+    openclaw_configure_env, render_stores, monkeypatch
+):
+    """#835 iter-2 blocker: `configure_agent` wraps
+    `mcp_slack_extravars(normalize_os_family(host))` in try/ValueError
+    and returns `(False, msg)` on failure. The path fires when a host
+    record's `os_family` normalizes to a value outside {linux, darwin}
+    — e.g. a `windows` alias or a typo the normalizer passes through.
+    Without this test the error return path is dead in the suite,
+    leaving future refactors free to break the (False, msg) contract."""
+    _seed_openclaw_openrouter(render_stores, openclaw_configure_env)
+
+    def _bad(_of):
+        raise ValueError(f"unsupported os_family: {_of!r}")
+
+    monkeypatch.setattr(
+        "clawrium.core.playbook_resolver.mcp_slack_extravars", _bad
+    )
+
+    ok, err = _invoke_configure(
+        openclaw_configure_env,
+        {
+            "provider": {
+                "name": "or",
+                "type": "openrouter",
+                "default_model": "anthropic/claude-opus-4",
+            }
+        },
+    )
+    assert not ok
+    assert err is not None
+    assert "openclaw configure failed" in err
+    assert "unsupported os_family" in err
+    # Ansible-runner.run must not have been invoked — extravars failure
+    # short-circuits before playbook dispatch.
     assert "inventory" not in openclaw_configure_env.captured

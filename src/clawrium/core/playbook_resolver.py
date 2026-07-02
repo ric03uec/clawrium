@@ -35,6 +35,30 @@ _HOME_ROOT_BY_OS: dict[str, str] = {
 }
 
 
+def normalize_os_family(host: dict | None) -> str:
+    """Return a normalized `os_family` string for a hosts.json record.
+
+    Reads `host.get("os_family")`, strips whitespace + lowercases, and
+    coerces the common `mac` / `macos` / `osx` aliases to `darwin`.
+    Legacy or missing host records fall back to `linux` (mirrors the
+    `load_hosts` migration default at `core/hosts.py:330`).
+
+    Callers pass the normalized value into per-OS APIs
+    (`render_hermes(..., os_family=of)`, `render_openclaw(..., os_family=of)`,
+    `mcp_slack_extravars(of)`) — each raises on any final value outside
+    `{'linux', 'darwin'}` so an exotic input surfaces loudly at the
+    per-API boundary rather than getting silently coerced to `linux`
+    here. Extracted (ATX #835 iter-1 W2) so
+    `lifecycle.configure_agent`'s three previously-duplicated coercion
+    blocks stay in lockstep.
+    """
+    raw = (host.get("os_family") if host else None) or "linux"
+    of = str(raw).strip().lower()
+    if of in ("mac", "macos", "osx"):
+        of = "darwin"
+    return of
+
+
 def home_root_for(os_family: str) -> str:
     """Return the per-OS user home-directory root.
 
@@ -163,6 +187,80 @@ _SHELL_RC_PREPEND_BY_OS: dict[str, str] = {
         ' [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc";'
     ),
 }
+
+
+# Pinned korotovsky/slack-mcp-server release + per-arch SHA256 hashes.
+# Single Python source of truth for hermes + openclaw Ansible playbooks
+# (#835 B9 fix). Both playbooks removed their inline `mcp_slack_*` vars
+# and now consume these values as extravars threaded through
+# `lifecycle.configure_agent` — closes the drift risk of maintaining
+# the same pins in two YAML files. `render.py` also imports the
+# version constant lazily so the Jinja template comment matches.
+#
+# Bumping the pin: fetch the new `.sha256` sidecar files from
+#   https://github.com/korotovsky/slack-mcp-server/releases/tag/<version>
+# and replace the values below. `_MCP_SLACK_VERSION` and both SHA maps
+# MUST land in the same commit.
+#
+# armv7l is NOT shipped by upstream as of v1.3.0 (linux amd64/arm64 +
+# darwin amd64/arm64 only). Neither map includes it; the playbook's
+# arch-guard task fails fast on armv7l hosts with a pointer at the
+# upstream release page. Tracked as the zeroclaw armv7l coverage gap
+# in #499.
+_MCP_SLACK_VERSION = "v1.3.0"
+_MCP_SLACK_ARCH_MAP_LINUX = {
+    "x86_64": "linux-amd64",
+    "aarch64": "linux-arm64",
+}
+_MCP_SLACK_SHA256_MAP_LINUX = {
+    "x86_64": "d1525962e9b9dbfdd2eaf48d0a81ca1eca7d8f1862b8d34931b812c850b3e568",
+    "aarch64": "a307a48d16c2261346bdc257274cdcdb8b2027c867dc971b41d52cef36472c88",
+}
+_MCP_SLACK_ARCH_MAP_DARWIN = {
+    "arm64": "darwin-arm64",
+    "x86_64": "darwin-amd64",
+}
+_MCP_SLACK_SHA256_MAP_DARWIN = {
+    "arm64": "e839aa5c2e28253438ed704dd862aa4afb75711d688080ce447a3b1167855312",
+    "x86_64": "e38142ee628b2c2ff241f0d021947b96e743540cfb702fc8b01f61a4f7a4a125",
+}
+
+
+def mcp_slack_extravars(os_family: str) -> dict:
+    """Return the Ansible extravars carrying the slack-mcp-server pins.
+
+    The returned dict is merged into `configure.yaml`'s inventory `vars`
+    by `lifecycle.configure_agent` for hermes AND openclaw playbooks
+    (both Linux and macOS variants). Keys:
+
+      - `mcp_slack_version`: git tag string (e.g. ``"v1.3.0"``)
+      - `mcp_slack_arch_map`: ``ansible_architecture`` → release-asset suffix
+      - `mcp_slack_sha256_map`: ``ansible_architecture`` → SHA256 hex
+
+    Playbooks index the two maps by the runtime-discovered
+    ``ansible_architecture`` fact — this is the only viable seam
+    because arch is not persisted in ``hosts.json``. Unmapped arches
+    (notably ``armv7l``) fail the playbook's arch-guard task with a
+    pointer at the upstream release page.
+
+    Raises ``ValueError`` on unsupported ``os_family`` — mirrors
+    ``home_root_for`` / ``resolve_agent_playbook`` symmetric strictness.
+    """
+    if os_family not in SUPPORTED_OS:
+        raise ValueError(
+            f"unsupported os_family: {os_family!r} (expected one of {sorted(SUPPORTED_OS)})"
+        )
+    if os_family == "darwin":
+        return {
+            "mcp_slack_version": _MCP_SLACK_VERSION,
+            "mcp_slack_arch_map": dict(_MCP_SLACK_ARCH_MAP_DARWIN),
+            "mcp_slack_sha256_map": dict(_MCP_SLACK_SHA256_MAP_DARWIN),
+        }
+    return {
+        "mcp_slack_version": _MCP_SLACK_VERSION,
+        "mcp_slack_arch_map": dict(_MCP_SLACK_ARCH_MAP_LINUX),
+        "mcp_slack_sha256_map": dict(_MCP_SLACK_SHA256_MAP_LINUX),
+    }
 
 
 def shell_rc_prepend(os_family: str) -> str:

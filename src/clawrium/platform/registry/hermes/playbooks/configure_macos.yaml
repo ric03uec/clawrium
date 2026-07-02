@@ -21,17 +21,10 @@
 - hosts: all
   become: yes
   vars:
-    # #834: mirror configure.yaml's pins verbatim. Bumping the version
-    # requires updating _HERMES_MCP_SLACK_VERSION in core/render.py and
-    # the sha256 map in BOTH configure.yaml and this file in the same
-    # commit — otherwise the checksum guard fails on darwin hermes.
-    mcp_slack_version: "v1.3.0"
-    mcp_slack_arch_map:
-      arm64: "darwin-arm64"
-      x86_64: "darwin-amd64"
-    mcp_slack_sha256_map:
-      arm64: "e839aa5c2e28253438ed704dd862aa4afb75711d688080ce447a3b1167855312"
-      x86_64: "e38142ee628b2c2ff241f0d021947b96e743540cfb702fc8b01f61a4f7a4a125"
+    # #835 (B9 fix): `mcp_slack_version`, `mcp_slack_arch_map`,
+    # `mcp_slack_sha256_map` are extravars owned by
+    # `clawrium.core.playbook_resolver.mcp_slack_extravars`. See the
+    # Linux `configure.yaml` header comment for rationale.
     slack_integration_assigned: >-
       {{
         integrations is defined

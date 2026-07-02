@@ -1,44 +1,29 @@
-"""Tests for the slack-mcp-server per-arch install matrix on hermes.
+"""Tests for the slack-mcp-server per-arch install matrix.
 
-#834 (B6/W3): the playbook downloads the korotovsky/slack-mcp-server
-binary via `get_url` with an sha256 checksum. The (arch → asset filename)
-and (arch → sha256) maps live in the playbook `vars:` block. A drift
-between the two, or a missing arch that ansible would happily leave
-without a checksum guard, would silently install a mismatched binary
-(or fail loudly at first configure — this test catches the drift up
-front).
+#835 (B9): the (arch → asset filename) and (arch → sha256) maps were
+lifted out of the hermes `configure.yaml` / `configure_macos.yaml`
+`vars:` blocks and now live in
+`clawrium.core.playbook_resolver.mcp_slack_extravars`. The extravars
+are threaded into BOTH hermes and openclaw configure playbooks by
+`lifecycle.configure_agent`, so a single Python location owns the
+pins for four YAML files. This test suite pins the resolver contract
+directly — any drift between hermes and openclaw ships as one
+resolver change or fails these tests.
 
-macOS variants live in `configure_macos.yaml` with a divergent arch
-naming (`arm64` vs Linux's `aarch64`). Both files are covered here.
+macOS variants keep the divergent ansible arch naming (`arm64` vs
+Linux's `aarch64`) — that's a fact about how ansible reports the
+darwin architecture and cannot be normalized away.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-import yaml
 
-
-def _playbook_vars(name: str) -> dict:
-    path = (
-        Path(__file__).parent.parent.parent
-        / "src"
-        / "clawrium"
-        / "platform"
-        / "registry"
-        / "hermes"
-        / "playbooks"
-        / name
-    )
-    data = yaml.safe_load(path.read_text())
-    # ansible playbooks are top-level lists of plays; `vars:` sits on
-    # the single play we author.
-    return data[0]["vars"]
+from clawrium.core.playbook_resolver import mcp_slack_extravars
 
 
 # ---------------------------------------------------------------------------
-# Linux (configure.yaml)
+# Linux
 # ---------------------------------------------------------------------------
 
 
@@ -53,27 +38,27 @@ LINUX_EXPECTED_SHA256 = {
 }
 
 
-def test_linux_playbook_pins_mcp_slack_version() -> None:
-    vs = _playbook_vars("configure.yaml")
+def test_linux_resolver_pins_mcp_slack_version() -> None:
+    vs = mcp_slack_extravars("linux")
     assert vs["mcp_slack_version"] == "v1.3.0"
 
 
 @pytest.mark.parametrize(("arch", "expected_asset_suffix"), LINUX_ARCH_TARGETS)
 def test_linux_arch_map_covers_arch(arch: str, expected_asset_suffix: str) -> None:
-    vs = _playbook_vars("configure.yaml")
+    vs = mcp_slack_extravars("linux")
     assert vs["mcp_slack_arch_map"][arch] == expected_asset_suffix
 
 
 @pytest.mark.parametrize("arch", ["x86_64", "aarch64"])
 def test_linux_sha256_map_covers_arch(arch: str) -> None:
-    vs = _playbook_vars("configure.yaml")
+    vs = mcp_slack_extravars("linux")
     assert vs["mcp_slack_sha256_map"][arch] == LINUX_EXPECTED_SHA256[arch]
 
 
 def test_linux_maps_have_identical_keys() -> None:
     """The arch and sha256 maps must have the exact same key set —
     a mismatch would let a supported arch slip past the checksum guard."""
-    vs = _playbook_vars("configure.yaml")
+    vs = mcp_slack_extravars("linux")
     assert set(vs["mcp_slack_arch_map"].keys()) == set(
         vs["mcp_slack_sha256_map"].keys()
     )
@@ -84,13 +69,13 @@ def test_linux_armv7l_intentionally_absent() -> None:
     The playbook's arch guard MUST fail-fast rather than silently skip
     slack setup on armv7l zeroclaw hosts. Regression signal so a
     future addition of armv7 shipping upstream also lands here."""
-    vs = _playbook_vars("configure.yaml")
+    vs = mcp_slack_extravars("linux")
     assert "armv7l" not in vs["mcp_slack_arch_map"]
     assert "armv7l" not in vs["mcp_slack_sha256_map"]
 
 
 # ---------------------------------------------------------------------------
-# Darwin (configure_macos.yaml)
+# Darwin
 # ---------------------------------------------------------------------------
 
 
@@ -105,47 +90,111 @@ DARWIN_EXPECTED_SHA256 = {
 }
 
 
-def test_darwin_playbook_pins_mcp_slack_version() -> None:
-    vs = _playbook_vars("configure_macos.yaml")
+def test_darwin_resolver_pins_mcp_slack_version() -> None:
+    vs = mcp_slack_extravars("darwin")
     assert vs["mcp_slack_version"] == "v1.3.0"
 
 
 @pytest.mark.parametrize(("arch", "expected_asset_suffix"), DARWIN_ARCH_TARGETS)
 def test_darwin_arch_map_covers_arch(arch: str, expected_asset_suffix: str) -> None:
-    vs = _playbook_vars("configure_macos.yaml")
+    vs = mcp_slack_extravars("darwin")
     assert vs["mcp_slack_arch_map"][arch] == expected_asset_suffix
 
 
 @pytest.mark.parametrize("arch", ["arm64", "x86_64"])
 def test_darwin_sha256_map_covers_arch(arch: str) -> None:
-    vs = _playbook_vars("configure_macos.yaml")
+    vs = mcp_slack_extravars("darwin")
     assert vs["mcp_slack_sha256_map"][arch] == DARWIN_EXPECTED_SHA256[arch]
 
 
 def test_darwin_maps_have_identical_keys() -> None:
-    vs = _playbook_vars("configure_macos.yaml")
+    vs = mcp_slack_extravars("darwin")
     assert set(vs["mcp_slack_arch_map"].keys()) == set(
         vs["mcp_slack_sha256_map"].keys()
     )
 
 
 # ---------------------------------------------------------------------------
-# Cross-file version lockstep
+# Cross-OS lockstep + guardrails
 # ---------------------------------------------------------------------------
 
 
 def test_linux_and_darwin_pin_same_version() -> None:
-    """Both playbooks must reference the same upstream release, else a
+    """Both OS branches must reference the same upstream release, else a
     partially-migrated pin bump silently ships a mixed fleet."""
-    linux = _playbook_vars("configure.yaml")
-    darwin = _playbook_vars("configure_macos.yaml")
+    linux = mcp_slack_extravars("linux")
+    darwin = mcp_slack_extravars("darwin")
     assert linux["mcp_slack_version"] == darwin["mcp_slack_version"]
 
 
-def test_render_constant_matches_playbook_pin() -> None:
-    """`_HERMES_MCP_SLACK_VERSION` in render.py is a documentation
-    anchor for the same pin — drift silently, hosts silently. Lockstep."""
-    from clawrium.core.render import _HERMES_MCP_SLACK_VERSION
+def test_render_helper_matches_resolver_pin() -> None:
+    """The render.py lazy accessor MUST resolve to the same string the
+    resolver hands to Ansible — drift here would render a Jinja comment
+    that names a version different from the one Ansible actually
+    downloaded (silent, no error surface)."""
+    from clawrium.core.render import _hermes_mcp_slack_version
 
-    linux = _playbook_vars("configure.yaml")
-    assert _HERMES_MCP_SLACK_VERSION == linux["mcp_slack_version"]
+    linux = mcp_slack_extravars("linux")
+    assert _hermes_mcp_slack_version() == linux["mcp_slack_version"]
+
+
+def test_unsupported_os_family_raises() -> None:
+    with pytest.raises(ValueError, match="unsupported os_family"):
+        mcp_slack_extravars("windows")
+
+
+# ---------------------------------------------------------------------------
+# normalize_os_family — the shared normalization seam (#835 iter-1 W2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        (None, "linux"),
+        ({}, "linux"),
+        ({"os_family": "linux"}, "linux"),
+        ({"os_family": "Linux"}, "linux"),
+        ({"os_family": "  linux  "}, "linux"),
+        ({"os_family": "darwin"}, "darwin"),
+        ({"os_family": "Darwin"}, "darwin"),
+        ({"os_family": "mac"}, "darwin"),
+        ({"os_family": "macos"}, "darwin"),
+        ({"os_family": "macOS"}, "darwin"),
+        ({"os_family": "OSX"}, "darwin"),
+        ({"os_family": "osx"}, "darwin"),
+        ({"os_family": None}, "linux"),
+        ({"os_family": ""}, "linux"),
+    ],
+)
+def test_normalize_os_family_covers_documented_aliases(host, expected):
+    """#835 iter-1 W2 (iter-2 blocker): the normalizer is the single
+    seam consumed by `lifecycle.configure_agent`, `lifecycle_canonical`,
+    and `render_openclaw`. Any drift in the alias table would ship a
+    linux-only render on a darwin host, exactly the bug the seam was
+    extracted to prevent."""
+    from clawrium.core.playbook_resolver import normalize_os_family
+
+    assert normalize_os_family(host) == expected
+
+
+def test_normalize_os_family_passes_exotic_values_through_unchanged():
+    """Values outside {linux, darwin} + the mac aliases MUST pass
+    through unchanged so downstream per-API validators (`render_hermes`,
+    `render_openclaw`, `mcp_slack_extravars`) can raise with a useful
+    trace of the original value. Silently coercing to `linux` here
+    would mask the data bug."""
+    from clawrium.core.playbook_resolver import normalize_os_family
+
+    assert normalize_os_family({"os_family": "windows"}) == "windows"
+    assert normalize_os_family({"os_family": "freebsd"}) == "freebsd"
+
+
+def test_returned_dict_is_a_copy_not_shared() -> None:
+    """The resolver must hand back a fresh dict on every call so an
+    unfortunate caller that mutates it (e.g. ansible_vars.update / pop)
+    cannot poison the next configure run's extravars."""
+    a = mcp_slack_extravars("linux")
+    a["mcp_slack_sha256_map"]["x86_64"] = "tampered"
+    b = mcp_slack_extravars("linux")
+    assert b["mcp_slack_sha256_map"]["x86_64"] == LINUX_EXPECTED_SHA256["x86_64"]

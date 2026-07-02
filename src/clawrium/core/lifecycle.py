@@ -2668,10 +2668,9 @@ def configure_agent(
             # but hosts.json may carry pre-normalization values from
             # older host records or third-party importers. Fold the
             # normalization here rather than reopen B1 by another name.
-            raw_os_family = (host.get("os_family") if host else None) or "linux"
-            os_family = str(raw_os_family).strip().lower()
-            if os_family in ("mac", "macos", "osx"):
-                os_family = "darwin"
+            from clawrium.core.playbook_resolver import normalize_os_family
+
+            os_family = normalize_os_family(host)
             rendered = render_hermes(render_inputs, os_family=os_family)
             prerendered_files[".hermes/.env"] = rendered.files[".hermes/.env"]
             prerendered_files[".hermes/config.yaml"] = (
@@ -2704,7 +2703,14 @@ def configure_agent(
 
         try:
             render_inputs = build_render_inputs(unix_agent_name)
-            rendered = render_openclaw(render_inputs)
+            # #835: pass os_family so the slack-mcp-server command path
+            # under `mcp.servers.<slug>.command` picks the correct home
+            # root. Single normalization helper closes the drift risk
+            # ATX #835 iter-1 W2 flagged.
+            from clawrium.core.playbook_resolver import normalize_os_family
+
+            _of = normalize_os_family(host)
+            rendered = render_openclaw(render_inputs, os_family=_of)
             prerendered_files[".openclaw/openclaw.json"] = (
                 rendered.files[".openclaw/openclaw.json"]
             )
@@ -2823,6 +2829,37 @@ def configure_agent(
     # Issue #437: zeroclaw always re-pairs on configure. No skip path,
     # no existing_gateway_token, no force_repair. The token in hosts.json
     # is overwritten with whatever the playbook's pair handshake mints.
+
+    # #835 (B9): Thread slack-mcp-server pins from playbook_resolver.
+    # Both hermes and openclaw configure playbooks (Linux + macOS)
+    # removed their inline `mcp_slack_version` / `mcp_slack_arch_map` /
+    # `mcp_slack_sha256_map` `vars:` blocks and now consume them as
+    # extravars. Threading here for every configure run keeps the two
+    # OS branches and two agent types in lockstep — a single-file bump
+    # in playbook_resolver.py is the only place a version pin can move.
+    #
+    # Gate: only hermes + openclaw consume these keys today. Any future
+    # agent type (nemoclaw, ethos, third-party) is added to the tuple
+    # ONLY after its playbook actually references the extravars —
+    # threading them into an ignoring playbook would be dead weight
+    # and hide the coupling from readers. (ATX #835 iter-1 W3.)
+    if resolved_type in ("hermes", "openclaw"):
+        from clawrium.core.playbook_resolver import (
+            mcp_slack_extravars,
+            normalize_os_family,
+        )
+
+        # `mcp_slack_extravars` raises on any unknown os_family value.
+        # An exotic os_family on a real host record is a data bug that
+        # should surface loudly, not silently pick a possibly-wrong
+        # arch map. Wrapped in try/except so it maps to the same
+        # `(False, msg)` shape every other assembly-time failure in
+        # this function returns (ATX #835 iter-1 S). Without this the
+        # traceback would leave lifecycle state half-walked.
+        try:
+            ansible_vars.update(mcp_slack_extravars(normalize_os_family(host)))
+        except ValueError as exc:
+            return False, f"{resolved_type} configure failed: {exc}"
 
     # Merge extra_vars (not persisted to hosts.json)
     if extra_vars:

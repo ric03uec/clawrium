@@ -16,6 +16,20 @@
 # `launchctl kickstart -k` after this playbook returns (W7).
 - hosts: all
   become: yes
+  vars:
+    # #835: Precomputed convenience flag — true iff this run has at
+    # least one slack-* integration attached. Extravars carrying the
+    # release pin (`mcp_slack_version`, `mcp_slack_arch_map`,
+    # `mcp_slack_sha256_map`) are threaded by
+    # `clawrium.core.lifecycle.configure_agent` from
+    # `clawrium.core.playbook_resolver.mcp_slack_extravars("darwin")`.
+    slack_integration_assigned: >-
+      {{
+        integrations is defined
+        and (integrations | dict2items
+              | selectattr('value.type', 'in', ['slack-user', 'slack-cookie'])
+              | list | length > 0)
+      }}
   tasks:
     - name: Refuse to run on non-Darwin hosts (dispatcher contract)
       ansible.builtin.fail:
@@ -179,6 +193,47 @@
         group: staff
         mode: "0600"
       no_log: true
+
+    # #835: install korotovsky/slack-mcp-server on darwin. Mirror of
+    # the Linux configure.yaml block, path root differs (`/Users`).
+    # Group is `staff` per the AGENTS.md macOS invariant.
+    - name: Fail early if darwin architecture is unsupported by the slack-mcp arch map
+      ansible.builtin.fail:
+        msg: >-
+          slack-mcp-server install: ansible_architecture='{{ ansible_architecture }}'
+          is not mapped to a korotovsky/slack-mcp-server darwin release asset.
+          Supported here: {{ mcp_slack_arch_map.keys() | list | join(', ') }}.
+          See https://github.com/korotovsky/slack-mcp-server/releases/tag/{{ mcp_slack_version }}.
+      when:
+        - slack_integration_assigned | bool
+        - ansible_architecture not in mcp_slack_arch_map
+
+    - name: Ensure ~/.local/bin exists (darwin)
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.local/bin"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: '0755'
+      become: true
+      no_log: true
+      when:
+        - slack_integration_assigned | bool
+
+    - name: Download pinned slack-mcp-server binary (darwin)
+      ansible.builtin.get_url:
+        url: "https://github.com/korotovsky/slack-mcp-server/releases/download/{{ mcp_slack_version }}/slack-mcp-server-{{ mcp_slack_arch_map[ansible_architecture] }}"
+        dest: "/Users/{{ agent_name }}/.local/bin/slack-mcp-server"
+        checksum: "sha256:{{ mcp_slack_sha256_map[ansible_architecture] }}"
+        validate_certs: yes
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: '0755'
+      become: true
+      # #835 (ATX iter-1 W5): mirror the Linux configure.yaml posture.
+      no_log: true
+      when:
+        - slack_integration_assigned | bool
 
     - name: Write exec approvals policy from template
       ansible.builtin.template:

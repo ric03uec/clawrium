@@ -74,6 +74,30 @@ cut. The `itx:release` skill archives this section into a new
   gate rejects `slack-*` on openclaw / zeroclaw agents at CLI time
   (Phase 1 of #499); those agent types will gain support in follow-up
   slices. First MCP subprocess on darwin hermes. (#834, #499)
+- Slack integration for openclaw agents — Phase 2 of #499. The
+  `slack-user` and `slack-cookie` types now attach to openclaw agents
+  and emit an `mcp.servers.<slug>` block in
+  `~/.openclaw/openclaw.json` referencing the same
+  SHA256-pinned korotovsky/slack-mcp-server binary that hermes uses.
+  The `mcp` key is emitted **conditionally**: openclaw agents without
+  a slack integration attached render byte-identical to pre-#835
+  output — no drift on the on-host `openclaw.json` after upgrade.
+  Attach gate now accepts openclaw + slack-* pairs; render-time
+  enforcement remains as defense-in-depth. Zeroclaw slack support
+  lands in Phase 3. GUI attach flow is generic (no per-agent-type
+  card) — server-side gate flip is sufficient. macOS openclaw (GA per
+  #770) covered via `configure_macos.yaml`. (#835, #499)
+- Shared install-task shape for slack-mcp-server across hermes and
+  openclaw playbooks — the pinned version + per-OS SHA256 map moved
+  out of the individual playbooks and into
+  `clawrium.core.playbook_resolver.mcp_slack_extravars(os_family)`.
+  Both hermes and openclaw configure playbooks (Linux + macOS) now
+  consume the same `mcp_slack_*` extravars, threaded by
+  `lifecycle.configure_agent`. A future pin bump lands in one Python
+  location instead of four YAML files — dispatcher-only-OS-fork
+  invariant preserved (no `_shared/tasks/…` file, no `if Darwin`
+  inside existing playbooks). Retrospective refactor of the Phase 1
+  hermes inline install per the #499 B9 blocker fix. (#835, #499)
 - CLI attach-time agent-type / integration-type gate:
   `clawctl agent integration attach <name> --agent <agent>` now rejects
   `(agent-type, integration-type)` pairs that the renderer does not

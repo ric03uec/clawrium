@@ -204,7 +204,7 @@ def _stub_sync_environment(monkeypatch, *, agent_type: str = "hermes"):
         )
     else:
         rendered = RenderedFiles(files={".hermes/.env": "FOO=1\n"})
-    monkeypatch.setitem(lc._RENDERERS, agent_type, lambda _: rendered)
+    monkeypatch.setitem(lc._RENDERERS, agent_type, lambda _inputs, **_kw: rendered)
     monkeypatch.setattr(
         lc,
         "get_agent_by_name",
@@ -436,7 +436,7 @@ def test_zeroclaw_sync_repair_failure_raises(monkeypatch):
     rendered = RenderedFiles(
         files={".zeroclaw/config.toml": "x = 1\n", ".zeroclaw/zeroclaw-env.conf": ""}
     )
-    monkeypatch.setitem(lc._RENDERERS, "zeroclaw", lambda _: rendered)
+    monkeypatch.setitem(lc._RENDERERS, "zeroclaw", lambda _inputs, **_kw: rendered)
     monkeypatch.setattr(
         lc,
         "get_agent_by_name",
@@ -571,7 +571,7 @@ def test_sync_force_bypass_writes_through_secret_removal(monkeypatch):
     )
     monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
     rendered = RenderedFiles(files={".hermes/.env": "FOO=1\n"})
-    monkeypatch.setitem(lc._RENDERERS, "hermes", lambda _: rendered)
+    monkeypatch.setitem(lc._RENDERERS, "hermes", lambda _inputs, **_kw: rendered)
     monkeypatch.setattr(
         lc,
         "get_agent_by_name",
@@ -733,7 +733,7 @@ def test_zeroclaw_sync_restart_false_still_repairs_bearer(monkeypatch):
     rendered = RenderedFiles(
         files={".zeroclaw/config.toml": "x = 1\n", ".zeroclaw/zeroclaw-env.conf": ""}
     )
-    monkeypatch.setitem(lc._RENDERERS, "zeroclaw", lambda _: rendered)
+    monkeypatch.setitem(lc._RENDERERS, "zeroclaw", lambda _inputs, **_kw: rendered)
     monkeypatch.setattr(
         lc,
         "get_agent_by_name",
@@ -1892,7 +1892,7 @@ class TestOpenclawBraveVersionPreflight:
                 ".openclaw/openclaw.json": "{}",
             }
         )
-        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -2021,7 +2021,7 @@ class TestOpenclawBraveVersionPreflight:
         rendered = RenderedFiles(
             files={".openclaw/env": "", ".openclaw/openclaw.json": "{}"}
         )
-        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -2943,7 +2943,7 @@ class TestOpenclawInstallPlugins:
         fake_diff.remote_body = ""
 
         monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
-        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -3020,7 +3020,7 @@ class TestOpenclawInstallPlugins:
         )
 
         monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
-        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -3801,7 +3801,7 @@ class TestSyncRefusesIncompleteInstall:
         )
         monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
         rendered = RenderedFiles(files={".openclaw/openclaw.json": "{}"})
-        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
