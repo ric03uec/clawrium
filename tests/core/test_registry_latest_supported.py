@@ -13,6 +13,10 @@ from clawrium.core.registry import latest_supported_version
         ("openclaw", "ubuntu", "24.04", "x86_64", "2026.6.11"),
         ("openclaw", "ubuntu", "22.04", "x86_64", "2026.6.11"),
         ("openclaw", "macos", "14.5", "arm64", "2026.6.11"),
+        # Pin the exact macOS floor — if the manifest spec were tightened
+        # to `>=14.5`, the 13.7 exclusion row below would still return
+        # None and the regression would go undetected.
+        ("openclaw", "macos", "14.0", "arm64", "2026.6.11"),
         ("hermes", "ubuntu", "24.04", "x86_64", "2026.5.29.2"),
         ("hermes", "ubuntu", "22.04", "x86_64", "2026.5.29.2"),
         ("hermes", "macos", "14.5", "arm64", "2026.5.29.2"),

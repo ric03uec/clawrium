@@ -285,6 +285,14 @@ def test_upgrade_retries_after_previous_failed_install(
     assert result.exit_code == 0, result.output
     mock_install.assert_called_once()
     assert "already at latest" not in result.output.lower()
+    # Guard force-flag forwarding on the failed-status retry path — a
+    # regression that dropped `force=True` here would silently pass
+    # otherwise (mirrors the happy-path assertion at line ~182).
+    _, kwargs = mock_install.call_args
+    call_kwargs = {**kwargs}
+    if mock_install.call_args.args:
+        call_kwargs.setdefault("claw_name", mock_install.call_args.args[0])
+    assert call_kwargs.get("force") is True
 
 
 def test_upgrade_zeroclaw_invokes_restart_agent_for_bearer_rotation(
@@ -382,7 +390,7 @@ def test_upgrade_openclaw_does_not_invoke_restart_agent(
         return {
             "success": True,
             "agent": "openclaw",
-            "version": "2026.6.8",
+            "version": "2026.6.11",
             "host": "192.168.1.100",
             "playbooks_run": [],
             "error": None,
@@ -408,7 +416,7 @@ def test_upgrade_skip_drift_check_bypasses_preflight(isolated_config: Path):
         return {
             "success": True,
             "agent": "openclaw",
-            "version": "2026.6.8",
+            "version": "2026.6.11",
             "host": "192.168.1.100",
             "playbooks_run": [],
             "error": None,
