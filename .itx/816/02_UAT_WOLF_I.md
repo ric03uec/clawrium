@@ -224,3 +224,142 @@ is NOT met**. Recommend one of:
 Per user instruction ("If ANY step fails do NOT push"), no further
 commits or pushes are made from this UAT run; only the PR body is
 updated with a Callout summarizing this outcome.
+
+---
+
+## Round 2 — 2026-07-02 04:47 UTC — attachment-strip regression fixed
+
+After the round-1 failure above, the user directed a fix-in-this-PR
+approach. Commit `48fa82f` on this branch adds
+`preserved_attachments` alongside the existing `preserved_onboarding`
+snapshot in `core/install.py` and restores it in both
+`set_installed()` and `set_failed()`.
+
+Re-UAT on wolf-i:
+
+**Setup (fresh install):**
+
+```
+$ uv run clawctl agent create test-816-b --type openclaw --host wolf-i --yes
+agent/test-816-b: installed (2026.6.11)
+agent/test-816-b: ready
+
+$ uv run clawctl agent provider attach clm-openrouter --agent test-816-b
+$ uv run clawctl agent configure test-816-b --stage identity
+$ uv run clawctl agent configure test-816-b --stage providers --provider clm-openrouter
+$ uv run clawctl agent integration attach wolf-brave --agent test-816-b
+$ uv run clawctl agent channel attach discord-wolf-i --agent test-816-b
+```
+
+**Pre-reinstall snapshot** (`/tmp/pre-reinstall-test-816-b.txt`):
+
+```
+Provider:   clm-openrouter
+Integrations (1):  wolf-brave  (configured)
+Channels (1):      discord-wolf-i
+Onboarding:  providers  complete
+             identity   complete
+             channels   complete
+             validate   complete
+```
+
+### Step 6.A — Force reinstall (success path, `set_installed`) — PASS
+
+```
+$ uv run clawctl agent create test-816-b --type openclaw --host wolf-i --force --yes
+...
+PLAY RECAP:  ok=34 changed=11 failed=0
+agent/test-816-b: installed (2026.6.11)
+agent/test-816-b: ready
+```
+
+Post-reinstall (`/tmp/post-reinstall-test-816-b.txt`) — identical to
+pre-reinstall on every attachment:
+
+```
+Provider:   clm-openrouter                # ← survived
+Integrations (1):  wolf-brave              # ← survived
+Channels (1):      discord-wolf-i          # ← survived
+Onboarding:  providers  complete
+             identity   complete
+             channels   complete
+             validate   complete
+```
+
+`clawctl agent doctor test-816-b` returns `Status: ok` — attach lists
+declared AND resolved, credentials `present`, `.openclaw/env` and
+`.openclaw/openclaw.json` re-rendered with the integration + channel
+included.
+
+### Step 6.B — `clawctl agent upgrade` failed_retry branch — PASS
+
+Simulated the "status=failed on prior install" trap by flipping
+`hosts.json.agents.test-816-b.status = "failed"` and running the
+actual upgrade command. The `failed_retry` branch in
+`cli/clawctl/agent/upgrade.py` bypasses the no-op shortcut and calls
+`run_installation(force=True)`:
+
+```
+$ uv run clawctl agent upgrade test-816-b --yes --skip-drift-check
+...
+PLAY RECAP:  ok=33 changed=9 failed=0
+agent/test-816-b: upgraded 2026.6.11 → 2026.6.11
+```
+
+Post-upgrade (`/tmp/post-upgrade-test-816-b.txt`) — same shape as
+pre-reinstall. Every attachment survived through the exact
+`clawctl agent upgrade` code path that stripped attachments on
+`wolf-i` in Round 1.
+
+### Cleanup
+
+```
+$ uv run clawctl agent delete test-816-b --yes
+agent/test-816-b: deleted
+```
+
+Also restored `hosts.json.bak` was removed after test-816-b was
+deleted — no residual state on the operator's control plane from
+this UAT.
+
+### Regression tests (unit, added in `48fa82f`)
+
+Two new tests in `tests/test_install_preserves_onboarding.py` under
+`TestReinstallPreservesOnboarding`:
+
+- `test_reinstall_preserves_attachments` — happy path (`set_installed`).
+- `test_failed_reinstall_preserves_attachments` — failure path
+  (`set_failed`), forces `ansible-runner` to return `rc=2`.
+
+Both were verified to **FAIL without the fix** (stashed `install.py`
+→ `KeyError: 'providers'` on the post-install describe) and **PASS
+with the fix**.
+
+### Verdict — Round 2
+
+All wolf-i UAT rows for the openclaw manifest bump + upgrade
+regression are now **PASS**. Issue #816 DoD row "Provider + channel
+attachments survive `clawctl agent upgrade` from the previous pin"
+is met.
+
+The other DoD rows (ubuntu 24.04/x86_64 non-wolf-i host + macos
+mac-test) remain unexecuted; wolf-i covers the same OS family so
+those are lower risk, but the mac-test row should be exercised
+before the next macOS-affecting release.
+
+## Impact on wolf-i (remaining follow-up for the operator)
+
+The `wolf-i` openclaw agent from Round 1 is still in the corrupted
+control-plane state described above. With the fix in this PR, the
+operator can now recover it with:
+
+1. `clawctl agent provider attach clawrium-gtm-litellm --agent wolf-i`
+2. `clawctl agent integration attach wolf-brave --agent wolf-i`
+3. `clawctl agent channel attach discord-wolf-i --agent wolf-i`
+4. `clawctl agent configure wolf-i --stage identity`
+5. `clawctl agent configure wolf-i --stage providers --provider clawrium-gtm-litellm`
+6. `clawctl agent create wolf-i --type openclaw --host wolf-i --force --yes`
+   (re-installs the on-host binary at 2026.6.11; attachments are now
+   preserved through the `--force` path).
+
+Left to operator — this session does not touch it further.
