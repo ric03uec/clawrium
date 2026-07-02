@@ -2620,10 +2620,18 @@ def configure_agent(
     prerendered_files: dict[str, str] = {}
     if resolved_type == "zeroclaw":
         try:
+            from clawrium.core.playbook_resolver import normalize_os_family
             from clawrium.core.render import build_render_inputs, render_zeroclaw
 
             render_inputs = build_render_inputs(unix_agent_name)
-            rendered = render_zeroclaw(render_inputs)
+            # #836: pass os_family so the slack-mcp-server binary path in
+            # rendered `[[mcp.servers]]` blocks resolves to `/home/…` on
+            # Linux and `/Users/…` on darwin. Missing this would silently
+            # emit a Linux path in the config.toml on a macOS host and
+            # the daemon would fail to spawn the MCP subprocess.
+            rendered = render_zeroclaw(
+                render_inputs, os_family=normalize_os_family(host)
+            )
             # Key matches the rendered.files dict from render_zeroclaw —
             # the playbook references this by its full key so the var
             # name and the file path stay locked together.
@@ -2830,14 +2838,15 @@ def configure_agent(
     # no existing_gateway_token, no force_repair. The token in hosts.json
     # is overwritten with whatever the playbook's pair handshake mints.
 
-    # #835: slack-mcp-server install now lives in its own sync-time
-    # runbook (`hermes/playbooks/install_slack_mcp.yaml` +
-    # `openclaw/playbooks/install_slack_mcp.yaml` + darwin siblings)
-    # invoked from `sync_agent_canonical` — see
-    # `_hermes_install_slack_mcp` / `_openclaw_install_slack_mcp` in
-    # `core.lifecycle_canonical` and the "Integration Binary Install"
-    # section in AGENTS.md. configure_agent no longer threads any
-    # mcp_slack_* extravars — pin lives at the top of each runbook.
+    # #835 / #836: slack-mcp-server install now lives in its own
+    # sync-time runbook (`<agent>/playbooks/install_slack_mcp.yaml`
+    # (+ `_macos` sibling for hermes/openclaw)) invoked from
+    # `sync_agent_canonical` — see `_hermes_install_slack_mcp` /
+    # `_openclaw_install_slack_mcp` / `_zeroclaw_install_slack_mcp`
+    # in `core.lifecycle_canonical` and the "Integration Binary
+    # Install" section in AGENTS.md. configure_agent no longer
+    # threads any mcp_slack_* extravars — pin lives at the top of
+    # each runbook.
 
     # Merge extra_vars (not persisted to hosts.json)
     if extra_vars:

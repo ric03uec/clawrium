@@ -5505,10 +5505,10 @@ def test_render_hermes_home_root_matches_playbook_resolver():
 
 
 def test_supported_integrations_for_agent_type():
-    """#834 (B8): the helper backs the CLI attach gate. hermes must
-    include both slack types; zeroclaw/openclaw must NOT (their support
-    lands in Phases 2+3). Unknown agent types return None so the gate
-    can fall through to render-time enforcement."""
+    """#834 (B8): the helper backs the CLI attach gate. Every renderer-
+    known type must include both slack types after Phase 3 (#836).
+    Unknown agent types return None so the gate can fall through to
+    render-time enforcement."""
     from clawrium.core.render import supported_integrations_for_agent_type
 
     hermes = supported_integrations_for_agent_type("hermes")
@@ -5519,8 +5519,9 @@ def test_supported_integrations_for_agent_type():
 
     zc = supported_integrations_for_agent_type("zeroclaw")
     assert zc is not None
-    assert "slack-user" not in zc
-    assert "slack-cookie" not in zc
+    # #836 (Phase 3): zeroclaw now supports both slack types.
+    assert "slack-user" in zc
+    assert "slack-cookie" in zc
 
     oc = supported_integrations_for_agent_type("openclaw")
     assert oc is not None
@@ -5888,3 +5889,333 @@ def test_openclaw_json_slack_user_and_cookie_coexist():
         "SLACK_MCP_XOXC_TOKEN": "xoxc-1",
         "SLACK_MCP_XOXD_TOKEN": "xoxd-1",
     }
+
+
+# ============================================================================
+# Issue #836 (Phase 3): zeroclaw slack integration render tests.
+#
+# Mirrors the openclaw slack test suite shape (see
+# test_openclaw_json_slack_*). The zeroclaw render path emits
+# `[[mcp.servers]]` array-of-tables inside config.toml — a different
+# TOML shape from openclaw's `mcp.servers.<slug>` JSON dict, but the
+# same conditional-emit contract: zero slack integrations → no
+# `[[mcp.servers]]` blocks + `enabled = false` (B2 TOML shape fix).
+# ============================================================================
+
+
+def _zeroclaw_slack_inputs(*, integrations=(), agent_name="alpha") -> RenderInputs:
+    """Compact zeroclaw fixture for slack tests. No discord channel so the
+    render exercises the no-channel branch alongside the slack MCP block."""
+    return RenderInputs(
+        agent_name=agent_name,
+        agent_type="zeroclaw",
+        provider=ProviderInputs(
+            name="or",
+            type="openrouter",
+            default_model="anthropic/claude-opus-4.7",
+            api_key="sk-or-1",
+        ),
+        channels=(),
+        integrations=integrations,
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tkn", bind="lan"),
+    )
+
+
+def test_zeroclaw_config_no_slack_baseline_byte_lock_unchanged():
+    """#836 B2 conditional-emit contract: with no slack integrations
+    attached, `[mcp]` block emits ONLY `deferred_loading = true` +
+    `enabled = false`. No `servers` key at all — TOML treats an absent
+    key as an empty array. This is the byte-lock guard for every
+    existing zeroclaw agent: on the first sync after upgrade the
+    config.toml MUST NOT flip any `[[mcp.servers]]` blocks."""
+    import tomllib
+
+    inputs = _zeroclaw_slack_inputs(integrations=())
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    parsed = tomllib.loads(toml)
+    assert parsed["mcp"] == {"deferred_loading": True, "enabled": False}, (
+        "B2 conditional-emit violated: zero-slack render must not emit "
+        "any `[[mcp.servers]]` blocks and MUST leave `enabled = false`. "
+        "Byte diff for every existing zeroclaw agent would follow."
+    )
+    # Belt-and-suspenders: the raw `servers = []` line MUST be gone
+    # (the original B2 bug). Its return in a future edit would trip
+    # this assertion before it reaches production.
+    assert "servers = []" not in toml
+
+
+def test_zeroclaw_config_slack_user_emits_mcp_server_block():
+    """#836 B1 branch: slack-user integration emits a well-formed
+    `[[mcp.servers]]` block with the correct name, command path,
+    args tuple, and single-XOXP env var. TOML parseability is a
+    merge blocker (defense-in-depth against B2 recurrence)."""
+    import tomllib
+
+    inputs = _zeroclaw_slack_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+        ),
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    parsed = tomllib.loads(toml)
+    assert parsed["mcp"]["enabled"] is True
+    assert parsed["mcp"]["deferred_loading"] is True
+    servers = parsed["mcp"]["servers"]
+    assert len(servers) == 1
+    entry = servers[0]
+    assert entry["name"] == "slack-slack_work"
+    assert entry["command"] == "/home/alpha/.local/bin/slack-mcp-server"
+    assert entry["args"] == ["--transport", "stdio"]
+    assert entry["env"] == {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
+
+
+def test_zeroclaw_config_slack_cookie_emits_two_env_vars():
+    """#836: slack-cookie emits two env vars (XOXC + XOXD) in
+    declared insertion order."""
+    import tomllib
+
+    inputs = _zeroclaw_slack_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-legacy",
+                type="slack-cookie",
+                credentials=(
+                    ("SLACK_MCP_XOXC_TOKEN", "xoxc-1"),
+                    ("SLACK_MCP_XOXD_TOKEN", "xoxd-1"),
+                ),
+            ),
+        ),
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    parsed = tomllib.loads(toml)
+    servers = parsed["mcp"]["servers"]
+    assert len(servers) == 1
+    entry = servers[0]
+    assert entry["name"] == "slack-slack_legacy"
+    assert entry["command"] == "/home/alpha/.local/bin/slack-mcp-server"
+    assert entry["env"] == {
+        "SLACK_MCP_XOXC_TOKEN": "xoxc-1",
+        "SLACK_MCP_XOXD_TOKEN": "xoxd-1",
+    }
+
+
+def test_zeroclaw_config_slack_two_integrations_stable_order():
+    """#836: two slack integrations attached → two `[[mcp.servers]]`
+    blocks in declared order. Mirrors the openclaw coexistence test."""
+    import tomllib
+
+    inputs = _zeroclaw_slack_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+            IntegrationInputs(
+                name="slack-legacy",
+                type="slack-cookie",
+                credentials=(
+                    ("SLACK_MCP_XOXC_TOKEN", "xoxc-1"),
+                    ("SLACK_MCP_XOXD_TOKEN", "xoxd-1"),
+                ),
+            ),
+        ),
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    parsed = tomllib.loads(toml)
+    servers = parsed["mcp"]["servers"]
+    assert len(servers) == 2
+    assert [s["name"] for s in servers] == [
+        "slack-slack_work",
+        "slack-slack_legacy",
+    ]
+    assert servers[0]["env"] == {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
+    assert servers[1]["env"] == {
+        "SLACK_MCP_XOXC_TOKEN": "xoxc-1",
+        "SLACK_MCP_XOXD_TOKEN": "xoxd-1",
+    }
+
+
+def test_zeroclaw_config_slack_command_path_darwin_home_root():
+    """#836: `os_family="darwin"` picks `/Users/…` for the binary path.
+    Silent fallback to `/home/…` on darwin would produce a nonexistent
+    path in config.toml and the daemon MCP subprocess spawn would fail
+    at first request."""
+    import tomllib
+
+    from clawrium.core.playbook_resolver import home_root_for
+
+    inputs = _zeroclaw_slack_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "x"),),
+            ),
+        ),
+    )
+    for os_family in ("linux", "darwin"):
+        toml = render_zeroclaw(inputs, os_family=os_family).files[
+            ".zeroclaw/config.toml"
+        ]
+        parsed = tomllib.loads(toml)
+        expected = f"{home_root_for(os_family)}/alpha/.local/bin/slack-mcp-server"
+        assert parsed["mcp"]["servers"][0]["command"] == expected
+
+
+def test_zeroclaw_config_slack_slug_collision_raises():
+    """#836 (mirror openclaw guard): distinct integration names that
+    slug-collide must raise rather than silently drop one entry."""
+    inputs = _zeroclaw_slack_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-a",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "x1"),),
+            ),
+            IntegrationInputs(
+                name="slack_a",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "x2"),),
+            ),
+        ),
+    )
+    with pytest.raises(AgentConfigError, match="collide on slug"):
+        render_zeroclaw(inputs)
+
+
+def test_zeroclaw_config_slack_empty_slug_raises():
+    """#836 (mirror openclaw guard): integration names that slugify to
+    empty must raise rather than emit an unnamed [[mcp.servers]] block."""
+    inputs = _zeroclaw_slack_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="!!!",
+                type="slack-cookie",
+                credentials=(
+                    ("SLACK_MCP_XOXC_TOKEN", "xc"),
+                    ("SLACK_MCP_XOXD_TOKEN", "xd"),
+                ),
+            ),
+        ),
+    )
+    with pytest.raises(AgentConfigError, match="slugifies to empty"):
+        render_zeroclaw(inputs)
+
+
+def test_zeroclaw_config_slack_user_missing_token_raises():
+    """#836: empty SLACK_MCP_XOXP_TOKEN would render silently but 401
+    at first Slack API call. Raise here so the fix surface is the
+    credential store, not the daemon log — this is the S9 sync-order
+    invariant's fail-fast surface: render must raise BEFORE any
+    `_zeroclaw_repair_after_start` bearer rotation."""
+    inputs = _zeroclaw_slack_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(),
+            ),
+        ),
+    )
+    with pytest.raises(AgentConfigError, match="SLACK_MCP_XOXP_TOKEN"):
+        render_zeroclaw(inputs)
+
+
+def test_zeroclaw_config_slack_cookie_missing_tokens_raises():
+    """#836: slack-cookie missing either XOXC or XOXD raises with a
+    message listing every missing key so operators fix everything in
+    one pass."""
+    inputs = _zeroclaw_slack_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-legacy",
+                type="slack-cookie",
+                credentials=(("SLACK_MCP_XOXC_TOKEN", "xc"),),
+            ),
+        ),
+    )
+    with pytest.raises(AgentConfigError, match="SLACK_MCP_XOXD_TOKEN"):
+        render_zeroclaw(inputs)
+
+
+def test_zeroclaw_config_unsupported_os_family_raises():
+    """#836: `os_family` outside {'linux', 'darwin'} raises loud rather
+    than silently falling back to Linux — the class of bug the hermes
+    ATX iter-2 blocker closed."""
+    inputs = _zeroclaw_slack_inputs()
+    with pytest.raises(AgentConfigError, match="unsupported os_family"):
+        render_zeroclaw(inputs, os_family="windows")
+
+
+def test_zeroclaw_config_no_slack_matches_pre_836_shape_no_servers_key():
+    """#836 byte-lock companion: the raw TOML text with zero slack
+    integrations MUST NOT contain `servers = []` (removed by B2).
+    Any regression that re-introduces it would break TOML parseability
+    the moment a slack integration attaches (append `[[mcp.servers]]`
+    into a document that already has an inline `servers = []` array).
+    """
+    inputs = _zeroclaw_slack_inputs(integrations=())
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    assert "servers = []" not in toml
+    assert "[[mcp.servers]]" not in toml
+    # `[mcp]` block emits exactly two keys, both on their own line:
+    lines = toml.splitlines()
+    mcp_idx = lines.index("[mcp]")
+    assert lines[mcp_idx + 1] == "deferred_loading = true"
+    assert lines[mcp_idx + 2] == "enabled = false"
+
+
+def test_zeroclaw_config_full_toml_parses_for_all_variants():
+    """#836 TOML parseability guard: for each of (0 slack, 1 slack-user,
+    1 slack-cookie, 2 slack integrations), the rendered config.toml
+    MUST parse with tomllib. This is the defense-in-depth against B2
+    recurrence — any future edit that lands invalid TOML for any
+    variant fails here before it reaches a real zeroclaw daemon."""
+    import tomllib
+
+    variants: list[tuple[IntegrationInputs, ...]] = [
+        (),
+        (
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+        ),
+        (
+            IntegrationInputs(
+                name="slack-legacy",
+                type="slack-cookie",
+                credentials=(
+                    ("SLACK_MCP_XOXC_TOKEN", "xoxc-1"),
+                    ("SLACK_MCP_XOXD_TOKEN", "xoxd-1"),
+                ),
+            ),
+        ),
+        (
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+            IntegrationInputs(
+                name="slack-legacy",
+                type="slack-cookie",
+                credentials=(
+                    ("SLACK_MCP_XOXC_TOKEN", "xoxc-1"),
+                    ("SLACK_MCP_XOXD_TOKEN", "xoxd-1"),
+                ),
+            ),
+        ),
+    ]
+    for variant in variants:
+        inputs = _zeroclaw_slack_inputs(integrations=variant)
+        toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+        # tomllib.loads raises on invalid TOML — the test fails
+        # with the parser's line/col.
+        tomllib.loads(toml)

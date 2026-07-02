@@ -12,6 +12,7 @@ Integrations allow agents to interact with external tools and services, extendin
 | **[GitLab](gitlab.md)** | 📋 | Not planned | Alternative to GitHub |
 | **[Linear](linear.md)** | 📋 | Not planned | Issue tracking |
 | **[Notion](notion.md)** | 📋 | Not planned | Knowledge base |
+| **[Slack (MCP tool integration)](slack.md)** | ✅ | Hermes, OpenClaw, ZeroClaw | Outbound tool surface: list channels, search, read history, post messages via `korotovsky/slack-mcp-server` |
 
 ## Integration vs Provider vs Channel
 

@@ -14,17 +14,19 @@ cut. The `itx:release` skill archives this section into a new
 
 ### BREAKING
 
-- **`clawctl mcp registry get` and `clawctl mcp registry describe` now exit
-  1 (previously 0)** and print a redirect hint pointing operators at
-  `clawctl integration registry create --type slack-user`. The stubs
-  were silently exit-0 before, which let `clawctl mcp registry get &&
-  next_cmd` chain past an unimplemented verb in scripts. Slack-backed
-  MCP is now a real integration type; generic MCP support is tracked in
-  the #499 follow-up. **Recovery:** any script that relied on
-  `clawctl mcp registry get` exiting 0 must either drop the invocation
-  or replace it with `clawctl integration registry get --types` (lists
-  integration types including `slack-user` and `slack-cookie`). No
-  automated migration. (#834)
+- **`clawctl mcp` group removed entirely.** The placeholder group
+  (`clawctl mcp registry get` / `describe`) that shipped in #834 has
+  been deleted. Invoking any `clawctl mcp …` command now returns
+  Typer's default `Error: No such command 'mcp'.` and exits **2** —
+  previously the stubs exited 1 with a redirect hint. Slack-backed MCP
+  is a first-class integration type as of the #499 chain and does not
+  need a separate top-level surface; generic (non-Slack) MCP-server
+  support is tracked as the successor issue #844.
+  **Recovery:** replace any `clawctl mcp registry …` invocation with
+  `clawctl integration registry create --type slack-user` (recommended)
+  or `--type slack-cookie` (discouraged fallback). Scripts that only
+  checked exit code must update: exit 1 → exit 2, and the redirect
+  hint text is no longer emitted. No automated migration. (#838, #499)
 
 - **openclaw bedrock model prefix renamed `bedrock/` → `amazon-bedrock/`.**
   The openclaw gateway's Bedrock provider is registered as
@@ -101,6 +103,36 @@ cut. The `itx:release` skill archives this section into a new
   attach flow is generic (no per-agent-type card) — server-side
   gate flip is sufficient. macOS openclaw (GA per #770) covered via
   `install_slack_mcp_macos.yaml`. (#835, #499)
+- Slack integration for zeroclaw agents — Phase 3 of #499. The
+  `slack-user` and `slack-cookie` types now attach to zeroclaw
+  agents and emit `[[mcp.servers]]` array-of-tables blocks in
+  `~/.zeroclaw/config.toml` referencing the same SHA256-pinned
+  korotovsky/slack-mcp-server binary that hermes and openclaw use.
+  Binary install follows the same sync-time-runbook pattern Phases
+  1+2 established — new `zeroclaw/playbooks/install_slack_mcp.yaml`
+  invoked from `_zeroclaw_install_slack_mcp` in
+  `core.lifecycle_canonical`, wired into `sync_agent_canonical`
+  alongside the hermes and openclaw helpers. The `[[mcp.servers]]`
+  blocks are emitted **conditionally** and `[mcp].enabled` flips
+  true only when at least one slack integration is attached —
+  zeroclaw agents without a slack integration render the
+  byte-locked `[mcp]` + `deferred_loading = true` +
+  `enabled = false` shape (no `servers` key at all). Slack render
+  + install completes BEFORE `_zeroclaw_repair_after_start` rotates
+  the gateway bearer (#437 stale-bearer regression guard); a
+  render-time hydration failure short-circuits the sync with zero
+  `gateway_token_rotated` events. Attach gate accepts zeroclaw +
+  slack-* pairs. Real-host UAT ran on wolf-i x86_64 (armv7l
+  coverage gap tracked as follow-up — upstream ships no armv7 asset
+  at v1.3.0). macOS zeroclaw slack deferred to a follow-up
+  alongside `install_slack_mcp_macos.yaml`. (#836, #499)
+- `render_zeroclaw(inputs, *, os_family="linux")` — zeroclaw
+  renderer signature gains `os_family` so `[[mcp.servers]]` command
+  paths resolve to `/Users/<name>/.local/bin/slack-mcp-server` on
+  darwin (parity with the hermes and openclaw signatures added in
+  Phases 1+2). Every call site inside `lifecycle.configure_agent`
+  and `lifecycle_canonical.sync_agent_canonical` threads the
+  normalized value. (#836)
 - CLI attach-time agent-type / integration-type gate:
   `clawctl agent integration attach <name> --agent <agent>` now rejects
   `(agent-type, integration-type)` pairs that the renderer does not
@@ -287,6 +319,21 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- **Zeroclaw `~/.zeroclaw/config.toml` TOML shape (#499 B2).** The
+  baseline template's `[mcp]` block previously declared
+  `servers = []` as an inline array. That form is incompatible with
+  appending `[[mcp.servers]]` array-of-tables — TOML forbids the
+  same key defined twice with different shapes, so the daemon would
+  crash at startup the moment a slack integration attached. The
+  inline `servers = []` line is removed from the baseline;
+  `[[mcp.servers]]` blocks are now emitted conditionally, one per
+  attached slack integration. Zero-slack renders keep exactly the
+  `[mcp]` header + `deferred_loading = true` + `enabled = false`
+  shape (no `servers` key at all — TOML treats absent as empty).
+  Byte-locked via `test_zeroclaw_config_no_slack_baseline_byte_lock_unchanged`
+  so any subsequent template edit that shifts the zero-slack layout
+  fails at test time before it can drift on every fleet's on-host
+  config.toml. (#836, #499)
 - `clawctl agent sync <name>` now fails fast in a new validate-phase
   host probe (`AgentInstallMissingError`) when the agent's on-host
   service-manager artifact (systemd unit / launchd plist) or home
@@ -438,3 +485,19 @@ cut. The `itx:release` skill archives this section into a new
   wizard module is tracked under Phase 4 of #790.
 
 ### Documentation
+
+- New [`docs/agent-support/integrations/slack.md`](docs/agent-support/integrations/slack.md)
+  covering the Slack MCP integration end-to-end: token acquisition for both
+  auth modes (`slack-user` xoxp — recommended; `slack-cookie` xoxc+xoxd —
+  discouraged fallback with an explicit TOS-adjacent + abuse-detection
+  security warning), the `korotovsky/slack-mcp-server` tool list, the
+  per-agent-type rendered shapes (hermes `mcp_servers:`, openclaw
+  `mcp.servers.<slug>`, zeroclaw `[[mcp.servers]]`), the SHA256-pinned
+  binary distribution table (linux amd64/arm64, darwin amd64/arm64; armv7l
+  not shipped upstream at v1.3.0), the `--credential-stdin` recommendation
+  to avoid `ps auxww` leakage, and a **composite blast-radius warning**
+  documenting the prompt-injection tool-call exfiltration path when the
+  Slack **channel** (inbound) and Slack **integration** (outbound) attach
+  to the same agent. Also updates the integrations index and the three GA
+  agent-support docs (`hermes.md`, `openclaw.md`, `zeroclaw.md`) with a
+  per-agent-type Slack subsection linking to the unified doc. (#837, #499)
