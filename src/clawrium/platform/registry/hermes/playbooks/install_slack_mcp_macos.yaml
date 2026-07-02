@@ -55,7 +55,8 @@
         owner: "{{ agent_name }}"
         group: staff
         mode: '0755'
-        # ATX iter-4 W5: 120s matches the ansible-runner budget in
-        # `_hermes_install_slack_mcp` — avoids spurious get_url
-        # timeouts on slow / jittery links (mac-test behind home NAT).
+        # ATX iter-4 W5 → iter-5 W2: 120s sits below the runner's
+        # 180s budget in `_hermes_install_slack_mcp` so get_url's
+        # own timeout fires before the ansible-runner deadline — see
+        # the parallel comment in `install_slack_mcp.yaml`.
         timeout: 120

@@ -1482,7 +1482,7 @@ def _hermes_install_slack_mcp(
     inputs,
     *,
     on_event: Callable[[str, str], None] | None = None,
-    timeout: int = 120,
+    timeout: int = 180,
 ) -> None:
     """Install slack-mcp-server on `hostname` via the dedicated runbook.
 

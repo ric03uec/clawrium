@@ -4107,6 +4107,7 @@ class TestHermesInstallSlackMCP:
             on_event=lambda stage, msg: events.append((stage, msg)),
         )
         assert len(events) == 1
+        assert events[0][0] == "slack_mcp_install"
         assert "install_slack_mcp_macos.yaml" in events[0][1]
 
     def test_mixed_integrations_still_triggers_install(self, monkeypatch):
@@ -4125,19 +4126,22 @@ class TestHermesInstallSlackMCP:
         assert len(calls) == 1
         assert calls[0]["operation"] == "install_slack_mcp"
 
-    def test_timeout_pinned_at_120s(self, monkeypatch):
-        """S7 (ATX iter-4): the helper passes `timeout=120` to
-        `_run_lifecycle_playbook`, matching the runbook's `get_url`
-        timeout. A future edit that shrinks either half of the pair
-        (helper budget or get_url budget) risks a spurious runner
-        timeout on slow / jittery links. Pin the default."""
+    def test_timeout_pinned_at_180s(self, monkeypatch):
+        """S7 (ATX iter-4) + W2 (ATX iter-5): the helper passes
+        `timeout=180` to `_run_lifecycle_playbook`. The runbook's
+        `get_url` timeout is 120s — the 60s gap gives get_url room
+        to fire its own (clearer) timeout error before ansible-runner
+        trips its generic `operation timed out`. A future edit that
+        collapses the gap risks a confusing runner-timeout on slow
+        links. Pin the default."""
         calls = self._stub_playbook(monkeypatch)
         inputs = _inputs_with_integrations(["slack-user"])
 
         lc._hermes_install_slack_mcp(
             "maurice", "wolf-i", {"os_family": "linux"}, inputs
         )
-        assert calls[0]["timeout"] == 120
+        assert len(calls) == 1
+        assert calls[0]["timeout"] == 180
 
 
 class TestHermesSlackInstallRunsBeforeRestart:

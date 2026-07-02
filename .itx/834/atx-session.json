@@ -1,21 +1,17 @@
 {
   "session_id": null,
   "transport": "cli",
-  "commit_sha": "pending-iter5",
-  "iteration": 5,
-  "last_rating": 3,
-  "last_blockers": [
-    "iter 4 B1: no sync_agent_canonical-level ordering test — fixed in iter 5",
-    "iter 4 B2: no failure-short-circuits-restart integration test — fixed in iter 5"
-  ],
+  "commit_sha": "pending-iter6",
+  "iteration": 6,
+  "last_rating": 4,
+  "last_blockers": [],
   "last_warnings": [
-    "iter 4 W1 (Rule 2 self-contradiction) — reworded Rule 2 to permit task-0 dispatcher-contract guard; added regression test",
-    "iter 4 W3 (calls[0] without len check) — added assert len(calls) == 1",
-    "iter 4 W4 (weak error match) — tightened to full framing + payload",
-    "iter 4 W5 (get_url timeout 30 too tight) — bumped to 120 in both runbooks",
-    "iter 4 W6 (darwin lockstep transitive) — parametrized test over both runbooks; Rule 8 reworded"
+    "iter 5 W1 (calls[0] without len check on new timeout test) — fixed with assert len(calls) == 1",
+    "iter 5 W2 (get_url timeout == runner budget) — bumped helper to 180s, runbook get_url stays 120s (60s headroom)",
+    "iter 5 W3 (line-scan dispatcher guard test) — upgraded to YAML parse, asserts task-0 position + ansible.builtin.fail action"
   ],
+  "last_atx_task_id": "5ffb2237-b44d-450f-af5f-2d8495b1c1c0",
   "started_at": "2026-07-01T23:20:02Z",
-  "updated_at": "2026-07-02T02:00:00Z",
-  "notes": "Iter 5: 2 iter-4 blockers + 6 warnings addressed. Suggestions applied: S3 (Rule 8 wording), S6 (darwin event test), S7 (timeout pin test), S8 (stale section headers). Deferred: S1 (playbook_resolver extraction), S9 (secret-in-extravars test), S10 (per-task become)."
+  "updated_at": "2026-07-02T02:15:00Z",
+  "notes": "Iter 5 rating 4/5, 0 blockers, 3 warnings — merge-eligible per leader. Iter 6 addresses all 3 warnings + S1 (stage assertion on darwin event test). Iter 5 verified iter-4 blockers B1/B2 as resolved; iter-5 warnings are test/config hardening (no correctness/security)."
 }

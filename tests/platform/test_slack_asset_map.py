@@ -167,29 +167,10 @@ def test_render_constant_matches_playbook_pin(runbook: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("runbook", "acceptable_guards"),
-    [
-        # Linux runbook: fail if ansible_os_family == "Darwin"
-        ("install_slack_mcp.yaml", ('== "Darwin"', "== 'Darwin'")),
-        # Darwin runbook: fail if not-darwin (either `!= "Darwin"` or
-        # `== "Linux"` shape is acceptable — both mean the same thing).
-        (
-            "install_slack_mcp_macos.yaml",
-            ('!= "Darwin"', "!= 'Darwin'", '== "Linux"', "== 'Linux'"),
-        ),
-    ],
-)
-def test_runbook_has_single_task0_dispatcher_guard(
-    runbook: str, acceptable_guards: tuple[str, ...]
-) -> None:
-    """Rule 2 narrow exception: each runbook is permitted exactly ONE
-    `when: ansible_os_family` clause, and it MUST be on a task that
-    only `fail:`s (dispatcher-contract guard — trip loudly when the
-    wrong-OS sibling was routed here by mistake). Any additional
-    `ansible_os_family` clause, or one that gates an install task,
-    reintroduces the OS-branching-inside-runbook invariant Rule 2
-    bans. ATX iter-4 W1."""
+def _runbook_tasks(runbook: str) -> list[dict]:
+    """Load the runbook's task list via YAML parse — lets us assert
+    structural properties (task-0 position, task action, `when:`
+    clauses) instead of hoping a line-scan catches every regression."""
     path = (
         Path(__file__).parent.parent.parent
         / "src"
@@ -200,23 +181,61 @@ def test_runbook_has_single_task0_dispatcher_guard(
         / "playbooks"
         / runbook
     )
-    body = path.read_text()
-    guards = [
-        line
-        for line in body.splitlines()
-        if "ansible_os_family" in line and line.lstrip().startswith("when:")
+    data = yaml.safe_load(path.read_text())
+    return data[0]["tasks"]
+
+
+@pytest.mark.parametrize(
+    "runbook",
+    ["install_slack_mcp.yaml", "install_slack_mcp_macos.yaml"],
+)
+def test_runbook_has_single_task0_dispatcher_guard(runbook: str) -> None:
+    """Rule 2 narrow exception: each runbook is permitted exactly ONE
+    `when: ansible_os_family` clause, and it MUST be at task-0
+    position, and it MUST fire only `ansible.builtin.fail` (not
+    conditionally install anything — that would reintroduce OS
+    branching inside install tasks).
+
+    ATX iter-4 W1 introduced a line-scan version of this test; iter-5
+    W3 upgraded to YAML parsing so all three sub-invariants (single
+    guard, task-0 position, `fail:` action) are enforced structurally.
+    """
+    tasks = _runbook_tasks(runbook)
+
+    # Sub-invariant 1: exactly ONE task has `when: ansible_os_family`.
+    guarded = [
+        t
+        for t in tasks
+        if "ansible_os_family" in str(t.get("when", ""))
     ]
-    assert len(guards) == 1, (
-        f"{runbook}: expected exactly ONE `when: ansible_os_family` "
-        f"clause (task-0 dispatcher-contract fail-fast); found "
-        f"{len(guards)}. Rule 2 bans OS branching inside install "
-        f"tasks."
+    assert len(guarded) == 1, (
+        f"{runbook}: expected exactly ONE task with a "
+        f"`when: ansible_os_family` clause (task-0 dispatcher-contract "
+        f"guard); found {len(guarded)}. Rule 2 bans OS branching "
+        f"inside install tasks."
     )
-    # The single permitted guard refuses the wrong-OS host. Accept
-    # either `== "OtherOS"` or `!= "MyOS"` shape — both express the
-    # same dispatcher-contract intent.
-    assert any(shape in guards[0] for shape in acceptable_guards), (
-        f"{runbook}: task-0 dispatcher guard must refuse the wrong "
-        f"OS. Acceptable shapes: {acceptable_guards!r}. Found: "
-        f"{guards[0].strip()!r}"
+
+    # Sub-invariant 2: it MUST be task-0. Any earlier install task
+    # (mkdir, download, etc.) would run on the wrong-OS host before
+    # the guard tripped.
+    assert tasks[0] is guarded[0], (
+        f"{runbook}: dispatcher-contract guard must be task-0 "
+        f"(runs before any install work). Currently at task "
+        f"{tasks.index(guarded[0])}. Move to the top of `tasks:`."
+    )
+
+    # Sub-invariant 3: the guarded task MUST fire `ansible.builtin.fail`
+    # only (never `get_url:`, `file:`, etc.). A guard on an install
+    # task is exactly the OS-branching-inside-install-task pattern
+    # Rule 2 bans.
+    guard_action_keys = [
+        k
+        for k in tasks[0].keys()
+        if k not in {"name", "when", "become", "become_user", "no_log"}
+    ]
+    assert guard_action_keys == ["ansible.builtin.fail"], (
+        f"{runbook}: dispatcher-contract guard at task-0 must ONLY "
+        f"call `ansible.builtin.fail` — found action keys "
+        f"{guard_action_keys!r}. A guard on an install task would "
+        f"reintroduce OS branching inside install tasks (Rule 2)."
     )
