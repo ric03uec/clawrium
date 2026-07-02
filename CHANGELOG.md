@@ -14,17 +14,19 @@ cut. The `itx:release` skill archives this section into a new
 
 ### BREAKING
 
-- **`clawctl mcp registry get` and `clawctl mcp registry describe` now exit
-  1 (previously 0)** and print a redirect hint pointing operators at
-  `clawctl integration registry create --type slack-user`. The stubs
-  were silently exit-0 before, which let `clawctl mcp registry get &&
-  next_cmd` chain past an unimplemented verb in scripts. Slack-backed
-  MCP is now a real integration type; generic MCP support is tracked in
-  the #499 follow-up. **Recovery:** any script that relied on
-  `clawctl mcp registry get` exiting 0 must either drop the invocation
-  or replace it with `clawctl integration registry get --types` (lists
-  integration types including `slack-user` and `slack-cookie`). No
-  automated migration. (#834)
+- **`clawctl mcp` group removed entirely.** The placeholder group
+  (`clawctl mcp registry get` / `describe`) that shipped in #834 has
+  been deleted. Invoking any `clawctl mcp …` command now returns
+  Typer's default `Error: No such command 'mcp'.` and exits **2** —
+  previously the stubs exited 1 with a redirect hint. Slack-backed MCP
+  is a first-class integration type as of the #499 chain and does not
+  need a separate top-level surface; generic (non-Slack) MCP-server
+  support is tracked as the successor issue #844.
+  **Recovery:** replace any `clawctl mcp registry …` invocation with
+  `clawctl integration registry create --type slack-user` (recommended)
+  or `--type slack-cookie` (discouraged fallback). Scripts that only
+  checked exit code must update: exit 1 → exit 2, and the redirect
+  hint text is no longer emitted. No automated migration. (#838, #499)
 
 - **openclaw bedrock model prefix renamed `bedrock/` → `amazon-bedrock/`.**
   The openclaw gateway's Bedrock provider is registered as

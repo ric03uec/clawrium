@@ -1,7 +1,7 @@
 """Stub group apps for `clawctl` noun-groups.
 
 Each module in this package exports a Typer app for one top-level noun
-(`host`, `agent`, `provider`, `channel`, `integration`, `skill`, `mcp`).
+(`host`, `agent`, `provider`, `channel`, `integration`, `skill`).
 This bundle (#507) only registers the groups and stubs their verbs;
 real implementations land in bundles 3-4 (#508, #509) by editing the
 respective module files.

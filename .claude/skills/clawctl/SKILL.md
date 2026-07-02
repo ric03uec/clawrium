@@ -42,7 +42,6 @@ clawctl provider …        # Inference backend providers
 clawctl channel …         # Chat surfaces (Discord, Slack)
 clawctl integration …     # External service integrations
 clawctl skill …           # Skills catalog and user overlay
-clawctl mcp …             # MCP servers (placeholder)
 ```
 
 ---
@@ -292,17 +291,6 @@ clawctl skill registry describe <registry>/<name>
 
 User overlay lives at `~/.config/clawrium/skills/<registry>/<name>/`.
 Overlay entries win over bundled catalog entries for the same slug.
-
----
-
-## `clawctl mcp`
-
-MCP server management (placeholder — commands exist but are not yet functional).
-
-```bash
-clawctl mcp registry get
-clawctl mcp registry describe <name>
-```
 
 ---
 

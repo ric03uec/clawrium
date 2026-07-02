@@ -28,7 +28,6 @@ EXPECTED_TOP_LEVEL = [
     "channel",
     "integration",
     "skill",
-    "mcp",
 ]
 
 
@@ -37,6 +36,9 @@ def test_root_help_lists_every_group() -> None:
     assert result.exit_code == 0
     for token in EXPECTED_TOP_LEVEL:
         assert token in result.output, f"missing from root --help: {token}"
+    # `mcp` group removed in #838 — accidental re-registration in
+    # `cli/__init__.py` must not slip through this test.
+    assert "mcp" not in result.output
 
 
 @pytest.mark.parametrize(
@@ -49,7 +51,6 @@ def test_root_help_lists_every_group() -> None:
         "channel",
         "integration",
         "skill",
-        "mcp",
     ],
 )
 def test_group_help_exits_zero(group: str) -> None:
@@ -57,34 +58,12 @@ def test_group_help_exits_zero(group: str) -> None:
     assert result.exit_code == 0
 
 
-@pytest.mark.parametrize(
-    "argv,expected",
-    [
-        # `mcp registry` remains a placeholder per plan §4 (no MCP
-        # implementation yet). `agent exec` was implemented in #413;
-        # its tests live in `tests/cli/clawctl/agent/test_exec.py`.
-        # #834 (B10): mcp stubs now exit 1 with a slack-integration
-        # redirect hint following the canonical line.
-        (["mcp", "registry", "get"], "Not implemented: mcp registry get"),
-        (
-            ["mcp", "registry", "describe", "foo"],
-            "Not implemented: mcp registry describe",
-        ),
-    ],
-)
-def test_stub_verb_emits_canonical_line(argv: list[str], expected: str) -> None:
-    result = runner.invoke(app, argv)
-    assert result.exit_code == 1
-    # First line is the canonical `Not implemented:` string; the redirect
-    # hint follows on its own line.
-    lines = result.output.strip().splitlines()
-    assert lines[0] == expected
-    assert "clawctl integration registry create" in result.output
-
-
 def test_pattern_a_registry_subgroup_exposed() -> None:
     """Each Pattern A noun has `registry` as its only subgroup (plan §3)."""
-    for noun in ("provider", "channel", "integration", "skill", "mcp"):
+    # `mcp` was removed in #838 — Slack MCP is now a first-class
+    # integration type via `clawctl integration registry create --type
+    # slack-*`. Generic MCP-server support is tracked in #844.
+    for noun in ("provider", "channel", "integration", "skill"):
         result = runner.invoke(app, [noun, "--help"])
         assert result.exit_code == 0
         assert "registry" in result.output, f"{noun}: registry subgroup missing"

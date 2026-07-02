@@ -1,0 +1,30 @@
+{
+  "session_id": "atx-cli-838-iter-2",
+  "transport": "cli",
+  "commit_sha": "dbb09a6b28684507af4149f43ab421f8dba56b58",
+  "iterations": [
+    {
+      "iteration": 1,
+      "rating": 3,
+      "blocking": false,
+      "warnings": ["W1", "W2", "W3", "W4"],
+      "suggestions": ["S1", "S2", "S3"],
+      "cost_usd": 1.3586,
+      "duration_ms": 297262
+    },
+    {
+      "iteration": 2,
+      "rating": 4,
+      "blocking": false,
+      "warnings": [],
+      "suggestions": [],
+      "cost_usd": 1.7553,
+      "duration_ms": 363133
+    }
+  ],
+  "last_rating": 4,
+  "last_blockers": [],
+  "cleared": true,
+  "started_at": "2026-07-01T21:55:00Z",
+  "updated_at": "2026-07-01T22:15:00Z"
+}
