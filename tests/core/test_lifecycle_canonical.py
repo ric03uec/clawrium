@@ -4328,11 +4328,16 @@ class TestConfigurePlaybooksNoSlackInstall:
         guard at
         `test_neither_configure_playbook_contains_brave_install_task`.
 
-        `slack-mcp-server` (with hyphens) IS permitted in comments —
-        the breadcrumb pointing operators at the dedicated runbook.
-        `slack_integration_assigned` and the `mcp_slack_*` extravar
-        names are the load-bearing tokens: they only appear if
-        install *tasks* were re-baked in."""
+        The load-bearing tokens are the extravar names (`mcp_slack_*`)
+        and `slack_integration_assigned` — none of them appear in
+        idiomatic breadcrumb comments, so string-in-body suffices.
+        The raw `slack-mcp-server` substring is deliberately NOT
+        scanned: the harmless breadcrumb comment added in #851 uses
+        that string, and a line-scan with a comment-heuristic would
+        false-positive on inline trailing comments or YAML block
+        scalar bodies (ATX iter-1 W2). If the extravars are absent,
+        the install can't run — no need for a redundant substring
+        check."""
         from pathlib import Path
 
         base = (
@@ -4356,21 +4361,6 @@ class TestConfigurePlaybooksNoSlackInstall:
             assert "mcp_slack_arch_map" not in body, (agent_type, name)
             assert "mcp_slack_sha256_map" not in body, (agent_type, name)
             assert "slack_integration_assigned" not in body, (agent_type, name)
-            # Distinguish the load-bearing token ("- name: ... slack-mcp-server ...")
-            # from the harmless breadcrumb comment ("# slack-mcp-server install
-            # lives in the dedicated ..."). The former appears in task
-            # headers; the latter only in `#` comments. Line-scan for
-            # non-comment occurrences.
-            for lineno, line in enumerate(body.splitlines(), start=1):
-                stripped = line.lstrip()
-                if stripped.startswith("#"):
-                    continue
-                assert "slack-mcp-server" not in line, (
-                    agent_type,
-                    name,
-                    lineno,
-                    line,
-                )
 
 
 # ---------------------------------------------------------------------------

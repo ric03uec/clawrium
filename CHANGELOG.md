@@ -217,30 +217,6 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
-- **zeroclaw slack-mcp-server install harmonized to the sync-time
-  runbook pattern (#851 / Phase 3 tech debt of #499).** Previously
-  the binary installed inline from
-  `zeroclaw/playbooks/configure.yaml` using threaded `mcp_slack_*`
-  extravars; now it installs from a dedicated
-  `zeroclaw/playbooks/install_slack_mcp.yaml` runbook invoked from
-  `core.lifecycle_canonical._zeroclaw_install_slack_mcp` — matching
-  the pattern hermes (Phase 1 / #834) and openclaw (Phase 2 / #835)
-  already used. Main's Phase 3 CHANGELOG entry described this shape;
-  the code had drifted to inline install during the stacked-merge
-  recovery of #842, and #851 brings the code back in line with what
-  operators were told shipped. **Operator impact:** `clawctl agent
-  sync <zeroclaw-agent>` still installs the binary on first sync
-  after a slack integration attach — same UX as before. `clawctl
-  agent configure <zeroclaw-agent>` no longer installs the binary
-  (it never re-installed under the inline pattern either — the
-  runbook change consolidates where the install lives, not when).
-  macOS zeroclaw slack remains a deferred follow-up to #836;
-  attaching a slack integration to a darwin-hosted zeroclaw and
-  running `sync` now raises `CanonicalSyncError` with an
-  operator-friendly message rather than silently routing to the
-  Linux runbook. Zeroclaw joins hermes and openclaw in
-  `tests/platform/test_slack_asset_map.py`'s Linux invariants
-  (pin/arch-map/sha256/render-constant lockstep). (#851, #499)
 - openclaw upstream pin bumped `2026.6.9` → `2026.6.11`. New
   `platforms[]` entries for ubuntu 24.04/x86_64, ubuntu 22.04/x86_64,
   and macos ≥14/arm64 land in
@@ -343,6 +319,32 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- **Zeroclaw slack-mcp-server install location restored to the
+  sync-time runbook documented in Phase 3 CHANGELOG (#851, #499).**
+  Main's Phase 3 CHANGELOG entry told operators the install ran via
+  a dedicated `zeroclaw/playbooks/install_slack_mcp.yaml` runbook
+  invoked from `core.lifecycle_canonical._zeroclaw_install_slack_mcp`
+  (matching hermes / Phase 1 / #834 and openclaw / Phase 2 / #835);
+  the actual code had drifted to inline install in
+  `zeroclaw/playbooks/configure.yaml` during the stacked-merge
+  recovery of #842. #851 harmonizes the code back to what was
+  documented as shipped. **Operator impact:** the canonical UX
+  (`clawctl agent integration attach <slack-integration> --agent
+  <zeroclaw-agent>` → `clawctl agent sync <zeroclaw-agent>`) is
+  unchanged — sync still installs the binary on first run after
+  attach. `clawctl agent configure <zeroclaw-agent>` no longer
+  installs the binary; operators who scripted `attach → configure`
+  (a non-canonical workflow that previously worked via the inline
+  tasks) must switch to `attach → sync`. On `sync --no-restart`, the
+  binary lands but the daemon picks it up only on the next restart —
+  same behavior as hermes and openclaw. macOS zeroclaw slack remains
+  a deferred follow-up to #836; attaching a slack integration to a
+  darwin-hosted zeroclaw and running `sync` now raises
+  `CanonicalSyncError` with a `clawctl agent integration detach`
+  hint rather than silently routing to the Linux runbook. Zeroclaw
+  joins hermes and openclaw in
+  `tests/platform/test_slack_asset_map.py`'s Linux invariants
+  (pin/arch-map/sha256/render-constant lockstep).
 - **Zeroclaw `~/.zeroclaw/config.toml` TOML shape (#499 B2).** The
   baseline template's `[mcp]` block previously declared
   `servers = []` as an inline array. That form is incompatible with

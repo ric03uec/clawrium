@@ -1687,7 +1687,8 @@ def _zeroclaw_install_slack_mcp(
             f"zeroclaw slack integration is not yet supported on darwin "
             f"hosts (agent {agent_name!r}); the "
             f"`install_slack_mcp_macos.yaml` sibling runbook is a "
-            f"follow-up to #836. Detach the slack integration or move "
+            f"follow-up to #836. Detach with `clawctl agent integration "
+            f"detach <integration-name> --agent {agent_name}` or move "
             f"the agent to a Linux host."
         )
 
