@@ -2620,10 +2620,18 @@ def configure_agent(
     prerendered_files: dict[str, str] = {}
     if resolved_type == "zeroclaw":
         try:
+            from clawrium.core.playbook_resolver import normalize_os_family
             from clawrium.core.render import build_render_inputs, render_zeroclaw
 
             render_inputs = build_render_inputs(unix_agent_name)
-            rendered = render_zeroclaw(render_inputs)
+            # #836: pass os_family so the slack-mcp-server binary path in
+            # rendered `[[mcp.servers]]` blocks resolves to `/home/…` on
+            # Linux and `/Users/…` on darwin. Missing this would silently
+            # emit a Linux path in the config.toml on a macOS host and
+            # the daemon would fail to spawn the MCP subprocess.
+            rendered = render_zeroclaw(
+                render_inputs, os_family=normalize_os_family(host)
+            )
             # Key matches the rendered.files dict from render_zeroclaw —
             # the playbook references this by its full key so the var
             # name and the file path stay locked together.
@@ -2838,12 +2846,13 @@ def configure_agent(
     # OS branches and two agent types in lockstep — a single-file bump
     # in playbook_resolver.py is the only place a version pin can move.
     #
-    # Gate: only hermes + openclaw consume these keys today. Any future
-    # agent type (nemoclaw, ethos, third-party) is added to the tuple
-    # ONLY after its playbook actually references the extravars —
-    # threading them into an ignoring playbook would be dead weight
-    # and hide the coupling from readers. (ATX #835 iter-1 W3.)
-    if resolved_type in ("hermes", "openclaw"):
+    # Gate: hermes + openclaw + zeroclaw consume these keys today
+    # (#836 added zeroclaw). Any future agent type (nemoclaw, ethos,
+    # third-party) is added to the tuple ONLY after its playbook
+    # actually references the extravars — threading them into an
+    # ignoring playbook would be dead weight and hide the coupling
+    # from readers. (ATX #835 iter-1 W3.)
+    if resolved_type in ("hermes", "openclaw", "zeroclaw"):
         from clawrium.core.playbook_resolver import (
             mcp_slack_extravars,
             normalize_os_family,

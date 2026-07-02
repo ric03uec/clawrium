@@ -142,10 +142,10 @@ def test_attach_slack_cookie_to_openclaw_succeeds(fleet_dir, stdin_not_tty) -> N
     )
 
 
-def test_attach_slack_user_to_zeroclaw_rejected(fleet_dir, stdin_not_tty) -> None:
-    """#834 (ATX iter-1 W5): zeroclaw rejection is a separate branch —
-    _ZEROCLAW_SUPPORTED_INTEGRATIONS excludes slack-user/slack-cookie in
-    Phase 1; the gate must exercise this."""
+def test_attach_slack_user_to_zeroclaw_succeeds(fleet_dir, stdin_not_tty) -> None:
+    """#836 (Phase 3): zeroclaw NOW supports slack-user. The gate must
+    let this through — mirrors the openclaw positive-case Phase 2
+    transition. Replaces the Phase-1 rejection test."""
     _add_zeroclaw_agent(fleet_dir, name="kevin")
     _create_integration(
         "slack-work", "slack-user", {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
@@ -154,15 +154,12 @@ def test_attach_slack_user_to_zeroclaw_rejected(fleet_dir, stdin_not_tty) -> Non
         app,
         ["agent", "integration", "attach", "slack-work", "--agent", "kevin"],
     )
-    assert result.exit_code == 2, result.output
-    combined = result.output + (result.stderr or "")
-    assert "zeroclaw" in combined
-    assert "slack-user" in combined
-    assert "#499" in combined
+    assert result.exit_code == 0, result.output
+    assert "slack-work" in _hosts_json_agent_integrations(fleet_dir, "kevin")
 
 
-def test_attach_slack_cookie_to_zeroclaw_rejected(fleet_dir, stdin_not_tty) -> None:
-    """#834 (ATX iter-1 W5): zeroclaw + slack-cookie also rejected."""
+def test_attach_slack_cookie_to_zeroclaw_succeeds(fleet_dir, stdin_not_tty) -> None:
+    """#836: zeroclaw + slack-cookie also accepted."""
     _add_zeroclaw_agent(fleet_dir, name="kevin")
     _create_integration(
         "slack-legacy",
@@ -171,11 +168,17 @@ def test_attach_slack_cookie_to_zeroclaw_rejected(fleet_dir, stdin_not_tty) -> N
     )
     result = runner.invoke(
         app,
-        ["agent", "integration", "attach", "slack-legacy", "--agent", "kevin"],
+        [
+            "agent",
+            "integration",
+            "attach",
+            "slack-legacy",
+            "--agent",
+            "kevin",
+        ],
     )
-    assert result.exit_code == 2, result.output
-    combined = result.output + (result.stderr or "")
-    assert "slack-cookie" in combined
+    assert result.exit_code == 0, result.output
+    assert "slack-legacy" in _hosts_json_agent_integrations(fleet_dir, "kevin")
 
 
 # ---------------------------------------------------------------------------

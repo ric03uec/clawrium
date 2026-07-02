@@ -1281,10 +1281,14 @@ def _render_hermes_template(template_name: str, **context) -> str:
 _ZEROCLAW_PROVIDER_KINDS = frozenset(
     {"anthropic", "openai", "ollama", "openrouter", "opencode", "opencode-go"}
 )
-_ZEROCLAW_SUPPORTED_INTEGRATIONS = frozenset({"github", "git", "brave"})
+_ZEROCLAW_SUPPORTED_INTEGRATIONS = frozenset(
+    {"github", "git", "brave", "slack-user", "slack-cookie"}
+)
 
 
-def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
+def render_zeroclaw(
+    inputs: RenderInputs, *, os_family: str = "linux"
+) -> RenderedFiles:
     """Render zeroclaw's config.toml + systemd env drop-in.
 
     The config.toml is rendered from a Jinja2 template that is a FULL copy
@@ -1293,8 +1297,24 @@ def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
     prevents the silent-wipe bug where rendering only what clawctl knows
     about destroys daemon-managed sections (gateway pairing state, security
     knobs, memory backends, cost.prices, hooks, etc.).
+
+    `os_family` picks the home-root prefix for the slack-mcp-server
+    binary path (`/home/<name>/.local/bin/…` on Linux, `/Users/<name>/…`
+    on darwin). Default `"linux"` keeps every pre-#836 render
+    byte-identical — the path only surfaces inside `[[mcp.servers]]`
+    blocks, which are dropped entirely when no slack integration is
+    attached (#836 B2 conditional-emit contract).
     """
     _validate_agent_name(inputs.agent_name)
+    # #836: mirror render_hermes/render_openclaw os_family validation.
+    # Any typo would silently fall through to `/home` — reopening the
+    # class of bug the hermes ATX iter-2 blocker closed.
+    if os_family not in ("linux", "darwin"):
+        raise AgentConfigError(
+            f"render_zeroclaw: unsupported os_family {os_family!r}. "
+            f"Supported: ['darwin', 'linux']"
+        )
+    home_root = "/Users" if os_family == "darwin" else "/home"
 
     ptype = inputs.provider.type
 
@@ -1365,13 +1385,90 @@ def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
             endpoint = endpoint + "/v1"
         provider = replace(provider, endpoint=endpoint)
 
+    # --- slack MCP subprocess views (#836) --------------------------------
+    # Mirrors render_openclaw's slack view builder (render.py:1690). Every
+    # slack-* integration produces a view dict consumed by the Jinja
+    # template's `[[mcp.servers]]` loop. Empty list → the template
+    # emits only the baseline `[mcp]` header (no `servers`, `enabled =
+    # false`) preserving byte-identity for existing zeroclaw agents.
+    slack_views: list[dict] = []
+    seen_mcp_slugs: set[str] = set()
+    for integration in inputs.integrations:
+        if integration.type not in ("slack-user", "slack-cookie"):
+            continue
+        creds = dict(integration.credentials)
+        slug = _integration_slug(integration.name)
+        lo_slug = slug.lower()
+        if not lo_slug:
+            raise AgentConfigError(
+                f"render_zeroclaw: integration name "
+                f"{integration.name!r} slugifies to empty — "
+                f"refusing to emit an unnamed [[mcp.servers]] block"
+            )
+        if lo_slug in seen_mcp_slugs:
+            raise AgentConfigError(
+                f"render_zeroclaw: mcp.servers integration names "
+                f"collide on slug {lo_slug!r} (slack branch); "
+                f"another attached integration already claims this "
+                f"slug — rename one to differentiate after slugification"
+            )
+        seen_mcp_slugs.add(lo_slug)
+        if integration.type == "slack-user":
+            xoxp = _clean_secret(creds.get("SLACK_MCP_XOXP_TOKEN", ""))
+            if not xoxp:
+                raise AgentConfigError(
+                    f"render_zeroclaw: slack-user integration "
+                    f"{integration.name!r} is missing "
+                    f"SLACK_MCP_XOXP_TOKEN in its credential store"
+                )
+            slack_views.append(
+                {
+                    "slug": lo_slug,
+                    "auth": "user",
+                    "xoxp_token": xoxp,
+                    "xoxc_token": "",
+                    "xoxd_token": "",
+                }
+            )
+        else:  # slack-cookie
+            xoxc = _clean_secret(creds.get("SLACK_MCP_XOXC_TOKEN", ""))
+            xoxd = _clean_secret(creds.get("SLACK_MCP_XOXD_TOKEN", ""))
+            if not xoxc or not xoxd:
+                missing = [
+                    k
+                    for k, v in (
+                        ("SLACK_MCP_XOXC_TOKEN", xoxc),
+                        ("SLACK_MCP_XOXD_TOKEN", xoxd),
+                    )
+                    if not v
+                ]
+                raise AgentConfigError(
+                    f"render_zeroclaw: slack-cookie integration "
+                    f"{integration.name!r} is missing "
+                    f"{', '.join(missing)} in its credential store"
+                )
+            slack_views.append(
+                {
+                    "slug": lo_slug,
+                    "auth": "cookie",
+                    "xoxc_token": xoxc,
+                    "xoxd_token": xoxd,
+                    "xoxp_token": "",
+                }
+            )
+
     # --- render the full canonical template -------------------------------
+    slack_mcp_binary = (
+        f"{home_root}/{inputs.agent_name}/.local/bin/slack-mcp-server"
+    )
     toml_body = _render_zeroclaw_config_template(
         agent_name=inputs.agent_name,
         gateway=inputs.gateway,
         provider=provider,
         discord_channel=discord_channel,
         shell_env_passthrough=passthrough,
+        slack_integrations=slack_views,
+        slack_mcp_binary=slack_mcp_binary,
     )
 
     # --- systemd env drop-in (integrations) -------------------------------
@@ -1398,6 +1495,14 @@ def render_zeroclaw(inputs: RenderInputs) -> RenderedFiles:
                 f"{integration.type!r} (zeroclaw supports: "
                 f"{sorted(_ZEROCLAW_SUPPORTED_INTEGRATIONS)})"
             )
+        # #836: slack integrations feed the config.toml `[[mcp.servers]]`
+        # blocks (built above) and produce no systemd env drop-in
+        # entries — the SLACK_MCP_XOX* tokens live inside the mcp
+        # subprocess's own env, not the zeroclaw daemon's Environment=
+        # overlay. Skip so the drop-in loop doesn't see a
+        # credential-less integration it would silently drop.
+        if integration.type in ("slack-user", "slack-cookie"):
+            continue
         if integration.type == "github":
             creds = dict(integration.credentials)
             token = creds.get("GITHUB_TOKEN", "")
@@ -1477,6 +1582,8 @@ def _render_zeroclaw_config_template(
     provider: "ProviderInputs",
     discord_channel: "ChannelInputs | None",
     shell_env_passthrough: list[str],
+    slack_integrations: list[dict] | tuple[dict, ...] = (),
+    slack_mcp_binary: str = "",
 ) -> str:
     """Render the full-canonical zeroclaw config.toml Jinja template.
 
@@ -1485,6 +1592,12 @@ def _render_zeroclaw_config_template(
     and is a verbatim copy of the canonical zeroclaw config with only
     clawctl-managed values templated. Loaded via importlib.resources so it
     ships with the wheel.
+
+    `slack_integrations` and `slack_mcp_binary` are consumed by the
+    `[mcp]` section of the template. When the list is empty the
+    template emits only the baseline `[mcp]` header (no `[[mcp.servers]]`
+    blocks, `enabled = false`) — pre-#836 byte-identity is preserved
+    for every existing zeroclaw agent.
     """
     template = _zeroclaw_template()
     return template.render(
@@ -1493,6 +1606,8 @@ def _render_zeroclaw_config_template(
         provider=provider,
         discord_channel=discord_channel,
         shell_env_passthrough=shell_env_passthrough,
+        slack_integrations=list(slack_integrations),
+        slack_mcp_binary=slack_mcp_binary,
     )
 
 

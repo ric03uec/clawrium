@@ -98,6 +98,30 @@ cut. The `itx:release` skill archives this section into a new
   invariant preserved (no `_shared/tasks/…` file, no `if Darwin`
   inside existing playbooks). Retrospective refactor of the Phase 1
   hermes inline install per the #499 B9 blocker fix. (#835, #499)
+- Slack integration for zeroclaw agents — Phase 3 of #499. The
+  `slack-user` and `slack-cookie` types now attach to zeroclaw
+  agents and emit `[[mcp.servers]]` array-of-tables blocks in
+  `~/.zeroclaw/config.toml` referencing the same SHA256-pinned
+  korotovsky/slack-mcp-server binary that hermes and openclaw use.
+  The `[[mcp.servers]]` blocks are emitted **conditionally** and
+  `[mcp].enabled` flips true only when at least one slack integration
+  is attached — zeroclaw agents without a slack integration render
+  the byte-locked `[mcp]` + `deferred_loading = true` +
+  `enabled = false` shape (no `servers` key at all). Slack render +
+  hydration completes BEFORE `_zeroclaw_repair_after_start` rotates
+  the gateway bearer (#437 stale-bearer regression guard); a
+  render-time hydration failure short-circuits the sync with zero
+  `gateway_token_rotated` events. Attach gate accepts zeroclaw +
+  slack-* pairs. Real-host UAT ran on wolf-i x86_64 (armv7l coverage
+  gap tracked as follow-up — upstream ships no armv7 asset at
+  v1.3.0). (#836, #499)
+- `render_zeroclaw(inputs, *, os_family="linux")` — zeroclaw
+  renderer signature gains `os_family` so `[[mcp.servers]]` command
+  paths resolve to `/Users/<name>/.local/bin/slack-mcp-server` on
+  darwin (parity with the hermes and openclaw signatures added in
+  Phases 1+2). Every call site inside `lifecycle.configure_agent`
+  and `lifecycle_canonical.sync_agent_canonical` threads the
+  normalized value. (#836)
 - CLI attach-time agent-type / integration-type gate:
   `clawctl agent integration attach <name> --agent <agent>` now rejects
   `(agent-type, integration-type)` pairs that the renderer does not
@@ -263,6 +287,21 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- **Zeroclaw `~/.zeroclaw/config.toml` TOML shape (#499 B2).** The
+  baseline template's `[mcp]` block previously declared
+  `servers = []` as an inline array. That form is incompatible with
+  appending `[[mcp.servers]]` array-of-tables — TOML forbids the
+  same key defined twice with different shapes, so the daemon would
+  crash at startup the moment a slack integration attached. The
+  inline `servers = []` line is removed from the baseline;
+  `[[mcp.servers]]` blocks are now emitted conditionally, one per
+  attached slack integration. Zero-slack renders keep exactly the
+  `[mcp]` header + `deferred_loading = true` + `enabled = false`
+  shape (no `servers` key at all — TOML treats absent as empty).
+  Byte-locked via `test_zeroclaw_config_no_slack_baseline_byte_lock_unchanged`
+  so any subsequent template edit that shifts the zero-slack layout
+  fails at test time before it can drift on every fleet's on-host
+  config.toml. (#836, #499)
 - `clawctl agent sync <name>` now fails fast in a new validate-phase
   host probe (`AgentInstallMissingError`) when the agent's on-host
   service-manager artifact (systemd unit / launchd plist) or home

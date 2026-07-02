@@ -1753,7 +1753,7 @@ def sync_agent_canonical(
     from clawrium.core.playbook_resolver import normalize_os_family
 
     _os_family = normalize_os_family(host)
-    if inputs.agent_type in ("hermes", "openclaw"):
+    if inputs.agent_type in ("hermes", "openclaw", "zeroclaw"):
         rendered = renderer(inputs, os_family=_os_family)
     else:
         rendered = renderer(inputs)
