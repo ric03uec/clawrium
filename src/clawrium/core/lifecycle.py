@@ -2668,10 +2668,9 @@ def configure_agent(
             # but hosts.json may carry pre-normalization values from
             # older host records or third-party importers. Fold the
             # normalization here rather than reopen B1 by another name.
-            raw_os_family = (host.get("os_family") if host else None) or "linux"
-            os_family = str(raw_os_family).strip().lower()
-            if os_family in ("mac", "macos", "osx"):
-                os_family = "darwin"
+            from clawrium.core.playbook_resolver import normalize_os_family
+
+            os_family = normalize_os_family(host)
             rendered = render_hermes(render_inputs, os_family=os_family)
             prerendered_files[".hermes/.env"] = rendered.files[".hermes/.env"]
             prerendered_files[".hermes/config.yaml"] = (
@@ -2704,7 +2703,14 @@ def configure_agent(
 
         try:
             render_inputs = build_render_inputs(unix_agent_name)
-            rendered = render_openclaw(render_inputs)
+            # #835: pass os_family so the slack-mcp-server command path
+            # under `mcp.servers.<slug>.command` picks the correct home
+            # root. Single normalization helper closes the drift risk
+            # ATX #835 iter-1 W2 flagged.
+            from clawrium.core.playbook_resolver import normalize_os_family
+
+            _of = normalize_os_family(host)
+            rendered = render_openclaw(render_inputs, os_family=_of)
             prerendered_files[".openclaw/openclaw.json"] = (
                 rendered.files[".openclaw/openclaw.json"]
             )
@@ -2823,6 +2829,15 @@ def configure_agent(
     # Issue #437: zeroclaw always re-pairs on configure. No skip path,
     # no existing_gateway_token, no force_repair. The token in hosts.json
     # is overwritten with whatever the playbook's pair handshake mints.
+
+    # #835: slack-mcp-server install now lives in its own sync-time
+    # runbook (`hermes/playbooks/install_slack_mcp.yaml` +
+    # `openclaw/playbooks/install_slack_mcp.yaml` + darwin siblings)
+    # invoked from `sync_agent_canonical` — see
+    # `_hermes_install_slack_mcp` / `_openclaw_install_slack_mcp` in
+    # `core.lifecycle_canonical` and the "Integration Binary Install"
+    # section in AGENTS.md. configure_agent no longer threads any
+    # mcp_slack_* extravars — pin lives at the top of each runbook.
 
     # Merge extra_vars (not persisted to hosts.json)
     if extra_vars:

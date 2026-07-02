@@ -60,7 +60,10 @@ def make_canonical_stubs(monkeypatch: pytest.MonkeyPatch):
         def fake_build_render_inputs(_agent_name: str):
             return inputs
 
-        def fake_renderer(_inputs):
+        def fake_renderer(_inputs, **_kwargs):
+            # #835: lifecycle_canonical threads `os_family=` for hermes
+            # and openclaw renderers. Accept and ignore so the stub
+            # stays call-signature agnostic.
             return MagicMock(files={})
 
         def fake_get_agent_by_name(agent_name: str):

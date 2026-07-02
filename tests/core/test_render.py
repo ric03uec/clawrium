@@ -5502,8 +5502,367 @@ def test_supported_integrations_for_agent_type():
 
     oc = supported_integrations_for_agent_type("openclaw")
     assert oc is not None
-    assert "slack-user" not in oc
-    assert "slack-cookie" not in oc
+    # #835 (Phase 2): openclaw now supports both slack types.
+    assert "slack-user" in oc
+    assert "slack-cookie" in oc
 
     assert supported_integrations_for_agent_type("ethos") is None
     assert supported_integrations_for_agent_type("unknown") is None
+
+
+# ---------------------------------------------------------------------------
+# #835 (Phase 2): Slack MCP integration — openclaw end-to-end.
+# ---------------------------------------------------------------------------
+
+
+def _openclaw_baseline_inputs(*, integrations=(), agent_name="alpha") -> RenderInputs:
+    """Compact factory mirroring the byte-lock test's provider + gateway
+    triple so the Phase 2 golden tests read cleanly."""
+    return RenderInputs(
+        agent_name=agent_name,
+        agent_type="openclaw",
+        provider=ProviderInputs(
+            name="or",
+            type="openrouter",
+            default_model="anthropic/claude-opus-4.7",
+            api_key="sk-or-1",
+        ),
+        channels=(),
+        integrations=integrations,
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tkn", bind="lan"),
+    )
+
+
+def test_openclaw_json_no_slack_baseline_byte_lock_unchanged():
+    """#835 W10 conditional-emit contract: rendering openclaw.json with
+    no slack integration attached must be byte-identical to the pre-#835
+    output. The `mcp` key MUST be absent — not `mcp: {servers: {}}`.
+    This is the most important test in Phase 2: any drift here means
+    every existing openclaw agent's on-host openclaw.json diffs on the
+    first sync after upgrade."""
+    import json
+
+    inputs = _openclaw_baseline_inputs(integrations=())
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    parsed = json.loads(body)
+    assert "mcp" not in parsed, (
+        "W10 conditional-emit violated: rendering openclaw.json without "
+        "slack integrations must not add the `mcp` key. Byte diff for "
+        "every existing openclaw agent would follow."
+    )
+
+
+def test_openclaw_json_slack_user_mcp_block():
+    """#835 B1 fix: `_render_openclaw_json` emits a well-formed
+    `mcp.servers.<slug>` block for a slack-user integration. Byte-locks
+    the command path, args tuple, and single-XOXP env var so any silent
+    drift in the JSON emitter is caught."""
+    import json
+
+    inputs = _openclaw_baseline_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+        ),
+    )
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    parsed = json.loads(body)
+    assert parsed["mcp"] == {
+        "servers": {
+            "slack_work": {
+                "command": "/home/alpha/.local/bin/slack-mcp-server",
+                "args": ["--transport", "stdio"],
+                "env": {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"},
+            }
+        }
+    }
+
+
+def test_openclaw_json_slack_cookie_mcp_block():
+    """#835: same shape as slack-user but with two env vars for xoxc + xoxd.
+    Declared insertion order is contract (matches hermes template)."""
+    import json
+
+    inputs = _openclaw_baseline_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-legacy",
+                type="slack-cookie",
+                credentials=(
+                    ("SLACK_MCP_XOXC_TOKEN", "xoxc-1"),
+                    ("SLACK_MCP_XOXD_TOKEN", "xoxd-1"),
+                ),
+            ),
+        ),
+    )
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    parsed = json.loads(body)
+    slack = parsed["mcp"]["servers"]["slack_legacy"]
+    assert slack["command"] == "/home/alpha/.local/bin/slack-mcp-server"
+    assert slack["args"] == ["--transport", "stdio"]
+    assert slack["env"] == {
+        "SLACK_MCP_XOXC_TOKEN": "xoxc-1",
+        "SLACK_MCP_XOXD_TOKEN": "xoxd-1",
+    }
+    # Declared env-key order preserved in the JSON emission (dicts in
+    # Python 3.7+ preserve insertion order; json.dumps mirrors it).
+    assert list(slack["env"].keys()) == [
+        "SLACK_MCP_XOXC_TOKEN",
+        "SLACK_MCP_XOXD_TOKEN",
+    ]
+
+
+def test_openclaw_json_slack_command_path_darwin_home_root():
+    """#835: `os_family="darwin"` picks `/Users/…` for the binary path.
+    Mirrors the equivalent hermes test — same lockstep contract with
+    `home_root_for`. A silent fallback to `/home/…` would produce a
+    nonexistent path on darwin openclaw and the MCP subprocess would
+    fail-open."""
+    import json
+
+    from clawrium.core.playbook_resolver import home_root_for
+
+    inputs = _openclaw_baseline_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "x"),),
+            ),
+        ),
+    )
+    for os_family in ("linux", "darwin"):
+        body = render_openclaw(inputs, os_family=os_family).files[
+            ".openclaw/openclaw.json"
+        ]
+        parsed = json.loads(body)
+        expected = f"{home_root_for(os_family)}/alpha/.local/bin/slack-mcp-server"
+        assert parsed["mcp"]["servers"]["slack_work"]["command"] == expected
+
+
+def test_openclaw_json_render_openclaw_json_legacy_kwargs_backward_compat():
+    """#835: `_render_openclaw_json`'s new `slack_integrations` /
+    `agent_name` / `home_root` parameters MUST default to values that
+    keep pre-#835 callers byte-identical. Guard so any future signature
+    tweak fails loud here rather than at the on-host diff."""
+    import json
+
+    from clawrium.core.render import _render_openclaw_json
+
+    body = _render_openclaw_json(
+        provider=None,
+        provider_default_model=None,
+        gateway=None,
+        discord_channel=None,
+    )
+    parsed = json.loads(body)
+    assert "mcp" not in parsed
+
+
+def test_openclaw_json_slack_slug_collision_raises():
+    """#835 (mirror hermes guard): distinct integration names that
+    slug-collide must raise rather than silently drop one entry."""
+    inputs = _openclaw_baseline_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-a",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "x1"),),
+            ),
+            IntegrationInputs(
+                name="slack_a",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "x2"),),
+            ),
+        ),
+    )
+    with pytest.raises(AgentConfigError, match="collide on JSON key"):
+        render_openclaw(inputs)
+
+
+def test_openclaw_json_slack_empty_slug_raises():
+    """#835 (mirror hermes guard): integration names that slugify to
+    empty must raise rather than emit an unnamed JSON key."""
+    inputs = _openclaw_baseline_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="!!!",
+                type="slack-cookie",
+                credentials=(
+                    ("SLACK_MCP_XOXC_TOKEN", "xc"),
+                    ("SLACK_MCP_XOXD_TOKEN", "xd"),
+                ),
+            ),
+        ),
+    )
+    with pytest.raises(AgentConfigError, match="slugifies to empty"):
+        render_openclaw(inputs)
+
+
+def test_openclaw_json_slack_user_missing_token_raises():
+    """#835 (mirror hermes guard): an empty SLACK_MCP_XOXP_TOKEN would
+    render silently but 401 at first Slack API call. Raise here so the
+    fix surface is the credential store, not the daemon log."""
+    inputs = _openclaw_baseline_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(),
+            ),
+        ),
+    )
+    with pytest.raises(AgentConfigError, match="SLACK_MCP_XOXP_TOKEN"):
+        render_openclaw(inputs)
+
+
+def test_openclaw_json_slack_cookie_missing_tokens_raises():
+    """#835: cookie mode requires BOTH XOXC + XOXD — raise if either
+    is empty."""
+    inputs = _openclaw_baseline_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-legacy",
+                type="slack-cookie",
+                credentials=(("SLACK_MCP_XOXC_TOKEN", "xc"),),
+            ),
+        ),
+    )
+    with pytest.raises(AgentConfigError, match="SLACK_MCP_XOXD_TOKEN"):
+        render_openclaw(inputs)
+
+
+def test_openclaw_json_slack_leaves_unmanaged_baseline_keys_intact():
+    """#835: emitting `mcp` MUST preserve every other baseline key
+    byte-for-byte. Otherwise the mere presence of a slack integration
+    could silently drop e.g. `session.threadBindings` on hosts."""
+    import json
+
+    inputs = _openclaw_baseline_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "x"),),
+            ),
+        ),
+    )
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    parsed = json.loads(body)
+    # Baseline keys still present.
+    for key in (
+        "agents",
+        "gateway",
+        "session",
+        "tools",
+        "channels",
+        "browser",
+        "env",
+        "mcp",
+    ):
+        assert key in parsed, f"key {key!r} missing after slack render"
+    assert parsed["session"]["threadBindings"] == {
+        "enabled": True,
+        "idleHours": 24,
+        "maxAgeHours": 168,
+    }
+    assert parsed["tools"]["deny"] == ["browser"]
+
+
+def test_openclaw_json_slack_integrations_without_agent_name_raises():
+    """#835: the JSON emitter must refuse to write an unresolvable
+    command path. A silent fallback to `/{home_root}//.local/…` would
+    ship a broken path and fail-open under `no_log: true`."""
+    from clawrium.core.render import _render_openclaw_json
+
+    with pytest.raises(AgentConfigError, match="agent_name"):
+        _render_openclaw_json(
+            provider=None,
+            provider_default_model=None,
+            gateway=None,
+            discord_channel=None,
+            slack_integrations=[
+                {
+                    "slug": "slack_work",
+                    "auth": "user",
+                    "xoxp_token": "x",
+                    "xoxc_token": "",
+                    "xoxd_token": "",
+                }
+            ],
+            agent_name="",
+        )
+
+
+def test_openclaw_unsupported_os_family_raises():
+    """#835: unsupported os_family typos on render_openclaw must raise
+    (mirrors the hermes guard at render.py:967)."""
+    inputs = _openclaw_baseline_inputs()
+    with pytest.raises(AgentConfigError, match="unsupported os_family"):
+        render_openclaw(inputs, os_family="Darwin")  # capitalized
+
+
+def test_openclaw_json_slack_unknown_auth_mode_raises():
+    """#835 iter-2: the defensive `else:` branch inside
+    `_render_openclaw_json`'s slack loop is the only guard against a
+    view-builder drift. A future rename or refactor that pushes a third
+    `auth` value through must fail loudly here rather than silently
+    spawn the MCP subprocess with no auth (401 storm)."""
+    from clawrium.core.render import _render_openclaw_json
+
+    with pytest.raises(AgentConfigError, match="unknown auth mode"):
+        _render_openclaw_json(
+            provider=None,
+            provider_default_model=None,
+            gateway=None,
+            discord_channel=None,
+            slack_integrations=[
+                {
+                    "slug": "slack_bogus",
+                    "auth": "bogus",  # neither 'user' nor 'cookie'
+                    "xoxp_token": "",
+                    "xoxc_token": "",
+                    "xoxd_token": "",
+                }
+            ],
+            agent_name="alpha",
+        )
+
+
+def test_openclaw_json_slack_user_and_cookie_coexist():
+    """#835 iter-2: two slack integrations of different types on the
+    same agent must both emit — no short-circuit after the first entry.
+    Guards against a future refactor collapsing the for-loop."""
+    import json
+
+    inputs = _openclaw_baseline_inputs(
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+            IntegrationInputs(
+                name="slack-legacy",
+                type="slack-cookie",
+                credentials=(
+                    ("SLACK_MCP_XOXC_TOKEN", "xoxc-1"),
+                    ("SLACK_MCP_XOXD_TOKEN", "xoxd-1"),
+                ),
+            ),
+        ),
+    )
+    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+    parsed = json.loads(body)
+    servers = parsed["mcp"]["servers"]
+    assert set(servers.keys()) == {"slack_work", "slack_legacy"}
+    assert servers["slack_work"]["env"] == {
+        "SLACK_MCP_XOXP_TOKEN": "xoxp-1",
+    }
+    assert servers["slack_legacy"]["env"] == {
+        "SLACK_MCP_XOXC_TOKEN": "xoxc-1",
+        "SLACK_MCP_XOXD_TOKEN": "xoxd-1",
+    }

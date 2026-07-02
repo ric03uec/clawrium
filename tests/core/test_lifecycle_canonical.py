@@ -204,7 +204,7 @@ def _stub_sync_environment(monkeypatch, *, agent_type: str = "hermes"):
         )
     else:
         rendered = RenderedFiles(files={".hermes/.env": "FOO=1\n"})
-    monkeypatch.setitem(lc._RENDERERS, agent_type, lambda _: rendered)
+    monkeypatch.setitem(lc._RENDERERS, agent_type, lambda _inputs, **_kw: rendered)
     monkeypatch.setattr(
         lc,
         "get_agent_by_name",
@@ -436,7 +436,7 @@ def test_zeroclaw_sync_repair_failure_raises(monkeypatch):
     rendered = RenderedFiles(
         files={".zeroclaw/config.toml": "x = 1\n", ".zeroclaw/zeroclaw-env.conf": ""}
     )
-    monkeypatch.setitem(lc._RENDERERS, "zeroclaw", lambda _: rendered)
+    monkeypatch.setitem(lc._RENDERERS, "zeroclaw", lambda _inputs, **_kw: rendered)
     monkeypatch.setattr(
         lc,
         "get_agent_by_name",
@@ -571,7 +571,7 @@ def test_sync_force_bypass_writes_through_secret_removal(monkeypatch):
     )
     monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
     rendered = RenderedFiles(files={".hermes/.env": "FOO=1\n"})
-    monkeypatch.setitem(lc._RENDERERS, "hermes", lambda _: rendered)
+    monkeypatch.setitem(lc._RENDERERS, "hermes", lambda _inputs, **_kw: rendered)
     monkeypatch.setattr(
         lc,
         "get_agent_by_name",
@@ -733,7 +733,7 @@ def test_zeroclaw_sync_restart_false_still_repairs_bearer(monkeypatch):
     rendered = RenderedFiles(
         files={".zeroclaw/config.toml": "x = 1\n", ".zeroclaw/zeroclaw-env.conf": ""}
     )
-    monkeypatch.setitem(lc._RENDERERS, "zeroclaw", lambda _: rendered)
+    monkeypatch.setitem(lc._RENDERERS, "zeroclaw", lambda _inputs, **_kw: rendered)
     monkeypatch.setattr(
         lc,
         "get_agent_by_name",
@@ -1892,7 +1892,7 @@ class TestOpenclawBraveVersionPreflight:
                 ".openclaw/openclaw.json": "{}",
             }
         )
-        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -2021,7 +2021,7 @@ class TestOpenclawBraveVersionPreflight:
         rendered = RenderedFiles(
             files={".openclaw/env": "", ".openclaw/openclaw.json": "{}"}
         )
-        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -2943,7 +2943,7 @@ class TestOpenclawInstallPlugins:
         fake_diff.remote_body = ""
 
         monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
-        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -3020,7 +3020,7 @@ class TestOpenclawInstallPlugins:
         )
 
         monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
-        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -3801,7 +3801,7 @@ class TestSyncRefusesIncompleteInstall:
         )
         monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
         rendered = RenderedFiles(files={".openclaw/openclaw.json": "{}"})
-        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _: rendered)
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -4210,7 +4210,12 @@ class TestHermesSlackInstallRunsBeforeRestart:
         fake_diff.remote_body = ""
 
         monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
-        monkeypatch.setitem(lc._RENDERERS, "hermes", lambda _: rendered)
+        # #835: hermes renderer now takes `os_family=` from
+        # `sync_agent_canonical`. `**_kw` accepts it and any future
+        # renderer kwargs without silently masking a signature bug.
+        monkeypatch.setitem(
+            lc._RENDERERS, "hermes", lambda _, **_kw: rendered
+        )
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -4304,12 +4309,18 @@ class TestConfigurePlaybooksNoSlackInstall:
     configure.yaml. A regression that re-baked the install into
     configure would double-install on every configure-then-sync cycle
     AND recreate the "sync doesn't install binaries" UX gap that #755
-    (openclaw) and #834 (hermes) both closed."""
+    (openclaw) and #834 (hermes) both closed.
 
-    def test_neither_hermes_configure_playbook_contains_slack_install(self):
+    #835 (Phase 2): same guard extended to openclaw configure playbooks."""
+
+    @pytest.mark.parametrize("agent_type", ["hermes", "openclaw"])
+    def test_configure_playbooks_contain_no_slack_install(
+        self, agent_type: str
+    ):
         """Slack install must not appear in configure.yaml or
-        configure_macos.yaml. Mirrors the openclaw brave regression
-        guard at `test_neither_configure_playbook_contains_brave_install_task`."""
+        configure_macos.yaml for hermes OR openclaw. Mirrors the
+        openclaw brave regression guard at
+        `test_neither_configure_playbook_contains_brave_install_task`."""
         from pathlib import Path
 
         base = (
@@ -4318,13 +4329,327 @@ class TestConfigurePlaybooksNoSlackInstall:
             / "clawrium"
             / "platform"
             / "registry"
-            / "hermes"
+            / agent_type
             / "playbooks"
         )
         for name in ("configure.yaml", "configure_macos.yaml"):
             body = (base / name).read_text()
-            assert "mcp_slack_version" not in body, name
-            assert "mcp_slack_arch_map" not in body, name
-            assert "mcp_slack_sha256_map" not in body, name
-            assert "slack_integration_assigned" not in body, name
-            assert "slack-mcp-server" not in body, name
+            assert "mcp_slack_version" not in body, (agent_type, name)
+            assert "mcp_slack_arch_map" not in body, (agent_type, name)
+            assert "mcp_slack_sha256_map" not in body, (agent_type, name)
+            assert "slack_integration_assigned" not in body, (agent_type, name)
+            assert "slack-mcp-server" not in body, (agent_type, name)
+
+
+# ---------------------------------------------------------------------------
+# #835 (Phase 2): openclaw slack MCP subprocess installer — parallel of
+# `TestHermesInstallSlackMCP` above. Same runbook shape, same restart
+# short-circuit contract; separate helper because the playbook lookup is
+# agent-type-scoped.
+# ---------------------------------------------------------------------------
+
+
+class TestOpenclawInstallSlackMCP:
+    """`_openclaw_install_slack_mcp` mirrors `_hermes_install_slack_mcp`
+    at the callsite + wiring level. Every hermes iter-4 test case has
+    a parallel entry here so a future refactor that changes one branch
+    without the other trips these tests."""
+
+    def _stub_playbook(self, monkeypatch, *, success=True, err=None):
+        calls: list[dict] = []
+
+        def _fake(
+            agent_type,
+            agent_name,
+            hostname,
+            operation,
+            host,
+            timeout=60,
+        ):
+            calls.append(
+                {
+                    "agent_type": agent_type,
+                    "agent_name": agent_name,
+                    "hostname": hostname,
+                    "operation": operation,
+                    "host": host,
+                    "timeout": timeout,
+                }
+            )
+            return success, err
+
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle._run_lifecycle_playbook", _fake
+        )
+        return calls
+
+    def test_no_slack_integration_is_noop(self, monkeypatch):
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["github", "brave"])
+
+        lc._openclaw_install_slack_mcp(
+            "wise-hypatia", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert calls == []
+
+    def test_slack_user_triggers_openclaw_linux_runbook(self, monkeypatch):
+        """The `agent_type` argument MUST be `"openclaw"` — pointing
+        `_run_lifecycle_playbook` at the openclaw-scoped runbook path,
+        NOT the hermes one. A regression here would silently invoke
+        hermes/playbooks/install_slack_mcp.yaml which is the same
+        binary but semantically wrong (breaks the one-runbook-per-
+        (agent_type, binary) contract, Rule 1)."""
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._openclaw_install_slack_mcp(
+            "wise-hypatia", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["agent_type"] == "openclaw"
+        assert calls[0]["operation"] == "install_slack_mcp"
+        assert calls[0]["agent_name"] == "wise-hypatia"
+        assert calls[0]["hostname"] == "wolf-i"
+
+    def test_slack_cookie_also_triggers_install(self, monkeypatch):
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-cookie"])
+
+        lc._openclaw_install_slack_mcp(
+            "wise-hypatia", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["operation"] == "install_slack_mcp"
+        assert calls[0]["agent_type"] == "openclaw"
+
+    def test_darwin_host_picks_macos_runbook(self, monkeypatch):
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._openclaw_install_slack_mcp(
+            "esper-mac-oc", "esper-macmini", {"os_family": "darwin"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["operation"] == "install_slack_mcp_macos"
+        assert calls[0]["agent_type"] == "openclaw"
+
+    def test_os_family_typo_normalized_to_darwin(self, monkeypatch):
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        for value in ("Darwin", "macos", "MacOS", "osx", "mac"):
+            calls.clear()
+            lc._openclaw_install_slack_mcp(
+                "esper-mac-oc", "esper-macmini", {"os_family": value}, inputs
+            )
+            assert len(calls) == 1, value
+            assert calls[0]["operation"] == "install_slack_mcp_macos", value
+
+    def test_missing_os_family_defaults_to_linux(self, monkeypatch):
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._openclaw_install_slack_mcp("wise-hypatia", "wolf-i", {}, inputs)
+        assert len(calls) == 1
+        assert calls[0]["operation"] == "install_slack_mcp"
+
+    def test_playbook_failure_raises_canonical_sync_error(self, monkeypatch):
+        self._stub_playbook(
+            monkeypatch,
+            success=False,
+            err="get_url: checksum mismatch",
+        )
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"slack-mcp-server install failed for .*wise-hypatia.*: "
+            r"get_url: checksum mismatch",
+        ):
+            lc._openclaw_install_slack_mcp(
+                "wise-hypatia", "wolf-i", {"os_family": "linux"}, inputs
+            )
+
+    def test_emits_event_when_installing(self, monkeypatch):
+        self._stub_playbook(monkeypatch)
+        events: list[tuple[str, str]] = []
+
+        inputs = _inputs_with_integrations(["slack-user"])
+        lc._openclaw_install_slack_mcp(
+            "wise-hypatia",
+            "wolf-i",
+            {"os_family": "linux"},
+            inputs,
+            on_event=lambda stage, msg: events.append((stage, msg)),
+        )
+        assert len(events) == 1
+        stage, msg = events[0]
+        assert stage == "slack_mcp_install"
+        assert "wise-hypatia" in msg
+        # Event payload names the openclaw-scoped runbook path so
+        # operators debugging install failures don't grep for a
+        # hermes/... path that isn't the one that ran.
+        assert "openclaw/install_slack_mcp.yaml" in msg
+
+    def test_darwin_emits_macos_runbook_name_in_event(self, monkeypatch):
+        self._stub_playbook(monkeypatch)
+        events: list[tuple[str, str]] = []
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._openclaw_install_slack_mcp(
+            "esper-mac-oc",
+            "esper-macmini",
+            {"os_family": "darwin"},
+            inputs,
+            on_event=lambda stage, msg: events.append((stage, msg)),
+        )
+        assert len(events) == 1
+        assert events[0][0] == "slack_mcp_install"
+        assert "openclaw/install_slack_mcp_macos.yaml" in events[0][1]
+
+    def test_timeout_pinned_at_180s(self, monkeypatch):
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._openclaw_install_slack_mcp(
+            "wise-hypatia", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["timeout"] == 180
+
+
+class TestOpenclawSlackInstallRunsBeforeRestart:
+    """Parallel of `TestHermesSlackInstallRunsBeforeRestart` — proves
+    `_openclaw_install_slack_mcp` is wired into `sync_agent_canonical`
+    in the right slot (before file writes and before `_restart_unit`)
+    AND that a failure short-circuits restart."""
+
+    def _openclaw_render_stub(self):
+        from clawrium.core.render import RenderedFiles
+
+        return RenderedFiles(
+            files={
+                ".openclaw/env": "OPENROUTER_API_KEY='sk'\n",
+                ".openclaw/openclaw.json": "{\n  \"mcp\": {\"servers\": {}}\n}\n",
+            }
+        )
+
+    def _openclaw_inputs(self):
+        from clawrium.core.render import (
+            IntegrationInputs,
+            ProviderInputs,
+            RenderInputs,
+        )
+
+        return RenderInputs(
+            agent_name="wise-hypatia",
+            agent_type="openclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="anthropic/claude-opus-4.7",
+            ),
+            integrations=(
+                IntegrationInputs(
+                    name="slack-work",
+                    type="slack-user",
+                    credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+                ),
+            ),
+        )
+
+    def _wire_sync_agent_canonical_stubs(self, monkeypatch):
+        inputs = self._openclaw_inputs()
+        rendered = self._openclaw_render_stub()
+
+        fake_diff = MagicMock()
+        fake_diff.unified_diff = "+SLACK_MCP_XOXP_TOKEN='xoxp-1'"
+        fake_diff.path = ".openclaw/openclaw.json"
+        fake_diff.remote_path = "/home/wise-hypatia/.openclaw/openclaw.json"
+        fake_diff.rendered_body = "{}\n"
+        fake_diff.remote_body = ""
+
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        monkeypatch.setitem(
+            lc._RENDERERS, "openclaw", lambda _, **_kw: rendered
+        )
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: (
+                {
+                    "hostname": "wolf.tailf7742d.ts.net",
+                    "os_family": "linux",
+                },
+                "openclaw:wise-hypatia",
+                {
+                    "status": "installed",
+                    "installed_at": "2026-05-01T00:00:00Z",
+                },
+            ),
+        )
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [fake_diff])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(lc, "_diff_removes_secrets", lambda _d: set())
+        monkeypatch.setattr(lc, "_atomic_write", lambda *_a, **_kw: None)
+        monkeypatch.setattr(lc, "_verify_health", lambda **_: None)
+        # `_openclaw_install_plugins` runs unconditionally on the
+        # openclaw branch; stub it so the slack-install-before-restart
+        # invariant we're actually testing isn't obscured.
+        monkeypatch.setattr(lc, "_openclaw_install_plugins", lambda *_a, **_kw: None)
+        monkeypatch.setattr(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            lambda **_kw: MagicMock(
+                success=True, files_pushed=(), files_excluded=(), error=None
+            ),
+        )
+
+    def test_install_runs_before_restart_via_sync(self, monkeypatch):
+        """The install helper MUST run before `_restart_unit` inside
+        `sync_agent_canonical`. Order-sensitivity: a wiring regression
+        that moves the openclaw install below the restart would leave
+        the daemon running with a rendered openclaw.json referencing
+        `mcp.servers.<slug>.command` before the binary lands."""
+        self._wire_sync_agent_canonical_stubs(monkeypatch)
+
+        order: list[str] = []
+
+        def spy_install(*_a, **_kw):
+            order.append("slack_mcp_install")
+
+        def spy_restart(*_a, **_kw):
+            order.append("restart_unit")
+
+        monkeypatch.setattr(lc, "_openclaw_install_slack_mcp", spy_install)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+
+        sync_agent_canonical("wise-hypatia", verify=False)
+
+        assert order == ["slack_mcp_install", "restart_unit"]
+
+    def test_install_failure_short_circuits_before_restart(self, monkeypatch):
+        """When `_openclaw_install_slack_mcp` raises, `_restart_unit`
+        MUST NOT run — mirrors the hermes short-circuit contract."""
+        self._wire_sync_agent_canonical_stubs(monkeypatch)
+
+        restart_called: list[bool] = []
+
+        def boom_install(*_a, **_kw):
+            raise CanonicalSyncError(
+                "slack-mcp-server install failed for 'wise-hypatia': "
+                "get_url: checksum mismatch"
+            )
+
+        def spy_restart(*_a, **_kw):
+            restart_called.append(True)
+
+        monkeypatch.setattr(lc, "_openclaw_install_slack_mcp", boom_install)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+
+        with pytest.raises(
+            CanonicalSyncError, match=r"slack-mcp-server install failed"
+        ):
+            sync_agent_canonical("wise-hypatia", verify=False)
+
+        assert restart_called == []

@@ -180,6 +180,11 @@
         mode: "0600"
       no_log: true
 
+    # #835: slack MCP binary install lives in a dedicated sync-time
+    # runbook (`install_slack_mcp_macos.yaml`) invoked from
+    # `core.lifecycle_canonical._openclaw_install_slack_mcp`. See
+    # AGENTS.md §"Integration Binary Install".
+
     - name: Write exec approvals policy from template
       ansible.builtin.template:
         src: "{{ template_path }}/exec-approvals.json.j2"

@@ -446,7 +446,10 @@ def test_configure_agent_openclaw_unexpected_render_exception_surfaces_cleanly(
     unhandled traceback that leaves the lifecycle half-walked."""
     _seed_openclaw_openrouter(render_stores, openclaw_configure_env)
 
-    def _boom(_inputs):
+    def _boom(_inputs, **_kwargs):
+        # #835: configure_agent now threads os_family= into render_openclaw.
+        # Accept and ignore so the stub raises via the exception under test
+        # and not via TypeError on the kwarg.
         raise RuntimeError("simulated json baseline IOError")
 
     # configure_agent does `from clawrium.core.render import render_openclaw`
@@ -468,3 +471,5 @@ def test_configure_agent_openclaw_unexpected_render_exception_surfaces_cleanly(
     assert "Openclaw render failed" in err
     assert "simulated json baseline IOError" in err
     assert "inventory" not in openclaw_configure_env.captured
+
+

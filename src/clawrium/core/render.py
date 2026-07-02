@@ -931,13 +931,13 @@ _HERMES_SUPPORTED_INTEGRATIONS = frozenset(
 # installed onto the host, so a fresh tool venv would silently get a
 # different MCP build than the one tested.
 _HERMES_MCP_ATLASSIAN_VERSION = "0.21.1"
-# Lockstep with hermes' configure.yaml `mcp_slack_version` +
-# `mcp_slack_sha256_map`. The korotovsky/slack-mcp-server release
-# ships a single Go binary per (os, arch); the playbook downloads it
-# via `get_url` with a sha256 pin. Bumping this pin MUST land in the
-# same commit as the corresponding sha256 map bumps in configure.yaml
-# and configure_macos.yaml — otherwise the checksum guard fails on
-# the first configure after upgrade. #834 (B6 fix).
+# Lockstep with hermes' install_slack_mcp.yaml runbook + darwin
+# sibling (both declare `mcp_slack_version: "v1.3.0"` at play-level
+# `vars:`). The tests/platform/test_slack_asset_map.py suite
+# directly asserts `_HERMES_MCP_SLACK_VERSION == vars['mcp_slack_version']`
+# per runbook file (Rule 8 of "Integration Binary Install" in
+# AGENTS.md — no transitive Linux↔darwin equality; each file gets
+# its own assertion).
 _HERMES_MCP_SLACK_VERSION = "v1.3.0"
 
 
@@ -1506,7 +1506,17 @@ _OPENCLAW_SUPPORTED_PROVIDERS = frozenset(
 )
 _OPENCLAW_SUPPORTED_CHANNELS = frozenset({"discord", "slack"})
 _OPENCLAW_SUPPORTED_INTEGRATIONS = frozenset(
-    {"github", "atlassian", "linear", "notion", "gitlab", "git", "brave"}
+    {
+        "github",
+        "atlassian",
+        "linear",
+        "notion",
+        "gitlab",
+        "git",
+        "brave",
+        "slack-user",
+        "slack-cookie",
+    }
 )
 _OPENCLAW_MODEL_PREFIX = {
     "openrouter": "openrouter/",
@@ -1522,7 +1532,9 @@ _OPENCLAW_MODEL_PREFIX = {
 _OPENCLAW_DEFAULT_GATEWAY_PORT = 40000
 
 
-def render_openclaw(inputs: RenderInputs) -> RenderedFiles:
+def render_openclaw(
+    inputs: RenderInputs, *, os_family: str = "linux"
+) -> RenderedFiles:
     """Render openclaw's `.openclaw/env` (Jinja) + `.openclaw/openclaw.json`
     (JSON baseline deep-update).
 
@@ -1539,12 +1551,31 @@ def render_openclaw(inputs: RenderInputs) -> RenderedFiles:
       - `models.providers.<provider-name>` — litellm only (#723); writes a
         custom OpenAI-compatible provider block so openclaw routes via the
         operator-supplied proxy (LiteLLM, vLLM, etc.).
+      - `mcp.servers.<slug>` — one entry per attached `slack-user` /
+        `slack-cookie` integration (#835). The `mcp` key is emitted
+        **conditionally**: baseline shape is preserved byte-identical when
+        no slack integrations are attached (W10 byte-lock guard).
 
     Every other key in the baseline is preserved byte-identically (modulo
     `json.dumps` formatting), matching the silent-wipe-prevention contract
     introduced for zeroclaw in #565.
+
+    `os_family` picks the home-root prefix for the slack-mcp-server binary
+    path (`/home/<name>/.local/bin/…` on Linux, `/Users/<name>/…` on
+    darwin). Default `"linux"` keeps every pre-#835 render byte-identical
+    since the path only surfaces inside `mcp.servers.*.command`, and the
+    `mcp` key is dropped entirely when no slack integration is attached.
     """
     _validate_agent_name(inputs.agent_name)
+    # #835: mirror render_hermes' os_family validation (see render.py:967).
+    # Any typo would silently fall through to `/home` — reopening the
+    # class of bug the hermes ATX iter-2 blocker closed.
+    if os_family not in ("linux", "darwin"):
+        raise AgentConfigError(
+            f"render_openclaw: unsupported os_family {os_family!r}. "
+            f"Supported: ['darwin', 'linux']"
+        )
+    home_root = "/Users" if os_family == "darwin" else "/home"
     ptype = inputs.provider.type
     if ptype not in _OPENCLAW_SUPPORTED_PROVIDERS:
         raise AgentConfigError(
@@ -1610,6 +1641,22 @@ def render_openclaw(inputs: RenderInputs) -> RenderedFiles:
 
     # --- Integration views for the env template ---------------------------
     integration_views: list[dict] = []
+    # #835: slack integrations feed a separate view list so
+    # `_render_openclaw_json` can emit `mcp.servers.<slug>` blocks
+    # without leaking into the env-template loop (openclaw's `.env` does
+    # NOT carry SLACK_MCP_XOX* — those live under the mcp subprocess's
+    # own `env` dict inside openclaw.json).
+    slack_views: list[dict] = []
+    # #835 (mirror render_hermes:1028): slug tracker so two slack
+    # integrations cannot collide on the same JSON key inside
+    # `mcp.servers.<slug>`. Scope is intentionally slack-only today —
+    # openclaw's atlassian integration lives in env vars, not in
+    # `mcp.servers`, so there is no cross-type collision surface. If a
+    # future change adds openclaw atlassian-MCP support (parity with
+    # hermes), the atlassian branch above MUST also register its slug
+    # here or an atlassian-vs-slack name collision could silently
+    # last-write-win. (ATX #835 iter-1 W6.)
+    seen_mcp_slugs: set[str] = set()
     last_github_token = ""
     for integration in inputs.integrations:
         if integration.type == "git":
@@ -1639,6 +1686,85 @@ def render_openclaw(inputs: RenderInputs) -> RenderedFiles:
             view["notion_api_key"] = creds.get("NOTION_API_KEY", "")
         elif integration.type == "brave":
             view["brave_api_key"] = creds.get("BRAVE_API_KEY", "")
+        elif integration.type in ("slack-user", "slack-cookie"):
+            # #835 (ATX iter-1 W7): slack integrations feed
+            # `slack_views` only. Openclaw's `.env` (rendered from
+            # `openclaw-env.canonical.j2`) has no slack branch — the
+            # tokens land inside `mcp.servers.<slug>.env` in the JSON
+            # baseline deep-update instead. Skip the
+            # `integration_views` append so the env-template loop
+            # doesn't see a credential-less entry it would silently
+            # drop, and future readers of `integration_views` know
+            # every dict there produces env output.
+            # #835: build a slack MCP subprocess view for
+            # `_render_openclaw_json`. Mirrors the hermes slack view
+            # builder at render.py:1073 line-for-line: same slug
+            # collision + empty-slug + missing-token guards; same
+            # (xoxp_token, xoxc_token, xoxd_token) tuple layout so the
+            # JSON emitter downstream stays symmetric with the hermes
+            # Jinja loop.
+            slug = _integration_slug(integration.name)
+            lo_slug = slug.lower()
+            if not lo_slug:
+                raise AgentConfigError(
+                    f"render_openclaw: integration name {integration.name!r} "
+                    f"slugifies to empty — refusing to emit an unnamed JSON key"
+                )
+            if lo_slug in seen_mcp_slugs:
+                raise AgentConfigError(
+                    f"render_openclaw: mcp.servers integration names collide "
+                    f"on JSON key {lo_slug!r} (slack branch); another "
+                    f"attached integration already claims this slug — "
+                    f"rename one to differentiate after slugification"
+                )
+            seen_mcp_slugs.add(lo_slug)
+            if integration.type == "slack-user":
+                xoxp = _clean_secret(creds.get("SLACK_MCP_XOXP_TOKEN", ""))
+                if not xoxp:
+                    raise AgentConfigError(
+                        f"render_openclaw: slack-user integration "
+                        f"{integration.name!r} is missing "
+                        f"SLACK_MCP_XOXP_TOKEN in its credential store"
+                    )
+                slack_views.append(
+                    {
+                        "slug": lo_slug,
+                        "auth": "user",
+                        "xoxp_token": xoxp,
+                        "xoxc_token": "",
+                        "xoxd_token": "",
+                    }
+                )
+            else:  # slack-cookie
+                xoxc = _clean_secret(creds.get("SLACK_MCP_XOXC_TOKEN", ""))
+                xoxd = _clean_secret(creds.get("SLACK_MCP_XOXD_TOKEN", ""))
+                if not xoxc or not xoxd:
+                    missing = [
+                        k
+                        for k, v in (
+                            ("SLACK_MCP_XOXC_TOKEN", xoxc),
+                            ("SLACK_MCP_XOXD_TOKEN", xoxd),
+                        )
+                        if not v
+                    ]
+                    raise AgentConfigError(
+                        f"render_openclaw: slack-cookie integration "
+                        f"{integration.name!r} is missing "
+                        f"{', '.join(missing)} in its credential store"
+                    )
+                slack_views.append(
+                    {
+                        "slug": lo_slug,
+                        "auth": "cookie",
+                        "xoxp_token": "",
+                        "xoxc_token": xoxc,
+                        "xoxd_token": xoxd,
+                    }
+                )
+            # W7 fix: slack integrations do NOT flow into the env
+            # template. Skip the shared append so `integration_views`
+            # only ever contains entries that produce env output.
+            continue
         integration_views.append(view)
 
     env_body = _render_openclaw_template(
@@ -1659,6 +1785,9 @@ def render_openclaw(inputs: RenderInputs) -> RenderedFiles:
         provider_default_model=model_id,
         gateway=inputs.gateway,
         discord_channel=discord_channel,
+        slack_integrations=slack_views,
+        agent_name=inputs.agent_name,
+        home_root=home_root,
     )
 
     return RenderedFiles(
@@ -1730,15 +1859,15 @@ def _render_openclaw_json(
     provider_default_model: str | None,
     gateway: "GatewayInputs | None",
     discord_channel: "ChannelInputs | None",
+    slack_integrations: list[dict] | tuple[dict, ...] = (),
+    agent_name: str = "",
+    home_root: str = "/home",
 ) -> str:
     """Deep-update the openclaw.json baseline with the clawctl-managed paths.
 
-    Managed paths:
+    Managed paths (listed in the order they are written below):
       1. `agents.defaults.model.primary` (when `provider` is not None)
-      2. `gateway.port`
-      3. `gateway.bind` (+ `gateway.auth` when present)
-      4. `channels.discord.enabled` / `allowFrom` / `guilds`
-      5. (litellm only) `models.providers.<provider-name>` — a custom
+      2. `models.providers.<provider-name>` — litellm only (#723); a custom
          OpenAI-compatible provider block matching upstream openclaw's
          `models.providers` schema (see
          `docs.openclaw.ai/gateway/config-tools#custom-providers-and-base-urls`).
@@ -1748,9 +1877,18 @@ def _render_openclaw_json(
          `default_model`. Non-litellm provider types do NOT write this
          path — for them, model selection flows through `OPENCLAW_DEFAULT_MODEL`
          in `.openclaw/env` only.
+      3. `gateway.port`
+      4. `gateway.bind` (+ `gateway.auth` when present)
+      5. `channels.discord.enabled` / `allowFrom` / `guilds`
+      6. `mcp.servers.<slug>` — one entry per attached `slack-user` /
+         `slack-cookie` integration in `slack_integrations` (#835).
+         When the list is empty the `mcp` key is **dropped entirely**
+         (W10 conditional-emit contract) so pre-#835 rendered bodies
+         stay byte-identical. `home_root` and `agent_name` are only
+         consulted when at least one slack integration is attached.
 
     When `provider is None` (install-time bootstrap), the provider-dependent
-    writes (step 1 + step 5) are skipped — the function returns the static
+    writes (steps 1 + 2) are skipped — the function returns the static
     baseline merged with the gateway / discord overrides only. This is the
     canonical no-provider path used by `clawctl agent create` before any
     `clawctl provider attach` has run; the daemon needs a startable
@@ -1786,7 +1924,7 @@ def _render_openclaw_json(
         model = defaults.setdefault("model", {})
         model["primary"] = provider_default_model
 
-    # 5. models.providers.<provider-name> — litellm only.
+    # 2. models.providers.<provider-name> — litellm only.
     if provider is not None and provider.type == "litellm":
         # W3 (#723 ATX): the provider name is used both as a JSON key in
         # `models.providers.<name>` AND as a routing prefix in
@@ -1868,7 +2006,7 @@ def _render_openclaw_json(
             ],
         }
 
-    # 2. gateway.port + 3. gateway.bind + gateway.auth (managed bearer)
+    # 3. gateway.port + 4. gateway.bind + gateway.auth (managed bearer)
     #
     # Round 3 B1: `gateway.auth` MUST flow into the JSON. The daemon
     # expects the bearer at `gateway.auth.{mode,token}`; if sync ever
@@ -1886,7 +2024,7 @@ def _render_openclaw_json(
             # to keep the state explicit: no auth → no `gateway.auth` key.
             gw.pop("auth", None)
 
-    # 4. channels.discord.enabled + 5. channels.discord.allowFrom + guilds.
+    # 5. channels.discord.enabled + channels.discord.allowFrom + guilds.
     channels = baseline.setdefault("channels", {})
     discord = channels.setdefault(
         "discord", {"enabled": False, "allowFrom": [], "guilds": {}}
@@ -1923,6 +2061,53 @@ def _render_openclaw_json(
         discord["enabled"] = False
         discord["allowFrom"] = []
         discord["guilds"] = {}
+
+    # 6. mcp.servers.<slug> — slack-mcp-server subprocess declarations
+    # for every attached slack integration. Conditional emit: an empty
+    # `slack_integrations` list drops the `mcp` key entirely, keeping
+    # the byte diff for existing openclaw agents at zero (W10 in #499
+    # plan). The block shape mirrors upstream openclaw's mcp.servers
+    # contract used by the daemon's stdio launcher.
+    if slack_integrations:
+        # Both fields become part of every rendered command path, so
+        # a caller that supplies slack integrations MUST also supply
+        # agent_name + home_root. Raise here — a silent `"/{}/.local/…"`
+        # segment would produce a nonexistent path on the daemon and
+        # fail-open the mcp subprocess spawn under `no_log: true`.
+        if not agent_name:
+            raise AgentConfigError(
+                "render_openclaw: slack_integrations supplied without "
+                "agent_name — cannot resolve slack-mcp-server binary path"
+            )
+        servers: dict[str, dict] = {}
+        for entry in slack_integrations:
+            server: dict = {
+                "command": (
+                    f"{home_root}/{agent_name}/.local/bin/slack-mcp-server"
+                ),
+                "args": ["--transport", "stdio"],
+            }
+            if entry["auth"] == "user":
+                server["env"] = {
+                    "SLACK_MCP_XOXP_TOKEN": entry["xoxp_token"],
+                }
+            elif entry["auth"] == "cookie":
+                server["env"] = {
+                    "SLACK_MCP_XOXC_TOKEN": entry["xoxc_token"],
+                    "SLACK_MCP_XOXD_TOKEN": entry["xoxd_token"],
+                }
+            else:
+                # Defensive: view builder is the single source of truth
+                # for `entry.auth`. Any drift lands here loudly instead
+                # of silently spawning the MCP subprocess with no auth
+                # token and 401ing at first API call.
+                raise AgentConfigError(
+                    f"render_openclaw: slack integration "
+                    f"{entry['slug']!r} has unknown auth mode "
+                    f"{entry['auth']!r}"
+                )
+            servers[entry["slug"]] = server
+        baseline["mcp"] = {"servers": servers}
 
     return json.dumps(baseline, indent=2, sort_keys=False) + "\n"
 
