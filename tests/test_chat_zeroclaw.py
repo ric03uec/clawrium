@@ -148,6 +148,76 @@ def test_connect_rejects_empty_bearer():
         asyncio.run(backend.connect())
 
 
+def test_backend_appends_agent_alias_query(monkeypatch):
+    """#817: zeroclaw ≥0.8.2 requires `?agent=<alias>` on the /ws/chat
+    upgrade. The backend must synthesize the query param from the
+    caller-supplied alias — the CLI passes the agent instance name."""
+    captured: dict[str, object] = {}
+
+    async def fake_connect(url, additional_headers=None, **_kwargs):
+        captured["url"] = url
+        return FakeWebSocket([])
+
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
+
+    backend = ZeroClawChatBackend(
+        gateway_url="ws://test-host:4080/ws/chat",
+        auth_token=SecretStr("bearer"),
+        agent_alias="my-agent",
+    )
+    asyncio.run(backend.connect())
+
+    assert captured["url"] == "ws://test-host:4080/ws/chat?agent=my-agent"
+    # Public attribute reflects the mutation so operators inspecting
+    # the backend after construction see the URL that will actually be
+    # dialed. Prevents "silent divergence" between the field and the
+    # `websockets.connect` argument.
+    assert backend.gateway_url == "ws://test-host:4080/ws/chat?agent=my-agent"
+
+
+def test_backend_agent_alias_is_idempotent(monkeypatch):
+    """If the persisted URL already has `?agent=…`, don't double-append."""
+    captured: dict[str, object] = {}
+
+    async def fake_connect(url, additional_headers=None, **_kwargs):
+        captured["url"] = url
+        return FakeWebSocket([])
+
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
+
+    backend = ZeroClawChatBackend(
+        gateway_url="ws://test-host:4080/ws/chat?agent=preset",
+        auth_token=SecretStr("bearer"),
+        agent_alias="my-agent",
+    )
+    asyncio.run(backend.connect())
+
+    # `preset` wins because the persisted URL is the operator's stated
+    # intent. Rewriting it would violate least-surprise.
+    assert captured["url"] == "ws://test-host:4080/ws/chat?agent=preset"
+
+
+def test_backend_no_alias_leaves_url_untouched(monkeypatch):
+    """`agent_alias=None` preserves legacy 0.7.5 URLs verbatim — the daemon
+    on that pin has no `?agent=` requirement, so appending would be a
+    silent behavior change for pre-0.8.2 hosts."""
+    captured: dict[str, object] = {}
+
+    async def fake_connect(url, additional_headers=None, **_kwargs):
+        captured["url"] = url
+        return FakeWebSocket([])
+
+    monkeypatch.setattr("clawrium.core.chat_zeroclaw.websockets.connect", fake_connect)
+
+    backend = ZeroClawChatBackend(
+        gateway_url="ws://test-host:4080/ws/chat",
+        auth_token=SecretStr("bearer"),
+    )
+    asyncio.run(backend.connect())
+
+    assert captured["url"] == "ws://test-host:4080/ws/chat"
+
+
 # ---------------------------------------------------------------------------
 # Frame parsing tests
 # ---------------------------------------------------------------------------

@@ -9,15 +9,20 @@ from clawrium.core.registry import load_manifest
 
 
 def test_zeroclaw_manifest_has_installer_checksum():
-    """Every platform entry must declare a 64-char hex sha256 and version 0.7.5."""
+    """Every platform entry must declare a 64-char hex sha256; version must
+    be one of the currently-shipped pins (0.7.5 legacy, 0.8.2 current per
+    #817). Entry count grows by 5 per version bump (5 OS/arch shapes:
+    armv7l Debian 13, aarch64 Ubuntu 22.04/24.04, x86_64 Ubuntu 22.04/24.04).
+    """
     manifest = load_manifest("zeroclaw")
 
-    assert len(manifest["platforms"]) == 5, (
-        "zeroclaw must publish 5 platform entries (armv7l Debian 13, "
-        "aarch64 Ubuntu 22.04/24.04, x86_64 Ubuntu 22.04/24.04)"
+    supported_versions = {"0.7.5", "0.8.2"}
+    assert len(manifest["platforms"]) == 5 * len(supported_versions), (
+        "zeroclaw must publish 5 platform entries per shipped version "
+        "(armv7l Debian 13, aarch64 Ubuntu 22.04/24.04, x86_64 Ubuntu 22.04/24.04)"
     )
     for entry in manifest["platforms"]:
-        assert entry["version"] == "0.7.5", (
+        assert entry["version"] in supported_versions, (
             f"Platform entry version mismatch: {entry.get('os')} "
             f"{entry.get('os_version')} {entry.get('arch')} -> {entry.get('version')!r}"
         )
