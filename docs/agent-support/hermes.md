@@ -68,7 +68,7 @@ Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible 
 | **Log streaming** | ✅ | `journalctl -u hermes-<agent_name>.service` on the agent host |
 | **Onboarding wizard** | ✅ | 4 stages: `providers` (required) → `identity` (auto-skipped) → `channels` (cli, discord, slack) → `validate` |
 | **Identity files (`SOUL.md` / `AGENTS.md`)** | ✅ | Hermes-managed inside `~/.hermes/`. The identity onboarding stage auto-skips (by design — hermes owns these). `SOUL.md` is reachable via `clawctl agent memory read/write/info` (routed to `~/.hermes/SOUL.md`). |
-| **MCP server registration** | ✅ | Supported for `atlassian` integrations — hermes launches `uvx --from mcp-atlassian==<pinned> mcp-atlassian` as a subprocess and exposes Jira + Confluence tools. See [Atlassian integration](integrations/atlassian.md). |
+| **MCP server registration** | ✅ | Supported for `atlassian` and `slack-user` / `slack-cookie` integrations — hermes launches each as a stdio subprocess and exposes their tools. See [Atlassian integration](integrations/atlassian.md) and [Slack integration](integrations/slack.md). |
 | **`~/.hermes/state.db` (session/transcript history)** | 📋 | Out of scope for memory CLI |
 | **OAuth / webhook secrets** | 📋 | Deferred |
 
@@ -420,6 +420,30 @@ sudo userdel -r <agent-name>
 Then re-run `clawctl agent delete <name> --force`.
 
 </details>
+
+---
+
+## Slack integration
+
+Hermes agents can attach the [Slack integration](integrations/slack.md) (`--type slack-user` recommended, `--type slack-cookie` discouraged fallback) to gain outbound Slack tool calls via the [`korotovsky/slack-mcp-server`](https://github.com/korotovsky/slack-mcp-server) stdio subprocess. See the [Slack integration doc](integrations/slack.md) for the full token acquisition, security posture, and end-to-end walkthrough.
+
+Hermes-specific details:
+
+- **Config surface:** the Slack MCP subprocess is rendered into the `mcp_servers:` block of `~/.hermes/config.yaml` (mode 0600), adjacent to the atlassian branch. Renderer: [`src/clawrium/core/render.py:render_hermes`](https://github.com/ric03uec/clawrium/blob/main/src/clawrium/core/render.py). The subprocess env block carries the `SLACK_MCP_XOX*` tokens verbatim; no separate `.env` write path.
+- **Binary install location:** `~/<agent-name>/.local/bin/slack-mcp-server` — same path pattern as the atlassian `uvx` binary, but Slack ships as a single Go binary so there is no Python runtime dependency.
+- **First MCP subprocess on Darwin.** Slack is the first MCP subprocess supported on Darwin hermes (atlassian macOS was deferred). The `configure_macos.yaml` playbook variant installs the darwin arm64 / x86_64 tarball at the pinned SHA. The `workspace_excluded` invariants and `no_log: true` render behavior apply identically on Linux and macOS.
+- **Composite blast-radius warning applies.** Attaching both the Slack **channel** (inbound, see [Slack channel](channels/slack.md)) and the Slack **integration** (outbound) to the same hermes agent enables a prompt-injection tool-call exfiltration path. See [integrations/slack.md → Composite blast-radius warning](integrations/slack.md#composite-blast-radius-warning) — for high-sensitivity workspaces, split inbound and outbound into two separate hermes agents.
+
+Quick attach + sync:
+
+```bash
+printf 'SLACK_MCP_XOXP_TOKEN=xoxp-...' | \
+  clawctl integration registry create my-slack --type slack-user --credential-stdin
+clawctl agent integration attach <hermes-name> --integration my-slack
+clawctl agent sync <hermes-name>
+```
+
+Then `clawctl agent chat <hermes-name>` — the model gains `channels_list`, `conversations_history`, `conversations_add_message`, `conversations_search_messages`, and `conversations_replies` under the `mcp_my_slack_*` prefix.
 
 ---
 
