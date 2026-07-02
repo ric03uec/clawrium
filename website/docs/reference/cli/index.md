@@ -36,11 +36,12 @@ clawctl <group> <command> [options]
 
 ## Command Groups
 
-| Group | Description |
-|-------|-------------|
-| [`clawctl host`](host.md) | Manage hosts in your fleet |
-| [`clawctl agent registry`](registry.md) | Browse available agent types |
-| [`clawctl agent secret`](secret.md) | Manage secrets for agent instances |
+|| Group | Description |
+||-------|-------------|
+|| [`clawctl host`](host.md) | Manage hosts in your fleet |
+|| [`clawctl agent registry`](registry.md) | Browse available agent types |
+|| [`clawctl agent secret`](secret.md) | Manage secrets for agent instances |
+|| [`clawctl agent context_length`](agent-context_length.mdx) | Set and view the maximum context length for an agent's LLM inference |
 
 ---
 
