@@ -1,0 +1,17 @@
+{
+  "session_id": "23d1776b-37a6-4c5d-bc9b-bbcb05093556",
+  "transport": "cli",
+  "commit_sha": "db3cdc4e4fa2bb9b49da07b20b5f590a39dfa1a1",
+  "iteration": 1,
+  "last_rating": 4,
+  "last_blockers": [
+    {"id": "B1", "status": "Fixed", "summary": "configure_agent swallowed AgentConfigError from render_zeroclaw — reintroduced #437 stale-bearer risk on configure path. Fixed by narrowing except AgentConfigError catch around render_zeroclaw call and returning (False, 'Zeroclaw render failed: ...'). Added test_lifecycle_zeroclaw_prerender.py."}
+  ],
+  "last_warnings": [
+    {"id": "W1", "status": "Deferred", "summary": "Linux/darwin path skew: playbook hardcodes /home/, no configure_macos.yaml. Track as follow-up — macOS zeroclaw not GA yet."},
+    {"id": "W2", "status": "Rejected", "summary": "servers = [] removal in [mcp] block — this IS the B2 TOML shape fix. Docstring explains + byte-lock test guards. TOML spec: absent key is valid."},
+    {"id": "W3", "status": "Deferred", "summary": "_toml_escape control-char coverage. Pre-existing across all agents, not #836 scope. Track as follow-up."}
+  ],
+  "started_at": "2026-07-02T01:43:45Z",
+  "updated_at": "2026-07-02T02:02:53Z"
+}

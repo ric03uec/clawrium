@@ -1651,6 +1651,17 @@ class TestConfigureTimeoutBudget:
                     files={".openclaw/openclaw.json": "{}"}
                 ),
             ),
+            # #836 ATX iter-1 B1: zeroclaw configure now short-circuits
+            # on any render_zeroclaw AgentConfigError. Stub with a
+            # benign return so this timeout-budget test's incomplete
+            # fixture data doesn't propagate through the new fail-fast
+            # path (previously swallowed with a warning).
+            patch(
+                "clawrium.core.render.render_zeroclaw",
+                return_value=MagicMock(
+                    files={".zeroclaw/config.toml": ""}
+                ),
+            ),
         ):
             configure_agent("test-host", claw_type, config_data)
         if not mock_run.call_args:

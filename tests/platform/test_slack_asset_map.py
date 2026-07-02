@@ -27,9 +27,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-# All four runbook files covered by the pin/arch-map contract. Add a
-# fifth entry here (e.g. zeroclaw) when Phase 3 lands.
+# Agent types with both Linux + darwin runbooks. Zeroclaw ships only
+# the Linux runbook at #836; its darwin sibling is deferred to a
+# follow-up (see AGENTS.md §"Integration Binary Install" canonical
+# examples). Cross-file (Linux ↔ darwin) tests scope to this tuple;
+# Linux-only tests parametrize over `_LINUX_AGENT_TYPES` below.
 _AGENT_TYPES = ("hermes", "openclaw")
+_LINUX_AGENT_TYPES = ("hermes", "openclaw", "zeroclaw")
 
 
 def _playbook_vars(name: str, agent_type: str = "hermes") -> dict:
@@ -65,13 +69,13 @@ LINUX_EXPECTED_SHA256 = {
 }
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+@pytest.mark.parametrize("agent_type", _LINUX_AGENT_TYPES)
 def test_linux_playbook_pins_mcp_slack_version(agent_type: str) -> None:
     vs = _playbook_vars("install_slack_mcp.yaml", agent_type)
     assert vs["mcp_slack_version"] == "v1.3.0"
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+@pytest.mark.parametrize("agent_type", _LINUX_AGENT_TYPES)
 @pytest.mark.parametrize(("arch", "expected_asset_suffix"), LINUX_ARCH_TARGETS)
 def test_linux_arch_map_covers_arch(
     agent_type: str, arch: str, expected_asset_suffix: str
@@ -80,14 +84,14 @@ def test_linux_arch_map_covers_arch(
     assert vs["mcp_slack_arch_map"][arch] == expected_asset_suffix
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+@pytest.mark.parametrize("agent_type", _LINUX_AGENT_TYPES)
 @pytest.mark.parametrize("arch", ["x86_64", "aarch64"])
 def test_linux_sha256_map_covers_arch(agent_type: str, arch: str) -> None:
     vs = _playbook_vars("install_slack_mcp.yaml", agent_type)
     assert vs["mcp_slack_sha256_map"][arch] == LINUX_EXPECTED_SHA256[arch]
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+@pytest.mark.parametrize("agent_type", _LINUX_AGENT_TYPES)
 def test_linux_maps_have_identical_keys(agent_type: str) -> None:
     """The arch and sha256 maps must have the exact same key set —
     a mismatch would let a supported arch slip past the checksum guard."""
@@ -97,7 +101,7 @@ def test_linux_maps_have_identical_keys(agent_type: str) -> None:
     )
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+@pytest.mark.parametrize("agent_type", _LINUX_AGENT_TYPES)
 def test_linux_armv7l_intentionally_absent(agent_type: str) -> None:
     """korotovsky/slack-mcp-server v1.3.0 does NOT ship an armv7l asset.
     The playbook's arch guard MUST fail-fast rather than silently skip
@@ -169,14 +173,20 @@ def test_linux_and_darwin_pin_same_version(agent_type: str) -> None:
     assert linux["mcp_slack_version"] == darwin["mcp_slack_version"]
 
 
-def test_hermes_and_openclaw_pin_same_version() -> None:
-    """#835 (Phase 2): hermes and openclaw share ONE upstream binary at
-    ONE version. A drift here means the two agent types on the same
-    fleet download different builds — a debugging nightmare when only
-    one agent type surfaces a bug."""
-    hermes_linux = _playbook_vars("install_slack_mcp.yaml", "hermes")
-    openclaw_linux = _playbook_vars("install_slack_mcp.yaml", "openclaw")
-    assert hermes_linux["mcp_slack_version"] == openclaw_linux["mcp_slack_version"]
+def test_all_linux_agents_pin_same_version() -> None:
+    """#835/#836: hermes, openclaw, zeroclaw share ONE upstream binary
+    at ONE version. A drift here means agent types on the same fleet
+    download different builds — a debugging nightmare when only one
+    agent type surfaces a bug."""
+    versions = {
+        atype: _playbook_vars("install_slack_mcp.yaml", atype)["mcp_slack_version"]
+        for atype in _LINUX_AGENT_TYPES
+    }
+    unique = set(versions.values())
+    assert len(unique) == 1, (
+        f"Linux slack-mcp-server pin drift across agent types: {versions!r}. "
+        f"All agents must reference the same upstream release."
+    )
 
 
 @pytest.mark.parametrize("agent_type", _AGENT_TYPES)
@@ -201,6 +211,17 @@ def test_render_constant_matches_playbook_pin(agent_type: str, runbook: str) -> 
     from clawrium.core.render import _HERMES_MCP_SLACK_VERSION
 
     vs = _playbook_vars(runbook, agent_type)
+    assert _HERMES_MCP_SLACK_VERSION == vs["mcp_slack_version"]
+
+
+def test_render_constant_matches_zeroclaw_linux_runbook_pin() -> None:
+    """#836: Zeroclaw ships only the Linux runbook at v26.7 — darwin
+    sibling deferred. Direct assertion so a rename or skip of the
+    parametrized `test_render_constant_matches_playbook_pin` cannot
+    silently break the zeroclaw lockstep."""
+    from clawrium.core.render import _HERMES_MCP_SLACK_VERSION
+
+    vs = _playbook_vars("install_slack_mcp.yaml", "zeroclaw")
     assert _HERMES_MCP_SLACK_VERSION == vs["mcp_slack_version"]
 
 
@@ -282,3 +303,27 @@ def test_runbook_has_single_task0_dispatcher_guard(agent_type: str, runbook: str
         f"{guard_action_keys!r}. A guard on an install task would "
         f"reintroduce OS branching inside install tasks (Rule 2)."
     )
+
+
+def test_zeroclaw_linux_runbook_has_task0_dispatcher_guard() -> None:
+    """#836: Zeroclaw ships only the Linux runbook — same Rule 2
+    task-0 dispatcher-contract guard contract applies. Direct test
+    because the parametrized `test_runbook_has_single_task0_dispatcher_guard`
+    scopes to `_AGENT_TYPES` (hermes + openclaw, which have both
+    Linux + darwin siblings)."""
+    tasks = _runbook_tasks("install_slack_mcp.yaml", "zeroclaw")
+
+    guarded = [
+        t
+        for t in tasks
+        if "ansible_os_family" in str(t.get("when", ""))
+    ]
+    assert len(guarded) == 1
+    assert tasks[0] is guarded[0]
+
+    guard_action_keys = [
+        k
+        for k in tasks[0].keys()
+        if k not in {"name", "when", "become", "become_user", "no_log"}
+    ]
+    assert guard_action_keys == ["ansible.builtin.fail"]

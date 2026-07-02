@@ -92,6 +92,14 @@
       no_log: true
       notify: Restart zeroclaw service
 
+    # #836: slack-mcp-server binary is installed at sync time by the
+    # dedicated single-purpose runbook
+    # `zeroclaw/playbooks/install_slack_mcp.yaml` invoked from
+    # `_zeroclaw_install_slack_mcp` in `core.lifecycle_canonical`.
+    # NOT here (Rule 1 of the "Integration Binary Install" pattern in
+    # AGENTS.md — configure.yaml is the wrong slot; the modern
+    # kubectl-style CLI does not invoke it).
+
     - name: Enable zeroclaw service
       ansible.builtin.systemd:
         name: "{{ agent_type }}-{{ agent_name }}"

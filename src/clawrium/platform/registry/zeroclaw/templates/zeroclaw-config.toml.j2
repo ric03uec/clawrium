@@ -421,8 +421,23 @@ model = "stable-diffusion-xl-1024-v1-0"
 
 [mcp]
 deferred_loading = true
-enabled = false
-servers = []
+{% if slack_integrations %}enabled = true
+{% for entry in slack_integrations %}
+[[mcp.servers]]
+name = "slack-{{ entry.slug }}"
+command = "{{ slack_mcp_binary | toq }}"
+args = ["--transport", "stdio"]
+{% if entry.auth == 'user' -%}
+[mcp.servers.env]
+SLACK_MCP_XOXP_TOKEN = "{{ entry.xoxp_token | toq }}"
+{%- else -%}
+[mcp.servers.env]
+SLACK_MCP_XOXC_TOKEN = "{{ entry.xoxc_token | toq }}"
+SLACK_MCP_XOXD_TOKEN = "{{ entry.xoxd_token | toq }}"
+{%- endif %}
+{% endfor -%}
+{% else %}enabled = false
+{% endif %}
 
 [media_pipeline]
 describe_images = true
