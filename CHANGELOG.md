@@ -453,3 +453,19 @@ cut. The `itx:release` skill archives this section into a new
   wizard module is tracked under Phase 4 of #790.
 
 ### Documentation
+
+- New [`docs/agent-support/integrations/slack.md`](docs/agent-support/integrations/slack.md)
+  covering the Slack MCP integration end-to-end: token acquisition for both
+  auth modes (`slack-user` xoxp — recommended; `slack-cookie` xoxc+xoxd —
+  discouraged fallback with an explicit TOS-adjacent + abuse-detection
+  security warning), the `korotovsky/slack-mcp-server` tool list, the
+  per-agent-type rendered shapes (hermes `mcp_servers:`, openclaw
+  `mcp.servers.<slug>`, zeroclaw `[[mcp.servers]]`), the SHA256-pinned
+  binary distribution table (linux amd64/arm64, darwin amd64/arm64; armv7l
+  not shipped upstream at v1.3.0), the `--credential-stdin` recommendation
+  to avoid `ps auxww` leakage, and a **composite blast-radius warning**
+  documenting the prompt-injection tool-call exfiltration path when the
+  Slack **channel** (inbound) and Slack **integration** (outbound) attach
+  to the same agent. Also updates the integrations index and the three GA
+  agent-support docs (`hermes.md`, `openclaw.md`, `zeroclaw.md`) with a
+  per-agent-type Slack subsection linking to the unified doc. (#837, #499)
