@@ -2881,37 +2881,15 @@ def configure_agent(
     # no existing_gateway_token, no force_repair. The token in hosts.json
     # is overwritten with whatever the playbook's pair handshake mints.
 
-    # #835 (B9): Thread slack-mcp-server pins from playbook_resolver.
-    # Both hermes and openclaw configure playbooks (Linux + macOS)
-    # removed their inline `mcp_slack_version` / `mcp_slack_arch_map` /
-    # `mcp_slack_sha256_map` `vars:` blocks and now consume them as
-    # extravars. Threading here for every configure run keeps the two
-    # OS branches and two agent types in lockstep — a single-file bump
-    # in playbook_resolver.py is the only place a version pin can move.
-    #
-    # Gate: hermes + openclaw + zeroclaw consume these keys today
-    # (#836 added zeroclaw). Any future agent type (nemoclaw, ethos,
-    # third-party) is added to the tuple ONLY after its playbook
-    # actually references the extravars — threading them into an
-    # ignoring playbook would be dead weight and hide the coupling
-    # from readers. (ATX #835 iter-1 W3.)
-    if resolved_type in ("hermes", "openclaw", "zeroclaw"):
-        from clawrium.core.playbook_resolver import (
-            mcp_slack_extravars,
-            normalize_os_family,
-        )
-
-        # `mcp_slack_extravars` raises on any unknown os_family value.
-        # An exotic os_family on a real host record is a data bug that
-        # should surface loudly, not silently pick a possibly-wrong
-        # arch map. Wrapped in try/except so it maps to the same
-        # `(False, msg)` shape every other assembly-time failure in
-        # this function returns (ATX #835 iter-1 S). Without this the
-        # traceback would leave lifecycle state half-walked.
-        try:
-            ansible_vars.update(mcp_slack_extravars(normalize_os_family(host)))
-        except ValueError as exc:
-            return False, f"{resolved_type} configure failed: {exc}"
+    # #835 / #836: slack-mcp-server install now lives in its own
+    # sync-time runbook (`<agent>/playbooks/install_slack_mcp.yaml`
+    # (+ `_macos` sibling for hermes/openclaw)) invoked from
+    # `sync_agent_canonical` — see `_hermes_install_slack_mcp` /
+    # `_openclaw_install_slack_mcp` / `_zeroclaw_install_slack_mcp`
+    # in `core.lifecycle_canonical` and the "Integration Binary
+    # Install" section in AGENTS.md. configure_agent no longer
+    # threads any mcp_slack_* extravars — pin lives at the top of
+    # each runbook.
 
     # Merge extra_vars (not persisted to hosts.json)
     if extra_vars:

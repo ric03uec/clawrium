@@ -931,15 +931,14 @@ _HERMES_SUPPORTED_INTEGRATIONS = frozenset(
 # installed onto the host, so a fresh tool venv would silently get a
 # different MCP build than the one tested.
 _HERMES_MCP_ATLASSIAN_VERSION = "0.21.1"
-# Slack MCP version pin — lazy-loaded from
-# `clawrium.core.playbook_resolver._MCP_SLACK_VERSION` (single Python
-# source of truth per #835 B9 fix). Kept lazy because a module-level
-# import would reintroduce the render↔playbook_resolver cycle called
-# out at render.py:967. The value is only threaded into the Jinja
-# template as a comment string, so a lazy accessor is cheap here.
-def _hermes_mcp_slack_version() -> str:
-    from clawrium.core.playbook_resolver import _MCP_SLACK_VERSION
-    return _MCP_SLACK_VERSION
+# Lockstep with hermes' install_slack_mcp.yaml runbook + darwin
+# sibling (both declare `mcp_slack_version: "v1.3.0"` at play-level
+# `vars:`). The tests/platform/test_slack_asset_map.py suite
+# directly asserts `_HERMES_MCP_SLACK_VERSION == vars['mcp_slack_version']`
+# per runbook file (Rule 8 of "Integration Binary Install" in
+# AGENTS.md — no transitive Linux↔darwin equality; each file gets
+# its own assertion).
+_HERMES_MCP_SLACK_VERSION = "v1.3.0"
 
 
 def render_hermes(
@@ -1220,7 +1219,7 @@ def render_hermes(
         atlassian_integrations=atlassian_views,
         mcp_atlassian_version=_HERMES_MCP_ATLASSIAN_VERSION,
         slack_integrations=slack_views,
-        mcp_slack_version=_hermes_mcp_slack_version(),
+        mcp_slack_version=_HERMES_MCP_SLACK_VERSION,
         home_root=home_root,
     )
 

@@ -7,21 +7,6 @@
     # before pairing completes.
     gateway_port: "{{ config.gateway.port }}"
     gateway_local_base: "http://127.0.0.1:{{ gateway_port }}"
-    # #836: Precomputed convenience flag — true iff this run has at
-    # least one slack-* integration attached. Extravars carrying the
-    # release pin (`mcp_slack_version`, `mcp_slack_arch_map`,
-    # `mcp_slack_sha256_map`) are threaded by
-    # `clawrium.core.lifecycle.configure_agent`; single Python source
-    # of truth is `clawrium.core.playbook_resolver`. Byte-parity mirror
-    # of the openclaw counterpart so a pin bump propagates through the
-    # resolver alone.
-    slack_integration_assigned: >-
-      {{
-        integrations is defined
-        and (integrations | dict2items
-              | selectattr('value.type', 'in', ['slack-user', 'slack-cookie'])
-              | list | length > 0)
-      }}
   tasks:
     - name: Check if agent user exists
       ansible.builtin.getent:
@@ -107,53 +92,13 @@
       no_log: true
       notify: Restart zeroclaw service
 
-    # #836: install korotovsky/slack-mcp-server (single Go binary) for
-    # slack-* integrations. Structurally mirrors the openclaw install
-    # block at openclaw/playbooks/configure.yaml (`mcp_slack_*` extravars
-    # threaded from `clawrium.core.playbook_resolver` — single Python
-    # source of truth). Guarded by `slack_integration_assigned` so
-    # zeroclaw agents without slack pay no cost. Positioned BEFORE the
-    # gateway pair handshake so a slack install failure short-circuits
-    # the sync before `_zeroclaw_repair_after_start` rotates the
-    # bearer (#836 W2/S9 sync-ordering invariant).
-    - name: Fail early if host architecture is unsupported by the slack-mcp arch map
-      ansible.builtin.fail:
-        msg: >-
-          slack-mcp-server install: ansible_architecture='{{ ansible_architecture }}'
-          is not mapped to a korotovsky/slack-mcp-server release asset
-          (upstream {{ mcp_slack_version }} ships linux amd64/arm64 + darwin
-          amd64/arm64 only — no armv7l). Supported here: {{ mcp_slack_arch_map.keys() | list | join(', ') }}.
-          See https://github.com/korotovsky/slack-mcp-server/releases/tag/{{ mcp_slack_version }}.
-      when:
-        - slack_integration_assigned | bool
-        - ansible_architecture not in mcp_slack_arch_map
-
-    - name: Ensure ~/.local/bin exists for slack-mcp-server binary
-      ansible.builtin.file:
-        path: "/home/{{ agent_name }}/.local/bin"
-        state: directory
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
-        mode: '0755'
-      become: true
-      no_log: true
-      when:
-        - slack_integration_assigned | bool
-
-    - name: Download pinned slack-mcp-server binary
-      ansible.builtin.get_url:
-        url: "https://github.com/korotovsky/slack-mcp-server/releases/download/{{ mcp_slack_version }}/slack-mcp-server-{{ mcp_slack_arch_map[ansible_architecture] }}"
-        dest: "/home/{{ agent_name }}/.local/bin/slack-mcp-server"
-        checksum: "sha256:{{ mcp_slack_sha256_map[ansible_architecture] }}"
-        validate_certs: yes
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
-        mode: '0755'
-      become: true
-      no_log: true
-      when:
-        - slack_integration_assigned | bool
-      notify: Restart zeroclaw service
+    # #836: slack-mcp-server binary is installed at sync time by the
+    # dedicated single-purpose runbook
+    # `zeroclaw/playbooks/install_slack_mcp.yaml` invoked from
+    # `_zeroclaw_install_slack_mcp` in `core.lifecycle_canonical`.
+    # NOT here (Rule 1 of the "Integration Binary Install" pattern in
+    # AGENTS.md — configure.yaml is the wrong slot; the modern
+    # kubectl-style CLI does not invoke it).
 
     - name: Enable zeroclaw service
       ansible.builtin.systemd:

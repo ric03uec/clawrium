@@ -199,11 +199,17 @@ def test_slack_success_fires_repair_exactly_once(
 
     # No files_written path: diff returns [], so restart short-circuits
     # to the zeroclaw "force restart for bearer rotation" branch —
-    # exactly the code path we want to exercise.
+    # exactly the code path we want to exercise. Stub the sync-time
+    # slack install helper too so the test doesn't need an SSH key.
     with (
         patch(
             "clawrium.core.workspace_sync.push_workspace_phase",
             return_value=_fake_push_success(),
+        ),
+        patch.object(
+            lifecycle_canonical,
+            "_zeroclaw_install_slack_mcp",
+            lambda *a, **kw: None,
         ),
         patch(
             "clawrium.core.lifecycle._zeroclaw_repair_after_start",
