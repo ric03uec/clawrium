@@ -2619,29 +2619,66 @@ def configure_agent(
     # etc.) still render via Ansible's template module.
     prerendered_files: dict[str, str] = {}
     if resolved_type == "zeroclaw":
-        try:
-            from clawrium.core.playbook_resolver import normalize_os_family
-            from clawrium.core.render import build_render_inputs, render_zeroclaw
+        # #836 (ATX iter-1 B1): zeroclaw configure now widens its
+        # render-time failure surface (missing SLACK_MCP_XOXP_TOKEN /
+        # XOXC / XOXD, colliding slugs, empty slug, unsupported
+        # os_family — see `render_zeroclaw` guards). Catch
+        # `AgentConfigError` FROM render_zeroclaw specifically and
+        # return `(False, msg)` so operator errors fail fast at
+        # assembly time — mirrors the hermes (line 2687) and openclaw
+        # (line 2725) branches below. Without this, an operator-error
+        # render would proceed to the playbook, mint a fresh bearer
+        # via the unconditional re-pair (#437), and desync
+        # `hosts.json.gateway.auth` from the daemon while the config
+        # remained broken — the same failure class the S9/W2
+        # sync-ordering invariant guards against on the sync path.
+        #
+        # `build_render_inputs` failures deliberately fall through to
+        # the broad-except warning branch (unchanged pre-#836
+        # behavior) — the legacy playbook-template path still handles
+        # sites that never called through `build_render_inputs` in
+        # tests / pre-#583 hosts. Narrowing the AgentConfigError catch
+        # to `render_zeroclaw` alone preserves that path.
+        from clawrium.core.playbook_resolver import normalize_os_family
+        from clawrium.core.render import (
+            AgentConfigError,
+            build_render_inputs,
+            render_zeroclaw,
+        )
 
+        _render_config_error: AgentConfigError | None = None
+        try:
             render_inputs = build_render_inputs(unix_agent_name)
             # #836: pass os_family so the slack-mcp-server binary path in
             # rendered `[[mcp.servers]]` blocks resolves to `/home/…` on
             # Linux and `/Users/…` on darwin. Missing this would silently
             # emit a Linux path in the config.toml on a macOS host and
             # the daemon would fail to spawn the MCP subprocess.
-            rendered = render_zeroclaw(
-                render_inputs, os_family=normalize_os_family(host)
-            )
-            # Key matches the rendered.files dict from render_zeroclaw —
-            # the playbook references this by its full key so the var
-            # name and the file path stay locked together.
-            prerendered_files[".zeroclaw/config.toml"] = (
-                rendered.files[".zeroclaw/config.toml"]
-            )
+            try:
+                rendered = render_zeroclaw(
+                    render_inputs, os_family=normalize_os_family(host)
+                )
+            except AgentConfigError as exc:
+                # Capture the render-config error so the outer
+                # broad-except doesn't swallow it via warning-log
+                # fall-through. Handled after the try/except block so
+                # the failure return path stays outside the try scope.
+                _render_config_error = exc
+            else:
+                # Key matches the rendered.files dict from
+                # render_zeroclaw — the playbook references this by
+                # its full key so the var name and the file path stay
+                # locked together.
+                prerendered_files[".zeroclaw/config.toml"] = (
+                    rendered.files[".zeroclaw/config.toml"]
+                )
         except Exception as exc:
-            # Surface the render failure with the same error shape the
-            # Ansible reporter uses, so the operator sees a single
-            # consistent failure mode instead of two.
+            # Non-render_zeroclaw failures (build_render_inputs
+            # failures, import errors, template load failures, etc.)
+            # still fall through to the legacy playbook-template path
+            # so a corrupted wheel — or a test that intentionally
+            # bypasses `build_render_inputs` — does not brick every
+            # zeroclaw configure run.
             logger.warning(
                 "Pre-render of zeroclaw config.toml failed for %s: %s — "
                 "configure will fall back to the playbook template task "
@@ -2649,6 +2686,12 @@ def configure_agent(
                 unix_agent_name,
                 exc,
             )
+
+        if _render_config_error is not None:
+            # Loud failure at assembly time: missing slack credentials,
+            # slug collisions, empty slugs, unsupported os_family, etc.
+            # Nothing pushed to host; bearer NOT rotated.
+            return False, f"Zeroclaw render failed: {_render_config_error}"
     elif resolved_type == "hermes":
         # #622: pre-render canonical hermes config + env via render_hermes
         # so the playbook can `copy: content:` the bytes instead of
