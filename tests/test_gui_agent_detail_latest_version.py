@@ -62,7 +62,7 @@ def test_agent_detail_includes_latest_supported_version(isolated_config: Path):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert "latest_supported_version" in body
-    assert body["latest_supported_version"] == "2026.6.9"
+    assert body["latest_supported_version"] == "2026.6.11"
 
 
 def test_agent_detail_latest_supported_version_is_none_for_unmatched_host(

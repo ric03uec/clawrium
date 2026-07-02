@@ -483,6 +483,16 @@ def run_installation(
     # has nothing to write back — without this capture the credentials would
     # silently disappear on every clean re-install at the same version.
     preserved_gateway = [None]
+    # #816: Capture provider/channel/integration/skill attachments BEFORE
+    # set_installing() overwrites the agent record. These are stable
+    # user config (attach lists at the top of the agent record); they
+    # must survive both the success and failure paths of a re-install
+    # / upgrade. Without this capture, `clawctl agent upgrade` strips
+    # every declared attachment the moment the wipe happens, even if
+    # ansible later fails — the `clawctl_upgrade_strips_attachments`
+    # regression first observed on wolf-i (2026-06-18) and reproduced
+    # against openclaw 2026.6.8 → 2026.6.11 during UAT for #816.
+    preserved_attachments = [None]
     # Capture per-instance listener ports BEFORE set_installing() wipes the
     # agent record (issue #533). Re-install must not silently move a listener
     # to a new port — the systemd unit, any rendered config, and any open
@@ -627,6 +637,23 @@ def run_installation(
             # UNLESS cleanup_failed=True, then we force a fresh install
             if chosen_name[0] in h.get("agents", {}) and not cleanup_failed:
                 preserved_onboarding[0] = h["agents"][chosen_name[0]].get("onboarding")
+                # #816: capture provider/channel/integration/skill attach
+                # lists too — they live at the top of the agent record and
+                # would otherwise be wiped by the wholesale overwrite below.
+                # Unlike onboarding (which is only restored on ansible
+                # success to avoid the status=failed + onboarding=ready
+                # trap), attachments are user config that must survive
+                # even a failed upgrade — the operator's provider record,
+                # channel token, and integration key don't stop being
+                # theirs because ansible errored. Both set_installed() and
+                # set_failed() restore from this snapshot.
+                _existing_record = h["agents"][chosen_name[0]]
+                preserved_attachments[0] = {
+                    "providers": _existing_record.get("providers"),
+                    "channels": _existing_record.get("channels"),
+                    "integrations": _existing_record.get("integrations"),
+                    "skills": _existing_record.get("skills"),
+                }
                 # Round 2 W4: scope to claws that store credentials in
                 # `config.gateway`. The restore branch in set_installed() is
                 # the only consumer; other agent types may have unrelated
@@ -1309,6 +1336,15 @@ def run_installation(
                 if preserved_onboarding[0]:
                     h["agents"][agent_name]["onboarding"] = preserved_onboarding[0]
 
+                # #816: restore provider/channel/integration/skill attach
+                # lists captured before the record was wiped. Any key that
+                # was `None` (i.e. absent on the previous record) is
+                # skipped to keep the shape identical to a fresh install.
+                if preserved_attachments[0]:
+                    for _key, _val in preserved_attachments[0].items():
+                        if _val is not None:
+                            h["agents"][agent_name][_key] = _val
+
                 # #305: on the skip path the playbook does not re-emit gateway
                 # facts (template-write + pairing block are gated). Restore the
                 # gateway config we captured in set_installing() so re-running
@@ -1462,6 +1498,16 @@ def run_installation(
             h["agents"][agent_name]["status"] = "failed"
             h["agents"][agent_name]["error"] = error_msg
             h["agents"][agent_name]["installed_at"] = None
+
+            # #816: restore attach lists on the failure path too. A failed
+            # upgrade is not the operator's cue to lose their provider,
+            # channel, integration, and skill attachments — retrying the
+            # upgrade (or reverting) must see the same attach state that
+            # was on disk before the wipe.
+            if preserved_attachments[0]:
+                for _key, _val in preserved_attachments[0].items():
+                    if _val is not None:
+                        h["agents"][agent_name][_key] = _val
             return h
 
         update_host(host["hostname"], set_failed)
