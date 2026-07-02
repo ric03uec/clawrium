@@ -1,15 +1,17 @@
 """Tests for the slack-mcp-server per-arch install matrix on hermes.
 
-#834 (B6/W3): the playbook downloads the korotovsky/slack-mcp-server
+#834 (B6/W3): the runbook downloads the korotovsky/slack-mcp-server
 binary via `get_url` with an sha256 checksum. The (arch → asset filename)
-and (arch → sha256) maps live in the playbook `vars:` block. A drift
+and (arch → sha256) maps live in the runbook `vars:` block. A drift
 between the two, or a missing arch that ansible would happily leave
 without a checksum guard, would silently install a mismatched binary
-(or fail loudly at first configure — this test catches the drift up
+(or fail loudly at first sync — this test catches the drift up
 front).
 
-macOS variants live in `configure_macos.yaml` with a divergent arch
-naming (`arm64` vs Linux's `aarch64`). Both files are covered here.
+Runbook layout follows AGENTS.md §"Integration Binary Install":
+`install_slack_mcp.yaml` (Linux) + `install_slack_mcp_macos.yaml`
+(darwin, divergent arch naming — `arm64` vs Linux's `aarch64`). Both
+files are covered here.
 """
 
 from __future__ import annotations
@@ -54,26 +56,26 @@ LINUX_EXPECTED_SHA256 = {
 
 
 def test_linux_playbook_pins_mcp_slack_version() -> None:
-    vs = _playbook_vars("configure.yaml")
+    vs = _playbook_vars("install_slack_mcp.yaml")
     assert vs["mcp_slack_version"] == "v1.3.0"
 
 
 @pytest.mark.parametrize(("arch", "expected_asset_suffix"), LINUX_ARCH_TARGETS)
 def test_linux_arch_map_covers_arch(arch: str, expected_asset_suffix: str) -> None:
-    vs = _playbook_vars("configure.yaml")
+    vs = _playbook_vars("install_slack_mcp.yaml")
     assert vs["mcp_slack_arch_map"][arch] == expected_asset_suffix
 
 
 @pytest.mark.parametrize("arch", ["x86_64", "aarch64"])
 def test_linux_sha256_map_covers_arch(arch: str) -> None:
-    vs = _playbook_vars("configure.yaml")
+    vs = _playbook_vars("install_slack_mcp.yaml")
     assert vs["mcp_slack_sha256_map"][arch] == LINUX_EXPECTED_SHA256[arch]
 
 
 def test_linux_maps_have_identical_keys() -> None:
     """The arch and sha256 maps must have the exact same key set —
     a mismatch would let a supported arch slip past the checksum guard."""
-    vs = _playbook_vars("configure.yaml")
+    vs = _playbook_vars("install_slack_mcp.yaml")
     assert set(vs["mcp_slack_arch_map"].keys()) == set(
         vs["mcp_slack_sha256_map"].keys()
     )
@@ -84,7 +86,7 @@ def test_linux_armv7l_intentionally_absent() -> None:
     The playbook's arch guard MUST fail-fast rather than silently skip
     slack setup on armv7l zeroclaw hosts. Regression signal so a
     future addition of armv7 shipping upstream also lands here."""
-    vs = _playbook_vars("configure.yaml")
+    vs = _playbook_vars("install_slack_mcp.yaml")
     assert "armv7l" not in vs["mcp_slack_arch_map"]
     assert "armv7l" not in vs["mcp_slack_sha256_map"]
 
@@ -106,24 +108,24 @@ DARWIN_EXPECTED_SHA256 = {
 
 
 def test_darwin_playbook_pins_mcp_slack_version() -> None:
-    vs = _playbook_vars("configure_macos.yaml")
+    vs = _playbook_vars("install_slack_mcp_macos.yaml")
     assert vs["mcp_slack_version"] == "v1.3.0"
 
 
 @pytest.mark.parametrize(("arch", "expected_asset_suffix"), DARWIN_ARCH_TARGETS)
 def test_darwin_arch_map_covers_arch(arch: str, expected_asset_suffix: str) -> None:
-    vs = _playbook_vars("configure_macos.yaml")
+    vs = _playbook_vars("install_slack_mcp_macos.yaml")
     assert vs["mcp_slack_arch_map"][arch] == expected_asset_suffix
 
 
 @pytest.mark.parametrize("arch", ["arm64", "x86_64"])
 def test_darwin_sha256_map_covers_arch(arch: str) -> None:
-    vs = _playbook_vars("configure_macos.yaml")
+    vs = _playbook_vars("install_slack_mcp_macos.yaml")
     assert vs["mcp_slack_sha256_map"][arch] == DARWIN_EXPECTED_SHA256[arch]
 
 
 def test_darwin_maps_have_identical_keys() -> None:
-    vs = _playbook_vars("configure_macos.yaml")
+    vs = _playbook_vars("install_slack_mcp_macos.yaml")
     assert set(vs["mcp_slack_arch_map"].keys()) == set(
         vs["mcp_slack_sha256_map"].keys()
     )
@@ -135,10 +137,10 @@ def test_darwin_maps_have_identical_keys() -> None:
 
 
 def test_linux_and_darwin_pin_same_version() -> None:
-    """Both playbooks must reference the same upstream release, else a
+    """Both runbooks must reference the same upstream release, else a
     partially-migrated pin bump silently ships a mixed fleet."""
-    linux = _playbook_vars("configure.yaml")
-    darwin = _playbook_vars("configure_macos.yaml")
+    linux = _playbook_vars("install_slack_mcp.yaml")
+    darwin = _playbook_vars("install_slack_mcp_macos.yaml")
     assert linux["mcp_slack_version"] == darwin["mcp_slack_version"]
 
 
@@ -147,5 +149,5 @@ def test_render_constant_matches_playbook_pin() -> None:
     anchor for the same pin — drift silently, hosts silently. Lockstep."""
     from clawrium.core.render import _HERMES_MCP_SLACK_VERSION
 
-    linux = _playbook_vars("configure.yaml")
+    linux = _playbook_vars("install_slack_mcp.yaml")
     assert _HERMES_MCP_SLACK_VERSION == linux["mcp_slack_version"]

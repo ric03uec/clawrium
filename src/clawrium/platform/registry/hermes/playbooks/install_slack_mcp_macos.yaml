@@ -1,0 +1,58 @@
+---
+# macOS counterpart to install_slack_mcp.yaml. Same single-purpose
+# contract: download + verify + place the korotovsky/slack-mcp-server
+# binary at /Users/<agent>/.local/bin/slack-mcp-server. Invoked at
+# sync time by `core.lifecycle_canonical._hermes_install_slack_mcp`
+# when the target host's `os_family == "darwin"`.
+#
+# Divergences from the Linux variant beyond paths:
+#   - darwin uses `arm64` / `x86_64` naming for ansible_architecture,
+#     which maps to `darwin-arm64` / `darwin-amd64` upstream — the
+#     mirror of the Linux `linux-amd64` / `linux-arm64` mapping.
+#   - `group: staff` (gid 20) matches the macOS workspace-overlay
+#     convention documented in AGENTS.md §"Workspace Overlay".
+#
+# Architectural pattern: see AGENTS.md §"Integration Binary Install".
+- hosts: all
+  become: yes
+  vars:
+    mcp_slack_version: "v1.3.0"
+    mcp_slack_arch_map:
+      arm64: "darwin-arm64"
+      x86_64: "darwin-amd64"
+    mcp_slack_sha256_map:
+      arm64: "e839aa5c2e28253438ed704dd862aa4afb75711d688080ce447a3b1167855312"
+      x86_64: "e38142ee628b2c2ff241f0d021947b96e743540cfb702fc8b01f61a4f7a4a125"
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: install_slack_mcp_macos.yaml invoked against non-Darwin host
+      when: ansible_os_family != "Darwin"
+
+    - name: Fail early if darwin architecture is unsupported
+      ansible.builtin.fail:
+        msg: >-
+          slack-mcp-server install: ansible_architecture='{{ ansible_architecture }}'
+          is not mapped to a korotovsky/slack-mcp-server darwin release asset.
+          Supported here: {{ mcp_slack_arch_map.keys() | list | join(', ') }}.
+          See https://github.com/korotovsky/slack-mcp-server/releases/tag/{{ mcp_slack_version }}.
+      when: ansible_architecture not in mcp_slack_arch_map
+
+    - name: Ensure ~/.local/bin exists (darwin)
+      ansible.builtin.file:
+        path: "/Users/{{ agent_name }}/.local/bin"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: '0755'
+
+    - name: Download pinned slack-mcp-server binary (darwin)
+      ansible.builtin.get_url:
+        url: "https://github.com/korotovsky/slack-mcp-server/releases/download/{{ mcp_slack_version }}/slack-mcp-server-{{ mcp_slack_arch_map[ansible_architecture] }}"
+        dest: "/Users/{{ agent_name }}/.local/bin/slack-mcp-server"
+        checksum: "sha256:{{ mcp_slack_sha256_map[ansible_architecture] }}"
+        validate_certs: yes
+        owner: "{{ agent_name }}"
+        group: staff
+        mode: '0755'
+        timeout: 30

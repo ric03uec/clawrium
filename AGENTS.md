@@ -301,6 +301,84 @@ Workspace-phase failure short-circuits before restart — the daemon is
 never restarted on a half-applied overlay. The failure surfaces as
 `CanonicalSyncError` → CLI `emit_error` → `typer.Exit(code=1)`.
 
+## Integration Binary Install (architectural pattern)
+
+**When an integration attaches a subprocess binary to an agent (MCP
+servers, plugins, sidecars — anything the daemon `exec`s), the binary
+MUST install at sync time via a dedicated single-purpose Ansible
+runbook invoked from `core/lifecycle_canonical.py:sync_agent_canonical`.
+NOT from the agent's `configure.yaml`. NOT from `install.yaml`.**
+
+This is the operator's mental model: `clawctl agent integration attach
+<X>` + `clawctl agent sync` materializes X on the host. The host
+install (`install.yaml`) is agent-lifecycle only — it does not know
+which integrations exist yet. The configure playbook
+(`configure.yaml`) is not invoked by the modern kubectl-style CLI at
+all — putting integration installs there produces a rendered config
+pointing at a binary the daemon never spawns. This regression class
+was closed for openclaw brave plugins in #755 and again for hermes
+Slack MCP in #834.
+
+### Canonical examples
+
+| Integration | Runbook | Sync-time entry point |
+|---|---|---|
+| Openclaw brave (+ any future openclaw plugin) | Direct SSH via `openclaw plugins install --pin` | `_openclaw_install_plugins` (lifecycle_canonical.py:1307) |
+| Hermes Slack MCP (`slack-user`, `slack-cookie`) | `hermes/playbooks/install_slack_mcp.yaml` (+ `_macos` sibling) | `_hermes_install_slack_mcp` (lifecycle_canonical.py, #834) |
+
+### Rules (non-negotiable)
+
+1. **One runbook per binary.** Do not group multiple integration
+   installs into one playbook. A single-purpose runbook fails loudly
+   when one integration is broken without dragging unrelated
+   integrations into the failure. Naming: `install_<integration>.yaml`
+   (Linux) + `install_<integration>_macos.yaml` (darwin, if the
+   integration supports macOS).
+2. **Runbook is a dumb consumer of extravars.** Version pin, per-arch
+   asset map, per-arch SHA256 map: all top-of-file `vars:`. No
+   dispatcher branching, no `when: ansible_os_family == "Darwin"`
+   inside the Linux file (dispatcher-only OS fork invariant — see
+   the `mac-test host available` memory context).
+3. **Idempotency via checksum, not sentinel files.** `get_url` with
+   `checksum: "sha256:{{ map[ansible_architecture] }}"` short-circuits
+   when the file exists and matches. Version bump changes URL + hash
+   → auto-fires reinstall via mismatch. No `creates:` guard; no
+   `.integration-installed.<version>` sentinel unless the install
+   command is not itself checksum-verifying (e.g., `npm install` for
+   openclaw plugins does use a sentinel — see #755).
+4. **Gate at the sync-time entry point, not inside the runbook.**
+   The Python helper checks `any(i.type in <supported_types> for i in
+   inputs.integrations)` before invoking ansible-runner. Runbook
+   itself assumes the integration IS attached — if it runs, it does
+   the install.
+5. **Fail-fast on unsupported architecture.** First task in the
+   runbook: fail with a clear message that names the arch and links
+   to the upstream release page. Do not silently skip. armv7l support
+   is not universal — the plan must document which arches ship
+   upstream at pin bump time.
+6. **Failure short-circuits before restart.** The helper raises
+   `CanonicalSyncError` on any playbook failure. `sync_agent_canonical`
+   propagates before `_restart_unit` runs. Mirrors the workspace-
+   overlay failure contract (line 302 above).
+7. **Runbook runs BEFORE the file-write loop.** So the freshly-
+   rendered config.yaml + env AND the freshly-installed binary land
+   in a single daemon restart. Do not restart between install and
+   config write.
+8. **Version pin lockstep.** The Python constant referenced by
+   `render.py` (e.g., `_HERMES_MCP_SLACK_VERSION`) MUST equal the
+   `mcp_<integration>_version` var at the top of the runbook. A
+   parametrized test in `tests/platform/` MUST assert this equality.
+
+### When NOT to use this pattern
+
+- Integrations that add ONLY environment variables + config lines,
+  no subprocess binary. Those are pure render-layer concerns; no
+  install runbook is needed. (Example: `github` — just wires
+  `GITHUB_TOKEN` into `.env` and optionally runs `gh auth login`.)
+- Package-manager-installed system dependencies. Those belong in
+  `install.yaml` (host-lifecycle), because they are host-scoped, not
+  integration-scoped.
+
 ## Tech Stack
 
 - **CLI**: Python + Typer

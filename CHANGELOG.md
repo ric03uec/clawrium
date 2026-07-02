@@ -69,11 +69,20 @@ cut. The `itx:release` skill archives this section into a new
   messages, and post via MCP tool calls. `slack-user` (xoxp bearer) is
   the recommended path; `slack-cookie` (xoxc + xoxd) is a discouraged
   fallback (Slack abuse detection targets this pattern). Binary is
-  SHA256-pinned per (os, arch) in the configure playbook (linux amd64/arm64
-  + darwin amd64/arm64 — armv7l not shipped upstream at v1.3.0). Attach
-  gate rejects `slack-*` on openclaw / zeroclaw agents at CLI time
-  (Phase 1 of #499); those agent types will gain support in follow-up
-  slices. First MCP subprocess on darwin hermes. (#834, #499)
+  installed at sync time by a dedicated single-purpose runbook
+  (`hermes/playbooks/install_slack_mcp.yaml` + `_macos` sibling),
+  SHA256-pinned per (os, arch) — linux amd64/arm64 + darwin amd64/arm64;
+  armv7l not shipped upstream at v1.3.0. Attach gate rejects `slack-*`
+  on openclaw / zeroclaw agents at CLI time (Phase 1 of #499); those
+  agent types will gain support in follow-up slices. First MCP
+  subprocess on darwin hermes. (#834, #499)
+- **Architectural pattern**: "Integration Binary Install" — new
+  section in [`AGENTS.md`](AGENTS.md#integration-binary-install-architectural-pattern)
+  documenting the sync-time-runbook contract every future integration
+  binary MUST follow. Slack (this PR) and openclaw brave (#755) are
+  the two canonical examples. Prevents the "sync doesn't install the
+  binary" regression class where a rendered config points at a path
+  the host never receives. (#834)
 - CLI attach-time agent-type / integration-type gate:
   `clawctl agent integration attach <name> --agent <agent>` now rejects
   `(agent-type, integration-type)` pairs that the renderer does not

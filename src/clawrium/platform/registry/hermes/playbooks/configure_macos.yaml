@@ -13,32 +13,8 @@
 #     atlassian package install) is omitted from this initial cut.
 #     atlassian integration is tracked as a follow-up after the
 #     core E2E ships.
-#   - #834: slack-mcp-server (single Go binary from
-#     korotovsky/slack-mcp-server) IS installed on darwin — Slack is
-#     the first MCP subprocess to land on darwin hermes (W11 in #499
-#     plan). The install is gated on `slack_integration_assigned` so
-#     agents without slack pay no cost.
 - hosts: all
   become: yes
-  vars:
-    # #834: mirror configure.yaml's pins verbatim. Bumping the version
-    # requires updating _HERMES_MCP_SLACK_VERSION in core/render.py and
-    # the sha256 map in BOTH configure.yaml and this file in the same
-    # commit — otherwise the checksum guard fails on darwin hermes.
-    mcp_slack_version: "v1.3.0"
-    mcp_slack_arch_map:
-      arm64: "darwin-arm64"
-      x86_64: "darwin-amd64"
-    mcp_slack_sha256_map:
-      arm64: "e839aa5c2e28253438ed704dd862aa4afb75711d688080ce447a3b1167855312"
-      x86_64: "e38142ee628b2c2ff241f0d021947b96e743540cfb702fc8b01f61a4f7a4a125"
-    slack_integration_assigned: >-
-      {{
-        integrations is defined
-        and (integrations | dict2items
-              | selectattr('value.type', 'in', ['slack-user', 'slack-cookie'])
-              | list | length > 0)
-      }}
   tasks:
     - name: Refuse to run on non-Darwin hosts (dispatcher contract)
       ansible.builtin.fail:
@@ -200,45 +176,6 @@
         - config.channels is defined
         - config.channels.discord is defined
         - config.channels.discord.enabled | default(false)
-
-    # #834: install korotovsky/slack-mcp-server (single Go binary) into
-    # /Users/<agent>/.local/bin/. macOS uses a different ansible arch
-    # naming (`arm64` for Apple Silicon; `x86_64` for Intel), so the map
-    # keys diverge from the Linux configure.yaml deliberately.
-    - name: Fail early if darwin architecture is unsupported by the slack-mcp arch map
-      ansible.builtin.fail:
-        msg: >-
-          slack-mcp-server install: ansible_architecture='{{ ansible_architecture }}'
-          is not mapped to a korotovsky/slack-mcp-server darwin release asset.
-          Supported here: {{ mcp_slack_arch_map.keys() | list | join(', ') }}.
-          See https://github.com/korotovsky/slack-mcp-server/releases/tag/{{ mcp_slack_version }}.
-      when:
-        - slack_integration_assigned | bool
-        - ansible_architecture not in mcp_slack_arch_map
-
-    - name: Ensure ~/.local/bin exists (darwin)
-      ansible.builtin.file:
-        path: "/Users/{{ agent_name }}/.local/bin"
-        state: directory
-        owner: "{{ agent_name }}"
-        group: staff
-        mode: '0755'
-      become: true
-      when:
-        - slack_integration_assigned | bool
-
-    - name: Download pinned slack-mcp-server binary (darwin)
-      ansible.builtin.get_url:
-        url: "https://github.com/korotovsky/slack-mcp-server/releases/download/{{ mcp_slack_version }}/slack-mcp-server-{{ mcp_slack_arch_map[ansible_architecture] }}"
-        dest: "/Users/{{ agent_name }}/.local/bin/slack-mcp-server"
-        checksum: "sha256:{{ mcp_slack_sha256_map[ansible_architecture] }}"
-        validate_certs: yes
-        owner: "{{ agent_name }}"
-        group: staff
-        mode: '0755'
-      become: true
-      when:
-        - slack_integration_assigned | bool
 
     # launchd restart is NOT triggered from inside this playbook. The
     # orchestrator (core/lifecycle.configure_agent followed by
