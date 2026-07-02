@@ -40,7 +40,7 @@ def _playbook_vars(name: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Linux (configure.yaml)
+# Linux (install_slack_mcp.yaml)
 # ---------------------------------------------------------------------------
 
 
@@ -92,7 +92,7 @@ def test_linux_armv7l_intentionally_absent() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Darwin (configure_macos.yaml)
+# Darwin (install_slack_mcp_macos.yaml)
 # ---------------------------------------------------------------------------
 
 
@@ -144,10 +144,79 @@ def test_linux_and_darwin_pin_same_version() -> None:
     assert linux["mcp_slack_version"] == darwin["mcp_slack_version"]
 
 
-def test_render_constant_matches_playbook_pin() -> None:
-    """`_HERMES_MCP_SLACK_VERSION` in render.py is a documentation
-    anchor for the same pin — drift silently, hosts silently. Lockstep."""
+@pytest.mark.parametrize(
+    "runbook",
+    ["install_slack_mcp.yaml", "install_slack_mcp_macos.yaml"],
+)
+def test_render_constant_matches_playbook_pin(runbook: str) -> None:
+    """`_HERMES_MCP_SLACK_VERSION` in render.py is the single source of
+    truth for the upstream pin — drift silently, hosts silently.
+    Lockstep is asserted against EACH runbook directly (per AGENTS.md
+    §"Integration Binary Install" Rule 8): a transitive assertion via
+    the separate Linux ↔ darwin equality test would silently fail to
+    catch a darwin-only regression if the intermediate test were
+    renamed or skipped."""
     from clawrium.core.render import _HERMES_MCP_SLACK_VERSION
 
-    linux = _playbook_vars("install_slack_mcp.yaml")
-    assert _HERMES_MCP_SLACK_VERSION == linux["mcp_slack_version"]
+    vs = _playbook_vars(runbook)
+    assert _HERMES_MCP_SLACK_VERSION == vs["mcp_slack_version"]
+
+
+# ---------------------------------------------------------------------------
+# AGENTS.md §"Integration Binary Install" Rule 2 regression guard.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("runbook", "acceptable_guards"),
+    [
+        # Linux runbook: fail if ansible_os_family == "Darwin"
+        ("install_slack_mcp.yaml", ('== "Darwin"', "== 'Darwin'")),
+        # Darwin runbook: fail if not-darwin (either `!= "Darwin"` or
+        # `== "Linux"` shape is acceptable — both mean the same thing).
+        (
+            "install_slack_mcp_macos.yaml",
+            ('!= "Darwin"', "!= 'Darwin'", '== "Linux"', "== 'Linux'"),
+        ),
+    ],
+)
+def test_runbook_has_single_task0_dispatcher_guard(
+    runbook: str, acceptable_guards: tuple[str, ...]
+) -> None:
+    """Rule 2 narrow exception: each runbook is permitted exactly ONE
+    `when: ansible_os_family` clause, and it MUST be on a task that
+    only `fail:`s (dispatcher-contract guard — trip loudly when the
+    wrong-OS sibling was routed here by mistake). Any additional
+    `ansible_os_family` clause, or one that gates an install task,
+    reintroduces the OS-branching-inside-runbook invariant Rule 2
+    bans. ATX iter-4 W1."""
+    path = (
+        Path(__file__).parent.parent.parent
+        / "src"
+        / "clawrium"
+        / "platform"
+        / "registry"
+        / "hermes"
+        / "playbooks"
+        / runbook
+    )
+    body = path.read_text()
+    guards = [
+        line
+        for line in body.splitlines()
+        if "ansible_os_family" in line and line.lstrip().startswith("when:")
+    ]
+    assert len(guards) == 1, (
+        f"{runbook}: expected exactly ONE `when: ansible_os_family` "
+        f"clause (task-0 dispatcher-contract fail-fast); found "
+        f"{len(guards)}. Rule 2 bans OS branching inside install "
+        f"tasks."
+    )
+    # The single permitted guard refuses the wrong-OS host. Accept
+    # either `== "OtherOS"` or `!= "MyOS"` shape — both express the
+    # same dispatcher-contract intent.
+    assert any(shape in guards[0] for shape in acceptable_guards), (
+        f"{runbook}: task-0 dispatcher guard must refuse the wrong "
+        f"OS. Acceptable shapes: {acceptable_guards!r}. Found: "
+        f"{guards[0].strip()!r}"
+    )

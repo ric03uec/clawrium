@@ -336,9 +336,18 @@ Slack MCP in #834.
    integration supports macOS).
 2. **Runbook is a dumb consumer of extravars.** Version pin, per-arch
    asset map, per-arch SHA256 map: all top-of-file `vars:`. No
-   dispatcher branching, no `when: ansible_os_family == "Darwin"`
-   inside the Linux file (dispatcher-only OS fork invariant — see
-   the `mac-test host available` memory context).
+   `when: ansible_os_family == "Darwin"` **inside install tasks**
+   (dispatcher-only OS fork invariant — see the `mac-test host
+   available` memory context). One narrow exception: a **task-0
+   dispatcher-contract guard** that fails-fast when the wrong-OS
+   sibling was routed here by mistake (e.g., `Refuse to run on
+   non-Linux hosts`) IS permitted — the check is against the
+   opposite OS so a mis-routed run trips loudly. This guard MUST
+   be task-0 (before the arch guard, before any install work), MUST
+   only `fail:` (never conditionally install), and MUST have a
+   matching mirror in the sibling runbook. If a runbook has more
+   than one `when: ansible_os_family` clause, or any that gates an
+   install task, it violates the invariant.
 3. **Idempotency via checksum, not sentinel files.** `get_url` with
    `checksum: "sha256:{{ map[ansible_architecture] }}"` short-circuits
    when the file exists and matches. Version bump changes URL + hash
@@ -366,8 +375,12 @@ Slack MCP in #834.
    config write.
 8. **Version pin lockstep.** The Python constant referenced by
    `render.py` (e.g., `_HERMES_MCP_SLACK_VERSION`) MUST equal the
-   `mcp_<integration>_version` var at the top of the runbook. A
-   parametrized test in `tests/platform/` MUST assert this equality.
+   `mcp_<integration>_version` var at the top of EACH runbook
+   (Linux + darwin sibling). A test in `tests/platform/` MUST
+   directly assert `<render_constant> == vars['mcp_<integration>_version']`
+   for every runbook file. Transitive equality via a Linux ↔ darwin
+   pin-equality assertion is not sufficient — an intermediate test
+   being renamed / skipped would silently break the darwin lockstep.
 
 ### When NOT to use this pattern
 

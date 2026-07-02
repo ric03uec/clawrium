@@ -69,4 +69,10 @@
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: '0755'
-        timeout: 30
+        # ATX iter-4 W5: 120s matches the ansible-runner budget in
+        # `_hermes_install_slack_mcp` (see lifecycle_canonical.py). A
+        # tighter timeout here can spuriously fail on slow / jittery
+        # links (home NAT, armv7l Pi over cellular) while the helper
+        # still has budget — surfacing as a `get_url` timeout rather
+        # than a runner timeout.
+        timeout: 120
