@@ -4311,16 +4311,28 @@ class TestConfigurePlaybooksNoSlackInstall:
     AND recreate the "sync doesn't install binaries" UX gap that #755
     (openclaw) and #834 (hermes) both closed.
 
-    #835 (Phase 2): same guard extended to openclaw configure playbooks."""
+    #835 (Phase 2): same guard extended to openclaw configure playbooks.
+    #851 (Phase 3 harmonization): same guard extended to zeroclaw. Note
+    zeroclaw has no `configure_macos.yaml` sibling yet (macOS zeroclaw
+    slack is deferred per #836), so the loop over configure_macos.yaml
+    is guarded on file existence — the invariant is "no slack install
+    tokens appear in any zeroclaw configure playbook that exists",
+    not "configure_macos.yaml must exist"."""
 
-    @pytest.mark.parametrize("agent_type", ["hermes", "openclaw"])
+    @pytest.mark.parametrize("agent_type", ["hermes", "openclaw", "zeroclaw"])
     def test_configure_playbooks_contain_no_slack_install(
         self, agent_type: str
     ):
         """Slack install must not appear in configure.yaml or
-        configure_macos.yaml for hermes OR openclaw. Mirrors the
-        openclaw brave regression guard at
-        `test_neither_configure_playbook_contains_brave_install_task`."""
+        configure_macos.yaml. Mirrors the openclaw brave regression
+        guard at
+        `test_neither_configure_playbook_contains_brave_install_task`.
+
+        `slack-mcp-server` (with hyphens) IS permitted in comments —
+        the breadcrumb pointing operators at the dedicated runbook.
+        `slack_integration_assigned` and the `mcp_slack_*` extravar
+        names are the load-bearing tokens: they only appear if
+        install *tasks* were re-baked in."""
         from pathlib import Path
 
         base = (
@@ -4333,12 +4345,32 @@ class TestConfigurePlaybooksNoSlackInstall:
             / "playbooks"
         )
         for name in ("configure.yaml", "configure_macos.yaml"):
-            body = (base / name).read_text()
+            path = base / name
+            if not path.exists():
+                # zeroclaw macOS variant is deferred; skip missing files
+                # rather than assert existence — the guard's job is
+                # "no install token in any file that exists".
+                continue
+            body = path.read_text()
             assert "mcp_slack_version" not in body, (agent_type, name)
             assert "mcp_slack_arch_map" not in body, (agent_type, name)
             assert "mcp_slack_sha256_map" not in body, (agent_type, name)
             assert "slack_integration_assigned" not in body, (agent_type, name)
-            assert "slack-mcp-server" not in body, (agent_type, name)
+            # Distinguish the load-bearing token ("- name: ... slack-mcp-server ...")
+            # from the harmless breadcrumb comment ("# slack-mcp-server install
+            # lives in the dedicated ..."). The former appears in task
+            # headers; the latter only in `#` comments. Line-scan for
+            # non-comment occurrences.
+            for lineno, line in enumerate(body.splitlines(), start=1):
+                stripped = line.lstrip()
+                if stripped.startswith("#"):
+                    continue
+                assert "slack-mcp-server" not in line, (
+                    agent_type,
+                    name,
+                    lineno,
+                    line,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -4653,3 +4685,348 @@ class TestOpenclawSlackInstallRunsBeforeRestart:
             sync_agent_canonical("wise-hypatia", verify=False)
 
         assert restart_called == []
+
+
+class TestZeroclawInstallSlackMCP:
+    """`_zeroclaw_install_slack_mcp` mirrors `_openclaw_install_slack_mcp`
+    at the callsite + wiring level. The two behavioral differences vs
+    the hermes/openclaw helpers: (1) `agent_type="zeroclaw"` routes the
+    runbook lookup to `platform/registry/zeroclaw/playbooks/`, (2)
+    darwin hosts raise `CanonicalSyncError` instead of picking a
+    `_macos.yaml` sibling (no darwin runbook exists yet — deferred per
+    #836). Every openclaw iter-4 test case has a parallel entry here so
+    a future refactor that changes one branch without the other trips
+    these tests."""
+
+    def _stub_playbook(self, monkeypatch, *, success=True, err=None):
+        calls: list[dict] = []
+
+        def _fake(
+            agent_type,
+            agent_name,
+            hostname,
+            operation,
+            host,
+            timeout=60,
+        ):
+            calls.append(
+                {
+                    "agent_type": agent_type,
+                    "agent_name": agent_name,
+                    "hostname": hostname,
+                    "operation": operation,
+                    "host": host,
+                    "timeout": timeout,
+                }
+            )
+            return success, err
+
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle._run_lifecycle_playbook", _fake
+        )
+        return calls
+
+    def test_no_slack_integration_is_noop(self, monkeypatch):
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["github", "brave"])
+
+        lc._zeroclaw_install_slack_mcp(
+            "alpha", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert calls == []
+
+    def test_slack_user_triggers_zeroclaw_linux_runbook(self, monkeypatch):
+        """The `agent_type` argument MUST be `"zeroclaw"` — pointing
+        `_run_lifecycle_playbook` at the zeroclaw-scoped runbook path,
+        NOT hermes or openclaw. A regression here would silently invoke
+        the wrong install_slack_mcp.yaml — same binary but semantically
+        wrong (breaks the one-runbook-per-(agent_type, binary)
+        contract, Rule 1)."""
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._zeroclaw_install_slack_mcp(
+            "alpha", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["agent_type"] == "zeroclaw"
+        assert calls[0]["operation"] == "install_slack_mcp"
+        assert calls[0]["agent_name"] == "alpha"
+        assert calls[0]["hostname"] == "wolf-i"
+
+    def test_slack_cookie_also_triggers_install(self, monkeypatch):
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-cookie"])
+
+        lc._zeroclaw_install_slack_mcp(
+            "alpha", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["operation"] == "install_slack_mcp"
+        assert calls[0]["agent_type"] == "zeroclaw"
+
+    def test_darwin_host_refuses_loudly(self, monkeypatch):
+        """No `install_slack_mcp_macos.yaml` sibling exists for
+        zeroclaw yet. Refuse with `CanonicalSyncError` instead of
+        silently routing to the Linux runbook (which the runbook's
+        own task-0 guard would reject with a less operator-friendly
+        message). This is the one behavioral difference from
+        `_openclaw_install_slack_mcp`."""
+        self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"zeroclaw slack integration is not yet supported on darwin",
+        ):
+            lc._zeroclaw_install_slack_mcp(
+                "alpha", "esper-macmini", {"os_family": "darwin"}, inputs
+            )
+
+    def test_darwin_variants_all_refuse(self, monkeypatch):
+        """The os_family normalization (`mac`/`macos`/`osx` → `darwin`)
+        must trigger the same refusal path — regression guard against
+        a future normalization change that would silently let a
+        typo-cased os_family fall through to the Linux runbook."""
+        self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        for value in ("Darwin", "macos", "MacOS", "osx", "mac"):
+            with pytest.raises(
+                CanonicalSyncError,
+                match=r"zeroclaw slack integration is not yet supported on darwin",
+            ):
+                lc._zeroclaw_install_slack_mcp(
+                    "alpha", "esper-macmini", {"os_family": value}, inputs
+                )
+
+    def test_missing_os_family_defaults_to_linux(self, monkeypatch):
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._zeroclaw_install_slack_mcp("alpha", "wolf-i", {}, inputs)
+        assert len(calls) == 1
+        assert calls[0]["operation"] == "install_slack_mcp"
+
+    def test_playbook_failure_raises_canonical_sync_error(self, monkeypatch):
+        self._stub_playbook(
+            monkeypatch,
+            success=False,
+            err="get_url: checksum mismatch",
+        )
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        with pytest.raises(
+            CanonicalSyncError,
+            match=r"slack-mcp-server install failed for .*alpha.*: "
+            r"get_url: checksum mismatch",
+        ):
+            lc._zeroclaw_install_slack_mcp(
+                "alpha", "wolf-i", {"os_family": "linux"}, inputs
+            )
+
+    def test_emits_event_when_installing(self, monkeypatch):
+        self._stub_playbook(monkeypatch)
+        events: list[tuple[str, str]] = []
+
+        inputs = _inputs_with_integrations(["slack-user"])
+        lc._zeroclaw_install_slack_mcp(
+            "alpha",
+            "wolf-i",
+            {"os_family": "linux"},
+            inputs,
+            on_event=lambda stage, msg: events.append((stage, msg)),
+        )
+        assert len(events) == 1
+        stage, msg = events[0]
+        assert stage == "slack_mcp_install"
+        assert "alpha" in msg
+        # Event payload names the zeroclaw-scoped runbook path so
+        # operators debugging install failures don't grep for a
+        # hermes/... or openclaw/... path that isn't the one that ran.
+        assert "zeroclaw/install_slack_mcp.yaml" in msg
+
+    def test_darwin_refusal_does_not_emit_install_event(self, monkeypatch):
+        """The refusal path raises BEFORE the event callback fires —
+        an operator seeing a `slack_mcp_install` event followed by a
+        darwin refusal would be misleading."""
+        self._stub_playbook(monkeypatch)
+        events: list[tuple[str, str]] = []
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        with pytest.raises(CanonicalSyncError):
+            lc._zeroclaw_install_slack_mcp(
+                "alpha",
+                "esper-macmini",
+                {"os_family": "darwin"},
+                inputs,
+                on_event=lambda stage, msg: events.append((stage, msg)),
+            )
+        assert events == []
+
+    def test_timeout_pinned_at_180s(self, monkeypatch):
+        calls = self._stub_playbook(monkeypatch)
+        inputs = _inputs_with_integrations(["slack-user"])
+
+        lc._zeroclaw_install_slack_mcp(
+            "alpha", "wolf-i", {"os_family": "linux"}, inputs
+        )
+        assert len(calls) == 1
+        assert calls[0]["timeout"] == 180
+
+
+class TestZeroclawSlackInstallRunsBeforeRestart:
+    """Parallel of `TestOpenclawSlackInstallRunsBeforeRestart` — proves
+    `_zeroclaw_install_slack_mcp` is wired into `sync_agent_canonical`
+    in the right slot (before file writes AND before the trailing
+    `_zeroclaw_repair_after_start` bearer rotation) AND that a failure
+    short-circuits restart + bearer rotation.
+
+    The bearer-rotation ordering is the #437/#836 S9/W2 invariant:
+    on install failure, `hosts.json.gateway.auth` must NOT be re-minted
+    while the daemon holds the old bearer."""
+
+    def _zeroclaw_render_stub(self):
+        from clawrium.core.render import RenderedFiles
+
+        return RenderedFiles(
+            files={
+                ".zeroclaw/config.toml": "x = 1\n",
+                ".zeroclaw/zeroclaw-env.conf": "",
+            }
+        )
+
+    def _zeroclaw_inputs(self):
+        from clawrium.core.render import (
+            IntegrationInputs,
+            ProviderInputs,
+            RenderInputs,
+        )
+
+        return RenderInputs(
+            agent_name="alpha",
+            agent_type="zeroclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="anthropic/claude-opus-4.7",
+            ),
+            integrations=(
+                IntegrationInputs(
+                    name="slack-work",
+                    type="slack-user",
+                    credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+                ),
+            ),
+        )
+
+    def _wire_sync_agent_canonical_stubs(self, monkeypatch):
+        inputs = self._zeroclaw_inputs()
+        rendered = self._zeroclaw_render_stub()
+
+        fake_diff = MagicMock()
+        fake_diff.unified_diff = "+x = 1"
+        fake_diff.path = ".zeroclaw/config.toml"
+        fake_diff.remote_path = "/home/alpha/.zeroclaw/config.toml"
+        fake_diff.rendered_body = "x = 1\n"
+        fake_diff.remote_body = ""
+
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        monkeypatch.setitem(
+            lc._RENDERERS, "zeroclaw", lambda _, **_kw: rendered
+        )
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: (
+                {
+                    "hostname": "wolf.tailf7742d.ts.net",
+                    "os_family": "linux",
+                },
+                "zeroclaw:alpha",
+                {
+                    "status": "installed",
+                    "installed_at": "2026-05-01T00:00:00Z",
+                },
+            ),
+        )
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [fake_diff])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(lc, "_diff_removes_secrets", lambda _d: set())
+        monkeypatch.setattr(lc, "_atomic_write", lambda *_a, **_kw: None)
+        monkeypatch.setattr(lc, "_verify_health", lambda **_: None)
+        monkeypatch.setattr(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            lambda **_kw: MagicMock(
+                success=True, files_pushed=(), files_excluded=(), error=None
+            ),
+        )
+        # Stub the bearer-rotation import so the sync path terminates
+        # cleanly on success without needing a real playbook run.
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+            lambda *_a, **_kw: (True, None),
+        )
+
+    def test_install_runs_before_restart_via_sync(self, monkeypatch):
+        """The install helper MUST run before `_restart_unit` inside
+        `sync_agent_canonical`. Order-sensitivity: a wiring regression
+        that moves the zeroclaw install below the restart would leave
+        the daemon running with a rendered config.toml referencing
+        `[[mcp.servers]].command` before the binary lands."""
+        self._wire_sync_agent_canonical_stubs(monkeypatch)
+
+        order: list[str] = []
+
+        def spy_install(*_a, **_kw):
+            order.append("slack_mcp_install")
+
+        def spy_restart(*_a, **_kw):
+            order.append("restart_unit")
+
+        monkeypatch.setattr(lc, "_zeroclaw_install_slack_mcp", spy_install)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+
+        sync_agent_canonical("alpha", verify=False)
+
+        assert order == ["slack_mcp_install", "restart_unit"]
+
+    def test_install_failure_short_circuits_before_restart(self, monkeypatch):
+        """When `_zeroclaw_install_slack_mcp` raises, `_restart_unit`
+        MUST NOT run — mirrors the hermes/openclaw short-circuit
+        contract. The zeroclaw-specific extension: bearer rotation
+        (`_zeroclaw_repair_after_start`) also MUST NOT run, so
+        `hosts.json.gateway.auth` doesn't desync from the daemon
+        (#437 stale-bearer regression guard, #836 S9/W2)."""
+        self._wire_sync_agent_canonical_stubs(monkeypatch)
+
+        restart_called: list[bool] = []
+        repair_called: list[bool] = []
+
+        def boom_install(*_a, **_kw):
+            raise CanonicalSyncError(
+                "slack-mcp-server install failed for 'alpha': "
+                "get_url: checksum mismatch"
+            )
+
+        def spy_restart(*_a, **_kw):
+            restart_called.append(True)
+
+        def spy_repair(*_a, **_kw):
+            repair_called.append(True)
+            return (True, None)
+
+        monkeypatch.setattr(lc, "_zeroclaw_install_slack_mcp", boom_install)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle._zeroclaw_repair_after_start", spy_repair
+        )
+
+        with pytest.raises(
+            CanonicalSyncError, match=r"slack-mcp-server install failed"
+        ):
+            sync_agent_canonical("alpha", verify=False)
+
+        assert restart_called == []
+        assert repair_called == []

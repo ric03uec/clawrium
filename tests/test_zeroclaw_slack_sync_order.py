@@ -200,10 +200,22 @@ def test_slack_success_fires_repair_exactly_once(
     # No files_written path: diff returns [], so restart short-circuits
     # to the zeroclaw "force restart for bearer rotation" branch —
     # exactly the code path we want to exercise.
+    #
+    # #851: `_zeroclaw_install_slack_mcp` runs inside
+    # `sync_agent_canonical` on the zeroclaw branch whenever a
+    # `slack-*` integration is attached. In this positive-control
+    # test the attached integration triggers the helper; stub it
+    # with a no-op so the assertion stays focused on repair-call
+    # count (the S9/W2 sync-ordering invariant) instead of stubbing
+    # the underlying SSH plumbing again.
     with (
         patch(
             "clawrium.core.workspace_sync.push_workspace_phase",
             return_value=_fake_push_success(),
+        ),
+        patch(
+            "clawrium.core.lifecycle_canonical._zeroclaw_install_slack_mcp",
+            lambda *_a, **_kw: None,
         ),
         patch(
             "clawrium.core.lifecycle._zeroclaw_repair_after_start",
