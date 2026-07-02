@@ -964,9 +964,17 @@ def render_hermes(
     darwin hermes and the daemon silently fails to spawn the subprocess.
     """
     _validate_agent_name(inputs.agent_name)
-    # Centralized: mirrors `core.playbook_resolver.home_root_for`. Kept
-    # local (rather than imported) to avoid a cycle between core.render
-    # and core.playbook_resolver during test collection.
+    # #834 (ATX iter-2): validate os_family up front. Mirrors
+    # `core.playbook_resolver.home_root_for`'s contract (kept local
+    # rather than imported to avoid a cycle between core.render and
+    # core.playbook_resolver at test-collection time). Without this
+    # guard, any typo (`"Darwin"`, `"macos"`, `"osx"`) silently falls
+    # through to `/home` — reopening B1 by another name.
+    if os_family not in ("linux", "darwin"):
+        raise AgentConfigError(
+            f"render_hermes: unsupported os_family {os_family!r}. "
+            f"Supported: ['darwin', 'linux']"
+        )
     home_root = "/Users" if os_family == "darwin" else "/home"
 
     ptype = inputs.provider.type

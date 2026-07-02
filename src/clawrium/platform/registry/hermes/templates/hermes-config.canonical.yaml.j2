@@ -278,8 +278,13 @@ mcp_servers:
 {% else %}
 {# Defensive: Python view-builder is the source of truth for `entry.auth`
    ('user' or 'cookie'). If a future refactor drifts the vocabulary, this
-   branch renders a broken YAML that YAML-loads to `env: {}` — a loud
-   downstream failure rather than a silent last-write-wins mistake. #}
+   branch emits a fixed sentinel key with `entry.auth` as its VALUE
+   (value-only — NEVER interpolate `entry.auth` into the YAML KEY
+   position; the value goes through the `yq` filter, but the key does
+   not). The daemon reads the sentinel as an unknown env var and skips
+   it, so the Slack MCP subprocess starts without any auth token and
+   fails-fast at the first API call. That is much louder than the
+   silent last-write-wins behavior a stray `xoxc: ...` would produce. #}
       _unknown_slack_auth_mode: {{ entry.auth | yq }}
 {% endif %}
 {% endfor %}

@@ -5430,6 +5430,58 @@ def test_hermes_slack_cookie_missing_xoxd_raises():
         render_hermes(inputs)
 
 
+def test_render_hermes_rejects_unknown_os_family():
+    """#834 (ATX iter-2): render_hermes validates os_family against
+    {'linux', 'darwin'} and raises on typos. Without this, `"Darwin"`,
+    `"macos"`, `"osx"`, or any typo silently falls through to `/home/`
+    prefix on darwin — reopening B1 by another name."""
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(),
+    )
+    for bad in ("Darwin", "macos", "osx", "MacOS", "", "unknown"):
+        with pytest.raises(AgentConfigError, match="unsupported os_family"):
+            render_hermes(inputs, os_family=bad)
+
+
+def test_render_hermes_home_root_matches_playbook_resolver():
+    """#834 (ATX iter-2 suggestion): the render.py home_root logic is a
+    manual copy of `core.playbook_resolver.home_root_for`. Assert both
+    resolve identically for every supported os_family so silent drift
+    on a future OS-family addition is caught."""
+    from clawrium.core.playbook_resolver import home_root_for
+
+    base = _baseline_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="slack-work",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
+            ),
+        ),
+    )
+    for os_family in ("linux", "darwin"):
+        yaml = render_hermes(inputs, os_family=os_family).files[
+            ".hermes/config.yaml"
+        ]
+        # home_root_for returns `/home` or `/Users`; the render must
+        # emit the same prefix on the mcp_servers.*.command line.
+        expected = f'{home_root_for(os_family)}/alpha/.local/bin/slack-mcp-server'
+        assert expected in yaml, (
+            f"render_hermes({os_family!r}) drifted from home_root_for: "
+            f"expected {expected!r} in rendered YAML"
+        )
+
+
 def test_supported_integrations_for_agent_type():
     """#834 (B8): the helper backs the CLI attach gate. hermes must
     include both slack types; zeroclaw/openclaw must NOT (their support

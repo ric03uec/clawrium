@@ -1,16 +1,16 @@
 {
   "session_id": null,
   "transport": "cli",
-  "commit_sha": "ab39c83",
-  "iteration": 1,
+  "commit_sha": "6062c98",
+  "iteration": 2,
   "last_rating": 3,
-  "last_blockers": [
-    "B1: hermes-config template hardcodes /home/ but macOS installs to /Users/",
-    "B2: cross-type slug collision (atlassian vs slack) undetected",
-    "B3: _HERMES_MCP_SLACK_VERSION is dead code (never threaded into template)",
-    "B4: test_attach_slack_cookie_to_openclaw_rejected has weak assertion"
+  "last_blockers": [],
+  "last_warnings": [
+    "os_family typo not validated in render_hermes (would silently fall to Linux paths)",
+    "atlassian branch lacks _clean_secret parity (out-of-scope per security-reviewer)",
+    "template comment about `env: {}` inaccurate"
   ],
   "started_at": "2026-07-01T23:20:02Z",
-  "updated_at": "2026-07-01T23:55:00Z",
-  "notes": "Iter 1 rating 3/5, 4 blockers. Fixing all four in iter 2."
+  "updated_at": "2026-07-02T00:15:00Z",
+  "notes": "Iter 2: 0 blockers, 2 warnings + 3 suggestions, rating 3/5. Iter 3 fixes both warnings + template comment; atlassian _clean_secret parity deferred as Callout (out-of-scope per security-reviewer)."
 }

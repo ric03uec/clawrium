@@ -2662,7 +2662,16 @@ def configure_agent(
             # produces a rendered ~/.hermes/config.yaml on darwin that
             # points at a nonexistent `slack-mcp-server` path — daemon
             # silently fails to spawn.
-            os_family = (host.get("os_family") if host else None) or "linux"
+            #
+            # #834 (ATX iter-2): normalize before passing. render_hermes
+            # validates against {'linux', 'darwin'} and raises on typos,
+            # but hosts.json may carry pre-normalization values from
+            # older host records or third-party importers. Fold the
+            # normalization here rather than reopen B1 by another name.
+            raw_os_family = (host.get("os_family") if host else None) or "linux"
+            os_family = str(raw_os_family).strip().lower()
+            if os_family in ("mac", "macos", "osx"):
+                os_family = "darwin"
             rendered = render_hermes(render_inputs, os_family=os_family)
             prerendered_files[".hermes/.env"] = rendered.files[".hermes/.env"]
             prerendered_files[".hermes/config.yaml"] = (
