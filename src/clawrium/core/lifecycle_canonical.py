@@ -1459,6 +1459,163 @@ def _openclaw_install_plugins(
     return tuple(installed), tuple(skipped)
 
 
+# #834: hermes MCP subprocess installers.
+#
+# Follows the architectural pattern documented in AGENTS.md
+# §"Integration Binary Install": integration binaries live in
+# dedicated single-purpose runbooks and install at sync time when the
+# integration is attached — not baked into `configure.yaml`, not
+# baked into `install.yaml`. Same design as `_openclaw_install_plugins`
+# above (#755). Generalizes as more MCP-backed hermes integrations
+# land: one helper + one runbook per integration binary.
+#
+# Idempotency: the runbook uses `get_url` with `checksum:` so an
+# unchanged version pin short-circuits in ~10ms via SHA256 re-verify.
+# No sentinel file, no version stamp needed on our side.
+_HERMES_SLACK_TYPES = frozenset({"slack-user", "slack-cookie"})
+
+
+def _hermes_install_slack_mcp(
+    agent_name: str,
+    hostname: str,
+    host: dict,
+    inputs,
+    *,
+    on_event: Callable[[str, str], None] | None = None,
+    timeout: int = 180,
+) -> None:
+    """Install slack-mcp-server on `hostname` via the dedicated runbook.
+
+    Gated on: at least one `slack-user` or `slack-cookie` integration
+    in `inputs.integrations`. When no slack integration is attached,
+    this is a fast no-op — no SSH, no ansible-runner spawn.
+
+    Dispatches per `host.get("os_family")`: darwin picks the
+    `install_slack_mcp_macos.yaml` sibling. All other values (including
+    the empty / missing case) fall through to the Linux runbook, which
+    is safe because Linux is the fleet default and the runbook itself
+    guards with `ansible_os_family == "Darwin"` at task-0.
+
+    Raises `CanonicalSyncError` on any playbook failure so
+    `sync_agent_canonical` short-circuits before `_restart_unit`. The
+    daemon is never restarted with a rendered config pointing at a
+    binary that failed to land.
+    """
+    if not any(i.type in _HERMES_SLACK_TYPES for i in inputs.integrations):
+        return
+
+    # Lazy import to sidestep the lifecycle ↔ lifecycle_canonical cycle
+    # that a top-level `from clawrium.core.lifecycle import ...` would
+    # trigger during module init on Python 3.13+.
+    from clawrium.core.lifecycle import _run_lifecycle_playbook
+
+    os_family = str(host.get("os_family") or "linux").strip().lower()
+    if os_family in ("mac", "macos", "osx"):
+        os_family = "darwin"
+    operation = (
+        "install_slack_mcp_macos" if os_family == "darwin" else "install_slack_mcp"
+    )
+
+    if on_event is not None:
+        on_event(
+            "slack_mcp_install",
+            f"installing slack-mcp-server for {agent_name} via {operation}.yaml",
+        )
+
+    success, err = _run_lifecycle_playbook(
+        agent_type="hermes",
+        agent_name=agent_name,
+        hostname=hostname,
+        operation=operation,
+        host=host,
+        timeout=timeout,
+    )
+    if not success:
+        # The playbook is single-purpose so any failure is a real
+        # install error (arch guard, download failure, checksum
+        # mismatch, permissions). Preserve the ansible-runner
+        # summary — it names the failed task.
+        raise CanonicalSyncError(
+            f"slack-mcp-server install failed for {agent_name!r}: {err}"
+        )
+
+
+# #835: openclaw slack MCP subprocess installer. Sibling of the hermes
+# helper directly above — same binary, same version pin, same runbook
+# shape; separate helper because `_run_lifecycle_playbook` resolves the
+# runbook path under `platform/registry/<agent_type>/playbooks/`, so a
+# hermes-scoped call cannot reach `openclaw/playbooks/install_slack_mcp.yaml`.
+# The one-runbook-per-(agent_type, binary) contract is Rule 1 of the
+# "Integration Binary Install" architectural pattern in AGENTS.md.
+_OPENCLAW_SLACK_TYPES = frozenset({"slack-user", "slack-cookie"})
+
+
+def _openclaw_install_slack_mcp(
+    agent_name: str,
+    hostname: str,
+    host: dict,
+    inputs,
+    *,
+    on_event: Callable[[str, str], None] | None = None,
+    timeout: int = 180,
+) -> None:
+    """Install slack-mcp-server on `hostname` via the openclaw runbook.
+
+    Structural mirror of `_hermes_install_slack_mcp` above — the only
+    difference is the `agent_type="openclaw"` argument threaded into
+    `_run_lifecycle_playbook`, which routes the runbook lookup to
+    `platform/registry/openclaw/playbooks/install_slack_mcp[_macos].yaml`.
+
+    Gated on: at least one `slack-user` or `slack-cookie` integration
+    in `inputs.integrations`. When no slack integration is attached,
+    this is a fast no-op — no SSH, no ansible-runner spawn.
+
+    Dispatches per `host.get("os_family")`: darwin picks the
+    `install_slack_mcp_macos.yaml` sibling. All other values (including
+    the empty / missing case) fall through to the Linux runbook, which
+    is safe because Linux is the fleet default and the runbook itself
+    guards with `ansible_os_family == "Darwin"` at task-0.
+
+    Raises `CanonicalSyncError` on any playbook failure so
+    `sync_agent_canonical` short-circuits before `_restart_unit`. The
+    daemon is never restarted with a rendered openclaw.json pointing at
+    a `mcp.servers.<slug>.command` path whose binary failed to land.
+    """
+    if not any(i.type in _OPENCLAW_SLACK_TYPES for i in inputs.integrations):
+        return
+
+    # Lazy import to sidestep the lifecycle ↔ lifecycle_canonical cycle
+    # (same rationale as the hermes helper above).
+    from clawrium.core.lifecycle import _run_lifecycle_playbook
+
+    os_family = str(host.get("os_family") or "linux").strip().lower()
+    if os_family in ("mac", "macos", "osx"):
+        os_family = "darwin"
+    operation = (
+        "install_slack_mcp_macos" if os_family == "darwin" else "install_slack_mcp"
+    )
+
+    if on_event is not None:
+        on_event(
+            "slack_mcp_install",
+            f"installing slack-mcp-server for {agent_name} via openclaw/{operation}.yaml",
+        )
+
+    success, err = _run_lifecycle_playbook(
+        agent_type="openclaw",
+        agent_name=agent_name,
+        hostname=hostname,
+        operation=operation,
+        host=host,
+        timeout=timeout,
+    )
+    if not success:
+        # Single-purpose runbook — any failure is a real install error.
+        raise CanonicalSyncError(
+            f"slack-mcp-server install failed for {agent_name!r}: {err}"
+        )
+
+
 def sync_agent_canonical(
     agent_name: str,
     *,
@@ -1853,6 +2010,37 @@ def sync_agent_canonical(
                 agent_name,
                 os_family=host.get("os_family", "linux"),
                 inputs=inputs,
+                on_event=on_event,
+            )
+
+        # #834: hermes integration-binary install phase. Same slot as
+        # openclaw plugins above — runs BEFORE the file-write loop so
+        # a freshly-rendered config.yaml AND a freshly-installed binary
+        # land in a single daemon restart. Failure raises
+        # `CanonicalSyncError` and short-circuits before
+        # `_restart_unit`; the daemon is never restarted with a config
+        # pointing at a binary that failed to install. Fast no-op when
+        # no slack integration is attached.
+        if inputs.agent_type == "hermes":
+            _hermes_install_slack_mcp(
+                agent_name,
+                hostname,
+                host,
+                inputs,
+                on_event=on_event,
+            )
+
+        # #835: openclaw slack-mcp-server install. Same slot + same
+        # short-circuit contract as the hermes helper above; separate
+        # entry-point because the runbook lookup is agent-type-scoped
+        # (`platform/registry/openclaw/playbooks/install_slack_mcp*.yaml`).
+        # Fast no-op when no slack integration is attached.
+        if inputs.agent_type == "openclaw":
+            _openclaw_install_slack_mcp(
+                agent_name,
+                hostname,
+                host,
+                inputs,
                 on_event=on_event,
             )
 

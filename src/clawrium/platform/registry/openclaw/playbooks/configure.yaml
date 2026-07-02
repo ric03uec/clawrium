@@ -1,22 +1,6 @@
 ---
 - hosts: all
   become: yes
-  vars:
-    # #835: Precomputed convenience flag — true iff this run has at
-    # least one slack-* integration attached. Extravars carrying the
-    # release pin (`mcp_slack_version`, `mcp_slack_arch_map`,
-    # `mcp_slack_sha256_map`) are threaded by
-    # `clawrium.core.lifecycle.configure_agent`; single Python source
-    # of truth is `clawrium.core.playbook_resolver`. The install block
-    # further down is a byte-parity mirror of the hermes counterpart
-    # so a pin bump propagates through the resolver alone.
-    slack_integration_assigned: >-
-      {{
-        integrations is defined
-        and (integrations | dict2items
-              | selectattr('value.type', 'in', ['slack-user', 'slack-cookie'])
-              | list | length > 0)
-      }}
   tasks:
     - name: Verify gateway token exists in config (strict mode only)
       ansible.builtin.fail:
@@ -173,60 +157,11 @@
       no_log: true
       notify: Restart openclaw service
 
-    # #835: install korotovsky/slack-mcp-server (single Go binary) for
-    # slack-* integrations. Structurally mirrors the hermes install
-    # block at hermes/playbooks/configure.yaml (`mcp_slack_*` extravars
-    # threaded from `clawrium.core.playbook_resolver` — single Python
-    # source of truth). Adds a `notify: Restart openclaw service` on
-    # the get_url task that hermes does NOT have — hermes' restart
-    # trigger fires from the config.yaml render + explicit
-    # `flush_handlers`, whereas openclaw's restart trigger sits on
-    # openclaw.json writes and the notify here is a belt-and-suspenders
-    # nudge in case the operator toggles slack without touching
-    # openclaw.json otherwise. Guarded by `slack_integration_assigned`
-    # so openclaw agents without slack pay no cost.
-    - name: Fail early if host architecture is unsupported by the slack-mcp arch map
-      ansible.builtin.fail:
-        msg: >-
-          slack-mcp-server install: ansible_architecture='{{ ansible_architecture }}'
-          is not mapped to a korotovsky/slack-mcp-server release asset
-          (upstream {{ mcp_slack_version }} ships linux amd64/arm64 + darwin
-          amd64/arm64 only — no armv7l). Supported here: {{ mcp_slack_arch_map.keys() | list | join(', ') }}.
-          See https://github.com/korotovsky/slack-mcp-server/releases/tag/{{ mcp_slack_version }}.
-      when:
-        - slack_integration_assigned | bool
-        - ansible_architecture not in mcp_slack_arch_map
-
-    - name: Ensure ~/.local/bin exists for slack-mcp-server binary
-      ansible.builtin.file:
-        path: "/home/{{ agent_name }}/.local/bin"
-        state: directory
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
-        mode: '0755'
-      become: true
-      no_log: true
-      when:
-        - slack_integration_assigned | bool
-
-    - name: Download pinned slack-mcp-server binary
-      ansible.builtin.get_url:
-        url: "https://github.com/korotovsky/slack-mcp-server/releases/download/{{ mcp_slack_version }}/slack-mcp-server-{{ mcp_slack_arch_map[ansible_architecture] }}"
-        dest: "/home/{{ agent_name }}/.local/bin/slack-mcp-server"
-        checksum: "sha256:{{ mcp_slack_sha256_map[ansible_architecture] }}"
-        validate_certs: yes
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
-        mode: '0755'
-      become: true
-      # #835 (ATX iter-1 W5): parity with the openclaw.json copy task
-      # posture — Ansible's default get_url echo would leak `dest` +
-      # `agent_name` on failure into the CLI stream. no_log matches
-      # the rest of the play.
-      no_log: true
-      when:
-        - slack_integration_assigned | bool
-      notify: Restart openclaw service
+    # #835: slack MCP binary install lives in a dedicated sync-time
+    # runbook (`install_slack_mcp.yaml` + `_macos` sibling) invoked
+    # from `core.lifecycle_canonical._openclaw_install_slack_mcp`.
+    # See AGENTS.md §"Integration Binary Install" — configure.yaml
+    # is not the entry point the modern kubectl-style CLI takes.
 
     - name: Write exec approvals policy from template
       ansible.builtin.template:

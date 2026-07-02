@@ -1,29 +1,56 @@
 """Tests for the slack-mcp-server per-arch install matrix.
 
-#835 (B9): the (arch → asset filename) and (arch → sha256) maps were
-lifted out of the hermes `configure.yaml` / `configure_macos.yaml`
-`vars:` blocks and now live in
-`clawrium.core.playbook_resolver.mcp_slack_extravars`. The extravars
-are threaded into BOTH hermes and openclaw configure playbooks by
-`lifecycle.configure_agent`, so a single Python location owns the
-pins for four YAML files. This test suite pins the resolver contract
-directly — any drift between hermes and openclaw ships as one
-resolver change or fails these tests.
+#834 (B6/W3): the runbook downloads the korotovsky/slack-mcp-server
+binary via `get_url` with an sha256 checksum. The (arch → asset filename)
+and (arch → sha256) maps live in the runbook `vars:` block. A drift
+between the two, or a missing arch that ansible would happily leave
+without a checksum guard, would silently install a mismatched binary
+(or fail loudly at first sync — this test catches the drift up
+front).
 
-macOS variants keep the divergent ansible arch naming (`arm64` vs
-Linux's `aarch64`) — that's a fact about how ansible reports the
-darwin architecture and cannot be normalized away.
+Runbook layout follows AGENTS.md §"Integration Binary Install":
+`install_slack_mcp.yaml` (Linux) + `install_slack_mcp_macos.yaml`
+(darwin, divergent arch naming — `arm64` vs Linux's `aarch64`).
+
+#835 (Phase 2): openclaw ships parallel runbooks with byte-identical
+pins so both agent types install the same binary at the same version.
+Rule 1 (one runbook per (agent_type, binary)) puts them at
+`openclaw/playbooks/install_slack_mcp*.yaml`. Rule 8 requires a
+per-runbook lockstep assertion against the Python version constant;
+this file exercises all four runbook files (hermes+openclaw, Linux+darwin).
 """
 
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
 
-from clawrium.core.playbook_resolver import mcp_slack_extravars
+import pytest
+import yaml
+
+# All four runbook files covered by the pin/arch-map contract. Add a
+# fifth entry here (e.g. zeroclaw) when Phase 3 lands.
+_AGENT_TYPES = ("hermes", "openclaw")
+
+
+def _playbook_vars(name: str, agent_type: str = "hermes") -> dict:
+    path = (
+        Path(__file__).parent.parent.parent
+        / "src"
+        / "clawrium"
+        / "platform"
+        / "registry"
+        / agent_type
+        / "playbooks"
+        / name
+    )
+    data = yaml.safe_load(path.read_text())
+    # ansible playbooks are top-level lists of plays; `vars:` sits on
+    # the single play we author.
+    return data[0]["vars"]
 
 
 # ---------------------------------------------------------------------------
-# Linux
+# Linux (install_slack_mcp.yaml)
 # ---------------------------------------------------------------------------
 
 
@@ -38,44 +65,51 @@ LINUX_EXPECTED_SHA256 = {
 }
 
 
-def test_linux_resolver_pins_mcp_slack_version() -> None:
-    vs = mcp_slack_extravars("linux")
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+def test_linux_playbook_pins_mcp_slack_version(agent_type: str) -> None:
+    vs = _playbook_vars("install_slack_mcp.yaml", agent_type)
     assert vs["mcp_slack_version"] == "v1.3.0"
 
 
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
 @pytest.mark.parametrize(("arch", "expected_asset_suffix"), LINUX_ARCH_TARGETS)
-def test_linux_arch_map_covers_arch(arch: str, expected_asset_suffix: str) -> None:
-    vs = mcp_slack_extravars("linux")
+def test_linux_arch_map_covers_arch(
+    agent_type: str, arch: str, expected_asset_suffix: str
+) -> None:
+    vs = _playbook_vars("install_slack_mcp.yaml", agent_type)
     assert vs["mcp_slack_arch_map"][arch] == expected_asset_suffix
 
 
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
 @pytest.mark.parametrize("arch", ["x86_64", "aarch64"])
-def test_linux_sha256_map_covers_arch(arch: str) -> None:
-    vs = mcp_slack_extravars("linux")
+def test_linux_sha256_map_covers_arch(agent_type: str, arch: str) -> None:
+    vs = _playbook_vars("install_slack_mcp.yaml", agent_type)
     assert vs["mcp_slack_sha256_map"][arch] == LINUX_EXPECTED_SHA256[arch]
 
 
-def test_linux_maps_have_identical_keys() -> None:
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+def test_linux_maps_have_identical_keys(agent_type: str) -> None:
     """The arch and sha256 maps must have the exact same key set —
     a mismatch would let a supported arch slip past the checksum guard."""
-    vs = mcp_slack_extravars("linux")
+    vs = _playbook_vars("install_slack_mcp.yaml", agent_type)
     assert set(vs["mcp_slack_arch_map"].keys()) == set(
         vs["mcp_slack_sha256_map"].keys()
     )
 
 
-def test_linux_armv7l_intentionally_absent() -> None:
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+def test_linux_armv7l_intentionally_absent(agent_type: str) -> None:
     """korotovsky/slack-mcp-server v1.3.0 does NOT ship an armv7l asset.
     The playbook's arch guard MUST fail-fast rather than silently skip
     slack setup on armv7l zeroclaw hosts. Regression signal so a
     future addition of armv7 shipping upstream also lands here."""
-    vs = mcp_slack_extravars("linux")
+    vs = _playbook_vars("install_slack_mcp.yaml", agent_type)
     assert "armv7l" not in vs["mcp_slack_arch_map"]
     assert "armv7l" not in vs["mcp_slack_sha256_map"]
 
 
 # ---------------------------------------------------------------------------
-# Darwin
+# Darwin (install_slack_mcp_macos.yaml)
 # ---------------------------------------------------------------------------
 
 
@@ -90,111 +124,161 @@ DARWIN_EXPECTED_SHA256 = {
 }
 
 
-def test_darwin_resolver_pins_mcp_slack_version() -> None:
-    vs = mcp_slack_extravars("darwin")
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+def test_darwin_playbook_pins_mcp_slack_version(agent_type: str) -> None:
+    vs = _playbook_vars("install_slack_mcp_macos.yaml", agent_type)
     assert vs["mcp_slack_version"] == "v1.3.0"
 
 
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
 @pytest.mark.parametrize(("arch", "expected_asset_suffix"), DARWIN_ARCH_TARGETS)
-def test_darwin_arch_map_covers_arch(arch: str, expected_asset_suffix: str) -> None:
-    vs = mcp_slack_extravars("darwin")
+def test_darwin_arch_map_covers_arch(
+    agent_type: str, arch: str, expected_asset_suffix: str
+) -> None:
+    vs = _playbook_vars("install_slack_mcp_macos.yaml", agent_type)
     assert vs["mcp_slack_arch_map"][arch] == expected_asset_suffix
 
 
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
 @pytest.mark.parametrize("arch", ["arm64", "x86_64"])
-def test_darwin_sha256_map_covers_arch(arch: str) -> None:
-    vs = mcp_slack_extravars("darwin")
+def test_darwin_sha256_map_covers_arch(agent_type: str, arch: str) -> None:
+    vs = _playbook_vars("install_slack_mcp_macos.yaml", agent_type)
     assert vs["mcp_slack_sha256_map"][arch] == DARWIN_EXPECTED_SHA256[arch]
 
 
-def test_darwin_maps_have_identical_keys() -> None:
-    vs = mcp_slack_extravars("darwin")
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+def test_darwin_maps_have_identical_keys(agent_type: str) -> None:
+    vs = _playbook_vars("install_slack_mcp_macos.yaml", agent_type)
     assert set(vs["mcp_slack_arch_map"].keys()) == set(
         vs["mcp_slack_sha256_map"].keys()
     )
 
 
 # ---------------------------------------------------------------------------
-# Cross-OS lockstep + guardrails
+# Cross-file version lockstep
 # ---------------------------------------------------------------------------
 
 
-def test_linux_and_darwin_pin_same_version() -> None:
-    """Both OS branches must reference the same upstream release, else a
-    partially-migrated pin bump silently ships a mixed fleet."""
-    linux = mcp_slack_extravars("linux")
-    darwin = mcp_slack_extravars("darwin")
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+def test_linux_and_darwin_pin_same_version(agent_type: str) -> None:
+    """Per agent type, both runbooks must reference the same upstream
+    release, else a partially-migrated pin bump silently ships a mixed
+    fleet."""
+    linux = _playbook_vars("install_slack_mcp.yaml", agent_type)
+    darwin = _playbook_vars("install_slack_mcp_macos.yaml", agent_type)
     assert linux["mcp_slack_version"] == darwin["mcp_slack_version"]
 
 
-def test_render_helper_matches_resolver_pin() -> None:
-    """The render.py lazy accessor MUST resolve to the same string the
-    resolver hands to Ansible — drift here would render a Jinja comment
-    that names a version different from the one Ansible actually
-    downloaded (silent, no error surface)."""
-    from clawrium.core.render import _hermes_mcp_slack_version
-
-    linux = mcp_slack_extravars("linux")
-    assert _hermes_mcp_slack_version() == linux["mcp_slack_version"]
-
-
-def test_unsupported_os_family_raises() -> None:
-    with pytest.raises(ValueError, match="unsupported os_family"):
-        mcp_slack_extravars("windows")
+def test_hermes_and_openclaw_pin_same_version() -> None:
+    """#835 (Phase 2): hermes and openclaw share ONE upstream binary at
+    ONE version. A drift here means the two agent types on the same
+    fleet download different builds — a debugging nightmare when only
+    one agent type surfaces a bug."""
+    hermes_linux = _playbook_vars("install_slack_mcp.yaml", "hermes")
+    openclaw_linux = _playbook_vars("install_slack_mcp.yaml", "openclaw")
+    assert hermes_linux["mcp_slack_version"] == openclaw_linux["mcp_slack_version"]
 
 
-# ---------------------------------------------------------------------------
-# normalize_os_family — the shared normalization seam (#835 iter-1 W2)
-# ---------------------------------------------------------------------------
-
-
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
 @pytest.mark.parametrize(
-    ("host", "expected"),
-    [
-        (None, "linux"),
-        ({}, "linux"),
-        ({"os_family": "linux"}, "linux"),
-        ({"os_family": "Linux"}, "linux"),
-        ({"os_family": "  linux  "}, "linux"),
-        ({"os_family": "darwin"}, "darwin"),
-        ({"os_family": "Darwin"}, "darwin"),
-        ({"os_family": "mac"}, "darwin"),
-        ({"os_family": "macos"}, "darwin"),
-        ({"os_family": "macOS"}, "darwin"),
-        ({"os_family": "OSX"}, "darwin"),
-        ({"os_family": "osx"}, "darwin"),
-        ({"os_family": None}, "linux"),
-        ({"os_family": ""}, "linux"),
-    ],
+    "runbook",
+    ["install_slack_mcp.yaml", "install_slack_mcp_macos.yaml"],
 )
-def test_normalize_os_family_covers_documented_aliases(host, expected):
-    """#835 iter-1 W2 (iter-2 blocker): the normalizer is the single
-    seam consumed by `lifecycle.configure_agent`, `lifecycle_canonical`,
-    and `render_openclaw`. Any drift in the alias table would ship a
-    linux-only render on a darwin host, exactly the bug the seam was
-    extracted to prevent."""
-    from clawrium.core.playbook_resolver import normalize_os_family
+def test_render_constant_matches_playbook_pin(agent_type: str, runbook: str) -> None:
+    """`_HERMES_MCP_SLACK_VERSION` in render.py is the single Python
+    source of truth for the upstream pin — drift silently, hosts
+    silently. Lockstep is asserted against EACH runbook directly (per
+    AGENTS.md §"Integration Binary Install" Rule 8): a transitive
+    assertion via the separate Linux ↔ darwin equality test would
+    silently fail to catch a darwin-only regression if the intermediate
+    test were renamed or skipped.
 
-    assert normalize_os_family(host) == expected
+    #835 note: the constant is named after hermes historically, but it
+    is now the shared pin for BOTH hermes and openclaw slack-mcp-server
+    installs. A future rename to `_MCP_SLACK_VERSION` is out of scope
+    for Phase 2; the openclaw runbook references the same value via
+    this test's direct assertion."""
+    from clawrium.core.render import _HERMES_MCP_SLACK_VERSION
 
-
-def test_normalize_os_family_passes_exotic_values_through_unchanged():
-    """Values outside {linux, darwin} + the mac aliases MUST pass
-    through unchanged so downstream per-API validators (`render_hermes`,
-    `render_openclaw`, `mcp_slack_extravars`) can raise with a useful
-    trace of the original value. Silently coercing to `linux` here
-    would mask the data bug."""
-    from clawrium.core.playbook_resolver import normalize_os_family
-
-    assert normalize_os_family({"os_family": "windows"}) == "windows"
-    assert normalize_os_family({"os_family": "freebsd"}) == "freebsd"
+    vs = _playbook_vars(runbook, agent_type)
+    assert _HERMES_MCP_SLACK_VERSION == vs["mcp_slack_version"]
 
 
-def test_returned_dict_is_a_copy_not_shared() -> None:
-    """The resolver must hand back a fresh dict on every call so an
-    unfortunate caller that mutates it (e.g. ansible_vars.update / pop)
-    cannot poison the next configure run's extravars."""
-    a = mcp_slack_extravars("linux")
-    a["mcp_slack_sha256_map"]["x86_64"] = "tampered"
-    b = mcp_slack_extravars("linux")
-    assert b["mcp_slack_sha256_map"]["x86_64"] == LINUX_EXPECTED_SHA256["x86_64"]
+# ---------------------------------------------------------------------------
+# AGENTS.md §"Integration Binary Install" Rule 2 regression guard.
+# ---------------------------------------------------------------------------
+
+
+def _runbook_tasks(runbook: str, agent_type: str = "hermes") -> list[dict]:
+    """Load the runbook's task list via YAML parse — lets us assert
+    structural properties (task-0 position, task action, `when:`
+    clauses) instead of hoping a line-scan catches every regression."""
+    path = (
+        Path(__file__).parent.parent.parent
+        / "src"
+        / "clawrium"
+        / "platform"
+        / "registry"
+        / agent_type
+        / "playbooks"
+        / runbook
+    )
+    data = yaml.safe_load(path.read_text())
+    return data[0]["tasks"]
+
+
+@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+@pytest.mark.parametrize(
+    "runbook",
+    ["install_slack_mcp.yaml", "install_slack_mcp_macos.yaml"],
+)
+def test_runbook_has_single_task0_dispatcher_guard(agent_type: str, runbook: str) -> None:
+    """Rule 2 narrow exception: each runbook is permitted exactly ONE
+    `when: ansible_os_family` clause, and it MUST be at task-0
+    position, and it MUST fire only `ansible.builtin.fail` (not
+    conditionally install anything — that would reintroduce OS
+    branching inside install tasks).
+
+    ATX iter-4 W1 introduced a line-scan version of this test; iter-5
+    W3 upgraded to YAML parsing so all three sub-invariants (single
+    guard, task-0 position, `fail:` action) are enforced structurally.
+    """
+    tasks = _runbook_tasks(runbook, agent_type)
+
+    # Sub-invariant 1: exactly ONE task has `when: ansible_os_family`.
+    guarded = [
+        t
+        for t in tasks
+        if "ansible_os_family" in str(t.get("when", ""))
+    ]
+    assert len(guarded) == 1, (
+        f"{runbook}: expected exactly ONE task with a "
+        f"`when: ansible_os_family` clause (task-0 dispatcher-contract "
+        f"guard); found {len(guarded)}. Rule 2 bans OS branching "
+        f"inside install tasks."
+    )
+
+    # Sub-invariant 2: it MUST be task-0. Any earlier install task
+    # (mkdir, download, etc.) would run on the wrong-OS host before
+    # the guard tripped.
+    assert tasks[0] is guarded[0], (
+        f"{runbook}: dispatcher-contract guard must be task-0 "
+        f"(runs before any install work). Currently at task "
+        f"{tasks.index(guarded[0])}. Move to the top of `tasks:`."
+    )
+
+    # Sub-invariant 3: the guarded task MUST fire `ansible.builtin.fail`
+    # only (never `get_url:`, `file:`, etc.). A guard on an install
+    # task is exactly the OS-branching-inside-install-task pattern
+    # Rule 2 bans.
+    guard_action_keys = [
+        k
+        for k in tasks[0].keys()
+        if k not in {"name", "when", "become", "become_user", "no_log"}
+    ]
+    assert guard_action_keys == ["ansible.builtin.fail"], (
+        f"{runbook}: dispatcher-contract guard at task-0 must ONLY "
+        f"call `ansible.builtin.fail` — found action keys "
+        f"{guard_action_keys!r}. A guard on an install task would "
+        f"reintroduce OS branching inside install tasks (Rule 2)."
+    )

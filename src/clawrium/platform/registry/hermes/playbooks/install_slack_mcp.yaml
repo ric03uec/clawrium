@@ -1,0 +1,81 @@
+---
+# Single-purpose runbook: install korotovsky/slack-mcp-server on a
+# Linux hermes host. Invoked at sync time by
+# `core.lifecycle_canonical._hermes_install_slack_mcp` whenever a
+# `slack-user` or `slack-cookie` integration is attached to a hermes
+# agent. Not called from `configure.yaml`, not called from
+# `install.yaml`.
+#
+# Architectural pattern: see AGENTS.md §"Integration Binary Install".
+# Companion runbook: `install_slack_mcp_macos.yaml` (darwin).
+#
+# Idempotency: `get_url` with a `checksum:` short-circuits when the
+# on-host binary already matches. A version bump changes URL + hash so
+# reinstall auto-fires. No sentinel file needed.
+#
+# Version pin lockstep: `mcp_slack_version` MUST equal
+# `_HERMES_MCP_SLACK_VERSION` in `src/clawrium/core/render.py`. The
+# equality is asserted by `tests/platform/test_slack_asset_map.py`.
+- hosts: all
+  become: yes
+  vars:
+    mcp_slack_version: "v1.3.0"
+    # Ansible's `ansible_architecture` → upstream asset suffix. armv7l
+    # is not shipped by korotovsky as of v1.3.0; the arch guard below
+    # fails fast with a link to the release page rather than silently
+    # skipping. Phase 3 (zeroclaw armv7l) documents the coverage gap.
+    mcp_slack_arch_map:
+      x86_64: "linux-amd64"
+      aarch64: "linux-arm64"
+    mcp_slack_sha256_map:
+      x86_64: "d1525962e9b9dbfdd2eaf48d0a81ca1eca7d8f1862b8d34931b812c850b3e568"
+      aarch64: "a307a48d16c2261346bdc257274cdcdb8b2027c867dc971b41d52cef36472c88"
+  tasks:
+    - name: Refuse to run on non-Linux hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: install_slack_mcp.yaml invoked against non-Linux host
+      when: ansible_os_family == "Darwin"
+
+    - name: Fail early if host architecture is unsupported
+      ansible.builtin.fail:
+        msg: >-
+          slack-mcp-server install: ansible_architecture='{{ ansible_architecture }}'
+          is not mapped to a korotovsky/slack-mcp-server release asset.
+          Upstream {{ mcp_slack_version }} ships linux amd64/arm64 +
+          darwin amd64/arm64 only — no armv7l. Supported here:
+          {{ mcp_slack_arch_map.keys() | list | join(', ') }}. See
+          https://github.com/korotovsky/slack-mcp-server/releases/tag/{{ mcp_slack_version }}.
+      when: ansible_architecture not in mcp_slack_arch_map
+
+    - name: Ensure ~/.local/bin exists for slack-mcp-server binary
+      ansible.builtin.file:
+        path: "/home/{{ agent_name }}/.local/bin"
+        state: directory
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: '0755'
+
+    # `get_url` with `checksum:` is the idempotency contract: on a
+    # repeat sync with an unchanged version pin, this task hashes the
+    # existing binary, notices the sha256 matches, and short-circuits
+    # in ~10ms. A version bump changes URL + hash → auto-fires
+    # reinstall via mismatch. No sentinel file needed.
+    - name: Download pinned slack-mcp-server binary
+      ansible.builtin.get_url:
+        url: "https://github.com/korotovsky/slack-mcp-server/releases/download/{{ mcp_slack_version }}/slack-mcp-server-{{ mcp_slack_arch_map[ansible_architecture] }}"
+        dest: "/home/{{ agent_name }}/.local/bin/slack-mcp-server"
+        checksum: "sha256:{{ mcp_slack_sha256_map[ansible_architecture] }}"
+        validate_certs: yes
+        owner: "{{ agent_name }}"
+        group: "{{ agent_name }}"
+        mode: '0755'
+        # ATX iter-4 W5 → iter-5 W2: 120s sits below the
+        # `_hermes_install_slack_mcp` ansible-runner budget of 180s
+        # (see lifecycle_canonical.py). The 60s gap lets get_url fire
+        # its own clearer timeout ("Timeout when reading X seconds")
+        # before the runner trips its generic `operation timed out`,
+        # so the operator sees the actual failure mode. A tighter
+        # get_url timeout would spuriously fail on slow links (home
+        # NAT, aarch64 SBCs over cellular) while the runner still
+        # had budget.
+        timeout: 120
