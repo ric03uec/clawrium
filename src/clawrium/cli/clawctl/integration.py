@@ -41,6 +41,7 @@ from clawrium.core.integrations import (
     IntegrationsFileCorruptedError,
     InvalidIntegrationNameError,
     InvalidIntegrationTypeError,
+    SLACK_INTEGRATION_TYPES,
     add_integration,
     get_credentials_for_type,
     get_integration,
@@ -299,12 +300,31 @@ def create(
     # name so the integrations.json record and the rendered mcp_servers
     # key stay in sync — otherwise the registry would advertise
     # `work_slack` while every agent config surfaces the toolset as
-    # `slack`.
-    if integration_type in ("slack-user", "slack-cookie") and name != "slack":
+    # `slack`. Shared type set (`SLACK_INTEGRATION_TYPES`) keeps this in
+    # lockstep with the lifecycle_canonical helpers so a future third
+    # slack auth variant lands here in one edit.
+    if integration_type in SLACK_INTEGRATION_TYPES and name != "slack":
+        # #846 iter-2 (ATX W1/W2 fix): operator-facing WHY + a
+        # type-specific hint that names the actual credential keys so
+        # the operator can copy-paste without cross-referencing
+        # `registry get --types`.
+        if integration_type == "slack-user":
+            hint_flags = "--credential SLACK_MCP_XOXP_TOKEN=<xoxp-token>"
+        else:  # slack-cookie
+            hint_flags = (
+                "--credential SLACK_MCP_XOXC_TOKEN=<xoxc-token> "
+                "--credential SLACK_MCP_XOXD_TOKEN=<xoxd-token>"
+            )
         emit_error(
             f"slack integrations must be named 'slack' (got {name!r}); "
-            f"the rendered MCP toolset key is fixed",
-            hint=f"clawctl integration registry create slack --type {integration_type} ...",
+            f"agent configs (hermes / openclaw / zeroclaw) always emit "
+            f"this integration's MCP toolset as 'slack', so the registry "
+            f"name must match or the attached toolset is invisible to "
+            f"the agent",
+            hint=(
+                f"clawctl integration registry create slack "
+                f"--type {integration_type} {hint_flags}"
+            ),
         )
 
     try:

@@ -43,11 +43,20 @@ __all__ = [
     "IntegrationInUseError",
     "IntegrationSingletonViolation",
     "SINGLETON_INTEGRATION_TYPES",
+    "SLACK_INTEGRATION_TYPES",
 ]
 
 # Integration types that cannot be attached more than once per agent.
 # Enforced atomically inside `add_agent_integration`'s update_host closure.
 SINGLETON_INTEGRATION_TYPES = frozenset({"git"})
+
+# #846: slack-* integration types share a pinned MCP toolset slug (`slack`)
+# and a matching CLI-time naming rule. Consumers: CLI create guard
+# (`cli/clawctl/integration.py`) and the render-layer type checks in
+# `core/render.py`. Kept here (not in `render.py` or the CLI) to avoid
+# a cross-module cycle and so any future third slack auth variant lands
+# in exactly one place.
+SLACK_INTEGRATION_TYPES = frozenset({"slack-user", "slack-cookie"})
 
 INTEGRATIONS_FILE = "integrations.json"
 

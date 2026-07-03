@@ -1500,7 +1500,10 @@ def test_hermes_atlassian_slug_collision_raises():
         ),
         api_server=base.api_server,
     )
-    with pytest.raises(AgentConfigError, match="collide on YAML key"):
+    # #846 iter-2 (ATX B2 fix): error message names the first-reserving
+    # integration by (type, name) instead of the pre-#846 generic
+    # "collide on YAML key" text. Regex tracks the new shape.
+    with pytest.raises(AgentConfigError, match="already claimed by attached"):
         render_hermes(inputs)
 
 
@@ -5422,8 +5425,23 @@ def test_hermes_slack_atlassian_cross_type_slug_collision_raises():
         ),
         api_server=base.api_server,
     )
-    with pytest.raises(AgentConfigError, match="'slack' already claimed"):
+    # #846 iter-2 (ATX B2 fix): the collision message MUST name the
+    # first-reserver by type ("atlassian") + name ("slack"), not read as
+    # a duplicate-slack-workspace error. This is the whole reason the
+    # `seen_mcp_slugs` set was promoted to a `{slug: (type, name)}`
+    # dict in the hermes view builder.
+    with pytest.raises(AgentConfigError) as exc_info:
         render_hermes(inputs)
+    msg = str(exc_info.value)
+    assert "'slack' already claimed" in msg
+    assert "atlassian" in msg, (
+        f"collision message must name the atlassian reserver so the "
+        f"operator's recovery path is clear; got: {msg!r}"
+    )
+    assert "'slack'" in msg, (
+        f"collision message must name the reserver by its integration "
+        f"name; got: {msg!r}"
+    )
 
 
 def test_hermes_slack_user_missing_xoxp_raises():

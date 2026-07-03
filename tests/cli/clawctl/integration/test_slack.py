@@ -154,7 +154,13 @@ def test_slack_user_token_not_leaked_by_describe(
 def test_create_slack_user_wrong_name_rejected(fleet_dir, stdin_not_tty) -> None:
     """#846: any name other than `slack` for a slack-user integration
     must be rejected at CLI-time so the registry record matches the
-    rendered mcp_servers key."""
+    rendered mcp_servers key. Also pins:
+      - `emit_error` exit code (1) — a silent flip to 2 would break
+        shell scripts checking `$?`.
+      - Hint text — must contain the exact `clawctl` recovery command
+        AND the type-specific credential flag names so operators can
+        copy-paste without cross-referencing `registry get --types`.
+    """
     result = runner.invoke(
         app,
         [
@@ -168,12 +174,17 @@ def test_create_slack_user_wrong_name_rejected(fleet_dir, stdin_not_tty) -> None
             "SLACK_MCP_XOXP_TOKEN=xoxp-1",
         ],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 1, result.output
     assert "must be named 'slack'" in result.output
+    assert "clawctl integration registry create slack" in result.output
+    assert "--type slack-user" in result.output
+    assert "SLACK_MCP_XOXP_TOKEN" in result.output
 
 
 def test_create_slack_cookie_wrong_name_rejected(fleet_dir, stdin_not_tty) -> None:
-    """#846: mirror the slack-user gate for the cookie auth path."""
+    """#846: mirror the slack-user gate for the cookie auth path.
+    Verifies both required credential flags (XOXC + XOXD) appear in
+    the hint text."""
     result = runner.invoke(
         app,
         [
@@ -189,5 +200,9 @@ def test_create_slack_cookie_wrong_name_rejected(fleet_dir, stdin_not_tty) -> No
             "SLACK_MCP_XOXD_TOKEN=xoxd-1",
         ],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 1, result.output
     assert "must be named 'slack'" in result.output
+    assert "clawctl integration registry create slack" in result.output
+    assert "--type slack-cookie" in result.output
+    assert "SLACK_MCP_XOXC_TOKEN" in result.output
+    assert "SLACK_MCP_XOXD_TOKEN" in result.output
