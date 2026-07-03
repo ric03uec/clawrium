@@ -1163,19 +1163,26 @@ def render_hermes(
                         "xoxd_token": xoxd,
                     }
                 )
-            # #846 iter-2 (ATX B1 fix): slack integrations do NOT flow
-            # into `integration_views`. The env-template loop
-            # (`hermes-env.canonical.j2`) branches on `intg.type` and
-            # has no slack case, so the append was inert — but the
-            # dict carried the operator-derived `slug`, not the pinned
-            # `_SLACK_MCP_SLUG`. Any future env-template branch reading
-            # `intg.slug` for slack would surface the wrong value.
-            # Skip the append entirely; mirrors the openclaw W7
-            # discipline at `render_openclaw`.
-            continue
-        integration_views.append(
-            {"type": integration.type, "slug": slug, "creds": creds}
-        )
+        # #846 iter-2 (ATX B1 fix): slack integrations do NOT flow
+        # into `integration_views`. The env-template loop
+        # (`hermes-env.canonical.j2`) branches on `intg.type` and has
+        # no slack case, so the append is inert — but the dict would
+        # carry the operator-derived `slug`, not the pinned
+        # `_SLACK_MCP_SLUG`. Any future env-template branch reading
+        # `intg.slug` for slack would surface the wrong value.
+        # Mirrors the openclaw W7 discipline at `render_openclaw`.
+        #
+        # #846 iter-3 (ATX S1 fix): a structural guard, not a
+        # `continue` inside the slack branch. The pre-iter-3 shape
+        # `if slack: ...; continue` was correct today but a future
+        # refactor that dropped the `continue` — or reordered the
+        # slack branch below the append — would silently re-introduce
+        # the B1 regression. Gating the append on `not-slack` at the
+        # outer scope removes that footgun.
+        if integration.type not in ("slack-user", "slack-cookie"):
+            integration_views.append(
+                {"type": integration.type, "slug": slug, "creds": creds}
+            )
 
     ollama_base_url = ""
     if ptype == "ollama":

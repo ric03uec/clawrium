@@ -176,6 +176,11 @@ def test_create_slack_user_wrong_name_rejected(fleet_dir, stdin_not_tty) -> None
     )
     assert result.exit_code == 1, result.output
     assert "must be named 'slack'" in result.output
+    # #846 iter-3 (ATX W3 fix): pin a unique substring from the
+    # operator-facing WHY body so a future refactor that dropped the
+    # explanation (leaving only the terse "must be named 'slack'"
+    # marker) would fail this test rather than degrade silently.
+    assert "invisible to the agent" in result.output
     assert "clawctl integration registry create slack" in result.output
     assert "--type slack-user" in result.output
     assert "SLACK_MCP_XOXP_TOKEN" in result.output
@@ -202,6 +207,11 @@ def test_create_slack_cookie_wrong_name_rejected(fleet_dir, stdin_not_tty) -> No
     )
     assert result.exit_code == 1, result.output
     assert "must be named 'slack'" in result.output
+    # #846 iter-3 (ATX W3 fix): pin a unique substring from the
+    # operator-facing WHY body so a future refactor that dropped the
+    # explanation (leaving only the terse "must be named 'slack'"
+    # marker) would fail this test rather than degrade silently.
+    assert "invisible to the agent" in result.output
     assert "clawctl integration registry create slack" in result.output
     assert "--type slack-cookie" in result.output
     assert "SLACK_MCP_XOXC_TOKEN" in result.output

@@ -1502,9 +1502,20 @@ def test_hermes_atlassian_slug_collision_raises():
     )
     # #846 iter-2 (ATX B2 fix): error message names the first-reserving
     # integration by (type, name) instead of the pre-#846 generic
-    # "collide on YAML key" text. Regex tracks the new shape.
-    with pytest.raises(AgentConfigError, match="already claimed by attached"):
+    # "collide on YAML key" text.
+    # #846 iter-3 (ATX W2 fix): pin BOTH the marker phrase AND the
+    # first-reserver's name in the message body. A regression that
+    # silently degraded to a generic error (dropping the (type, name)
+    # tuple) would still contain the marker phrase but would fail the
+    # name assertion.
+    with pytest.raises(AgentConfigError) as exc_info:
         render_hermes(inputs)
+    msg = str(exc_info.value)
+    assert "already claimed by attached" in msg
+    assert "my-atlassian" in msg, (
+        f"collision message must name the first-reserver so the "
+        f"operator's recovery path is unambiguous; got: {msg!r}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -5271,6 +5282,56 @@ def test_hermes_no_slack_baseline_unchanged():
     assert yaml == expected
 
 
+def test_hermes_slack_env_file_unchanged_by_slack_integration():
+    """#846 iter-3 (ATX W1 fix): regression guard for the B1 fix.
+
+    The B1 fix stopped slack integrations from flowing into
+    `integration_views` (the view list the env-template iterates).
+    Today the env template has no slack branch, so adding or removing
+    a slack integration MUST leave `.hermes/.env` byte-identical.
+
+    If a future edit either (a) drops the outer `not in slack-*` guard
+    from the `integration_views.append` site OR (b) adds a slack case
+    to `hermes-env.canonical.j2`, credentials (XOXP / XOXC / XOXD)
+    would start appearing in `.env` — a silent secret-leak vector.
+    This test catches (a) directly; it catches (b) by asserting the
+    baseline `.env` shape has NO slack env var lines. If a legitimate
+    slack env-var emission ever ships, this test MUST be updated in
+    the same commit so the leak surface stays gated by a byte-lock."""
+    base = _baseline_inputs(ptype="openrouter")
+    without_slack = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(),
+    )
+    with_slack = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="slack",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-super-secret"),),
+            ),
+        ),
+    )
+    env_a = render_hermes(without_slack).files[".hermes/.env"]
+    env_b = render_hermes(with_slack).files[".hermes/.env"]
+    assert env_a == env_b, (
+        "B1 regression: attaching a slack integration must not change "
+        f"`.hermes/.env`. Diff:\n---without---\n{env_a}\n---with---\n{env_b}"
+    )
+    # Belt-and-suspenders: the actual token value MUST NOT appear
+    # anywhere in the env output, even if a future refactor keeps
+    # `env_a == env_b` but adds a masked-value line to both.
+    assert "xoxp-super-secret" not in env_b
+    assert "SLACK_MCP_XOXP_TOKEN" not in env_b
+
+
 def test_hermes_slack_two_integrations_collide():
     """#846: only one slack integration per agent is supported — the
     second attach hits the shared-`slack`-key collision guard. Replaces
@@ -5397,12 +5458,27 @@ def test_hermes_atlassian_darwin_home_root_applied():
 
 def test_hermes_slack_atlassian_cross_type_slug_collision_raises():
     """#834 (ATX iter-1 B2) / #846: atlassian and slack both emit under
-    the same `mcp_servers:` YAML mapping. An atlassian integration
-    named `slack` (which slugifies to `slack`) and a slack-user
-    integration (which pins its slug to `slack` post-#846) collide on
-    the shared key. One shared set catches the cross-type collision
-    that the two-set implementation would silently last-write-win."""
+    the same `mcp_servers:` YAML mapping. Post-#846, slack pins its
+    slug to `slack`. An atlassian integration whose slug also
+    collapses to `slack` (any name that slugifies to `slack` — the
+    stripped-and-uppercased form of e.g. `slack-x` also matches after
+    `.lower()`) claims the shared key first; the subsequent slack
+    integration must collide."""
     base = _baseline_inputs(ptype="openrouter")
+    # #846 iter-3 (ATX S4 fix): the atlassian fixture must use a name
+    # DISTINCT from the pinned slug so the "prev_name in message"
+    # assertion has real discriminative power. Using name="slack"
+    # made the assertion trivially true (slug and name identical), so
+    # the check couldn't tell whether prev_name actually surfaced in
+    # the error. Use "slack-a" → slugifies via `_integration_slug` →
+    # uppercase "SLACK_A" → lowered back to "slack_a" — which does NOT
+    # collide. Use exact "slack" (bare) which slugifies to itself so
+    # the collision fires, but keep a distinct STRING assertion below.
+    #
+    # Actually simpler: use "slack" for atlassian (slugifies to
+    # "slack") and assert on the type token "atlassian" — which never
+    # appears in a bare slack-workspace-collision error, so it IS
+    # discriminative.
     inputs = RenderInputs(
         agent_name="alpha",
         agent_type="hermes",
@@ -5425,22 +5501,19 @@ def test_hermes_slack_atlassian_cross_type_slug_collision_raises():
         ),
         api_server=base.api_server,
     )
-    # #846 iter-2 (ATX B2 fix): the collision message MUST name the
-    # first-reserver by type ("atlassian") + name ("slack"), not read as
-    # a duplicate-slack-workspace error. This is the whole reason the
-    # `seen_mcp_slugs` set was promoted to a `{slug: (type, name)}`
-    # dict in the hermes view builder.
+    # #846 iter-2 (ATX B2 fix): the collision message MUST identify the
+    # first-reserver by its type ("atlassian") so an atlassian-named-
+    # slack collision does not read as a duplicate-slack-workspace
+    # error. The "atlassian" token is the real B2 discriminator — it
+    # never appears in a bare slack-vs-slack error path.
     with pytest.raises(AgentConfigError) as exc_info:
         render_hermes(inputs)
     msg = str(exc_info.value)
     assert "'slack' already claimed" in msg
     assert "atlassian" in msg, (
-        f"collision message must name the atlassian reserver so the "
-        f"operator's recovery path is clear; got: {msg!r}"
-    )
-    assert "'slack'" in msg, (
-        f"collision message must name the reserver by its integration "
-        f"name; got: {msg!r}"
+        f"collision message must name the atlassian reserver by TYPE "
+        f"so the operator's recovery path (detach atlassian) is "
+        f"clear; got: {msg!r}"
     )
 
 
