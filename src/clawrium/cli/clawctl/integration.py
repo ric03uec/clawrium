@@ -293,6 +293,20 @@ def create(
     except InvalidIntegrationTypeError as exc:
         emit_error(str(exc))
 
+    # #846: slack MCP toolset name is pinned to `slack` at render time
+    # (see `render_hermes` / `render_openclaw` / `render_zeroclaw`).
+    # Reject the create at CLI-time when the operator picks a different
+    # name so the integrations.json record and the rendered mcp_servers
+    # key stay in sync — otherwise the registry would advertise
+    # `work_slack` while every agent config surfaces the toolset as
+    # `slack`.
+    if integration_type in ("slack-user", "slack-cookie") and name != "slack":
+        emit_error(
+            f"slack integrations must be named 'slack' (got {name!r}); "
+            f"the rendered MCP toolset key is fixed",
+            hint=f"clawctl integration registry create slack --type {integration_type} ...",
+        )
+
     try:
         if get_integration(name):
             emit_error(

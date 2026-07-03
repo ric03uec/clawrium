@@ -105,14 +105,14 @@ def test_attach_slack_user_to_openclaw_succeeds(fleet_dir, stdin_not_tty) -> Non
     coming-soon contract in #499 is meant to prevent. (ATX #835 iter-2
     W6)."""
     _create_integration(
-        "slack-work", "slack-user", {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
+        "slack", "slack-user", {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
     )
     result = runner.invoke(
         app,
-        ["agent", "integration", "attach", "slack-work", "--agent", "wise-hypatia"],
+        ["agent", "integration", "attach", "slack", "--agent", "wise-hypatia"],
     )
     assert result.exit_code == 0, result.output
-    assert "slack-work" in _hosts_json_agent_integrations(
+    assert "slack" in _hosts_json_agent_integrations(
         fleet_dir, "wise-hypatia"
     )
 
@@ -121,7 +121,7 @@ def test_attach_slack_cookie_to_openclaw_succeeds(fleet_dir, stdin_not_tty) -> N
     """#835 (Phase 2): cookie mode is also accepted on openclaw. Also
     asserts hosts.json persistence per ATX #835 iter-2 W6."""
     _create_integration(
-        "slack-legacy",
+        "slack",
         "slack-cookie",
         {"SLACK_MCP_XOXC_TOKEN": "xoxc-1", "SLACK_MCP_XOXD_TOKEN": "xoxd-1"},
     )
@@ -131,13 +131,13 @@ def test_attach_slack_cookie_to_openclaw_succeeds(fleet_dir, stdin_not_tty) -> N
             "agent",
             "integration",
             "attach",
-            "slack-legacy",
+            "slack",
             "--agent",
             "wise-hypatia",
         ],
     )
     assert result.exit_code == 0, result.output
-    assert "slack-legacy" in _hosts_json_agent_integrations(
+    assert "slack" in _hosts_json_agent_integrations(
         fleet_dir, "wise-hypatia"
     )
 
@@ -148,21 +148,21 @@ def test_attach_slack_user_to_zeroclaw_succeeds(fleet_dir, stdin_not_tty) -> Non
     transition. Replaces the Phase-1 rejection test."""
     _add_zeroclaw_agent(fleet_dir, name="kevin")
     _create_integration(
-        "slack-work", "slack-user", {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
+        "slack", "slack-user", {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
     )
     result = runner.invoke(
         app,
-        ["agent", "integration", "attach", "slack-work", "--agent", "kevin"],
+        ["agent", "integration", "attach", "slack", "--agent", "kevin"],
     )
     assert result.exit_code == 0, result.output
-    assert "slack-work" in _hosts_json_agent_integrations(fleet_dir, "kevin")
+    assert "slack" in _hosts_json_agent_integrations(fleet_dir, "kevin")
 
 
 def test_attach_slack_cookie_to_zeroclaw_succeeds(fleet_dir, stdin_not_tty) -> None:
     """#836: zeroclaw + slack-cookie also accepted."""
     _add_zeroclaw_agent(fleet_dir, name="kevin")
     _create_integration(
-        "slack-legacy",
+        "slack",
         "slack-cookie",
         {"SLACK_MCP_XOXC_TOKEN": "xoxc-1", "SLACK_MCP_XOXD_TOKEN": "xoxd-1"},
     )
@@ -172,13 +172,13 @@ def test_attach_slack_cookie_to_zeroclaw_succeeds(fleet_dir, stdin_not_tty) -> N
             "agent",
             "integration",
             "attach",
-            "slack-legacy",
+            "slack",
             "--agent",
             "kevin",
         ],
     )
     assert result.exit_code == 0, result.output
-    assert "slack-legacy" in _hosts_json_agent_integrations(fleet_dir, "kevin")
+    assert "slack" in _hosts_json_agent_integrations(fleet_dir, "kevin")
 
 
 # ---------------------------------------------------------------------------
@@ -191,11 +191,11 @@ def test_attach_slack_user_to_hermes_succeeds(fleet_dir, stdin_not_tty) -> None:
     this through unchanged."""
     _add_hermes_agent(fleet_dir, name="maurice")
     _create_integration(
-        "slack-work", "slack-user", {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
+        "slack", "slack-user", {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
     )
     result = runner.invoke(
         app,
-        ["agent", "integration", "attach", "slack-work", "--agent", "maurice"],
+        ["agent", "integration", "attach", "slack", "--agent", "maurice"],
     )
     assert result.exit_code == 0, result.output
 
@@ -206,13 +206,13 @@ def test_attach_slack_cookie_to_hermes_succeeds(fleet_dir, stdin_not_tty) -> Non
     be invisible without this positive test."""
     _add_hermes_agent(fleet_dir, name="maurice")
     _create_integration(
-        "slack-legacy",
+        "slack",
         "slack-cookie",
         {"SLACK_MCP_XOXC_TOKEN": "xoxc-1", "SLACK_MCP_XOXD_TOKEN": "xoxd-1"},
     )
     result = runner.invoke(
         app,
-        ["agent", "integration", "attach", "slack-legacy", "--agent", "maurice"],
+        ["agent", "integration", "attach", "slack", "--agent", "maurice"],
     )
     assert result.exit_code == 0, result.output
 
