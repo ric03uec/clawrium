@@ -27,9 +27,25 @@ from pathlib import Path
 import pytest
 import yaml
 
-# All four runbook files covered by the pin/arch-map contract. Add a
-# fifth entry here (e.g. zeroclaw) when Phase 3 lands.
-_AGENT_TYPES = ("hermes", "openclaw")
+# Runbooks covered by the pin/arch-map contract.
+#
+# Linux: all three agent types (hermes, openclaw, zeroclaw). Zeroclaw
+# joined in #851 when the sync-time-runbook pattern was extended to
+# zeroclaw (Phase 3 of #499 had drifted to inline install in
+# `configure.yaml`; #851 harmonized it back to the runbook).
+#
+# Darwin: hermes + openclaw only. Zeroclaw has no
+# `install_slack_mcp_macos.yaml` sibling yet — macOS zeroclaw slack is
+# a deferred follow-up to #836. Adding "zeroclaw" to the darwin tests
+# would fail with `FileNotFoundError`, which is a valid regression
+# signal but noisy; the darwin-specific tests below are gated on
+# `_DARWIN_AGENT_TYPES` so a future macOS-zeroclaw follow-up can flip
+# a single constant to enable them.
+_LINUX_AGENT_TYPES = ("hermes", "openclaw", "zeroclaw")
+_DARWIN_AGENT_TYPES = ("hermes", "openclaw")
+# Preserved as a Linux-only alias so any legacy test that imported
+# `_AGENT_TYPES` before #851 keeps behaving identically.
+_AGENT_TYPES = _LINUX_AGENT_TYPES
 
 
 def _playbook_vars(name: str, agent_type: str = "hermes") -> dict:
@@ -124,13 +140,13 @@ DARWIN_EXPECTED_SHA256 = {
 }
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+@pytest.mark.parametrize("agent_type", _DARWIN_AGENT_TYPES)
 def test_darwin_playbook_pins_mcp_slack_version(agent_type: str) -> None:
     vs = _playbook_vars("install_slack_mcp_macos.yaml", agent_type)
     assert vs["mcp_slack_version"] == "v1.3.0"
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+@pytest.mark.parametrize("agent_type", _DARWIN_AGENT_TYPES)
 @pytest.mark.parametrize(("arch", "expected_asset_suffix"), DARWIN_ARCH_TARGETS)
 def test_darwin_arch_map_covers_arch(
     agent_type: str, arch: str, expected_asset_suffix: str
@@ -139,18 +155,40 @@ def test_darwin_arch_map_covers_arch(
     assert vs["mcp_slack_arch_map"][arch] == expected_asset_suffix
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+@pytest.mark.parametrize("agent_type", _DARWIN_AGENT_TYPES)
 @pytest.mark.parametrize("arch", ["arm64", "x86_64"])
 def test_darwin_sha256_map_covers_arch(agent_type: str, arch: str) -> None:
     vs = _playbook_vars("install_slack_mcp_macos.yaml", agent_type)
     assert vs["mcp_slack_sha256_map"][arch] == DARWIN_EXPECTED_SHA256[arch]
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+@pytest.mark.parametrize("agent_type", _DARWIN_AGENT_TYPES)
 def test_darwin_maps_have_identical_keys(agent_type: str) -> None:
     vs = _playbook_vars("install_slack_mcp_macos.yaml", agent_type)
     assert set(vs["mcp_slack_arch_map"].keys()) == set(
         vs["mcp_slack_sha256_map"].keys()
+    )
+
+
+def test_zeroclaw_has_no_darwin_runbook() -> None:
+    """Regression guard: zeroclaw slack is intentionally Linux-only at
+    v26.7. A future macOS-zeroclaw follow-up will add
+    `install_slack_mcp_macos.yaml` under the zeroclaw playbook
+    directory; the test at that point should flip to asserting the
+    file exists and add "zeroclaw" to `_DARWIN_AGENT_TYPES`."""
+    path = (
+        Path(__file__).parent.parent.parent
+        / "src"
+        / "clawrium"
+        / "platform"
+        / "registry"
+        / "zeroclaw"
+        / "playbooks"
+        / "install_slack_mcp_macos.yaml"
+    )
+    assert not path.exists(), (
+        "zeroclaw slack macos runbook now exists — enable "
+        "zeroclaw in _DARWIN_AGENT_TYPES and remove this test."
     )
 
 
@@ -159,7 +197,7 @@ def test_darwin_maps_have_identical_keys(agent_type: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
+@pytest.mark.parametrize("agent_type", _DARWIN_AGENT_TYPES)
 def test_linux_and_darwin_pin_same_version(agent_type: str) -> None:
     """Per agent type, both runbooks must reference the same upstream
     release, else a partially-migrated pin bump silently ships a mixed
@@ -179,12 +217,19 @@ def test_hermes_and_openclaw_pin_same_version() -> None:
     assert hermes_linux["mcp_slack_version"] == openclaw_linux["mcp_slack_version"]
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
-@pytest.mark.parametrize(
-    "runbook",
-    ["install_slack_mcp.yaml", "install_slack_mcp_macos.yaml"],
+# Runbook × agent_type Cartesian product, minus the (zeroclaw,
+# install_slack_mcp_macos.yaml) combo which does not exist yet
+# (deferred per #836). Enumerate the valid pairs explicitly rather
+# than skipping a xfail cell so a future darwin-zeroclaw runbook
+# lands here by extension rather than by removing a skip.
+_RUNBOOK_AGENT_PAIRS = (
+    *(("install_slack_mcp.yaml", a) for a in _LINUX_AGENT_TYPES),
+    *(("install_slack_mcp_macos.yaml", a) for a in _DARWIN_AGENT_TYPES),
 )
-def test_render_constant_matches_playbook_pin(agent_type: str, runbook: str) -> None:
+
+
+@pytest.mark.parametrize(("runbook", "agent_type"), _RUNBOOK_AGENT_PAIRS)
+def test_render_constant_matches_playbook_pin(runbook: str, agent_type: str) -> None:
     """`_HERMES_MCP_SLACK_VERSION` in render.py is the single Python
     source of truth for the upstream pin — drift silently, hosts
     silently. Lockstep is asserted against EACH runbook directly (per
@@ -194,10 +239,10 @@ def test_render_constant_matches_playbook_pin(agent_type: str, runbook: str) -> 
     test were renamed or skipped.
 
     #835 note: the constant is named after hermes historically, but it
-    is now the shared pin for BOTH hermes and openclaw slack-mcp-server
-    installs. A future rename to `_MCP_SLACK_VERSION` is out of scope
-    for Phase 2; the openclaw runbook references the same value via
-    this test's direct assertion."""
+    is now the shared pin for hermes, openclaw, and zeroclaw (as of
+    #851) slack-mcp-server installs. A future rename to
+    `_MCP_SLACK_VERSION` is out of scope; each runbook references the
+    same value via this test's direct assertion."""
     from clawrium.core.render import _HERMES_MCP_SLACK_VERSION
 
     vs = _playbook_vars(runbook, agent_type)
@@ -227,12 +272,8 @@ def _runbook_tasks(runbook: str, agent_type: str = "hermes") -> list[dict]:
     return data[0]["tasks"]
 
 
-@pytest.mark.parametrize("agent_type", _AGENT_TYPES)
-@pytest.mark.parametrize(
-    "runbook",
-    ["install_slack_mcp.yaml", "install_slack_mcp_macos.yaml"],
-)
-def test_runbook_has_single_task0_dispatcher_guard(agent_type: str, runbook: str) -> None:
+@pytest.mark.parametrize(("runbook", "agent_type"), _RUNBOOK_AGENT_PAIRS)
+def test_runbook_has_single_task0_dispatcher_guard(runbook: str, agent_type: str) -> None:
     """Rule 2 narrow exception: each runbook is permitted exactly ONE
     `when: ansible_os_family` clause, and it MUST be at task-0
     position, and it MUST fire only `ansible.builtin.fail` (not

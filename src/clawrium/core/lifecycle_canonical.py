@@ -1616,6 +1616,107 @@ def _openclaw_install_slack_mcp(
         )
 
 
+# #851: zeroclaw slack MCP subprocess installer. Sibling of the hermes
+# and openclaw helpers above — same binary, same version pin, same
+# runbook shape; separate helper because `_run_lifecycle_playbook`
+# resolves the runbook path under `platform/registry/<agent_type>/
+# playbooks/`, so a hermes- or openclaw-scoped call cannot reach
+# `zeroclaw/playbooks/install_slack_mcp.yaml`. The one-runbook-per-
+# (agent_type, binary) contract is Rule 1 of the "Integration Binary
+# Install" architectural pattern in AGENTS.md.
+#
+# Harmonizes zeroclaw with hermes (Phase 1 of #499) and openclaw
+# (Phase 2 of #499). Before #851, zeroclaw slack install ran inline
+# in `configure.yaml`; the CHANGELOG for Phase 3 already documented
+# the runbook pattern as the shipped shape, but the code had drifted
+# to an inline install during the stacked-merge recovery of PR #842.
+_ZEROCLAW_SLACK_TYPES = frozenset({"slack-user", "slack-cookie"})
+
+
+def _zeroclaw_install_slack_mcp(
+    agent_name: str,
+    hostname: str,
+    host: dict,
+    inputs,
+    *,
+    on_event: Callable[[str, str], None] | None = None,
+    timeout: int = 180,
+) -> None:
+    """Install slack-mcp-server on `hostname` via the zeroclaw runbook.
+
+    Structural mirror of `_openclaw_install_slack_mcp` above — the two
+    differences are the `agent_type="zeroclaw"` argument threaded into
+    `_run_lifecycle_playbook` (routes the runbook lookup to
+    `platform/registry/zeroclaw/playbooks/install_slack_mcp.yaml`) and
+    the darwin refusal — no `install_slack_mcp_macos.yaml` sibling
+    exists yet, so macOS zeroclaw slack is a deferred follow-up per
+    #836. Refuse loudly on darwin rather than silently routing to the
+    Linux runbook (which the runbook's own task-0 guard would reject
+    with a less operator-friendly message).
+
+    Gated on: at least one `slack-user` or `slack-cookie` integration
+    in `inputs.integrations`. When no slack integration is attached,
+    this is a fast no-op — no SSH, no ansible-runner spawn.
+
+    Positioned in `sync_agent_canonical` BEFORE the file-write loop
+    AND before `_zeroclaw_repair_after_start` (bearer rotation) so:
+    1. A slack install failure short-circuits the sync before the
+       gateway re-pair rotates the bearer (#437 stale-bearer
+       regression guard — the S9/W2 sync-ordering invariant).
+    2. The freshly-installed binary and the freshly-rendered
+       config.toml land in a single daemon restart.
+
+    Raises `CanonicalSyncError` on any playbook failure so
+    `sync_agent_canonical` short-circuits before `_restart_unit`. The
+    daemon is never restarted with a rendered config.toml pointing at
+    a `[[mcp.servers]].command` path whose binary failed to land.
+    """
+    if not any(i.type in _ZEROCLAW_SLACK_TYPES for i in inputs.integrations):
+        return
+
+    # macOS zeroclaw slack is not yet supported — the runbook has no
+    # darwin sibling. Refuse loudly rather than silently routing to
+    # the Linux runbook (which the runbook's own task-0 guard would
+    # reject on darwin anyway, but with a less operator-friendly
+    # message).
+    os_family = str(host.get("os_family") or "linux").strip().lower()
+    if os_family in ("mac", "macos", "osx"):
+        os_family = "darwin"
+    if os_family == "darwin":
+        raise CanonicalSyncError(
+            f"zeroclaw slack integration is not yet supported on darwin "
+            f"hosts (agent {agent_name!r}); the "
+            f"`install_slack_mcp_macos.yaml` sibling runbook is a "
+            f"follow-up to #836. Detach with `clawctl agent integration "
+            f"detach <integration-name> --agent {agent_name}` or move "
+            f"the agent to a Linux host."
+        )
+
+    # Lazy import to sidestep the lifecycle ↔ lifecycle_canonical cycle
+    # (same rationale as the hermes / openclaw helpers above).
+    from clawrium.core.lifecycle import _run_lifecycle_playbook
+
+    if on_event is not None:
+        on_event(
+            "slack_mcp_install",
+            f"installing slack-mcp-server for {agent_name} via zeroclaw/install_slack_mcp.yaml",
+        )
+
+    success, err = _run_lifecycle_playbook(
+        agent_type="zeroclaw",
+        agent_name=agent_name,
+        hostname=hostname,
+        operation="install_slack_mcp",
+        host=host,
+        timeout=timeout,
+    )
+    if not success:
+        # Single-purpose runbook — any failure is a real install error.
+        raise CanonicalSyncError(
+            f"slack-mcp-server install failed for {agent_name!r}: {err}"
+        )
+
+
 def sync_agent_canonical(
     agent_name: str,
     *,
@@ -2037,6 +2138,29 @@ def sync_agent_canonical(
         # Fast no-op when no slack integration is attached.
         if inputs.agent_type == "openclaw":
             _openclaw_install_slack_mcp(
+                agent_name,
+                hostname,
+                host,
+                inputs,
+                on_event=on_event,
+            )
+
+        # #851: zeroclaw slack-mcp-server install. Same slot + same
+        # short-circuit contract as the hermes and openclaw helpers
+        # above; separate entry-point because the runbook lookup is
+        # agent-type-scoped
+        # (`platform/registry/zeroclaw/playbooks/install_slack_mcp.yaml`).
+        # Fast no-op when no slack integration is attached. Positioned
+        # BEFORE the file-write loop AND before the trailing zeroclaw
+        # `_zeroclaw_repair_after_start` bearer rotation (line 2175
+        # region), so a slack install failure short-circuits the sync
+        # before the bearer is re-minted and hosts.json.gateway.auth
+        # desyncs from the daemon (#437 stale-bearer regression guard;
+        # S9/W2 sync-ordering invariant). Harmonizes zeroclaw with the
+        # runbook pattern that Phase 3 CHANGELOG documented but the
+        # inline configure.yaml install had drifted from.
+        if inputs.agent_type == "zeroclaw":
+            _zeroclaw_install_slack_mcp(
                 agent_name,
                 hostname,
                 host,

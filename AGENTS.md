@@ -325,6 +325,8 @@ Slack MCP in #834.
 |---|---|---|
 | Openclaw brave (+ any future openclaw plugin) | Direct SSH via `openclaw plugins install --pin` | `_openclaw_install_plugins` (lifecycle_canonical.py:1307) |
 | Hermes Slack MCP (`slack-user`, `slack-cookie`) | `hermes/playbooks/install_slack_mcp.yaml` (+ `_macos` sibling) | `_hermes_install_slack_mcp` (lifecycle_canonical.py, #834) |
+| Openclaw Slack MCP (`slack-user`, `slack-cookie`) | `openclaw/playbooks/install_slack_mcp.yaml` (+ `_macos` sibling) | `_openclaw_install_slack_mcp` (lifecycle_canonical.py, #835) |
+| Zeroclaw Slack MCP (`slack-user`, `slack-cookie`) | `zeroclaw/playbooks/install_slack_mcp.yaml` (Linux-only; macOS sibling deferred — follow-up #836) | `_zeroclaw_install_slack_mcp` (lifecycle_canonical.py, #851; darwin hosts refuse loudly with a `clawctl agent integration detach` hint) |
 
 ### Rules (non-negotiable)
 
