@@ -247,6 +247,22 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- hermes upstream pin bumped `2026.5.29.2` → `2026.7.1` (#815). New
+  `platforms[]` entries for ubuntu 24.04/x86_64, ubuntu 22.04/x86_64,
+  and macos ≥14/arm64 land in
+  `src/clawrium/platform/registry/hermes/manifest.yaml`. The upstream
+  installer is a single bash script served from raw.githubusercontent
+  and is byte-identical across OS/arch, so the sha256 is shared across
+  the new entries. `clawctl agent create --type hermes` on a supported
+  host now installs 2026.7.1; existing instances continue to work and
+  can opt in via `clawctl agent upgrade`. The hermes install playbook
+  (Linux + macOS) now pre-fetches the target tag as a local
+  `refs/tags/<tag>` ref before invoking upstream `install.sh` — a
+  workaround for a v2026.7.1 upstream bug where the update path runs
+  `git remote set-branches origin <tag>` + `git fetch origin <tag>` +
+  `git checkout <tag>` on a branch-scoped refspec, which never
+  materializes the tag locally and errors with `pathspec did not
+  match`. Tracked to remove once upstream ships a fix.
 - openclaw upstream pin bumped `2026.6.9` → `2026.6.11`. New
   `platforms[]` entries for ubuntu 24.04/x86_64, ubuntu 22.04/x86_64,
   and macos ≥14/arm64 land in

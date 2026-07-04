@@ -135,6 +135,35 @@
         checksum: "sha256:{{ claw_sha256 }}"
       when: not hermes_already_installed
 
+    # Detect whether this is an update over an existing checkout — the
+    # two tasks below only apply to that path.
+    - name: Check whether .hermes/code/.git exists (update path)
+      ansible.builtin.stat:
+        path: "/Users/{{ agent_name }}/.hermes/code/.git"
+      register: hermes_code_git_stat
+      when: not hermes_already_installed
+
+    # Workaround for a v2026.7.1 upstream install.sh bug on the update
+    # path (issue #815). See the sibling install.yaml on Linux for the
+    # full rationale; the same bug and same fix apply on macOS because
+    # the upstream install.sh is identical across OS/arch.
+    # TODO(#815): remove once upstream ships the fix.
+    - name: Pre-fetch upstream tag as local ref (workaround for v2026.7.1 install.sh update path)
+      ansible.builtin.command:
+        chdir: "/Users/{{ agent_name }}/.hermes/code"
+        argv:
+          - git
+          - fetch
+          - --force
+          - origin
+          - "refs/tags/{{ hermes_target_branch }}:refs/tags/{{ hermes_target_branch }}"
+      become_user: "{{ agent_name }}"
+      when:
+        - not hermes_already_installed
+        - hermes_code_git_stat.stat is defined
+        - hermes_code_git_stat.stat.exists | default(false)
+      changed_when: false
+
     - name: Install Hermes runtime (non-interactive)
       ansible.builtin.command:
         argv:
