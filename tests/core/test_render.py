@@ -1500,8 +1500,22 @@ def test_hermes_atlassian_slug_collision_raises():
         ),
         api_server=base.api_server,
     )
-    with pytest.raises(AgentConfigError, match="collide on YAML key"):
+    # #846 iter-2 (ATX B2 fix): error message names the first-reserving
+    # integration by (type, name) instead of the pre-#846 generic
+    # "collide on YAML key" text.
+    # #846 iter-3 (ATX W2 fix): pin BOTH the marker phrase AND the
+    # first-reserver's name in the message body. A regression that
+    # silently degraded to a generic error (dropping the (type, name)
+    # tuple) would still contain the marker phrase but would fail the
+    # name assertion.
+    with pytest.raises(AgentConfigError) as exc_info:
         render_hermes(inputs)
+    msg = str(exc_info.value)
+    assert "already claimed by attached" in msg
+    assert "my-atlassian" in msg, (
+        f"collision message must name the first-reserver so the "
+        f"operator's recovery path is unambiguous; got: {msg!r}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -5120,9 +5134,12 @@ def test_render_openclaw_litellm_empty_default_model_raises_at_entry():
 
 
 def test_hermes_slack_user_mcp_byte_lock():
-    """#834: full byte-lock of the slack-user branch. Field order and
-    the single SLACK_MCP_XOXP_TOKEN env line are contract — any silent
-    reorder would drift the on-host config from what tests validated."""
+    """#834 / #846: full byte-lock of the slack-user branch. Field order
+    and the single SLACK_MCP_XOXP_TOKEN env line are contract — any
+    silent reorder would drift the on-host config from what tests
+    validated. Post-#846 the YAML key is pinned to `slack` regardless
+    of the integration's registered name (retroactive normalization for
+    pre-#846 installs named e.g. `slack-work`)."""
     base = _baseline_inputs(ptype="anthropic")
     inputs = RenderInputs(
         agent_name="alpha",
@@ -5147,7 +5164,7 @@ def test_hermes_slack_user_mcp_byte_lock():
         "  title_generation:\n"
         "    model: \"claude-haiku-4-5-20251001\"\n"
         "mcp_servers:\n"
-        "  slack_work:\n"
+        "  slack:\n"
         '    command: "/home/alpha/.local/bin/slack-mcp-server"\n'
         '    args: ["--transport", "stdio"]\n'
         "    env:\n"
@@ -5157,9 +5174,9 @@ def test_hermes_slack_user_mcp_byte_lock():
 
 
 def test_hermes_slack_cookie_mcp_byte_lock():
-    """#834: byte-lock the slack-cookie branch. Two env vars, in
+    """#834 / #846: byte-lock the slack-cookie branch. Two env vars, in
     declared order (XOXC then XOXD) — mirrors the Slack MCP server's
-    documented env convention."""
+    documented env convention. YAML key pinned to `slack` (#846)."""
     base = _baseline_inputs(ptype="anthropic")
     inputs = RenderInputs(
         agent_name="alpha",
@@ -5187,7 +5204,7 @@ def test_hermes_slack_cookie_mcp_byte_lock():
         "  title_generation:\n"
         "    model: \"claude-haiku-4-5-20251001\"\n"
         "mcp_servers:\n"
-        "  slack_legacy:\n"
+        "  slack:\n"
         '    command: "/home/alpha/.local/bin/slack-mcp-server"\n'
         '    args: ["--transport", "stdio"]\n'
         "    env:\n"
@@ -5229,12 +5246,13 @@ def test_hermes_atlassian_and_slack_coexist_in_mcp_servers():
     # Atlassian block present
     assert "  my_atl:" in yaml
     assert "mcp-atlassian==0.21.1" in yaml
-    # Slack block present, following atlassian in template loop order
-    assert "  slack_work:" in yaml
+    # Slack block present (#846: key pinned to `slack`), following
+    # atlassian in template loop order
+    assert "  slack:" in yaml
     assert "/home/alpha/.local/bin/slack-mcp-server" in yaml
     assert "SLACK_MCP_XOXP_TOKEN: 'xoxp-1'" in yaml
     # Order: atlassian entry precedes slack entry
-    assert yaml.index("my_atl:") < yaml.index("slack_work:")
+    assert yaml.index("my_atl:") < yaml.index("slack:")
 
 
 def test_hermes_no_slack_baseline_unchanged():
@@ -5264,9 +5282,63 @@ def test_hermes_no_slack_baseline_unchanged():
     assert yaml == expected
 
 
-def test_hermes_slack_slug_collision_raises():
-    """#834: distinct integration names that slug-collide must raise
-    rather than silently drop one entry (mirrors atlassian guard)."""
+def test_hermes_slack_env_file_unchanged_by_slack_integration():
+    """#846 iter-3 (ATX W1 fix): regression guard for the B1 fix.
+
+    The B1 fix stopped slack integrations from flowing into
+    `integration_views` (the view list the env-template iterates).
+    Today the env template has no slack branch, so adding or removing
+    a slack integration MUST leave `.hermes/.env` byte-identical.
+
+    If a future edit either (a) drops the outer `not in slack-*` guard
+    from the `integration_views.append` site OR (b) adds a slack case
+    to `hermes-env.canonical.j2`, credentials (XOXP / XOXC / XOXD)
+    would start appearing in `.env` — a silent secret-leak vector.
+    This test catches (a) directly; it catches (b) by asserting the
+    baseline `.env` shape has NO slack env var lines. If a legitimate
+    slack env-var emission ever ships, this test MUST be updated in
+    the same commit so the leak surface stays gated by a byte-lock."""
+    base = _baseline_inputs(ptype="openrouter")
+    without_slack = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(),
+    )
+    with_slack = RenderInputs(
+        agent_name="alpha",
+        agent_type="hermes",
+        provider=base.provider,
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="slack",
+                type="slack-user",
+                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-super-secret"),),
+            ),
+        ),
+    )
+    env_a = render_hermes(without_slack).files[".hermes/.env"]
+    env_b = render_hermes(with_slack).files[".hermes/.env"]
+    assert env_a == env_b, (
+        "B1 regression: attaching a slack integration must not change "
+        f"`.hermes/.env`. Diff:\n---without---\n{env_a}\n---with---\n{env_b}"
+    )
+    # Belt-and-suspenders: the actual token value MUST NOT appear
+    # anywhere in the env output, even if a future refactor keeps
+    # `env_a == env_b` but adds a masked-value line to both.
+    assert "xoxp-super-secret" not in env_b
+    assert "SLACK_MCP_XOXP_TOKEN" not in env_b
+
+
+def test_hermes_slack_two_integrations_collide():
+    """#846: only one slack integration per agent is supported — the
+    second attach hits the shared-`slack`-key collision guard. Replaces
+    the pre-#846 slug-collision test which fed two names that both
+    slugified to the same value; post-#846 the slug is fixed to `slack`
+    for every slack-* integration, so any second attempt trips the guard
+    regardless of registered name."""
     base = _baseline_inputs(ptype="openrouter")
     inputs = RenderInputs(
         agent_name=base.agent_name,
@@ -5274,42 +5346,50 @@ def test_hermes_slack_slug_collision_raises():
         provider=base.provider,
         integrations=(
             IntegrationInputs(
-                name="slack-a", type="slack-user",
+                name="slack", type="slack-user",
                 credentials=(("SLACK_MCP_XOXP_TOKEN", "x1"),),
             ),
             IntegrationInputs(
-                name="slack_a", type="slack-user",
+                name="slack", type="slack-user",
                 credentials=(("SLACK_MCP_XOXP_TOKEN", "x2"),),
             ),
         ),
         api_server=base.api_server,
     )
-    with pytest.raises(AgentConfigError, match="collide on YAML key"):
+    with pytest.raises(AgentConfigError, match="'slack' already claimed"):
         render_hermes(inputs)
 
 
-def test_hermes_slack_empty_slug_raises():
-    """#834: integration names that slugify to empty must raise
-    rather than emit an unnamed YAML key (mirrors atlassian guard)."""
+def test_hermes_slack_renders_slack_key_regardless_of_registered_name():
+    """#846: retroactive normalization. Pre-#846 installs may hold slack
+    integration records named e.g. `work_slack`, `!!!`, or any other
+    string the pre-#846 CLI accepted. The renderer MUST pin the YAML
+    key to `slack` for all of them so no operator has to
+    remove-and-recreate to get the fix. Replaces the pre-#846
+    `slugifies to empty` guard test (dead once the slug is fixed)."""
     base = _baseline_inputs(ptype="openrouter")
-    inputs = RenderInputs(
-        agent_name=base.agent_name,
-        agent_type=base.agent_type,
-        provider=base.provider,
-        integrations=(
-            IntegrationInputs(
-                name="!!!",
-                type="slack-cookie",
-                credentials=(
-                    ("SLACK_MCP_XOXC_TOKEN", "xc"),
-                    ("SLACK_MCP_XOXD_TOKEN", "xd"),
+    for legacy_name in ("work_slack", "!!!", "mcp_slack", "s"):
+        inputs = RenderInputs(
+            agent_name=base.agent_name,
+            agent_type=base.agent_type,
+            provider=base.provider,
+            integrations=(
+                IntegrationInputs(
+                    name=legacy_name,
+                    type="slack-cookie",
+                    credentials=(
+                        ("SLACK_MCP_XOXC_TOKEN", "xc"),
+                        ("SLACK_MCP_XOXD_TOKEN", "xd"),
+                    ),
                 ),
             ),
-        ),
-        api_server=base.api_server,
-    )
-    with pytest.raises(AgentConfigError, match="slugifies to empty"):
-        render_hermes(inputs)
+            api_server=base.api_server,
+        )
+        yaml = render_hermes(inputs).files[".hermes/config.yaml"]
+        assert "  slack:\n" in yaml, (
+            f"integration named {legacy_name!r} should render as `slack:` "
+            f"but did not — retroactive normalization failed"
+        )
 
 
 def test_hermes_slack_user_darwin_byte_lock():
@@ -5340,7 +5420,7 @@ def test_hermes_slack_user_darwin_byte_lock():
         "  title_generation:\n"
         "    model: \"claude-haiku-4-5-20251001\"\n"
         "mcp_servers:\n"
-        "  slack_work:\n"
+        "  slack:\n"
         '    command: "/Users/alpha/.local/bin/slack-mcp-server"\n'
         '    args: ["--transport", "stdio"]\n'
         "    env:\n"
@@ -5377,19 +5457,35 @@ def test_hermes_atlassian_darwin_home_root_applied():
 
 
 def test_hermes_slack_atlassian_cross_type_slug_collision_raises():
-    """#834 (ATX iter-1 B2): atlassian and slack both emit under the
-    same `mcp_servers:` YAML mapping. Two integrations that slugify to
-    the same key MUST raise — one shared set catches the cross-type
-    collision that the two-set implementation would silently
-    last-write-wins."""
+    """#834 (ATX iter-1 B2) / #846: atlassian and slack both emit under
+    the same `mcp_servers:` YAML mapping. Post-#846, slack pins its
+    slug to `slack`. An atlassian integration whose slug also
+    collapses to `slack` (any name that slugifies to `slack` — the
+    stripped-and-uppercased form of e.g. `slack-x` also matches after
+    `.lower()`) claims the shared key first; the subsequent slack
+    integration must collide."""
     base = _baseline_inputs(ptype="openrouter")
+    # #846 iter-3 (ATX S4 fix): the atlassian fixture must use a name
+    # DISTINCT from the pinned slug so the "prev_name in message"
+    # assertion has real discriminative power. Using name="slack"
+    # made the assertion trivially true (slug and name identical), so
+    # the check couldn't tell whether prev_name actually surfaced in
+    # the error. Use "slack-a" → slugifies via `_integration_slug` →
+    # uppercase "SLACK_A" → lowered back to "slack_a" — which does NOT
+    # collide. Use exact "slack" (bare) which slugifies to itself so
+    # the collision fires, but keep a distinct STRING assertion below.
+    #
+    # Actually simpler: use "slack" for atlassian (slugifies to
+    # "slack") and assert on the type token "atlassian" — which never
+    # appears in a bare slack-workspace-collision error, so it IS
+    # discriminative.
     inputs = RenderInputs(
         agent_name="alpha",
         agent_type="hermes",
         provider=base.provider,
         integrations=(
             IntegrationInputs(
-                name="work",
+                name="slack",
                 type="atlassian",
                 credentials=(
                     ("ATLASSIAN_API_TOKEN", "tk"),
@@ -5398,15 +5494,27 @@ def test_hermes_slack_atlassian_cross_type_slug_collision_raises():
                 ),
             ),
             IntegrationInputs(
-                name="work",
+                name="slack",
                 type="slack-user",
                 credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
             ),
         ),
         api_server=base.api_server,
     )
-    with pytest.raises(AgentConfigError, match="collide on YAML key"):
+    # #846 iter-2 (ATX B2 fix): the collision message MUST identify the
+    # first-reserver by its type ("atlassian") so an atlassian-named-
+    # slack collision does not read as a duplicate-slack-workspace
+    # error. The "atlassian" token is the real B2 discriminator — it
+    # never appears in a bare slack-vs-slack error path.
+    with pytest.raises(AgentConfigError) as exc_info:
         render_hermes(inputs)
+    msg = str(exc_info.value)
+    assert "'slack' already claimed" in msg
+    assert "atlassian" in msg, (
+        f"collision message must name the atlassian reserver by TYPE "
+        f"so the operator's recovery path (detach atlassian) is "
+        f"clear; got: {msg!r}"
+    )
 
 
 def test_hermes_slack_user_missing_xoxp_raises():
@@ -5595,7 +5703,9 @@ def test_openclaw_json_slack_user_mcp_block():
     parsed = json.loads(body)
     assert parsed["mcp"] == {
         "servers": {
-            "slack_work": {
+            # #846: JSON key pinned to `slack`, not the operator's
+            # integration name (`slack-work` here).
+            "slack": {
                 "command": "/home/alpha/.local/bin/slack-mcp-server",
                 "args": ["--transport", "stdio"],
                 "env": {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"},
@@ -5623,7 +5733,8 @@ def test_openclaw_json_slack_cookie_mcp_block():
     )
     body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
     parsed = json.loads(body)
-    slack = parsed["mcp"]["servers"]["slack_legacy"]
+    # #846: JSON key pinned to `slack` regardless of registered name.
+    slack = parsed["mcp"]["servers"]["slack"]
     assert slack["command"] == "/home/alpha/.local/bin/slack-mcp-server"
     assert slack["args"] == ["--transport", "stdio"]
     assert slack["env"] == {
@@ -5663,7 +5774,8 @@ def test_openclaw_json_slack_command_path_darwin_home_root():
         ]
         parsed = json.loads(body)
         expected = f"{home_root_for(os_family)}/alpha/.local/bin/slack-mcp-server"
-        assert parsed["mcp"]["servers"]["slack_work"]["command"] == expected
+        # #846: JSON key pinned to `slack` regardless of registered name.
+        assert parsed["mcp"]["servers"]["slack"]["command"] == expected
 
 
 def test_openclaw_json_render_openclaw_json_legacy_kwargs_backward_compat():
@@ -5685,44 +5797,56 @@ def test_openclaw_json_render_openclaw_json_legacy_kwargs_backward_compat():
     assert "mcp" not in parsed
 
 
-def test_openclaw_json_slack_slug_collision_raises():
-    """#835 (mirror hermes guard): distinct integration names that
-    slug-collide must raise rather than silently drop one entry."""
+def test_openclaw_json_slack_two_integrations_collide():
+    """#835 / #846: only one slack integration per agent is supported.
+    Post-#846 the JSON key is pinned to `slack` for every slack-*
+    integration, so a second attach trips the shared-key collision
+    guard regardless of registered name."""
     inputs = _openclaw_baseline_inputs(
         integrations=(
             IntegrationInputs(
-                name="slack-a",
+                name="slack",
                 type="slack-user",
                 credentials=(("SLACK_MCP_XOXP_TOKEN", "x1"),),
             ),
             IntegrationInputs(
-                name="slack_a",
+                name="slack",
                 type="slack-user",
                 credentials=(("SLACK_MCP_XOXP_TOKEN", "x2"),),
             ),
         ),
     )
-    with pytest.raises(AgentConfigError, match="collide on JSON key"):
+    with pytest.raises(AgentConfigError, match="'slack' already claimed"):
         render_openclaw(inputs)
 
 
-def test_openclaw_json_slack_empty_slug_raises():
-    """#835 (mirror hermes guard): integration names that slugify to
-    empty must raise rather than emit an unnamed JSON key."""
-    inputs = _openclaw_baseline_inputs(
-        integrations=(
-            IntegrationInputs(
-                name="!!!",
-                type="slack-cookie",
-                credentials=(
-                    ("SLACK_MCP_XOXC_TOKEN", "xc"),
-                    ("SLACK_MCP_XOXD_TOKEN", "xd"),
+def test_openclaw_json_slack_renders_slack_key_regardless_of_registered_name():
+    """#846: retroactive normalization mirror of the hermes test —
+    pre-#846 openclaw slack records with any legacy name must still
+    render as the fixed JSON key `slack` on next sync. Replaces the
+    pre-#846 `slugifies to empty` guard test."""
+    import json
+
+    for legacy_name in ("work_slack", "!!!", "mcp_slack", "s"):
+        inputs = _openclaw_baseline_inputs(
+            integrations=(
+                IntegrationInputs(
+                    name=legacy_name,
+                    type="slack-cookie",
+                    credentials=(
+                        ("SLACK_MCP_XOXC_TOKEN", "xc"),
+                        ("SLACK_MCP_XOXD_TOKEN", "xd"),
+                    ),
                 ),
             ),
-        ),
-    )
-    with pytest.raises(AgentConfigError, match="slugifies to empty"):
-        render_openclaw(inputs)
+        )
+        body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
+        parsed = json.loads(body)
+        assert "slack" in parsed["mcp"]["servers"], (
+            f"integration named {legacy_name!r} should render under "
+            f"`mcp.servers.slack` but did not — retroactive normalization "
+            f"failed"
+        )
 
 
 def test_openclaw_json_slack_user_missing_token_raises():
@@ -5855,21 +5979,23 @@ def test_openclaw_json_slack_unknown_auth_mode_raises():
         )
 
 
-def test_openclaw_json_slack_user_and_cookie_coexist():
-    """#835 iter-2: two slack integrations of different types on the
-    same agent must both emit — no short-circuit after the first entry.
-    Guards against a future refactor collapsing the for-loop."""
-    import json
-
+def test_openclaw_json_slack_user_and_cookie_second_attach_collides():
+    """#835 iter-2 / #846: pre-#846 this test verified two slack
+    integrations of different types (`slack-user` + `slack-cookie`)
+    could coexist under distinct `mcp.servers.<slug>` keys derived from
+    the operator's integration names. Post-#846 the JSON key is pinned
+    to `slack` for every slack-* integration, so a second attach — of
+    any auth type — trips the shared-key collision guard. Retained as
+    a regression against a future refactor that might drop the guard."""
     inputs = _openclaw_baseline_inputs(
         integrations=(
             IntegrationInputs(
-                name="slack-work",
+                name="slack",
                 type="slack-user",
                 credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
             ),
             IntegrationInputs(
-                name="slack-legacy",
+                name="slack",
                 type="slack-cookie",
                 credentials=(
                     ("SLACK_MCP_XOXC_TOKEN", "xoxc-1"),
@@ -5878,17 +6004,8 @@ def test_openclaw_json_slack_user_and_cookie_coexist():
             ),
         ),
     )
-    body = render_openclaw(inputs).files[".openclaw/openclaw.json"]
-    parsed = json.loads(body)
-    servers = parsed["mcp"]["servers"]
-    assert set(servers.keys()) == {"slack_work", "slack_legacy"}
-    assert servers["slack_work"]["env"] == {
-        "SLACK_MCP_XOXP_TOKEN": "xoxp-1",
-    }
-    assert servers["slack_legacy"]["env"] == {
-        "SLACK_MCP_XOXC_TOKEN": "xoxc-1",
-        "SLACK_MCP_XOXD_TOKEN": "xoxd-1",
-    }
+    with pytest.raises(AgentConfigError, match="'slack' already claimed"):
+        render_openclaw(inputs)
 
 
 # ============================================================================
@@ -5967,7 +6084,11 @@ def test_zeroclaw_config_slack_user_emits_mcp_server_block():
     servers = parsed["mcp"]["servers"]
     assert len(servers) == 1
     entry = servers[0]
-    assert entry["name"] == "slack-slack_work"
+    # #846: `name` is pinned to `slack` — the pre-#846 template wrapped
+    # the operator's slug in a `slack-` prefix (`slack-slack_work`);
+    # post-#846 the template emits the slug directly and the slug is
+    # `slack`.
+    assert entry["name"] == "slack"
     assert entry["command"] == "/home/alpha/.local/bin/slack-mcp-server"
     assert entry["args"] == ["--transport", "stdio"]
     assert entry["env"] == {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
@@ -5995,7 +6116,8 @@ def test_zeroclaw_config_slack_cookie_emits_two_env_vars():
     servers = parsed["mcp"]["servers"]
     assert len(servers) == 1
     entry = servers[0]
-    assert entry["name"] == "slack-slack_legacy"
+    # #846: `name` pinned to `slack` (see slack_user emits test above).
+    assert entry["name"] == "slack"
     assert entry["command"] == "/home/alpha/.local/bin/slack-mcp-server"
     assert entry["env"] == {
         "SLACK_MCP_XOXC_TOKEN": "xoxc-1",
@@ -6003,20 +6125,23 @@ def test_zeroclaw_config_slack_cookie_emits_two_env_vars():
     }
 
 
-def test_zeroclaw_config_slack_two_integrations_stable_order():
-    """#836: two slack integrations attached → two `[[mcp.servers]]`
-    blocks in declared order. Mirrors the openclaw coexistence test."""
-    import tomllib
-
+def test_zeroclaw_config_slack_two_integrations_collide():
+    """#846: replaces the pre-#846 `two_integrations_stable_order` test.
+    Only one slack integration per zeroclaw agent is supported —
+    both attempts collide on the fixed `slack` name so the second
+    attach raises. Retains the two-integration input shape from the
+    original test to guarantee the collision path is exercised the same
+    way the operator would hit it (attach a second slack integration
+    after the first is already configured)."""
     inputs = _zeroclaw_slack_inputs(
         integrations=(
             IntegrationInputs(
-                name="slack-work",
+                name="slack",
                 type="slack-user",
                 credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
             ),
             IntegrationInputs(
-                name="slack-legacy",
+                name="slack",
                 type="slack-cookie",
                 credentials=(
                     ("SLACK_MCP_XOXC_TOKEN", "xoxc-1"),
@@ -6025,19 +6150,8 @@ def test_zeroclaw_config_slack_two_integrations_stable_order():
             ),
         ),
     )
-    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
-    parsed = tomllib.loads(toml)
-    servers = parsed["mcp"]["servers"]
-    assert len(servers) == 2
-    assert [s["name"] for s in servers] == [
-        "slack-slack_work",
-        "slack-slack_legacy",
-    ]
-    assert servers[0]["env"] == {"SLACK_MCP_XOXP_TOKEN": "xoxp-1"}
-    assert servers[1]["env"] == {
-        "SLACK_MCP_XOXC_TOKEN": "xoxc-1",
-        "SLACK_MCP_XOXD_TOKEN": "xoxd-1",
-    }
+    with pytest.raises(AgentConfigError, match="'slack' already claimed"):
+        render_zeroclaw(inputs)
 
 
 def test_zeroclaw_config_slack_command_path_darwin_home_root():
@@ -6067,44 +6181,38 @@ def test_zeroclaw_config_slack_command_path_darwin_home_root():
         assert parsed["mcp"]["servers"][0]["command"] == expected
 
 
-def test_zeroclaw_config_slack_slug_collision_raises():
-    """#836 (mirror openclaw guard): distinct integration names that
-    slug-collide must raise rather than silently drop one entry."""
-    inputs = _zeroclaw_slack_inputs(
-        integrations=(
-            IntegrationInputs(
-                name="slack-a",
-                type="slack-user",
-                credentials=(("SLACK_MCP_XOXP_TOKEN", "x1"),),
-            ),
-            IntegrationInputs(
-                name="slack_a",
-                type="slack-user",
-                credentials=(("SLACK_MCP_XOXP_TOKEN", "x2"),),
-            ),
-        ),
-    )
-    with pytest.raises(AgentConfigError, match="collide on slug"):
-        render_zeroclaw(inputs)
+def test_zeroclaw_config_slack_renders_slack_name_regardless_of_registered_name():
+    """#846: retroactive normalization mirror of the hermes/openclaw
+    tests — a pre-#846 zeroclaw slack integration record named e.g.
+    `work_slack`, `!!!`, or `slack-a` must still render as
+    `name = "slack"` on the emitted `[[mcp.servers]]` block. Replaces
+    both the pre-#846 slug-collision and slugifies-to-empty guard
+    tests, which relied on the operator-supplied name flowing through
+    to the emitted key."""
+    import tomllib
 
-
-def test_zeroclaw_config_slack_empty_slug_raises():
-    """#836 (mirror openclaw guard): integration names that slugify to
-    empty must raise rather than emit an unnamed [[mcp.servers]] block."""
-    inputs = _zeroclaw_slack_inputs(
-        integrations=(
-            IntegrationInputs(
-                name="!!!",
-                type="slack-cookie",
-                credentials=(
-                    ("SLACK_MCP_XOXC_TOKEN", "xc"),
-                    ("SLACK_MCP_XOXD_TOKEN", "xd"),
+    for legacy_name in ("work_slack", "!!!", "slack-a", "s"):
+        inputs = _zeroclaw_slack_inputs(
+            integrations=(
+                IntegrationInputs(
+                    name=legacy_name,
+                    type="slack-cookie",
+                    credentials=(
+                        ("SLACK_MCP_XOXC_TOKEN", "xc"),
+                        ("SLACK_MCP_XOXD_TOKEN", "xd"),
+                    ),
                 ),
             ),
-        ),
-    )
-    with pytest.raises(AgentConfigError, match="slugifies to empty"):
-        render_zeroclaw(inputs)
+        )
+        toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+        parsed = tomllib.loads(toml)
+        servers = parsed["mcp"]["servers"]
+        assert len(servers) == 1
+        assert servers[0]["name"] == "slack", (
+            f"integration named {legacy_name!r} should render with "
+            f"`name = \"slack\"` but did not — retroactive normalization "
+            f"failed"
+        )
 
 
 def test_zeroclaw_config_slack_user_missing_token_raises():
@@ -6172,39 +6280,30 @@ def test_zeroclaw_config_no_slack_matches_pre_836_shape_no_servers_key():
 
 def test_zeroclaw_config_full_toml_parses_for_all_variants():
     """#836 TOML parseability guard: for each of (0 slack, 1 slack-user,
-    1 slack-cookie, 2 slack integrations), the rendered config.toml
-    MUST parse with tomllib. This is the defense-in-depth against B2
-    recurrence — any future edit that lands invalid TOML for any
-    variant fails here before it reaches a real zeroclaw daemon."""
+    1 slack-cookie), the rendered config.toml MUST parse with tomllib.
+    This is the defense-in-depth against B2 recurrence — any future
+    edit that lands invalid TOML for any variant fails here before it
+    reaches a real zeroclaw daemon.
+
+    #846: the "two slack integrations" variant that previously lived
+    here is no longer exercised — the shared-`slack`-key collision
+    guard now short-circuits render for a second attach. That
+    collision path is covered by
+    `test_zeroclaw_config_slack_two_integrations_collide`."""
     import tomllib
 
     variants: list[tuple[IntegrationInputs, ...]] = [
         (),
         (
             IntegrationInputs(
-                name="slack-work",
+                name="slack",
                 type="slack-user",
                 credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
             ),
         ),
         (
             IntegrationInputs(
-                name="slack-legacy",
-                type="slack-cookie",
-                credentials=(
-                    ("SLACK_MCP_XOXC_TOKEN", "xoxc-1"),
-                    ("SLACK_MCP_XOXD_TOKEN", "xoxd-1"),
-                ),
-            ),
-        ),
-        (
-            IntegrationInputs(
-                name="slack-work",
-                type="slack-user",
-                credentials=(("SLACK_MCP_XOXP_TOKEN", "xoxp-1"),),
-            ),
-            IntegrationInputs(
-                name="slack-legacy",
+                name="slack",
                 type="slack-cookie",
                 credentials=(
                     ("SLACK_MCP_XOXC_TOKEN", "xoxc-1"),

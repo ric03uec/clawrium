@@ -468,7 +468,7 @@ deferred_loading = true
 {% if slack_integrations %}enabled = true
 {% for entry in slack_integrations %}
 [[mcp.servers]]
-name = "slack-{{ entry.slug }}"
+name = "{{ entry.slug }}"
 command = "{{ slack_mcp_binary | toq }}"
 args = ["--transport", "stdio"]
 {% if entry.auth == 'user' -%}

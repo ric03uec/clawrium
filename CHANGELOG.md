@@ -14,6 +14,36 @@ cut. The `itx:release` skill archives this section into a new
 
 ### BREAKING
 
+- **Slack MCP toolset name pinned to `slack` across all agent types.**
+  The rendered `mcp_servers.<key>:` (hermes YAML), `mcp.servers.<key>`
+  (openclaw JSON), and `[[mcp.servers]].name` (zeroclaw TOML) are now
+  always the literal `slack` — regardless of the operator-supplied
+  integration name in `clawctl integration registry`. Previously the
+  key was derived from `_integration_slug(<integration-name>)`, so an
+  integration named e.g. `work_slack` produced tools prefixed
+  `work_slack_*` and a zeroclaw agent surfaced a server named
+  `slack-work_slack`. Post-#846 all three surfaces render `slack` and
+  tools show as `slack_*` — matching the naming convention of other
+  built-in toolsets (`web`, `browser`, `terminal`, `file`, `atlassian`).
+
+  The `clawctl integration registry create` command additionally rejects
+  any name other than `slack` for `--type slack-user` / `--type
+  slack-cookie` at CLI time, keeping the registry record aligned with
+  the rendered key.
+
+  **Recovery:** existing installs need no operator action on the host —
+  the renderer normalizes the slug on next `clawctl agent sync` and the
+  new MCP toolset key ships automatically. The only visible change on
+  the agent is the tool-name prefix, from `<old-name>_*` → `slack_*`.
+  If you scripted a hermes skill or agent memory against the previous
+  tool names, update the references. If your registry record is named
+  anything other than `slack` (e.g. `work_slack`), the registry list
+  will still show that name but the rendered toolset is `slack`; to
+  realign the two surfaces run `clawctl integration registry remove
+  <oldname>` and re-create as `clawctl integration registry create
+  slack --type slack-user` (or `slack-cookie`). No automated migration.
+  (#846)
+
 - **`clawctl mcp` group removed entirely.** The placeholder group
   (`clawctl mcp registry get` / `describe`) that shipped in #834 has
   been deleted. Invoking any `clawctl mcp …` command now returns

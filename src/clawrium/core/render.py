@@ -899,6 +899,16 @@ def _integration_slug(name: str) -> str:
     return "".join(c for c in upper if c.isalnum() or c == "_")
 
 
+# #846: the MCP toolset key hermes / openclaw / zeroclaw expose to the
+# model for a slack integration is pinned to this literal — decoupled
+# from whatever the operator named their integration in
+# `clawctl integration registry`. Matches the built-in-toolset naming
+# convention (`web`, `browser`, `terminal`, `file`, `atlassian`). All
+# three view builders reference this constant so a future rename
+# (should the pin ever move) lands in exactly one place.
+_SLACK_MCP_SLUG = "slack"
+
+
 # W4 (ATX round 3): the legacy `_HERMES_PROVIDER_ENV` dispatch table was
 # removed in this commit. The Jinja template `hermes-env.canonical.j2`
 # is now the only source of truth for provider.type → env-var mapping
@@ -1025,7 +1035,15 @@ def render_hermes(
     # let an atlassian integration named `work` and a slack integration
     # named `work` slug-collide silently (YAML last-key-wins). One shared
     # set catches the cross-type collision.
-    seen_mcp_slugs: set[str] = set()
+    #
+    # #846 iter-2 (ATX B2 fix): tracking dict, not bare set — value is
+    # the (type, name) tuple of the FIRST integration to claim the key
+    # so a collision message can accurately identify the reserver
+    # instead of guessing "another slack integration". Necessary now
+    # that atlassian remains operator-slugged while slack is pinned
+    # to `slack`; an operator-named atlassian `slack` collision must
+    # not be reported as "duplicate slack workspace".
+    seen_mcp_slugs: dict[str, tuple[str, str]] = {}
     last_github_token = ""
     for integration in inputs.integrations:
         creds = dict(integration.credentials)
@@ -1053,13 +1071,15 @@ def render_hermes(
                     f"slugifies to empty — refusing to emit an unnamed YAML key"
                 )
             if lo_slug in seen_mcp_slugs:
+                prev_type, prev_name = seen_mcp_slugs[lo_slug]
                 raise AgentConfigError(
-                    f"render_hermes: mcp_servers integration names collide "
-                    f"on YAML key {lo_slug!r} (atlassian branch); another "
-                    f"attached integration already claims this slug — "
-                    f"rename one to differentiate after slugification"
+                    f"render_hermes: mcp_servers YAML key {lo_slug!r} "
+                    f"already claimed by attached {prev_type} integration "
+                    f"{prev_name!r} when rendering atlassian integration "
+                    f"{integration.name!r} — rename one to differentiate "
+                    f"after slugification"
                 )
-            seen_mcp_slugs.add(lo_slug)
+            seen_mcp_slugs[lo_slug] = (integration.type, integration.name)
             url = creds.get("ATLASSIAN_URL", "").rstrip("/")
             atlassian_views.append(
                 {
@@ -1071,23 +1091,29 @@ def render_hermes(
                 }
             )
         if integration.type in ("slack-user", "slack-cookie"):
-            # Slack MCP subprocess (korotovsky/slack-mcp-server). Slug is
-            # already restricted by `_integration_slug` (alnum + underscore)
-            # so it is safe to emit as an unquoted YAML key downstream.
-            lo_slug = slug.lower()
-            if not lo_slug:
-                raise AgentConfigError(
-                    f"render_hermes: integration name {integration.name!r} "
-                    f"slugifies to empty — refusing to emit an unnamed YAML key"
-                )
+            # #846: the mcp_servers YAML key (and therefore the tool-name
+            # prefix hermes exposes to the model) is pinned to
+            # `_SLACK_MCP_SLUG` — matches the naming convention of hermes'
+            # other built-in toolsets (`web`, `browser`, `terminal`,
+            # `file`, `atlassian`) instead of leaking whatever the
+            # operator named their integration in
+            # `clawctl integration registry`.
+            lo_slug = _SLACK_MCP_SLUG
             if lo_slug in seen_mcp_slugs:
+                prev_type, prev_name = seen_mcp_slugs[lo_slug]
+                # #846 iter-2 (ATX B2 fix): name the first-reserver so
+                # an atlassian-named-slack collision does not read as
+                # "duplicate slack workspace". Recovery path depends on
+                # which type claimed first — detach the reserver.
                 raise AgentConfigError(
-                    f"render_hermes: mcp_servers integration names collide "
-                    f"on YAML key {lo_slug!r} (slack branch); another "
-                    f"attached integration already claims this slug — "
-                    f"rename one to differentiate after slugification"
+                    f"render_hermes: mcp_servers YAML key "
+                    f"{_SLACK_MCP_SLUG!r} already claimed by attached "
+                    f"{prev_type} integration {prev_name!r} when "
+                    f"rendering slack integration {integration.name!r}. "
+                    f"Only one integration may claim this key per agent; "
+                    f"detach {prev_name!r} first"
                 )
-            seen_mcp_slugs.add(lo_slug)
+            seen_mcp_slugs[lo_slug] = (integration.type, integration.name)
             # #834 (ATX iter-1 W2): validate required tokens are non-empty
             # before threading into the template. `_clean_secret` in
             # `build_render_inputs` already strips NUL/CR/LF, so an empty
@@ -1137,9 +1163,26 @@ def render_hermes(
                         "xoxd_token": xoxd,
                     }
                 )
-        integration_views.append(
-            {"type": integration.type, "slug": slug, "creds": creds}
-        )
+        # #846 iter-2 (ATX B1 fix): slack integrations do NOT flow
+        # into `integration_views`. The env-template loop
+        # (`hermes-env.canonical.j2`) branches on `intg.type` and has
+        # no slack case, so the append is inert — but the dict would
+        # carry the operator-derived `slug`, not the pinned
+        # `_SLACK_MCP_SLUG`. Any future env-template branch reading
+        # `intg.slug` for slack would surface the wrong value.
+        # Mirrors the openclaw W7 discipline at `render_openclaw`.
+        #
+        # #846 iter-3 (ATX S1 fix): a structural guard, not a
+        # `continue` inside the slack branch. The pre-iter-3 shape
+        # `if slack: ...; continue` was correct today but a future
+        # refactor that dropped the `continue` — or reordered the
+        # slack branch below the append — would silently re-introduce
+        # the B1 regression. Gating the append on `not-slack` at the
+        # outer scope removes that footgun.
+        if integration.type not in ("slack-user", "slack-cookie"):
+            integration_views.append(
+                {"type": integration.type, "slug": slug, "creds": creds}
+            )
 
     ollama_base_url = ""
     if ptype == "ollama":
@@ -1396,20 +1439,21 @@ def render_zeroclaw(
         if integration.type not in ("slack-user", "slack-cookie"):
             continue
         creds = dict(integration.credentials)
-        slug = _integration_slug(integration.name)
-        lo_slug = slug.lower()
-        if not lo_slug:
-            raise AgentConfigError(
-                f"render_zeroclaw: integration name "
-                f"{integration.name!r} slugifies to empty — "
-                f"refusing to emit an unnamed [[mcp.servers]] block"
-            )
+        # #846: the `name` field on the emitted `[[mcp.servers]]` block
+        # (and therefore the MCP toolset name zeroclaw exposes to the
+        # model) is pinned to `_SLACK_MCP_SLUG` — see the hermes branch
+        # in `render_hermes` for rationale. Zeroclaw does not emit
+        # atlassian into `[[mcp.servers]]`, so the collision can only
+        # be slack-vs-slack.
+        lo_slug = _SLACK_MCP_SLUG
         if lo_slug in seen_mcp_slugs:
             raise AgentConfigError(
-                f"render_zeroclaw: mcp.servers integration names "
-                f"collide on slug {lo_slug!r} (slack branch); "
-                f"another attached integration already claims this "
-                f"slug — rename one to differentiate after slugification"
+                f"render_zeroclaw: mcp.servers name "
+                f"{_SLACK_MCP_SLUG!r} already claimed by another "
+                f"attached slack integration when rendering "
+                f"{integration.name!r}. Only one slack workspace per "
+                f"agent is supported; detach the conflicting "
+                f"integration first"
             )
         seen_mcp_slugs.add(lo_slug)
         if integration.type == "slack-user":
@@ -1811,26 +1855,21 @@ def render_openclaw(
             # doesn't see a credential-less entry it would silently
             # drop, and future readers of `integration_views` know
             # every dict there produces env output.
-            # #835: build a slack MCP subprocess view for
-            # `_render_openclaw_json`. Mirrors the hermes slack view
-            # builder at render.py:1073 line-for-line: same slug
-            # collision + empty-slug + missing-token guards; same
-            # (xoxp_token, xoxc_token, xoxd_token) tuple layout so the
-            # JSON emitter downstream stays symmetric with the hermes
-            # Jinja loop.
-            slug = _integration_slug(integration.name)
-            lo_slug = slug.lower()
-            if not lo_slug:
-                raise AgentConfigError(
-                    f"render_openclaw: integration name {integration.name!r} "
-                    f"slugifies to empty — refusing to emit an unnamed JSON key"
-                )
+            #
+            # #846: the JSON key (and therefore the MCP toolset name)
+            # is pinned to `_SLACK_MCP_SLUG` — see the hermes branch
+            # above for rationale. Openclaw does not emit atlassian
+            # to `mcp.servers`, so the collision can only be
+            # slack-vs-slack; the error message stays type-specific.
+            lo_slug = _SLACK_MCP_SLUG
             if lo_slug in seen_mcp_slugs:
                 raise AgentConfigError(
-                    f"render_openclaw: mcp.servers integration names collide "
-                    f"on JSON key {lo_slug!r} (slack branch); another "
-                    f"attached integration already claims this slug — "
-                    f"rename one to differentiate after slugification"
+                    f"render_openclaw: mcp.servers key "
+                    f"{_SLACK_MCP_SLUG!r} already claimed by another "
+                    f"attached slack integration when rendering "
+                    f"{integration.name!r}. Only one slack workspace per "
+                    f"agent is supported; detach the conflicting "
+                    f"integration first"
                 )
             seen_mcp_slugs.add(lo_slug)
             if integration.type == "slack-user":
