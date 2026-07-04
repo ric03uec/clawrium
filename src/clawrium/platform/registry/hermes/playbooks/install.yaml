@@ -108,6 +108,41 @@
         checksum: "sha256:{{ claw_sha256 }}"
       when: not hermes_already_installed
 
+    # Detect whether this is an update over an existing checkout — the two
+    # tasks below only apply to that path.
+    - name: Check whether .hermes/code/.git exists (update path)
+      ansible.builtin.stat:
+        path: "/home/{{ agent_name }}/.hermes/code/.git"
+      register: hermes_code_git_stat
+      when: not hermes_already_installed
+
+    # Workaround for a v2026.7.1 upstream install.sh bug on the update
+    # path (issue #815): the installer runs
+    # `git remote set-branches origin <BRANCH>` + `git fetch origin <BRANCH>`
+    # + `git checkout <BRANCH>`. When BRANCH is a TAG (as our manifest
+    # pins are), the branch-scoped refspec suppresses implicit tag
+    # fetching, `git fetch` writes only to FETCH_HEAD, and `git checkout`
+    # errors with `pathspec '<tag>' did not match`. Pre-populating
+    # `refs/tags/<tag>` locally makes the buggy checkout resolve.
+    # TODO(#815): remove once upstream ships the fix (retarget to the
+    # patch release that includes it, or verify that the release
+    # currently pinned by manifest.yaml no longer needs it).
+    - name: Pre-fetch upstream tag as local ref (workaround for v2026.7.1 install.sh update path)
+      ansible.builtin.command:
+        chdir: "/home/{{ agent_name }}/.hermes/code"
+        argv:
+          - git
+          - fetch
+          - --force
+          - origin
+          - "refs/tags/{{ hermes_target_branch }}:refs/tags/{{ hermes_target_branch }}"
+      become_user: "{{ agent_name }}"
+      when:
+        - not hermes_already_installed
+        - hermes_code_git_stat.stat is defined
+        - hermes_code_git_stat.stat.exists | default(false)
+      changed_when: false
+
     # The hermes installer can run for 10+ minutes (git clone, uv venv, large
     # pip dependency tree). We run it async with polling so the SSH connection
     # is reused per-poll rather than held open for the entire install — this
