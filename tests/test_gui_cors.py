@@ -66,9 +66,10 @@ def test_no_wildcard_methods():
     methods = response.headers.get("access-control-allow-methods")
     assert methods is not None
     assert "*" not in methods
-    # Should include the methods we allow
+    # Should include at least the methods we expect
     assert "GET" in methods
     assert "POST" in methods
+    assert "HEAD" in methods
 
 
 def test_no_wildcard_headers():
@@ -108,7 +109,6 @@ def test_preflight_custom_header_blocked():
     assert "X-My-Custom-Header" not in allow_headers
 
 
-
 def test_preflight_untrusted_origin():
     """Preflight from untrusted origins should not include allow-origin."""
     client = TestClient(app)
@@ -135,6 +135,7 @@ def test_preflight_allowed_method():
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
     methods = response.headers.get("access-control-allow-methods")
+    assert methods is not None
     assert "POST" in methods
 
 
@@ -142,7 +143,7 @@ def test_put_method_cors_headers():
     """PUT should return CORS headers for allowed origins."""
     client = TestClient(app)
     response = client.put(
-        "/api/fleet/agents/foo/memory/test.txt",
+        "/api/agents/foo/memory/test.txt",
         content=b"test",
         headers={"Origin": "http://localhost:3000"},
     )
@@ -220,6 +221,7 @@ def test_authorization_header_passes_preflight():
         },
     )
     headers = response.headers.get("access-control-allow-headers")
+    assert headers is not None
     assert "Authorization" in headers
 
 
@@ -293,13 +295,49 @@ def test_connection_token_blocked_untrusted():
 
 
 def test_origin_list_no_wildcard():
-    """S4: Regression test: origins must be explicit, never wildcard."""
-    import clawrium.gui.server as server_mod
-    for middleware_config in server_mod.app.user_middleware:
-        if hasattr(middleware_config, "cls"):
-            from fastapi.middleware.cors import CORSMiddleware
-            if middleware_config.cls is CORSMiddleware:
-                # Check allow_origins doesn't contain "*"
-                origins = middleware_config.kwargs.get("allow_origins", [])
-                assert "*" not in origins
-                break
+    """S4: Regression: wildcard origin should not be allowed back in.
+
+    Behavioral test: an explicit, non-localhost origin is blocked rather
+    than echoed back. This catches drift where allow_origins gets reset to
+    ['*'] by accident.
+    """
+    client = TestClient(app)
+    response = client.get(
+        "/api/health",
+        headers={"Origin": "http://random-non-localhost-site.com"},
+    )
+    assert response.headers.get("access-control-allow-origin") is None
+
+
+def test_head_method_cors_headers():
+    """HEAD should pass preflight CORS for allowed origins.
+
+    HEAD is listed in allow_methods so browsers can send HEAD+Authorization
+    without preflight failure. Individual endpoints may still return 405,
+    but the CORS preflight succeeds.
+    """
+    client = TestClient(app)
+    response = client.options(
+        "/api/health",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "HEAD",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
+def test_methods_exact_set():
+    """Pin the exact allowed methods to prevent drift."""
+    client = TestClient(app)
+    response = client.options(
+        "/api/health",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    methods = response.headers.get("access-control-allow-methods") or ""
+    actual = {m.strip() for m in methods.split(",")}
+    assert actual == {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"}
