@@ -315,6 +315,27 @@ class CanonicalSyncError(Exception):
     """Any failure in the canonical sync pipeline."""
 
 
+def _validate_agent_name(agent_name: str) -> None:
+    """Raise `CanonicalSyncError` if `agent_name` fails format validation.
+
+    Defense-in-depth against a corrupted or tampered `hosts.json`
+    entry: reject path traversal (`..`, `foo/../bar`), shell
+    metacharacters, uppercase, over-length names, and collisions with
+    reserved Unix accounts (root, daemon, xclm, ...) at the sync
+    boundary BEFORE any SSH round-trip or render input assembly.
+    Delegates to `core.names.validate_agent_name` so the sync
+    boundary is a strict superset of the `clawctl agent create`
+    boundary — no drift between the two regexes. Issue #753.
+    """
+    from clawrium.core.names import validate_agent_name
+
+    if not isinstance(agent_name, str):
+        raise CanonicalSyncError(f"invalid agent_name: {agent_name!r}")
+    ok, err = validate_agent_name(agent_name)
+    if not ok:
+        raise CanonicalSyncError(f"invalid agent_name {agent_name!r}: {err}")
+
+
 class SecretRemovalRefused(CanonicalSyncError):
     """Raised when the rendered body would remove a host-side secret.
 
@@ -1754,6 +1775,8 @@ def sync_agent_canonical(
         if on_event is not None:
             on_event(stage, message)
         logger.info("[%s] %s", stage, message)
+
+    _validate_agent_name(agent_name)
 
     emit("validate", f"assembling render inputs for {agent_name}")
     inputs = build_render_inputs(agent_name)

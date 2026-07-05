@@ -550,6 +550,125 @@ def test_sync_agent_missing_from_hosts_raises(monkeypatch):
         sync_agent_canonical("alpha")
 
 
+# ---------------------------------------------------------------------------
+# Issue #753: agent_name validation at the sync boundary
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_name",
+    [
+        "..",                # path traversal (dotdot)
+        "foo/../bar",        # path traversal (nested)
+        "Wolf",              # uppercase
+        "a" * 33,            # too long
+        "",                  # empty string
+        "root",              # reserved Unix account
+        "xclm",              # reserved clawrium account
+        "wolf-i\n",          # trailing newline (ATX iter-1 B1 regression guard)
+        "wolf\x00",          # NUL byte
+        ";wolf",             # shell metacharacter
+        "wolf|bar",          # shell pipe
+        "wolf agent",        # space
+        "wolf$IFS",          # env var expansion
+    ],
+    ids=[
+        "dotdot",
+        "nested-traversal",
+        "uppercase",
+        "too-long",
+        "empty",
+        "reserved-root",
+        "reserved-xclm",
+        "trailing-newline",
+        "nul-byte",
+        "semicolon",
+        "pipe",
+        "space",
+        "dollar-ifs",
+    ],
+)
+def test_sync_rejects_invalid_agent_name(monkeypatch, bad_name):
+    """#753: `sync_agent_canonical` must reject malformed `agent_name`
+    values at the boundary — before any render input assembly, SSH
+    round-trip, or ansible work. The validation short-circuits with a
+    `CanonicalSyncError` naming the rejected value.
+
+    `build_render_inputs` is monkeypatched to raise so the test fails
+    loudly if the validator ever lets execution slip past it. (Both
+    valid regex-only cases AND reserved-name cases must trip before
+    any render work happens.)
+    """
+    def _boom_render(*_a, **_kw):
+        raise AssertionError("build_render_inputs called before validation")
+
+    monkeypatch.setattr(lc, "build_render_inputs", _boom_render)
+
+    with pytest.raises(CanonicalSyncError, match="invalid agent_name"):
+        sync_agent_canonical(bad_name)
+
+
+@pytest.mark.parametrize(
+    "bad_name",
+    [None, 42, [], {}, b"wolf"],
+    ids=["none", "int", "list", "dict", "bytes"],
+)
+def test_sync_rejects_non_string_agent_name(monkeypatch, bad_name):
+    """#753 W2 (ATX iter-1): non-string `agent_name` (e.g. from a
+    tampered hosts.json with a JSON list / null / int in the name
+    slot) must be rejected by the isinstance guard BEFORE reaching
+    `core.names.validate_agent_name` (which would `TypeError` on a
+    non-string input)."""
+    def _boom_render(*_a, **_kw):
+        raise AssertionError("build_render_inputs called before validation")
+
+    monkeypatch.setattr(lc, "build_render_inputs", _boom_render)
+
+    with pytest.raises(CanonicalSyncError, match="invalid agent_name"):
+        sync_agent_canonical(bad_name)
+
+
+@pytest.mark.parametrize(
+    "good_name",
+    ["a", "a" * 32, "wolf_i", "wolf-i", "z9"],
+    ids=["single-char-min", "max-length-32", "with-underscore", "with-hyphen", "letter-digit"],
+)
+def test_validate_agent_name_accepts_boundary_valid_names(good_name):
+    """#753 W3 (ATX iter-1): direct positive boundary tests for
+    `_validate_agent_name` — 1-char min, 32-char max, underscore,
+    hyphen, letter-digit. Regression guard against a future tightening
+    of `{0,31}` → `{0,30}` or dropping underscore support that
+    `wolf-i` (the common 6-char case) would silently mask."""
+    # No exception = pass. Isolates the validator predicate without
+    # sync_agent_canonical's 3-layer mock stack (S5 from ATX iter-1).
+    lc._validate_agent_name(good_name)
+
+
+def test_sync_accepts_valid_agent_name(monkeypatch):
+    """#753: a well-formed agent_name (e.g. `wolf-i`) must pass
+    validation and reach the existing downstream mocked path. Any
+    `CanonicalSyncError` here is expected to come from the
+    `not found in hosts.json` guard, NOT from name validation."""
+    from clawrium.core.render import (
+        GatewayInputs,
+        ProviderInputs,
+        RenderInputs,
+    )
+
+    inputs = RenderInputs(
+        agent_name="wolf-i",
+        agent_type="hermes",
+        provider=ProviderInputs(name="o", type="openrouter", api_key="k"),
+        gateway=GatewayInputs(host="h", port=1),
+    )
+    monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+    monkeypatch.setattr(lc, "get_agent_by_name", lambda _: None)
+
+    # Should raise the "not found" error, NOT "invalid agent_name".
+    with pytest.raises(CanonicalSyncError, match="not found in hosts.json"):
+        sync_agent_canonical("wolf-i")
+
+
 def test_sync_force_bypass_writes_through_secret_removal(monkeypatch):
     """force=True must allow a sync that removes host-side secrets."""
     from clawrium.core.render import (

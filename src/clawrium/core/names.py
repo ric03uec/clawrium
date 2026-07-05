@@ -265,7 +265,12 @@ def validate_agent_name(name: str) -> tuple[bool, str]:
     if len(name) > 32:
         return (False, f"Name must be 32 characters or less (got {len(name)})")
 
-    if not re.match(r"^[a-z][a-z0-9_-]{0,31}$", name):
+    # `fullmatch` (not `re.match` + `^…$`) is required: Python's `$` in
+    # default mode ALSO matches the position immediately before a final
+    # `\n`, so `re.match(r"^…$", "wolf\n")` returns a match. That
+    # trailing newline would then flow into systemd unit names and
+    # filesystem paths downstream. (Issue #753, ATX iter-1 B1.)
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", name):
         return (
             False,
             "Name must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores",
