@@ -218,6 +218,12 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
         </div>
       </div>
 
+      {(start.isError || stop.isError || restart.isError) && (
+        <div className="mt-2 text-xs text-status-error" role="alert">
+          {(start.error || stop.error || restart.error)?.message}
+        </div>
+      )}
+
       {showPairing && (pairing.data || pairing.isError) && (
         <div className="mt-4 flex items-start gap-3 rounded-md border border-default bg-surface p-3 text-sm">
           {pairing.data && (

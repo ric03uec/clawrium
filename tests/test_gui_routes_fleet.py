@@ -1319,6 +1319,36 @@ def test_start_agent_generic_exception_uses_safe_message(isolated_config: Path):
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
 
 
+def test_start_agent_returns_502_when_result_success_false(isolated_config: Path):
+    """When start_agent returns {success: False}, the endpoint returns 502 (#712)."""
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.start_agent",
+        return_value={"success": False, "error": "daemon failed to start"},
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/start")
+    assert resp.status_code == 502
+    assert "daemon failed to start" in resp.json()["detail"]
+
+
+def test_start_agent_502_sanitizes_path_in_error(isolated_config: Path):
+    """Error with filesystem path gets sanitized on the 502 path (#712)."""
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.start_agent",
+        return_value={
+            "success": False,
+            "error": "failed at /home/user/.config/clawrium/secrets.json",
+        },
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/start")
+    assert resp.status_code == 502
+    assert "/home/user/.config" not in resp.json()["detail"]
+    assert "<path>" in resp.json()["detail"]
+
+
 # ---------------------------------------------------------------------------
 # B5 — POST /agents/{key}/stop
 # ---------------------------------------------------------------------------
@@ -1370,6 +1400,36 @@ def test_stop_agent_generic_exception_uses_safe_message(isolated_config: Path):
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
 
 
+def test_stop_agent_returns_502_when_result_success_false(isolated_config: Path):
+    """When stop_agent returns {success: False}, the endpoint returns 502 (#712)."""
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.stop_agent",
+        return_value={"success": False, "error": "agent not running"},
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/stop")
+    assert resp.status_code == 502
+    assert "agent not running" in resp.json()["detail"]
+
+
+def test_stop_agent_502_sanitizes_path_in_error(isolated_config: Path):
+    """Error with filesystem path gets sanitized on the 502 path (#712)."""
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.stop_agent",
+        return_value={
+            "success": False,
+            "error": "failed at /home/user/.config/clawrium/hosts.json",
+        },
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/stop")
+    assert resp.status_code == 502
+    assert "/home/user/.config" not in resp.json()["detail"]
+    assert "<path>" in resp.json()["detail"]
+
+
 # ---------------------------------------------------------------------------
 # B6 — POST /agents/{key}/restart
 # ---------------------------------------------------------------------------
@@ -1419,6 +1479,36 @@ def test_restart_agent_generic_exception_uses_safe_message(isolated_config: Path
             resp = client.post("/api/agents/demo/restart")
     assert resp.status_code == 500
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
+
+
+def test_restart_agent_returns_502_when_result_success_false(isolated_config: Path):
+    """When restart_agent returns success=False, the endpoint returns 502 (#712)."""
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.restart_agent",
+        return_value={"success": False, "error": "stop phase timed out"},
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/restart")
+    assert resp.status_code == 502
+    assert "stop phase timed out" in resp.json()["detail"]
+
+
+def test_restart_agent_502_sanitizes_path_in_error(isolated_config: Path):
+    """Error with filesystem path gets sanitized on the 502 path (#712)."""
+    _seed_hosts(isolated_config, "hermes")
+    with patch(
+        "clawrium.gui.routes.fleet.restart_agent",
+        return_value={
+            "success": False,
+            "error": "failed at /home/user/.config/clawrium/restart.log",
+        },
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/agents/demo/restart")
+    assert resp.status_code == 502
+    assert "/home/user/.config" not in resp.json()["detail"]
+    assert "<path>" in resp.json()["detail"]
 
 
 def test_fleet_endpoint_returns_tier1_model(isolated_config: Path):

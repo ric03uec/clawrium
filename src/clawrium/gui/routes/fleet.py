@@ -336,18 +336,29 @@ async def start_agent_endpoint(agent_key: str):
             agent_type,
             agent_name=agent_key,
         )
-        return {
-            "success": result["success"],
-            "operation": "start",
-            "agent": agent_key,
-            "error": result.get("error"),
-        }
     except LifecycleError as e:
         logger.error("start_agent failed for %s: %s", agent_key, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_sanitize_health_error(str(e)))
     except Exception as e:
         logger.error("start_agent failed for %s: %s", agent_key, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR)
+
+    if not result.get("success"):
+        logger.error(
+            "start_agent returned success=false for %s: %s",
+            agent_key,
+            result.get("error"),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=_sanitize_health_error(result.get("error")) or _LIFECYCLE_GENERIC_ERROR,
+        )
+    return {
+        "success": result["success"],
+        "operation": "start",
+        "agent": agent_key,
+        "error": result.get("error"),
+    }
 
 
 @router.post("/agents/{agent_key}/stop")
@@ -365,18 +376,29 @@ async def stop_agent_endpoint(agent_key: str):
             agent_type,
             agent_name=agent_key,
         )
-        return {
-            "success": result["success"],
-            "operation": "stop",
-            "agent": agent_key,
-            "error": result.get("error"),
-        }
     except LifecycleError as e:
         logger.error("stop_agent failed for %s: %s", agent_key, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_sanitize_health_error(str(e)))
     except Exception as e:
         logger.error("stop_agent failed for %s: %s", agent_key, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR)
+
+    if not result.get("success"):
+        logger.error(
+            "stop_agent returned success=false for %s: %s",
+            agent_key,
+            result.get("error"),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=_sanitize_health_error(result.get("error")) or _LIFECYCLE_GENERIC_ERROR,
+        )
+    return {
+        "success": result["success"],
+        "operation": "stop",
+        "agent": agent_key,
+        "error": result.get("error"),
+    }
 
 
 @router.post("/agents/{agent_key}/restart")
@@ -394,18 +416,29 @@ async def restart_agent_endpoint(agent_key: str):
             agent_type,
             agent_name=agent_key,
         )
-        return {
-            "success": result["success"],
-            "operation": "restart",
-            "agent": agent_key,
-            "error": result.get("error"),
-        }
     except LifecycleError as e:
         logger.error("restart_agent failed for %s: %s", agent_key, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_sanitize_health_error(str(e)))
     except Exception as e:
         logger.error("restart_agent failed for %s: %s", agent_key, e, exc_info=True)
         raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR)
+
+    if not result.get("success"):
+        logger.error(
+            "restart_agent returned success=false for %s: %s",
+            agent_key,
+            result.get("error"),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=_sanitize_health_error(result.get("error")) or _LIFECYCLE_GENERIC_ERROR,
+        )
+    return {
+        "success": result["success"],
+        "operation": "restart",
+        "agent": agent_key,
+        "error": result.get("error"),
+    }
 
 
 @router.get("/fleet/agents/{agent_key}/web-ui")

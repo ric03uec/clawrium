@@ -20,4 +20,6 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- GUI lifecycle endpoints (`start`, `stop`, `restart`) now return HTTP 502 instead of HTTP 200 with `success: false` when the underlying lifecycle operation fails without raising an exception (#712)
+
 ### Documentation

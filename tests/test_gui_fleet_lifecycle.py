@@ -125,10 +125,8 @@ class TestStartAgentEndpoint:
         assert exc_info.value.detail == fleet_mod._LIFECYCLE_GENERIC_ERROR
 
     @pytest.mark.anyio
-    async def test_start_agent_returns_success_false_with_error_field(
-        self, monkeypatch
-    ):
-        """When lifecycle returns success=False, endpoint must forward error field."""
+    async def test_start_agent_returns_502_when_success_false(self, monkeypatch):
+        """When lifecycle returns success=False, endpoint must raise HTTP 502."""
         agent_key = "test-agent"
         hostname = "192.168.1.100"
         agent_type = "zeroclaw"
@@ -151,12 +149,40 @@ class TestStartAgentEndpoint:
 
         monkeypatch.setattr(fleet_mod, "start_agent", mock_start_agent)
 
-        result = await fleet_mod.start_agent_endpoint(agent_key)
+        with pytest.raises(HTTPException) as exc_info:
+            await fleet_mod.start_agent_endpoint(agent_key)
 
-        assert result["success"] is False
-        assert result["error"] == "SSH key not found"
-        assert result["operation"] == "start"
-        assert result["agent"] == agent_key
+        assert exc_info.value.status_code == 502
+        assert "SSH key not found" in exc_info.value.detail
+
+    @pytest.mark.anyio
+    async def test_start_agent_success_false_sanitizes_path(self, monkeypatch):
+        """Error strings with filesystem paths must be sanitized on the 502 path."""
+        agent_key = "test-agent"
+        hostname = "192.168.1.100"
+        agent_type = "zeroclaw"
+
+        mock_resolved = (
+            {"hostname": hostname, "user": "xclm"},
+            agent_type,
+            {"type": agent_type},
+        )
+        monkeypatch.setattr(fleet_mod, "resolve_agent", lambda _key: mock_resolved)
+
+        def mock_start_agent(hostname_arg, claw_name_arg, agent_name=None):
+            return {
+                "success": False,
+                "error": "failed at /home/user/.config/clawrium/secrets.json",
+            }
+
+        monkeypatch.setattr(fleet_mod, "start_agent", mock_start_agent)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await fleet_mod.start_agent_endpoint(agent_key)
+
+        assert exc_info.value.status_code == 502
+        assert "/home/user/.config" not in exc_info.value.detail
+        assert "<path>" in exc_info.value.detail
 
 
 class TestStopAgentEndpoint:
@@ -265,8 +291,8 @@ class TestStopAgentEndpoint:
         assert exc_info.value.detail == fleet_mod._LIFECYCLE_GENERIC_ERROR
 
     @pytest.mark.anyio
-    async def test_stop_agent_returns_success_false_with_error_field(self, monkeypatch):
-        """When lifecycle returns success=False, endpoint must forward error field."""
+    async def test_stop_agent_returns_502_when_success_false(self, monkeypatch):
+        """When lifecycle returns success=False, endpoint must raise HTTP 502."""
         agent_key = "test-agent"
         hostname = "192.168.1.100"
         agent_type = "zeroclaw"
@@ -289,12 +315,40 @@ class TestStopAgentEndpoint:
 
         monkeypatch.setattr(fleet_mod, "stop_agent", mock_stop_agent)
 
-        result = await fleet_mod.stop_agent_endpoint(agent_key)
+        with pytest.raises(HTTPException) as exc_info:
+            await fleet_mod.stop_agent_endpoint(agent_key)
 
-        assert result["success"] is False
-        assert result["error"] == "Agent not running"
-        assert result["operation"] == "stop"
-        assert result["agent"] == agent_key
+        assert exc_info.value.status_code == 502
+        assert "Agent not running" in exc_info.value.detail
+
+    @pytest.mark.anyio
+    async def test_stop_agent_success_false_sanitizes_path(self, monkeypatch):
+        """Error strings with filesystem paths must be sanitized on the 502 path."""
+        agent_key = "test-agent"
+        hostname = "192.168.1.100"
+        agent_type = "zeroclaw"
+
+        mock_resolved = (
+            {"hostname": hostname, "user": "xclm"},
+            agent_type,
+            {"type": agent_type},
+        )
+        monkeypatch.setattr(fleet_mod, "resolve_agent", lambda _key: mock_resolved)
+
+        def mock_stop_agent(hostname_arg, claw_name_arg, agent_name=None, timeout=30):
+            return {
+                "success": False,
+                "error": "failed at /home/user/.config/clawrium/hosts.json",
+            }
+
+        monkeypatch.setattr(fleet_mod, "stop_agent", mock_stop_agent)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await fleet_mod.stop_agent_endpoint(agent_key)
+
+        assert exc_info.value.status_code == 502
+        assert "/home/user/.config" not in exc_info.value.detail
+        assert "<path>" in exc_info.value.detail
 
 
 class TestRestartAgentEndpoint:
@@ -408,10 +462,8 @@ class TestRestartAgentEndpoint:
         assert "not found" in exc_info.value.detail
 
     @pytest.mark.anyio
-    async def test_restart_agent_returns_success_false_with_error_field(
-        self, monkeypatch
-    ):
-        """When lifecycle returns success=False, endpoint must forward error field."""
+    async def test_restart_agent_returns_502_when_success_false(self, monkeypatch):
+        """When lifecycle returns success=False, endpoint must raise HTTP 502."""
         agent_key = "test-agent"
         hostname = "192.168.1.100"
         agent_type = "zeroclaw"
@@ -434,9 +486,37 @@ class TestRestartAgentEndpoint:
 
         monkeypatch.setattr(fleet_mod, "restart_agent", mock_restart_agent)
 
-        result = await fleet_mod.restart_agent_endpoint(agent_key)
+        with pytest.raises(HTTPException) as exc_info:
+            await fleet_mod.restart_agent_endpoint(agent_key)
 
-        assert result["success"] is False
-        assert result["error"] == "Stop failed: timeout"
-        assert result["operation"] == "restart"
-        assert result["agent"] == agent_key
+        assert exc_info.value.status_code == 502
+        assert "Stop failed" in exc_info.value.detail
+
+    @pytest.mark.anyio
+    async def test_restart_agent_success_false_sanitizes_path(self, monkeypatch):
+        """Error strings with filesystem paths must be sanitized on the 502 path."""
+        agent_key = "test-agent"
+        hostname = "192.168.1.100"
+        agent_type = "zeroclaw"
+
+        mock_resolved = (
+            {"hostname": hostname, "user": "xclm"},
+            agent_type,
+            {"type": agent_type},
+        )
+        monkeypatch.setattr(fleet_mod, "resolve_agent", lambda _key: mock_resolved)
+
+        def mock_restart_agent(hostname_arg, claw_name_arg, agent_name=None):
+            return {
+                "success": False,
+                "error": "failed at /home/user/.config/clawrium/restart.log",
+            }
+
+        monkeypatch.setattr(fleet_mod, "restart_agent", mock_restart_agent)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await fleet_mod.restart_agent_endpoint(agent_key)
+
+        assert exc_info.value.status_code == 502
+        assert "/home/user/.config" not in exc_info.value.detail
+        assert "<path>" in exc_info.value.detail
