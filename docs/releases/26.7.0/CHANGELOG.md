@@ -1,0 +1,572 @@
+# Release 26.7.0
+
+Archived changelog for the **26.7.0** release. This is the frozen record of
+everything that shipped in this version; the working changelog for the next
+release lives at the repository root in [`CHANGELOG.md`](../../../CHANGELOG.md).
+
+Versions follow [SemVer](https://semver.org/), and the project tracks a
+calendar versioning convention: `YY.M.PATCH`.
+
+## [26.7.0]
+
+### BREAKING
+
+- **Slack MCP toolset name pinned to `slack` across all agent types.**
+  The rendered `mcp_servers.<key>:` (hermes YAML), `mcp.servers.<key>`
+  (openclaw JSON), and `[[mcp.servers]].name` (zeroclaw TOML) are now
+  always the literal `slack` — regardless of the operator-supplied
+  integration name in `clawctl integration registry`. Previously the
+  key was derived from `_integration_slug(<integration-name>)`, so an
+  integration named e.g. `work_slack` produced tools prefixed
+  `work_slack_*` and a zeroclaw agent surfaced a server named
+  `slack-work_slack`. Post-#846 all three surfaces render `slack` and
+  tools show as `slack_*` — matching the naming convention of other
+  built-in toolsets (`web`, `browser`, `terminal`, `file`, `atlassian`).
+
+  The `clawctl integration registry create` command additionally rejects
+  any name other than `slack` for `--type slack-user` / `--type
+  slack-cookie` at CLI time, keeping the registry record aligned with
+  the rendered key.
+
+  **Recovery:** existing installs need no operator action on the host —
+  the renderer normalizes the slug on next `clawctl agent sync` and the
+  new MCP toolset key ships automatically. The only visible change on
+  the agent is the tool-name prefix, from `<old-name>_*` → `slack_*`.
+  If you scripted a hermes skill or agent memory against the previous
+  tool names, update the references. If your registry record is named
+  anything other than `slack` (e.g. `work_slack`), the registry list
+  will still show that name but the rendered toolset is `slack`; to
+  realign the two surfaces run `clawctl integration registry remove
+  <oldname>` and re-create as `clawctl integration registry create
+  slack --type slack-user` (or `slack-cookie`). No automated migration.
+  (#846)
+
+- **`clawctl mcp` group removed entirely.** The placeholder group
+  (`clawctl mcp registry get` / `describe`) that shipped in #834 has
+  been deleted. Invoking any `clawctl mcp …` command now returns
+  Typer's default `Error: No such command 'mcp'.` and exits **2** —
+  previously the stubs exited 1 with a redirect hint. Slack-backed MCP
+  is a first-class integration type as of the #499 chain and does not
+  need a separate top-level surface; generic (non-Slack) MCP-server
+  support is tracked as the successor issue #844.
+  **Recovery:** replace any `clawctl mcp registry …` invocation with
+  `clawctl integration registry create --type slack-user` (recommended)
+  or `--type slack-cookie` (discouraged fallback). Scripts that only
+  checked exit code must update: exit 1 → exit 2, and the redirect
+  hint text is no longer emitted. No automated migration. (#838, #499)
+
+- **openclaw bedrock model prefix renamed `bedrock/` → `amazon-bedrock/`.**
+  The openclaw gateway's Bedrock provider is registered as
+  `amazon-bedrock` upstream; the previous `bedrock/<id>` prefix caused
+  `Unknown model: bedrock/<id>` errors at request time. The renderer,
+  `.env.j2`, `openclaw.json.j2`, and `verify_config.py` all emit
+  `amazon-bedrock/<id>` going forward.
+
+  **No automated migration.** Operators with a previously-installed
+  openclaw agent whose `hosts.json.agents.<name>.config.provider.default_model`
+  starts with `bedrock/` must update it manually before the next
+  `clawctl agent sync` — either edit `~/.config/clawrium/hosts.json`
+  directly to replace the `bedrock/` prefix with `amazon-bedrock/`, or
+  reattach the provider via `clawctl agent provider attach <agent>
+  --provider <provider> --model <id-without-prefix>`. Syncing without
+  the manual update will continue to write the old prefix, and the
+  gateway will continue to fail with `Unknown model`.
+
+- **openclaw brave plugin pin bumped to `2026.6.9` and
+  `min_host_version` raised to `2026.6.9`.** The
+  `clawctl agent sync` brave preflight now rejects hosts running
+  openclaw `< 2026.6.9` when the brave integration is attached, with
+  a `clawctl agent upgrade <name>` remediation hint. Operators on
+  older openclaw versions who use brave must upgrade openclaw before
+  the next sync.
+
+  **Heads-up before upgrading:** `clawctl agent upgrade` on openclaw
+  is known to strip provider and channel attachments (see issue tracker
+  and operator notes from the wolf-i upgrade on 2026-06-18 — systemd
+  reports the unit ready but `clawctl agent doctor` will show the
+  attachments gone). Recommended flow: capture `clawctl agent doctor
+  <name>` output BEFORE the upgrade, run the upgrade, then re-attach
+  the provider + channels and run `clawctl agent sync <name>` to
+  re-materialize them on the host.
+
+### Added
+
+- Slack integration for hermes agents (`slack-user` and `slack-cookie`
+  types in `clawctl integration registry create --type ...`). Attaches
+  a stdio-launched [korotovsky/slack-mcp-server](https://github.com/korotovsky/slack-mcp-server)
+  subprocess to the hermes daemon so the agent can list channels, read
+  messages, and post via MCP tool calls. `slack-user` (xoxp bearer) is
+  the recommended path; `slack-cookie` (xoxc + xoxd) is a discouraged
+  fallback (Slack abuse detection targets this pattern). Binary is
+  installed at sync time by a dedicated single-purpose runbook
+  (`hermes/playbooks/install_slack_mcp.yaml` + `_macos` sibling),
+  SHA256-pinned per (os, arch) — linux amd64/arm64 + darwin amd64/arm64;
+  armv7l not shipped upstream at v1.3.0. Attach gate rejects `slack-*`
+  on openclaw / zeroclaw agents at CLI time (Phase 1 of #499); those
+  agent types will gain support in follow-up slices. First MCP
+  subprocess on darwin hermes. (#834, #499)
+- **Architectural pattern**: "Integration Binary Install" — new
+  section in [`AGENTS.md`](AGENTS.md#integration-binary-install-architectural-pattern)
+  documenting the sync-time-runbook contract every future integration
+  binary MUST follow. Slack (#834) and openclaw brave (#755) are
+  the two canonical examples. Prevents the "sync doesn't install the
+  binary" regression class where a rendered config points at a path
+  the host never receives. (#834)
+- Slack integration for openclaw agents — Phase 2 of #499. The
+  `slack-user` and `slack-cookie` types now attach to openclaw agents
+  and emit an `mcp.servers.<slug>` block in
+  `~/.openclaw/openclaw.json` referencing the same
+  SHA256-pinned korotovsky/slack-mcp-server binary that hermes uses.
+  The `mcp` key is emitted **conditionally**: openclaw agents without
+  a slack integration attached render byte-identical to pre-#835
+  output — no drift on the on-host `openclaw.json` after upgrade.
+  Binary install follows the same sync-time-runbook pattern Phase 1
+  established — new `openclaw/playbooks/install_slack_mcp.yaml` +
+  `_macos` sibling invoked from `_openclaw_install_slack_mcp` in
+  `core.lifecycle_canonical`, wired into `sync_agent_canonical`
+  alongside the hermes helper. Attach gate now accepts openclaw +
+  `slack-*` pairs; render-time enforcement remains as
+  defense-in-depth. Zeroclaw slack support lands in Phase 3. GUI
+  attach flow is generic (no per-agent-type card) — server-side
+  gate flip is sufficient. macOS openclaw (GA per #770) covered via
+  `install_slack_mcp_macos.yaml`. (#835, #499)
+- Slack integration for zeroclaw agents — Phase 3 of #499. The
+  `slack-user` and `slack-cookie` types now attach to zeroclaw
+  agents and emit `[[mcp.servers]]` array-of-tables blocks in
+  `~/.zeroclaw/config.toml` referencing the same SHA256-pinned
+  korotovsky/slack-mcp-server binary that hermes and openclaw use.
+  Binary install follows the same sync-time-runbook pattern Phases
+  1+2 established — new `zeroclaw/playbooks/install_slack_mcp.yaml`
+  invoked from `_zeroclaw_install_slack_mcp` in
+  `core.lifecycle_canonical`, wired into `sync_agent_canonical`
+  alongside the hermes and openclaw helpers. The `[[mcp.servers]]`
+  blocks are emitted **conditionally** and `[mcp].enabled` flips
+  true only when at least one slack integration is attached —
+  zeroclaw agents without a slack integration render the
+  byte-locked `[mcp]` + `deferred_loading = true` +
+  `enabled = false` shape (no `servers` key at all). Slack render
+  + install completes BEFORE `_zeroclaw_repair_after_start` rotates
+  the gateway bearer (#437 stale-bearer regression guard); a
+  render-time hydration failure short-circuits the sync with zero
+  `gateway_token_rotated` events. Attach gate accepts zeroclaw +
+  slack-* pairs. Real-host UAT ran on wolf-i x86_64 (armv7l
+  coverage gap tracked as follow-up — upstream ships no armv7 asset
+  at v1.3.0). macOS zeroclaw slack deferred to a follow-up
+  alongside `install_slack_mcp_macos.yaml`. (#836, #499)
+- `render_zeroclaw(inputs, *, os_family="linux")` — zeroclaw
+  renderer signature gains `os_family` so `[[mcp.servers]]` command
+  paths resolve to `/Users/<name>/.local/bin/slack-mcp-server` on
+  darwin (parity with the hermes and openclaw signatures added in
+  Phases 1+2). Every call site inside `lifecycle.configure_agent`
+  and `lifecycle_canonical.sync_agent_canonical` threads the
+  normalized value. (#836)
+- CLI attach-time agent-type / integration-type gate:
+  `clawctl agent integration attach <name> --agent <agent>` now rejects
+  `(agent-type, integration-type)` pairs that the renderer does not
+  support, before writing to hosts.json. Exits 2 with a hint pointing
+  operators at `clawctl integration registry get`. Benefits every
+  integration type — closes the #555-class regression window where the
+  render layer was the only guard. (#834, #499)
+- Hermes: render `model.context_length` (and the same key on each litellm
+  auxiliary slot) in `~/.hermes/config.yaml` for litellm providers when
+  `context_window` is set on the provider record — proxies fronting
+  large-context models (e.g. Qwen3-Next-80B at 131072) no longer silently
+  truncate to hermes' built-in ~65k default (#831).
+- `clawctl provider registry create|edit --context-window N` (litellm only)
+  to persist the value on a provider record — consumed by both the hermes
+  YAML renderer (`context_length`) and the pre-existing openclaw JSON
+  renderer (`contextWindow`, available since #723) (#831).
+
+- `clawctl agent shell <name> -- <cmd>` now works against macOS hosts
+  (#808). The new `shell_macos.yaml` playbook is selected per-OS via
+  `core.playbook_resolver.resolve_shell_playbook`; the kill window is
+  enforced via Homebrew's `gtimeout` (coreutils) when available, and
+  the ansible-runner outer timeout is the kill backstop when it is
+  not (`brew install coreutils` is suggested for the tighter window).
+  The rc-file prepend sources `~/.bash_profile` first on darwin to
+  match macOS login-shell convention before `~/.bashrc`.
+- `tape.output_format` key in `docs/demos/<demo>/scenes.yaml` — set to
+  `gif` to emit `recording.gif` from `vhs`; defaults to `mp4` (existing
+  behavior). GIF outputs skip the `narrate.py` step since GIF has no
+  audio container. The `/create-vhs` skill documents this in its
+  scenes.yaml template and Step 6 (narration).
+- openclaw macOS support in `clawctl agent sync`: the canonical pipeline
+  now dispatches per-OS for atomic file replace (`install -g staff` on
+  macOS vs per-user group on Linux), unit restart (launchctl kickstart
+  with dual-label and bootstrap fallback for hermes, vs systemctl
+  restart on Linux), and health verification (`nc -z 127.0.0.1 <port>`
+  TCP-connect poll on macOS — chosen over `lsof -i :<port>` because
+  macOS `lsof` only shows ports owned by the running user, and the
+  sync runs as `xclm` while the daemon runs as `<agent_name>`; vs
+  `systemctl is-active` on Linux). The macOS branches live in
+  `lifecycle_macos.py` and are routed via a thin dispatcher in
+  `lifecycle_canonical.py`; no `if Darwin` guards inside the canonical
+  business logic. Per-instance gateway port pulled from
+  `hosts.json.agents.<name>.config.gateway.port`.
+- openclaw v2026.6.9 platform entries in the openclaw manifest
+  (Ubuntu 24.04 x86_64, Ubuntu 22.04 x86_64, macOS ≥14 arm64).
+- openclaw workspace overlay end-to-end on macOS (#770). The
+  per-agent `workspace_macos.yaml` playbook is now a real copy pipeline
+  rather than the Phase-1 deferral stub. Files dropped under
+  `~/.config/clawrium/agents/openclaw/<name>/workspace/` mirror onto
+  darwin hosts at `/Users/<name>/.openclaw/workspace/` on every
+  `clawctl agent sync` and `clawctl agent configure`. The OS→home-root
+  mapping (`/home` vs `/Users`) lives in the single seam
+  `core.playbook_resolver.home_root_for`; `core.workspace_sync`
+  consumes it to keep its no-OS-literal invariant intact. zeroclaw and
+  hermes macOS variants remain deferred to Phases 5/6.
+- zeroclaw workspace overlay end-to-end on macOS (#771, Phase 5 of
+  #760). The zeroclaw `workspace_macos.yaml` playbook is now a real
+  copy pipeline rather than the Phase-2 deferral stub. Files dropped
+  under `~/.config/clawrium/agents/zeroclaw/<name>/workspace/` mirror
+  onto darwin hosts at `/Users/<name>/.zeroclaw/workspace/` (alongside
+  the canonical memory tree) on every `clawctl agent sync` and
+  `clawctl agent configure`. The bearer-rotation invariant (#437)
+  holds identically across Linux and macOS — every sync entry point
+  (`default`, `--workspace-only`, `--no-restart`) mints a fresh
+  bearer and emits exactly one `gateway_token_rotated` event. The
+  hermes macOS variant remains deferred to Phase 6.
+- hermes workspace overlay end-to-end on macOS (#772, Phase 6 of
+  #760 — final phase). The hermes `workspace_macos.yaml` playbook is
+  now a real copy pipeline rather than the Phase-3 deferral stub.
+  Files dropped under `~/.config/clawrium/agents/hermes/<name>/workspace/`
+  mirror onto darwin hosts at `/Users/<name>/.hermes/` on every
+  `clawctl agent sync` and `clawctl agent configure`. The full
+  hermes exclude list (`config.yaml`, `.env`, `auth.json`, `state.db`
+  + all three SQLite WAL companion files, `sessions/`, `logs/`,
+  `skills/clawrium/`) is enforced on darwin via the same per-file
+  `workspace_excluded` Jinja filter the Linux variant uses — the
+  adjacent `filter_plugins/clawrium_filters.py` is auto-discovered by
+  Ansible for both playbook variants, so the filter logic cannot
+  drift between Linux and macOS. This closes out the workspace-overlay
+  macOS matrix; all three GA agent types (openclaw, zeroclaw, hermes)
+  now support darwin hosts end-to-end.
+
+### Changed
+
+- hermes upstream pin bumped `2026.5.29.2` → `2026.7.1` (#815). New
+  `platforms[]` entries for ubuntu 24.04/x86_64, ubuntu 22.04/x86_64,
+  and macos ≥14/arm64 land in
+  `src/clawrium/platform/registry/hermes/manifest.yaml`. The upstream
+  installer is a single bash script served from raw.githubusercontent
+  and is byte-identical across OS/arch, so the sha256 is shared across
+  the new entries. `clawctl agent create --type hermes` on a supported
+  host now installs 2026.7.1; existing instances continue to work and
+  can opt in via `clawctl agent upgrade`. The hermes install playbook
+  (Linux + macOS) now pre-fetches the target tag as a local
+  `refs/tags/<tag>` ref before invoking upstream `install.sh` — a
+  workaround for a v2026.7.1 upstream bug where the update path runs
+  `git remote set-branches origin <tag>` + `git fetch origin <tag>` +
+  `git checkout <tag>` on a branch-scoped refspec, which never
+  materializes the tag locally and errors with `pathspec did not
+  match`. Tracked to remove once upstream ships a fix.
+- openclaw upstream pin bumped `2026.6.9` → `2026.6.11`. New
+  `platforms[]` entries for ubuntu 24.04/x86_64, ubuntu 22.04/x86_64,
+  and macos ≥14/arm64 land in
+  `src/clawrium/platform/registry/openclaw/manifest.yaml`.
+  `clawctl agent create --type openclaw` on a supported host now
+  installs 2026.6.11; existing instances continue to work and can opt
+  in via `clawctl agent upgrade` (#816). **Upgrade note:**
+  `clawctl agent upgrade` on openclaw is known to strip provider and
+  channel attachments — capture `clawctl agent doctor <name>` output
+  before upgrading, then re-attach provider + channels and run
+  `clawctl agent sync <name>` afterward to re-materialize them on the
+  host.
+- zeroclaw upstream pin bumped `0.7.5 → 0.8.2` (#817). New
+  `clawctl agent create --type zeroclaw` installs 0.8.2 on supported
+  hosts; existing 0.7.5 instances continue to work and can opt in
+  via `clawctl agent upgrade`. Five new `platforms[]` entries are
+  appended to the zeroclaw manifest (armv7l Debian 13, aarch64
+  Ubuntu 22.04/24.04, x86_64 Ubuntu 22.04/24.04), mirroring the
+  0.7.5 shape. Each new entry's `sha256` is sourced directly from
+  the release SHA256SUMS at
+  https://github.com/zeroclaw-labs/zeroclaw/releases/download/v0.8.2/SHA256SUMS.
+- `clawctl agent sync <openclaw-agent>` now installs the openclaw
+  plugins required by attached integrations (`@openclaw/brave-plugin`
+  today; generalizes via the `plugins:` block in the openclaw
+  manifest). Previously the plugin install lived in
+  `playbooks/openclaw/configure.yaml` only, so an operator who ran
+  `clawctl agent integration attach <brave> --agent <name>` followed
+  by `clawctl agent sync <name>` got a daemon with `BRAVE_API_KEY` in
+  its env but no plugin to consume it — sync had to be followed by a
+  separate `clawctl agent configure --stage <...>` dance for the
+  plugin to materialize. With #755 the canonical sync pipeline owns
+  plugin install end-to-end: install runs after the brave preflight
+  and BEFORE the systemd restart, fails-loud-and-short-circuits on
+  any install error (the unit is never restarted on a half-installed
+  plugin), and is idempotent via a per-version sentinel
+  (`.<plugin>-plugin-installed.<version>`). Install uses openclaw's
+  own `openclaw plugins install --force --pin <pkg>@<ver>` CLI so
+  `openclaw plugins list` actually discovers the plugin — UAT on
+  esper-mac-oc proved that the pre-#755 `npm install --prefix
+  ~/.openclaw` approach wrote files but did not register the plugin
+  with the daemon. **Operator workflow change:** the canonical
+  sequence is now `attach <integration> → sync`. The
+  `attach → configure → start` path documented in the quickstart
+  no longer installs plugins (configure is scoped to onboarding
+  stages — providers / identity / channels — only); operators on
+  the configure-then-start path must add a `clawctl agent sync` in
+  between to materialize plugins. No automated migration; the next
+  `clawctl agent sync` against any openclaw agent with brave
+  attached will install the plugin in-place.
+- openclaw `~/.openclaw/openclaw.json` is now written through the
+  canonical Python renderer (`clawrium.core.render._render_openclaw_json`)
+  on every code path: `clawctl agent create` (install) pre-renders a
+  baseline + gateway stub via `_prerender_openclaw_install_stub`;
+  `clawctl agent configure` pre-renders full canonical bytes via
+  `render_openclaw(build_render_inputs(...))`; `clawctl agent sync`
+  was already canonical and is unchanged. The four Ansible playbooks
+  (`install.yaml`, `install_macos.yaml`, `configure.yaml`,
+  `configure_macos.yaml`) now `copy: content:` the pre-rendered bytes
+  instead of templating server-side. The legacy Jinja template
+  `openclaw.json.j2` is deleted. End state: one writer for
+  `openclaw.json` across all three lifecycle entry points (#756).
+- `load_hosts()` now strips the legacy `config.provider`,
+  `config.providers`, and `config.channels` mirror from every agent
+  record at load time. #794 stopped writing these keys; this prunes
+  any residue from `hosts.json` files written before that change so
+  the file naturally shrinks on the next `save_hosts()` round-trip.
+  `config.gateway`, `config.dashboard`, and `config.api_server` are
+  the canonical on-disk store for those settings and are preserved
+  byte-for-byte. No operator action required; this is not a breaking
+  change (#795, Phase 3 of #790).
+- Internal cleanup of dead code and defensive comments referencing
+  the now-removed `config.provider` / `config.providers` /
+  `config.channels` mirror. `lifecycle.sync_agent` and
+  `lifecycle.start_agent`'s hermes pre-start reconfigure path now
+  build a separate `render_payload` dict for the ansible call rather
+  than mutating the persisted-config view in place; behavior is
+  unchanged (#797, Phase 4 of #790, closes #790).
+- GUI Integrations page now renders the official vendor brand SVG icon
+  for every configured integration (github, gitlab, atlassian, linear,
+  notion, brave, git) in place of the two-letter type badge, making
+  configured rows scannable at a glance. The **Add Integration** button
+  was moved out of the page header and now sits directly above the
+  configured integrations list, co-located with the list it mutates
+  (#786).
+- openclaw WebSocket chat protocol negotiation now spans
+  `minProtocol=3, maxProtocol=4`. openclaw v2026.6.9+ requires
+  protocol 4 (the daemon rejects min=3/max=3 handshakes with
+  `expected=4 probeMin=4`); the 3..4 range keeps `clawctl agent
+  chat` compatible with both older daemons still on protocol 3 and
+  v2026.6.9+ (#719).
+- openclaw install now threads the OPERATOR'S `sys.platform`
+  (normalized to the bare family name — `freebsd13` → `freebsd`,
+  etc.) through to the pair script as the `operator_platform`
+  inventory extravar. The daemon stores this on the paired device
+  entry; `clawctl agent chat` sends the same value on subsequent
+  connects. Previously the pair script recorded the AGENT HOST's
+  OS (Mac mini → `darwin`) while the chat client hardcoded
+  `"linux"` — every cross-platform install required UI re-approval
+  to chat. Same-platform installs are unaffected (#719).
+
+### Fixed
+
+- **Zeroclaw slack-mcp-server install location restored to the
+  sync-time runbook documented in Phase 3 CHANGELOG (#851, #499).**
+  Main's Phase 3 CHANGELOG entry told operators the install ran via
+  a dedicated `zeroclaw/playbooks/install_slack_mcp.yaml` runbook
+  invoked from `core.lifecycle_canonical._zeroclaw_install_slack_mcp`
+  (matching hermes / Phase 1 / #834 and openclaw / Phase 2 / #835);
+  the actual code had drifted to inline install in
+  `zeroclaw/playbooks/configure.yaml` during the stacked-merge
+  recovery of #842. #851 harmonizes the code back to what was
+  documented as shipped. **Operator impact:** the canonical UX
+  (`clawctl agent integration attach <slack-integration> --agent
+  <zeroclaw-agent>` → `clawctl agent sync <zeroclaw-agent>`) is
+  unchanged — sync still installs the binary on first run after
+  attach. `clawctl agent configure <zeroclaw-agent>` no longer
+  installs the binary; operators who scripted `attach → configure`
+  (a non-canonical workflow that previously worked via the inline
+  tasks) must switch to `attach → sync`. On `sync --no-restart`, the
+  binary lands but the daemon picks it up only on the next restart —
+  same behavior as hermes and openclaw. macOS zeroclaw slack remains
+  a deferred follow-up to #836; attaching a slack integration to a
+  darwin-hosted zeroclaw and running `sync` now raises
+  `CanonicalSyncError` with a `clawctl agent integration detach`
+  hint rather than silently routing to the Linux runbook. Zeroclaw
+  joins hermes and openclaw in
+  `tests/platform/test_slack_asset_map.py`'s Linux invariants
+  (pin/arch-map/sha256/render-constant lockstep).
+- **Zeroclaw `~/.zeroclaw/config.toml` TOML shape (#499 B2).** The
+  baseline template's `[mcp]` block previously declared
+  `servers = []` as an inline array. That form is incompatible with
+  appending `[[mcp.servers]]` array-of-tables — TOML forbids the
+  same key defined twice with different shapes, so the daemon would
+  crash at startup the moment a slack integration attached. The
+  inline `servers = []` line is removed from the baseline;
+  `[[mcp.servers]]` blocks are now emitted conditionally, one per
+  attached slack integration. Zero-slack renders keep exactly the
+  `[mcp]` header + `deferred_loading = true` + `enabled = false`
+  shape (no `servers` key at all — TOML treats absent as empty).
+  Byte-locked via `test_zeroclaw_config_no_slack_baseline_byte_lock_unchanged`
+  so any subsequent template edit that shifts the zero-slack layout
+  fails at test time before it can drift on every fleet's on-host
+  config.toml. (#836, #499)
+- `clawctl agent sync <name>` now fails fast in a new validate-phase
+  host probe (`AgentInstallMissingError`) when the agent's on-host
+  service-manager artifact (systemd unit / launchd plist) or home
+  directory is missing — previously, sync ran through render +
+  diff + write + workspace push and only discovered the missing
+  install at `_restart_unit`, leaving half-rendered config on a
+  host that couldn't restart it (#811). The probe runs one SSH
+  round-trip before any render; failure surfaces with a concrete
+  recovery hint: `clawctl agent delete <name>` then
+  `clawctl agent create <name> --type <type> --host <host>`, or
+  `clawctl agent doctor <name>` for diagnosis. Short-circuits
+  the `--workspace-only` path too, so operator overlays never
+  land on an uninstalled agent. The probe pays its cost on
+  `--dry-run` runs as well — a dry-run that would "change N
+  files" against a missing daemon is misleading, not
+  informational.
+- `clawctl agent restart <name>` and `clawctl agent configure <name>`
+  now perform the same on-host install probe as `clawctl agent
+  sync`. Without this guard, an operator who hit the wedged
+  zeroclaw-clawrium-d01 state from `clawctl agent restart` would
+  still have seen the same opaque `Unit ...service not found.
+  (exit 5)` shape #811 was filed against. The shared probe lives
+  in `lifecycle._assert_install_present` and wraps the same
+  `probe_host_install` helper sync uses, so the failure message
+  and reinstall hint are byte-identical across all three lifecycle
+  entry points (#811).
+- `core/health.check_claw_health` and the GUI `/fleet/health`
+  endpoint now reclassify stopped agents whose on-host install is
+  gone as a new `ClawStatus.INSTALL_MISSING` (instead of stale
+  `READY` / `ONBOARDING`). The probe runs only when the `pgrep`
+  process check returns "no process", so healthy agents pay no
+  additional cost. An unparseable probe result or a sudo-refusal
+  banner falls through to the existing onboarding-state path so a
+  transient SSH hiccup or a sudoers regression never silently flips
+  an agent to `INSTALL_MISSING`. GUI status pill renders red (same
+  family as `stopped`); the agent-detail header surfaces a
+  `clawctl agent doctor` + reinstall hint in place of the
+  Start/Stop/Restart buttons (#811).
+- `clawctl agent sync` on Linux no longer prints `synced (drift=0)`
+  when the agent's gateway port is not actually accepting connections.
+  The Linux `_verify_health` step previously only checked
+  `systemctl is-active`, which our `Type=simple` units report as
+  `active` the moment the daemon process is spawned — before it has
+  bound the gateway port, and (for a crashlooping daemon) between
+  restart cycles. Sync now follows the macOS path and also probes
+  the loopback gateway port via `bash -c 'exec
+  3<>/dev/tcp/127.0.0.1/<port>'`; if the port is not accepting
+  within the verify timeout, sync raises `CanonicalSyncError` and
+  exits non-zero with a journal-pointing remediation hint instead of
+  reporting green (#812).
+- `clawctl agent sync <name>` now refuses to run on an agent whose
+  install is incomplete (`status` is `failed` / `installing`, or any
+  status-bearing record missing `installed_at`) and points the operator
+  at `clawctl agent create <name> --type <type> --host <host>
+  --cleanup-failed` to clear the half-installed record and retry the
+  install. Previously a failed-install record with an attached
+  integration whose `minHostVersion` exceeded the on-host openclaw
+  would surface as `brave plugin requires >= 2026.6.9. Run \`clawctl
+  agent upgrade\` first.` — but `agent upgrade` itself strips
+  attachments (`clawctl_upgrade_strips_attachments`), so the only
+  manual workaround was a detach/reattach loop. The new guard
+  preserves attachments across the refusal and routes the operator
+  to the existing retry-on-failure path in `core/install.py:449`
+  (#810).
+- `clawctl agent sync <openclaw-agent>` no longer crashes with
+  `AttributeError: 'dict' object has no attribute 'replace'` when
+  `hosts.json.agents.<name>.config.gateway.auth` is dict-shaped
+  (`{"mode": "token", "token": "<hex>"}`). Reachable today only via
+  manual `hosts.json` patches or operational recovery — install no
+  longer writes the dict shape directly — but still a latent crash.
+  All install / lifecycle / configure write paths and the renderer
+  now route through two helpers in `core/hosts.py`:
+  `read_gateway_auth` (tolerates the legacy dict shape and returns
+  the bare token) and `set_gateway_auth` (single write contract,
+  always persists the bare string). Read-only consumers in
+  `cli/chat.py`, `core/validation.py`, the GUI fleet/agents routes,
+  and the TUI fleet view continue to read directly — they only need
+  presence/truthiness and never crash on a dict shape. The on-disk
+  contract for `hosts.json.agents.<name>.config.gateway.auth` is now
+  the bare-string bearer token; the `{mode, token}` shape lives only
+  inside `~/.openclaw/openclaw.json` on the agent host, written by
+  the renderer. Dict-shape `auth` self-normalizes back to the bare
+  string on the next `clawctl agent configure`, zeroclaw `sync` /
+  `restart` (bearer rotation), or fresh install. Openclaw `sync`
+  does not write `gateway.auth` and therefore does not normalize
+  a pre-existing dict shape, but it no longer crashes on one (#820).
+- `clawctl agent configure <name> --stage providers --provider <litellm>`
+  no longer fails at the `Verify openclaw.json configuration`
+  Ansible task for litellm providers. `verify_config.py`
+  (`_expected_model_id`) was missing a litellm branch and fell
+  through to the raw `default_model`, so the verify step mismatched
+  the correctly-rendered `<provider-name>/<model>` on disk. The
+  script now mirrors `clawrium.core.render`'s litellm prefix rule
+  (#819). Direct follow-up to #756 / PR #818 — the canonical render
+  was right; the downstream verifier was stale.
+- openclaw with a litellm provider now correctly emits
+  `agents.defaults.model.primary` as `<provider-name>/<model>` on
+  `clawctl agent configure`. Previously the configure path used the
+  Jinja template `openclaw.json.j2`, which had no litellm branch and
+  wrote the raw model id without the provider prefix — the openclaw
+  daemon then fell back to `openai/<model>` and failed with
+  `FailoverError: Unknown model: openai/<model>`. The fix collapses
+  install / configure / sync onto a single canonical renderer (see
+  the matching `### Changed` entry below) so litellm prefixing is
+  handled in one place (#756).
+- `clawctl agent create` no longer guesses `platforms[0]` (the oldest
+  manifest entry) when host hardware facts are missing. It now fails
+  fast with `InstallationError` and tells the operator to populate
+  hardware first via `clawctl host create`. Eliminates the
+  `npm ETARGET: No matching version found for openclaw@0.1.0`
+  class of failure (#720).
+- `clawctl agent sync` and `clawctl agent configure` no longer write
+  `config.provider`, `config.providers`, or `config.channels` mirrors
+  back into `~/.config/clawrium/hosts.json`. The Ansible payload still
+  receives the overlays so templates can render the model and channel
+  hulls, but the canonical stores (`providers.json` + tier-1
+  `agent_record["providers"]` for providers; `channels.json` for
+  channels) are now the single source of truth on disk. Eliminates
+  the stale-mirror class of bugs fixed in the GUI read path by #793
+  (#794, Phase 2 of #790).
+- openclaw and nemoclaw also benefit from the channels strip — the
+  previous bot_token/app_token scrub was guarded by `if resolved_type
+  in ("hermes", "zeroclaw")`, so any accumulated stale
+  `config.channels.discord.bot_token` on those types persisted
+  unscrubbed. The unconditional strip now applies to all agent types
+  and removes the gap on first `clawctl agent configure` after
+  upgrade. No operator action required (#794).
+
+### Changed
+
+- Internal: `_get_host_openclaw_version_linux` and
+  `_get_host_openclaw_version_macos` in `core/lifecycle_canonical.py`
+  now source their per-OS home root via
+  `core.playbook_resolver.home_root_for("linux" | "darwin")` instead
+  of hardcoded `/home` and `/Users` literals. Behaviorally
+  equivalent — the literals already matched the resolver output —
+  but consolidates the OS→home-root mapping behind the single seam
+  required by the no-OS-literal invariant in CLAUDE.md/AGENTS.md.
+  Adds regression-guard tests that monkeypatch the seam to a
+  sentinel root and assert the variant picks it up (#752).
+- `clm agent configure --stage channels` (the legacy `clm` wizard) now
+  prints a deprecation banner and exits with code 2 on entry. The
+  wizard's prompt + Ansible-push flow no longer worked after the #794
+  hosts.json mirror strip — channels collected interactively would be
+  silently dropped before reaching the host. Operators must use the
+  modern `clawctl channel registry create <name> --type <type>` →
+  `clawctl agent channel attach <name> --agent <agent>` →
+  `clawctl agent sync <agent>` pipeline. The full removal of the
+  wizard module is tracked under Phase 4 of #790.
+
+### Documentation
+
+- New [`docs/agent-support/integrations/slack.md`](docs/agent-support/integrations/slack.md)
+  covering the Slack MCP integration end-to-end: token acquisition for both
+  auth modes (`slack-user` xoxp — recommended; `slack-cookie` xoxc+xoxd —
+  discouraged fallback with an explicit TOS-adjacent + abuse-detection
+  security warning), the `korotovsky/slack-mcp-server` tool list, the
+  per-agent-type rendered shapes (hermes `mcp_servers:`, openclaw
+  `mcp.servers.<slug>`, zeroclaw `[[mcp.servers]]`), the SHA256-pinned
+  binary distribution table (linux amd64/arm64, darwin amd64/arm64; armv7l
+  not shipped upstream at v1.3.0), the `--credential-stdin` recommendation
+  to avoid `ps auxww` leakage, and a **composite blast-radius warning**
+  documenting the prompt-injection tool-call exfiltration path when the
+  Slack **channel** (inbound) and Slack **integration** (outbound) attach
+  to the same agent. Also updates the integrations index and the three GA
+  agent-support docs (`hermes.md`, `openclaw.md`, `zeroclaw.md`) with a
+  per-agent-type Slack subsection linking to the unified doc. (#837, #499)
