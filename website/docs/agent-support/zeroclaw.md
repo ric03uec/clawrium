@@ -4,7 +4,7 @@ ZeroClaw is the [ZeroClaw Labs Rust agent runtime](https://github.com/zeroclaw-l
 
 **Status:** 🚧 In Development
 
-**Best for:** Low-resource hosts (Raspberry Pi 2/3 armv7l, aarch64 SBCs, small x86_64 servers) that need a minimal, single-binary AI agent with file-based personality and a LAN-reachable chat endpoint. ZeroClaw is intentionally narrower than [Hermes](hermes.md) (no OpenAI-compatible HTTP, no MCP integrations) and narrower than [OpenClaw](openclaw.md) (no Discord/web channels).
+**Best for:** Low-resource hosts (Raspberry Pi 2/3 armv7l, aarch64 SBCs, small x86_64 servers) that need a minimal, single-binary AI agent with file-based personality, optional MCP-backed integrations, and a LAN-reachable chat endpoint. ZeroClaw is intentionally narrower than [Hermes](hermes.md) (no OpenAI-compatible HTTP) and narrower than [OpenClaw](openclaw.md) (no Discord/web channels).
 
 **Pinned version:** `v0.7.5`. The release tarball SHA256 is pinned per architecture in `src/clawrium/platform/registry/zeroclaw/manifest.yaml` for five `(os, os_version, arch)` combinations; every version bump requires re-pinning all five.
 
@@ -65,7 +65,7 @@ ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/
 | **`clawctl agent chat <zeroclaw-name>`** | ✅ | Connects to `ws://<host>:42617/ws/chat` with `Authorization: Bearer <paired-token>`. See [Use the WebSocket chat surface](#3-use-the-websocket-chat-surface). |
 | **OpenAI-compatible HTTP API** | ❌ | Not exposed by upstream ZeroClaw. Use [Hermes](hermes.md) when an OpenAI-style HTTP endpoint is required. |
 | **[Discord](channels/discord.md)** | ✅ | Native — rendered as `[channels.discord]` in `config.toml`. Bot token is **inline TOML**, not env-based (differs from hermes). Schema follows zeroclaw v0.7.5 upstream: `bot_token`, `allowed_guilds`, `allowed_users`, `reply_to_mentions_only`, `draft_update_interval_ms`. Configure via `clawctl agent configure <name> --stage channels`. |
-| **Slack** | ❌ | Not supported (use [OpenClaw](openclaw.md) or [Hermes](hermes.md)). Tracked as a follow-up. |
+| **Slack channel** | ❌ | Not supported (use [OpenClaw](openclaw.md) or [Hermes](hermes.md) for inbound Slack). Tracked as a follow-up. |
 | **Web / WhatsApp / Telegram / Email / Matrix** | ❌ | Not supported. |
 
 ---
@@ -86,6 +86,7 @@ ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/
 | **Personality block in `config.toml`** | ✅ | `[personality]` with `name`, `timezone`, `communication_style` defaults; rendered with `force: no` semantics through Ansible's template default — re-running configure preserves the file because `notify` only fires when content actually changes. |
 | **Bootstrap file (`BOOTSTRAP.md`)** | ✅ | **Not rendered by clawctl.** The ZeroClaw daemon generates `BOOTSTRAP.md` on first boot and self-deletes it after use. Never appears in `clawctl agent memory get --agent`. |
 | **[GitHub integration](integrations/github.md)** | ✅ | Two-layer wiring (#422): tokens land in a systemd drop-in (`/etc/systemd/system/zeroclaw-<name>.service.d/10-zeroclaw-env.conf`) so the daemon's environment has `GITHUB_TOKEN`, AND in `[autonomy] shell_env_passthrough` in `config.toml` so the agent's shell tool can actually see them (required: zeroclaw auto-strips `_TOKEN`-pattern vars unless explicitly allow-listed). `gh auth login --with-token` runs as a soft-dep convenience when `gh` is on the host. |
+| **[Slack integration](integrations/slack.md)** | ✅ | Outbound Slack tool surface via `korotovsky/slack-mcp-server` stdio subprocess. `slack-user` (xoxp) recommended; `slack-cookie` (xoxc + xoxd) discouraged fallback. Rendered as `[[mcp.servers]]` array-of-tables in `~/.zeroclaw/config.toml`. **armv7l coverage gap**: upstream ships no armv7 asset at v1.3.0 — Raspberry Pi 2/3 hosts cannot install this integration. See [Slack integration → Binary distribution](integrations/slack.md#binary-distribution). |
 | **Jira / GitLab / Linear / Notion integrations** | 📋 | Deferred. No native consumer in zeroclaw v0.7.5; would require either a `[mcp.servers]` block (potential future path) or per-integration env passthrough. Tracked as a follow-up. |
 | **Hardware support (GPIO / serial / debug probes)** | 📋 | Deferred. |
 | **Tunnel providers (Cloudflare / Tailscale / Ngrok / custom)** | 📋 | Deferred. Reach the gateway over your own SSH tunnel or LAN. |
@@ -144,7 +145,7 @@ The wizard walks through:
 |-------|----------|
 | **providers** | Required. Pick from your registered clawctl providers; clawctl validates connectivity via `provider_test`. |
 | **identity** | Auto-skipped. ZeroClaw manages its own identity through the workspace MD files (`SOUL.md`, `IDENTITY.md`, …) which clawctl renders below — there is no separate identity wizard. |
-| **channels** | Required. ZeroClaw confirms the always-on CLI channel and offers a `discord` opt-in. Selecting `discord` prompts for the bot token (persists to `secrets.json` as `DISCORD_BOT_TOKEN`) plus optional allowlists; clawctl renders the result as `[channels.discord]` in `~/.zeroclaw/config.toml`. Slack remains unsupported on ZeroClaw — use [Hermes](hermes.md) or [OpenClaw](openclaw.md) for Slack. |
+| **channels** | Required. ZeroClaw confirms the always-on CLI channel and offers a `discord` opt-in. Selecting `discord` prompts for the bot token (persists to `secrets.json` as `DISCORD_BOT_TOKEN`) plus optional allowlists; clawctl renders the result as `[channels.discord]` in `~/.zeroclaw/config.toml`. Slack **channel** remains unsupported on ZeroClaw — use [Hermes](hermes.md) or [OpenClaw](openclaw.md) for inbound Slack. |
 | **validate** | Local validation only, three steps for zeroclaw: (1) agent install record, (2) provider config + API key, (3) provider connectivity. The control-machine SOUL.md check is skipped — zeroclaw owns its identity through `~/.zeroclaw/workspace/` on the agent host, not under `~/.config/clawrium/agents/zeroclaw/`. The playbook's own post-render readiness probe (`GET /health/providers`) is separate from this stage. The manifest's `binary_check` task (`zeroclaw --version`) is not dispatched yet — remote version verification is planned. |
 
 Configure renders TWO things on the agent host, then runs the pairing handshake against the freshly started daemon.
@@ -404,11 +405,36 @@ The render is idempotent (force: no), so this is safe to run against a partially
 
 ---
 
+## Slack integration
+
+ZeroClaw agents can attach the [Slack integration](integrations/slack.md) (`--type slack-user` recommended, `--type slack-cookie` discouraged fallback) — the outbound Slack tool surface backed by [`korotovsky/slack-mcp-server`](https://github.com/korotovsky/slack-mcp-server). See the [Slack integration doc](integrations/slack.md) for token acquisition, security posture, and the full walkthrough.
+
+ZeroClaw-specific details:
+
+- **Config surface:** the Slack MCP subprocess is rendered as `[[mcp.servers]]` array-of-tables in `~/.zeroclaw/config.toml` (mode 0600). Renderer: [`render_zeroclaw`](https://github.com/ric03uec/clawrium/blob/main/src/clawrium/core/render.py) in `src/clawrium/core/render.py`.
+- **Conditional emission (byte-lock guarantee):** the `[[mcp.servers]]` blocks are emitted **only** when at least one Slack integration is attached, and `[mcp].enabled` flips to `true` in the same conditional. ZeroClaw agents with no Slack integration render the byte-locked `[mcp]` block with `deferred_loading = true`, `enabled = false`, and **no `servers` key at all** — this preserves TOML validity (the previous inline `servers = []` was incompatible with `[[mcp.servers]]` array-of-tables; see Phase 3 of #499).
+- **Bearer-rotation ordering (#437 guard):** on every `clawctl agent sync`, Slack render + hydration completes **before** `_zeroclaw_repair_after_start` rotates the gateway bearer. A render-time hydration failure short-circuits the sync with **zero** `gateway_token_rotated` events — the daemon is never left holding a stale bearer against a fresh `hosts.json.gateway.auth`. Remote `clawctl agent chat` sessions still get a clean 401 on the next request after a successful sync and must reconnect; that is unchanged.
+- **armv7l coverage gap.** Upstream `korotovsky/slack-mcp-server` publishes no armv7 asset at v1.3.0. Raspberry Pi 2/3 hosts (the primary armv7l ZeroClaw targets) **cannot install this integration** — the dedicated sync-time `install_slack_mcp.yaml` runbook's arch-guard task fails fast with a pointer at the upstream release page. Real-host UAT for the Phase 3 release ran on wolf-i x86_64; armv7l coverage is tracked as a follow-up. Linux aarch64 (e.g. Raspberry Pi 4/5, ARM cloud instances) and Linux x86_64 both ship upstream.
+- **Attach gate:** attaching a `slack-user` or `slack-cookie` integration to a zeroclaw agent is accepted by the CLI's attach-time gate (Phase 3 of #499).
+- **Composite blast-radius warning:** ZeroClaw does not support the Slack **channel** (inbound) today — see the Channel Support table above. As a result, the composite prompt-injection risk documented in [integrations/slack.md → Composite blast-radius warning](integrations/slack.md#composite-blast-radius-warning) does not apply to zeroclaw in this iteration.
+
+Quick attach + sync (Linux x86_64 / aarch64 hosts):
+
+```bash
+printf 'SLACK_MCP_XOXP_TOKEN=xoxp-...' | \
+  clawctl integration registry create slack --type slack-user --credential-stdin
+clawctl agent integration attach <zeroclaw-name> --integration slack
+clawctl agent sync <zeroclaw-name>
+```
+
+---
+
 ## Deferred items / follow-ups
 
 The following are explicitly out of scope for issue #112 and tracked as separate follow-ups:
 
-- **Non-GitHub integrations** — GitLab, Atlassian (Jira + Confluence), Linear, Notion. Tracked as follow-ups; the upstream `[mcp.servers]` block is the most likely landing pad. GitHub is supported as of #422 — see the Feature Support table above.
+- **Non-GitHub integrations** — GitLab, Atlassian (Jira + Confluence), Linear, Notion. Tracked as follow-ups; the upstream `[mcp.servers]` block is the most likely landing pad. GitHub is supported as of #422 and Slack is supported as of #836 — see the Feature Support table above.
+- **`slack-mcp-server` armv7l asset** — upstream ships no armv7 tarball at v1.3.0, so Raspberry Pi 2/3 hosts cannot install the Slack integration. Tracked in the #499 follow-up chain.
 - **Hardware** — GPIO, serial, debug-probe support.
 - **Tunnel providers** — Cloudflare Tunnel, Tailscale, Ngrok, custom tunnels. Use SSH tunneling in the meantime.
 - **Encrypted secrets** — ChaCha20-Poly1305 secret encryption is upstream-only for now.
