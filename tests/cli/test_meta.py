@@ -71,13 +71,22 @@ class TestFallback:
 
     @pytest.fixture(autouse=True)
     def _isolate_clawrium(self) -> Generator[None, None, None]:
-        """Remove ``clawrium``-related modules from ``sys.modules`` and reload."""
+        """Save and restore ``clawrium``-related modules in ``sys.modules``.
+
+        Do NOT delete modules here — other tests hold references to the
+        original module objects (e.g. ``from clawrium.core.hosts import
+        load_hosts``). Deleting them forces fresh imports with new module
+        objects, so ``monkeypatch.setattr("clawrium.core.hosts.foo", …)``
+        patches a different object than the one the test's ``load_hosts``
+        actually uses.  Saving and restoring the originals prevents this.
+        """
+        originals: dict[str, object] = {}
+        for k, v in list(sys.modules.items()):
+            if k == "clawrium" or (v is not None and k.startswith("clawrium.")):
+                originals[k] = v
         yield
-        # Targeted cleanup — only remove clawrium keys so we don't
-        # disrupt pytest/typer/etc. during the clear→update window.
-        clawrium_keys = [k for k in sys.modules if k == "clawrium" or k.startswith("clawrium.")]
-        for k in clawrium_keys:
-            del sys.modules[k]
+        for k, v in originals.items():
+            sys.modules[k] = v
 
     @pytest.mark.parametrize(
         "args",
