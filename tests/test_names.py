@@ -168,6 +168,26 @@ class TestValidateClawName:
         valid, msg = validate_agent_name("")
         assert len(msg) > 0
 
+    def test_rejects_trailing_newline(self):
+        """#753 ATX iter-1 B1: `re.match(r"^…$", "wolf\\n")` returns a
+        match in default (non-MULTILINE) mode because `$` matches the
+        position before a final `\\n`. Regression guard on the fix
+        from `re.match` → `re.fullmatch`."""
+        valid, msg = validate_agent_name("wolf-i\n")
+        assert valid is False
+        assert "lowercase" in msg.lower()
+
+    def test_rejects_embedded_newline(self):
+        """#753 ATX iter-1 B1 companion: embedded (non-trailing)
+        newline must also be rejected."""
+        valid, _ = validate_agent_name("wolf\ni")
+        assert valid is False
+
+    def test_rejects_nul_byte(self):
+        """#753 ATX iter-1 W4: NUL byte in agent name."""
+        valid, _ = validate_agent_name("wolf\x00")
+        assert valid is False
+
 
 class TestIsNameAvailableOnHost:
     """Tests for is_name_available_on_host function."""

@@ -362,6 +362,29 @@ calendar versioning convention: `YY.M.PATCH`.
 
 ### Fixed
 
+- **`agent_name` now validated at the sync boundary before any path or
+  shell interpolation (#753).** `sync_agent_canonical` delegates to
+  `core.names.validate_agent_name` and rejects malformed `agent_name`
+  values (path traversal like `..` or `foo/../bar`, uppercase, over
+  32 characters, empty, shell metacharacters, reserved Unix accounts
+  like `root` / `xclm`) with a fast `CanonicalSyncError("invalid
+  agent_name ...")` before opening any SSH connection, staging a
+  workspace, or assembling render inputs. Defense-in-depth: an
+  operator-corrupted `hosts.json` entry now fails fast at the CLI
+  layer instead of surfacing as a confusing SSH probe error or worse,
+  interpolating into `/home/{name}/.openclaw/bin/openclaw` and
+  `openclaw-{name}.service`.
+
+- **`core.names.validate_agent_name` no longer accepts a trailing
+  newline (#753 ATX iter-1 B1).** The validator's regex switched
+  from `re.match(r"^[a-z][a-z0-9_-]{0,31}$", …)` to
+  `re.fullmatch(…)`. Python's `$` in default (non-MULTILINE) mode
+  matches the position immediately before a final `\n`, so
+  `"wolf-i\n"` previously slipped past — and that newline would flow
+  downstream into systemd unit names and filesystem paths. All
+  existing callers (`clawctl agent create`, GUI create form, sync
+  boundary) automatically gain the tightened check.
+
 - **Zeroclaw slack-mcp-server install location restored to the
   sync-time runbook documented in Phase 3 CHANGELOG (#851, #499).**
   Main's Phase 3 CHANGELOG entry told operators the install ran via
