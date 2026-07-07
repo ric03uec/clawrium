@@ -17,3 +17,18 @@ release:
   label: Release
   permalink: /release
   description: Per-release blog posts drafted by clawrium-gtm
+
+sync:
+  label: Sync
+  permalink: /sync
+  description: Workspace and config synchronization workflows
+
+workspace:
+  label: Workspace
+  permalink: /workspace
+  description: Agent workspace management and overlay
+
+operators:
+  label: Operators
+  permalink: /operators
+  description: Operator workflows and tooling
