@@ -46,6 +46,9 @@ clawctl = "clawrium.cli:app"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/clawrium"]
 # The staged frontend is added via force-include below. Excluding it from
@@ -62,6 +65,13 @@ exclude = ["src/clawrium/gui/frontend"]
 # roundtrip can find it; the wheel force-include then rewrites it
 # into the install layout. Without these, `clm gui` 404s on every
 # non-API route after install (see #401).
+[tool.hatch.build.targets.sdist]
+# B1: _version.py is gitignored (so it doesn't appear in VCS), but it MUST
+# ship inside the sdist so that wheel builds from the sdist (e.g.
+# ``uv tool install`` from PyPI) preserve the embedded SHA instead of
+# regenerating it as "unknown" in a no-git temp directory.
+include = ["src/clawrium/_version.py"]
+
 [tool.hatch.build.targets.sdist.force-include]
 "src/clawrium/gui/frontend" = "src/clawrium/gui/frontend"
 
@@ -94,4 +104,5 @@ dev = [
     "pytest-cov>=6.0.0",
     "ruff>=0.9.0",
     "anyio>=4.0",
+    "hatchling>=1.30.1",
 ]
