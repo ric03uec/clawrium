@@ -402,30 +402,12 @@ class TestFleetHealthEndpoint:
         result = asyncio.run(fleet_mod.fleet_health(host=None))
         agent_health = result["agents"][0]
         assert agent_health["status"] == "stopped"
-        assert agent_health["health_error"] == "Connection refused"
-        assert agent_health["missing_secrets"] == ["OPENAI_API_KEY"]
+        assert agent_health["health_error"] == "Health check failed — see server logs."
+        assert "Connection refused" not in agent_health["health_error"]
         # Verify non-health fields are NOT in the response
         assert "model" not in agent_health
         assert "uptime" not in agent_health
         assert "host_alias" not in agent_health
-
-
-class TestSanitizeHealthError:
-    """The /fleet/health wire response must strip filesystem paths."""
-
-    def test_strips_absolute_path_from_health_error(self, monkeypatch):
-        from clawrium.gui.routes.fleet import _sanitize_health_error
-
-        msg = "Secrets file corrupted: /home/devashish/.config/clawrium/secrets.json is not a dict"
-        sanitized = _sanitize_health_error(msg)
-        assert "/home/devashish" not in sanitized
-        assert "<path>" in sanitized
-
-    def test_none_and_empty_pass_through(self):
-        from clawrium.gui.routes.fleet import _sanitize_health_error
-
-        assert _sanitize_health_error(None) is None
-        assert _sanitize_health_error("") == ""
 
     def test_strips_path_in_fleet_health_response(self, monkeypatch):
         agents = [
@@ -462,5 +444,6 @@ class TestSanitizeHealthError:
         )
 
         result = asyncio.run(fleet_mod.fleet_health(host=None))
+        # (#714) health_error now returns a constant string, never raw error text
+        assert result["agents"][0]["health_error"] == "Health check failed — see server logs."
         assert "/home/devashish" not in result["agents"][0]["health_error"]
-        assert "<path>" in result["agents"][0]["health_error"]

@@ -7,7 +7,6 @@ async-safe thread offloading for SSH-based health checks.
 
 import asyncio
 import logging
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -72,12 +71,6 @@ def _get_fleet_health_executor() -> ThreadPoolExecutor:
         )
     return _FLEET_HEALTH_EXECUTOR
 
-# Strip absolute filesystem paths from error strings before sending them
-# to the browser. Some `HealthResult.error` strings constructed inside
-# `core/health.py` interpolate `str(e)` from filesystem exceptions and
-# include the user's config path (e.g. ~/.config/clawrium/secrets.json).
-_ABS_PATH_RE = re.compile(r"(?:/[\w.\-]+)+")
-
 # Generic error message for lifecycle operations to avoid path leakage
 _LIFECYCLE_GENERIC_ERROR = "Lifecycle operation failed. Check server logs."
 
@@ -103,12 +96,6 @@ def _host_is_local(host: str) -> bool:
         return False
 
 
-def _sanitize_health_error(error: str | None) -> str | None:
-    if not error:
-        return error
-    return _ABS_PATH_RE.sub("<path>", error)
-
-
 def _agent_to_dict(agent: AgentViewModel) -> dict[str, Any]:
     # gateway_auth is a bearer token and must not be sent to the browser.
     # Both chat proxies (hermes + openclaw) resolve it from the secrets store
@@ -129,7 +116,7 @@ def _agent_to_dict(agent: AgentViewModel) -> dict[str, Any]:
         "missing_secrets": agent["missing_secrets"],
         "onboarding_step": agent["onboarding_step"],
         "process_running": agent["process_running"],
-        "health_error": _sanitize_health_error(agent["health_error"]),
+        "health_error": "Health check failed — see server logs." if agent.get("health_error") else None,
         "addresses": agent["addresses"],
         "provider": agent["provider"],
         "provider_type": agent["provider_type"],
@@ -192,7 +179,7 @@ async def fleet_health(host: str | None = None):
                 "agent_key": a["agent_key"],
                 "status": status.value if isinstance(status, ClawStatus) else status,
                 "process_running": a["process_running"],
-                "health_error": _sanitize_health_error(a["health_error"]),
+                "health_error": "Health check failed — see server logs." if a.get("health_error") else None,
                 "cpu_count": a["cpu_count"],
                 "memory_total_mb": a["memory_total_mb"],
                 "missing_secrets": a["missing_secrets"],
@@ -312,7 +299,7 @@ async def agent_health(agent_key: str, host: str | None = None):
         "agent_key": detail["agent_key"],
         "status": status.value if isinstance(status, ClawStatus) else status,
         "process_running": detail["process_running"],
-        "health_error": _sanitize_health_error(detail["health_error"]),
+        "health_error": "Health check failed — see server logs." if detail.get("health_error") else None,
         "cpu_count": detail["cpu_count"],
         "memory_total_mb": detail["memory_total_mb"],
         "missing_secrets": detail["missing_secrets"],
@@ -337,10 +324,10 @@ async def start_agent_endpoint(agent_key: str):
             agent_name=agent_key,
         )
     except LifecycleError as e:
-        logger.error("start_agent failed for %s: %s", agent_key, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=_sanitize_health_error(str(e)))
-    except Exception as e:
-        logger.error("start_agent failed for %s: %s", agent_key, e, exc_info=True)
+        logger.error("start_agent failed for %s", agent_key, exc_info=True)
+        raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR) from e
+    except Exception:
+        logger.error("start_agent failed for %s", agent_key, exc_info=True)
         raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR)
 
     if not result.get("success"):
@@ -351,13 +338,12 @@ async def start_agent_endpoint(agent_key: str):
         )
         raise HTTPException(
             status_code=502,
-            detail=_sanitize_health_error(result.get("error")) or _LIFECYCLE_GENERIC_ERROR,
+            detail=_LIFECYCLE_GENERIC_ERROR,
         )
     return {
         "success": result["success"],
         "operation": "start",
         "agent": agent_key,
-        "error": result.get("error"),
     }
 
 
@@ -377,10 +363,10 @@ async def stop_agent_endpoint(agent_key: str):
             agent_name=agent_key,
         )
     except LifecycleError as e:
-        logger.error("stop_agent failed for %s: %s", agent_key, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=_sanitize_health_error(str(e)))
-    except Exception as e:
-        logger.error("stop_agent failed for %s: %s", agent_key, e, exc_info=True)
+        logger.error("stop_agent failed for %s", agent_key, exc_info=True)
+        raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR) from e
+    except Exception:
+        logger.error("stop_agent failed for %s", agent_key, exc_info=True)
         raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR)
 
     if not result.get("success"):
@@ -391,13 +377,12 @@ async def stop_agent_endpoint(agent_key: str):
         )
         raise HTTPException(
             status_code=502,
-            detail=_sanitize_health_error(result.get("error")) or _LIFECYCLE_GENERIC_ERROR,
+            detail=_LIFECYCLE_GENERIC_ERROR,
         )
     return {
         "success": result["success"],
         "operation": "stop",
         "agent": agent_key,
-        "error": result.get("error"),
     }
 
 
@@ -417,10 +402,10 @@ async def restart_agent_endpoint(agent_key: str):
             agent_name=agent_key,
         )
     except LifecycleError as e:
-        logger.error("restart_agent failed for %s: %s", agent_key, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=_sanitize_health_error(str(e)))
-    except Exception as e:
-        logger.error("restart_agent failed for %s: %s", agent_key, e, exc_info=True)
+        logger.error("restart_agent failed for %s", agent_key, exc_info=True)
+        raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR) from e
+    except Exception:
+        logger.error("restart_agent failed for %s", agent_key, exc_info=True)
         raise HTTPException(status_code=500, detail=_LIFECYCLE_GENERIC_ERROR)
 
     if not result.get("success"):
@@ -431,13 +416,12 @@ async def restart_agent_endpoint(agent_key: str):
         )
         raise HTTPException(
             status_code=502,
-            detail=_sanitize_health_error(result.get("error")) or _LIFECYCLE_GENERIC_ERROR,
+            detail=_LIFECYCLE_GENERIC_ERROR,
         )
     return {
         "success": result["success"],
         "operation": "restart",
         "agent": agent_key,
-        "error": result.get("error"),
     }
 
 
@@ -476,15 +460,12 @@ async def agent_web_ui(agent_key: str) -> dict[str, Any]:
 
     try:
         local_port = await asyncio.to_thread(web_ui_tunnel.ensure, agent_key)
-    except web_ui_tunnel.TunnelError as e:
-        logger.warning("web-ui tunnel failed for %s: %s", agent_key, e)
-        # TunnelError messages may contain ssh stderr that includes
-        # filesystem paths; reuse the existing path-redaction regex so
-        # nothing internal leaks to the browser body.
+    except web_ui_tunnel.TunnelError:
+        logger.warning("web-ui tunnel failed for %s", agent_key, exc_info=True)
         return {
             "available": False,
             "local_url": None,
-            "reason": _ABS_PATH_RE.sub("<path>", str(e)),
+            "reason": "Tunnel could not be established. Check server logs for details.",
         }
     except Exception:  # noqa: BLE001 — log full trace, return generic message
         logger.error("web-ui tunnel unexpected error for %s", agent_key, exc_info=True)
@@ -595,10 +576,10 @@ async def agent_pairing_code(agent_key: str) -> dict[str, Any]:
         try:
             local_port = await asyncio.to_thread(web_ui_tunnel.ensure, agent_key)
         except web_ui_tunnel.TunnelError as e:
-            logger.warning("pairing-code tunnel failed for %s: %s", agent_key, e)
+            logger.warning("pairing-code tunnel failed for %s", agent_key, exc_info=True)
             raise HTTPException(
                 status_code=502,
-                detail=_ABS_PATH_RE.sub("<path>", str(e)),
+                detail="Tunnel could not be established. Check server logs for details.",
             ) from e
         except Exception as e:  # noqa: BLE001 — log full trace, generic body
             logger.error(
@@ -631,7 +612,7 @@ async def agent_pairing_code(agent_key: str) -> dict[str, Any]:
             ),
         ) from e
     except httpx.HTTPError as e:
-        logger.warning("pairing-code upstream error for %s: %s", agent_key, e)
+        logger.warning("pairing-code upstream error for %s", agent_key, exc_info=True)
         raise HTTPException(
             status_code=502,
             detail="Could not reach the agent daemon to mint a pairing code.",

@@ -97,7 +97,9 @@ class TestStartAgentEndpoint:
             await fleet_mod.start_agent_endpoint(agent_key)
 
         assert exc_info.value.status_code == 500
-        assert "SSH connection failed" in exc_info.value.detail
+        # (#714) LifecycleError now returns a constant message
+        assert exc_info.value.detail == fleet_mod._LIFECYCLE_GENERIC_ERROR
+        assert "SSH connection failed" not in exc_info.value.detail
 
     @pytest.mark.anyio
     async def test_start_agent_returns_500_on_unexpected_error(self, monkeypatch):
@@ -153,11 +155,13 @@ class TestStartAgentEndpoint:
             await fleet_mod.start_agent_endpoint(agent_key)
 
         assert exc_info.value.status_code == 502
-        assert "SSH key not found" in exc_info.value.detail
+        # (#714) constant message, never raw error text
+        assert exc_info.value.detail == fleet_mod._LIFECYCLE_GENERIC_ERROR
+        assert "SSH key not found" not in exc_info.value.detail
 
     @pytest.mark.anyio
-    async def test_start_agent_success_false_sanitizes_path(self, monkeypatch):
-        """Error strings with filesystem paths must be sanitized on the 502 path."""
+    async def test_start_agent_success_false_no_path_leak(self, monkeypatch):
+        """(#714) Error strings with filesystem paths must not reach the browser on the 502 path."""
         agent_key = "test-agent"
         hostname = "192.168.1.100"
         agent_type = "zeroclaw"
@@ -181,8 +185,9 @@ class TestStartAgentEndpoint:
             await fleet_mod.start_agent_endpoint(agent_key)
 
         assert exc_info.value.status_code == 502
+        # (#714) constant message, never raw error text
+        assert exc_info.value.detail == fleet_mod._LIFECYCLE_GENERIC_ERROR
         assert "/home/user/.config" not in exc_info.value.detail
-        assert "<path>" in exc_info.value.detail
 
 
 class TestStopAgentEndpoint:
@@ -263,7 +268,9 @@ class TestStopAgentEndpoint:
             await fleet_mod.stop_agent_endpoint(agent_key)
 
         assert exc_info.value.status_code == 500
-        assert "Agent not running" in exc_info.value.detail
+        # (#714) LifecycleError now returns a constant message
+        assert exc_info.value.detail == fleet_mod._LIFECYCLE_GENERIC_ERROR
+        assert "Agent not running" not in exc_info.value.detail
 
     @pytest.mark.anyio
     async def test_stop_agent_returns_500_on_unexpected_error(self, monkeypatch):
@@ -319,11 +326,13 @@ class TestStopAgentEndpoint:
             await fleet_mod.stop_agent_endpoint(agent_key)
 
         assert exc_info.value.status_code == 502
-        assert "Agent not running" in exc_info.value.detail
+        # (#714) constant message, never raw error text
+        assert exc_info.value.detail == fleet_mod._LIFECYCLE_GENERIC_ERROR
+        assert "Agent not running" not in exc_info.value.detail
 
     @pytest.mark.anyio
-    async def test_stop_agent_success_false_sanitizes_path(self, monkeypatch):
-        """Error strings with filesystem paths must be sanitized on the 502 path."""
+    async def test_stop_agent_success_false_no_path_leak(self, monkeypatch):
+        """(#714) Error strings with filesystem paths must not reach the browser on the 502 path."""
         agent_key = "test-agent"
         hostname = "192.168.1.100"
         agent_type = "zeroclaw"
@@ -347,8 +356,9 @@ class TestStopAgentEndpoint:
             await fleet_mod.stop_agent_endpoint(agent_key)
 
         assert exc_info.value.status_code == 502
+        # (#714) constant message, never raw error text
+        assert exc_info.value.detail == fleet_mod._LIFECYCLE_GENERIC_ERROR
         assert "/home/user/.config" not in exc_info.value.detail
-        assert "<path>" in exc_info.value.detail
 
 
 class TestRestartAgentEndpoint:
@@ -418,7 +428,9 @@ class TestRestartAgentEndpoint:
             await fleet_mod.restart_agent_endpoint(agent_key)
 
         assert exc_info.value.status_code == 500
-        assert "Stop failed" in exc_info.value.detail
+        # (#714) LifecycleError now returns a constant message
+        assert exc_info.value.detail == fleet_mod._LIFECYCLE_GENERIC_ERROR
+        assert "Stop failed" not in exc_info.value.detail
 
     @pytest.mark.anyio
     async def test_restart_agent_returns_500_on_unexpected_error(self, monkeypatch):
@@ -490,11 +502,13 @@ class TestRestartAgentEndpoint:
             await fleet_mod.restart_agent_endpoint(agent_key)
 
         assert exc_info.value.status_code == 502
-        assert "Stop failed" in exc_info.value.detail
+        # (#714) constant message, never raw error text
+        assert exc_info.value.detail == fleet_mod._LIFECYCLE_GENERIC_ERROR
+        assert "Stop failed" not in exc_info.value.detail
 
     @pytest.mark.anyio
-    async def test_restart_agent_success_false_sanitizes_path(self, monkeypatch):
-        """Error strings with filesystem paths must be sanitized on the 502 path."""
+    async def test_restart_agent_success_false_no_path_leak(self, monkeypatch):
+        """(#714) Error strings with filesystem paths must not reach the browser on the 502 path."""
         agent_key = "test-agent"
         hostname = "192.168.1.100"
         agent_type = "zeroclaw"
@@ -518,5 +532,7 @@ class TestRestartAgentEndpoint:
             await fleet_mod.restart_agent_endpoint(agent_key)
 
         assert exc_info.value.status_code == 502
+        # (#714) constant message, never raw error text
+        assert exc_info.value.detail == fleet_mod._LIFECYCLE_GENERIC_ERROR
         assert "/home/user/.config" not in exc_info.value.detail
-        assert "<path>" in exc_info.value.detail
+        assert "restart.log" not in exc_info.value.detail
