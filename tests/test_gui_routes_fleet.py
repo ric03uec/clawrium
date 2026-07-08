@@ -201,7 +201,42 @@ def test_web_ui_reports_tunnel_failure_as_unavailable(isolated_config: Path):
     body = resp.json()
     assert body["available"] is False
     assert body["local_url"] is None
-    assert "ssh failed" in body["reason"]
+    # (#714) TunnelError handler must return a constant string, never the raw error
+    assert body["reason"] == "Tunnel could not be established. Check server logs for details."
+    assert "ssh failed" not in body["reason"]
+
+
+def test_web_ui_tunnel_error_no_ssh_stderr_leak(isolated_config: Path):
+    """(#714) Realistic SSH stderr with IP, hostname, port must never reach the response body."""
+    _seed_hosts(isolated_config, "hermes")
+    resolved = ResolvedUI(
+        host="192.168.1.100",
+        remote_port=9119,
+        bind="loopback",
+        ssh_config={"user": "xclm"},
+    )
+    from clawrium.core.web_ui_tunnel import TunnelError
+
+    ssh_stderr = (
+        "ssh: connect to host 10.0.0.42 port 22: Connection refused"
+    )
+    with (
+        patch("clawrium.core.web_ui.resolve", return_value=resolved),
+        patch(
+            "clawrium.core.web_ui_tunnel.ensure",
+            side_effect=TunnelError(ssh_stderr),
+        ),
+    ):
+        with TestClient(app) as client:
+            resp = client.get("/api/fleet/agents/demo/web-ui")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["available"] is False
+    assert "10.0.0.42" not in resp.text
+    assert "port 22" not in resp.text
+    assert "Connection refused" not in resp.text
+    assert body["reason"] == "Tunnel could not be established. Check server logs for details."
 
 
 def test_web_ui_returns_unavailable_on_unexpected_tunnel_exception(
@@ -434,8 +469,36 @@ def test_pairing_code_502_on_tunnel_failure(isolated_config: Path):
         with TestClient(app) as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
     assert resp.status_code == 502
-    assert "ssh refused" in resp.json()["detail"]
+    # (#714) TunnelError handler must return a constant string, never the raw error
+    assert resp.json()["detail"] == "Tunnel could not be established. Check server logs for details."
+    assert "ssh refused" not in resp.json()["detail"]
     assert "zc_test_bearer" not in resp.text
+
+
+def test_pairing_code_502_on_tunnel_failure_no_ssh_stderr_leak(
+    isolated_config: Path,
+):
+    """(#714) Realistic SSH stderr with IPs, hostnames, ports must never leak."""
+    from clawrium.core.web_ui_tunnel import TunnelError
+
+    ssh_stderr = (
+        "ssh: connect to host 10.0.0.42 port 22: Connection refused"
+    )
+    _seed_hosts(isolated_config, "zeroclaw", _zeroclaw_config())
+    with (
+        patch("clawrium.core.web_ui.resolve", return_value=_zeroclaw_resolved()),
+        patch(
+            "clawrium.core.web_ui_tunnel.ensure",
+            side_effect=TunnelError(ssh_stderr),
+        ),
+    ):
+        with TestClient(app) as client:
+            resp = client.post("/api/fleet/agents/demo/pairing-code")
+    assert resp.status_code == 502
+    assert resp.json()["detail"] == "Tunnel could not be established. Check server logs for details."
+    assert "10.0.0.42" not in resp.text
+    assert "port 22" not in resp.text
+    assert "Connection refused" not in resp.text
 
 
 def test_pairing_code_success(isolated_config: Path):
@@ -1070,7 +1133,7 @@ def test_fleet_health_returns_health_data(isolated_config: Path):
 
 
 def test_fleet_health_sanitizes_path_in_health_error(isolated_config: Path):
-    """_sanitize_health_error regex branch must run when health_error contains a path."""
+    """(#714) health_error now returns a constant string, never raw error text."""
     vm = _agent_vm(health_error="/home/user/.config/clawrium/secrets.json: permission denied")
     with patch(
         "clawrium.gui.routes.fleet.get_fleet_data",
@@ -1080,7 +1143,8 @@ def test_fleet_health_sanitizes_path_in_health_error(isolated_config: Path):
             resp = client.get("/api/fleet/health")
     assert resp.status_code == 200
     agent = resp.json()["agents"][0]
-    assert agent["health_error"] == "<path>: permission denied"
+    assert agent["health_error"] == "Health check failed — see server logs."
+    assert "/home/user/.config" not in resp.text
 
 
 def test_fleet_health_504_on_timeout(isolated_config: Path):
@@ -1293,8 +1357,8 @@ def test_start_agent_success(isolated_config: Path):
     mock_start.assert_called_once_with("192.168.1.100", "hermes", agent_name="demo")
 
 
-def test_start_agent_lifecycle_error_sanitized(isolated_config: Path):
-    """LifecycleError detail must be path-sanitized before reaching the browser (W1)."""
+def test_start_agent_lifecycle_error_uses_safe_message(isolated_config: Path):
+    """(#714) LifecycleError must not leak paths or SSH stderr to the browser."""
     _seed_hosts(isolated_config, "hermes")
     with patch(
         "clawrium.gui.routes.fleet.start_agent",
@@ -1303,8 +1367,8 @@ def test_start_agent_lifecycle_error_sanitized(isolated_config: Path):
         with TestClient(app) as client:
             resp = client.post("/api/agents/demo/start")
     assert resp.status_code == 500
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
     assert "/home/user/.config" not in resp.json()["detail"]
-    assert "<path>" in resp.json()["detail"]
 
 
 def test_start_agent_generic_exception_uses_safe_message(isolated_config: Path):
@@ -1329,11 +1393,13 @@ def test_start_agent_returns_502_when_result_success_false(isolated_config: Path
         with TestClient(app) as client:
             resp = client.post("/api/agents/demo/start")
     assert resp.status_code == 502
-    assert "daemon failed to start" in resp.json()["detail"]
+    # (#714) success=False path also returns constant message, never raw error text
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
+    assert "daemon failed to start" not in resp.json()["detail"]
 
 
-def test_start_agent_502_sanitizes_path_in_error(isolated_config: Path):
-    """Error with filesystem path gets sanitized on the 502 path (#712)."""
+def test_start_agent_502_no_path_leak(isolated_config: Path):
+    """(#714) Filesystem paths in result.error never reach the browser."""
     _seed_hosts(isolated_config, "hermes")
     with patch(
         "clawrium.gui.routes.fleet.start_agent",
@@ -1345,8 +1411,8 @@ def test_start_agent_502_sanitizes_path_in_error(isolated_config: Path):
         with TestClient(app) as client:
             resp = client.post("/api/agents/demo/start")
     assert resp.status_code == 502
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
     assert "/home/user/.config" not in resp.json()["detail"]
-    assert "<path>" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -1375,7 +1441,8 @@ def test_stop_agent_success(isolated_config: Path):
     mock_stop.assert_called_once_with("192.168.1.100", "hermes", agent_name="demo")
 
 
-def test_stop_agent_lifecycle_error_sanitized(isolated_config: Path):
+def test_stop_agent_lifecycle_error_uses_safe_message(isolated_config: Path):
+    """(#714) LifecycleError must not leak paths or SSH stderr to the browser."""
     _seed_hosts(isolated_config, "hermes")
     with patch(
         "clawrium.gui.routes.fleet.stop_agent",
@@ -1384,8 +1451,8 @@ def test_stop_agent_lifecycle_error_sanitized(isolated_config: Path):
         with TestClient(app) as client:
             resp = client.post("/api/agents/demo/stop")
     assert resp.status_code == 500
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
     assert "/home/user/.config" not in resp.json()["detail"]
-    assert "<path>" in resp.json()["detail"]
 
 
 def test_stop_agent_generic_exception_uses_safe_message(isolated_config: Path):
@@ -1410,11 +1477,13 @@ def test_stop_agent_returns_502_when_result_success_false(isolated_config: Path)
         with TestClient(app) as client:
             resp = client.post("/api/agents/demo/stop")
     assert resp.status_code == 502
-    assert "agent not running" in resp.json()["detail"]
+    # (#714) success=False path also returns constant message, never raw error text
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
+    assert "agent not running" not in resp.json()["detail"]
 
 
-def test_stop_agent_502_sanitizes_path_in_error(isolated_config: Path):
-    """Error with filesystem path gets sanitized on the 502 path (#712)."""
+def test_stop_agent_502_no_path_leak(isolated_config: Path):
+    """(#714) Filesystem paths in result.error never reach the browser."""
     _seed_hosts(isolated_config, "hermes")
     with patch(
         "clawrium.gui.routes.fleet.stop_agent",
@@ -1426,8 +1495,8 @@ def test_stop_agent_502_sanitizes_path_in_error(isolated_config: Path):
         with TestClient(app) as client:
             resp = client.post("/api/agents/demo/stop")
     assert resp.status_code == 502
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
     assert "/home/user/.config" not in resp.json()["detail"]
-    assert "<path>" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -1456,7 +1525,8 @@ def test_restart_agent_success(isolated_config: Path):
     mock_restart.assert_called_once_with("192.168.1.100", "hermes", agent_name="demo")
 
 
-def test_restart_agent_lifecycle_error_sanitized(isolated_config: Path):
+def test_restart_agent_lifecycle_error_uses_safe_message(isolated_config: Path):
+    """(#714) LifecycleError must not leak paths or SSH stderr to the browser."""
     _seed_hosts(isolated_config, "hermes")
     with patch(
         "clawrium.gui.routes.fleet.restart_agent",
@@ -1465,8 +1535,8 @@ def test_restart_agent_lifecycle_error_sanitized(isolated_config: Path):
         with TestClient(app) as client:
             resp = client.post("/api/agents/demo/restart")
     assert resp.status_code == 500
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
     assert "/home/user/.config" not in resp.json()["detail"]
-    assert "<path>" in resp.json()["detail"]
 
 
 def test_restart_agent_generic_exception_uses_safe_message(isolated_config: Path):
@@ -1491,11 +1561,13 @@ def test_restart_agent_returns_502_when_result_success_false(isolated_config: Pa
         with TestClient(app) as client:
             resp = client.post("/api/agents/demo/restart")
     assert resp.status_code == 502
-    assert "stop phase timed out" in resp.json()["detail"]
+    # (#714) success=False path also returns constant message, never raw error text
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
+    assert "stop phase timed out" not in resp.json()["detail"]
 
 
-def test_restart_agent_502_sanitizes_path_in_error(isolated_config: Path):
-    """Error with filesystem path gets sanitized on the 502 path (#712)."""
+def test_restart_agent_502_no_path_leak(isolated_config: Path):
+    """(#714) Filesystem paths in result.error never reach the browser."""
     _seed_hosts(isolated_config, "hermes")
     with patch(
         "clawrium.gui.routes.fleet.restart_agent",
@@ -1507,8 +1579,8 @@ def test_restart_agent_502_sanitizes_path_in_error(isolated_config: Path):
         with TestClient(app) as client:
             resp = client.post("/api/agents/demo/restart")
     assert resp.status_code == 502
+    assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
     assert "/home/user/.config" not in resp.json()["detail"]
-    assert "<path>" in resp.json()["detail"]
 
 
 def test_fleet_endpoint_returns_tier1_model(isolated_config: Path):

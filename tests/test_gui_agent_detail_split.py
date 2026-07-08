@@ -161,7 +161,8 @@ def test_health_endpoint_returns_degraded_on_probe_exception(isolated_config: Pa
             resp = client.get("/api/fleet/agents/demo/health")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["health_error"] == "ssh probe timed out"
+    assert body["health_error"] == "Health check failed — see server logs."
+    assert "ssh probe timed out" not in body["health_error"]
     assert body["process_running"] is None
     assert body["cpu_count"] is None
     assert body["memory_total_mb"] is None
