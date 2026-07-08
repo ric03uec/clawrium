@@ -404,10 +404,9 @@ Quick attach + sync:
 printf 'SLACK_MCP_XOXP_TOKEN=xoxp-...' | \
   clawctl integration registry create slack --type slack-user --credential-stdin
 clawctl agent integration attach <hermes-name> --integration slack
-clawctl agent sync <hermes-name>
 ```
 
-Then `clawctl agent chat <hermes-name>` — the model gains `channels_list`, `conversations_history`, `conversations_add_message`, `conversations_search_messages`, and `conversations_replies` under the `mcp_my_slack_*` prefix.
+Then `clawctl agent chat <hermes-name>` — the model gains `channels_list`, `conversations_history`, `conversations_add_message`, `conversations_search_messages`, and `conversations_replies` under the `slack_*` tool prefix.
 
 ---
 

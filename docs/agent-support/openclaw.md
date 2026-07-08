@@ -143,8 +143,8 @@ Quick attach + sync:
 
 ```bash
 printf 'SLACK_MCP_XOXP_TOKEN=xoxp-...' | \
-  clawctl integration registry create my-slack --type slack-user --credential-stdin
-clawctl agent integration attach <openclaw-name> --integration my-slack
+  clawctl integration registry create slack --type slack-user --credential-stdin
+  clawctl agent integration attach <openclaw-name> --integration slack
 clawctl agent sync <openclaw-name>
 ```
 
