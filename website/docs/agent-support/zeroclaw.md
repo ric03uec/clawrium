@@ -423,7 +423,7 @@ Quick attach + sync (Linux x86_64 / aarch64 hosts):
 ```bash
 printf 'SLACK_MCP_XOXP_TOKEN=xoxp-...' | \
   clawctl integration registry create slack --type slack-user --credential-stdin
-clawctl agent integration attach <zeroclaw-name> --integration slack
+  clawctl agent integration attach <zeroclaw-name> --integration slack
 clawctl agent sync <zeroclaw-name>
 ```
 

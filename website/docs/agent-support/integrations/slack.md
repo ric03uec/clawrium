@@ -67,15 +67,17 @@ Use `--credential-stdin` to avoid leaking the token into your shell history or a
 
 ```bash
 printf 'SLACK_MCP_XOXP_TOKEN=xoxp-...' | \
-  clawctl integration registry create my-slack --type slack-user --credential-stdin
+  clawctl integration registry create slack --type slack-user --credential-stdin
 ```
+
+> **Important:** The integration name **must** be `slack` — the CLI rejects any other name for `slack-user` / `slack-cookie` types. The rendered MCP server key is always the literal `slack`, matching the naming convention of other built-in toolsets (`web`, `browser`, `terminal`, `file`, `atlassian`). (#846)
 
 The credential lands in `~/.config/clawrium/secrets.json` (chmod 0600). It never round-trips through `hosts.json`, terminal output, or logs after the initial write. Passing `--credential SLACK_MCP_XOXP_TOKEN=<value>` still works but leaks the token into `ps auxww` and shell history — prefer stdin.
 
 ### 3. Attach to an agent
 
 ```bash
-clawctl agent integration attach my-hermes --integration my-slack
+clawctl agent integration attach my-hermes --integration slack
 ```
 
 The attach step gates by agent-type: only agent types whose renderer supports the Slack integration accept it. Today that means all three GA agent types (`hermes`, `openclaw`, `zeroclaw`) accept `slack-user` and `slack-cookie`. Unsupported (agent, integration) pairs exit 2 at attach time with a hint pointing at `clawctl integration registry get`.
@@ -115,7 +117,7 @@ If the tool is available, hermes / openclaw / zeroclaw will route the request th
 
 ```bash
 printf 'SLACK_MCP_XOXC_TOKEN=xoxc-...\nSLACK_MCP_XOXD_TOKEN=xoxd-...' | \
-  clawctl integration registry create my-slack --type slack-cookie --credential-stdin
+  clawctl integration registry create slack --type slack-cookie --credential-stdin
 ```
 
 `clawctl` emits a warning on `create` (and again on every subsequent `sync`) documenting the fragility below.
@@ -157,14 +159,14 @@ Each agent type renders the Slack MCP subprocess into its native config file; th
 
 ```yaml
 mcp_servers:
-  my_slack:
+  slack:
     command: "/home/<agent-name>/.local/bin/slack-mcp-server"
     args: ["--transport", "stdio"]
     env:
       SLACK_MCP_XOXP_TOKEN: 'xoxp-...'
 ```
 
-For `slack-cookie`, the `env` block instead carries `SLACK_MCP_XOXC_TOKEN` + `SLACK_MCP_XOXD_TOKEN`. Multiple Slack integrations on the same agent each get their own `mcp_servers.<slug>:` entry. The integration name (`my-slack`) is slug-normalized (hyphens to underscores) into the YAML key — no fixed `slack-` prefix is added.
+For `slack-cookie`, the `env` block instead carries `SLACK_MCP_XOXC_TOKEN` + `SLACK_MCP_XOXD_TOKEN`. Only one Slack integration is permitted per agent — the rendered MCP server key is always the literal `slack` (#846).
 
 See [Hermes agent support → Slack integration](../hermes.md#slack-integration) for the hermes-specific configure flow (single MCP-servers block adjacent to atlassian, macOS support GA).
 
@@ -174,7 +176,7 @@ See [Hermes agent support → Slack integration](../hermes.md#slack-integration)
 {
   "mcp": {
     "servers": {
-      "my_slack": {
+      "slack": {
         "command": "/home/<agent-name>/.local/bin/slack-mcp-server",
         "args": ["--transport", "stdio"],
         "env": {
@@ -196,7 +198,7 @@ deferred_loading = true
 enabled = true
 
 [[mcp.servers]]
-name = "slack-my_slack"
+name = "slack-slack"
 command = "/home/<agent-name>/.local/bin/slack-mcp-server"
 args = ["--transport", "stdio"]
 
@@ -204,7 +206,7 @@ args = ["--transport", "stdio"]
 SLACK_MCP_XOXP_TOKEN = "xoxp-..."
 ```
 
-Note the ZeroClaw-specific `slack-` prefix on `name`: the zeroclaw TOML template hardcodes `name = "slack-{{ entry.slug }}"` to namespace MCP server names within the zeroclaw daemon's tool surface. Hermes and openclaw do not add this prefix — their key/name is the bare slug (`my_slack`).
+Note the ZeroClaw-specific `slack-` prefix on `name`: the zeroclaw TOML template hardcodes `name = "slack-{{ entry.slug }}"` to namespace MCP server names within the zeroclaw daemon's tool surface. Hermes and openclaw do not add this prefix — their key/name is the bare `slack`.
 
 `[mcp].enabled` flips to `true` only when at least one Slack (or other MCP-emitting) integration is attached; zeroclaw agents with no Slack integration render the byte-locked `[mcp]` block with `enabled = false` and no `servers` key at all. See [ZeroClaw agent support → Slack integration](../zeroclaw.md#slack-integration) for the zeroclaw-specific caveats (kevin/armv7l coverage gap, `#437` bearer-rotation ordering).
 
@@ -244,33 +246,20 @@ Prefer `--credential-stdin`:
 
 ```bash
 printf 'SLACK_MCP_XOXP_TOKEN=xoxp-...' | \
-  clawctl integration registry create my-slack --type slack-user --credential-stdin
+  clawctl integration registry create slack --type slack-user --credential-stdin
 
 # multi-credential (slack-cookie)
 printf 'SLACK_MCP_XOXC_TOKEN=xoxc-...\nSLACK_MCP_XOXD_TOKEN=xoxd-...' | \
-  clawctl integration registry create my-slack --type slack-cookie --credential-stdin
+  clawctl integration registry create slack --type slack-cookie --credential-stdin
 ```
 
 Stdin does not appear in `ps auxww` and is not shell-history-visible unless you deliberately echo it.
 
 ---
 
-## Multiple integrations on one agent
+## One Slack integration per agent
 
-You can attach more than one Slack integration to the same agent — e.g. two workspaces or a personal + work split. Each becomes its own MCP subprocess entry, with isolated credentials and its own binary invocation:
-
-```bash
-printf 'SLACK_MCP_XOXP_TOKEN=xoxp-work-...' | \
-  clawctl integration registry create work-slack --type slack-user --credential-stdin
-printf 'SLACK_MCP_XOXP_TOKEN=xoxp-personal-...' | \
-  clawctl integration registry create personal-slack --type slack-user --credential-stdin
-
-clawctl agent integration attach my-hermes --integration work-slack
-clawctl agent integration attach my-hermes --integration personal-slack
-clawctl agent sync my-hermes
-```
-
-Each subprocess is spawned independently by the daemon. Tools are namespaced by MCP server slug (`mcp_work_slack_channels_list`, `mcp_personal_slack_conversations_search_messages`, etc.), so there is no collision between the two workspaces.
+Only one Slack integration can be attached to a given agent. Because the rendered MCP server key is always `slack` (#846), attaching a second Slack integration would collide on that key and `render_hermes` raises `AgentConfigError`. If you need two workspaces, run two separate agents — each with its own Slack integration attached.
 
 ---
 
@@ -316,7 +305,7 @@ Each subprocess is spawned independently by the daemon. Tools are namespaced by 
 <details>
 <summary><strong>`slack_channels_list` returns <code>invalid_auth</code> or <code>token_expired</code></strong></summary>
 
-For `slack-user`: your `xoxp` token has been revoked or the App was uninstalled from the workspace. Re-check the App is still installed under **api.slack.com/apps/&lt;your-app&gt;/install-app** and rotate the User OAuth Token if needed. Update the credential via `clawctl integration registry edit my-slack --credential-stdin`.
+For `slack-user`: your `xoxp` token has been revoked or the App was uninstalled from the workspace. Re-check the App is still installed under **api.slack.com/apps/&lt;your-app&gt;/install-app** and rotate the User OAuth Token if needed. Update the credential via `clawctl integration registry edit slack --credential-stdin`.
 
 For `slack-cookie`: the `xoxd` cookie has rotated (see [Cookie mode security warning](#cookie-mode-security-warning)). Re-extract both `xoxc` and `xoxd` from a fresh browser session and update the credential. This will happen periodically — cookie mode is inherently fragile.
 
