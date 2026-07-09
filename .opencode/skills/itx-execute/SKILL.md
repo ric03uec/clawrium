@@ -167,6 +167,8 @@ When a child receives `--pr-base=<branch>`, it MUST:
 - Open its PR against that branch, not `main`.
 - Include `Stacked on top of <branch>` in the PR body so reviewers know
   the dependency chain.
+- Apply exactly one `authored-by:*` label that matches the model which
+  actually produced the PR.
 
 If the child's mode does not support `--pr-base`, the orchestrator
 falls back to opening the PR itself after the child finishes:
@@ -174,6 +176,30 @@ falls back to opening the PR itself after the child finishes:
 ```bash
 gh pr edit <pr-num> --base "$PREV_BRANCH"
 ```
+
+### Authored-by PR labels
+
+Every PR opened by `/itx:execute` (directly or through a spawned child
+session) MUST carry exactly one authored-by label.
+
+Available labels:
+- `authored-by:claude`
+- `authored-by:gpt`
+- `authored-by:gemini`
+- `authored-by:qwen`
+- `authored-by:local_qwen`
+- `authored-by:glm`
+- `authored-by:deepseek`
+- `authored-by:kimi`
+
+Selection rules:
+- Use the label for the model family that actually authored the PR.
+- Use `authored-by:local_qwen` when the PR was produced by a local Qwen
+  run (for example local Hermes/opencode/Qwen execution), not the generic
+  `authored-by:qwen` label.
+- Apply the label at PR creation time when possible. If the PR already
+  exists without the label, add it immediately with `gh pr edit`.
+- Do not apply multiple `authored-by:*` labels to the same PR.
 
 ### Failure modes
 
@@ -425,24 +451,32 @@ gh project item-edit --project-id PVT_kwHOABDzzM4BSDdU --id "$ITEM_ID" \
 
 7. **Create PR**:
 
-   **If in worktree mode**: Branch already exists (created during worktree setup)
+   First choose the correct authored-by label for the model that created
+   the PR (for example `authored-by:claude` or `authored-by:local_qwen`).
+
+    **If in worktree mode**: Branch already exists (created during worktree setup)
+    ```bash
+    git add <files>
+    git commit -m "<message>"
+    git push -u origin issue-<number>-<slug>
+    gh pr create --title "<title>" --body "Closes #<number>" --label "<authored-by-label>"
+    ```
+
+    **If in regular mode**: Create branch first
+    ```bash
+    git checkout -b issue-<number>-<slug>
+    git add <files>
+    git commit -m "<message>"
+    git push -u origin issue-<number>-<slug>
+    gh pr create --title "<title>" --body "Closes #<number>" --label "<authored-by-label>"
+    ```
+
+   If the PR was created without the label, fix it immediately:
    ```bash
-   git add <files>
-   git commit -m "<message>"
-   git push -u origin issue-<number>-<slug>
-   gh pr create --title "<title>" --body "Closes #<number>"
+   gh pr edit <number> --add-label "<authored-by-label>"
    ```
 
-   **If in regular mode**: Create branch first
-   ```bash
-   git checkout -b issue-<number>-<slug>
-   git add <files>
-   git commit -m "<message>"
-   git push -u origin issue-<number>-<slug>
-   gh pr create --title "<title>" --body "Closes #<number>"
-   ```
-
-   **WARNING**: Never push to `main`. Always push to feature branch and create PR.
+    **WARNING**: Never push to `main`. Always push to feature branch and create PR.
 
 ## Progress Tracking with Tasks
 
