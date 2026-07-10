@@ -12,12 +12,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from clawrium.cli import app
+from clawrium.core.lifecycle import LifecycleError
 
 runner = CliRunner()
 
@@ -304,6 +305,7 @@ def test_upgrade_zeroclaw_invokes_restart_agent_for_bearer_rotation(
     `gateway_token_rotated` fires per AGENTS.md.
     """
     _write_host(isolated_config, "zeroclaw", "0.6.0")
+    call_order: list[str] = []
 
     def _fake_install(*args, **kwargs):
         return {
@@ -316,6 +318,7 @@ def test_upgrade_zeroclaw_invokes_restart_agent_for_bearer_rotation(
         }
 
     def _fake_restart(*args, **kwargs):
+        call_order.append("restart")
         return {
             "success": True,
             "agent": kwargs.get("agent_name") or "zeroclaw",
@@ -326,13 +329,191 @@ def test_upgrade_zeroclaw_invokes_restart_agent_for_bearer_rotation(
     with patch(
         "clawrium.core.install.run_installation", side_effect=_fake_install
     ), patch(
+        "clawrium.core.workspace_sync.push_workspace_phase",
+        side_effect=lambda *args, **kwargs: (
+            call_order.append("workspace") or MagicMock(success=True)
+        ),
+    ) as mock_push, patch(
         "clawrium.core.lifecycle.restart_agent", side_effect=_fake_restart
     ) as mock_restart:
         result = runner.invoke(
             app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
         )
     assert result.exit_code == 0, result.output
-    mock_restart.assert_called_once()
+    mock_push.assert_called_once()
+    assert mock_push.call_args.kwargs["agent_type"] == "zeroclaw"
+    assert mock_push.call_args.kwargs["agent_name"] == "test-agent"
+    assert mock_push.call_args.kwargs["host"]["alias"] == "h1"
+    assert mock_push.call_args.kwargs["host"]["hostname"] == "192.168.1.100"
+    assert mock_push.call_args.kwargs["on_event"] is not None
+    assert call_order == ["workspace", "restart"]
+    mock_restart.assert_called_once_with(
+        hostname="192.168.1.100",
+        claw_name="zeroclaw",
+        agent_name="test-agent",
+        on_event=ANY,
+    )
+
+
+def test_upgrade_surfaces_workspace_restore_failure(
+    isolated_config: Path, _patch_drift_clean
+):
+    _write_host(isolated_config, "zeroclaw", "0.6.0")
+
+    def _fake_install(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": "zeroclaw",
+            "version": "0.7.5",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ), patch(
+        "clawrium.core.workspace_sync.push_workspace_phase",
+        return_value=MagicMock(success=False, error="workspace push failed"),
+    ), patch(
+        "clawrium.core.lifecycle.restart_agent",
+        return_value={"success": True, "agent": "zeroclaw", "host": "192.168.1.100"},
+    ) as mock_restart:
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+
+    assert result.exit_code != 0, result.output
+    mock_restart.assert_not_called()
+    assert "workspace restore failed" in result.output.lower()
+    assert "workspace push failed" in result.output
+    assert "bearer state may also be stale" in result.output.lower()
+
+
+def test_upgrade_openclaw_surfaces_workspace_restore_failure(
+    isolated_config: Path, _patch_drift_clean
+):
+    _write_host(isolated_config, "openclaw", "0.6.0")
+
+    def _fake_install(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": "openclaw",
+            "version": "0.7.5",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ), patch(
+        "clawrium.core.workspace_sync.push_workspace_phase",
+        return_value=MagicMock(success=False, error="workspace push failed"),
+    ):
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+
+    assert result.exit_code != 0, result.output
+    assert "workspace restore failed" in result.output.lower()
+    assert "workspace push failed" in result.output
+    assert "bearer state may also be stale" not in result.output.lower()
+
+
+def test_upgrade_surfaces_workspace_restore_exception(
+    isolated_config: Path, _patch_drift_clean
+):
+    _write_host(isolated_config, "openclaw", "0.6.0")
+
+    def _fake_install(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": "openclaw",
+            "version": "0.7.5",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ), patch(
+        "clawrium.core.workspace_sync.push_workspace_phase",
+        side_effect=RuntimeError("workspace blew up"),
+    ):
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+
+    assert result.exit_code != 0, result.output
+    assert "workspace restore crashed" in result.output.lower()
+    assert "workspace blew up" in result.output
+    assert "bearer state may also be stale" not in result.output.lower()
+
+
+def test_upgrade_zeroclaw_surfaces_workspace_restore_exception(
+    isolated_config: Path, _patch_drift_clean
+):
+    _write_host(isolated_config, "zeroclaw", "0.6.0")
+
+    def _fake_install(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": "zeroclaw",
+            "version": "0.7.5",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ), patch(
+        "clawrium.core.workspace_sync.push_workspace_phase",
+        side_effect=RuntimeError("workspace blew up"),
+    ):
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+
+    assert result.exit_code != 0, result.output
+    assert "workspace restore crashed" in result.output.lower()
+    assert "workspace blew up" in result.output
+    assert "zeroclaw bearer state may also be stale" in result.output.lower()
+
+
+def test_upgrade_reports_workspace_failure_when_restart_raises(
+    isolated_config: Path, _patch_drift_clean
+):
+    _write_host(isolated_config, "zeroclaw", "0.6.0")
+
+    def _fake_install(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": "zeroclaw",
+            "version": "0.7.5",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ), patch(
+        "clawrium.core.workspace_sync.push_workspace_phase",
+        return_value=MagicMock(success=False, error="workspace push failed"),
+    ), patch(
+        "clawrium.core.lifecycle.restart_agent",
+        side_effect=LifecycleError("restart blew up"),
+    ):
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+
+    assert result.exit_code != 0, result.output
+    assert "workspace restore failed" in result.output.lower()
+    assert "workspace push failed" in result.output
 
 
 def test_upgrade_zeroclaw_surfaces_failed_restart_as_error(
