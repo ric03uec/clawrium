@@ -33,6 +33,7 @@ import ansible_runner
 
 from clawrium.core import keys as core_keys
 from clawrium.core.config import get_config_dir
+from clawrium.core.playbook_resolver import normalize_os_family, resolve_agent_playbook
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,8 @@ class AgentExecError(Exception):
     """Raised for caller-recoverable errors before invoking ansible_runner."""
 
 
-def _playbook_path(claw_type: str) -> Path:
-    return _REGISTRY_DIR / claw_type / "playbooks" / "exec.yaml"
+def _playbook_path(claw_type: str, os_family: str = "linux") -> Path:
+    return resolve_agent_playbook(claw_type, "exec", os_family)
 
 
 def _logs_dir() -> Path:
@@ -174,15 +175,19 @@ def run_agent_exec(
     if not _AGENT_NAME_RE.match(agent_name):
         raise AgentExecError(f"invalid agent_name: {agent_name!r}")
 
-    playbook = _playbook_path(claw_type)
-    if not playbook.exists():
-        return "", f"Playbook not found: {playbook}", 255
-
     from clawrium.core.hosts import get_host
 
     host = get_host(hostname)
     if not host:
         return "", f"host '{hostname}' not found", 255
+
+    os_family = normalize_os_family(host)
+    try:
+        playbook = _playbook_path(claw_type, os_family)
+    except FileNotFoundError as e:
+        return "", str(e), 255
+    except ValueError as e:
+        return "", f"os_family='{os_family}' is not supported by clawrium: {e}", 255
 
     key_id = host.get("key_id") or host["hostname"]
     ssh_key = core_keys.get_host_private_key(key_id)
