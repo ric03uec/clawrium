@@ -264,3 +264,39 @@ def test_missing_rc_marker(monkeypatch, patched_env):
         "10.0.0.1", "wolf-i", "openclaw", ["x"]
     )
     assert rc == 255
+
+
+def test_run_agent_exec_uses_macos_playbook_for_darwin_host(monkeypatch, patched_env):
+    captured = {}
+
+    from clawrium.core import hosts as hosts_module
+
+    monkeypatch.setattr(
+        hosts_module,
+        "get_host",
+        lambda h: {
+            "hostname": h,
+            "user": "alice",
+            "port": 22,
+            "alias": "wolf-m",
+            "os_family": "darwin",
+        },
+    )
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return _make_result(
+            [
+                _ok_event("EXEC_STDOUT=" + base64.b64encode(b"hello world").decode()),
+                _ok_event("EXEC_STDERR=" + base64.b64encode(b"").decode()),
+                _ok_event("EXEC_RC=0"),
+            ]
+        )
+
+    monkeypatch.setattr(agent_exec.ansible_runner, "run", fake_run)
+    stdout, stderr, rc = agent_exec.run_agent_exec(
+        "10.0.0.1", "wolf-m", "openclaw", ["--version"]
+    )
+
+    assert (stdout, stderr, rc) == ("hello world", "", 0)
+    assert captured["playbook"].endswith("openclaw/playbooks/exec_macos.yaml")

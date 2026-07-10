@@ -30,7 +30,7 @@ import time
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from clawrium.core.config import get_config_dir, init_config_dir
 from clawrium.core.web_ui import BIND_ADDRESS_MAP, ResolvedUI, resolve
@@ -188,6 +188,25 @@ def _local_port_bound(port: int) -> bool:
         return False
 
 
+def _http_endpoint_healthy(port: int) -> bool:
+    """Return True iff an HTTP endpoint on 127.0.0.1:<port> answers a probe.
+
+    A bound local port is not enough for reused SSH tunnels: the SSH process can
+    stay alive while the remote dashboard behind the forward is gone, which makes
+    browser opens fail later with connection resets. We send a tiny HEAD request
+    and require at least one response byte so stale forwards are evicted eagerly.
+    """
+    request = b"HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    try:
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+            sock.settimeout(0.5)
+            sock.connect(("127.0.0.1", port))
+            sock.sendall(request)
+            return bool(sock.recv(1))
+    except (ConnectionResetError, BrokenPipeError, OSError):
+        return False
+
+
 def _pick_free_port() -> int:
     """Bind to an ephemeral port on loopback and return the chosen number.
 
@@ -294,7 +313,11 @@ def _cmdline_matches(actual: str, signature: str) -> bool:
     return actual_tokens == expected_tokens
 
 
-def _existing_healthy_tunnel(agent_key: str) -> TunnelInfo | None:
+def _existing_healthy_tunnel(
+    agent_key: str,
+    *,
+    readiness_probe: Callable[[int], bool] | None = None,
+) -> TunnelInfo | None:
     state = _read_state(agent_key)
     if not state:
         return None
@@ -315,6 +338,10 @@ def _existing_healthy_tunnel(agent_key: str) -> TunnelInfo | None:
         _delete_state(agent_key)
         return None
     if not _local_port_bound(local_port):
+        _terminate(pid, signature)
+        _delete_state(agent_key)
+        return None
+    if readiness_probe is not None and not readiness_probe(local_port):
         _terminate(pid, signature)
         _delete_state(agent_key)
         return None
@@ -356,11 +383,17 @@ def _close_owned_tunnels() -> None:
             logger.debug("atexit close failed for %s", agent_key, exc_info=True)
 
 
-def _wait_for_connect(port: int, timeout: float = _CONNECT_TIMEOUT_S) -> bool:
+def _wait_for_connect(
+    port: int,
+    timeout: float = _CONNECT_TIMEOUT_S,
+    *,
+    readiness_probe: Callable[[int], bool] | None = None,
+) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if _local_port_bound(port):
-            return True
+            if readiness_probe is None or readiness_probe(port):
+                return True
         time.sleep(_CONNECT_POLL_INTERVAL_S)
     return False
 
@@ -435,7 +468,10 @@ def ensure(agent_key: str, *, owned: bool = True) -> int:
         )
 
     with _get_ensure_lock(agent_key):
-        existing = _existing_healthy_tunnel(agent_key)
+        existing = _existing_healthy_tunnel(
+            agent_key,
+            readiness_probe=_http_endpoint_healthy,
+        )
         if existing is not None:
             if owned:
                 _OWNED_TUNNELS.add(agent_key)
@@ -449,7 +485,10 @@ def ensure(agent_key: str, *, owned: bool = True) -> int:
         signature = _cmdline_signature(cmd)
 
         proc = _spawn_ssh(cmd)
-        if not _wait_for_connect(local_port):
+        if not _wait_for_connect(
+            local_port,
+            readiness_probe=_http_endpoint_healthy,
+        ):
             if proc.poll() is None:
                 try:
                     proc.terminate()

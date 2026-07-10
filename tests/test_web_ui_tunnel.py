@@ -222,6 +222,7 @@ def test_ensure_returns_existing_local_port_when_healthy(
             ),
         )
         monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
+        monkeypatch.setattr(web_ui_tunnel, "_http_endpoint_healthy", lambda port: True)
 
         result = ensure("demo")
         assert result == local_port
@@ -251,10 +252,61 @@ def test_ensure_evicts_stale_pid_then_spawns_new_tunnel(
     fake_proc.poll.return_value = None
     monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", lambda cmd: fake_proc)
     monkeypatch.setattr(
-        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0: True
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
     )
 
     result = ensure("demo")
+    assert result > 0
+    persisted = json.loads(state_path.read_text())
+    assert persisted["pid"] == 4242
+    assert persisted["local_port"] == result
+
+
+def test_ensure_evicts_existing_tunnel_when_http_probe_fails(
+    isolated_state: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A bound-but-dead forwarded endpoint must not be reused."""
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        local_port = sock.getsockname()[1]
+
+        signature = _cmdline_signature(
+            ["ssh", "-N", "-L", f"{local_port}:127.0.0.1:9119", "xclm@hermes.local"]
+        )
+        state_path = tunnel_state_dir() / "demo.json"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "pid": 1234,
+                    "local_port": local_port,
+                    "started_at": time.time(),
+                    "ssh_cmdline_signature": signature,
+                }
+            )
+        )
+
+        monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: True)
+        monkeypatch.setattr(
+            web_ui_tunnel,
+            "_read_cmdline",
+            lambda pid: " ".join(
+                ["ssh", "-N", "-L", f"{local_port}:127.0.0.1:9119", "xclm@hermes.local"]
+            ),
+        )
+        monkeypatch.setattr(web_ui_tunnel, "_http_endpoint_healthy", lambda port: False)
+        monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
+
+        fake_proc = MagicMock()
+        fake_proc.pid = 4242
+        fake_proc.poll.return_value = None
+        monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", lambda cmd: fake_proc)
+        monkeypatch.setattr(
+            web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
+        )
+
+        result = ensure("demo")
+
     assert result > 0
     persisted = json.loads(state_path.read_text())
     assert persisted["pid"] == 4242
@@ -358,7 +410,7 @@ def test_ensure_raises_when_ssh_fails_to_bind(
     fake_proc.stderr = None
     monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", lambda cmd: fake_proc)
     monkeypatch.setattr(
-        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0: False
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: False
     )
 
     with pytest.raises(TunnelError):
