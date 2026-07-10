@@ -1,0 +1,40 @@
+---
+# macOS counterpart to exec.yaml. Keep the same read-only exec shape while
+# switching home paths to /Users/<agent> per the dispatcher's OS-family fork.
+- hosts: all
+  gather_facts: false
+  vars:
+    binary: "/Users/{{ agent_name }}/bin/zeroclaw"
+    workdir: "/Users/{{ agent_name }}/.zeroclaw/workspace"
+  tasks:
+    - name: Validate agent_name (defense-in-depth)
+      ansible.builtin.fail:
+        msg: "Invalid agent_name"
+      when:
+        - agent_name is not match('^[a-z][a-z0-9_-]{0,31}$')
+
+    - name: Run agent exec command
+      ansible.builtin.command:
+        argv: "{{ [binary] + cmd_argv }}"
+        chdir: "{{ workdir }}"
+      become: true
+      become_user: "{{ agent_name }}"
+      environment:
+        HOME: "/Users/{{ agent_name }}"
+        PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+      register: exec_result
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Emit stdout
+      ansible.builtin.debug:
+        msg: "EXEC_STDOUT={{ exec_result.stdout | default('') | b64encode }}"
+
+    - name: Emit stderr
+      ansible.builtin.debug:
+        msg: "EXEC_STDERR={{ exec_result.stderr | default('') | b64encode }}"
+
+    - name: Emit rc
+      ansible.builtin.debug:
+        msg: "EXEC_RC={{ exec_result.rc | default(255) }}"

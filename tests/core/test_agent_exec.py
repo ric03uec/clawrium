@@ -136,9 +136,10 @@ def test_unknown_claw_type_raises(patched_env):
         agent_exec.run_agent_exec("10.0.0.1", "x", "nemoclaw", ["foo"])
 
 
-def test_empty_cmd_argv_raises(patched_env):
-    with pytest.raises(agent_exec.AgentExecError):
-        agent_exec.run_agent_exec("10.0.0.1", "x", "openclaw", [])
+@pytest.mark.parametrize("cmd_argv", [[], None])
+def test_empty_cmd_argv_raises(patched_env, cmd_argv):
+    with pytest.raises(agent_exec.AgentExecError, match="cmd_argv must be a non-empty list"):
+        agent_exec.run_agent_exec("10.0.0.1", "x", "openclaw", cmd_argv)
 
 
 def test_missing_ssh_key(monkeypatch, patched_env):
@@ -264,9 +265,23 @@ def test_missing_rc_marker(monkeypatch, patched_env):
         "10.0.0.1", "wolf-i", "openclaw", ["x"]
     )
     assert rc == 255
+    assert "did not report an exit code" in stderr
 
 
-def test_run_agent_exec_uses_macos_playbook_for_darwin_host(monkeypatch, patched_env):
+@pytest.mark.parametrize(
+    ("claw_type", "os_family", "expected_suffix"),
+    [
+        ("openclaw", "linux", "openclaw/playbooks/exec.yaml"),
+        ("openclaw", "darwin", "openclaw/playbooks/exec_macos.yaml"),
+        ("hermes", "linux", "hermes/playbooks/exec.yaml"),
+        ("hermes", "darwin", "hermes/playbooks/exec_macos.yaml"),
+        ("zeroclaw", "linux", "zeroclaw/playbooks/exec.yaml"),
+        ("zeroclaw", "darwin", "zeroclaw/playbooks/exec_macos.yaml"),
+    ],
+)
+def test_run_agent_exec_uses_expected_playbook_for_host_os(
+    monkeypatch, patched_env, claw_type, os_family, expected_suffix
+):
     captured = {}
 
     from clawrium.core import hosts as hosts_module
@@ -279,7 +294,7 @@ def test_run_agent_exec_uses_macos_playbook_for_darwin_host(monkeypatch, patched
             "user": "alice",
             "port": 22,
             "alias": "wolf-m",
-            "os_family": "darwin",
+            "os_family": os_family,
         },
     )
 
@@ -295,8 +310,76 @@ def test_run_agent_exec_uses_macos_playbook_for_darwin_host(monkeypatch, patched
 
     monkeypatch.setattr(agent_exec.ansible_runner, "run", fake_run)
     stdout, stderr, rc = agent_exec.run_agent_exec(
-        "10.0.0.1", "wolf-m", "openclaw", ["--version"]
+        "10.0.0.1", "wolf-m", claw_type, ["--version"]
     )
 
     assert (stdout, stderr, rc) == ("hello world", "", 0)
-    assert captured["playbook"].endswith("openclaw/playbooks/exec_macos.yaml")
+    assert captured["playbook"].endswith(expected_suffix)
+
+
+def test_run_agent_exec_returns_error_for_unrecognized_os_family(
+    monkeypatch, patched_env
+):
+    from clawrium.core import hosts as hosts_module
+
+    monkeypatch.setattr(
+        hosts_module,
+        "get_host",
+        lambda h: {
+            "hostname": h,
+            "user": "alice",
+            "port": 22,
+            "alias": "wolf-bsd",
+            "os_family": "freebsd",
+        },
+    )
+
+    stdout, stderr, rc = agent_exec.run_agent_exec(
+        "10.0.0.1", "wolf-bsd", "openclaw", ["--version"]
+    )
+
+    assert stdout == ""
+    assert rc == 255
+    assert "os_family='freebsd' is not supported by clawrium" in stderr
+
+
+def test_run_agent_exec_returns_file_not_found_when_supported_os_playbook_missing(
+    monkeypatch, patched_env
+):
+    from clawrium.core import hosts as hosts_module
+
+    monkeypatch.setattr(
+        hosts_module,
+        "get_host",
+        lambda h: {
+            "hostname": h,
+            "user": "alice",
+            "port": 22,
+            "alias": "wolf-m",
+            "os_family": "darwin",
+        },
+    )
+
+    stdout, stderr, rc = agent_exec.run_agent_exec(
+        "10.0.0.1", "wolf-m", "ethos", ["--version"]
+    )
+
+    assert stdout == ""
+    assert rc == 255
+    assert "does not support os_family='darwin'" in stderr
+
+
+def test_run_agent_exec_returns_runner_exception(monkeypatch, patched_env):
+    monkeypatch.setattr(
+        agent_exec.ansible_runner,
+        "run",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("connection refused")),
+    )
+
+    stdout, stderr, rc = agent_exec.run_agent_exec(
+        "10.0.0.1", "wolf-i", "openclaw", ["--version"]
+    )
+
+    assert stdout == ""
+    assert rc == 255
+    assert stderr == "ansible-runner error: connection refused"

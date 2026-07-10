@@ -193,16 +193,24 @@ def _http_endpoint_healthy(port: int) -> bool:
 
     A bound local port is not enough for reused SSH tunnels: the SSH process can
     stay alive while the remote dashboard behind the forward is gone, which makes
-    browser opens fail later with connection resets. We send a tiny HEAD request
+    browser opens fail later with connection resets. We send a tiny GET request
     and require at least one response byte so stale forwards are evicted eagerly.
     """
-    request = b"HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
     try:
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+            # The local accept is effectively immediate; the remote side of the
+            # SSH forward can still take longer to answer over a tailnet/WAN hop.
             sock.settimeout(0.5)
             sock.connect(("127.0.0.1", port))
             sock.sendall(request)
-            return bool(sock.recv(1))
+            sock.settimeout(2.0)
+            try:
+                return bool(sock.recv(1))
+            except TimeoutError:
+                # Treat an established-but-slow HTTP endpoint as alive; the stale
+                # tunnel failure mode we care about is EOF/RST from a dead remote.
+                return True
     except (ConnectionResetError, BrokenPipeError, OSError):
         return False
 

@@ -24,6 +24,7 @@ from clawrium.core.web_ui_tunnel import (
     _build_ssh_for,
     _cmdline_matches,
     _cmdline_signature,
+    _http_endpoint_healthy,
     _pick_free_port,
     close,
     ensure,
@@ -59,6 +60,77 @@ def test_tunnel_state_dir_is_under_config(isolated_state: Path):
 def test_pick_free_port_returns_loopback_port():
     port = _pick_free_port()
     assert 1024 < port < 65536
+
+
+def test_http_endpoint_healthy_accepts_any_http_response_byte():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+
+    try:
+        def serve_once():
+            conn, _ = server.accept()
+            with closing(conn):
+                conn.recv(1024)
+                conn.sendall(b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n")
+
+        import threading
+
+        thread = threading.Thread(target=serve_once)
+        thread.start()
+        assert _http_endpoint_healthy(port) is True
+        thread.join(timeout=1)
+        assert not thread.is_alive()
+    finally:
+        server.close()
+
+
+def test_http_endpoint_healthy_returns_false_on_connection_reset():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+
+    try:
+        def serve_once():
+            conn, _ = server.accept()
+            conn.close()
+
+        import threading
+
+        thread = threading.Thread(target=serve_once)
+        thread.start()
+        assert _http_endpoint_healthy(port) is False
+        thread.join(timeout=1)
+        assert not thread.is_alive()
+    finally:
+        server.close()
+
+
+def test_http_endpoint_healthy_treats_recv_timeout_as_alive(monkeypatch: pytest.MonkeyPatch):
+    timeouts: list[float] = []
+
+    class FakeSocket:
+        def settimeout(self, value):
+            timeouts.append(value)
+
+        def connect(self, address):
+            return None
+
+        def sendall(self, data):
+            return None
+
+        def recv(self, size):
+            raise TimeoutError
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(web_ui_tunnel.socket, "socket", lambda *args, **kwargs: FakeSocket())
+
+    assert _http_endpoint_healthy(41091) is True
+    assert timeouts == [0.5, 2.0]
 
 
 def test_cmdline_signature_matches_actual_proc_format():

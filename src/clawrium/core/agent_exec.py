@@ -186,6 +186,8 @@ def run_agent_exec(
         playbook = _playbook_path(claw_type, os_family)
     except FileNotFoundError as e:
         return "", str(e), 255
+    except ValueError as e:
+        return "", f"os_family='{os_family}' is not supported by clawrium: {e}", 255
 
     key_id = host.get("key_id") or host["hostname"]
     ssh_key = core_keys.get_host_private_key(key_id)

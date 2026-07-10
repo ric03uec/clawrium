@@ -24,8 +24,8 @@ cut. The `itx:release` skill archives this section into a new
 
 - GUI lifecycle endpoints (`start`, `stop`, `restart`) now return HTTP 502 instead of HTTP 200 with `success: false` when the underlying lifecycle operation fails without raising an exception (#712)
 - GUI error responses for tunnel, lifecycle, and health endpoints now return constant error messages instead of passing raw error text through a weak path-redaction regex, preventing leakage of internal hostnames, IP addresses, and ports (#714)
-- `clawctl agent exec` now dispatches OpenClaw macOS hosts through `exec_macos.yaml` instead of the Linux playbook, so native CLI commands work on agents installed under `/Users/<agent>/`.
-- `clawctl agent open` now evicts stale web-UI SSH tunnels that still have a bound local port but no longer answer HTTP, instead of reusing them and handing operators dead URLs.
+- `clawctl agent exec` now dispatches OpenClaw macOS hosts through `exec_macos.yaml` instead of the Linux playbook, so native CLI commands work on agents installed under `/Users/<agent>/` (#869).
+- `clawctl agent open` now evicts stale web-UI SSH tunnels that still have a bound local port but no longer answer HTTP, instead of reusing them and handing operators dead URLs (#869).
 
 ### Documentation
 
