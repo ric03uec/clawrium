@@ -1,6 +1,8 @@
 """Tests for openclaw memory operations."""
 
 import base64
+import logging
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -11,12 +13,15 @@ from clawrium.core.memory import (
     MEMORY_TOP_LEVEL_FILES,
     MemoryOpError,
     _cleanup_artifacts,
+    _delete_local_memory_files,
     _extract_failure_message,
+    _local_memory_file_path,
     _parse_memory_info_stdout,
     _resolve_agent_with_memory,
     _resolve_openclaw_agent,
     _validate_agent_name,
     _validate_memory_filename,
+    _write_local_memory_file,
     delete_memory_files,
     get_memory_info,
     is_file_writable,
@@ -1996,6 +2001,389 @@ class TestZeroclawDispatch:
         # Sanity-check: at least one allowed personality file appears in the
         # error listing so an operator can see what IS writable.
         assert "SOUL.md" in err
+
+
+class TestLocalOverlayPersistence:
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "../../etc/passwd",
+            "/etc/passwd",
+            "memory/../../etc/passwd",
+            "..\\..\\etc\\passwd",
+        ],
+    )
+    def test_local_memory_file_path_rejects_workspace_escape(self, filename: str):
+        with pytest.raises(ValueError, match="escapes workspace root"):
+            _local_memory_file_path("zeroclaw", "zc-work", filename)
+
+    def test_local_memory_file_path_rejects_symlink_escape(self, isolated_config: Path):
+        overlay = isolated_config / "agents" / "zeroclaw" / "zc-work" / "workspace"
+        outside = isolated_config / "outside"
+        overlay.mkdir(parents=True)
+        outside.mkdir(parents=True)
+        (overlay / "escape").symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(ValueError, match="escapes workspace root"):
+            _local_memory_file_path("zeroclaw", "zc-work", "escape/secrets.txt")
+
+    def test_write_local_memory_file_cleans_tempfile_on_failure(self, isolated_config: Path):
+        overlay = isolated_config / "agents" / "zeroclaw" / "zc-work" / "workspace"
+        overlay.mkdir(parents=True)
+        real_chmod = os.chmod
+
+        def _chmod_fail_once(path: str | os.PathLike[str], mode: int) -> None:
+            if str(path).endswith(".tmp"):
+                raise OSError("chmod failed")
+            real_chmod(path, mode)
+
+        with patch("clawrium.core.memory.os.chmod", side_effect=_chmod_fail_once):
+            with pytest.raises(OSError, match="chmod failed"):
+                _write_local_memory_file("zeroclaw", "zc-work", "SOUL.md", "content")
+
+        assert list(overlay.glob(".*.tmp")) == []
+
+    def test_delete_local_memory_files_keeps_nonempty_parent_dir(
+        self, isolated_config: Path
+    ):
+        overlay = isolated_config / "agents" / "zeroclaw" / "zc-work" / "workspace"
+        memory_dir = overlay / "memory"
+        memory_dir.mkdir(parents=True)
+        (memory_dir / "one.md").write_text("1", encoding="utf-8")
+        sibling = memory_dir / "two.md"
+        sibling.write_text("2", encoding="utf-8")
+
+        _delete_local_memory_files("zeroclaw", "zc-work", ["memory/one.md"])
+
+        assert sibling.exists()
+        assert memory_dir.exists()
+
+    def test_read_prefers_local_overlay_copy(self, isolated_config: Path):
+        overlay = isolated_config / "agents" / "zeroclaw" / "zc-work" / "workspace"
+        overlay.mkdir(parents=True)
+        (overlay / "SOUL.md").write_text("local soul", encoding="utf-8")
+
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(_host_with_zeroclaw(), "zc-work", "zeroclaw"),
+            ),
+            patch(
+                "clawrium.core.memory._run_memory_playbook",
+                side_effect=AssertionError("remote read must not run when local copy exists"),
+            ),
+        ):
+            content = read_memory_file("192.168.1.36", "zc-work", "SOUL.md")
+
+        assert content == "local soul"
+
+    def test_read_remote_fallback_backfills_local_overlay(self, isolated_config: Path):
+        host = _host_with_zeroclaw()
+        playbook_dir = isolated_config / "zeroclaw-pb"
+        playbook_dir.mkdir(parents=True)
+        (playbook_dir / "memory_read.yaml").write_text("---\n")
+        ssh_key = isolated_config / "id_rsa"
+        ssh_key.write_text("key")
+
+        encoded = base64.b64encode(b"remote soul").decode("ascii")
+        result = _runner_result(
+            "successful",
+            [{"event": "runner_on_ok", "event_data": {"res": {"content": encoded}}}],
+        )
+
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch("clawrium.core.memory._get_playbook_dir", return_value=playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
+        ):
+            content = read_memory_file("192.168.1.36", "zc-work", "SOUL.md")
+
+        assert content == "remote soul"
+        assert (
+            isolated_config
+            / "agents"
+            / "zeroclaw"
+            / "zc-work"
+            / "workspace"
+            / "SOUL.md"
+        ).read_text(encoding="utf-8") == "remote soul"
+
+    def test_read_remote_fallback_returns_content_when_local_backfill_fails(
+        self, isolated_config: Path, caplog: pytest.LogCaptureFixture
+    ):
+        host = _host_with_zeroclaw()
+        playbook_dir = isolated_config / "zeroclaw-pb-backfill-fail"
+        playbook_dir.mkdir(parents=True)
+        (playbook_dir / "memory_read.yaml").write_text("---\n")
+        ssh_key = isolated_config / "id_rsa.backfill"
+        ssh_key.write_text("key")
+
+        encoded = base64.b64encode(b"remote soul").decode("ascii")
+        result = _runner_result(
+            "successful",
+            [{"event": "runner_on_ok", "event_data": {"res": {"content": encoded}}}],
+        )
+
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch("clawrium.core.memory._get_playbook_dir", return_value=playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
+            patch(
+                "clawrium.core.memory._write_local_memory_file",
+                side_effect=OSError("disk full"),
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            content = read_memory_file("192.168.1.36", "zc-work", "SOUL.md")
+
+        assert content == "remote soul"
+        assert "Memory local backfill failed" in caplog.text
+
+    def test_write_mirrors_successful_remote_write_locally(self, isolated_config: Path):
+        host = _host_with_zeroclaw()
+        playbook_dir = isolated_config / "zeroclaw-write-pb"
+        playbook_dir.mkdir(parents=True)
+        (playbook_dir / "memory_write.yaml").write_text("---\n")
+        ssh_key = isolated_config / "id_rsa.write"
+        ssh_key.write_text("key")
+        result = _runner_result("successful", [])
+
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch("clawrium.core.memory._get_playbook_dir", return_value=playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
+        ):
+            ok, err = write_memory_file(
+                "192.168.1.36", "zc-work", "SOUL.md", "persist me"
+            )
+
+        assert ok is True
+        assert err is None
+        assert (
+            isolated_config
+            / "agents"
+            / "zeroclaw"
+            / "zc-work"
+            / "workspace"
+            / "SOUL.md"
+        ).read_text(encoding="utf-8") == "persist me"
+
+    def test_write_does_not_mutate_local_overlay_on_remote_failure(
+        self, isolated_config: Path
+    ):
+        host = _host_with_zeroclaw()
+        playbook_dir = isolated_config / "zeroclaw-write-fail-pb"
+        playbook_dir.mkdir(parents=True)
+        (playbook_dir / "memory_write.yaml").write_text("---\n")
+        ssh_key = isolated_config / "id_rsa.write.fail"
+        ssh_key.write_text("key")
+        result = _runner_result("failed", [])
+
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch("clawrium.core.memory._get_playbook_dir", return_value=playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
+            patch(
+                "clawrium.core.memory._extract_failure_message",
+                return_value="remote write failed",
+            ),
+        ):
+            ok, err = write_memory_file("192.168.1.36", "zc-work", "SOUL.md", "nope")
+
+        assert ok is False
+        assert err == "remote write failed"
+        assert not (
+            isolated_config
+            / "agents"
+            / "zeroclaw"
+            / "zc-work"
+            / "workspace"
+            / "SOUL.md"
+        ).exists()
+
+    def test_write_returns_success_when_local_overlay_persist_fails(
+        self, isolated_config: Path, caplog: pytest.LogCaptureFixture
+    ):
+        host = _host_with_zeroclaw()
+        playbook_dir = isolated_config / "zeroclaw-write-local-fail-pb"
+        playbook_dir.mkdir(parents=True)
+        (playbook_dir / "memory_write.yaml").write_text("---\n")
+        ssh_key = isolated_config / "id_rsa.write.local.fail"
+        ssh_key.write_text("key")
+        result = _runner_result("successful", [])
+
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch("clawrium.core.memory._get_playbook_dir", return_value=playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
+            patch(
+                "clawrium.core.memory._write_local_memory_file",
+                side_effect=OSError("disk full"),
+            ),
+            patch("clawrium.core.memory._delete_local_memory_files") as mock_cleanup,
+            caplog.at_level(logging.WARNING),
+        ):
+            ok, err = write_memory_file(
+                "192.168.1.36", "zc-work", "SOUL.md", "persist me"
+            )
+
+        assert ok is True
+        assert err is None
+        mock_cleanup.assert_called_once_with("zeroclaw", "zc-work", ["SOUL.md"])
+        assert "Memory local persist failed" in caplog.text
+
+    def test_delete_mirrors_successful_remote_delete_locally(self, isolated_config: Path):
+        host = _host_with_zeroclaw()
+        playbook_dir = isolated_config / "zeroclaw-delete-pb"
+        playbook_dir.mkdir(parents=True)
+        (playbook_dir / "memory_delete.yaml").write_text("---\n")
+        ssh_key = isolated_config / "id_rsa.delete"
+        ssh_key.write_text("key")
+        result = _runner_result("successful", [])
+        overlay_file = (
+            isolated_config
+            / "agents"
+            / "zeroclaw"
+            / "zc-work"
+            / "workspace"
+            / "memory"
+            / "2026-05-15.md"
+        )
+        overlay_file.parent.mkdir(parents=True)
+        overlay_file.write_text("daily note", encoding="utf-8")
+
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch("clawrium.core.memory._get_playbook_dir", return_value=playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
+        ):
+            ok, err = delete_memory_files(
+                "192.168.1.36", "zc-work", ["memory/2026-05-15.md"]
+            )
+
+        assert ok is True
+        assert err is None
+        assert not overlay_file.exists()
+        assert not overlay_file.parent.exists()
+
+    def test_delete_does_not_mutate_local_overlay_on_remote_failure(
+        self, isolated_config: Path
+    ):
+        host = _host_with_zeroclaw()
+        playbook_dir = isolated_config / "zeroclaw-delete-fail-pb"
+        playbook_dir.mkdir(parents=True)
+        (playbook_dir / "memory_delete.yaml").write_text("---\n")
+        ssh_key = isolated_config / "id_rsa.delete.fail"
+        ssh_key.write_text("key")
+        result = _runner_result("failed", [])
+        overlay_file = (
+            isolated_config
+            / "agents"
+            / "zeroclaw"
+            / "zc-work"
+            / "workspace"
+            / "AGENTS.md"
+        )
+        overlay_file.parent.mkdir(parents=True)
+        overlay_file.write_text("keep me", encoding="utf-8")
+
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch("clawrium.core.memory._get_playbook_dir", return_value=playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
+            patch(
+                "clawrium.core.memory._extract_failure_message",
+                return_value="remote delete failed",
+            ),
+        ):
+            ok, err = delete_memory_files("192.168.1.36", "zc-work", ["AGENTS.md"])
+
+        assert ok is False
+        assert err == "remote delete failed"
+        assert overlay_file.read_text(encoding="utf-8") == "keep me"
+
+    def test_delete_returns_success_when_local_overlay_delete_fails(
+        self, isolated_config: Path, caplog: pytest.LogCaptureFixture
+    ):
+        host = _host_with_zeroclaw()
+        playbook_dir = isolated_config / "zeroclaw-delete-local-fail-pb"
+        playbook_dir.mkdir(parents=True)
+        (playbook_dir / "memory_delete.yaml").write_text("---\n")
+        ssh_key = isolated_config / "id_rsa.delete.local.fail"
+        ssh_key.write_text("key")
+        result = _runner_result("successful", [])
+
+        with (
+            patch(
+                "clawrium.core.memory._resolve_agent_with_memory",
+                return_value=(host, "zc-work", "zeroclaw"),
+            ),
+            patch("clawrium.core.memory._get_playbook_dir", return_value=playbook_dir),
+            patch(
+                "clawrium.core.memory.core_keys.get_host_private_key",
+                return_value=ssh_key,
+            ),
+            patch("clawrium.core.memory.ansible_runner.run", return_value=result),
+            patch(
+                "clawrium.core.memory._delete_local_memory_files",
+                side_effect=OSError("permission denied"),
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            ok, err = delete_memory_files("192.168.1.36", "zc-work", ["AGENTS.md"])
+
+        assert ok is True
+        assert err is None
+        assert "Memory local delete failed" in caplog.text
 
 
 # ----- ATX iter 5 W1: openclaw allowlist negative-path coverage ------------

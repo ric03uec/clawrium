@@ -1,0 +1,16 @@
+{
+  "session_id": "87fd3613-fdc8-4124-98f7-f4559bb7ee7f",
+  "transport": "cli",
+  "commit_sha": "2a45b40ede4ac8585460ed5cbdf1775efad18fae",
+  "iteration": 3,
+  "last_rating": 2,
+  "last_blockers": [
+    "B1",
+    "B2",
+    "B3",
+    "B4",
+    "B5"
+  ],
+  "started_at": "2026-07-10T15:05:18Z",
+  "updated_at": "2026-07-10T15:57:41Z"
+}

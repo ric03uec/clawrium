@@ -22,6 +22,7 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- Zeroclaw memory and persona files edited through `clawctl agent memory` now persist in the local control-plane workspace overlay and are restored during `clawctl agent upgrade`, preventing upgrade-time data loss (#871)
 - GUI lifecycle endpoints (`start`, `stop`, `restart`) now return HTTP 502 instead of HTTP 200 with `success: false` when the underlying lifecycle operation fails without raising an exception (#712)
 - GUI error responses for tunnel, lifecycle, and health endpoints now return constant error messages instead of passing raw error text through a weak path-redaction regex, preventing leakage of internal hostnames, IP addresses, and ports (#714)
 

@@ -214,6 +214,29 @@ def upgrade(
         emit_error(f"upgrade failed: {exc}")
         return
 
+    from clawrium.core.workspace_sync import push_workspace_phase
+
+    def _emit_workspace(stage: str, payload: dict) -> None:
+        if not use_json:
+            stream_action(resource=resource, message=f"{stage}: {json.dumps(payload)}")
+
+    ws_result = push_workspace_phase(
+        host=host,
+        agent_type=agent_type,
+        agent_name=on_host_name,
+        on_event=_emit_workspace if not use_json else None,
+    )
+    workspace_error = (
+        (ws_result.error or "unknown workspace error")
+        if not ws_result.success
+        else None
+    )
+    if workspace_error:
+        emit_error(
+            f"upgrade installed but workspace restore failed: {workspace_error}",
+            hint="run `clawctl agent sync` after fixing the local workspace overlay",
+        )
+
     # ATX B2 (issue #592): zeroclaw's install playbook does NOT pair
     # (see `core/install.py:1069`); the bearer token lives in the
     # configure path. After a forced reinstall the daemon mints a new
@@ -241,7 +264,7 @@ def upgrade(
                 hostname=hostname,
                 claw_name=agent_type,
                 agent_name=on_host_name,
-                on_event=_emit_lifecycle,
+                on_event=_emit_lifecycle if not use_json else None,
             )
         except LifecycleError as exc:
             emit_error(

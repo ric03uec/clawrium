@@ -26,6 +26,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
@@ -657,6 +658,84 @@ def _manifest_workspace_path(claw_type: str, unix_name: str) -> str:
     return raw
 
 
+def _local_memory_workspace_root(claw_type: str, unix_name: str) -> Path:
+    """Return the local control-plane workspace overlay root for one agent."""
+    return get_config_dir() / "agents" / claw_type / unix_name / "workspace"
+
+
+def _local_memory_file_path(claw_type: str, unix_name: str, filename: str) -> Path:
+    """Return the local control-plane path for one workspace-relative file."""
+    if Path(filename).is_absolute() or "\\" in filename:
+        raise ValueError(f"filename escapes workspace root: {filename!r}")
+    workspace_root = _local_memory_workspace_root(claw_type, unix_name)
+    candidate = workspace_root / Path(*filename.split("/"))
+    resolved_root = workspace_root.resolve()
+    resolved_candidate = candidate.resolve(strict=False)
+    try:
+        resolved_candidate.relative_to(resolved_root)
+    except ValueError as e:
+        raise ValueError(f"filename escapes workspace root: {filename!r}") from e
+    return candidate
+
+
+def _read_local_memory_file(claw_type: str, unix_name: str, filename: str) -> str | None:
+    """Read one memory file from the local control-plane overlay if present."""
+    path = _local_memory_file_path(claw_type, unix_name, filename)
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as e:
+        logger.warning("Memory local read failed for %s: %s", path, e)
+        return None
+
+
+def _write_local_memory_file(
+    claw_type: str, unix_name: str, filename: str, content: str
+) -> None:
+    """Persist one memory file into the local control-plane overlay."""
+    workspace_root = _local_memory_workspace_root(claw_type, unix_name)
+    workspace_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = _local_memory_file_path(claw_type, unix_name, filename)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(content)
+            temp_path = Path(handle.name)
+        os.chmod(temp_path, 0o600)
+        temp_path.replace(path)
+    except OSError:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
+
+
+def _delete_local_memory_files(claw_type: str, unix_name: str, files: list[str]) -> None:
+    """Delete local overlay copies for the given workspace-relative files."""
+    workspace_root = _local_memory_workspace_root(claw_type, unix_name)
+    for filename in files:
+        path = _local_memory_file_path(claw_type, unix_name, filename)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            raise
+        for parent in path.parents:
+            if parent == workspace_root:
+                break
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+
+
 def get_memory_info(hostname: str, agent_name: str) -> MemoryStats | None:
     """Return memory stats for a memory-capable agent or None if unavailable."""
     host, unix_name, claw_type = _resolve_agent_with_memory(hostname, agent_name)
@@ -765,6 +844,10 @@ def read_memory_file(hostname: str, agent_name: str, filename: str) -> str | Non
     except MemoryOpError:
         return None
 
+    local_content = _read_local_memory_file(claw_type, unix_name, filename)
+    if local_content is not None:
+        return local_content
+
     extra_vars = {"agent_name": unix_name, "memory_filename": filename}
     result, log_dir, setup_error = _run_memory_playbook(
         host, claw_type, "memory_read", extra_vars, timeout=30
@@ -792,10 +875,20 @@ def read_memory_file(hostname: str, agent_name: str, filename: str) -> str | Non
                 content_b64 = res.get("content")
                 if content_b64:
                     try:
-                        return base64.b64decode(content_b64).decode("utf-8")
+                        content = base64.b64decode(content_b64).decode("utf-8")
                     except (ValueError, UnicodeDecodeError) as e:
                         logger.warning("Failed to decode memory content: %s", e)
                         return None
+                    try:
+                        _write_local_memory_file(claw_type, unix_name, filename, content)
+                    except OSError as e:
+                        logger.warning(
+                            "Memory local backfill failed for %s/%s: %s",
+                            unix_name,
+                            filename,
+                            e,
+                        )
+                    return content
         return None
     finally:
         if log_dir is not None:
@@ -876,6 +969,24 @@ def write_memory_file(
             return False, "Memory write timed out"
         if result.status != "successful":
             return False, _extract_failure_message(result, result.status)
+        try:
+            _write_local_memory_file(claw_type, unix_name, filename, content)
+        except OSError as e:
+            logger.warning(
+                "Memory local persist failed for %s/%s after remote success: %s",
+                unix_name,
+                filename,
+                e,
+            )
+            try:
+                _delete_local_memory_files(claw_type, unix_name, [filename])
+            except OSError as cleanup_error:
+                logger.warning(
+                    "Memory local cleanup failed for %s/%s after persist error: %s",
+                    unix_name,
+                    filename,
+                    cleanup_error,
+                )
         return True, None
     finally:
         if log_dir is not None:
@@ -943,6 +1054,15 @@ def delete_memory_files(
             return False, "Memory delete timed out"
         if result.status != "successful":
             return False, _extract_failure_message(result, result.status)
+        try:
+            _delete_local_memory_files(claw_type, unix_name, files)
+        except OSError as e:
+            logger.warning(
+                "Memory local delete failed for %s/%s after remote success: %s",
+                unix_name,
+                ", ".join(files),
+                e,
+            )
         return True, None
     finally:
         if log_dir is not None:
