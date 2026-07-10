@@ -22,6 +22,9 @@ Implemented the issue #871 fix in the worktree branch `issue-871-memory-overlay-
 - Review 1: `10b097fd-7999-4edc-951b-4369eba44423` - Rating `2.5/5`, blocking. Fixed missing failure-path tests, corrected remote-success/local-failure semantics in memory helpers, and adjusted upgrade flow handling.
 - Review 2: `e4851058-2aa6-4e5c-9758-2599896bfaf9` - Rating `2/5`, blocking. Fixed helper path hardening, tightened upgrade failure reporting, and added broader regression coverage.
 - Review 3: `87fd3613-fdc8-4124-98f7-f4559bb7ee7f` - Rating `2/5`, blocking. Restored the documented workspace-failure short-circuit before restart, added absolute/symlink escape tests plus tempfile cleanup coverage, and strengthened exact upgrade call assertions.
+- Review 4: `584fd3b2-6b89-4c00-9dd1-138bab14d94a` - Rating `2.5/5`, blocking. Most blockers were stale coverage claims, but it surfaced real hardening follow-ups around symlinked workspace roots, batch delete continuation, exception guards, and clearer zeroclaw bearer warnings.
+- Review 5: `da44a1d6-a05a-470b-8c82-c839f269ae0a` - Rating `2.5/5`, blocking. Fixed the symlink-root error contract to use `OSError(ELOOP)`, mirrored the guard on delete, and added the missing non-pairing bearer-hint assertion.
+- Review 6: `dc18b6b7-172d-4604-be3f-a0f5f69ab197` - Rating `3/5`, blocking. Added zeroclaw exception-path coverage, generalized the pairing hint to use `agent_type`, mirrored the TOCTOU note on delete, and hardened the ordering test mock signature.
 
 ## Environment Notes
 
@@ -32,7 +35,7 @@ Implemented the issue #871 fix in the worktree branch `issue-871-memory-overlay-
 - Local overlay copies now back zeroclaw memory reads, writes, and deletes.
 - Legacy remote-only memory content backfills into the local overlay on first successful read.
 - `clawctl agent upgrade` now re-pushes the local overlay before any zeroclaw restart path, and workspace restore failure correctly short-circuits before restart.
-- Regression coverage now exercises the main data-loss path plus helper hardening and failure branches.
+- Regression coverage now exercises the main data-loss path plus helper hardening, exception paths, ordering invariants, and failure branches.
 
 ## Execute
 

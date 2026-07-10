@@ -1,16 +1,12 @@
 {
-  "session_id": "87fd3613-fdc8-4124-98f7-f4559bb7ee7f",
+  "session_id": "dc18b6b7-172d-4604-be3f-a0f5f69ab197",
   "transport": "cli",
-  "commit_sha": "2a45b40ede4ac8585460ed5cbdf1775efad18fae",
-  "iteration": 3,
-  "last_rating": 2,
+  "commit_sha": "a4a5ac176eaecd61c8d94a180f1cc117303297c1",
+  "iteration": 6,
+  "last_rating": 3,
   "last_blockers": [
-    "B1",
-    "B2",
-    "B3",
-    "B4",
-    "B5"
+    "B1"
   ],
-  "started_at": "2026-07-10T15:05:18Z",
-  "updated_at": "2026-07-10T15:57:41Z"
+  "started_at": "2026-07-10T19:40:19Z",
+  "updated_at": "2026-07-10T19:48:39Z"
 }

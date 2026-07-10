@@ -305,6 +305,7 @@ def test_upgrade_zeroclaw_invokes_restart_agent_for_bearer_rotation(
     `gateway_token_rotated` fires per AGENTS.md.
     """
     _write_host(isolated_config, "zeroclaw", "0.6.0")
+    call_order: list[str] = []
 
     def _fake_install(*args, **kwargs):
         return {
@@ -317,6 +318,7 @@ def test_upgrade_zeroclaw_invokes_restart_agent_for_bearer_rotation(
         }
 
     def _fake_restart(*args, **kwargs):
+        call_order.append("restart")
         return {
             "success": True,
             "agent": kwargs.get("agent_name") or "zeroclaw",
@@ -328,7 +330,9 @@ def test_upgrade_zeroclaw_invokes_restart_agent_for_bearer_rotation(
         "clawrium.core.install.run_installation", side_effect=_fake_install
     ), patch(
         "clawrium.core.workspace_sync.push_workspace_phase",
-        return_value=MagicMock(success=True),
+        side_effect=lambda *args, **kwargs: (
+            call_order.append("workspace") or MagicMock(success=True)
+        ),
     ) as mock_push, patch(
         "clawrium.core.lifecycle.restart_agent", side_effect=_fake_restart
     ) as mock_restart:
@@ -342,6 +346,7 @@ def test_upgrade_zeroclaw_invokes_restart_agent_for_bearer_rotation(
     assert mock_push.call_args.kwargs["host"]["alias"] == "h1"
     assert mock_push.call_args.kwargs["host"]["hostname"] == "192.168.1.100"
     assert mock_push.call_args.kwargs["on_event"] is not None
+    assert call_order == ["workspace", "restart"]
     mock_restart.assert_called_once_with(
         hostname="192.168.1.100",
         claw_name="zeroclaw",
@@ -382,6 +387,7 @@ def test_upgrade_surfaces_workspace_restore_failure(
     mock_restart.assert_not_called()
     assert "workspace restore failed" in result.output.lower()
     assert "workspace push failed" in result.output
+    assert "bearer state may also be stale" in result.output.lower()
 
 
 def test_upgrade_openclaw_surfaces_workspace_restore_failure(
@@ -412,6 +418,69 @@ def test_upgrade_openclaw_surfaces_workspace_restore_failure(
     assert result.exit_code != 0, result.output
     assert "workspace restore failed" in result.output.lower()
     assert "workspace push failed" in result.output
+    assert "bearer state may also be stale" not in result.output.lower()
+
+
+def test_upgrade_surfaces_workspace_restore_exception(
+    isolated_config: Path, _patch_drift_clean
+):
+    _write_host(isolated_config, "openclaw", "0.6.0")
+
+    def _fake_install(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": "openclaw",
+            "version": "0.7.5",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ), patch(
+        "clawrium.core.workspace_sync.push_workspace_phase",
+        side_effect=RuntimeError("workspace blew up"),
+    ):
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+
+    assert result.exit_code != 0, result.output
+    assert "workspace restore crashed" in result.output.lower()
+    assert "workspace blew up" in result.output
+    assert "bearer state may also be stale" not in result.output.lower()
+
+
+def test_upgrade_zeroclaw_surfaces_workspace_restore_exception(
+    isolated_config: Path, _patch_drift_clean
+):
+    _write_host(isolated_config, "zeroclaw", "0.6.0")
+
+    def _fake_install(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": "zeroclaw",
+            "version": "0.7.5",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ), patch(
+        "clawrium.core.workspace_sync.push_workspace_phase",
+        side_effect=RuntimeError("workspace blew up"),
+    ):
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+
+    assert result.exit_code != 0, result.output
+    assert "workspace restore crashed" in result.output.lower()
+    assert "workspace blew up" in result.output
+    assert "zeroclaw bearer state may also be stale" in result.output.lower()
 
 
 def test_upgrade_reports_workspace_failure_when_restart_raises(

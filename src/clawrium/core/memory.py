@@ -22,6 +22,7 @@ present an "unavailable" state instead of raising.
 from __future__ import annotations
 
 import base64
+import errno
 import logging
 import os
 import re
@@ -695,6 +696,10 @@ def _write_local_memory_file(
 ) -> None:
     """Persist one memory file into the local control-plane overlay."""
     workspace_root = _local_memory_workspace_root(claw_type, unix_name)
+    if workspace_root.is_symlink():
+        raise OSError(errno.ELOOP, os.strerror(errno.ELOOP), str(workspace_root))
+    # TOCTOU: best-effort guard only; pathlib cannot make the symlink check
+    # and directory creation atomic without dropping to lower-level os APIs.
     workspace_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = _local_memory_file_path(claw_type, unix_name, filename)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -721,12 +726,22 @@ def _write_local_memory_file(
 def _delete_local_memory_files(claw_type: str, unix_name: str, files: list[str]) -> None:
     """Delete local overlay copies for the given workspace-relative files."""
     workspace_root = _local_memory_workspace_root(claw_type, unix_name)
+    if workspace_root.is_symlink():
+        raise OSError(errno.ELOOP, os.strerror(errno.ELOOP), str(workspace_root))
+    # TOCTOU: best-effort guard only; pathlib cannot make the symlink check
+    # and unlink atomic without dropping to lower-level os APIs.
+    first_error: OSError | None = None
+    failure_count = 0
     for filename in files:
         path = _local_memory_file_path(claw_type, unix_name, filename)
         try:
             path.unlink(missing_ok=True)
-        except OSError:
-            raise
+        except OSError as e:
+            logger.warning("Memory local unlink failed for %s: %s", path, e)
+            failure_count += 1
+            if first_error is None:
+                first_error = e
+            continue
         for parent in path.parents:
             if parent == workspace_root:
                 break
@@ -734,6 +749,13 @@ def _delete_local_memory_files(claw_type: str, unix_name: str, files: list[str])
                 parent.rmdir()
             except OSError:
                 break
+    if first_error is not None:
+        logger.warning(
+            "Memory local unlink: %d of %d files failed",
+            failure_count,
+            len(files),
+        )
+        raise first_error
 
 
 def get_memory_info(hostname: str, agent_name: str) -> MemoryStats | None:

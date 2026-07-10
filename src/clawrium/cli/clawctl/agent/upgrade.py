@@ -220,12 +220,25 @@ def upgrade(
         if not use_json:
             stream_action(resource=resource, message=f"{stage}: {json.dumps(payload)}")
 
-    ws_result = push_workspace_phase(
-        host=host,
-        agent_type=agent_type,
-        agent_name=on_host_name,
-        on_event=_emit_workspace if not use_json else None,
-    )
+    workspace_hint = "run `clawctl agent sync` after fixing the local workspace overlay"
+    if agent_type in _PAIRING_AGENT_TYPES:
+        workspace_hint += (
+            f"; {agent_type} bearer state may also be stale until you run "
+            "`clawctl agent sync` or `clawctl agent restart`"
+        )
+
+    try:
+        ws_result = push_workspace_phase(
+            host=host,
+            agent_type=agent_type,
+            agent_name=on_host_name,
+            on_event=_emit_workspace if not use_json else None,
+        )
+    except Exception as exc:
+        emit_error(
+            f"upgrade installed but workspace restore crashed: {exc}",
+            hint=workspace_hint,
+        )
     workspace_error = (
         (ws_result.error or "unknown workspace error")
         if not ws_result.success
@@ -234,7 +247,7 @@ def upgrade(
     if workspace_error:
         emit_error(
             f"upgrade installed but workspace restore failed: {workspace_error}",
-            hint="run `clawctl agent sync` after fixing the local workspace overlay",
+            hint=workspace_hint,
         )
 
     # ATX B2 (issue #592): zeroclaw's install playbook does NOT pair

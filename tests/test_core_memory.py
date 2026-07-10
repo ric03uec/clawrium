@@ -2043,6 +2043,30 @@ class TestLocalOverlayPersistence:
 
         assert list(overlay.glob(".*.tmp")) == []
 
+    def test_write_local_memory_file_rejects_symlinked_workspace_root(
+        self, isolated_config: Path
+    ):
+        overlay_parent = isolated_config / "agents" / "zeroclaw" / "zc-work"
+        overlay_parent.mkdir(parents=True)
+        target = isolated_config / "elsewhere"
+        target.mkdir(parents=True)
+        (overlay_parent / "workspace").symlink_to(target, target_is_directory=True)
+
+        with pytest.raises(OSError, match="Too many levels of symbolic links"):
+            _write_local_memory_file("zeroclaw", "zc-work", "SOUL.md", "content")
+
+    def test_delete_local_memory_file_rejects_symlinked_workspace_root(
+        self, isolated_config: Path
+    ):
+        overlay_parent = isolated_config / "agents" / "zeroclaw" / "zc-work"
+        overlay_parent.mkdir(parents=True)
+        target = isolated_config / "elsewhere"
+        target.mkdir(parents=True)
+        (overlay_parent / "workspace").symlink_to(target, target_is_directory=True)
+
+        with pytest.raises(OSError, match="Too many levels of symbolic links"):
+            _delete_local_memory_files("zeroclaw", "zc-work", ["SOUL.md"])
+
     def test_delete_local_memory_files_keeps_nonempty_parent_dir(
         self, isolated_config: Path
     ):
@@ -2057,6 +2081,36 @@ class TestLocalOverlayPersistence:
 
         assert sibling.exists()
         assert memory_dir.exists()
+
+    def test_delete_local_memory_files_continues_after_unlink_error(
+        self, isolated_config: Path, caplog: pytest.LogCaptureFixture
+    ):
+        overlay = isolated_config / "agents" / "zeroclaw" / "zc-work" / "workspace"
+        memory_dir = overlay / "memory"
+        memory_dir.mkdir(parents=True)
+        keep = memory_dir / "one.md"
+        remove = memory_dir / "two.md"
+        keep.write_text("1", encoding="utf-8")
+        remove.write_text("2", encoding="utf-8")
+        real_unlink = Path.unlink
+
+        def _unlink_fail_once(path: Path, missing_ok: bool = False):
+            if path == keep:
+                raise OSError("permission denied")
+            return real_unlink(path, missing_ok=missing_ok)
+
+        with (
+            patch("pathlib.Path.unlink", autospec=True, side_effect=_unlink_fail_once),
+            caplog.at_level(logging.WARNING),
+        ):
+            with pytest.raises(OSError, match="permission denied"):
+                _delete_local_memory_files(
+                    "zeroclaw", "zc-work", ["memory/one.md", "memory/two.md"]
+                )
+
+        assert keep.exists()
+        assert not remove.exists()
+        assert "Memory local unlink failed" in caplog.text
 
     def test_read_prefers_local_overlay_copy(self, isolated_config: Path):
         overlay = isolated_config / "agents" / "zeroclaw" / "zc-work" / "workspace"
