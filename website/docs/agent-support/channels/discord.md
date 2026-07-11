@@ -18,7 +18,7 @@ Discord channel allows your agent to operate as a bot in Discord servers.
 
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
 2. Click **New Application**
-3. Name it (e.g., "My Clawrium Agent")
+3. Name it (e.g., "My Claw Agent")
 4. Go to **Bot** section
 5. Click **Add Bot**
 6. Enable **Message Content Intent** (required for reading messages)
@@ -119,7 +119,7 @@ Once running, interact with the bot by:
 
 **"Token invalid"**
 - Regenerate token in Discord Developer Portal
-- Re-run: `clawctl agent configure <name> --stage channels`
+- Re-register the channel: `clawctl channel registry create <channel-name> --type discord --token-stdin <<<"$NEW_TOKEN"` then `clawctl agent sync <agent-name>` (the existing attachment picks up the new token)
 
 **"Missing permissions"**
 - Re-invite bot with correct permissions
@@ -148,67 +148,85 @@ Hermes uses a simpler configuration model than OpenClaw — env vars rendered di
 | `DISCORD_ALLOWED_CHANNELS` | no | Restrict bot to specific channel IDs (empty = any channel the bot was invited to) |
 | `DISCORD_REQUIRE_MENTION` | no | `true` (default): require `@mention` in guild channels; DMs always work |
 
-### Interactive setup (Hermes)
+### Setup (Hermes)
 
 ```bash
-clawctl agent configure <hermes-name> --stage channels
+# 1. Register the channel in the registry (one record, reusable across agents)
+clawctl channel registry create <channel-name> --type discord \
+  --token-stdin <<<"$BOT_TOKEN" \
+  --allowed-user 740723459344302120 \
+  --home-channel 1503238729962356777 \
+  --require-mention
+
+# 2. Attach the channel to the agent
+clawctl agent channel attach <channel-name> --agent <hermes-name>
+
+# 3. Sync the agent (renders ~/.hermes/.env and restarts the unit)
+clawctl agent sync <hermes-name>
 ```
 
-The wizard offers `cli`, `discord`, and `slack`. Pick `discord` and the CLI prompts for:
+Flags accepted by `clawctl channel registry create` (canonical fields, persisted in `~/.config/clawrium/channels.json`):
 
-| Prompt | Stored where | Required | Notes |
-|--------|--------------|:--------:|-------|
-| Discord bot token | `secrets.json` as `DISCORD_BOT_TOKEN` | yes | Masked input. Bearer token for the Discord gateway. |
-| Allowed Discord user IDs | `hosts.json` `channels.discord.allowed_users` | yes (or `all`) | Comma-separated IDs (17–19 digits). Use the literal string `all` to allow any user — you'll get a security warning + confirm prompt. |
-| Discord home channel ID | `hosts.json` `channels.discord.home_channel` | optional | Without this, hermes will nudge users to run `/sethome` on every cold start. |
-| Discord home channel name | `hosts.json` `channels.discord.home_channel_name` | optional | Defaults to `Home`. Display name only. |
-| Allowed channel IDs | `hosts.json` `channels.discord.allowed_channels` | optional | Restrict the bot to specific channels (comma-separated). Empty = any channel the bot is invited to. |
-| Require `@mention` to respond? | `hosts.json` `channels.discord.require_mention` | optional | Defaults to true. DMs always work regardless. |
+| Flag | Required | Notes |
+|------|:--------:|-------|
+| `--type discord` | yes | Channel type. |
+| `--token` / `--token-stdin` | yes | Bot token. Stored in `secrets.json` under `channel:<channel-name>`, never in `channels.json`. |
+| `--allowed-user <id>` | yes (repeatable) | Discord user IDs (17–19 digits). Hermes silently drops messages from non-allowlisted users. |
+| `--home-channel <id>` | optional | Default channel ID. Without this, hermes nudges users to run `/sethome` on every cold start. |
+| `--allowed-channel <id>` | optional (repeatable) | Restrict the bot to specific channels. Empty = any channel the bot is invited to. |
+| `--require-mention` / `--no-require-mention` | optional | Defaults to true. DMs always work regardless. |
 
-`clawctl` then runs the configure playbook which re-renders `~/.hermes/.env` with the `DISCORD_*` block and restarts `hermes-<name>.service`. Verification tasks confirm the token + an allowlist landed in the env file before the playbook reports success.
+`clawctl agent sync` re-renders `~/.hermes/.env` with the `DISCORD_*` block from the attached channel's registry record and restarts `hermes-<name>.service`. Verification confirms the token + allowlist landed in the env file before sync reports success.
 
 ### Resulting on-disk shape (Hermes)
 
-`hosts.json` (non-sensitive only):
+`channels.json` (non-sensitive only — one record per chat surface, reusable across agents):
 
 ```json
-"config": {
-  "api_server": {"enabled": true, "host": "127.0.0.1", "port": 8642},
-  "provider": {...},
-  "channels": {
-    "discord": {
-      "enabled": true,
+{
+  "<channel-name>": {
+    "name": "<channel-name>",
+    "type": "discord",
+    "config": {
       "allowed_users": ["740723459344302120"],
-      "allow_all_users": false,
       "home_channel": "1503238729962356777",
-      "home_channel_name": "Home",
       "require_mention": true
-    }
+    },
+    "created_at": "..."
   }
 }
 ```
 
-`secrets.json`:
+`hosts.json` carries only the attachment list:
 
 ```json
-"192.168.1.36:hermes:<name>": {
-  "HERMES_API_SERVER_KEY": {...},
-  "DISCORD_BOT_TOKEN": {"value": "<token>", "description": "Discord bot token", ...}
+"agents": {
+  "<hermes-name>": {
+    "channels": ["<channel-name>"]
+  }
 }
 ```
 
-The bot token **never** lands in `hosts.json` — the configure flow strips it from `config.channels.discord` before persisting (B3 invariant, mirrored from the `api_server.key` strip). Re-running `clawctl agent configure --stage channels` with the same token reuses it byte-identical (idempotency contract).
+`secrets.json` carries the bot token, keyed by channel name (B3 invariant):
+
+```json
+"channel:<channel-name>": {
+  "DISCORD_BOT_TOKEN": {"value": "<token>", "description": "Discord bot token"}
+}
+```
+
+The bot token **never** lands in `channels.json` or `hosts.json` — `clawctl channel registry create` strips it into `secrets.json` before persisting.
 
 ### Removal (Hermes)
 
-`clawctl agent delete <name> --force` purges the entire instance entry from `secrets.json`, including `DISCORD_BOT_TOKEN`. There is no separate "rotate Discord token" command — re-run the channels stage with a new token to overwrite.
+`clawctl agent channel detach <channel-name> --agent <hermes-name>` removes the attachment. `clawctl agent sync <hermes-name>` then re-renders `~/.hermes/.env` without the `DISCORD_*` block. To delete the channel from the registry (and its secret): `clawctl channel registry delete <channel-name> --yes --force`.
 
 ### Hermes-specific troubleshooting
 
 <details>
 <summary><strong>Bot is online but doesn't respond in the test channel</strong></summary>
 
-1. Confirm your Discord user ID is in `hosts.json` `channels.discord.allowed_users` (or `allow_all_users: true`). Hermes silently drops messages from non-allowlisted users.
+1. Confirm your Discord user ID is in the channel registry's `allowed_users` (run `clawctl channel registry describe <channel-name>`). Hermes silently drops messages from non-allowlisted users.
 2. If `require_mention` is true (default), the bot only responds to messages that `@mention` it directly in a guild channel. DMs always work.
 3. Confirm the bot has the right Discord permissions in the guild: Send Messages, Read Message History, Use Slash Commands.
 4. If `allowed_channels` is non-empty, the bot only responds in those channel IDs.
@@ -231,13 +249,13 @@ If you see nothing, temporarily bump `LOG_LEVEL=INFO` in `~/.hermes/.env` (manua
 <details>
 <summary><strong><code>DISCORD_ALLOW_ALL_USERS=true</code> is set and I want to lock it down</strong></summary>
 
-Re-run `clawctl agent configure <name> --stage channels`, pick `discord` again, and pass specific user IDs (not `all`) at the allowlist prompt. The new value overwrites the previous `channels.discord` block in `hosts.json`, and the next `~/.hermes/.env` render drops `DISCORD_ALLOW_ALL_USERS` entirely.
+Re-create the channel record with specific user IDs: `clawctl channel registry delete <channel-name> --yes --force` then `clawctl channel registry create <channel-name> --type discord --token-stdin <<<"$BOT_TOKEN" --allowed-user <id1> --allowed-user <id2>`. Re-attach with `clawctl agent channel attach <channel-name> --agent <name>` and `clawctl agent sync <name>` — the next `~/.hermes/.env` render drops `DISCORD_ALLOW_ALL_USERS` entirely.
 
 </details>
 
 ### Non-interactive flags (Hermes)
 
-Planned for a follow-up — interactive is the supported path in this release. For automation today, drive `clawctl agent configure --stage channels` via expect/pexpect, or set the values directly in `hosts.json` + `secrets.json` and re-run the stage to trigger a re-render.
+The `clawctl channel registry create` flags listed in [Setup (Hermes)](#setup-hermes) accept all values non-interactively, including `--token-stdin` for the bot token. Compose with `clawctl agent channel attach` and `clawctl agent sync` for fully scripted setup.
 
 ---
 
@@ -270,26 +288,37 @@ These wizard inputs land in `hosts.json` but are **not** rendered into `~/.zeroc
 
 If you set any of these via the wizard for a zeroclaw agent, they persist to `hosts.json` for forward compatibility but have no runtime effect.
 
-### Interactive setup (ZeroClaw)
+### Setup (ZeroClaw)
 
 ```bash
-clawctl agent configure <zeroclaw-name> --stage channels
+# 1. Register the channel in the registry
+clawctl channel registry create <channel-name> --type discord \
+  --token-stdin <<<"$BOT_TOKEN" \
+  --allowed-guild 987654321098765432 \
+  --allowed-user 740723459344302120 \
+  --require-mention \
+  --stream-mode partial
+
+# 2. Attach to the zeroclaw agent
+clawctl agent channel attach <channel-name> --agent <zeroclaw-name>
+
+# 3. Sync (renders ~/.zeroclaw/config.toml with [channels.discord] and restarts the unit)
+clawctl agent sync <zeroclaw-name>
 ```
 
-Prompts:
+Flags accepted (zeroclaw schema, per v0.7.5 upstream):
 
-| Prompt | Field |
-|---|---|
-| `Confirm CLI channel` | always-on; sets `confirm_cli = true` |
-| `Enable Discord channel (optional)` | persists `channels.discord.enabled` in `hosts.json` |
-| `Discord bot token` (masked) | persists to `secrets.json` as `DISCORD_BOT_TOKEN` |
-| `Allowed Discord user IDs` | `allowed_users` list |
-| `Allowed guild IDs` (optional) | `allowed_guilds` list |
-| `Reply to mentions only?` | `require_mention` → rendered as `reply_to_mentions_only` |
-| `Discord stream mode (off/partial/multi_message)` | `stream_mode` (default `partial`) |
-| `Delay between Discord messages in ms` (only when `stream_mode = multi_message`) | `multi_message_delay_ms` (10000–60000) |
+| Flag | Renders to TOML |
+|------|-----------------|
+| `--type discord` | gating |
+| `--token` / `--token-stdin` | `bot_token` (inline TOML; never in `channels.json`) |
+| `--allowed-user <id>` (repeatable) | `allowed_users = [...]` |
+| `--allowed-guild <id>` (repeatable) | `allowed_guilds = [...]` |
+| `--require-mention` / `--no-require-mention` | `mention_only = true/false` (default true) |
+| `--stream-mode <off\|partial\|multi_message>` | `stream_mode = "..."` |
+| `--stream-delay <ms>` | `draft_update_interval_ms` (partial) or `multi_message_delay_ms` (multi_message) |
 
-`clawctl` then runs the configure playbook, which re-renders `~/.zeroclaw/config.toml` with the `[channels.discord]` block, restarts `zeroclaw-<name>.service`, and verifies the block landed by grepping for `^bot_token =` in the file.
+`clawctl agent sync` re-renders `~/.zeroclaw/config.toml` with the `[channels.discord]` block from the attached channel's registry record, restarts `zeroclaw-<name>.service`, and verifies the block landed by grepping for `^bot_token =`.
 
 ### Streaming progress on long-running turns
 
@@ -314,29 +343,35 @@ draft_update_interval_ms = 750
 stream_mode = "partial"
 ```
 
-In `hosts.json` (agents.`<name>`.config.channels.discord):
+In `channels.json` (one record per chat surface):
 
 ```json
 {
-  "enabled": true,
-  "allowed_users": ["740723459344302120"],
-  "allowed_guilds": ["987654321098765432"],
-  "require_mention": true
+  "<channel-name>": {
+    "name": "<channel-name>",
+    "type": "discord",
+    "config": {
+      "allowed_users": ["740723459344302120"],
+      "allowed_guilds": ["987654321098765432"],
+      "require_mention": true,
+      "stream_mode": "partial"
+    }
+  }
 }
 ```
 
-`bot_token` is **never** stored in `hosts.json` — only `secrets.json` (mode 0600).
+`hosts.json` carries only the attachment list under `agents.<name>.channels[]`. `bot_token` lives **only** in `secrets.json` under `channel:<channel-name>:DISCORD_BOT_TOKEN` (mode 0600).
 
 ### Removal (ZeroClaw)
 
-Re-run `clawctl agent configure <name> --stage channels` and answer **No** to "Enable Discord channel?". On the next render, the `[channels.discord]` block disappears from `config.toml` and the daemon stops listening on Discord on restart. To also wipe the persisted token, manually remove the `DISCORD_BOT_TOKEN` entry from `secrets.json`.
+`clawctl agent channel detach <channel-name> --agent <name>` then `clawctl agent sync <name>`. On the next render, the `[channels.discord]` block disappears from `config.toml` and the daemon stops listening on Discord on restart. To also wipe the channel from the registry (and its token): `clawctl channel registry delete <channel-name> --yes --force`.
 
 ### ZeroClaw-specific troubleshooting
 
 <details>
 <summary><strong>Bot connects but doesn't reply to my messages</strong></summary>
 
-1. Confirm your Discord user ID is in `~/.zeroclaw/config.toml` under `[channels.discord]` `allowed_users` — empty array means **allow all users** (zeroclaw upstream convention), but if you populated it with other IDs, yours must be in the list.
+1. Confirm your Discord user ID is in the channel registry's `allowed_users` (run `clawctl channel registry describe <channel-name>`). The rendered `~/.zeroclaw/config.toml` under `[channels.discord]` `allowed_users` must contain your ID — empty array means **allow all users** (zeroclaw upstream convention).
 2. If `reply_to_mentions_only = true`, the bot only responds when @-mentioned.
 3. Check the Discord Developer Portal: the bot must have `Message Content Intent` and `Server Members Intent` enabled (zeroclaw upstream requirement).
 
@@ -349,7 +384,7 @@ Re-run `clawctl agent configure <name> --stage channels` and answer **No** to "E
 ssh <agent-host> "sudo journalctl -u zeroclaw-<name>.service -n 200 --no-pager | grep -iE 'discord|channel'"
 ```
 
-If the daemon logged a token error, rotate the bot token in the Discord Developer Portal and re-run `clawctl agent configure <name> --stage channels` to push the new value.
+If the daemon logged a token error, rotate the bot token in the Discord Developer Portal, re-create the channel record (`clawctl channel registry delete` then `clawctl channel registry create` with the new token), re-attach if needed, and `clawctl agent sync <name>` to push the new value.
 
 </details>
 
