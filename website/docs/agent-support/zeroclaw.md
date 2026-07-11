@@ -449,5 +449,5 @@ The following are explicitly out of scope for issue #112 and tracked as separate
 
 - [Hermes Support Matrix](hermes.md) — OpenAI-compatible HTTP alternative with MCP integration support.
 - [OpenClaw Support Matrix](openclaw.md) — full-featured alternative with Discord / Slack / web channels.
-- [Agent Onboarding](../agent-onboarding.md) — the onboarding wizard, stage by stage.
-- [Host Preparation](../host-preparation.md) — host prereqs and provider credential setup.
+- [Agent Onboarding](/docs/guides/agent-onboarding) — the onboarding wizard, stage by stage.
+- [Host Preparation](/docs/guides/host-setup) — host prereqs and provider credential setup.
