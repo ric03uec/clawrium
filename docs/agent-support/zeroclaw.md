@@ -4,7 +4,7 @@ ZeroClaw is the [ZeroClaw Labs Rust agent runtime](https://github.com/zeroclaw-l
 
 **Status:** 🚧 In Development
 
-**Best for:** Low-resource hosts (Raspberry Pi 2/3 armv7l, aarch64 SBCs, small x86_64 servers) that need a minimal, single-binary AI agent with file-based personality and a LAN-reachable chat endpoint. ZeroClaw is intentionally narrower than [Hermes](hermes.md) (no OpenAI-compatible HTTP, no MCP integrations) and narrower than [OpenClaw](openclaw.md) (no Discord/web channels).
+**Best for:** Low-resource hosts (Raspberry Pi 2/3 armv7l, aarch64 SBCs, small x86_64 servers) that need a minimal, single-binary AI agent with file-based personality and a LAN-reachable chat endpoint. ZeroClaw is intentionally narrower than [Hermes](hermes.md) (no OpenAI-compatible HTTP) and narrower than [OpenClaw](openclaw.md) (no Discord/web channels).
 
 **Pinned version:** `v0.7.5`. The release tarball SHA256 is pinned per architecture in `src/clawrium/platform/registry/zeroclaw/manifest.yaml` for five `(os, os_version, arch)` combinations; every version bump requires re-pinning all five.
 
