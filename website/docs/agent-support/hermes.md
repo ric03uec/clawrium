@@ -61,7 +61,7 @@ Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible 
 |---------|:------:|-------|
 | **Local API server** | ✅ | `API_SERVER_ENABLED=1` + `API_SERVER_KEY` in `~/.hermes/.env`, bound to `127.0.0.1:8642` |
 | **Multi-provider** | ✅ | Up to **10 attachments per agent**: 1 `primary` slot + 9 upstream auxiliary slots (`vision`, `web_extract`, `compression`, `session_search`, `skills_hub`, `approval`, `mcp`, `title_generation`, `curator`). One provider per slot. See [Multi-provider attachments](#multi-provider-attachments). |
-| **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). See [memory.md](memory.md). |
+| **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). See [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md). |
 | **Pluggable memory backends** (Holographic / Honcho / Hindsight / Mem0 / Byterover / OpenViking) | 📋 | Deferred. clawctl's `memory` CLI sees only the default markdown backend in this iteration. |
 | **Secrets management** | ✅ | `HERMES_API_SERVER_KEY` persisted in `~/.config/clawrium/secrets.json` (NOT `hosts.json`) under the canonical instance key `<key_id>:hermes:<agent-name>` (single-colon, 3 components). `key_id` is the immutable host identifier set when the host was first registered via `clawctl host create`. It does not change when the host's `hostname` is updated (issue #448). `secrets.json` is chmod 0600 on creation. Per-agent secrets are isolated by instance key. |
 | **Auto-restart** | ✅ | Systemd unit `hermes-<agent_name>.service` with `Restart=on-failure`; systemd is the supervisor (no separate process). |
@@ -186,7 +186,7 @@ clawctl agent sync <agent-name>
 
 #### Invariants
 
-- **`--role` is required on hermes.** Omitting it returns: _"agent '<name>' is a hermes agent; --role is required"_.
+- **`--role` is required on hermes.** Omitting it returns: _"agent '`<name>`' is a hermes agent; --role is required"_.
 - **One provider per slot.** Re-attaching a different provider to a slot that is already filled is rejected; detach the existing one first.
 - **Primary is required and detached last.** `clawctl agent provider detach <primary-name>` refuses to remove the primary attachment while any auxiliary attachments remain — detach the auxiliaries first. An agent with zero attachments fails to render (`agent '<name>' has no provider attached`).
 - **Same-type collisions fail loudly.** Two attachments of the same provider type (e.g. two `bedrock` slots) with mismatched credentials are rejected at render time rather than silently overwriting the `.env`.
@@ -272,7 +272,7 @@ clawctl agent delete <agent-name>    # stop, remove unit, rm ~/.hermes/, userdel
 - **Discord and Slack are the clawctl-managed messaging gateways today.** Telegram, WhatsApp, Signal, email, Matrix, Mattermost, Teams, Google Chat are tracked as separate follow-ups. See [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration) and [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration).
 - **Identity is hermes-managed by design.** Hermes owns `SOUL.md` and `AGENTS.md` inside `~/.hermes/`; the onboarding `identity` stage auto-skips. `SOUL.md` is editable via `clawctl agent memory write <name> SOUL.md`, which routes to `~/.hermes/SOUL.md` (other memories live under `~/.hermes/memories/`).
 - **Bearer token lives in `secrets.json`, not `hosts.json`.** As of PR #318, the canonical store for `HERMES_API_SERVER_KEY` is `~/.config/clawrium/secrets.json` keyed by `<key_id>:hermes:<agent-name>` (single-colon, 3 components). Provider keys use a different schema (`provider:<provider-name>`) in the same file.
-- **Memory has hard size limits.** `MEMORY.md` ≤ 2200 chars, `USER.md` ≤ 1375 chars. Other filenames in `~/.hermes/memories/` are rejected by `clawctl agent memory edit`. See [memory.md](memory.md).
+- **Memory has hard size limits.** `MEMORY.md` ≤ 2200 chars, `USER.md` ≤ 1375 chars. Other filenames in `~/.hermes/memories/` are rejected by `clawctl agent memory edit`. See [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md).
 - **Concurrent writes are visible-atomic.** Hermes' `memory_write.yaml` uses a stage-then-rename pattern (`rename(2)` within the same filesystem) so the running hermes daemon never observes a partial file. The pattern is visible-atomic, not crash-durable (no explicit `fsync`).
 
 ---
@@ -324,7 +324,7 @@ Hermes ships a two-file Markdown memory backend at `~/.hermes/memories/`:
 
 Both are managed by `clawctl agent memory get --agent|edit|delete <hermes-name>`. The dispatcher is driven by the agent's manifest (`workspace.memory_path` + `features.memory: true`), so the CLI surface is identical to openclaw. (Note: `read` and `write` are not separate CLI subcommands in this iteration — use `edit`.)
 
-Full details: [memory.md](memory.md).
+Full details: [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md).
 
 ---
 
@@ -462,5 +462,5 @@ The following are explicitly out of scope for issue #68 and tracked as separate 
 
 - [Memory model](memory.md) — manifest-driven memory CLI across agent types
 - [OpenClaw Support Matrix](openclaw.md) — full-featured alternative with multi-channel support
-- [Agent Onboarding](../agent-onboarding.md) — detailed onboarding wizard guide
-- [Host Preparation](../host-preparation.md) — installing provider credentials and host prereqs
+- [Agent Onboarding](/docs/guides/agent-onboarding) — detailed onboarding wizard guide
+- [Host Preparation](/docs/guides/host-setup) — installing provider credentials and host prereqs
