@@ -460,7 +460,7 @@ The following are explicitly out of scope for issue #68 and tracked as separate 
 
 ## Next Steps
 
-- [Memory model](memory.md) — manifest-driven memory CLI across agent types
+- [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md) — manifest-driven memory CLI across agent types
 - [OpenClaw Support Matrix](openclaw.md) — full-featured alternative with multi-channel support
 - [Agent Onboarding](/docs/guides/agent-onboarding) — detailed onboarding wizard guide
 - [Host Preparation](/docs/guides/host-setup) — installing provider credentials and host prereqs
