@@ -186,6 +186,6 @@ clawctl agent configure <agent-name> --stage <stage-name>
 
 ## Next Steps
 
-- [Agent Onboarding](../agent-onboarding.md) - Detailed onboarding guide
-- [CLI Reference](../reference/cli/agent.md) - Full command documentation
-- [Provider Configuration](../host-preparation.md) - Setting up inference providers
+- [Agent Onboarding](/docs/guides/agent-onboarding) - Detailed onboarding guide
+- [CLI Reference](/docs/reference/cli/agent) - Full command documentation
+- [Provider Configuration](/docs/guides/host-setup) - Setting up inference providers
