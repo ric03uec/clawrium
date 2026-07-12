@@ -4,12 +4,11 @@ Clawrium's `memory` CLI inspects and edits the on-disk memory files of running a
 
 ```bash
 clawctl agent memory get --agent <name>                     # list memory files + sizes
-clawctl agent memory edit <name> <file>              # opens $EDITOR; atomic-write on save
-clawctl agent memory delete <name> --file <file>     # delete one file
-clawctl agent memory delete <name> --all --force     # delete every memory file
+clawctl agent memory edit <file> --agent <name>             # opens $EDITOR; atomic-write on save
+clawctl agent memory delete <file> --agent <name> --yes     # delete one file
 ```
 
-Note: in this iteration the CLI exposes `show`, `edit`, and `delete`. `read` and `write` are not separate subcommands — use `edit` for both (read = view in `$EDITOR`; write = save in `$EDITOR`). The underlying `read_memory_file` / `write_memory_file` primitives in `core/memory.py` are wired for future expansion.
+Note: in this iteration the CLI exposes `get`, `describe`, `edit`, and `delete`. `read` and `write` are not separate subcommands — use `edit` for both (read = view in `$EDITOR`; write = save in `$EDITOR`). The underlying `read_memory_file` / `write_memory_file` primitives in `core/memory.py` are wired for future expansion.
 
 ---
 
@@ -26,7 +25,7 @@ If `features.memory` is missing or `false`, the CLI exits non-zero with:
 memory operations not supported for agent type '<type>'
 ```
 
-For example, `clawctl agent <zeroclaw-name> memory show` produces that error today, since the zeroclaw manifest does not declare `features.memory: true`.
+For example, `clawctl agent memory get --agent <zeroclaw-name>` produces that error today, since the zeroclaw manifest does not declare `features.memory: true`.
 
 ---
 
