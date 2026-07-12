@@ -1,4 +1,4 @@
-# Hermes
+# Hermes Support Matrix
 
 Hermes is the [Nous Research self-improving AI agent](https://github.com/NousResearch/hermes-agent) — a Python daemon that exposes a local OpenAI-compatible HTTP API and is designed to maintain its own identity, memory, and skills over time.
 
@@ -47,8 +47,8 @@ Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible 
 | Channel | Status | Notes |
 |---------|:------:|-------|
 | **Local OpenAI-compatible HTTP API** (`POST /v1/chat/completions`, `GET /v1/models`, `GET /health`) | ✅ | Bound to loopback on the agent host. See [Use the local API](#3-use-the-local-openai-compatible-api). |
-| **[Discord](channels/discord.md)** | ✅ | clawctl-managed via `clawctl agent configure <name> --stage channels`. Token in `secrets.json` (B3 invariant); non-sensitive config in `hosts.json`. See [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration). |
-| **[Slack](channels/slack.md)** | ✅ | Socket Mode (no public endpoint). clawctl-managed via `clawctl agent configure <name> --stage channels`. Both tokens in `secrets.json`; non-sensitive config in `hosts.json`. See [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration). |
+| **[Discord](channels/discord.md)** | ✅ | clawctl-managed via `clawctl channel registry create` + `clawctl agent channel attach`. Token in `secrets.json` (B3 invariant); non-sensitive config in `channels.json`. See [Discord channel page → Setup (Hermes)](channels/discord.md#setup-hermes). |
+| **[Slack](channels/slack.md)** | ✅ | Socket Mode (no public endpoint). clawctl-managed via `clawctl channel registry create` + `clawctl agent channel attach`. Both tokens in `secrets.json`; non-sensitive config in `channels.json`. See [Slack channel page → Setup (Hermes)](channels/slack.md#setup-hermes). |
 | **`clawctl agent chat <hermes-name>`** | ✅ | Supported via the OpenAI-compatible HTTP backend (`HermesOpenAIBackend`). Connects to `http://<host>:8642/v1` using the bearer token from `secrets.json`. |
 | **Telegram / WhatsApp / Signal** | 📋 | Deferred |
 | **Email / Matrix / Mattermost / Teams / Google Chat** | 📋 | Deferred |
@@ -61,9 +61,9 @@ Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible 
 |---------|:------:|-------|
 | **Local API server** | ✅ | `API_SERVER_ENABLED=1` + `API_SERVER_KEY` in `~/.hermes/.env`, bound to `127.0.0.1:8642` |
 | **Multi-provider** | ✅ | Up to **10 attachments per agent**: 1 `primary` slot + 9 upstream auxiliary slots (`vision`, `web_extract`, `compression`, `session_search`, `skills_hub`, `approval`, `mcp`, `title_generation`, `curator`). One provider per slot. See [Multi-provider attachments](#multi-provider-attachments). |
-| **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). See [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md). |
+| **Memory (Markdown backend)** | ✅ | Two-file model: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars). See [memory.md](memory.md). |
 | **Pluggable memory backends** (Holographic / Honcho / Hindsight / Mem0 / Byterover / OpenViking) | 📋 | Deferred. clawctl's `memory` CLI sees only the default markdown backend in this iteration. |
-| **Secrets management** | ✅ | `HERMES_API_SERVER_KEY` persisted in `~/.config/clawrium/secrets.json` (NOT `hosts.json`) under the canonical instance key `<host>:hermes:<agent-name>` (single-colon, 3 components). `secrets.json` is chmod 0600 on creation. Per-agent secrets are isolated by instance key. |
+| **Secrets management** | ✅ | `HERMES_API_SERVER_KEY` persisted in `~/.config/clawrium/secrets.json` (NOT `hosts.json`) under the canonical instance key `<key_id>:hermes:<agent-name>` (single-colon, 3 components). `key_id` is the immutable host identifier set when the host was first registered via `clawctl host create`. It does not change when the host's `hostname` is updated (issue #448). `secrets.json` is chmod 0600 on creation. Per-agent secrets are isolated by instance key. |
 | **Auto-restart** | ✅ | Systemd unit `hermes-<agent_name>.service` with `Restart=on-failure`; systemd is the supervisor (no separate process). |
 | **Log streaming** | ✅ | `journalctl -u hermes-<agent_name>.service` on the agent host |
 | **Onboarding wizard** | ✅ | 4 stages: `providers` (required) → `identity` (auto-skipped) → `channels` (cli, discord, slack) → `validate` |
@@ -97,7 +97,7 @@ What happens:
 
 5. `clawctl` creates `~/.hermes/` (mode 0700), `~/.hermes/.env` (mode 0600, empty), and `~/.hermes/memories/` (mode 0700) under the agent user.
 6. A systemd unit `hermes-<agent-name>.service` is dropped, **disabled and not started**. Step 2 (configure) starts it.
-7. A 64-char lowercase-hex `HERMES_API_SERVER_KEY` is generated and persisted in `~/.config/clawrium/secrets.json` under the canonical instance key `<host>:hermes:<agent-name>` (single-colon, 3 components). Re-installing reuses the existing key. The 64-char-lowercase-hex format is validated on load; a hand-edit to an invalid format produces an error at next configure/start.
+7. A 64-char lowercase-hex `HERMES_API_SERVER_KEY` is generated and persisted in `~/.config/clawrium/secrets.json` under the canonical instance key `<key_id>:hermes:<agent-name>` (single-colon, 3 components). Re-installing reuses the existing key. The 64-char-lowercase-hex format is validated on load; a hand-edit to an invalid format produces an error at next configure/start.
 
 The full install takes about 10-12 minutes (uv venv, pip install, npm install, Playwright). Wrapped in an Ansible `async` poll so the SSH connection is reused per-poll.
 
@@ -186,7 +186,7 @@ clawctl agent sync <agent-name>
 
 #### Invariants
 
-- **`--role` is required on hermes.** Omitting it returns: _"agent `<name>` is a hermes agent; --role is required"_.
+- **`--role` is required on hermes.** Omitting it returns: _"agent '<name>' is a hermes agent; --role is required"_.
 - **One provider per slot.** Re-attaching a different provider to a slot that is already filled is rejected; detach the existing one first.
 - **Primary is required and detached last.** `clawctl agent provider detach <primary-name>` refuses to remove the primary attachment while any auxiliary attachments remain — detach the auxiliaries first. An agent with zero attachments fails to render (`agent '<name>' has no provider attached`).
 - **Same-type collisions fail loudly.** Two attachments of the same provider type (e.g. two `bedrock` slots) with mismatched credentials are rejected at render time rather than silently overwriting the `.env`.
@@ -238,7 +238,7 @@ curl -fsS http://127.0.0.1:8642/v1/chat/completions \
   }'
 ```
 
-Substitute the canonical instance key (`<host>:hermes:<agent-name>` — single colons) for your fleet. The `model` field is always `hermes-agent` — hermes routes to whatever upstream model is configured in `config.yaml`.
+Substitute the canonical instance key (`<key_id>:hermes:<agent-name>` — single colons) for your fleet. The `model` field is always `hermes-agent` — hermes routes to whatever upstream model is configured in `config.yaml`.
 
 #### Off-host access (loopback constraint)
 
@@ -271,9 +271,45 @@ clawctl agent delete <agent-name>    # stop, remove unit, rm ~/.hermes/, userdel
 
 - **Discord and Slack are the clawctl-managed messaging gateways today.** Telegram, WhatsApp, Signal, email, Matrix, Mattermost, Teams, Google Chat are tracked as separate follow-ups. See [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration) and [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration).
 - **Identity is hermes-managed by design.** Hermes owns `SOUL.md` and `AGENTS.md` inside `~/.hermes/`; the onboarding `identity` stage auto-skips. `SOUL.md` is editable via `clawctl agent memory write <name> SOUL.md`, which routes to `~/.hermes/SOUL.md` (other memories live under `~/.hermes/memories/`).
-- **Bearer token lives in `secrets.json`, not `hosts.json`.** As of PR #318, the canonical store for `HERMES_API_SERVER_KEY` is `~/.config/clawrium/secrets.json` keyed by `<host>:hermes:<agent-name>` (single-colon, 3 components). Provider keys use a different schema (`provider:<provider-name>`) in the same file.
-- **Memory has hard size limits.** `MEMORY.md` ≤ 2200 chars, `USER.md` ≤ 1375 chars. Other filenames in `~/.hermes/memories/` are rejected by `clawctl agent memory edit`. See [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md).
+- **Bearer token lives in `secrets.json`, not `hosts.json`.** As of PR #318, the canonical store for `HERMES_API_SERVER_KEY` is `~/.config/clawrium/secrets.json` keyed by `<key_id>:hermes:<agent-name>` (single-colon, 3 components). Provider keys use a different schema (`provider:<provider-name>`) in the same file.
+- **Memory has hard size limits.** `MEMORY.md` ≤ 2200 chars, `USER.md` ≤ 1375 chars. Other filenames in `~/.hermes/memories/` are rejected by `clawctl agent memory edit`. See [memory.md](memory.md).
 - **Concurrent writes are visible-atomic.** Hermes' `memory_write.yaml` uses a stage-then-rename pattern (`rename(2)` within the same filesystem) so the running hermes daemon never observes a partial file. The pattern is visible-atomic, not crash-durable (no explicit `fsync`).
+
+---
+
+## Native dashboard
+
+Hermes ships an upstream web dashboard alongside the API gateway. Phase 2 of issue #478 installs a second systemd unit (`hermes-dashboard-<agent-name>.service`) that binds `127.0.0.1:<port>` (loopback only — never `0.0.0.0`) on the agent host. The port is computed deterministically at install (`45000 + hash(agent_name) % 2000`, collision-bumped) and persisted to `hosts.json.agents.<name>.config.dashboard.port`.
+
+Open the dashboard from either surface:
+
+```bash
+# CLI — spawns an SSH local-port-forward and opens your default browser
+clawctl agent open <hermes-name>
+
+# Just print the URL (no tunnel, no browser)
+clawctl agent open <hermes-name> --print
+```
+
+In the GUI, every hermes agent dashboard has an **"Open Agent UI"** button in the header that opens the same URL in a new tab. Non-hermes agents do not see this button.
+
+### How the tunnel works (and why no token setup)
+
+The dashboard binds loopback on the agent host — it is **not reachable over the LAN**. `clawctl agent open` establishes:
+
+```
+your-machine:127.0.0.1:<random>  ──SSH-L──►  agent-host:127.0.0.1:<dashboard-port>
+```
+
+Authentication piggybacks on the SSH key Ansible already uses for the host. The dashboard itself has no password / bearer-token wall: anyone with shell access to the agent host (root or the agent's UNIX user) could already reach loopback directly, so adding an extra in-process auth layer would offer no real defense beyond what SSH already provides.
+
+State for each tunnel is persisted at `~/.config/clawrium/tunnels/<agent_key>.json` (PID, local port, SSH command-line signature). A second `clawctl agent open` for the same agent reuses the live tunnel rather than spawning a duplicate; the GUI does the same via the `/api/fleet/agents/{key}/web-ui` endpoint. Tunnels opened by the GUI auto-close after 30 minutes of inactivity (a reaper task runs every 5 minutes). CLI tunnels close on `Ctrl-C` (SIGINT), on SIGTERM (the CLI installs a SIGTERM handler that mirrors SIGINT cleanup), or when the `clawctl` process exits normally (`atexit`). A hard `kill -9 <pid>` (SIGKILL) cannot be caught and will leak the underlying `ssh` subprocess; the next `clawctl agent open` against the same agent will detect and evict the stale state via the PID + cmdline guard.
+
+If the dashboard is unreachable, the most common causes are:
+
+- `hermes-dashboard-<agent-name>.service` is not running — `clawctl agent start <name>` re-enables both gateway and dashboard units.
+- The host's SSH key has rotated and `ssh -i <key>` can no longer authenticate — delete and re-create the host (`clawctl host delete <host> --force && clawctl host create <host> --user xclm --alias <name>`) and re-apply the manual setup commands `clawctl` prints.
+- Local-port conflict — the tunnel manager picks an ephemeral free port each time, so this should be rare; check `~/.config/clawrium/tunnels/<agent>.json` and remove it if stale.
 
 ---
 
@@ -288,7 +324,7 @@ Hermes ships a two-file Markdown memory backend at `~/.hermes/memories/`:
 
 Both are managed by `clawctl agent memory get --agent|edit|delete <hermes-name>`. The dispatcher is driven by the agent's manifest (`workspace.memory_path` + `features.memory: true`), so the CLI surface is identical to openclaw. (Note: `read` and `write` are not separate CLI subcommands in this iteration — use `edit`.)
 
-Full details: [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md).
+Full details: [memory.md](memory.md).
 
 ---
 
@@ -395,7 +431,7 @@ Hermes-specific details:
 
 - **Config surface:** the Slack MCP subprocess is rendered into the `mcp_servers:` block of `~/.hermes/config.yaml` (mode 0600), adjacent to the atlassian branch. Renderer: [`src/clawrium/core/render.py:render_hermes`](https://github.com/ric03uec/clawrium/blob/main/src/clawrium/core/render.py). The subprocess env block carries the `SLACK_MCP_XOX*` tokens verbatim; no separate `.env` write path.
 - **Binary install location:** `~/<agent-name>/.local/bin/slack-mcp-server` — same path pattern as the atlassian `uvx` binary, but Slack ships as a single Go binary so there is no Python runtime dependency.
-- **First MCP subprocess on Darwin.** Slack is the first MCP subprocess supported on Darwin hermes (atlassian macOS was deferred). `clawctl agent sync` installs the darwin arm64 / x86_64 tarball via the dedicated `install_slack_mcp_macos.yaml` runbook. The `workspace_excluded` invariants and `no_log: true` render behavior apply identically on Linux and macOS.
+- **First MCP subprocess on Darwin.** Slack is the first MCP subprocess supported on Darwin hermes (atlassian macOS was deferred). The `configure_macos.yaml` playbook variant installs the darwin arm64 / x86_64 tarball at the pinned SHA. The `workspace_excluded` invariants and `no_log: true` render behavior apply identically on Linux and macOS.
 - **Composite blast-radius warning applies.** Attaching both the Slack **channel** (inbound, see [Slack channel](channels/slack.md)) and the Slack **integration** (outbound) to the same hermes agent enables a prompt-injection tool-call exfiltration path. See [integrations/slack.md → Composite blast-radius warning](integrations/slack.md#composite-blast-radius-warning) — for high-sensitivity workspaces, split inbound and outbound into two separate hermes agents.
 
 Quick attach + sync:
@@ -424,7 +460,7 @@ The following are explicitly out of scope for issue #68 and tracked as separate 
 
 ## Next Steps
 
-- [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md) — manifest-driven memory CLI across claw types
+- [Memory model](memory.md) — manifest-driven memory CLI across agent types
 - [OpenClaw Support Matrix](openclaw.md) — full-featured alternative with multi-channel support
 - [Agent Onboarding](/docs/guides/agent-onboarding) — detailed onboarding wizard guide
 - [Host Preparation](/docs/guides/host-setup) — installing provider credentials and host prereqs
