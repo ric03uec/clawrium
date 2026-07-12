@@ -235,6 +235,13 @@ def _is_port_available(port: int) -> bool:
     Uses a strict bind without SO_REUSEADDR so ports in TIME_WAIT are
     treated as occupied — we do not want SSH to collide with a lingering
     socket from a previous tunnel teardown.
+
+    Security note: unlike _pick_free_port (which returns an unpredictable
+    OS-ephemeral port), the preferred port comes from a persisted state file.
+    A local same-user process that reads the state file can grab the port in
+    the TOCTOU window between this check and SSH binding it. The consequence
+    is a DoS (TunnelError from ExitOnForwardFailure=yes) — not traffic
+    interception, because SSH never forwards through a socket it did not bind.
     """
     try:
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
@@ -516,7 +523,11 @@ def ensure(agent_key: str, *, owned: bool = True) -> int:
 
         _evict_stale(agent_key)
 
-        if _preferred_port is not None and _preferred_port > 0 and _is_port_available(_preferred_port):
+        if (
+            _preferred_port is not None
+            and 1024 <= _preferred_port <= 65535
+            and _is_port_available(_preferred_port)
+        ):
             local_port = _preferred_port
         else:
             local_port = _pick_free_port()
@@ -594,7 +605,11 @@ def ensure_at_port(agent_key: str, remote_port: int, *, owned: bool = True) -> i
 
         _evict_stale(namespaced_key)
 
-        if _preferred_port_at is not None and _preferred_port_at > 0 and _is_port_available(_preferred_port_at):
+        if (
+            _preferred_port_at is not None
+            and 1024 <= _preferred_port_at <= 65535
+            and _is_port_available(_preferred_port_at)
+        ):
             local_port = _preferred_port_at
         else:
             local_port = _pick_free_port()

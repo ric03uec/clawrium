@@ -543,8 +543,8 @@ def test_preferred_port_reused_after_stale_eviction(
     monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
     # Tunnel is dead: PID not alive, state is stale.
     monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
-    # Preferred port is available.
-    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: True)
+    # Preferred port is available — mock is port-specific so a wrong port fails.
+    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: port == preferred)
 
     captured_cmds: list[list[str]] = []
 
@@ -564,7 +564,8 @@ def test_preferred_port_reused_after_stale_eviction(
     result = ensure("demo")
 
     assert result == preferred
-    assert any(f"{preferred}:" in part for part in captured_cmds[0])
+    l_idx = captured_cmds[0].index("-L")
+    assert captured_cmds[0][l_idx + 1].startswith(f"{preferred}:")
 
 
 def test_preferred_port_fallback_when_occupied(
@@ -612,7 +613,8 @@ def test_preferred_port_fallback_when_occupied(
 
     assert result == fallback
     assert result != preferred
-    assert any(f"{fallback}:" in part for part in captured_cmds[0])
+    l_idx = captured_cmds[0].index("-L")
+    assert captured_cmds[0][l_idx + 1].startswith(f"{fallback}:")
 
 
 def test_ssh_command_includes_keepalive_params():
@@ -631,3 +633,118 @@ def test_ssh_command_includes_keepalive_params():
 
     assert "ServerAliveInterval=60" in cmd
     assert "ServerAliveCountMax=10" in cmd
+
+
+def test_is_port_available_occupied_vs_free():
+    """_is_port_available returns False while a socket holds the port, True after release."""
+    from clawrium.core.web_ui_tunnel import _is_port_available
+
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as holder:
+        holder.bind(("127.0.0.1", 0))
+        held_port = holder.getsockname()[1]
+        # Port is held — should not be available.
+        assert _is_port_available(held_port) is False
+
+    # Socket is closed — port should now be available.
+    assert _is_port_available(held_port) is True
+
+
+def test_preferred_port_reused_ensure_at_port(
+    isolated_state: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """ensure_at_port reuses the preferred port from a dead namespaced state (#866)."""
+    preferred = 54322
+    remote_port = 9119
+    namespaced_key = f"demo:{remote_port}"
+    state_path = tunnel_state_dir() / f"{namespaced_key}.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 9999,
+                "local_port": preferred,
+                "started_at": time.time(),
+                "ssh_cmdline_signature": "ssh -N old-signature",
+            }
+        )
+    )
+
+    import clawrium.core.web_ui as _web_ui
+
+    monkeypatch.setattr(_web_ui, "resolve", lambda key: _resolved())
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: port == preferred)
+
+    captured_cmds: list[list[str]] = []
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 8888
+    fake_proc.poll.return_value = None
+
+    def fake_spawn(cmd: list[str]) -> MagicMock:
+        captured_cmds.append(cmd)
+        return fake_proc
+
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", fake_spawn)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
+    )
+
+    from clawrium.core.web_ui_tunnel import ensure_at_port
+
+    result = ensure_at_port("demo", remote_port)
+
+    assert result == preferred
+    l_idx = captured_cmds[0].index("-L")
+    assert captured_cmds[0][l_idx + 1].startswith(f"{preferred}:")
+
+
+def test_preferred_port_fallback_ensure_at_port(
+    isolated_state: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """ensure_at_port falls back to _pick_free_port when preferred port is occupied (#866)."""
+    preferred = 54322
+    fallback = 11112
+    remote_port = 9119
+    namespaced_key = f"demo:{remote_port}"
+    state_path = tunnel_state_dir() / f"{namespaced_key}.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 9999,
+                "local_port": preferred,
+                "started_at": time.time(),
+                "ssh_cmdline_signature": "ssh -N old-signature",
+            }
+        )
+    )
+
+    import clawrium.core.web_ui as _web_ui
+
+    monkeypatch.setattr(_web_ui, "resolve", lambda key: _resolved())
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: False)
+    monkeypatch.setattr(web_ui_tunnel, "_pick_free_port", lambda: fallback)
+
+    captured_cmds: list[list[str]] = []
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 8889
+    fake_proc.poll.return_value = None
+
+    def fake_spawn(cmd: list[str]) -> MagicMock:
+        captured_cmds.append(cmd)
+        return fake_proc
+
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", fake_spawn)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
+    )
+
+    from clawrium.core.web_ui_tunnel import ensure_at_port
+
+    result = ensure_at_port("demo", remote_port)
+
+    assert result == fallback
+    assert result != preferred
+    l_idx = captured_cmds[0].index("-L")
+    assert captured_cmds[0][l_idx + 1].startswith(f"{fallback}:")
