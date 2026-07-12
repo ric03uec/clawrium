@@ -59,7 +59,7 @@ clawctl integration registry describe my-github  # paste tokens interactively
 To request a new integration:
 
 1. Check if it exists in [📋 Not Planned](gitlab.md) section
-2. [Open an issue](../../issues/new) describing:
+2. [Open an issue](https://github.com/ric03uec/clawrium/issues/new) describing:
    - The service (e.g., PagerDuty, Zendesk)
    - Use case
    - Required actions (read, write, both)
