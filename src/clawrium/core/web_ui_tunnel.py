@@ -229,6 +229,21 @@ def _pick_free_port() -> int:
         return sock.getsockname()[1]
 
 
+def _is_port_available(port: int) -> bool:
+    """Return True iff 127.0.0.1:<port> is not currently in use.
+
+    Uses a strict bind without SO_REUSEADDR so ports in TIME_WAIT are
+    treated as occupied — we do not want SSH to collide with a lingering
+    socket from a previous tunnel teardown.
+    """
+    try:
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+            sock.bind(("127.0.0.1", port))
+            return True
+    except OSError:
+        return False
+
+
 def _ssh_command(
     local_port: int,
     remote_port: int,
@@ -244,7 +259,9 @@ def _ssh_command(
         "-L",
         f"{local_port}:{remote_bind_addr}:{remote_port}",
         "-o",
-        "ServerAliveInterval=30",
+        "ServerAliveInterval=60",
+        "-o",
+        "ServerAliveCountMax=10",
         "-o",
         "ExitOnForwardFailure=yes",
         "-o",
@@ -476,6 +493,17 @@ def ensure(agent_key: str, *, owned: bool = True) -> int:
         )
 
     with _get_ensure_lock(agent_key):
+        # Read the last port before the health check clears the state file.
+        # _existing_healthy_tunnel deletes state when the PID is dead, so we
+        # must capture the preferred port first.
+        _prior_state = _read_state(agent_key)
+        _preferred_port: int | None = None
+        if _prior_state:
+            try:
+                _preferred_port = int(_prior_state["local_port"])
+            except (KeyError, TypeError, ValueError):
+                pass
+
         existing = _existing_healthy_tunnel(
             agent_key,
             readiness_probe=_http_endpoint_healthy,
@@ -488,7 +516,10 @@ def ensure(agent_key: str, *, owned: bool = True) -> int:
 
         _evict_stale(agent_key)
 
-        local_port = _pick_free_port()
+        if _preferred_port is not None and _preferred_port > 0 and _is_port_available(_preferred_port):
+            local_port = _preferred_port
+        else:
+            local_port = _pick_free_port()
         cmd = _build_ssh_for(resolved, local_port)
         signature = _cmdline_signature(cmd)
 
@@ -546,6 +577,14 @@ def ensure_at_port(agent_key: str, remote_port: int, *, owned: bool = True) -> i
     ssh_config = resolved.ssh_config
     namespaced_key = f"{agent_key}:{remote_port}"
     with _get_ensure_lock(namespaced_key):
+        _prior_state_at = _read_state(namespaced_key)
+        _preferred_port_at: int | None = None
+        if _prior_state_at:
+            try:
+                _preferred_port_at = int(_prior_state_at["local_port"])
+            except (KeyError, TypeError, ValueError):
+                pass
+
         existing = _existing_healthy_tunnel(namespaced_key)
         if existing is not None:
             if owned:
@@ -555,7 +594,10 @@ def ensure_at_port(agent_key: str, remote_port: int, *, owned: bool = True) -> i
 
         _evict_stale(namespaced_key)
 
-        local_port = _pick_free_port()
+        if _preferred_port_at is not None and _preferred_port_at > 0 and _is_port_available(_preferred_port_at):
+            local_port = _preferred_port_at
+        else:
+            local_port = _pick_free_port()
         tmp_resolved = ResolvedUI(
             host=resolved.host,
             bind="loopback",

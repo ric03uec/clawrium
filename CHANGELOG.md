@@ -20,6 +20,9 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- SSH tunnel keepalive increased to 60 s interval × 10 count (10-minute silence ceiling, up from ~90 s), reducing spurious disconnects during brief network interruptions (#866).
+- SSH tunnel manager now tries to reuse the previous local port when re-establishing a dead tunnel, keeping `127.0.0.1:<port>` URLs stable across reconnections (#866).
+
 ### Fixed
 
 - Zeroclaw memory and persona files edited through `clawctl agent memory` now persist in the local control-plane workspace overlay and are restored during `clawctl agent upgrade`, preventing upgrade-time data loss (#871)

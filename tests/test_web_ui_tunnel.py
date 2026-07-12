@@ -516,3 +516,118 @@ def test_ensure_with_missing_ssh_user_raises(
     monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: bad)
     with pytest.raises(TunnelError):
         ensure("demo")
+
+
+# ── Port persistence tests (issue #866) ──────────────────────────────────────
+
+
+def test_preferred_port_reused_after_stale_eviction(
+    isolated_state: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """When a dead tunnel state file holds a local_port that is available,
+    ensure() must reuse that exact port for the new SSH command (#866).
+    """
+    preferred = 54321
+    state_path = tunnel_state_dir() / "demo.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 9999,
+                "local_port": preferred,
+                "started_at": time.time(),
+                "ssh_cmdline_signature": "ssh -N old-signature",
+            }
+        )
+    )
+
+    monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
+    # Tunnel is dead: PID not alive, state is stale.
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    # Preferred port is available.
+    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: True)
+
+    captured_cmds: list[list[str]] = []
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 7777
+    fake_proc.poll.return_value = None
+
+    def fake_spawn(cmd: list[str]) -> MagicMock:
+        captured_cmds.append(cmd)
+        return fake_proc
+
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", fake_spawn)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
+    )
+
+    result = ensure("demo")
+
+    assert result == preferred
+    assert any(f"{preferred}:" in part for part in captured_cmds[0])
+
+
+def test_preferred_port_fallback_when_occupied(
+    isolated_state: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """When the preferred port is occupied, ensure() falls back to _pick_free_port
+    and uses whatever OS-assigned port it returns (#866).
+    """
+    preferred = 54321
+    fallback = 11111
+    state_path = tunnel_state_dir() / "demo.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 9999,
+                "local_port": preferred,
+                "started_at": time.time(),
+                "ssh_cmdline_signature": "ssh -N old-signature",
+            }
+        )
+    )
+
+    monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    # Preferred port is occupied; fallback should be used.
+    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: False)
+    monkeypatch.setattr(web_ui_tunnel, "_pick_free_port", lambda: fallback)
+
+    captured_cmds: list[list[str]] = []
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 7778
+    fake_proc.poll.return_value = None
+
+    def fake_spawn(cmd: list[str]) -> MagicMock:
+        captured_cmds.append(cmd)
+        return fake_proc
+
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", fake_spawn)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
+    )
+
+    result = ensure("demo")
+
+    assert result == fallback
+    assert result != preferred
+    assert any(f"{fallback}:" in part for part in captured_cmds[0])
+
+
+def test_ssh_command_includes_keepalive_params():
+    """_ssh_command must emit ServerAliveInterval=60 and ServerAliveCountMax=10 (#866)."""
+    from clawrium.core.web_ui_tunnel import _ssh_command
+
+    cmd = _ssh_command(
+        local_port=12345,
+        remote_port=9119,
+        remote_bind_addr="127.0.0.1",
+        ssh_user="xclm",
+        ssh_host="hermes.local",
+        ssh_port=None,
+        identity_file=None,
+    )
+
+    assert "ServerAliveInterval=60" in cmd
+    assert "ServerAliveCountMax=10" in cmd
