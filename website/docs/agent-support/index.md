@@ -24,7 +24,7 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 | ✅ | Fully supported and tested |
 | 🚧 | In development / Planned |
 | ❌ | Not supported |
-| 📋 | Not planned (PRs welcome) |
+| 📋 | Not planned / Deferred (PRs welcome) |
 
 ## Quick Comparison
 
@@ -33,10 +33,10 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 | **Status** | ✅ Production Ready | 🚧 In Development | 🚧 In Development |
 | **Transport** | Native daemon | Local OpenAI-compatible HTTP API (`127.0.0.1:8642`) | CLI process |
 | **`clawctl agent chat <name>` support** | ✅ | ✅ (OpenAI-compatible HTTP backend) | 🚧 |
-| **Multi-Provider** | ✅ (OpenAI, Anthropic, OpenRouter, Bedrock, Vertex, ZAI, Ollama) | ✅ (OpenRouter, Anthropic, OpenAI, Bedrock, Ollama / custom) | 🚧 (OpenAI, Anthropic, Ollama planned) |
+| **Multi-Provider** | ✅ (OpenAI, Anthropic, OpenRouter, Bedrock, Vertex, ZAI, Ollama) | ✅ (OpenRouter, Anthropic, OpenAI, Ollama / custom) | 🚧 (OpenAI, Anthropic, Ollama planned) |
 | **Memory model** | Daily files + identity files | Two fixed files: `MEMORY.md` (≤ 2200 chars), `USER.md` (≤ 1375 chars) | ❌ |
 | **Identity management** | clawctl-managed `SOUL.md` / `IDENTITY.md` | Hermes-managed `SOUL.md` / `AGENTS.md` inside `~/.hermes/` (accessible via `clawctl agent memory`) | ❌ |
-| **Messaging gateways** | Discord ✅, Slack ✅, Web 🚧 | Discord ✅, Slack ✅, Telegram/WhatsApp/Signal/email/... 📋 deferred | ❌ |
+| **Messaging gateways** | Discord ✅, Slack 🚧, Web 🚧 | Discord ✅, Slack/Telegram/WhatsApp/Signal/email/... 📋 deferred | ❌ |
 | **External integrations** | GitHub 🚧, Jira 🚧 | 📋 Deferred | ❌ |
 | **Onboarding wizard** | ✅ 4-stage | ✅ 4-stage (identity auto-skipped) | 🚧 2-stage |
 | **Resource usage** | Moderate | Moderate-to-high (uv venv + npm + playwright) | Low |
@@ -53,7 +53,7 @@ Clawrium supports multiple agent types, each designed for different use cases. T
 **Use Hermes when:**
 
 - You want a local OpenAI-compatible HTTP API in front of your model
-- You want Discord or Slack support backed by a local inference endpoint
+- You want Discord support backed by a local inference endpoint
 - You want a self-managed-identity agent (hermes manages its own `SOUL.md` / `AGENTS.md`)
 - You're driving a local inference endpoint (Ollama, vLLM, llama.cpp) and want hermes to wrap it
 
