@@ -237,11 +237,13 @@ def _is_port_available(port: int) -> bool:
     socket from a previous tunnel teardown.
 
     Security note: unlike _pick_free_port (which returns an unpredictable
-    OS-ephemeral port), the preferred port comes from a persisted state file.
-    A local same-user process that reads the state file can grab the port in
-    the TOCTOU window between this check and SSH binding it. The consequence
-    is a DoS (TunnelError from ExitOnForwardFailure=yes) — not traffic
-    interception, because SSH never forwards through a socket it did not bind.
+    OS-ephemeral port), the preferred port comes from a persisted state file
+    (0o700/0o600, so cross-user read is blocked). A local process — most
+    practically same-user, but any actor who discovers the port by other means
+    (e.g. port scan) — can grab it in the TOCTOU window between this check and
+    SSH binding it. The consequence is a DoS (TunnelError from
+    ExitOnForwardFailure=yes) — not traffic interception, because SSH never
+    forwards through a socket it did not bind.
     """
     try:
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:

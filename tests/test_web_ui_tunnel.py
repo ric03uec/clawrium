@@ -637,19 +637,19 @@ def test_ssh_command_includes_keepalive_params():
 
 
 def test_is_port_available_occupied_vs_free():
-    """_is_port_available returns False while a socket holds the port (#866)."""
+    """_is_port_available returns False while held, True after release (#866)."""
     from clawrium.core.web_ui_tunnel import _is_port_available
 
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as holder:
         holder.bind(("127.0.0.1", 0))
         held_port = holder.getsockname()[1]
-        # Port is held — should not be available.
+        # Port is held — should not be available (tests False-path against real impl).
         assert _is_port_available(held_port) is False
-        # Bind a second socket to the same port under a still-open holder;
-        # assert False again to keep both sockets alive and avoid the
-        # post-release race (another process could grab the port between
-        # the close and the next assert).
-        assert _is_port_available(held_port) is False
+
+    # True-path: port is released, must be available now (tests True-path).
+    # The window between close and assert is acceptable for a unit test;
+    # the intent is to exercise the real implementation's True branch.
+    assert _is_port_available(held_port) is True
 
 
 def test_preferred_port_reused_ensure_at_port(
@@ -763,7 +763,13 @@ def test_out_of_range_preferred_port_falls_back(
     monkeypatch: pytest.MonkeyPatch,
     out_of_range_port: int,
 ):
-    """Ports outside [1024, 65535] in the state file must be ignored (#866)."""
+    """Ports outside [1024, 65535] in the state file must be ignored (#866).
+
+    _is_port_available is mocked to AssertionError so the test proves the
+    range guard fires before the socket check — especially for privileged
+    ports (80, 1023) which would return False via PermissionError on most
+    systems, masking a missing range guard.
+    """
     fallback = 40123
     state_path = tunnel_state_dir() / "demo.json"
     state_path.write_text(
@@ -779,6 +785,10 @@ def test_out_of_range_preferred_port_falls_back(
 
     monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
     monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    # If the range guard is missing and _is_port_available is called, the test fails.
+    monkeypatch.setattr(
+        web_ui_tunnel, "_is_port_available", lambda port: (_ for _ in ()).throw(AssertionError(f"_is_port_available must not be called for out-of-range port {port}"))
+    )
     monkeypatch.setattr(web_ui_tunnel, "_pick_free_port", lambda: fallback)
 
     fake_proc = MagicMock()
@@ -828,3 +838,41 @@ def test_malformed_state_falls_back_gracefully(
     result = ensure("demo")
 
     assert result == fallback
+
+
+def test_preferred_port_toctou_race_raises_tunnel_error(
+    isolated_state: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """When _is_port_available returns True but SSH fails to bind the preferred
+    port (TOCTOU race), ensure() raises TunnelError (#866).
+    """
+    preferred = 54323
+    state_path = tunnel_state_dir() / "demo.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 9999,
+                "local_port": preferred,
+                "started_at": time.time(),
+                "ssh_cmdline_signature": "ssh -N old-signature",
+            }
+        )
+    )
+
+    monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    # Port appears available but SSH fails to bind (TOCTOU race).
+    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: port == preferred)
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 6666
+    fake_proc.poll.return_value = 1  # SSH exited non-zero (ExitOnForwardFailure)
+    fake_proc.stderr = None
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", lambda cmd: fake_proc)
+    # Port never became reachable — simulates bind failure.
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: False
+    )
+
+    with pytest.raises(TunnelError):
+        ensure("demo")
