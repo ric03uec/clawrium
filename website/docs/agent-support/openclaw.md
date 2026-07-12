@@ -1,12 +1,10 @@
-# OpenClaw
+# OpenClaw Support Matrix
 
-OpenClaw is a full-featured AI assistant supporting multiple LLM providers, communication channels, and third-party integrations.
+OpenClaw is a full-featured agent supporting multiple LLM providers, communication channels, and third-party integrations.
 
 **Status:** ✅ Production Ready
 
 **Best for:** Discord bots, multi-channel assistants, complex workflows
-
-**GitHub:** [openclaw/openclaw](https://github.com/openclaw/openclaw)
 
 ---
 
@@ -87,7 +85,7 @@ Integrations allow the agent to interact with external tools and services:
 | **Multi-Provider** | ✅ | Switch providers per request |
 | **Secrets Management** | ✅ | Per-instance secret storage |
 | **Token Tracking** | 🚧 | Coming Q2 2026 |
-| **MCP Tools** | ✅ | Slack MCP tools are supported via the [Slack integration](integrations/slack.md); additional MCP-backed integrations remain incremental. |
+| **MCP Tools** | 🚧 | Coming Q2 2026 |
 | **Auto-Restart** | ✅ | Supervisor-managed |
 | **Log Streaming** | ✅ | Real-time log access |
 | **Onboarding Wizard** | ✅ | Guided 4-stage setup |
@@ -137,7 +135,7 @@ OpenClaw-specific details:
 - **Config surface:** the Slack MCP subprocess is rendered into `mcp.servers.<slug>` of `~/.openclaw/openclaw.json` on the agent host. Renderer: [`_render_openclaw_json`](https://github.com/ric03uec/clawrium/blob/main/src/clawrium/core/render.py) in `src/clawrium/core/render.py`.
 - **Conditional emission (byte-lock guarantee):** the top-level `mcp` key is emitted **only** when at least one MCP-emitting integration is attached. OpenClaw agents with no Slack integration render byte-identical to the pre-#835 output — upgrading to this release does **not** touch `openclaw.json` on existing agents.
 - **Binary install location:** `~/<agent-name>/.local/bin/slack-mcp-server` — single-binary Go install, SHA256-pinned per (os, arch). Same source of truth (`playbook_resolver._MCP_SLACK_VERSION` + SHA256 maps) as the hermes install.
-- **macOS support (GA):** `clawctl agent sync` installs the darwin arm64 / x86_64 tarball via the dedicated `install_slack_mcp_macos.yaml` runbook. OpenClaw macOS is GA per #770, so Slack on darwin is a first-class combination.
+- **macOS support (GA):** the `configure_macos.yaml` playbook variant installs the darwin arm64 / x86_64 tarball at the pinned SHA. OpenClaw macOS is GA per #770, so Slack on darwin is a first-class combination.
 - **Attach gate:** attaching a `slack-user` or `slack-cookie` integration to an openclaw agent is accepted by the CLI's attach-time gate (Phase 2 of #499); attempts to attach to unsupported agent types exit 2 with a hint.
 - **Composite blast-radius warning applies** if you attach a future Slack channel + this Slack integration to the same agent. See [integrations/slack.md → Composite blast-radius warning](integrations/slack.md#composite-blast-radius-warning). (Slack **channel** on openclaw is on the SEA milestone; today only the Slack **integration** is attachable on openclaw, so the composite risk is future-only for openclaw.)
 
@@ -158,7 +156,7 @@ clawctl agent sync <openclaw-name>
 <summary><strong>"Discord bot token invalid"</strong></summary>
 
 1. Verify the bot token in Discord Developer Portal
-2. Re-run: `clawctl agent configure <name> --stage channels`
+2. Re-create the channel record (`clawctl channel registry delete <channel-name> --yes --force` then `clawctl channel registry create <channel-name> --type discord --token-stdin <<<"$BOT_TOKEN" ...`), re-attach if needed (`clawctl agent channel attach <channel-name> --agent <name>`), and `clawctl agent sync <name>`
 3. Ensure the bot has proper server permissions
 </details>
 
