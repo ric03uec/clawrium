@@ -125,6 +125,8 @@ const sidebars: SidebarsConfig = {
       },
       items: [
         'agent-support/integrations/github',
+        'agent-support/integrations/brave',
+        'agent-support/integrations/slack',
         'agent-support/integrations/atlassian',
         'agent-support/integrations/gitlab',
         'agent-support/integrations/linear',
