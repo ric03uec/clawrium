@@ -41,7 +41,7 @@ Without these, you **cannot DM the bot**:
 - ✅ `im:write` - Bot MUST be able to write to DMs (⚠️ see security note below — applies to both OpenClaw and Hermes)
 - ✅ `chat:write` - Bot MUST be able to send messages
 
-> **⚠️ Security note on `im:write` (applies to OpenClaw *and* Hermes):** This scope lets the bot *initiate* unsolicited DMs to **any** workspace member — neither OpenClaw's `allowFrom` nor Hermes' `SLACK_ALLOWED_USERS` gate outbound messages. A compromised agent host or leaked `xoxb-` token can DM-spam or phish the entire workspace. Mitigations: keep the host hardened; treat the bot token as a high-value secret; rotate the token immediately on suspicion (Slack API → **OAuth & Permissions** → **Rotate Tokens** → re-create the channel record (`clawctl channel registry delete <channel-name> --yes --force` then `clawctl channel registry create <channel-name> --type slack ...` with the new bearer) and `clawctl agent sync <name>`); audit `users:read` calls in your workspace's Slack audit log if you suspect abuse.
+> **⚠️ Security note on `im:write` (applies to OpenClaw *and* Hermes):** This scope lets the bot *initiate* unsolicited DMs to **any** workspace member — neither OpenClaw's `allowFrom` nor Hermes' `SLACK_ALLOWED_USERS` gate outbound messages. A compromised agent host or leaked `xoxb-` token can DM-spam or phish the entire workspace. Mitigations: keep the host hardened; treat the bot token as a high-value secret; rotate the token immediately on suspicion (Slack API → **OAuth & Permissions** → **Rotate Tokens** → update the channel record (`clawctl channel registry edit <channel-name> --token-stdin <<<"$NEW_BOT_TOKEN"` then `clawctl channel registry edit <channel-name> --app-token "$NEW_APP_TOKEN"`) and `clawctl agent sync <name>`); audit `users:read` calls in your workspace's Slack audit log if you suspect abuse.
 
 ### Required Event Subscriptions
 Without these, the bot **will not receive your DMs**:
@@ -278,7 +278,7 @@ Hermes uses a simpler configuration model — env vars rendered directly into `~
 | `im:write` | **DMs** | **Slack won't allow users to message the bot** |
 | `users:read` | All | Bot cannot look up user info for allowlist checks |
 
-> **⚠️ Security note on `im:write`:** This scope also permits the bot to *initiate* unsolicited DMs to **any** workspace member — the `SLACK_ALLOWED_USERS` allowlist only gates inbound commands, not outbound messages. A compromised agent host or leaked bot token could DM-spam or phish the entire workspace. Keep the agent host hardened and the `xoxb-` bot token in `secrets.json` only. **On suspicion of leakage:** rotate via Slack API → **OAuth & Permissions** → **Rotate Tokens**, then re-create the channel record (`clawctl channel registry delete <channel-name> --yes --force` then `clawctl channel registry create <channel-name> --type slack ...` with the new bearer) and `clawctl agent sync <name>`.
+> **⚠️ Security note on `im:write`:** This scope also permits the bot to *initiate* unsolicited DMs to **any** workspace member — the `SLACK_ALLOWED_USERS` allowlist only gates inbound commands, not outbound messages. A compromised agent host or leaked bot token could DM-spam or phish the entire workspace. Keep the agent host hardened and the `xoxb-` bot token in `secrets.json` only. **On suspicion of leakage:** rotate via Slack API → **OAuth & Permissions** → **Rotate Tokens**, then update the channel record (`clawctl channel registry edit <channel-name> --token-stdin <<<"$NEW_BOT_TOKEN"` then `clawctl channel registry edit <channel-name> --app-token "$NEW_APP_TOKEN"`) and `clawctl agent sync <name>`.
 
 ### Required event subscriptions
 
@@ -371,7 +371,7 @@ SLACK_HOME_CHANNEL_NAME=general
 
 ### Removal (Hermes)
 
-`clawctl agent channel detach <channel-name> --agent <hermes-name>` then `clawctl agent sync <hermes-name>` drops the `SLACK_*` block from `~/.hermes/.env`. To wipe the channel record and its tokens entirely: `clawctl channel registry delete <channel-name> --yes --force`. To rotate tokens without dropping the attachment: re-create the channel record with new tokens, then `clawctl agent sync <hermes-name>`.
+`clawctl agent channel detach <channel-name> --agent <hermes-name>` then `clawctl agent sync <hermes-name>` drops the `SLACK_*` block from `~/.hermes/.env`. To wipe the channel record and its tokens entirely: `clawctl channel registry delete <channel-name> --yes --force`. To rotate tokens without dropping the attachment: `clawctl channel registry edit <channel-name> --token-stdin <<<"$NEW_BOT_TOKEN"` and `clawctl agent sync <hermes-name>`.
 
 ### Hermes-specific troubleshooting
 
