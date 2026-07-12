@@ -47,8 +47,8 @@ Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible 
 | Channel | Status | Notes |
 |---------|:------:|-------|
 | **Local OpenAI-compatible HTTP API** (`POST /v1/chat/completions`, `GET /v1/models`, `GET /health`) | ✅ | Bound to loopback on the agent host. See [Use the local API](#3-use-the-local-openai-compatible-api). |
-| **[Discord](channels/discord.md)** | ✅ | clawctl-managed via `clawctl channel registry create` + `clawctl agent channel attach`. Token in `secrets.json` (B3 invariant); non-sensitive config in `channels.json`. See [Discord channel page](channels/discord.md). |
-| **[Slack](channels/slack.md)** | ✅ | Socket Mode (no public endpoint). clawctl-managed via `clawctl channel registry create` + `clawctl agent channel attach`. Both tokens in `secrets.json`; non-sensitive config in `channels.json`. See [Slack channel page](channels/slack.md). |
+| **[Discord](channels/discord.md)** | ✅ | clawctl-managed via `clawctl channel registry create` + `clawctl agent channel attach`. Token in `secrets.json` (B3 invariant); non-sensitive config in `channels.json`. See [Discord channel page → Setup (Hermes)](channels/discord.md). |
+| **[Slack](channels/slack.md)** | ✅ | Socket Mode (no public endpoint). clawctl-managed via `clawctl channel registry create` + `clawctl agent channel attach`. Both tokens in `secrets.json`; non-sensitive config in `channels.json`. See [Slack channel page → Setup (Hermes)](channels/slack.md). |
 | **`clawctl agent chat <hermes-name>`** | ✅ | Supported via the OpenAI-compatible HTTP backend (`HermesOpenAIBackend`). Connects to `http://<host>:8642/v1` using the bearer token from `secrets.json`. |
 | **Telegram / WhatsApp / Signal** | 📋 | Deferred |
 | **Email / Matrix / Mattermost / Teams / Google Chat** | 📋 | Deferred |
@@ -269,7 +269,7 @@ clawctl agent delete <agent-name>    # stop, remove unit, rm ~/.hermes/, userdel
 
 ## Important caveats
 
-- **Discord and Slack are the clawctl-managed messaging gateways today.** Telegram, WhatsApp, Signal, email, Matrix, Mattermost, Teams, Google Chat are tracked as separate follow-ups. See [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration) and [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration).
+- **Discord and Slack are the clawctl-managed messaging gateways today.** Telegram, WhatsApp, Signal, email, Matrix, Mattermost, Teams, Google Chat are tracked as separate follow-ups. See [Discord channel page → Hermes Configuration](channels/discord.md) and [Slack channel page → Hermes Configuration](channels/slack.md).
 - **Identity is hermes-managed by design.** Hermes owns `SOUL.md` and `AGENTS.md` inside `~/.hermes/`; the onboarding `identity` stage auto-skips. `SOUL.md` is editable via `clawctl agent memory write <name> SOUL.md`, which routes to `~/.hermes/SOUL.md` (other memories live under `~/.hermes/memories/`).
 - **Bearer token lives in `secrets.json`, not `hosts.json`.** As of PR #318, the canonical store for `HERMES_API_SERVER_KEY` is `~/.config/clawrium/secrets.json` keyed by `<key_id>:hermes:<agent-name>` (single-colon, 3 components). Provider keys use a different schema (`provider:<provider-name>`) in the same file.
 - **Memory has hard size limits.** `MEMORY.md` ≤ 2200 chars, `USER.md` ≤ 1375 chars. Other filenames in `~/.hermes/memories/` are rejected by `clawctl agent memory edit`. See [Memory model on GitHub](https://github.com/ric03uec/clawrium/blob/main/docs/agent-support/memory.md).
@@ -431,7 +431,7 @@ Hermes-specific details:
 
 - **Config surface:** the Slack MCP subprocess is rendered into the `mcp_servers:` block of `~/.hermes/config.yaml` (mode 0600), adjacent to the atlassian branch. Renderer: [`src/clawrium/core/render.py:render_hermes`](https://github.com/ric03uec/clawrium/blob/main/src/clawrium/core/render.py). The subprocess env block carries the `SLACK_MCP_XOX*` tokens verbatim; no separate `.env` write path.
 - **Binary install location:** `~/<agent-name>/.local/bin/slack-mcp-server` — same path pattern as the atlassian `uvx` binary, but Slack ships as a single Go binary so there is no Python runtime dependency.
-- **First MCP subprocess on Darwin.** Slack is the first MCP subprocess supported on Darwin hermes (atlassian macOS was deferred). The `configure_macos.yaml` playbook variant installs the darwin arm64 / x86_64 tarball at the pinned SHA. The `workspace_excluded` invariants and `no_log: true` render behavior apply identically on Linux and macOS.
+- **First MCP subprocess on Darwin.** Slack is the first MCP subprocess supported on Darwin hermes (atlassian macOS was deferred). `clawctl agent sync` installs the darwin arm64 / x86_64 tarball via the dedicated `install_slack_mcp_macos.yaml` runbook. The `workspace_excluded` invariants and `no_log: true` render behavior apply identically on Linux and macOS.
 - **Composite blast-radius warning applies.** Attaching both the Slack **channel** (inbound, see [Slack channel](channels/slack.md)) and the Slack **integration** (outbound) to the same hermes agent enables a prompt-injection tool-call exfiltration path. See [integrations/slack.md → Composite blast-radius warning](integrations/slack.md#composite-blast-radius-warning) — for high-sensitivity workspaces, split inbound and outbound into two separate hermes agents.
 
 Quick attach + sync:
@@ -450,7 +450,7 @@ Then `clawctl agent chat <hermes-name>` — the model gains `channels_list`, `co
 
 The following are explicitly out of scope for issue #68 and tracked as separate follow-ups (see `.itx/68/00_PLAN.md` → "Out of scope"):
 
-- Messaging gateway pairing: Telegram, WhatsApp, Signal, email, Teams, Google Chat, Matrix, Mattermost, QQBot, Feishu, DingTalk. (Discord and Slack shipped — see [Discord channel page → Hermes Configuration](channels/discord.md#hermes-configuration) and [Slack channel page → Hermes Configuration](channels/slack.md#hermes-configuration).)
+- Messaging gateway pairing: Telegram, WhatsApp, Signal, email, Teams, Google Chat, Matrix, Mattermost, QQBot, Feishu, DingTalk. (Discord and Slack shipped — see [Discord channel page → Hermes Configuration](channels/discord.md) and [Slack channel page → Hermes Configuration](channels/slack.md).)
 - Pluggable memory backends: Holographic, Honcho, Hindsight, Mem0, Byterover, OpenViking. clawctl's `memory` CLI only sees the default markdown backend.
 - `~/.hermes/state.db` (session / transcript history) inspection via clawctl.
 - OAuth file (`HERMES_OAUTH_FILE`) and webhook secrets.
