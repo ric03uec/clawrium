@@ -17,6 +17,7 @@ from clawrium.cli.clawctl.channel import channel_app
 from clawrium.cli.clawctl.host import host_app
 from clawrium.cli.clawctl.integration import integration_app
 from clawrium.cli.clawctl.provider import provider_app
+from clawrium.cli.clawctl.server import server_app
 from clawrium.cli.clawctl.skill import skill_app
 from clawrium.cli.meta import completion_cmd, version_cmd
 from clawrium.cli.service import service_app
@@ -59,8 +60,9 @@ app.command(name="version", help="Show clawctl version and exit.")(version_cmd)
 app.command(name="completion", help="Emit a shell-completion script.")(completion_cmd)
 
 
-# `tui` and `gui` are rebrand wrappers — they delegate to the same
-# implementations the legacy `clm` CLI used. No behavioural change.
+# `tui` is a rebrand wrapper — it delegates to the same implementation
+# the legacy `clm` CLI used. No behavioural change. The former `gui`
+# command was removed in favour of the `server` group (#874).
 @app.command(name="tui", help="Launch the interactive TUI dashboard.")
 def tui_cmd() -> None:
     """Launch the Clawrium TUI dashboard."""
@@ -76,30 +78,9 @@ def tui_cmd() -> None:
     launch_tui()
 
 
-@app.command(name="gui", help="Launch the local web GUI dashboard.")
-def gui_cmd(
-    port: int = typer.Option(
-        36000,
-        "--port",
-        "-p",
-        min=1,
-        max=65535,
-        help="Local TCP port to bind (1-65535).",
-    ),
-    no_open: bool = typer.Option(
-        False,
-        "--no-open",
-        help="Skip auto-opening the browser. Useful for headless/SSH sessions.",
-    ),
-) -> None:
-    """Launch the local web GUI dashboard (binds to 127.0.0.1 only)."""
-    from clawrium.cli.gui import gui as _gui_impl
-
-    _gui_impl(port=port, no_open=no_open)
-
-
 # Group registrations. Order here drives `--help` listing.
 app.add_typer(service_app, name="service")
+app.add_typer(server_app, name="server")
 app.add_typer(host_app, name="host")
 app.add_typer(agent_app, name="agent")
 app.add_typer(provider_app, name="provider")
