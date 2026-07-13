@@ -20,4 +20,10 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- Remove ~640 lines of unreachable dead code from `_run_channels_stage` in
+  `src/clawrium/cli/agent.py` (#860), plus two helper functions (`_sync_channel_config`,
+  `_build_legacy_discord_channels_block`) that were only reachable from that
+  dead body. These were behind an unconditional `raise typer.Exit(code=2)`
+  in the deprecated channels onboarding wizard and could never execute.
+
 ### Documentation
