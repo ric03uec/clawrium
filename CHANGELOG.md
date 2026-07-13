@@ -18,6 +18,14 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- Removed the legacy `src/clawrium/cli/skill.py`, `host.py`,
+  `integration.py`, and `provider.py` modules (#707, Phase 1). These
+  four files were orphaned when the `clm` entry point was deleted in
+  #706 — no code in `src/` or `tests/` imported them. Deleting them
+  removes ~2.9k LOC of dead code without touching any behavior.
+  Remaining hybrid `cli/*.py` modules (chat, agent, memory, etc.) are
+  tracked for staged removal in follow-up phases on #707.
+
 ### Fixed
 
 ### Documentation
