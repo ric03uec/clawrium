@@ -11,8 +11,11 @@ helper from `_stub` that prints `Not implemented: <group> <verb>` and
 exits 0. This matches today's `clm snapshot` placeholder behavior.
 
 Living under `clawrium.cli.clawctl.*` (not `clawrium.cli.*`) is
-deliberate: the legacy `clm` CLI keeps its modules at `clawrium.cli.*`
-(`cli/agent.py`, `cli/host.py`, etc.) and is still imported by the
-existing test suite. Splitting namespaces keeps bundle 2 from touching
-any legacy code path.
+deliberate: the legacy `clm` CLI kept its modules at `clawrium.cli.*`
+(`cli/agent.py`, `cli/chat.py`, etc.); the `clm` entry and orphan
+modules were removed in #706 and #707 Phase 1 respectively, and the
+remaining hybrids are tracked for removal in the follow-up phases of
+#707. Splitting namespaces originally kept bundle 2 from touching any
+legacy code path and now cleanly isolates the surviving hybrids until
+they are migrated.
 """
