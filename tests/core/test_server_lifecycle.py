@@ -543,8 +543,10 @@ def test_start_detached_health_check_failure(
     monkeypatch.setattr(sl, "_STOP_TIMEOUT_SECONDS", 0.05)
     monkeypatch.setattr(sl, "_STOP_POLL_INTERVAL_SECONDS", 0.01)
 
-    with pytest.raises(sl.ServerStartupError):
+    with pytest.raises(sl.ServerStartupError) as exc:
         sl.start_detached()
+    # Pin the exact branch — two distinct paths raise this exception.
+    assert "failed to bind" in str(exc.value)
 
     import signal as _signal
 

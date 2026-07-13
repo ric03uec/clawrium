@@ -194,6 +194,7 @@ def test_run_missing_uvicorn_exits_one(monkeypatch: pytest.MonkeyPatch) -> None:
     import builtins
     import sys
 
+    monkeypatch.setattr(sl.sys, "platform", "linux")
     real_import = builtins.__import__
 
     def deny_uvicorn(name, *args, **kwargs):  # noqa: ANN001
@@ -215,6 +216,10 @@ def test_run_invokes_uvicorn_with_loopback_bind(
 ) -> None:
     """B3: `run` foreground path calls uvicorn.run with 127.0.0.1:36000."""
     import sys
+
+    # Hermetic: pin platform so the Linux-only gate does not fire on
+    # macOS dev machines / CI runners.
+    monkeypatch.setattr(sl.sys, "platform", "linux")
 
     calls: dict = {}
 
