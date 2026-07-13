@@ -135,7 +135,7 @@ Currently available:
 
 - Repository: https://github.com/ric03uec/clawrium
 - Project Board: https://github.com/users/ric03uec/projects/1
-- Version: 26.7.0
+- Version: 26.7.1
 - Changelog: [`CHANGELOG.md`](CHANGELOG.md) (current unreleased) · [`docs/releases/`](docs/releases/) (per-release archive)
 
 ## Gateway Token Lifecycle (zeroclaw)
