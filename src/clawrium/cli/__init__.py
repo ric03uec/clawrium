@@ -2,10 +2,13 @@
 
 This module exports `app`, the top-level Typer entrypoint wired to the
 `clawctl` script in `pyproject.toml`. The legacy `clm` entry point
-(`cli/main.py`) was removed in #707; remaining parallel modules under
-`src/clawrium/cli/` (chat.py, agent.py, host.py, integration.py,
-provider.py, skill.py, …) are hybrid — still imported by clawctl /
-TUI code paths — and tracked for removal in #707.
+(`cli/main.py`) was removed in #706; the pure orphan modules
+(`host.py`, `integration.py`, `provider.py`, `skill.py`) were removed
+in #707 Phase 1. Remaining parallel modules under `src/clawrium/cli/`
+(chat.py, agent.py, agent_skill.py, install.py, memory.py, registry.py,
+secret.py, status.py, init.py) are hybrid — still imported by clawctl /
+TUI / service code paths — and tracked for staged removal in the
+follow-up phases of #707.
 """
 
 import typer

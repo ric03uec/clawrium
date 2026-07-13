@@ -1,0 +1,11 @@
+{
+  "session_id": "iter-1",
+  "transport": "cli",
+  "commit_sha": "af8b329",
+  "iteration": 1,
+  "last_rating": 4,
+  "last_blockers": [],
+  "warnings": ["W1: cli/__init__.py docstring lists deleted files as hybrid"],
+  "started_at": "2026-07-13T22:54:00Z",
+  "updated_at": "2026-07-13T22:57:00Z"
+}
