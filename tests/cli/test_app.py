@@ -21,7 +21,7 @@ EXPECTED_TOP_LEVEL = [
     "version",
     "completion",
     "tui",
-    "gui",
+    "server",
     "host",
     "agent",
     "provider",
@@ -39,12 +39,16 @@ def test_root_help_lists_every_group() -> None:
     # `mcp` group removed in #838 — accidental re-registration in
     # `cli/__init__.py` must not slip through this test.
     assert "mcp" not in result.output
+    # `gui` removed in #874, replaced by `server` group. If the old
+    # command sneaks back in (import side-effect etc.) this test fires.
+    assert "gui" not in result.output
 
 
 @pytest.mark.parametrize(
     "group",
     [
         "service",
+        "server",
         "host",
         "agent",
         "provider",

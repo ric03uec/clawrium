@@ -14,8 +14,23 @@ cut. The `itx:release` skill archives this section into a new
 
 ### BREAKING
 
+- `clawctl gui` has been removed. Use `clawctl server start` to launch
+  the local GUI server in the background, `clawctl server stop` to stop
+  it, `clawctl server status` to inspect state, and `clawctl server run`
+  for a foreground (systemd/Docker) mode. There is no automated
+  migration — invocations of `clawctl gui` will error with
+  `No such command`. Note: `clawctl server` is Linux-only in this
+  release; macOS support ships in a follow-up (#874).
+
 ### Added
 
+- `clawctl server {start,stop,status,run}` — new command group that
+  manages the local GUI server lifecycle. `start` runs uvicorn detached
+  on `127.0.0.1:36000` and records PID + URL to
+  `~/.config/clawrium/server.json`; a second `start` while running is a
+  no-op that prints the live URL; the command fails loudly with exit 1
+  if `:36000` is held by another process. `run` runs the server in the
+  foreground for process-supervisor deployments (#874).
 - `clawctl version` and `clawctl --version` now show the git commit SHA alongside the release version (#656).
 
 ### Changed
