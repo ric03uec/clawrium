@@ -33,6 +33,7 @@ const sidebars: SidebarsConfig = {
         'agent-support/openclaw',
         'agent-support/hermes',
         'agent-support/zeroclaw',
+        'agent-support/memory',
       ],
     },
     'web-dashboard',
@@ -125,6 +126,8 @@ const sidebars: SidebarsConfig = {
       },
       items: [
         'agent-support/integrations/github',
+        'agent-support/integrations/brave',
+        'agent-support/integrations/slack',
         'agent-support/integrations/atlassian',
         'agent-support/integrations/gitlab',
         'agent-support/integrations/linear',

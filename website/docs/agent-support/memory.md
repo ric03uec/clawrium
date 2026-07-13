@@ -112,4 +112,4 @@ The following are explicitly deferred for issue #68 and tracked as separate foll
 
 - [Hermes Support Matrix](hermes.md) — full hermes user guide
 - [OpenClaw Support Matrix](openclaw.md) — full openclaw user guide
-- [Agent Onboarding](../agent-onboarding.md) — how stages interact with manifest
+- [Agent Onboarding](/docs/guides/agent-onboarding) — how stages interact with manifest

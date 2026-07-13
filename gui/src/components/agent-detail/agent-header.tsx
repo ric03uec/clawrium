@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { AgentDetail, AgentDetailHealth } from "@/lib/types";
+import { useId, useState } from "react";
+import { AgentDetail, AgentDetailHealth, AgentStatus } from "@/lib/types";
 import { StatusDot } from "@/components/ui/status-dot";
 import { OSIcon } from "@/components/ui/os-icon";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,27 @@ interface AgentHeaderProps {
   health: AgentDetailHealth | undefined;
 }
 
+// #870: pure mapping from live status → operator-facing reason a
+// lifecycle action is unavailable. Returns "" when the action IS
+// available. Kept module-scope so it's unit-testable without React
+// and so a future status literal only needs a single edit.
+export function lifecycleDisabledReason(
+  status: AgentStatus,
+  action: "start" | "restart" | "stop",
+): string {
+  if (status === "install_missing") {
+    return "On-host install missing — reinstall required";
+  }
+  if (status === "checking") {
+    return "Waiting for status…";
+  }
+  if (action === "start") {
+    return status === "stopped" ? "" : "Agent is not stopped";
+  }
+  // restart + stop share the running-required gate
+  return status === "running" ? "" : "Agent is not running";
+}
+
 export function AgentHeader({ agent, health }: AgentHeaderProps) {
   const { start, stop, restart } = useAgentActions(agent.agent_key);
   // Health-derived: the SSH probe is the source of truth for the
@@ -29,7 +50,28 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
   // Start and Restart/Stop are hidden to avoid acting on stale data.
   const liveStatus = health?.status ?? agent.status;
   const isRunning = liveStatus === "running";
-  const isStopped = liveStatus === "stopped";
+  const isInstallMissing = liveStatus === "install_missing";
+
+  // #870: lifecycle buttons render unconditionally with a stable
+  // [Start, Restart, Stop] order so state transitions cannot shift a
+  // destructive action under the user's cursor. Invalid actions are
+  // disabled via aria-disabled + guarded onClick (NOT native
+  // `disabled`) so the button stays in the tab order and screen
+  // readers announce the reason via aria-describedby — native
+  // `disabled` drops focus and native `title` is not reliably
+  // exposed to AT or on touch devices.
+  const startDisabledReason = lifecycleDisabledReason(liveStatus, "start");
+  const restartDisabledReason = lifecycleDisabledReason(liveStatus, "restart");
+  const stopDisabledReason = lifecycleDisabledReason(liveStatus, "stop");
+
+  // Per-instance ids so a fleet/list view rendering multiple headers
+  // does not collide on the aria-describedby target — AT would
+  // otherwise resolve to the first-mounted reason span and announce
+  // the wrong agent's status.
+  const reactId = useId();
+  const startReasonId = `${reactId}-start-reason`;
+  const restartReasonId = `${reactId}-restart-reason`;
+  const stopReasonId = `${reactId}-stop-reason`;
 
   // B2 (#560 / #567): backend `/web-ui` returns `available: false` with
   // a `reason` for any agent type whose manifest does not declare
@@ -162,61 +204,112 @@ export function AgentHeader({ agent, health }: AgentHeaderProps) {
               {token.isPending ? "Loading..." : "Show Connection Token"}
             </Button>
           )}
-          {isStopped && (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => start.mutate()}
-              disabled={start.isPending}
-            >
-              {start.isPending ? "Starting..." : "Start"}
-            </Button>
-          )}
-          {liveStatus === "install_missing" && (
-            // #811: hosts.json claims this agent is installed, but the
-            // on-host service-manager artifact and/or home directory are
-            // gone. Start/Stop/Restart would all fail at the systemd
-            // / launchctl boundary; surface a reinstall hint instead.
-            // ATX iter-5 B1: there is no `clawctl agent install` verb
-            // — the install path is `agent create`. ATX iter-4 W2 /
-            // iter-5 W1: `role="alert"` instead of `role="status"`
-            // because the span is conditionally mounted; screen
-            // readers don't announce initial mounts of polite
-            // (status) live regions but DO announce assertive
-            // (alert) ones.
-            <span className="text-xs text-status-error" role="alert">
-              On-host install missing — run{" "}
-              <code className="font-mono">
-                clawctl agent doctor {agent.agent_name}
-              </code>
-              , then reinstall via{" "}
-              <code className="font-mono">clawctl agent delete</code>
-              {" "}+{" "}
-              <code className="font-mono">clawctl agent create</code>.
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              if (startDisabledReason || start.isPending) return;
+              start.mutate();
+            }}
+            aria-disabled={!!startDisabledReason || start.isPending}
+            aria-describedby={
+              startDisabledReason ? startReasonId : undefined
+            }
+            title={startDisabledReason || undefined}
+            className={
+              startDisabledReason || start.isPending
+                ? "opacity-50 cursor-not-allowed"
+                : ""
+            }
+            data-testid="action-start"
+          >
+            {start.isPending ? "Starting..." : "Start"}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              if (restartDisabledReason || restart.isPending) return;
+              restart.mutate();
+            }}
+            aria-disabled={!!restartDisabledReason || restart.isPending}
+            aria-describedby={
+              restartDisabledReason ? restartReasonId : undefined
+            }
+            title={restartDisabledReason || undefined}
+            className={
+              restartDisabledReason || restart.isPending
+                ? "opacity-50 cursor-not-allowed"
+                : ""
+            }
+            data-testid="action-restart"
+          >
+            {restart.isPending ? "Restarting..." : "Restart"}
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => {
+              if (stopDisabledReason || stop.isPending) return;
+              stop.mutate();
+            }}
+            aria-disabled={!!stopDisabledReason || stop.isPending}
+            aria-describedby={
+              stopDisabledReason ? stopReasonId : undefined
+            }
+            title={stopDisabledReason || undefined}
+            className={
+              stopDisabledReason || stop.isPending
+                ? "opacity-50 cursor-not-allowed"
+                : ""
+            }
+            data-testid="action-stop"
+          >
+            {stop.isPending ? "Stopping..." : "Stop"}
+          </Button>
+          {/* Visually-hidden reason spans referenced by aria-describedby
+              so screen readers announce WHY each action is unavailable
+              — `title` alone is not reliably exposed to AT or on touch. */}
+          {startDisabledReason && (
+            <span id={startReasonId} className="sr-only">
+              {startDisabledReason}
             </span>
           )}
-          {isRunning && (
-            <>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => restart.mutate()}
-                disabled={restart.isPending}
-              >
-                {restart.isPending ? "Restarting..." : "Restart"}
-              </Button>
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={() => stop.mutate()}
-                disabled={stop.isPending}
-              >
-                {stop.isPending ? "Stopping..." : "Stop"}
-              </Button>
-            </>
+          {restartDisabledReason && (
+            <span id={restartReasonId} className="sr-only">
+              {restartDisabledReason}
+            </span>
+          )}
+          {stopDisabledReason && (
+            <span id={stopReasonId} className="sr-only">
+              {stopDisabledReason}
+            </span>
           )}
         </div>
       </div>
+
+      {isInstallMissing && (
+        // #811: hosts.json claims this agent is installed, but the
+        // on-host service-manager artifact and/or home directory are
+        // gone. Start/Stop/Restart would all fail at the systemd
+        // / launchctl boundary; surface a reinstall hint. #870: the
+        // hint moved out of the action-bar row so lifecycle buttons
+        // keep a stable position across state transitions.
+        // `role="alert"` because the span is conditionally mounted;
+        // screen readers don't announce initial mounts of polite
+        // (status) live regions but DO announce assertive
+        // (alert) ones.
+        <div className="mt-2 text-xs text-status-error" role="alert">
+          On-host install missing — run{" "}
+          <code className="font-mono">
+            clawctl agent doctor {agent.agent_name}
+          </code>
+          , then reinstall via{" "}
+          <code className="font-mono">clawctl agent delete</code>
+          {" "}+{" "}
+          <code className="font-mono">clawctl agent create</code>.
+        </div>
+      )}
 
       {(start.isError || stop.isError || restart.isError) && (
         <div className="mt-2 text-xs text-status-error" role="alert">
