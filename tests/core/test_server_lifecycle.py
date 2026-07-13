@@ -36,6 +36,9 @@ def test_state_roundtrip() -> None:
 
     loaded = sl.read_state()
     assert loaded == state
+    # Pin the 0o600 security contract documented on write_state.
+    mode = sl.state_file_path().stat().st_mode & 0o777
+    assert mode == 0o600
 
 
 def test_read_state_absent_returns_none() -> None:
@@ -77,6 +80,31 @@ def test_is_port_free_when_bound_returns_false() -> None:
         sock.listen(1)
         _, port = sock.getsockname()
         assert sl.is_port_free("127.0.0.1", port) is False
+
+
+def test_is_port_free_treats_eacces_as_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """W4 (iter-8): EACCES on bind (privileged port) → not free."""
+    import errno as _errno
+
+    class _FakeSock:
+        def __enter__(self):  # noqa: ANN204
+            return self
+
+        def __exit__(self, *a):  # noqa: ANN204
+            return False
+
+        def setsockopt(self, *a):  # noqa: ANN201, ANN002
+            pass
+
+        def bind(self, addr):  # noqa: ANN001
+            err = OSError()
+            err.errno = _errno.EACCES
+            raise err
+
+    monkeypatch.setattr(sl.socket, "socket", lambda *a, **k: _FakeSock())
+    assert sl.is_port_free("127.0.0.1", 80) is False
 
 
 def test_is_port_free_when_unbound_returns_true() -> None:
@@ -136,6 +164,8 @@ def test_stop_running_escalates_to_sigkill(
 
     monkeypatch.setattr(sl.os, "kill", fake_kill)
     monkeypatch.setattr(sl, "is_pid_alive", fake_is_alive)
+    # Bypass the port tiebreaker (mirrors the read_status pattern).
+    monkeypatch.setattr(sl, "_port_accepting", lambda h, p, timeout=0.25: True)
     # Speed up the wait loop so the test completes fast.
     monkeypatch.setattr(sl, "_STOP_TIMEOUT_SECONDS", 0.2)
     monkeypatch.setattr(sl, "_STOP_POLL_INTERVAL_SECONDS", 0.05)
@@ -168,6 +198,7 @@ def test_stop_running_process_disappears_between_alive_check_and_kill(
 
     # is_pid_alive says yes; os.kill raises ProcessLookupError.
     monkeypatch.setattr(sl, "is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(sl, "_port_accepting", lambda h, p, timeout=0.25: True)
 
     def racy_kill(pid: int, sig: int) -> None:
         assert sig == _signal.SIGTERM
@@ -223,6 +254,31 @@ def test_start_detached_wraps_popen_oserror(
     assert sl.read_state() is None
 
 
+def test_stop_running_bails_when_pid_alive_but_port_dead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Iter-6 W1: PID recycled to unrelated process → refuse to SIGTERM."""
+    state = sl.ServerState(
+        pid=os.getpid(),
+        host="127.0.0.1",
+        port=36000,
+        url="http://127.0.0.1:36000",
+        started_at="t",
+    )
+    sl.write_state(state)
+    monkeypatch.setattr(sl, "is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(sl, "_port_accepting", lambda h, p, timeout=0.25: False)
+
+    signaled: list[int] = []
+    monkeypatch.setattr(sl.os, "kill", lambda pid, sig: signaled.append(sig))
+
+    with pytest.raises(sl.ServerNotRunningError):
+        sl.stop_running()
+    # Critical: no signal sent to a possibly-unrelated process.
+    assert signaled == []
+    assert sl.read_state() is None
+
+
 def test_read_status_when_stopped() -> None:
     live = sl.read_status()
     assert live.running is False
@@ -272,8 +328,92 @@ def test_read_status_cleans_when_pid_alive_but_port_dead(
     assert sl.read_state() is None
 
 
+def test_is_pid_alive_permission_error_returns_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """W4 (iter-5): EPERM from os.kill(pid, 0) → process exists, treat alive."""
+
+    def eperm(pid: int, sig: int) -> None:
+        raise PermissionError()
+
+    monkeypatch.setattr(sl.os, "kill", eperm)
+    assert sl.is_pid_alive(12345) is True
+
+
+def test_start_detached_clears_stale_state_and_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """W3 (iter-5): a state file with a dead PID must not block start.
+
+    This is the crash-then-restart scenario — the most operationally
+    common path — and had zero coverage.
+    """
+    monkeypatch.setattr(sl, "_assert_supported_platform", lambda: None)
+    monkeypatch.setattr(sl, "is_port_free", lambda h, p: True)
+    monkeypatch.setattr(
+        sl, "wait_for_port", lambda h, p, timeout=5.0, proc=None: True
+    )
+
+    # Leave a state file pointing at a definitely-dead PID.
+    stale = sl.ServerState(
+        pid=2**22, host="127.0.0.1", port=36000, url="http://127.0.0.1:36000",
+        started_at="t",
+    )
+    sl.write_state(stale)
+
+    class _FakeProc:
+        pid = 55555
+
+        def poll(self) -> None:
+            return None
+
+    monkeypatch.setattr(sl.subprocess, "Popen", lambda *a, **k: _FakeProc())
+
+    result = sl.start_detached()
+    assert result.pid == 55555
+    assert sl.read_state() is not None
+    assert sl.read_state().pid == 55555
+
+
+def test_start_detached_clears_recycled_pid_and_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """iter-8 B1: live PID but port dead (recycled) → clear stale state.
+
+    Otherwise `clawctl server start` prints "already running" pointing
+    at a URL that goes nowhere, and the user is stranded.
+    """
+    monkeypatch.setattr(sl, "_assert_supported_platform", lambda: None)
+    monkeypatch.setattr(sl, "is_port_free", lambda h, p: True)
+    monkeypatch.setattr(
+        sl, "wait_for_port", lambda h, p, timeout=5.0, proc=None: True
+    )
+    monkeypatch.setattr(sl, "_port_accepting", lambda h, p, timeout=0.25: False)
+
+    # Live PID (this test process) — but simulated port-dead.
+    recycled = sl.ServerState(
+        pid=os.getpid(), host="127.0.0.1", port=36000,
+        url="http://127.0.0.1:36000", started_at="t",
+    )
+    sl.write_state(recycled)
+
+    class _FakeProc:
+        pid = 66666
+
+        def poll(self) -> None:
+            return None
+
+    monkeypatch.setattr(sl.subprocess, "Popen", lambda *a, **k: _FakeProc())
+
+    result = sl.start_detached()
+    assert result.pid == 66666
+    assert sl.read_state().pid == 66666
+
+
 def test_start_detached_already_running_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sl, "_assert_supported_platform", lambda: None)
+    # Port accepting → recorded state is really our server.
+    monkeypatch.setattr(sl, "_port_accepting", lambda h, p, timeout=0.25: True)
     state = sl.ServerState(
         pid=os.getpid(),
         host="127.0.0.1",
@@ -326,7 +466,9 @@ def test_start_detached_uses_new_session(monkeypatch: pytest.MonkeyPatch) -> Non
     assert captured["kwargs"]["stdin"] is sl.subprocess.DEVNULL
     # Pin the exact command shape so a mutated layout that still
     # happens to contain the substring "uvicorn" cannot slip through.
-    assert captured["cmd"][1:4] == ["-m", "uvicorn", "clawrium.gui.server:app"]
+    # Pin the whole command tail so a silent switch to `0.0.0.0` or a
+    # different port cannot slip through the assertion.
+    assert captured["cmd"] == sl._spawn_command()
     assert state.pid == 99999
     assert state.host == "127.0.0.1"
     assert state.port == 36000
@@ -397,11 +539,15 @@ def test_start_detached_health_check_failure(
     killed: list[tuple[int, int]] = []
     monkeypatch.setattr(sl.os, "kill", lambda pid, sig: killed.append((pid, sig)))
 
+    # Health check failure now escalates TERM → wait → KILL (iter-7 W3).
+    monkeypatch.setattr(sl, "_STOP_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(sl, "_STOP_POLL_INTERVAL_SECONDS", 0.01)
+
     with pytest.raises(sl.ServerStartupError):
         sl.start_detached()
 
     import signal as _signal
 
-    assert killed == [(99998, _signal.SIGTERM)]
+    assert killed == [(99998, _signal.SIGTERM), (99998, _signal.SIGKILL)]
     # No state file left behind.
     assert sl.read_state() is None

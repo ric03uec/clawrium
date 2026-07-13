@@ -16,7 +16,8 @@ def status() -> None:
         raise typer.Exit(code=0)
 
     state = live.state
-    port_reachable = "yes" if live.port_accepting else "no"
+    # read_status() only returns running=True when the port is
+    # accepting; a dedicated 'Reachable' row would be tautological.
     # Sanitize state-file strings — they are daemon-written today but
     # `output/__init__.py` documents that every terminal write goes
     # through a sanitizing primitive.
@@ -27,6 +28,5 @@ def status() -> None:
         f"Port:      {state.port}",
         f"PID:       {state.pid}",
         f"Started:   {sanitize(state.started_at)}",
-        f"Reachable: {port_reachable}",
     ]
     typer.echo("\n".join(lines))

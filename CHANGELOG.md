@@ -20,7 +20,7 @@ cut. The `itx:release` skill archives this section into a new
   for a foreground (systemd/Docker) mode. There is no automated
   migration — invocations of `clawctl gui` will error with
   `No such command`. Note: `clawctl server` is Linux-only in this
-  release; macOS support ships in a follow-up (#874).
+  release; macOS support ships in a follow-up PR (#874).
 
 ### Added
 

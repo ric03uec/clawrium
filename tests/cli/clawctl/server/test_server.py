@@ -49,6 +49,8 @@ def test_start_reports_already_running(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     sl.write_state(state)
     monkeypatch.setattr(sl, "_assert_supported_platform", lambda: None)
+    # Port accepting confirms this really is our server (iter-8 B1).
+    monkeypatch.setattr(sl, "_port_accepting", lambda h, p, timeout=0.25: True)
 
     result = runner.invoke(app, ["server", "start"])
     assert result.exit_code == 0
@@ -62,7 +64,7 @@ def test_start_port_in_use_exits_one(monkeypatch: pytest.MonkeyPatch) -> None:
 
     result = runner.invoke(app, ["server", "start"])
     assert result.exit_code == 1
-    assert "port" in result.output.lower() or "port" in (result.stderr or "").lower()
+    assert "36000" in result.output
 
 
 def test_status_running_shows_url(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -85,6 +87,8 @@ def test_status_running_shows_url(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "running" in result.output
     assert "http://127.0.0.1:36000" in result.output
     assert str(state.pid) in result.output
+    # Regression guard: `Started:` field must appear (iter-8 W5).
+    assert "2026-07-12" in result.output
 
 
 def test_start_lifecycle_writes_state(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,6 +160,33 @@ def test_start_platform_gate_exits_one(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.exit_code == 1
     combined = result.output + (result.stderr or "")
     assert "Linux-only" in combined
+
+
+def test_run_platform_gate_exits_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """W1 (iter-8): `run` must also honour the Linux-only gate."""
+    monkeypatch.setattr(sl.sys, "platform", "darwin")
+
+    result = runner.invoke(app, ["server", "run"])
+    assert result.exit_code == 1
+    combined = result.output + (result.stderr or "")
+    assert "Linux-only" in combined
+
+
+def test_stop_permission_error_exits_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """W3 (iter-4): `stop` cross-user PermissionError → exit 1 clean."""
+    import importlib
+
+    stop_module = importlib.import_module("clawrium.cli.clawctl.server.stop")
+
+    def boom() -> None:
+        raise PermissionError("operation not permitted")
+
+    monkeypatch.setattr(stop_module, "stop_running", boom)
+
+    result = runner.invoke(app, ["server", "stop"])
+    assert result.exit_code == 1
+    combined = result.output + (result.stderr or "")
+    assert "stop failed" in combined
 
 
 def test_run_missing_uvicorn_exits_one(monkeypatch: pytest.MonkeyPatch) -> None:

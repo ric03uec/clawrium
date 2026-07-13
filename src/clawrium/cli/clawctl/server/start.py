@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import typer
 
+from clawrium.cli.output._sanitize import sanitize
 from clawrium.cli.output.errors import emit_error
 from clawrium.core.server_lifecycle import (
     PortInUseError,
     ServerAlreadyRunningError,
+    ServerPlatformError,
     ServerStartupError,
     start_detached,
 )
@@ -23,7 +25,7 @@ def start() -> None:
     try:
         state = start_detached()
     except ServerAlreadyRunningError as exc:
-        typer.echo(f"Server already running at {exc.state.url}")
+        typer.echo(f"Server already running at {sanitize(exc.state.url)}")
         raise typer.Exit(code=0)
     except PortInUseError as exc:
         emit_error(
@@ -34,9 +36,9 @@ def start() -> None:
     except ServerStartupError as exc:
         emit_error(f"server failed to start: {exc}")
         raise typer.Exit(code=1)
-    except RuntimeError as exc:
+    except ServerPlatformError as exc:
         # Platform gate (Linux-only in PR 1).
         emit_error(str(exc))
         raise typer.Exit(code=1)
 
-    typer.echo(f"Server started at {state.url} (pid {state.pid})")
+    typer.echo(f"Server started at {sanitize(state.url)} (pid {state.pid})")

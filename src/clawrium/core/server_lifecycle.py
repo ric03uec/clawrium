@@ -37,6 +37,7 @@ __all__ = [
     "PortInUseError",
     "ServerAlreadyRunningError",
     "ServerNotRunningError",
+    "ServerPlatformError",
     "ServerStartupError",
     "ServerState",
     "read_state",
@@ -81,6 +82,14 @@ class ServerNotRunningError(RuntimeError):
 
 class ServerStartupError(RuntimeError):
     """Raised when the child process failed to bind within the timeout."""
+
+
+class ServerPlatformError(RuntimeError):
+    """Raised when `clawctl server` runs on an unsupported platform.
+
+    Named so the CLI catch ladder can target it precisely instead of a
+    bare `except RuntimeError` that would also swallow unrelated bugs.
+    """
 
 
 @dataclass(frozen=True)
@@ -140,12 +149,18 @@ def read_state() -> Optional[ServerState]:
 
 
 def write_state(state: ServerState) -> None:
-    """Write the state file atomically with 0o600 mode."""
+    """Write the state file atomically with 0o600 mode.
+
+    Uses `os.open` with the mode set at creation to close the TOCTOU
+    window between `write_text` + `chmod` — matches the pattern used
+    for the log file below.
+    """
     init_config_dir()
     path = state_file_path()
     tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(state.to_dict(), indent=2))
-    tmp.chmod(0o600)
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps(state.to_dict(), indent=2))
     os.replace(tmp, path)
 
 
@@ -244,7 +259,7 @@ def _read_log_tail(path: Path, lines: int = 20) -> str:
 def _assert_supported_platform() -> None:
     """PR 1 platform gate — Linux only. Removed in PR 2."""
     if sys.platform != "linux":
-        raise RuntimeError(
+        raise ServerPlatformError(
             "clawctl server is Linux-only in this release; "
             "macOS support ships in a follow-up PR."
         )
@@ -262,8 +277,16 @@ def start_detached() -> ServerState:
 
     existing = read_state()
     if existing is not None and is_pid_alive(existing.pid):
-        raise ServerAlreadyRunningError(existing)
-    if existing is not None and not is_pid_alive(existing.pid):
+        # Port tiebreaker (mirrors read_status / stop_running): a live
+        # PID that no longer answers on :36000 is almost certainly a
+        # recycled PID belonging to an unrelated process. Clear the
+        # stale state and proceed with a fresh start instead of
+        # stranding the user behind a "Server already running" URL
+        # that goes nowhere.
+        if _port_accepting(existing.host, existing.port):
+            raise ServerAlreadyRunningError(existing)
+        clear_state()
+    elif existing is not None:
         # Stale state file: previous process died. Clear and continue.
         clear_state()
 
@@ -275,6 +298,12 @@ def start_detached() -> ServerState:
     init_config_dir()
     log_path = log_file_path()
     log_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # mkdir(mode=) is a no-op when the directory already exists —
+    # tighten defensively so a pre-existing 0o755 dir doesn't survive.
+    try:
+        log_path.parent.chmod(0o700)
+    except OSError:
+        pass
     # Truncate on start; no rotation in v1. 0o600 keeps request paths
     # and startup timing out of world-readable files. Failure here
     # (log dir unwritable) is a start failure — wrap as
@@ -308,11 +337,24 @@ def start_detached() -> ServerState:
         log_fh.close()
 
     if not wait_for_port(GUI_HOST, GUI_PORT, proc=proc):
-        # Health check failed — clean up.
+        # Health check failed — clean up with TERM → wait → KILL. If
+        # the child ignores SIGTERM it can still bind :36000 later and
+        # block the next start attempt; the escalation mirrors
+        # `stop_running`'s pattern.
         try:
             os.kill(proc.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
+        kill_deadline = time.monotonic() + _STOP_TIMEOUT_SECONDS
+        while time.monotonic() < kill_deadline:
+            if proc.poll() is not None:
+                break
+            time.sleep(_STOP_POLL_INTERVAL_SECONDS)
+        if proc.poll() is None:
+            try:
+                os.kill(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         tail = _read_log_tail(log_path)
         exit_code = proc.poll()
         if exit_code is not None:
@@ -361,6 +403,13 @@ def stop_running() -> ServerState:
         # Stale state — clean and treat as not-running.
         clear_state()
         raise ServerNotRunningError("server is not running")
+    # Port tiebreaker (matches read_status): a live PID that no longer
+    # answers on :36000 has almost certainly been recycled to an
+    # unrelated process. Refusing to SIGTERM in that case avoids
+    # signaling the wrong target on PID reuse.
+    if not _port_accepting(state.host, state.port):
+        clear_state()
+        raise ServerNotRunningError("server is not running")
 
     try:
         os.kill(state.pid, signal.SIGTERM)
@@ -379,6 +428,14 @@ def stop_running() -> ServerState:
             os.kill(state.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        # Mirror the SIGTERM poll — SIGKILL is near-instant but not
+        # zero. Waiting here keeps a rapid stop→start from tripping
+        # PortInUseError while the kernel is releasing :36000.
+        kill_deadline = time.monotonic() + _STOP_TIMEOUT_SECONDS
+        while time.monotonic() < kill_deadline:
+            if not is_pid_alive(state.pid):
+                break
+            time.sleep(_STOP_POLL_INTERVAL_SECONDS)
 
     clear_state()
     return state
