@@ -62,7 +62,7 @@ uv tool install clawrium
 ```
 Resolved 1 package in 523ms
 Installed 1 package in 12ms
- + clawrium==26.7.0
+ + clawrium==26.7.1
 ```
 
 ### Run Without Installing
@@ -109,7 +109,7 @@ Check the version:
 clawctl --version
 ```
 ```
-clawctl 26.7.0
+clawctl 26.7.1
 ```
 
 ## Initialize Clawrium
