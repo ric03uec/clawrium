@@ -112,11 +112,11 @@ class CustomBuildHook(BuildHookInterface):  # type: ignore[misc]
 
     PLUGIN_NAME = "custom"
 
-    def initialize(self, build_version: str, build_data: dict[str, Any]) -> None:
-        # Prefer the version hatchling resolved (S1) — it is always the
-        # correct build version.  Fall back to _get_version() only when
-        # hatchling passes an empty string (should not happen in practice).
-        pkg_version = build_version or _get_version()
+    def initialize(self, build_version: str, build_data: dict[str, Any]) -> None:  # noqa: ARG002
+        # hatchling's initialize() `version` arg is the build-target scheme
+        # name ("standard"/"editable"/"sdist"), NOT the package version.
+        # Always read the package version from pyproject.toml.
+        pkg_version = _get_version()
         git_sha = _get_git_sha()
 
         # B1: If _version.py already exists (e.g. shipped inside the sdist)

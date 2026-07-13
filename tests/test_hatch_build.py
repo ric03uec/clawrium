@@ -185,14 +185,22 @@ class TestInitialize:
         assert abs(final_mtime - original_mtime) < 1_000_000_000, \
             "initialize() rewrote _version.py when content was identical"
 
-    def test_uses_build_version_param(self, _hook, tmp_path: Path) -> None:
-        """S1: initialize must prefer build_version over _get_version()."""
-        _hook.initialize("42.0.0", {})
+    def test_ignores_build_version_param(self, _hook, tmp_path: Path) -> None:
+        """initialize() must NOT use its `version` arg as the package version.
+
+        Hatchling passes the build-target scheme name ("standard"/"editable"/
+        "sdist") in that arg, not the package version. Using it verbatim
+        shipped a broken wheel with ``__version__ = 'standard'`` (see the
+        v26.7.1 publish failure).
+        """
+        _hook.initialize("standard", {})
         version_file = tmp_path / "src" / "clawrium" / "_version.py"
         content = version_file.read_text()
         ns: dict[str, object] = {}
         exec(content, ns)  # noqa: S102
-        assert ns["__version__"] == "42.0.0"
+        # __version__ must come from pyproject.toml / importlib.metadata,
+        # never from the scheme-name arg.
+        assert ns["__version__"] != "standard"
 
 
 # ---------------------------------------------------------------------------
