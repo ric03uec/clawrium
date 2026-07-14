@@ -863,11 +863,68 @@ def start_agent(
         state = OnboardingState.PENDING
 
     if state != OnboardingState.READY and not force:
-        agent_display_name = agent_key
-        raise LifecycleError(
-            f"Cannot start {agent_key}: onboarding incomplete (state={state_value}). "
-            f"Run 'clm agent configure {agent_display_name}' first."
-        )
+        if agent_type == "ethos":
+            # Auto-recover: re-run configure before failing so a transient
+            # SSH drop or provider API blip during the original configure
+            # doesn't permanently wedge the agent in "pending".
+            emit(
+                "start",
+                f"Onboarding incomplete (state={state_value}); attempting auto-recovery via configure...",
+            )
+            persisted_config = (
+                claw_record.get("config", {}) if isinstance(claw_record, dict) else {}
+            )
+            if not isinstance(persisted_config, dict):
+                persisted_config = {}
+            try:
+                provider_overlay, provider_overlays, _ = (
+                    _build_provider_overlays_from_attachments(
+                        claw_record=claw_record,
+                        agent_type=agent_type,
+                        agent_key=agent_key,
+                    )
+                )
+                if provider_overlay is not None:
+                    persisted_config = dict(persisted_config)
+                    persisted_config["provider"] = provider_overlay
+            except LifecycleError as exc:
+                raise LifecycleError(
+                    f"Cannot start {agent_key}: onboarding incomplete and auto-recovery "
+                    f"could not resolve provider attachment: {exc}"
+                ) from exc
+
+            cfg_success, cfg_error = configure_agent(
+                hostname,
+                claw_name,
+                persisted_config,
+                agent_name=agent_key,
+                on_event=on_event,
+                reason="start-onboarding-recovery",
+            )
+            if not cfg_success:
+                raise LifecycleError(
+                    f"Cannot start {agent_key}: onboarding auto-recovery failed: {cfg_error}"
+                )
+
+            # Reload agent record to check if onboarding state is now ready.
+            host = get_host(hostname)
+            if host:
+                resolved2 = _resolve_agent_record(host, agent_key, expected_type=claw_name)
+                if resolved2:
+                    _, _, claw_record = resolved2
+                    new_state = claw_record.get("onboarding", {}).get("state", "pending")
+                    if new_state != "ready":
+                        raise LifecycleError(
+                            f"Cannot start {agent_key}: onboarding still incomplete "
+                            f"(state={new_state}) after auto-recovery. "
+                            f"Run 'clawctl agent configure {agent_key}' manually."
+                        )
+                    emit("start", f"Onboarding recovery successful for {agent_key}")
+        else:
+            raise LifecycleError(
+                f"Cannot start {agent_key}: onboarding incomplete (state={state_value}). "
+                f"Run 'clawctl agent configure {agent_key}' first."
+            )
 
     # Issue #448: env-file consistency invariant. For hermes, the
     # daemon enforces the API_SERVER_KEY written into ~/.hermes/.env at

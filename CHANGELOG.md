@@ -20,4 +20,10 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- Ethos agents stuck in `onboarding.state=pending` (e.g. due to SSH drop or provider API
+  unreachable during configure) now auto-recover when `clawctl agent start` is called.
+  `start_agent` re-runs configure before raising `LifecycleError`; if recovery succeeds
+  the start proceeds normally. If it fails the error message includes the configure failure
+  reason instead of the previous opaque "Run clawctl agent configure first" hint (#904).
+
 ### Documentation

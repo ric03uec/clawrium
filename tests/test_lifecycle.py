@@ -539,6 +539,169 @@ class TestStartClaw:
 
         assert "incomplete" in str(exc_info.value)
 
+    def test_ethos_pending_onboarding_auto_recovers(self, tmp_path: Path):
+        """Issue #904: ethos agents with pending onboarding attempt
+        configure auto-recovery before raising LifecycleError.
+
+        The test mocks configure_agent to succeed and updates the
+        agent record so the post-configure reload sees state=ready,
+        then verifies start_agent proceeds to the start playbook.
+        """
+        initial_host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "port": 22,
+            "user": "xclm",
+            "agents": {
+                "kevin": {
+                    "type": "ethos",
+                    "onboarding": {"state": "pending"},
+                    "config": {},
+                }
+            },
+        }
+        # After configure_agent runs, the host record should show ready.
+        recovered_host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "port": 22,
+            "user": "xclm",
+            "agents": {
+                "kevin": {
+                    "type": "ethos",
+                    "onboarding": {"state": "ready"},
+                    "config": {},
+                }
+            },
+        }
+
+        events: list[tuple[str, str]] = []
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("private key")
+        playbook_path = tmp_path / "start.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = []
+
+        call_count = {"n": 0}
+
+        def _get_host_side_effect(_hostname):
+            # First call (start of start_agent): initial pending record.
+            # Second call (post-configure reload): ready record.
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return initial_host
+            return recovered_host
+
+        with (
+            patch(
+                "clawrium.core.lifecycle.get_host",
+                side_effect=_get_host_side_effect,
+            ),
+            patch(
+                "clawrium.core.lifecycle._build_provider_overlays_from_attachments",
+                return_value=(None, None, None),
+            ),
+            patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ) as mock_cfg,
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                return_value=mock_runner,
+            ),
+            patch(
+                "clawrium.core.lifecycle._update_agent_runtime",
+                return_value=True,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_config_dir",
+                return_value=tmp_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle._ethos_health_check_after_start",
+                return_value=(True, None),
+            ),
+        ):
+            result = start_agent(
+                "192.168.1.100",
+                "ethos",
+                agent_name="kevin",
+                on_event=lambda stage, msg: events.append((stage, msg)),
+            )
+
+        assert result["success"] is True, f"start_agent failed: {result.get('error')}"
+        mock_cfg.assert_called_once()
+        _, cfg_kwargs = mock_cfg.call_args
+        assert cfg_kwargs.get("reason") == "start-onboarding-recovery"
+        recovery_events = [msg for stage, msg in events if "recovery" in msg.lower()]
+        assert recovery_events, "Expected recovery notice events but got none"
+
+    def test_ethos_pending_onboarding_surfaces_configure_failure(self, tmp_path: Path):
+        """Issue #904: if configure auto-recovery fails, LifecycleError
+        includes the configure failure reason."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agents": {
+                "kevin": {
+                    "type": "ethos",
+                    "onboarding": {"state": "pending"},
+                    "config": {},
+                }
+            },
+        }
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle._build_provider_overlays_from_attachments",
+                return_value=(None, None, None),
+            ),
+            patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(False, "SSH connection refused"),
+            ),
+        ):
+            with pytest.raises(LifecycleError) as exc_info:
+                start_agent("192.168.1.100", "ethos", agent_name="kevin")
+
+        assert "auto-recovery failed" in str(exc_info.value)
+        assert "SSH connection refused" in str(exc_info.value)
+
+    def test_non_ethos_pending_onboarding_still_raises(self, tmp_path: Path):
+        """Issue #904: non-ethos agents still get the original LifecycleError
+        (no auto-recovery attempt)."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agents": {
+                "opc-work": {
+                    "type": "openclaw",
+                    "onboarding": {"state": "pending"},
+                }
+            },
+        }
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with pytest.raises(LifecycleError) as exc_info:
+                start_agent("192.168.1.100", "openclaw")
+
+        error_msg = str(exc_info.value)
+        assert "incomplete" in error_msg
+        # The new error message uses 'clawctl', not 'clm'.
+        assert "clawctl" in error_msg
+
     def test_returns_success_on_successful_start(self, tmp_path: Path):
         host = {
             "hostname": "192.168.1.100",
