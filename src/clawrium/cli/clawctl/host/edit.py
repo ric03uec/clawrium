@@ -15,7 +15,7 @@ import typer
 from clawrium.cli.clawctl._common import validate_alias
 from clawrium.cli.clawctl.host._shared import display_name, hostname_key, safe_get_host
 from clawrium.cli.output import emit_error, stream_action
-from clawrium.core.hosts import alias_exists, update_host
+from clawrium.core.hosts import alias_exists, load_hosts, update_host
 
 
 def edit(
@@ -25,16 +25,21 @@ def edit(
         None, "--port", "-p", min=1, max=65535, help="New SSH port."
     ),
     alias: Optional[str] = typer.Option(None, "--alias", "-a", help="New alias."),
+    hostname_new: Optional[str] = typer.Option(
+        None,
+        "--hostname",
+        help="New IP address or hostname (e.g. after DHCP renewal). key_id is preserved.",
+    ),
 ) -> None:
     """Edit a host record in place (flag-driven)."""
     host = safe_get_host(hostname)
     canonical = hostname_key(host)
     old_name = display_name(host)
 
-    if user is None and port is None and alias is None:
+    if user is None and port is None and alias is None and hostname_new is None:
         emit_error(
             "no edits requested",
-            hint="pass at least one of --user, --port, --alias",
+            hint="pass at least one of --user, --port, --alias, --hostname",
         )
 
     if alias is not None:
@@ -46,6 +51,23 @@ def edit(
                 hint="choose a different alias or remove the conflict first",
             )
 
+    if hostname_new is not None:
+        new_ip = hostname_new.strip()
+        if not new_ip:
+            emit_error("--hostname cannot be empty")
+        if new_ip != canonical:
+            conflicting = [
+                h
+                for h in load_hosts()
+                if h["hostname"] == new_ip
+                and h.get("key_id") != host.get("key_id")
+            ]
+            if conflicting:
+                emit_error(
+                    f"hostname {new_ip!r} already in use",
+                    hint="choose a different address or remove the conflicting host first",
+                )
+
     def apply(h: dict) -> dict:
         if user is not None:
             h["user"] = user
@@ -53,9 +75,26 @@ def edit(
             h["port"] = port
         if alias is not None:
             h["alias"] = alias
+        if hostname_new is not None:
+            new_ip = hostname_new.strip()
+            if new_ip and new_ip != h["hostname"]:
+                h["hostname"] = new_ip
+                for addr in h.get("addresses", []):
+                    if addr.get("is_primary"):
+                        addr["address"] = new_ip
+                        break
         return h
 
     if not update_host(canonical, apply):
         emit_error(f"failed to update host {old_name!r}")
     new_name = alias if alias is not None else old_name
     stream_action(resource=f"host/{new_name}", message="updated")
+    if hostname_new is not None and hostname_new.strip() != canonical:
+        key_id = host.get("key_id", canonical)
+        stream_action(
+            resource=f"host/{new_name}",
+            message=(
+                f"SSH key (key_id: {key_id}) unchanged"
+                " — confirm authorized_keys on the new address"
+            ),
+        )
