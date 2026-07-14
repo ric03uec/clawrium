@@ -135,7 +135,7 @@ Currently available:
 
 - Repository: https://github.com/ric03uec/clawrium
 - Project Board: https://github.com/users/ric03uec/projects/1
-- Version: 26.7.0
+- Version: 26.7.2
 - Changelog: [`CHANGELOG.md`](CHANGELOG.md) (current unreleased) · [`docs/releases/`](docs/releases/) (per-release archive)
 
 ## Gateway Token Lifecycle (zeroclaw)
@@ -580,7 +580,7 @@ Warnings:
 | W1 | Fixed | Description |
 | W2 | Acknowledged | Will address in follow-up |
 
-Co-Authored-By: Claude <noreply@anthropic.com>
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 Co-Authored-By: @atx-ci <269048218+atx-ci@users.noreply.github.com>
 ```
 </commit-format-atx>
@@ -669,7 +669,7 @@ Detailed explanation of changes.
 
 Closes #XX
 
-Co-Authored-By: Claude <noreply@anthropic.com>
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
 </commit-format-manual>
 

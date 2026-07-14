@@ -516,3 +516,363 @@ def test_ensure_with_missing_ssh_user_raises(
     monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: bad)
     with pytest.raises(TunnelError):
         ensure("demo")
+
+
+# ── Port persistence tests (issue #866) ──────────────────────────────────────
+
+
+def test_preferred_port_reused_after_stale_eviction(
+    isolated_state: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """When a dead tunnel state file holds a local_port that is available,
+    ensure() must reuse that exact port for the new SSH command (#866).
+    """
+    preferred = 54321
+    state_path = tunnel_state_dir() / "demo.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 9999,
+                "local_port": preferred,
+                "started_at": time.time(),
+                "ssh_cmdline_signature": "ssh -N old-signature",
+            }
+        )
+    )
+
+    monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
+    # Tunnel is dead: PID not alive, state is stale.
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    # Preferred port is available — mock is port-specific so a wrong port fails.
+    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: port == preferred)
+
+    captured_cmds: list[list[str]] = []
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 7777
+    fake_proc.poll.return_value = None
+
+    def fake_spawn(cmd: list[str]) -> MagicMock:
+        captured_cmds.append(cmd)
+        return fake_proc
+
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", fake_spawn)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
+    )
+
+    result = ensure("demo")
+
+    assert result == preferred
+    l_idx = captured_cmds[0].index("-L")
+    assert captured_cmds[0][l_idx + 1].startswith(f"{preferred}:")
+
+
+def test_preferred_port_fallback_when_occupied(
+    isolated_state: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """When the preferred port is occupied, ensure() falls back to _pick_free_port
+    and uses whatever OS-assigned port it returns (#866).
+    """
+    preferred = 54321
+    fallback = 11111
+    state_path = tunnel_state_dir() / "demo.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 9999,
+                "local_port": preferred,
+                "started_at": time.time(),
+                "ssh_cmdline_signature": "ssh -N old-signature",
+            }
+        )
+    )
+
+    monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    # Preferred port is occupied; fallback should be used.
+    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: False)
+    monkeypatch.setattr(web_ui_tunnel, "_pick_free_port", lambda: fallback)
+
+    captured_cmds: list[list[str]] = []
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 7778
+    fake_proc.poll.return_value = None
+
+    def fake_spawn(cmd: list[str]) -> MagicMock:
+        captured_cmds.append(cmd)
+        return fake_proc
+
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", fake_spawn)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
+    )
+
+    result = ensure("demo")
+
+    assert result == fallback
+    assert result != preferred
+    l_idx = captured_cmds[0].index("-L")
+    assert captured_cmds[0][l_idx + 1].startswith(f"{fallback}:")
+
+
+def test_ssh_command_includes_keepalive_params():
+    """_ssh_command must emit ServerAliveInterval=60 and ServerAliveCountMax=10 (#866)."""
+    from clawrium.core.web_ui_tunnel import _ssh_command
+
+    cmd = _ssh_command(
+        local_port=12345,
+        remote_port=9119,
+        remote_bind_addr="127.0.0.1",
+        ssh_user="xclm",
+        ssh_host="hermes.local",
+        ssh_port=None,
+        identity_file=None,
+    )
+
+    assert "ServerAliveInterval=60" in cmd
+    assert "ServerAliveCountMax=10" in cmd
+    assert "ServerAliveInterval=30" not in cmd
+
+
+def test_is_port_available_occupied_vs_free():
+    """_is_port_available returns False while held, True after release (#866)."""
+    from clawrium.core.web_ui_tunnel import _is_port_available
+
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as holder:
+        holder.bind(("127.0.0.1", 0))
+        held_port = holder.getsockname()[1]
+        # Port is held — should not be available (tests False-path against real impl).
+        assert _is_port_available(held_port) is False
+
+    # True-path: port is released, must be available now (tests True-path).
+    # The window between close and assert is acceptable for a unit test;
+    # the intent is to exercise the real implementation's True branch.
+    assert _is_port_available(held_port) is True
+
+
+def test_preferred_port_reused_ensure_at_port(
+    isolated_state: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """ensure_at_port reuses the preferred port from a dead namespaced state (#866)."""
+    preferred = 54322
+    remote_port = 9119
+    namespaced_key = f"demo:{remote_port}"
+    state_path = tunnel_state_dir() / f"{namespaced_key}.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 9999,
+                "local_port": preferred,
+                "started_at": time.time(),
+                "ssh_cmdline_signature": "ssh -N old-signature",
+            }
+        )
+    )
+
+    import clawrium.core.web_ui as _web_ui
+
+    # ensure_at_port does `from clawrium.core.web_ui import resolve` locally, so
+    # we must patch the source module rather than the web_ui_tunnel import site.
+    monkeypatch.setattr(_web_ui, "resolve", lambda key: _resolved())
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: port == preferred)
+
+    captured_cmds: list[list[str]] = []
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 8888
+    fake_proc.poll.return_value = None
+
+    def fake_spawn(cmd: list[str]) -> MagicMock:
+        captured_cmds.append(cmd)
+        return fake_proc
+
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", fake_spawn)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
+    )
+
+    from clawrium.core.web_ui_tunnel import ensure_at_port
+
+    result = ensure_at_port("demo", remote_port)
+
+    assert result == preferred
+    l_idx = captured_cmds[0].index("-L")
+    assert captured_cmds[0][l_idx + 1].startswith(f"{preferred}:")
+
+
+def test_preferred_port_fallback_ensure_at_port(
+    isolated_state: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """ensure_at_port falls back to _pick_free_port when preferred port is occupied (#866)."""
+    preferred = 54322
+    fallback = 11112
+    remote_port = 9119
+    namespaced_key = f"demo:{remote_port}"
+    state_path = tunnel_state_dir() / f"{namespaced_key}.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 9999,
+                "local_port": preferred,
+                "started_at": time.time(),
+                "ssh_cmdline_signature": "ssh -N old-signature",
+            }
+        )
+    )
+
+    import clawrium.core.web_ui as _web_ui
+
+    # ensure_at_port does `from clawrium.core.web_ui import resolve` locally, so
+    # we must patch the source module rather than the web_ui_tunnel import site.
+    monkeypatch.setattr(_web_ui, "resolve", lambda key: _resolved())
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: False)
+    monkeypatch.setattr(web_ui_tunnel, "_pick_free_port", lambda: fallback)
+
+    captured_cmds: list[list[str]] = []
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 8889
+    fake_proc.poll.return_value = None
+
+    def fake_spawn(cmd: list[str]) -> MagicMock:
+        captured_cmds.append(cmd)
+        return fake_proc
+
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", fake_spawn)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
+    )
+
+    from clawrium.core.web_ui_tunnel import ensure_at_port
+
+    result = ensure_at_port("demo", remote_port)
+
+    assert result == fallback
+    assert result != preferred
+    l_idx = captured_cmds[0].index("-L")
+    assert captured_cmds[0][l_idx + 1].startswith(f"{fallback}:")
+
+
+@pytest.mark.parametrize("out_of_range_port", [0, 80, 1023, 65536, 99999])
+def test_out_of_range_preferred_port_falls_back(
+    isolated_state: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    out_of_range_port: int,
+):
+    """Ports outside [1024, 65535] in the state file must be ignored (#866).
+
+    _is_port_available is mocked to AssertionError so the test proves the
+    range guard fires before the socket check — especially for privileged
+    ports (80, 1023) which would return False via PermissionError on most
+    systems, masking a missing range guard.
+    """
+    fallback = 40123
+    state_path = tunnel_state_dir() / "demo.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 9999,
+                "local_port": out_of_range_port,
+                "started_at": time.time(),
+                "ssh_cmdline_signature": "ssh -N old-signature",
+            }
+        )
+    )
+
+    monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    # If the range guard is missing and _is_port_available is called, the test fails.
+    monkeypatch.setattr(
+        web_ui_tunnel, "_is_port_available", lambda port: (_ for _ in ()).throw(AssertionError(f"_is_port_available must not be called for out-of-range port {port}"))
+    )
+    monkeypatch.setattr(web_ui_tunnel, "_pick_free_port", lambda: fallback)
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 5555
+    fake_proc.poll.return_value = None
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", lambda cmd: fake_proc)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
+    )
+
+    result = ensure("demo")
+
+    assert result == fallback
+
+
+@pytest.mark.parametrize(
+    "bad_state",
+    [
+        {"pid": 9999, "local_port": None, "started_at": 0.0, "ssh_cmdline_signature": "x"},
+        {"pid": 9999, "started_at": 0.0, "ssh_cmdline_signature": "x"},
+        {"pid": 9999, "local_port": "not-a-number", "started_at": 0.0, "ssh_cmdline_signature": "x"},
+    ],
+    ids=["null_port", "missing_port", "non_integer_port"],
+)
+def test_malformed_state_falls_back_gracefully(
+    isolated_state: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bad_state: dict,
+):
+    """Corrupted local_port in state must be silently ignored (#866)."""
+    fallback = 40124
+    state_path = tunnel_state_dir() / "demo.json"
+    state_path.write_text(json.dumps(bad_state))
+
+    monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    monkeypatch.setattr(web_ui_tunnel, "_pick_free_port", lambda: fallback)
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 5556
+    fake_proc.poll.return_value = None
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", lambda cmd: fake_proc)
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: True
+    )
+
+    result = ensure("demo")
+
+    assert result == fallback
+
+
+def test_preferred_port_toctou_race_raises_tunnel_error(
+    isolated_state: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """When _is_port_available returns True but SSH fails to bind the preferred
+    port (TOCTOU race), ensure() raises TunnelError (#866).
+    """
+    preferred = 54323
+    state_path = tunnel_state_dir() / "demo.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 9999,
+                "local_port": preferred,
+                "started_at": time.time(),
+                "ssh_cmdline_signature": "ssh -N old-signature",
+            }
+        )
+    )
+
+    monkeypatch.setattr(web_ui_tunnel, "resolve", lambda key: _resolved())
+    monkeypatch.setattr(web_ui_tunnel, "_process_alive", lambda pid: False)
+    # Port appears available but SSH fails to bind (TOCTOU race).
+    monkeypatch.setattr(web_ui_tunnel, "_is_port_available", lambda port: port == preferred)
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 6666
+    fake_proc.poll.return_value = 1  # SSH exited non-zero (ExitOnForwardFailure)
+    fake_proc.stderr = None
+    monkeypatch.setattr(web_ui_tunnel, "_spawn_ssh", lambda cmd: fake_proc)
+    # Port never became reachable — simulates bind failure.
+    monkeypatch.setattr(
+        web_ui_tunnel, "_wait_for_connect", lambda port, timeout=5.0, **kwargs: False
+    )
+
+    with pytest.raises(TunnelError):
+        ensure("demo")

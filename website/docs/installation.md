@@ -62,7 +62,7 @@ uv tool install clawrium
 ```
 Resolved 1 package in 523ms
 Installed 1 package in 12ms
- + clawrium==26.7.0
+ + clawrium==26.7.2
 ```
 
 ### Run Without Installing
@@ -97,7 +97,7 @@ You should see:
 │ skill       Browse the skills catalog                                        │
 │ agent       Manage agents in your fleet                                      │
 │ tui         Launch the interactive TUI dashboard                             │
-│ gui         Launch the local web GUI dashboard                               │
+│ server      Manage the local GUI server (loopback-only, port 36000)          │
 │ version     Show clawctl version and exit                                    │
 │ completion  Emit a shell-completion script                                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
@@ -109,7 +109,7 @@ Check the version:
 clawctl --version
 ```
 ```
-clawctl 26.7.0
+clawctl 26.7.2
 ```
 
 ## Initialize Clawrium
@@ -131,6 +131,30 @@ Clawrium is ready! Next: clawctl host create <hostname> --user xclm --alias <nam
 This creates:
 - `~/.config/clawrium/` directory structure
 - Validates that Ansible and SSH are available
+
+## Start the GUI
+
+Bring up the local web dashboard with `clawctl server start`:
+
+```bash
+clawctl server start
+```
+```
+Server started at http://127.0.0.1:36000 (pid 12345)
+```
+
+The server binds `127.0.0.1:36000` only. Open the URL in your browser.
+
+- `clawctl server status` — show whether the server is running.
+- `clawctl server stop` — stop the running server.
+- `clawctl server run` — foreground/blocking mode, for `systemd` or Docker.
+
+If port `36000` is already held by another process, `start` exits `1`
+with a clear error and does not touch state. Stop the other process
+and re-run.
+
+> **Note**: `clawctl server` is Linux-only in this release. macOS
+> support ships in a follow-up.
 
 ## macOS targets
 

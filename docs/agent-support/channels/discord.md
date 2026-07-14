@@ -119,7 +119,7 @@ Once running, interact with the bot by:
 
 **"Token invalid"**
 - Regenerate token in Discord Developer Portal
-- Re-register the channel: `clawctl channel registry create <channel-name> --type discord --token-stdin <<<"$NEW_TOKEN"` then `clawctl agent sync <agent-name>` (the existing attachment picks up the new token)
+- Re-register the channel: `clawctl channel registry edit <channel-name> --token-stdin <<<"$NEW_TOKEN"` then `clawctl agent sync <agent-name>` (the existing attachment picks up the new token)
 
 **"Missing permissions"**
 - Re-invite bot with correct permissions
@@ -155,7 +155,6 @@ Hermes uses a simpler configuration model than OpenClaw — env vars rendered di
 clawctl channel registry create <channel-name> --type discord \
   --token-stdin <<<"$BOT_TOKEN" \
   --allowed-user 740723459344302120 \
-  --home-channel 1503238729962356777 \
   --require-mention
 
 # 2. Attach the channel to the agent
@@ -172,7 +171,6 @@ Flags accepted by `clawctl channel registry create` (canonical fields, persisted
 | `--type discord` | yes | Channel type. |
 | `--token` / `--token-stdin` | yes | Bot token. Stored in `secrets.json` under `channel:<channel-name>`, never in `channels.json`. |
 | `--allowed-user <id>` | yes (repeatable) | Discord user IDs (17–19 digits). Hermes silently drops messages from non-allowlisted users. |
-| `--home-channel <id>` | optional | Default channel ID. Without this, hermes nudges users to run `/sethome` on every cold start. |
 | `--allowed-channel <id>` | optional (repeatable) | Restrict the bot to specific channels. Empty = any channel the bot is invited to. |
 | `--require-mention` / `--no-require-mention` | optional | Defaults to true. DMs always work regardless. |
 
@@ -189,7 +187,6 @@ Flags accepted by `clawctl channel registry create` (canonical fields, persisted
     "type": "discord",
     "config": {
       "allowed_users": ["740723459344302120"],
-      "home_channel": "1503238729962356777",
       "require_mention": true
     },
     "created_at": "..."
@@ -384,7 +381,7 @@ In `channels.json` (one record per chat surface):
 ssh <agent-host> "sudo journalctl -u zeroclaw-<name>.service -n 200 --no-pager | grep -iE 'discord|channel'"
 ```
 
-If the daemon logged a token error, rotate the bot token in the Discord Developer Portal, re-create the channel record (`clawctl channel registry delete` then `clawctl channel registry create` with the new token), re-attach if needed, and `clawctl agent sync <name>` to push the new value.
+If the daemon logged a token error, rotate the bot token in the Discord Developer Portal and update the channel record: `clawctl channel registry edit <channel-name> --token-stdin <<<"$NEW_TOKEN"` then `clawctl agent sync <name>` to push the new value.
 
 </details>
 

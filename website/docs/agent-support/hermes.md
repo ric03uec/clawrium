@@ -186,7 +186,7 @@ clawctl agent sync <agent-name>
 
 #### Invariants
 
-- **`--role` is required on hermes.** Omitting it returns: _"agent '\<name\>' is a hermes agent; --role is required"_.
+- **`--role` is required on hermes.** Omitting it returns: _"agent `<name>` is a hermes agent; --role is required"_.
 - **One provider per slot.** Re-attaching a different provider to a slot that is already filled is rejected; detach the existing one first.
 - **Primary is required and detached last.** `clawctl agent provider detach <primary-name>` refuses to remove the primary attachment while any auxiliary attachments remain — detach the auxiliaries first. An agent with zero attachments fails to render (`agent '<name>' has no provider attached`).
 - **Same-type collisions fail loudly.** Two attachments of the same provider type (e.g. two `bedrock` slots) with mismatched credentials are rejected at render time rather than silently overwriting the `.env`.
@@ -431,7 +431,7 @@ Hermes-specific details:
 
 - **Config surface:** the Slack MCP subprocess is rendered into the `mcp_servers:` block of `~/.hermes/config.yaml` (mode 0600), adjacent to the atlassian branch. Renderer: [`src/clawrium/core/render.py:render_hermes`](https://github.com/ric03uec/clawrium/blob/main/src/clawrium/core/render.py). The subprocess env block carries the `SLACK_MCP_XOX*` tokens verbatim; no separate `.env` write path.
 - **Binary install location:** `~/<agent-name>/.local/bin/slack-mcp-server` — same path pattern as the atlassian `uvx` binary, but Slack ships as a single Go binary so there is no Python runtime dependency.
-- **First MCP subprocess on Darwin.** Slack is the first MCP subprocess supported on Darwin hermes (atlassian macOS was deferred). The `configure_macos.yaml` playbook variant installs the darwin arm64 / x86_64 tarball at the pinned SHA. The `workspace_excluded` invariants and `no_log: true` render behavior apply identically on Linux and macOS.
+- **First MCP subprocess on Darwin.** Slack is the first MCP subprocess supported on Darwin hermes (atlassian macOS was deferred). `clawctl agent sync` installs the darwin arm64 / x86_64 tarball via the dedicated `install_slack_mcp_macos.yaml` runbook. The `workspace_excluded` invariants and `no_log: true` render behavior apply identically on Linux and macOS.
 - **Composite blast-radius warning applies.** Attaching both the Slack **channel** (inbound, see [Slack channel](channels/slack.md)) and the Slack **integration** (outbound) to the same hermes agent enables a prompt-injection tool-call exfiltration path. See [integrations/slack.md → Composite blast-radius warning](integrations/slack.md#composite-blast-radius-warning) — for high-sensitivity workspaces, split inbound and outbound into two separate hermes agents.
 
 Quick attach + sync:
@@ -462,5 +462,5 @@ The following are explicitly out of scope for issue #68 and tracked as separate 
 
 - [Memory model](memory.md) — manifest-driven memory CLI across agent types
 - [OpenClaw Support Matrix](openclaw.md) — full-featured alternative with multi-channel support
-- [Agent Onboarding](../agent-onboarding.md) — detailed onboarding wizard guide
-- [Host Preparation](../host-preparation.md) — installing provider credentials and host prereqs
+- [Agent Onboarding](/docs/guides/agent-onboarding) — detailed onboarding wizard guide
+- [Host Preparation](/docs/guides/host-setup) — installing provider credentials and host prereqs
