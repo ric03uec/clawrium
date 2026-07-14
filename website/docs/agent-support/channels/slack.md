@@ -30,6 +30,37 @@ SLACK_APP_TOKEN=xapp-...
 
 ---
 
+## ⚠️ Critical Prerequisites for DMs
+
+**Before creating your Slack app**, understand that these permissions are **non-negotiable** for direct messages to work:
+
+### Required OAuth Scopes
+Without these, you **cannot DM the bot**:
+- ✅ `im:history` - Bot MUST be able to read DM history
+- ✅ `im:read` - Bot MUST be able to access DM metadata  
+- ✅ `im:write` - Bot MUST be able to write to DMs (⚠️ see security note below — applies to both OpenClaw and Hermes)
+- ✅ `chat:write` - Bot MUST be able to send messages
+
+> **⚠️ Security note on `im:write` (applies to OpenClaw *and* Hermes):** This scope lets the bot *initiate* unsolicited DMs to **any** workspace member — neither OpenClaw's `allowFrom` nor Hermes' `SLACK_ALLOWED_USERS` gate outbound messages. A compromised agent host or leaked `xoxb-` token can DM-spam or phish the entire workspace. Mitigations: keep the host hardened; treat the bot token as a high-value secret; rotate the token immediately on suspicion (Slack API → **OAuth & Permissions** → **Rotate Tokens** → update the channel record (`clawctl channel registry edit <channel-name> --token-stdin <<<"$NEW_BOT_TOKEN"` then `clawctl channel registry edit <channel-name> --app-token "$NEW_APP_TOKEN"`) and `clawctl agent sync <name>`); audit `users:read` calls in your workspace's Slack audit log if you suspect abuse.
+
+### Required Event Subscriptions
+Without these, the bot **will not receive your DMs**:
+- ✅ `message.im` - Fires when you send a DM to the bot (**CRITICAL**)
+- ✅ `app_mention` - Fires when you @-mention the bot in channels
+
+### What Happens Without These?
+- **Missing `im:*` scopes:** Slack UI won't let you message the bot (Message button disabled/missing in Slack app directory)
+- **Missing `message.im` event:** Bot receives no notification when you DM it (messages sent but bot never sees them)
+- **Missing `chat:write` scope:** Bot can receive messages but cannot respond
+
+**Verification After Setup:** 
+1. Go to https://api.slack.com/apps → Select your app
+2. Navigate to **Event Subscriptions** → **Subscribe to bot events**
+3. Confirm `message.im` is listed
+4. If not, add it and **reinstall the app to your workspace** (required for changes to take effect)
+
+---
+
 ## Setup
 
 ### Step 1: Create a Slack App
@@ -37,7 +68,7 @@ SLACK_APP_TOKEN=xapp-...
 1. Go to **[https://api.slack.com/apps/new](https://api.slack.com/apps/new)**
 2. Choose **From a manifest**
 3. Select your workspace
-4. Paste this manifest:
+4. Paste this manifest (includes all required scopes and events for DM support):
 
 ```json
 {
@@ -91,6 +122,8 @@ SLACK_APP_TOKEN=xapp-...
 }
 ```
 
+> **Note:** The manifest includes `im:history`, `im:read`, `im:write` (DM scopes) and `message.im` (DM event) which are **required** for direct messaging. Without these, users cannot send DMs to your bot.
+
 5. Click **Create**
 
 ### Step 2: Generate App-Level Token
@@ -105,7 +138,22 @@ This is the `xapp-` token required for Socket Mode.
 6. **Copy the token** — it starts with `xapp-`
 7. Save this — you'll enter it as `SLACK_APP_TOKEN` during configuration
 
-### Step 3: Install App to Workspace
+### Step 3: Verify Event Subscriptions (Critical for DMs)
+
+Before installing, verify the event subscriptions are correct:
+
+1. Go to **Event Subscriptions** (sidebar)
+2. Confirm **Enable Events** is ON
+3. Scroll to **Subscribe to bot events**
+4. **Verify `message.im` is in the list** (required for DMs)
+5. If `message.im` is missing:
+   - Click **Add Bot User Event**
+   - Select `message.im`
+   - Click **Save Changes**
+
+> **Why this matters:** Without `message.im`, your bot will never receive direct messages. This is the #1 reason DMs don't work.
+
+### Step 4: Install App to Workspace
 
 1. Go to **OAuth & Permissions** (sidebar)
 2. Click **Install to Workspace**
@@ -113,7 +161,7 @@ This is the `xapp-` token required for Socket Mode.
 4. **Copy the Bot User OAuth Token** — it starts with `xoxb-`
 5. Save this — you'll enter it as `SLACK_BOT_TOKEN` during configuration
 
-### Step 4: Invite Bot to a Channel
+### Step 5: Invite Bot to a Channel
 
 In Slack, go to the channel where you want the bot and type:
 
@@ -123,25 +171,26 @@ In Slack, go to the channel where you want the bot and type:
 
 Slack will prompt you to invite the bot to the channel.
 
-### Step 5: Get Your User ID
+### Step 6: Get Your User ID
 
 1. In Slack, click your profile picture (top right)
 2. Click **⋯** (three dots) > **Copy Member ID**
 3. The ID starts with `U` (e.g., `U01ABC2DEF`)
 4. This goes in the `allowFrom` list during configuration
 
-### Step 6: Configure in Clawrium
+### Step 7: Register and attach in Clawrium
 
 ```bash
-clawctl agent configure <agent-name>
-# Select "slack" when prompted for channel
-# Enter your Bot Token, App Token, and User ID
-```
+# 1. Register the channel in the registry
+clawctl channel registry create <channel-name> --type slack \
+  --token-stdin <<<"$SLACK_BOT_TOKEN" \
+  --app-token "$SLACK_APP_TOKEN" \
+  --allowed-user U01ABC2DEF3 \
+  --home-channel C01234567890
 
-Or reconfigure just the channels stage:
-
-```bash
-clawctl agent configure <agent-name> --stage channels
+# 2. Attach to the agent and sync
+clawctl agent channel attach <channel-name> --agent <agent-name>
+clawctl agent sync <agent-name>
 ```
 
 ---
@@ -216,23 +265,29 @@ Hermes uses a simpler configuration model — env vars rendered directly into `~
 
 ### Required scopes (minimal set for Hermes)
 
-| Scope | Purpose |
-|-------|---------|
-| `app_mentions:read` | Bot can see when @-mentioned in channels |
-| `chat:write` | Bot can send messages |
-| `channels:read` | Bot can list public channels |
-| `groups:read` | Bot can list private channels it's a member of |
-| `im:history` | Bot can read DM history |
-| `im:read` | Bot can read DM metadata |
-| `im:write` | Bot can open/write DMs |
-| `users:read` | Bot can look up user info |
+> **⚠️ Critical for DMs:** The three `im:*` scopes below are **required** for direct messaging. Without them, users cannot DM the bot in Slack.
+
+| Scope | Required For | What Breaks Without It |
+|-------|--------------|------------------------|
+| `app_mentions:read` | Channels | Bot won't see @-mentions in channels |
+| `chat:write` | All | Bot cannot send any messages (DMs or channels) |
+| `channels:read` | Channels | Bot cannot list/join public channels |
+| `groups:read` | Private Channels | Bot cannot list private channels it's in |
+| `im:history` | **DMs** | **Bot cannot read DM history (DMs fail)** |
+| `im:read` | **DMs** | **Bot cannot access DM metadata (DMs fail)** |
+| `im:write` | **DMs** | **Slack won't allow users to message the bot** |
+| `users:read` | All | Bot cannot look up user info for allowlist checks |
+
+> **⚠️ Security note on `im:write`:** This scope also permits the bot to *initiate* unsolicited DMs to **any** workspace member — the `SLACK_ALLOWED_USERS` allowlist only gates inbound commands, not outbound messages. A compromised agent host or leaked bot token could DM-spam or phish the entire workspace. Keep the agent host hardened and the `xoxb-` bot token in `secrets.json` only. **On suspicion of leakage:** rotate via Slack API → **OAuth & Permissions** → **Rotate Tokens**, then update the channel record (`clawctl channel registry edit <channel-name> --token-stdin <<<"$NEW_BOT_TOKEN"` then `clawctl channel registry edit <channel-name> --app-token "$NEW_APP_TOKEN"`) and `clawctl agent sync <name>`.
 
 ### Required event subscriptions
 
-| Event | Purpose |
-|-------|---------|
-| `app_mention` | Fires when someone @-mentions the bot in a channel |
-| `message.im` | Fires on direct messages to the bot |
+> **⚠️ Critical for DMs:** Without `message.im`, the bot will never receive your direct messages even if you can send them.
+
+| Event | Required For | What Breaks Without It |
+|-------|--------------|------------------------|
+| `app_mention` | Channels | Bot won't respond to @-mentions |
+| `message.im` | **DMs** | **Bot receives no notification when you DM it** |
 
 ### Access control differences from OpenClaw
 
@@ -245,54 +300,61 @@ Hermes uses a simpler configuration model — env vars rendered directly into `~
 
 Hermes uses **Socket Mode** — the bot maintains an outbound WebSocket to Slack, so no public endpoint or ingress is required on the agent host.
 
-### Interactive setup (Hermes)
+### Setup (Hermes)
 
 ```bash
-clawctl agent configure <hermes-name> --stage channels
+# 1. Register the channel in the registry
+clawctl channel registry create <channel-name> --type slack \
+  --token-stdin <<<"$SLACK_BOT_TOKEN" \
+  --app-token "$SLACK_APP_TOKEN" \
+  --allowed-user U01ABC2DEF3 \
+  --home-channel C01234567890
+
+# 2. Attach and sync
+clawctl agent channel attach <channel-name> --agent <hermes-name>
+clawctl agent sync <hermes-name>
 ```
 
-The wizard offers `cli`, `discord`, and `slack`. Pick `slack` and the CLI prompts for:
+Flags accepted by `clawctl channel registry create --type slack`:
 
-| Prompt | Stored where | Required | Notes |
-|--------|--------------|:--------:|-------|
-| Slack Bot Token | `secrets.json` as `SLACK_BOT_TOKEN` | yes | Masked input. Must start with `xoxb-`. |
-| Slack App Token | `secrets.json` as `SLACK_APP_TOKEN` | yes | Masked input. Must start with `xapp-`. |
-| Allowed Slack user IDs | `hosts.json` `channels.slack.allowed_users` | yes | Comma-separated Member IDs (format: `U` + 8+ alphanumeric chars). |
-| Slack home channel ID | `hosts.json` `channels.slack.home_channel` | optional | Channel for cron/scheduled messages. Format: `C` + alphanumeric. |
-| Slack home channel name | `hosts.json` `channels.slack.home_channel_name` | optional | Display name for the home channel. |
+| Flag | Required | Notes |
+|------|:--------:|-------|
+| `--token` / `--token-stdin` | yes | Bot User OAuth Token. Stored in `secrets.json` under `channel:<channel-name>:SLACK_BOT_TOKEN`. Must start with `xoxb-`. |
+| `--app-token` | yes | App-Level Token for Socket Mode. Stored in `secrets.json` under `channel:<channel-name>:SLACK_APP_TOKEN`. Must start with `xapp-`. |
+| `--allowed-user <id>` (repeatable) | yes | Slack Member IDs (format: `U` + 8+ alphanumeric chars). |
+| `--home-channel <id>` | optional | Channel ID for cron/scheduled messages. Format: `C` + alphanumeric. |
 
-`clawctl` then runs the configure playbook which re-renders `~/.hermes/.env` with the `SLACK_*` block and restarts `hermes-<name>.service`.
+`clawctl agent sync` re-renders `~/.hermes/.env` with the `SLACK_*` block from the attached channel's registry record and restarts `hermes-<name>.service`.
 
 ### Resulting on-disk shape (Hermes)
 
-`hosts.json` (non-sensitive only):
+`channels.json` (non-sensitive — one record per chat surface):
 
 ```json
-"config": {
-  "api_server": {"enabled": true, "host": "127.0.0.1", "port": 8642},
-  "provider": {...},
-  "channels": {
-    "slack": {
-      "enabled": true,
+{
+  "<channel-name>": {
+    "name": "<channel-name>",
+    "type": "slack",
+    "config": {
       "allowed_users": ["U01ABC2DEF3"],
-      "home_channel": "C01234567890",
-      "home_channel_name": "general"
+      "home_channel": "C01234567890"
     }
   }
 }
 ```
 
+`hosts.json` carries the attachment list under `agents.<name>.channels[]`.
+
 `secrets.json`:
 
 ```json
-"192.168.1.36:hermes:<name>": {
-  "HERMES_API_SERVER_KEY": {...},
-  "SLACK_BOT_TOKEN": {"value": "xoxb-...", "description": "Slack bot token", ...},
-  "SLACK_APP_TOKEN": {"value": "xapp-...", "description": "Slack app token", ...}
+"channel:<channel-name>": {
+  "SLACK_BOT_TOKEN": {"value": "xoxb-...", "description": "Slack bot token"},
+  "SLACK_APP_TOKEN": {"value": "xapp-...", "description": "Slack app token"}
 }
 ```
 
-Both tokens **never** land in `hosts.json` — the configure flow stores them exclusively in `secrets.json` (B3 invariant). Re-running `clawctl agent configure --stage channels` with the same tokens reuses them byte-identical.
+Both tokens **never** land in `channels.json` or `hosts.json` — `clawctl channel registry create` stores them exclusively in `secrets.json` (B3 invariant). Re-creating the channel record with the same tokens reuses them byte-identical.
 
 ### Rendered `.env` (Slack block, Hermes)
 
@@ -309,14 +371,14 @@ SLACK_HOME_CHANNEL_NAME=general
 
 ### Removal (Hermes)
 
-`clawctl agent delete <name> --force` purges the entire instance entry from `secrets.json`, including both Slack tokens. There is no separate "rotate Slack token" command — re-run the channels stage with new tokens to overwrite.
+`clawctl agent channel detach <channel-name> --agent <hermes-name>` then `clawctl agent sync <hermes-name>` drops the `SLACK_*` block from `~/.hermes/.env`. To wipe the channel record and its tokens entirely: `clawctl channel registry delete <channel-name> --yes --force`. To rotate tokens without dropping the attachment: `clawctl channel registry edit <channel-name> --token-stdin <<<"$NEW_BOT_TOKEN"` and `clawctl agent sync <hermes-name>`.
 
 ### Hermes-specific troubleshooting
 
 <details>
 <summary><strong>Bot connects but gets `missing_scope` errors</strong></summary>
 
-Hermes logs will show errors like `slack_bolt: missing_scope: channels:read`. Go to your Slack app's **OAuth & Permissions** > **Scopes** and add the missing scope. Then **reinstall the app** to your workspace (Slack requires reinstall after scope changes). You do NOT need to re-run `clawctl agent configure` — the tokens remain valid after reinstall.
+Hermes logs will show errors like `slack_bolt: missing_scope: channels:read`. Go to your Slack app's **OAuth & Permissions** > **Scopes** and add the missing scope. Then **reinstall the app** to your workspace (Slack requires reinstall after scope changes). You do NOT need to re-create the channel record — the tokens remain valid after reinstall.
 
 </details>
 
@@ -328,11 +390,59 @@ The bot must be a member of the home channel. In Slack, go to that channel and t
 </details>
 
 <details>
-<summary><strong>Bot doesn't respond to DMs</strong></summary>
+<summary><strong>❌ CRITICAL: Bot doesn't respond to DMs</strong></summary>
 
-1. Confirm your Slack Member ID is in `hosts.json` `channels.slack.allowed_users`. Hermes drops messages from non-allowlisted users silently.
-2. Verify `im:history`, `im:read`, and `im:write` scopes are present.
-3. Verify `message.im` event subscription is enabled.
+**This is the most common issue.** Follow these steps in order:
+
+### 1. Can you even send a DM to the bot?
+- In Slack, go to **Apps** in the sidebar
+- Find your bot
+- Try to click **Message**
+
+**If you can't click Message or it's grayed out:**
+→ Your Slack app is missing the `im:write` scope. Go to Slack API → OAuth & Permissions → Add `im:write` → Reinstall app to workspace.
+
+**If you can send a DM but bot doesn't respond:**
+→ Continue to step 2.
+
+### 2. Verify Event Subscription
+- Go to https://api.slack.com/apps
+- Select your app
+- Go to **Event Subscriptions**
+- Scroll to **Subscribe to bot events**
+- **Confirm `message.im` is in the list**
+
+**If `message.im` is missing:**
+→ Click **Add Bot User Event** → Select `message.im` → **Save Changes** → **Reinstall app to workspace** (required!)
+
+### 3. Verify OAuth Scopes
+Go to **OAuth & Permissions** → **Scopes** → **Bot Token Scopes** and confirm:
+- ✅ `im:history`
+- ✅ `im:read`  
+- ✅ `im:write`
+- ✅ `chat:write`
+
+**If any are missing:** Add them → Reinstall app to workspace.
+
+### 4. Verify User Allowlist (Hermes only)
+Your Slack Member ID must be in the channel record's `allowed_users` list:
+```bash
+clawctl channel registry describe <channel-name>
+```
+
+**Find your Member ID:** Slack profile → ⋯ (three dots) → Copy Member ID
+
+**If your ID is missing:** Re-create the channel record (`clawctl channel registry delete <channel-name> --yes --force` then `clawctl channel registry create <channel-name> --type slack ... --allowed-user <your-id>`), re-attach if needed, and `clawctl agent sync <name>`.
+
+### 5. Check Agent Logs
+```bash
+ssh <agent-host> "sudo journalctl -u hermes-<name> -f"
+```
+
+Send a test DM and watch for errors. Common errors:
+- `missing_scope: im:history` → Add scope and reinstall app
+- `not_authed` → Token expired, regenerate and reconfigure
+- Silent (no logs) → Event subscription `message.im` is missing
 
 </details>
 

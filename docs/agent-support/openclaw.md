@@ -85,7 +85,7 @@ Integrations allow the agent to interact with external tools and services:
 | **Multi-Provider** | ✅ | Switch providers per request |
 | **Secrets Management** | ✅ | Per-instance secret storage |
 | **Token Tracking** | 🚧 | Coming Q2 2026 |
-| **MCP Tools** | 🚧 | Coming Q2 2026 |
+| **MCP Tools** | ✅ | Slack MCP tools are supported via the [Slack integration](integrations/slack.md); additional MCP-backed integrations remain incremental. |
 | **Auto-Restart** | ✅ | Supervisor-managed |
 | **Log Streaming** | ✅ | Real-time log access |
 | **Onboarding Wizard** | ✅ | Guided 4-stage setup |

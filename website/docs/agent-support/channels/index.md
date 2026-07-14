@@ -35,22 +35,29 @@ An agent uses:
 
 ## Configuration
 
-Channels are configured during agent onboarding:
+Channels are managed in two steps:
 
-```bash
-clawctl agent configure <agent-name>
-# Select channel during the channels stage
-```
+1. **Register the channel** in the channel registry (one record per chat surface, reusable across agents):
 
-## Switching Channels
+   ```bash
+   clawctl channel registry create <channel-name> --type discord --token-stdin <<<"$BOT_TOKEN"
+   # or for slack:
+   clawctl channel registry create <channel-name> --type slack \
+     --token-stdin <<<"$BOT_TOKEN" --app-token "$APP_TOKEN"
+   ```
 
-To change an agent's channel:
+2. **Attach the channel to an agent**:
 
-```bash
-clawctl agent configure <agent-name> --stage channels
-```
+   ```bash
+   clawctl agent channel attach <channel-name> --agent <agent-name>
+   clawctl agent sync <agent-name>
+   ```
 
-Note: Some agents (like ZeroClaw) only support CLI and cannot switch channels.
+To detach: `clawctl agent channel detach <channel-name> --agent <agent-name>` followed by `clawctl agent sync <agent-name>`.
+
+> **Deprecated:** `clawctl agent configure --stage channels` and writes to `hosts.json.agents.<name>.config.channels.*` are no longer supported. The canonical attachment list is `hosts.json.agents.<name>.channels[]` (see #555).
+
+Note: Some agents (like ZeroClaw) only support CLI and cannot attach chat channels.
 
 ---
 

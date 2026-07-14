@@ -16,18 +16,8 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
-- `clawctl version` and `clawctl --version` now show the git commit SHA alongside the release version (#656).
-
 ### Changed
 
 ### Fixed
 
-- Zeroclaw memory and persona files edited through `clawctl agent memory` now persist in the local control-plane workspace overlay and are restored during `clawctl agent upgrade`, preventing upgrade-time data loss (#871)
-- GUI lifecycle endpoints (`start`, `stop`, `restart`) now return HTTP 502 instead of HTTP 200 with `success: false` when the underlying lifecycle operation fails without raising an exception (#712)
-- GUI error responses for tunnel, lifecycle, and health endpoints now return constant error messages instead of passing raw error text through a weak path-redaction regex, preventing leakage of internal hostnames, IP addresses, and ports (#714)
-- `clawctl agent exec` now dispatches OpenClaw macOS hosts through `exec_macos.yaml` instead of the Linux playbook, so native CLI commands work on agents installed under `/Users/<agent>/` (#869).
-- `clawctl agent open` now evicts stale web-UI SSH tunnels that still have a bound local port but no longer answer HTTP, instead of reusing them and handing operators dead URLs (#869).
-
 ### Documentation
-
-- Synced the website agent-support pages for Hermes, OpenClaw, and ZeroClaw with the shipped Slack integration docs so the release blog's Slack links resolve and the docs site can build again.
