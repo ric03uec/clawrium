@@ -45,7 +45,7 @@ clawctl integration registry describe my-github  # paste tokens interactively
 
 **From the web dashboard:**
 
-`clawctl gui` opens an **Integrations** page where you can add, edit credentials, and remove integrations through a form. The page surfaces how many agents use each integration so you don't accidentally remove one that's in use; credential values are never returned to the browser.
+`clawctl server start` opens the web dashboard, which includes an **Integrations** page where you can add, edit credentials, and remove integrations through a form. The page surfaces how many agents use each integration so you don't accidentally remove one that's in use; credential values are never returned to the browser.
 
 ## Security
 
