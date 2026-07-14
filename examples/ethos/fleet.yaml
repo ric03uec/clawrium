@@ -11,7 +11,7 @@ metadata:
     env: homelab
     location: local
 spec:
-  hostname: 192.168.1.47
+  hostname: 192.168.1.48
   user: xclm
   port: 22
   bootstrap: true
@@ -41,7 +41,7 @@ metadata:
     type: ethos
 spec:
   type: ethos
-  version: "0.4.10"
+  version: "0.5.3"
   host: ethos-homelab
   provider: ethos-openrouter
   channels: []

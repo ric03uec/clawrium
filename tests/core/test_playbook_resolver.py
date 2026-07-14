@@ -189,7 +189,7 @@ class TestUnitPathFor:
         from clawrium.core.playbook_resolver import unit_path_for
 
         with _pytest.raises(ValueError, match="unsupported agent_type"):
-            unit_path_for("linux", "ethos", "alpha")
+            unit_path_for("linux", "nemoclaw", "alpha")
 
     def test_darwin_zeroclaw_raises_value_error(self):
         """ATX iter-1 B3: zeroclaw has no launchd label prefix

@@ -80,6 +80,7 @@ _BEARER_API_KEY_WITH_ENDPOINT_TYPES = frozenset({"litellm"})
 # block into `openclaw.json` with `api: "openai-completions"`, matching
 # upstream openclaw's custom-provider shape.
 _AGENT_TYPE_PROVIDER_SUPPORT: dict[str, frozenset[str]] = {
+    "ethos": frozenset({"openrouter", "anthropic", "openai", "codex"}),
     "hermes": frozenset(
         {"openrouter", "anthropic", "openai", "bedrock", "ollama", "litellm", "opencode", "opencode-go"}
     ),
