@@ -4190,6 +4190,8 @@ class TestStartAgentEthosTokenRefresh:
     def test_gateway_token_rotated_event_emitted(self, tmp_path: Path):
         """gateway_token_rotated event is emitted after token refresh,
         matching the zeroclaw contract (#437)."""
+        import json as _json
+
         host = self._ethos_host()
         result, events, _, _ = self._run_start(tmp_path, host, self._FAKE_TOKEN)
 
@@ -4198,9 +4200,15 @@ class TestStartAgentEthosTokenRefresh:
         assert len(rotation_events) == 1, (
             f"Expected exactly one gateway_token_rotated event, got: {rotation_events}"
         )
-        payload = rotation_events[0][1]
-        assert "eth-dev" in payload
-        assert "start" in payload  # repair_reason defaults to "start"
+        payload = _json.loads(rotation_events[0][1])
+        # Canonical payload must use "agent_key" (not "agent") so the CLI
+        # handler in agent.py can surface the yellow rotation notice.
+        assert payload.get("agent_key") == "eth-dev", (
+            f"Expected agent_key='eth-dev' in payload, got: {payload}"
+        )
+        assert payload.get("reason") == "start", (
+            f"Expected reason='start' in payload, got: {payload}"
+        )
 
     def test_token_refresh_failure_does_not_fail_start(self, tmp_path: Path):
         """If _create_ethos_chat_token returns None, start still succeeds
@@ -4218,65 +4226,25 @@ class TestStartAgentEthosTokenRefresh:
         rotation_events = [(s, m) for s, m in events if s == "gateway_token_rotated"]
         assert rotation_events == []
 
-    def test_instance_key_uses_host_key_id(self, tmp_path: Path):
-        """get_instance_key is called with host['key_id'], not hostname,
-        matching the #448 key_id invariant."""
+    def test_instance_key_uses_hostname_not_key_id(self, tmp_path: Path):
+        """set_instance_secret is called with instance_key derived from
+        host['hostname'] (raw IP/DNS), NOT key_id, so the stored slot
+        matches what chat.py._build_ethos_backend and configure_agent
+        read. key_id is used only for SSH key resolution."""
         host = self._ethos_host()
-        key_path = tmp_path / "key"
-        key_path.write_text("k")
-        playbook_path = tmp_path / "start.yaml"
-        playbook_path.write_text("---\n- hosts: all\n")
-        mock_runner = MagicMock()
-        mock_runner.status = "successful"
-        mock_runner.events = []
+        result, _events, _mock_create, mock_set_secret = self._run_start(
+            tmp_path, host, self._FAKE_TOKEN
+        )
 
-        with patch("clawrium.core.lifecycle.get_host", return_value=host):
-            with patch(
-                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
-            ):
-                with patch(
-                    "clawrium.core.lifecycle._get_lifecycle_playbook_path",
-                    return_value=playbook_path,
-                ):
-                    with patch(
-                        "clawrium.core.lifecycle.ansible_runner.run",
-                        return_value=mock_runner,
-                    ):
-                        with patch(
-                            "clawrium.core.lifecycle._update_agent_runtime",
-                            return_value=True,
-                        ):
-                            with patch(
-                                "clawrium.core.lifecycle.get_config_dir",
-                                return_value=tmp_path,
-                            ):
-                                with patch(
-                                    "clawrium.core.lifecycle._ethos_health_check_after_start",
-                                    return_value=(True, None),
-                                ):
-                                    with patch(
-                                        "clawrium.core.lifecycle._create_ethos_chat_token",
-                                        return_value=self._FAKE_TOKEN,
-                                    ):
-                                        with patch(
-                                            "clawrium.core.lifecycle.get_instance_key",
-                                            return_value="ethos-test-key:ethos:eth-dev",
-                                        ) as mock_get_key:
-                                            with patch(
-                                                "clawrium.core.lifecycle.set_instance_secret",
-                                            ):
-                                                start_agent(
-                                                    "192.168.1.200",
-                                                    "ethos",
-                                                )
-
-        # get_instance_key may be called multiple times in the ethos path;
-        # the important invariant is that every call uses host["key_id"]
-        # (not hostname) as the first argument — the #448 stability rule.
-        assert mock_get_key.call_count >= 1
-        for call in mock_get_key.call_args_list:
-            assert call.args[0] == "ethos-test-key", (
-                f"get_instance_key called with hostname instead of key_id: {call}"
-            )
-            assert call.args[1] == "ethos"
-            assert call.args[2] == "eth-dev"
+        assert result["success"] is True
+        mock_set_secret.assert_called_once()
+        # The instance_key first positional arg must embed the raw hostname
+        # ("192.168.1.200"), NOT the key_id ("ethos-test-key"), so that
+        # chat.py._build_ethos_backend finds the refreshed token.
+        instance_key_arg = mock_set_secret.call_args.args[0]
+        hostname_prefix = "192.168.1.200:"
+        assert instance_key_arg.startswith(hostname_prefix), (
+            "set_instance_secret called with key_id-based instance_key "
+            f"{instance_key_arg!r} — must use hostname 192.168.1.200 "
+            "so that chat.py can find the refreshed token."
+        )

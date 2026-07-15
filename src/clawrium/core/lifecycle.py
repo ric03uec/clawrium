@@ -1031,12 +1031,18 @@ def start_agent(
         # Refresh ETHOS_CHAT_TOKEN after start/restart: the daemon mints a
         # new API key on every cold start; update the local secrets store so
         # chat sessions get a valid bearer without requiring a manual configure.
+        #
+        # Use host["hostname"] (raw IP/DNS) as the instance-key host segment —
+        # NOT key_id — because chat.py._build_ethos_backend and configure_agent
+        # both index the secrets store with host_record["hostname"]. Using key_id
+        # here would write the token to a slot that neither the chat CLI nor
+        # configure_agent can read (silent 401 regression).
         key_id = host.get("key_id") or hostname
         ssh_key = get_host_private_key(key_id)
         ethos_chat_token = _create_ethos_chat_token(host, agent_key, ssh_key, on_event)
         if ethos_chat_token:
             instance_key = get_instance_key(
-                host.get("key_id") or hostname, "ethos", agent_key
+                host.get("hostname") or hostname, "ethos", agent_key
             )
             set_instance_secret(
                 instance_key,
@@ -1048,7 +1054,7 @@ def start_agent(
             if on_event:
                 on_event(
                     "gateway_token_rotated",
-                    f'{{"agent": "{agent_key}", "reason": "{repair_reason}"}}',
+                    json.dumps({"agent_key": agent_key, "reason": repair_reason}),
                 )
         else:
             logger.warning(
