@@ -16,6 +16,12 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- `clawctl agent doctor <name>` — read-only health diagnostics command that
+  runs five checks in dependency order (SSH reachable → unit running →
+  gateway reachable → token stored → onboarding complete) and prints a
+  pass/fail table with per-check remediation hints.  If a check fails,
+  downstream checks are marked "skipped" rather than reporting spurious
+  failures (closes #903).
 - `clawctl apply` now generates an ed25519 SSH keypair for new Host resources
   that declare `bootstrap: true`, printing the public key with instructions to
   add it to `authorized_keys` on the remote host. Previously the host record

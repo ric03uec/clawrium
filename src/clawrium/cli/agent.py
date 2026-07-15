@@ -2952,6 +2952,83 @@ def logs(
     raise typer.Exit(code=0)
 
 
+@agent_app.command()
+def doctor(
+    agent_name: str = typer.Argument(..., help="Agent name to diagnose"),
+) -> None:
+    """Run read-only health diagnostics for an agent.
+
+    Checks SSH connectivity, unit status, gateway reachability, token
+    presence, and onboarding state in dependency order.  If a check fails,
+    downstream checks are marked as skipped rather than reporting cascading
+    spurious failures.
+
+    Exits 0 when all checks pass, 1 when any check fails.
+    """
+    from clawrium.core.agent_health import run_doctor_checks
+
+    try:
+        hostname, host_data, claw_type, claw_record, installed_name = (
+            _resolve_agent_instance(agent_name)
+        )
+    except AgentNameResolutionError as e:
+        err_console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        raise typer.Exit(code=1)
+    except HostsFileCorruptedError as e:
+        err_console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        raise typer.Exit(code=1)
+
+    # Header
+    console.print()
+    console.print(
+        f"Agent: [bold]{rich_escape(installed_name)}[/bold]  "
+        f"({rich_escape(claw_type)} @ {rich_escape(hostname)})"
+    )
+    console.print("─" * 57)
+
+    results = run_doctor_checks(
+        agent_name=installed_name,
+        host_data=host_data,
+        agent_type=claw_type,
+        agent_record=claw_record,
+    )
+
+    # Print each check result
+    fail_count = 0
+    skip_count = 0
+    for r in results:
+        if r.status == "pass":
+            icon = "[green]✓[/green]"
+        elif r.status == "fail":
+            icon = "[red]✗[/red]"
+            fail_count += 1
+        else:  # skip
+            icon = "[dim]-[/dim]"
+            skip_count += 1
+
+        name_col = r.name.ljust(22)
+        console.print(f"{icon}  {name_col} {rich_escape(r.detail)}")
+        if r.hint and r.status == "fail":
+            console.print(f"   [dim]→ hint: {rich_escape(r.hint)}[/dim]")
+
+    console.print("─" * 57)
+
+    if fail_count == 0:
+        console.print("[green]All checks passed.[/green]")
+        raise typer.Exit(code=0)
+
+    issue_word = "issue" if fail_count == 1 else "issues"
+    summary = f"[yellow]{fail_count} {issue_word} found.[/yellow]"
+
+    # If the first failure is not the last check, add a cascade hint
+    first_fail = next((r for r in results if r.status == "fail"), None)
+    if first_fail and skip_count > 0:
+        summary += f"  Fix [bold]{rich_escape(first_fail.name)}[/bold] first — later checks depend on it."
+
+    console.print(summary)
+    raise typer.Exit(code=1)
+
+
 secret_app = typer.Typer(
     name="secret",
     help="Manage secrets for agents",
