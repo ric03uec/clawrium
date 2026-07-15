@@ -67,6 +67,12 @@ _LOCAL_ENDPOINT_TYPES = frozenset({"ollama"})
 # `_BEARER_API_KEY_TYPES` lets `build_render_inputs` raise on both a
 # missing key and a missing endpoint with a single targeted message.
 _BEARER_API_KEY_WITH_ENDPOINT_TYPES = frozenset({"litellm"})
+# Providers that use device-code or out-of-band auth — no API key or
+# endpoint is stored in clawctl's secrets/providers stores. The agent
+# daemon handles credential acquisition itself (e.g. `codex login` on
+# the host). `build_render_inputs` passes these through without a
+# credential-fetch, and the per-agent template emits only a comment.
+_DEVICE_AUTH_TYPES = frozenset({"codex"})
 
 # Per-agent-type supported provider sets. `build_render_inputs` checks
 # this so a hermes agent attached to a zai-only provider fails up-front
@@ -423,6 +429,12 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
                 f"provider {primary_name!r} (type {provider_type}) is missing "
                 f"endpoint in providers.json"
             )
+    elif provider_type in _DEVICE_AUTH_TYPES:
+        # Device-code / out-of-band auth providers (e.g. codex). No API
+        # key or endpoint is managed by clawctl — the daemon acquires
+        # credentials itself (e.g. `codex login` on the host). Pass
+        # through without any credential fetch; api_key stays "".
+        pass
     else:
         # _AGENT_TYPE_PROVIDER_SUPPORT already filtered unsupported types
         # for the requested agent type. A miss here means a supported

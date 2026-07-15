@@ -204,6 +204,22 @@ def test_ollama_provider_missing_endpoint_raises(stores):
         build_render_inputs("alpha")
 
 
+def test_codex_device_auth_provider_passes_without_api_key(stores):
+    """B1 regression guard for PR #899: codex uses device-code auth and
+    requires no stored API key. build_render_inputs must NOT raise
+    AgentConfigError for an ethos agent with a codex provider."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "ethos",
+        {"agent_name": "alpha", "providers": [{"name": "cx", "role": "primary", "model": ""}], "config": {}},
+    )
+    stores.providers["cx"] = {"name": "cx", "type": "codex", "default_model": ""}
+    # No entry in stores.provider_api_keys — codex stores no bearer.
+    inputs = build_render_inputs("alpha")
+    assert inputs.provider.type == "codex"
+    assert inputs.provider.api_key == ""
+
+
 def test_unsupported_provider_type_raises(stores):
     stores.agent = _agent_record(
         providers=[{"name": "weird", "role": "primary", "model": ""}]
