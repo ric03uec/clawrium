@@ -75,7 +75,7 @@ def home_root_for(os_family: str) -> str:
 
 
 _SUPPORTED_AGENT_TYPES: frozenset[str] = frozenset(
-    {"hermes", "zeroclaw", "openclaw"}
+    {"ethos", "hermes", "zeroclaw", "openclaw"}
 )
 
 

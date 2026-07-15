@@ -187,9 +187,31 @@ def _create_host(host_res) -> str | None:
     try:
         add_host(host_dict)
     except DuplicateHostError:
-        pass  # idempotent
+        pass  # idempotent — key may already exist too
     except Exception as exc:
         return str(exc)
+
+    # Generate SSH keypair when bootstrap=True and no key exists yet.
+    # This mirrors what `clawctl host create` does so `apply` is truly
+    # self-contained for new hosts.
+    if host_res.spec.bootstrap:
+        from clawrium.core.keys import (
+            generate_host_keypair,
+            get_host_private_key,
+            read_public_key,
+        )
+
+        key_id = host_res.spec.hostname
+        if not get_host_private_key(key_id):
+            try:
+                generate_host_keypair(key_id)
+            except Exception as exc:
+                return f"SSH key generation failed for {key_id}: {exc}"
+            pub_key = read_public_key(key_id)
+            print(f"  [bootstrap] Generated SSH keypair for {key_id} (key_id: {key_id})")
+            print("  [bootstrap] Add this public key to /home/xclm/.ssh/authorized_keys on the remote host:")
+            print(f"  {pub_key}")
+
     return None
 
 
