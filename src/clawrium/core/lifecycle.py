@@ -906,20 +906,32 @@ def start_agent(
                     f"Cannot start {agent_key}: onboarding auto-recovery failed: {cfg_error}"
                 )
 
-            # Reload agent record to check if onboarding state is now ready.
+            # Reload agent record to verify onboarding state transitioned to ready.
+            # These are assertions, not optional checks: configure_agent returning
+            # (True, None) does not guarantee the READY write happened. A silent
+            # fall-through here would let a still-pending agent reach the start
+            # playbook unchecked.
             host = get_host(hostname)
-            if host:
-                resolved2 = _resolve_agent_record(host, agent_key, expected_type=claw_name)
-                if resolved2:
-                    _, _, claw_record = resolved2
-                    new_state = claw_record.get("onboarding", {}).get("state", "pending")
-                    if new_state != "ready":
-                        raise LifecycleError(
-                            f"Cannot start {agent_key}: onboarding still incomplete "
-                            f"(state={new_state}) after auto-recovery. "
-                            f"Run 'clawctl agent configure {agent_key}' manually."
-                        )
-                    emit("start", f"Onboarding recovery successful for {agent_key}")
+            if not host:
+                raise LifecycleError(
+                    f"Cannot start {agent_key}: host '{hostname}' not found after "
+                    f"auto-recovery configure — cannot verify onboarding state."
+                )
+            resolved2 = _resolve_agent_record(host, agent_key, expected_type=claw_name)
+            if not resolved2:
+                raise LifecycleError(
+                    f"Cannot start {agent_key}: agent record not found after "
+                    f"auto-recovery configure — cannot verify onboarding state."
+                )
+            _, _, claw_record = resolved2
+            new_state = claw_record.get("onboarding", {}).get("state", "pending")
+            if new_state != "ready":
+                raise LifecycleError(
+                    f"Cannot start {agent_key}: onboarding still incomplete "
+                    f"(state={new_state}) after auto-recovery. "
+                    f"Run 'clawctl agent configure {agent_key}' manually."
+                )
+            emit("start", f"Onboarding recovery successful for {agent_key}")
         else:
             raise LifecycleError(
                 f"Cannot start {agent_key}: onboarding incomplete (state={state_value}). "

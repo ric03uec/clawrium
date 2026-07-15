@@ -679,6 +679,48 @@ class TestStartClaw:
         assert "auto-recovery failed" in str(exc_info.value)
         assert "SSH connection refused" in str(exc_info.value)
 
+    def test_ethos_pending_onboarding_host_vanishes_after_configure(self, tmp_path: Path):
+        """B1 fix: if get_host returns None after configure succeeds, raise
+        LifecycleError instead of silently skipping the state verification."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agents": {
+                "kevin": {
+                    "type": "ethos",
+                    "onboarding": {"state": "pending"},
+                    "config": {},
+                }
+            },
+        }
+
+        call_count = {"n": 0}
+
+        def _get_host_side_effect(_hostname):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return host
+            return None  # host vanishes after configure
+
+        with (
+            patch(
+                "clawrium.core.lifecycle.get_host",
+                side_effect=_get_host_side_effect,
+            ),
+            patch(
+                "clawrium.core.lifecycle._build_provider_overlays_from_attachments",
+                return_value=(None, None, None),
+            ),
+            patch(
+                "clawrium.core.lifecycle.configure_agent",
+                return_value=(True, None),
+            ),
+        ):
+            with pytest.raises(LifecycleError) as exc_info:
+                start_agent("192.168.1.100", "ethos", agent_name="kevin")
+
+        assert "not found after auto-recovery" in str(exc_info.value)
+
     def test_non_ethos_pending_onboarding_still_raises(self, tmp_path: Path):
         """Issue #904: non-ethos agents still get the original LifecycleError
         (no auto-recovery attempt)."""
