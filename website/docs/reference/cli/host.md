@@ -11,6 +11,7 @@ clawctl host <command> [options]
 | Command | Description |
 |---------|-------------|
 | [`clawctl host create`](#clawctl-host-create) | Register a new host with the fleet |
+| [`clawctl host edit`](#clawctl-host-edit) | Edit a host's properties (alias, IP address) |
 | [`clawctl host get`](#clawctl-host-get) | List all registered hosts |
 | [`clawctl host delete`](#clawctl-host-delete) | Remove a host from the fleet |
 | [`clawctl host status`](#clawctl-host-status) | Check status of a host |
@@ -94,6 +95,74 @@ If the host key is unknown, the command surfaces a prompt and exits non-zero. Ru
 |------|---------|
 | 0 | Host registered (or already exists with matching settings) |
 | 1 | xclm SSH verification failed (manual setup needed), or host already exists with different settings |
+
+---
+
+## clawctl host edit
+
+Edit a host's properties — alias, IP address (hostname), or both.
+
+```bash
+clawctl host edit <host> [options]
+```
+
+Updates are atomic — both fields are written in a single transaction. The
+host's `key_id` (and therefore the SSH key) is always preserved.
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `host` | Host hostname or alias to edit |
+
+### Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--alias` | `-a` | New friendly name for this host |
+| `--hostname` | | New IP address or hostname (e.g., after a DHCP lease renewal) |
+
+At least one option must be provided; an empty edit with no flags exits with an error.
+
+### Example — change IP address (DHCP renewal)
+
+```bash
+$ clawctl host edit mybox --hostname 10.0.0.55
+host/mybox: updated
+host/mybox: SSH key (key_id: 10.0.0.1) unchanged — confirm authorized_keys on the new address
+```
+
+When only `--hostname` changes, the `key_id` is preserved so all per-agent
+secrets stored under that host remain valid. You must manually confirm that
+the public key is present in `authorized_keys` on the new address.
+
+### Example — change alias
+
+```bash
+$ clawctl host edit mybox --alias lab-pi-4
+host/mybox: alias set to 'lab-pi-4'
+```
+
+### Example — change both
+
+```bash
+$ clawctl host edit mybox --hostname 10.0.0.55 --alias lab-pi-4
+host/mybox: updated
+host/mybox: SSH key (key_id: 10.0.0.1) unchanged — confirm authorized_keys on the new address
+```
+
+### Validation
+
+- Empty `--hostname` or `--alias` values are rejected before touching state.
+- `--hostname` uniqueness is validated against existing host records (by `key_id`) — you cannot set a hostname that another host already uses.
+- Setting the same hostname that the host already has is a no-op (exits 0 with no output).
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Host updated successfully or no-op (same values) |
+| 1 | Host not found, invalid input, or hostname conflict |
 
 ---
 

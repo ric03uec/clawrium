@@ -536,6 +536,124 @@ Installed Agents (4):
 
 ---
 
+### chat
+
+Chat with an agent via the CLI.
+
+```bash
+clawctl agent chat <agent-name> [options]
+```
+
+**Arguments:**
+- `agent-name` - Name of the agent to chat with
+
+**Options:**
+- `--session <key>` / `-s` - Gateway session key (default: `main`)
+- `--timeout <seconds>` - Response timeout in seconds (default: 120.0)
+- `--idle-timeout <seconds>` - Idle timeout before disconnect (0 disables, default: 300.0)
+- `--once <message>` - Send one message, print the reply, and exit. Exit code 0 on success, non-zero on transport / auth / protocol error.
+
+**Examples:**
+
+```bash
+# Interactive chat session
+clawctl agent chat opc-work
+
+# Single-shot mode — send one message, get one reply, exit
+clawctl agent chat opc-work --once "What is your status?"
+
+# Chat with a specific session
+clawctl agent chat opc-work --session direct:my-session
+
+# Single-shot with custom timeout
+clawctl agent chat opc-work --once "Reply pong" --timeout 30
+```
+
+**Single-shot mode (`--once`):**
+
+The `--once` flag is designed for scripted callers (CI pipelines, monitoring
+scripts, automation). It suppresses all REPL chrome — no connecting spinner,
+no banner, no prompt — and prints only the agent's reply to stdout. The idle
+timeout is capped at 60 seconds to prevent a stuck agent from hanging the
+caller indefinitely.
+
+```bash
+# Scripted usage
+REPLY=$(clawctl agent chat wise-hypatia --once "reply pong")
+echo "$REPLY"
+# → pong
+```
+
+**Related:**
+- [clawctl agent doctor](#doctor) — Diagnose agent health before chatting
+- [Agent Onboarding Guide](../../guides/agent-onboarding.md) — Getting agents ready for chat
+
+---
+
+### doctor
+
+Run read-only health diagnostics on a deployed agent.
+
+```bash
+clawctl agent doctor <agent-name> [options]
+```
+
+**Arguments:**
+- `agent-name` - Name of the agent to diagnose
+
+**Options:**
+- `--output <fmt>` / `-o` - Output format: `table` (default), `json`, `yaml`, `wide`, or `name`
+
+**Examples:**
+
+```bash
+# Default table output
+clawctl agent doctor maurice
+
+# JSON output for scripting
+clawctl agent doctor maurice -o json
+```
+
+**What it checks (in dependency order):**
+
+| # | Check | What it verifies |
+|---|-------|-----------------|
+| 1 | SSH reachable | Can clawctl SSH to the agent's host? |
+| 2 | Unit running | Is the agent's systemd unit active? |
+| 3 | Gateway reachable | Is the agent's gateway port listening? |
+| 4 | Token stored | Is the gateway bearer token present in the secrets store? |
+| 5 | Onboarding complete | Has the agent finished onboarding? |
+
+If a check fails, downstream checks that depend on it are marked `skip`
+rather than reporting spurious cascading failures. Each failed check includes
+a remediation hint.
+
+**Output:**
+
+```
+Agent Health: maurice
+┌─────────────────────────┬────────┬──────────────────────────────────┐
+│ Check                   │ Status │ Detail                           │
+├─────────────────────────┼────────┼──────────────────────────────────┤
+│ SSH reachable           │ pass   │ 192.168.1.100:22                │
+│ Unit running            │ pass   │ hermes-maurice.service            │
+│ Gateway reachable       │ pass   │ 127.0.0.1:45001                   │
+│ Token stored            │ pass   │ bearer present                    │
+│ Onboarding complete     │ pass   │ all sections done                 │
+└─────────────────────────┴────────┴──────────────────────────────────┘
+```
+
+**Exit codes:**
+- `0` — All checks passed
+- `1` — One or more checks failed or were skipped
+
+**Related:**
+- [clawctl agent chat](#chat) — Chat with the agent
+- [clawctl agent describe](#status) — Check agent status and configuration
+- [Sync and Safety Guide](../../operations/sync.md) — When to use `doctor` vs `--diff`
+
+---
+
 ### upgrade
 
 Upgrade an agent to the registry's max supported version for the host's
