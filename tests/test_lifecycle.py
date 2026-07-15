@@ -4289,3 +4289,167 @@ class TestAssertInstallPresent:
             _lc._assert_install_present(
                 {"hostname": "h"}, agent_type="zeroclaw", agent_name="alpha"
             )
+
+
+class TestStartAgentEthosTokenRefresh:
+    """Issue #900: start_agent must refresh ETHOS_CHAT_TOKEN in the local
+    secrets store after the ethos health-check gate succeeds, because the
+    daemon mints a new API key on every cold start."""
+
+    _FAKE_TOKEN = "sk-ethos-" + "a" * 64
+
+    def _ethos_host(self) -> dict:
+        return {
+            "hostname": "192.168.1.200",
+            "key_id": "ethos-test-key",
+            "user": "xclm",
+            "port": 22,
+            "agents": {
+                "eth-dev": {
+                    "type": "ethos",
+                    "agent_name": "eth-dev",
+                    "onboarding": {"state": "ready"},
+                    "config": {},
+                }
+            },
+        }
+
+    def _run_start(self, tmp_path: Path, host: dict, mock_token: str | None):
+        """Shared scaffold: mock all I/O and call start_agent for ethos."""
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+        playbook_path = tmp_path / "start.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = []
+
+        events: list[tuple[str, str]] = []
+
+        def on_event(stage: str, msg: str) -> None:
+            events.append((stage, msg))
+
+        with patch("clawrium.core.lifecycle.get_host", return_value=host):
+            with patch(
+                "clawrium.core.lifecycle.get_host_private_key", return_value=key_path
+            ):
+                with patch(
+                    "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                    return_value=playbook_path,
+                ):
+                    with patch(
+                        "clawrium.core.lifecycle.ansible_runner.run",
+                        return_value=mock_runner,
+                    ):
+                        with patch(
+                            "clawrium.core.lifecycle._update_agent_runtime",
+                            return_value=True,
+                        ):
+                            with patch(
+                                "clawrium.core.lifecycle.get_config_dir",
+                                return_value=tmp_path,
+                            ):
+                                with patch(
+                                    "clawrium.core.lifecycle._ethos_health_check_after_start",
+                                    return_value=(True, None),
+                                ):
+                                    with patch(
+                                        "clawrium.core.lifecycle._create_ethos_chat_token",
+                                        return_value=mock_token,
+                                    ) as mock_create_token:
+                                        with patch(
+                                            "clawrium.core.lifecycle.set_instance_secret",
+                                        ) as mock_set_secret:
+                                            result = start_agent(
+                                                "192.168.1.200",
+                                                "ethos",
+                                                on_event=on_event,
+                                            )
+        return result, events, mock_create_token, mock_set_secret
+
+    def test_token_refreshed_on_successful_start(self, tmp_path: Path):
+        """ETHOS_CHAT_TOKEN is written to secrets store after ethos starts."""
+        host = self._ethos_host()
+        result, events, mock_create_token, mock_set_secret = self._run_start(
+            tmp_path, host, self._FAKE_TOKEN
+        )
+
+        assert result["success"] is True
+
+        # _create_ethos_chat_token must be called
+        mock_create_token.assert_called_once()
+
+        # set_instance_secret must persist the new token
+        mock_set_secret.assert_called_once()
+        call_args = mock_set_secret.call_args
+        # positional: instance_key, "ETHOS_CHAT_TOKEN", token
+        assert call_args.args[1] == "ETHOS_CHAT_TOKEN"
+        assert call_args.args[2] == self._FAKE_TOKEN
+
+        # CLI must emit the refresh notice
+        stage_msgs = [msg for stage, msg in events if stage == "start"]
+        assert any("Refreshed ETHOS_CHAT_TOKEN" in m for m in stage_msgs), (
+            f"No 'Refreshed ETHOS_CHAT_TOKEN' in start events: {events}"
+        )
+
+    def test_gateway_token_rotated_event_emitted(self, tmp_path: Path):
+        """gateway_token_rotated event is emitted after token refresh,
+        matching the zeroclaw contract (#437)."""
+        import json as _json
+
+        host = self._ethos_host()
+        result, events, _, _ = self._run_start(tmp_path, host, self._FAKE_TOKEN)
+
+        assert result["success"] is True
+        rotation_events = [(s, m) for s, m in events if s == "gateway_token_rotated"]
+        assert len(rotation_events) == 1, (
+            f"Expected exactly one gateway_token_rotated event, got: {rotation_events}"
+        )
+        payload = _json.loads(rotation_events[0][1])
+        # Canonical payload must use "agent_key" (not "agent") so the CLI
+        # handler in agent.py can surface the yellow rotation notice.
+        assert payload.get("agent_key") == "eth-dev", (
+            f"Expected agent_key='eth-dev' in payload, got: {payload}"
+        )
+        assert payload.get("reason") == "start", (
+            f"Expected reason='start' in payload, got: {payload}"
+        )
+
+    def test_token_refresh_failure_does_not_fail_start(self, tmp_path: Path):
+        """If _create_ethos_chat_token returns None, start still succeeds
+        but no set_instance_secret call is made."""
+        host = self._ethos_host()
+        result, events, mock_create_token, mock_set_secret = self._run_start(
+            tmp_path, host, None
+        )
+
+        assert result["success"] is True
+        mock_create_token.assert_called_once()
+        mock_set_secret.assert_not_called()
+
+        # No gateway_token_rotated when token refresh fails
+        rotation_events = [(s, m) for s, m in events if s == "gateway_token_rotated"]
+        assert rotation_events == []
+
+    def test_instance_key_uses_hostname_not_key_id(self, tmp_path: Path):
+        """set_instance_secret is called with instance_key derived from
+        host['hostname'] (raw IP/DNS), NOT key_id, so the stored slot
+        matches what chat.py._build_ethos_backend and configure_agent
+        read. key_id is used only for SSH key resolution."""
+        host = self._ethos_host()
+        result, _events, _mock_create, mock_set_secret = self._run_start(
+            tmp_path, host, self._FAKE_TOKEN
+        )
+
+        assert result["success"] is True
+        mock_set_secret.assert_called_once()
+        # The instance_key first positional arg must embed the raw hostname
+        # ("192.168.1.200"), NOT the key_id ("ethos-test-key"), so that
+        # chat.py._build_ethos_backend finds the refreshed token.
+        instance_key_arg = mock_set_secret.call_args.args[0]
+        hostname_prefix = "192.168.1.200:"
+        assert instance_key_arg.startswith(hostname_prefix), (
+            "set_instance_secret called with key_id-based instance_key "
+            f"{instance_key_arg!r} — must use hostname 192.168.1.200 "
+            "so that chat.py can find the refreshed token."
+        )

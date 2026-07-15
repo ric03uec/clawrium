@@ -52,6 +52,14 @@ cut. The `itx:release` skill archives this section into a new
   device-auth provider is now also wired through `build_render_inputs`
   without requiring a stored API key.
 - `clawctl agent sync` no longer prints a spurious `warning: registry record missing for <type> after sync` line for zeroclaw agents whose instance name differs from their type. The post-sync state transition now looks up the agent by its instance name instead of its type (#917).
+- **ethos token refresh on start/restart (#900)**: `start_agent` now refreshes
+  `ETHOS_CHAT_TOKEN` in the local secrets store immediately after the ethos
+  health-check gate succeeds. Previously the daemon minted a new API key on
+  every cold start but clawrium never updated the stored bearer, causing 401
+  UNAUTHORIZED on the next `clawctl agent chat` call until the operator
+  manually ran `clawctl agent configure --stage providers`. The fix emits a
+  `gateway_token_rotated` event matching the zeroclaw contract (#437) so the
+  CLI renders a yellow notice on restart.
 - `clawctl agent chat <name> --once "msg"` now sends a single message,
   prints the reply, and exits with code 0 on success (non-zero on
   transport / auth / protocol error). Previously the flag was
