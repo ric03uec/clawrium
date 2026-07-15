@@ -334,6 +334,98 @@ def test_sync_state_ready_generic_exception_populates_error(monkeypatch):
     assert "disk full" in result.error
 
 
+def test_sync_zeroclaw_transition_uses_instance_name(monkeypatch):
+    """Issue #917: `_transition` (onboarding.transition_state) is
+    keyed by the agent *instance* name recorded in hosts.json, NOT
+    the agent type. Passing the type (e.g. "zeroclaw") caused the
+    registry lookup inside `transition_state` to raise
+    `AgentNotFoundError`, which then surfaced as a spurious
+    `registry record missing for zeroclaw after sync` warning on
+    every sync of a zeroclaw whose instance name differs from its
+    type.
+
+    This test stubs `get_agent_by_name` to return the canonical
+    tuple shape `(host, agent_type, agent_record)` with distinct
+    values so a regression that passes `agent_type` again is caught
+    immediately.
+    """
+    events, _ = _stub_sync_environment(monkeypatch, agent_type="zeroclaw")
+    # Override the environment stub's tuple to make the type/name
+    # distinction visible — the fix must pass "e2e-zeroclaw" (instance),
+    # not "zeroclaw" (type).
+    monkeypatch.setattr(
+        lc,
+        "get_agent_by_name",
+        lambda _: ({"hostname": "h"}, "zeroclaw", {}),
+    )
+    captured: list[tuple[str, str]] = []
+
+    def _capture_transition(host, claw_name, to_state):
+        captured.append((host, claw_name))
+        return None
+
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state", _capture_transition
+    )
+    # zeroclaw's post-write bearer-repair path calls into
+    # lifecycle._zeroclaw_repair_after_start; short-circuit it so the
+    # sync reaches the transition block.
+    with patch(
+        "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+        return_value=(True, None),
+    ):
+        result = sync_agent_canonical(
+            "e2e-zeroclaw",
+            restart=False,
+            verify=False,
+            on_event=lambda s, m: events.append((s, m)),
+        )
+
+    assert result.success
+    assert captured, "transition_state was never called"
+    assert captured == [("h", "e2e-zeroclaw")], (
+        f"transition_state received the wrong claw name; expected the "
+        f"instance name 'e2e-zeroclaw' but got {captured!r}"
+    )
+
+
+def test_sync_zeroclaw_no_registry_missing_warning(monkeypatch):
+    """Issue #917: with the fix in place, `sync_agent_canonical`
+    for a zeroclaw agent must not emit the spurious
+    `registry record missing for <type>` warning line that #917
+    reported. This is the operator-facing symptom of the bug —
+    guarding the emit stream directly ensures the warning does not
+    reappear even if a future refactor re-introduces the underlying
+    mis-key.
+    """
+    events, _ = _stub_sync_environment(monkeypatch, agent_type="zeroclaw")
+    monkeypatch.setattr(
+        lc,
+        "get_agent_by_name",
+        lambda _: ({"hostname": "h"}, "zeroclaw", {}),
+    )
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state",
+        lambda *a, **kw: None,
+    )
+    with patch(
+        "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+        return_value=(True, None),
+    ):
+        result = sync_agent_canonical(
+            "e2e-zeroclaw",
+            restart=False,
+            verify=False,
+            on_event=lambda s, m: events.append((s, m)),
+        )
+
+    assert result.success
+    warnings = [m for s, m in events if "registry record missing" in m]
+    assert warnings == [], (
+        f"unexpected 'registry record missing' warning emitted: {warnings!r}"
+    )
+
+
 def test_open_ssh_raises_when_no_private_key(monkeypatch):
     """W9 (ATX #555 polish round 2): missing SSH key for the host
     surfaces as `CanonicalSyncError` with the operator-actionable hint
@@ -5139,3 +5231,162 @@ class TestZeroclawSlackInstallRunsBeforeRestart:
 
         assert restart_called == []
         assert repair_called == []
+
+
+# ---------------------------------------------------------------------------
+# #910 — zeroclaw `[onboard_state].completed_sections` preservation
+# ---------------------------------------------------------------------------
+
+
+def _stub_zeroclaw_sync_env(monkeypatch, tmp_path):
+    """Shared setup for the #910 preservation tests. Returns the mutable
+    dict the tests inspect to see what the renderer was called with."""
+    from pathlib import Path as _P
+
+    from clawrium.core.render import (
+        GatewayInputs,
+        ProviderInputs,
+        RenderInputs,
+        RenderedFiles,
+    )
+
+    inputs = RenderInputs(
+        agent_name="zc",
+        agent_type="zeroclaw",
+        provider=ProviderInputs(
+            name="or", type="openrouter", api_key="sk", default_model="m"
+        ),
+        gateway=GatewayInputs(host="h", port=40000, auth="a"),
+    )
+    monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+
+    key_path = _P(tmp_path) / "xclm_ed25519"
+    key_path.write_text("dummy")
+    monkeypatch.setattr(lc, "get_host_private_key", lambda _: key_path)
+
+    captured: dict = {"onboard": None, "called": False}
+
+    def spy_renderer(rendered_inputs, **_kw):
+        captured["onboard"] = tuple(
+            rendered_inputs.onboard_completed_sections
+        )
+        captured["called"] = True
+        return RenderedFiles(
+            files={
+                ".zeroclaw/config.toml": "x = 1\n",
+                ".zeroclaw/zeroclaw-env.conf": "",
+            }
+        )
+
+    monkeypatch.setitem(lc._RENDERERS, "zeroclaw", spy_renderer)
+    monkeypatch.setattr(
+        lc,
+        "get_agent_by_name",
+        lambda _: ({"hostname": "h", "key_id": "h"}, "zeroclaw:zc", {}),
+    )
+    monkeypatch.setattr(
+        lc,
+        "diff_files",
+        lambda **_: [
+            FileDiff(
+                path=".zeroclaw/config.toml",
+                remote_path="/host/.zeroclaw/config.toml",
+                remote_body="",
+                rendered_body="x = 1\n",
+                unified_diff="--- a\n+++ b\n@@ @@\n+x\n",
+                remote_present=False,
+            ),
+        ],
+    )
+    monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+    monkeypatch.setattr(lc, "_atomic_write", lambda *a, **kw: None)
+    monkeypatch.setattr(lc, "_restart_unit", lambda *a, **kw: None)
+    monkeypatch.setattr(lc, "_verify_health", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        lc,
+        "probe_host_install",
+        lambda *_a, **_kw: lc.HostInstallProbe(
+            unit_present=True,
+            home_present=True,
+            unit_path="/etc/systemd/system/zeroclaw-zc.service",
+            home_path="/home/zc/.zeroclaw",
+        ),
+    )
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state",
+        lambda *a, **kw: None,
+    )
+    return captured
+
+
+def test_sync_zeroclaw_preserves_onboard_state(monkeypatch, tmp_path):
+    """#910: `sync_agent_canonical` on zeroclaw reads
+    `[onboard_state].completed_sections` from the on-host TOML and
+    threads it into the renderer inputs so re-render does not wipe the
+    daemon's live onboarding state."""
+    captured = _stub_zeroclaw_sync_env(monkeypatch, tmp_path)
+
+    def fake_read_remote_toml(**_kw):
+        return {
+            "onboard_state": {
+                "completed_sections": [
+                    "memory",
+                    "providers",
+                    "identity",
+                ],
+            },
+        }
+
+    monkeypatch.setattr(lc, "read_remote_toml", fake_read_remote_toml)
+
+    with patch(
+        "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+        return_value=(True, None),
+    ):
+        result = sync_agent_canonical("zc", restart=True, verify=False)
+
+    assert result.success
+    assert captured["called"] is True
+    assert captured["onboard"] == ("memory", "providers", "identity")
+
+
+def test_sync_zeroclaw_first_sync_defaults_empty(monkeypatch, tmp_path):
+    """#910: when the on-host config is absent (`read_remote_toml`
+    returns `None`), the renderer receives the empty default so the
+    template still emits `completed_sections = []` on a fresh install."""
+    captured = _stub_zeroclaw_sync_env(monkeypatch, tmp_path)
+
+    monkeypatch.setattr(lc, "read_remote_toml", lambda **_kw: None)
+
+    with patch(
+        "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+        return_value=(True, None),
+    ):
+        result = sync_agent_canonical("zc", restart=True, verify=False)
+
+    assert result.success
+    assert captured["called"] is True
+    assert captured["onboard"] == ()
+
+
+def test_sync_zeroclaw_defensive_on_non_list_value(monkeypatch, tmp_path):
+    """#910: a future schema shift that changes `completed_sections`
+    into a non-list value MUST NOT crash sync — the renderer sees `()`
+    and a debug emit fires. Documents the intentional silent-drift
+    trade-off (see PR body risk note)."""
+    captured = _stub_zeroclaw_sync_env(monkeypatch, tmp_path)
+
+    monkeypatch.setattr(
+        lc,
+        "read_remote_toml",
+        lambda **_kw: {"onboard_state": {"completed_sections": "malformed"}},
+    )
+
+    with patch(
+        "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+        return_value=(True, None),
+    ):
+        result = sync_agent_canonical("zc", restart=True, verify=False)
+
+    assert result.success
+    assert captured["onboard"] == ()

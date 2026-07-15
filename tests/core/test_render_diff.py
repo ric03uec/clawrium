@@ -264,6 +264,100 @@ def test_read_remote_file_cat_exit_nonzero_raises(monkeypatch) -> None:
         )
 
 
+def test_read_remote_toml_absent_file_returns_none(monkeypatch) -> None:
+    """#910: `test -e` exit 1 with clean stderr → parse returns `None`
+    so the caller can distinguish 'first sync' from 'present but
+    empty' when threading onboard-state preservation."""
+    from clawrium.core import render_diff
+
+    fake = _FakeSSHClient(responses=[(b"", b"", 1)])
+    monkeypatch.setattr(render_diff.paramiko, "SSHClient", lambda: fake)
+
+    out = render_diff.read_remote_toml(
+        hostname="h",
+        port=22,
+        user="xclm",
+        key_filename="/dev/null",
+        remote_path="/home/x/.zeroclaw/config.toml",
+    )
+    assert out is None
+
+
+def test_read_remote_toml_parses_valid_body(monkeypatch) -> None:
+    """#910: happy path — file present, valid TOML → parsed dict."""
+    from clawrium.core import render_diff
+
+    body = (
+        b"[onboard_state]\n"
+        b'completed_sections = ["memory", "providers", "identity"]\n'
+    )
+    fake = _FakeSSHClient(
+        responses=[
+            (b"", b"", 0),  # test -e
+            (body, b"", 0),  # cat
+        ]
+    )
+    monkeypatch.setattr(render_diff.paramiko, "SSHClient", lambda: fake)
+
+    out = render_diff.read_remote_toml(
+        hostname="h",
+        port=22,
+        user="xclm",
+        key_filename="/dev/null",
+        remote_path="/home/x/.zeroclaw/config.toml",
+    )
+    assert out == {
+        "onboard_state": {
+            "completed_sections": ["memory", "providers", "identity"],
+        },
+    }
+
+
+def test_read_remote_toml_propagates_ssh_error(monkeypatch) -> None:
+    """#910: sudo failure must NOT silently degrade to `None` — that
+    would regress to the exact wipe-onboard-state bug the caller is
+    trying to fix. `RemoteReadError` propagates verbatim."""
+    from clawrium.core import render_diff
+
+    stderr = b"sudo: a password is required\n"
+    fake = _FakeSSHClient(responses=[(b"", stderr, 1)])
+    monkeypatch.setattr(render_diff.paramiko, "SSHClient", lambda: fake)
+
+    with pytest.raises(render_diff.RemoteReadError, match="sudo -n unavailable"):
+        render_diff.read_remote_toml(
+            hostname="h",
+            port=22,
+            user="xclm",
+            key_filename="/dev/null",
+            remote_path="/home/x/.zeroclaw/config.toml",
+        )
+
+
+def test_read_remote_toml_malformed_body_raises(monkeypatch) -> None:
+    """#910: garbled on-host TOML surfaces as `RemoteReadError` rather
+    than being swallowed — an operator hand-edit that broke the daemon
+    is actionable info."""
+    from clawrium.core import render_diff
+
+    body = b"this is not [valid = toml\n"
+    fake = _FakeSSHClient(
+        responses=[
+            (b"", b"", 0),
+            (body, b"", 0),
+        ]
+    )
+    monkeypatch.setattr(render_diff.paramiko, "SSHClient", lambda: fake)
+
+    with pytest.raises(render_diff.RemoteReadError, match="TOML parse failure"):
+        render_diff.read_remote_toml(
+            hostname="h",
+            port=22,
+            user="xclm",
+            key_filename="/dev/null",
+            remote_path="/home/x/.zeroclaw/config.toml",
+        )
+
+
 def test_file_diff_repr_hides_secret_bodies() -> None:
     """ATX iter-1 W5: repr() must not leak plaintext secrets."""
     d = FileDiff(

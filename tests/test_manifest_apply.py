@@ -7,13 +7,20 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from clawrium.core.manifest.parser import parse_file, parse_directory
-from clawrium.core.manifest.schema import ManifestDocument
+from clawrium.core.manifest.schema import (
+    HostResource,
+    HostSpec,
+    ManifestDocument,
+    ResourceMetadata,
+)
 from clawrium.core.manifest.validator import validate_refs, collect_secret_refs
 from clawrium.core.manifest.differ import compute
+from clawrium.core.manifest.executor import _create_host
 from clawrium.core.manifest.state import ActualState, ActualAgent
 
 
@@ -463,3 +470,81 @@ def test_collect_secret_refs_empty_when_no_credentials(tmp_path: Path) -> None:
     doc = parse_file(f)
     refs = collect_secret_refs(doc)
     assert refs == []
+
+
+# ── test 8: _create_host SSH key bootstrap ────────────────────────────────────
+
+def _make_host_resource(hostname: str, bootstrap: bool = False) -> HostResource:
+    return HostResource(
+        metadata=ResourceMetadata(name=hostname, labels={}),
+        spec=HostSpec(hostname=hostname, user="xclm", port=22, bootstrap=bootstrap),
+    )
+
+
+def test_create_host_bootstrap_true_generates_keypair() -> None:
+    """When bootstrap=True and no key exists, _create_host calls generate_host_keypair."""
+    host_res = _make_host_resource("192.168.1.48", bootstrap=True)
+
+    with (
+        patch("clawrium.core.hosts.add_host"),
+        patch("clawrium.core.keys.get_host_private_key", return_value=None),
+        patch("clawrium.core.keys.generate_host_keypair") as mock_gen,
+        patch(
+            "clawrium.core.keys.read_public_key",
+            return_value="ssh-ed25519 AAAA... clawrium",
+        ) as mock_read_pub,
+    ):
+        err = _create_host(host_res)
+
+    assert err is None
+    mock_gen.assert_called_once_with("192.168.1.48")
+    mock_read_pub.assert_called_once_with("192.168.1.48")
+
+
+def test_create_host_bootstrap_false_no_keypair_generated() -> None:
+    """When bootstrap=False, _create_host does NOT call generate_host_keypair."""
+    host_res = _make_host_resource("192.168.1.99", bootstrap=False)
+
+    with (
+        patch("clawrium.core.hosts.add_host"),
+        patch("clawrium.core.keys.generate_host_keypair") as mock_gen,
+    ):
+        err = _create_host(host_res)
+
+    assert err is None
+    mock_gen.assert_not_called()
+
+
+def test_create_host_bootstrap_true_key_already_exists_no_regenerate() -> None:
+    """When bootstrap=True but key already exists, generate_host_keypair is NOT called."""
+    host_res = _make_host_resource("192.168.1.50", bootstrap=True)
+    fake_key_path = MagicMock()
+
+    with (
+        patch("clawrium.core.hosts.add_host"),
+        patch("clawrium.core.keys.get_host_private_key", return_value=fake_key_path),
+        patch("clawrium.core.keys.generate_host_keypair") as mock_gen,
+    ):
+        err = _create_host(host_res)
+
+    assert err is None
+    mock_gen.assert_not_called()
+
+
+def test_create_host_bootstrap_keypair_generation_error_returns_error_string() -> None:
+    """When generate_host_keypair raises, _create_host returns a descriptive error string."""
+    host_res = _make_host_resource("192.168.1.51", bootstrap=True)
+
+    with (
+        patch("clawrium.core.hosts.add_host"),
+        patch("clawrium.core.keys.get_host_private_key", return_value=None),
+        patch(
+            "clawrium.core.keys.generate_host_keypair",
+            side_effect=OSError("disk full"),
+        ),
+    ):
+        err = _create_host(host_res)
+
+    assert err is not None
+    assert "192.168.1.51" in err
+    assert "disk full" in err
