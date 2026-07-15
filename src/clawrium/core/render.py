@@ -43,6 +43,7 @@ __all__ = [
     "render_hermes",
     "render_zeroclaw",
     "render_openclaw",
+    "render_ethos",
     "supported_integrations_for_agent_type",
 ]
 
@@ -623,11 +624,20 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
             auth=_clean_secret(read_gateway_auth(gateway_blob)),
             bind=str(gateway_blob.get("bind", "")),
             allow_public_bind=bool(gateway_blob.get("allow_public_bind", True)),
-            # ethos-only: api_key and internal_port live in the gateway blob
-            # for ethos agents (written by install.py). Other agent types leave
-            # these at their defaults (empty string / 0).
-            api_key=_clean_secret(str(gateway_blob.get("api_key", "") or "")),
-            internal_port=int(gateway_blob.get("internal_port", 0) or 0),
+            # ethos-only: api_key (ETHOS_GATEWAY_API_KEY) and internal_port
+            # (ACP port, default 44410) live in the gateway blob for ethos
+            # agents (written by install.py). Gated on agent_type so a stray
+            # api_key in a zeroclaw/openclaw blob doesn't mislead doctor output.
+            api_key=(
+                _clean_secret(str(gateway_blob.get("api_key", "") or ""))
+                if agent_type == "ethos"
+                else ""
+            ),
+            internal_port=(
+                int(gateway_blob.get("internal_port") or 44410)
+                if agent_type == "ethos"
+                else 0
+            ),
         )
 
     # --- Hermes multi-provider bundle (hermes-only) ------------------------
@@ -2334,11 +2344,6 @@ def supported_integrations_for_agent_type(agent_type: str) -> frozenset[str] | N
 # ethos renderer
 # ---------------------------------------------------------------------------
 
-_ETHOS_SUPPORTED_PROVIDERS: frozenset[str] = frozenset(
-    {"anthropic", "openai", "openrouter", "codex"}
-)
-
-
 @_functools.lru_cache(maxsize=8)
 def _ethos_template(template_name: str):
     """Load + compile an ethos template once per process."""
@@ -2384,10 +2389,11 @@ def render_ethos(inputs: RenderInputs) -> RenderedFiles:
     """
     _validate_agent_name(inputs.agent_name)
     ptype = inputs.provider.type
-    if ptype not in _ETHOS_SUPPORTED_PROVIDERS:
+    _supported = _AGENT_TYPE_PROVIDER_SUPPORT.get("ethos", frozenset())
+    if ptype not in _supported:
         raise AgentConfigError(
             f"render_ethos does not support provider type {ptype!r}. "
-            f"Supported: {sorted(_ETHOS_SUPPORTED_PROVIDERS)}"
+            f"Supported: {sorted(_supported)}"
         )
     if inputs.gateway is None:
         raise AgentConfigError(
@@ -2399,8 +2405,22 @@ def render_ethos(inputs: RenderInputs) -> RenderedFiles:
     # templates were originally Ansible templates whose `config` extravar
     # carries the hosts.json agent-config blob verbatim; we reconstruct
     # the relevant sub-keys from RenderInputs.
+    #
+    # Guard: ethos channels are keyed by type (one entry per type). Raise
+    # early when a duplicate type would silently shadow the first — same
+    # invariant as hermes/zeroclaw/openclaw channel dedup guards.
+    seen_channel_types: dict[str, str] = {}
     channels_dict: dict = {}
     for ch in inputs.channels:
+        prior = seen_channel_types.get(ch.type)
+        if prior is not None:
+            raise AgentConfigError(
+                f"duplicate channel type {ch.type!r} on agent "
+                f"{inputs.agent_name!r}: channels {prior!r} and "
+                f"{ch.name!r} both registered as {ch.type!r}. "
+                f"Detach one with `clawctl agent channel detach`."
+            )
+        seen_channel_types[ch.type] = ch.name
         channels_dict[ch.type] = {
             "enabled": True,
             "bot_token": ch.bot_token,
@@ -2430,8 +2450,11 @@ def render_ethos(inputs: RenderInputs) -> RenderedFiles:
 
     integrations_dict: dict = {}
     for it in inputs.integrations:
-        entry: dict = {"type": it.type}
+        # Set credentials first so `it.type` always wins if a credential
+        # key happens to be named "type".
+        entry: dict = {}
         entry.update(dict(it.credentials))
+        entry["type"] = it.type
         integrations_dict[it.name] = entry
 
     ctx = dict(

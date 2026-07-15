@@ -17,6 +17,7 @@ from clawrium.cli import app
 from clawrium.core.render import (
     AgentConfigError,
     ChannelInputs,
+    GatewayInputs,
     IntegrationInputs,
     ProviderInputs,
     RenderInputs,
@@ -222,3 +223,93 @@ def test_doctor_broken_json_includes_error(fleet_dir, monkeypatch) -> None:
     payload = json.loads(body[: arr_end + 1])
     assert payload[0]["status"] == "broken"
     assert "BOT_TOKEN" in payload[0]["error"]
+
+
+# ---------------------------------------------------------------------------
+# B3 regression guard: ethos dispatches to render_ethos, exits 0 (#923)
+# ---------------------------------------------------------------------------
+
+_ETHOS_INPUTS = RenderInputs(
+    agent_name="kevin",
+    agent_type="ethos",
+    provider=ProviderInputs(
+        name="openrouter-primary",
+        type="openrouter",
+        default_model="anthropic/claude-opus-4.7",
+        api_key="sk-or-xxx",
+    ),
+    channels=(),
+    integrations=(),
+    gateway=GatewayInputs(
+        host="0.0.0.0",
+        port=44400,
+        auth="ethos-tkn",
+        bind="lan",
+        api_key="ethos-gw-key",
+        internal_port=44410,
+    ),
+)
+
+_ETHOS_FILES = RenderedFiles(
+    files={
+        ".ethos/.env": "OPENROUTER_API_KEY='sk-or-xxx'\n",
+        ".ethos/config.yaml": "provider:\n  type: openrouter\n",
+        ".ethos/personalities/default/SOUL.md": "# kevin\n",
+        ".ethos/personalities/default/config.yaml": "memory: {}\n",
+        ".ethos/personalities/default/toolset.yaml": "tools: []\n",
+    }
+)
+
+
+_ETHOS_CLAW_RECORD = {
+    "type": "ethos",
+    "agent_name": "kevin",
+    "providers": ["openrouter-primary"],
+    "channels": [],
+    "integrations": [],
+    "skills": [],
+}
+
+
+def test_doctor_ethos_dispatches_and_exits_zero(fleet_dir, monkeypatch) -> None:
+    """B3 regression guard (#923): ethos must dispatch to render_ethos and exit 0.
+
+    Before the fix, doctor exited non-zero with
+    'no renderer registered for agent type ethos'.
+    """
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    monkeypatch.setattr(
+        doctor_mod,
+        "safe_resolve_agent",
+        lambda name: ({"hostname": "host-1"}, "ethos:kevin", _ETHOS_CLAW_RECORD),
+    )
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda name: _ETHOS_INPUTS)
+    monkeypatch.setattr(doctor_mod, "render_ethos", lambda inputs: _ETHOS_FILES)
+
+    result = runner.invoke(app, ["agent", "doctor", "kevin"])
+    assert result.exit_code == 0, result.output
+    assert "Status:  ok" in result.output
+    assert "ethos" in result.output
+
+
+def test_doctor_ethos_gateway_fields_present_in_json(fleet_dir, monkeypatch) -> None:
+    """api_key and internal_port surface in the doctor JSON output for ethos."""
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    monkeypatch.setattr(
+        doctor_mod,
+        "safe_resolve_agent",
+        lambda name: ({"hostname": "host-1"}, "ethos:kevin", _ETHOS_CLAW_RECORD),
+    )
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda name: _ETHOS_INPUTS)
+    monkeypatch.setattr(doctor_mod, "render_ethos", lambda inputs: _ETHOS_FILES)
+
+    result = runner.invoke(app, ["agent", "doctor", "kevin", "-o", "json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    gw = payload[0]["inputs"]["gateway"]
+    assert gw["api_key"] == "present"
+    assert gw["internal_port"] == 44410
+    # Secret value must not appear.
+    assert "ethos-gw-key" not in result.output

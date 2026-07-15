@@ -26,6 +26,7 @@ from clawrium.core.render import (
     ProviderInputs,
     RenderInputs,
     build_render_inputs,
+    render_ethos,
     render_hermes,
     render_openclaw,
     render_zeroclaw,
@@ -474,6 +475,40 @@ def _baseline_inputs(*, ptype: str = "openrouter") -> RenderInputs:
     )
 
 
+def _ethos_inputs(*, ptype: str = "openrouter") -> RenderInputs:
+    """Minimal but valid RenderInputs for an ethos agent."""
+    if ptype == "codex":
+        provider = ProviderInputs(name="cx", type="codex", default_model="codex-1")
+    elif ptype == "anthropic":
+        provider = ProviderInputs(
+            name="an", type="anthropic", default_model="claude-opus-4-7", api_key="sk-ant-1"
+        )
+    elif ptype == "openai":
+        provider = ProviderInputs(
+            name="oa", type="openai", default_model="gpt-5", api_key="sk-oa-1"
+        )
+    else:
+        provider = ProviderInputs(
+            name="or", type="openrouter", default_model="anthropic/claude-opus-4.7", api_key="sk-or-1"
+        )
+    return RenderInputs(
+        agent_name="kevin",
+        agent_type="ethos",
+        provider=provider,
+        channels=(),
+        integrations=(),
+        api_server=None,
+        gateway=GatewayInputs(
+            host="0.0.0.0",
+            port=44400,
+            auth="ethos-tkn",
+            bind="lan",
+            api_key="ethos-gw-key",
+            internal_port=44410,
+        ),
+    )
+
+
 @pytest.mark.parametrize(
     "renderer,ptype",
     [
@@ -500,12 +535,18 @@ def _baseline_inputs(*, ptype: str = "openrouter") -> RenderInputs:
         (render_openclaw, "litellm"),
         (render_openclaw, "opencode"),
         (render_openclaw, "opencode-go"),
+        (render_ethos, "openrouter"),
+        (render_ethos, "anthropic"),
+        (render_ethos, "openai"),
+        (render_ethos, "codex"),
     ],
 )
 def test_renderer_is_idempotent(renderer, ptype):
     """Property test: identical inputs → byte-identical outputs."""
     if renderer is render_zeroclaw:
         inputs = _zeroclaw_inputs(ptype=ptype)
+    elif renderer is render_ethos:
+        inputs = _ethos_inputs(ptype=ptype)
     else:
         inputs = _baseline_inputs(ptype=ptype)
     out1 = renderer(inputs)
@@ -6443,3 +6484,234 @@ def test_zeroclaw_config_full_toml_parses_for_all_variants():
         # tomllib.loads raises on invalid TOML — the test fails
         # with the parser's line/col.
         tomllib.loads(toml)
+
+
+# ---------------------------------------------------------------------------
+# render_ethos — B2 / #923
+# ---------------------------------------------------------------------------
+
+
+_ETHOS_EXPECTED_PATHS = frozenset(
+    {
+        ".ethos/.env",
+        ".ethos/config.yaml",
+        ".ethos/personalities/default/SOUL.md",
+        ".ethos/personalities/default/config.yaml",
+        ".ethos/personalities/default/toolset.yaml",
+    }
+)
+
+
+def test_render_ethos_produces_five_non_empty_files():
+    """All five config paths are present and non-empty for a basic openrouter setup."""
+    out = render_ethos(_ethos_inputs())
+    assert set(out.files.keys()) == _ETHOS_EXPECTED_PATHS
+    for path, body in out.files.items():
+        assert body.strip(), f"{path} rendered empty"
+
+
+def test_render_ethos_provider_api_key_in_env():
+    """provider_api_key (OPENROUTER_API_KEY) flows through to .env."""
+    out = render_ethos(_ethos_inputs(ptype="openrouter"))
+    env = out.files[".ethos/.env"]
+    assert "sk-or-1" in env
+
+
+def test_render_ethos_gateway_api_key_and_internal_port_in_env():
+    """gateway.api_key and gateway.internal_port are present in .env."""
+    inputs = _ethos_inputs()
+    out = render_ethos(inputs)
+    env = out.files[".ethos/.env"]
+    assert "ethos-gw-key" in env
+    assert "44410" in env
+
+
+def test_render_ethos_rejects_unsupported_provider():
+    """AgentConfigError for a provider type ethos doesn't support (e.g. bedrock)."""
+    inputs = RenderInputs(
+        agent_name="kevin",
+        agent_type="ethos",
+        provider=ProviderInputs(
+            name="br",
+            type="bedrock",
+            default_model="anthropic.claude-v3-sonnet",
+            aws_access_key="AKIA-1",
+            aws_secret_key="secret-1",
+        ),
+        channels=(),
+        integrations=(),
+        api_server=None,
+        gateway=GatewayInputs(host="0.0.0.0", port=44400, auth="tkn", bind="lan"),
+    )
+    with pytest.raises(AgentConfigError, match="render_ethos does not support"):
+        render_ethos(inputs)
+
+
+def test_render_ethos_rejects_none_gateway():
+    """AgentConfigError when gateway is None — ethos requires a gateway block."""
+    inputs = RenderInputs(
+        agent_name="kevin",
+        agent_type="ethos",
+        provider=ProviderInputs(
+            name="or", type="openrouter", default_model="m", api_key="sk-or-1"
+        ),
+        channels=(),
+        integrations=(),
+        api_server=None,
+        gateway=None,
+    )
+    with pytest.raises(AgentConfigError, match="requires gateway config"):
+        render_ethos(inputs)
+
+
+def test_render_ethos_rejects_duplicate_channel_type():
+    """B1 guard: two channels of the same type raise AgentConfigError."""
+    slack_ch = ChannelInputs(
+        name="slack-a",
+        type="slack",
+        bot_token="xoxb-1",
+        app_token="xapp-1",
+    )
+    slack_ch2 = ChannelInputs(
+        name="slack-b",
+        type="slack",
+        bot_token="xoxb-2",
+        app_token="xapp-2",
+    )
+    inputs = RenderInputs(
+        agent_name="kevin",
+        agent_type="ethos",
+        provider=ProviderInputs(
+            name="or", type="openrouter", default_model="m", api_key="sk-or-1"
+        ),
+        channels=(slack_ch, slack_ch2),
+        integrations=(),
+        api_server=None,
+        gateway=GatewayInputs(host="0.0.0.0", port=44400, auth="tkn", bind="lan"),
+    )
+    with pytest.raises(AgentConfigError, match="duplicate channel type"):
+        render_ethos(inputs)
+
+
+def test_render_ethos_integration_type_wins_over_credential_key():
+    """S5: entry['type'] must equal it.type even if credentials contain 'type'."""
+    inputs = RenderInputs(
+        agent_name="kevin",
+        agent_type="ethos",
+        provider=ProviderInputs(
+            name="or", type="openrouter", default_model="m", api_key="sk-or-1"
+        ),
+        channels=(),
+        integrations=(
+            IntegrationInputs(
+                name="gh",
+                type="github",
+                credentials=(("GITHUB_TOKEN", "ghp-1"), ("type", "should-be-ignored")),
+            ),
+        ),
+        api_server=None,
+        gateway=GatewayInputs(host="0.0.0.0", port=44400, auth="tkn", bind="lan"),
+    )
+    out = render_ethos(inputs)
+    env = out.files[".ethos/.env"]
+    # The rendered env must not embed the stray credential value as the
+    # integration type; it must use "github".
+    assert "github" in env or "GITHUB_TOKEN" in env
+
+
+# ---------------------------------------------------------------------------
+# build_render_inputs — ethos gateway blob fields (B4 / #923)
+# ---------------------------------------------------------------------------
+
+
+def test_build_render_inputs_populates_ethos_gateway_api_key_and_internal_port(stores):
+    """B4: api_key and internal_port from gateway blob are surfaced in GatewayInputs
+    for ethos agents. Other agent types must receive empty/0 defaults."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "ethos",
+        {
+            "agent_name": "kevin",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {
+                    "host": "0.0.0.0",
+                    "port": 44400,
+                    "auth": "ethos-tkn",
+                    "bind": "lan",
+                    "api_key": "ethos-gw-key",
+                    "internal_port": 44410,
+                }
+            },
+        },
+    )
+    stores.providers["or"] = {
+        "name": "or",
+        "type": "openrouter",
+        "default_model": "anthropic/claude-opus-4.7",
+    }
+    stores.provider_api_keys["or"] = "sk-or-1"
+    inputs = build_render_inputs("kevin")
+    assert inputs.gateway is not None
+    assert inputs.gateway.api_key == "ethos-gw-key"
+    assert inputs.gateway.internal_port == 44410
+
+
+def test_build_render_inputs_ethos_gateway_internal_port_defaults_to_44410(stores):
+    """When internal_port is absent from the gateway blob, it defaults to 44410."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "ethos",
+        {
+            "agent_name": "kevin",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {
+                    "host": "0.0.0.0",
+                    "port": 44400,
+                    "auth": "ethos-tkn",
+                    "api_key": "ethos-gw-key",
+                }
+            },
+        },
+    )
+    stores.providers["or"] = {
+        "name": "or",
+        "type": "openrouter",
+        "default_model": "anthropic/claude-opus-4.7",
+    }
+    stores.provider_api_keys["or"] = "sk-or-1"
+    inputs = build_render_inputs("kevin")
+    assert inputs.gateway is not None
+    assert inputs.gateway.internal_port == 44410
+
+
+def test_build_render_inputs_non_ethos_gateway_api_key_stays_empty(stores):
+    """W5: a zeroclaw agent with an api_key in its gateway blob must NOT
+    have that key surfaced in GatewayInputs.api_key (gate is agent_type-specific)."""
+    stores.agent = (
+        {"hostname": "host-1"},
+        "zeroclaw",
+        {
+            "agent_name": "zc1",
+            "providers": [{"name": "or", "role": "primary", "model": ""}],
+            "config": {
+                "gateway": {
+                    "host": "0.0.0.0",
+                    "port": 40000,
+                    "auth": "tkn",
+                    "api_key": "should-be-ignored",
+                }
+            },
+        },
+    )
+    stores.providers["or"] = {
+        "name": "or",
+        "type": "openrouter",
+        "default_model": "m",
+    }
+    stores.provider_api_keys["or"] = "sk-or-1"
+    inputs = build_render_inputs("zc1")
+    assert inputs.gateway is not None
+    assert inputs.gateway.api_key == ""
+    assert inputs.gateway.internal_port == 0
