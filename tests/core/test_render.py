@@ -1268,6 +1268,115 @@ def test_zeroclaw_requires_gateway():
         render_zeroclaw(inputs)
 
 
+# #911: previously the zeroclaw config template hardcoded
+# `/home/clawrium-d01/…` (an operator-specific home) at seven daemon-owned
+# paths — knowledge db, plugins dir, project-intel reports, e-stop state,
+# security-ops playbooks + reports, and workspaces dir. Every rendered
+# zeroclaw agent pointed those paths at a single operator's home,
+# regardless of the agent's actual name — cross-agent data collision.
+# These two tests lock the fix: config paths must resolve under the
+# agent's own home for both linux and darwin.
+_ZEROCLAW_AGENT_HOMED_KEYS = (
+    "db_path",
+    "plugins_dir",
+    "state_file",
+    "playbooks_dir",
+    "workspaces_dir",
+    # `report_output_dir` appears twice (project_intel + security_ops).
+    "report_output_dir",
+)
+
+
+def _extract_key_value(toml_body: str, key: str) -> list[str]:
+    """Return every value assigned to `key` in a TOML body (`key = "value"`)."""
+    import re
+
+    return re.findall(rf'^\s*{re.escape(key)}\s*=\s*"([^"]+)"', toml_body, flags=re.M)
+
+
+def test_zeroclaw_config_paths_use_agent_home_linux():
+    inputs = RenderInputs(
+        agent_name="test-agent",
+        agent_type="zeroclaw",
+        provider=ProviderInputs(name="p", type="openrouter", api_key="k"),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, allow_public_bind=True),
+    )
+    toml = render_zeroclaw(inputs, os_family="linux").files[".zeroclaw/config.toml"]
+    # No operator-specific home leaks into the render.
+    assert "clawrium-d01" not in toml, (
+        "hardcoded operator home leaked into zeroclaw config render"
+    )
+    # Every previously-hardcoded key must resolve under the agent's own home.
+    for key in _ZEROCLAW_AGENT_HOMED_KEYS:
+        values = _extract_key_value(toml, key)
+        assert values, f"expected at least one `{key} = …` line in rendered TOML"
+        for value in values:
+            assert value.startswith("/home/test-agent/.zeroclaw/"), (
+                f"{key!r} resolved to {value!r}, expected /home/test-agent/.zeroclaw/…"
+            )
+
+
+def test_zeroclaw_config_paths_use_agent_home_darwin():
+    inputs = RenderInputs(
+        agent_name="test-agent",
+        agent_type="zeroclaw",
+        provider=ProviderInputs(name="p", type="openrouter", api_key="k"),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, allow_public_bind=True),
+    )
+    toml = render_zeroclaw(inputs, os_family="darwin").files[".zeroclaw/config.toml"]
+    assert "clawrium-d01" not in toml
+    for key in _ZEROCLAW_AGENT_HOMED_KEYS:
+        values = _extract_key_value(toml, key)
+        assert values, f"expected at least one `{key} = …` line in rendered TOML"
+        for value in values:
+            assert value.startswith("/Users/test-agent/.zeroclaw/"), (
+                f"{key!r} resolved to {value!r}, expected /Users/test-agent/.zeroclaw/…"
+            )
+
+
+def test_zeroclaw_onboard_state_defaults_empty_on_first_render():
+    """#910: with no `onboard_completed_sections` context (fresh install),
+    the template must emit `completed_sections = []` — byte-identical to
+    the pre-#910 baseline so `configure_agent` on a brand-new host does
+    not regress."""
+    inputs = _zeroclaw_inputs(ptype="openrouter")
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    assert "[onboard_state]" in toml
+    assert "completed_sections = []" in toml
+
+
+def test_zeroclaw_onboard_state_preserved_when_supplied():
+    """#910: passing the on-host list through the render context emits
+    it verbatim so `sync` preserves the daemon's live onboarding state
+    across re-renders (root-cause fix for the `Quickstart` chat error)."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        gateway=base.gateway,
+        onboard_completed_sections=(
+            "memory",
+            "providers",
+            "identity",
+            "channels",
+            "validate",
+        ),
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    assert "[onboard_state]" in toml
+    expected = (
+        'completed_sections = ["memory", "providers", '
+        '"identity", "channels", "validate"]'
+    )
+    assert expected in toml, (
+        f"expected preserved onboard sections in TOML; "
+        f"got:\n{toml.split('[onboard_state]', 1)[-1][:200]}"
+    )
+
+
 def test_openclaw_openrouter_prefixes_model():
     inputs = _baseline_inputs(ptype="openrouter")
     inputs = RenderInputs(
