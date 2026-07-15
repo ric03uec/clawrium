@@ -41,5 +41,6 @@ cut. The `itx:release` skill archives this section into a new
   transport / auth / protocol error). Previously the flag was
   advertised in `--help` but short-circuited to a `Not implemented`
   message. (#918)
+- Parameterized seven hardcoded operator-home paths (`/home/clawrium-d01/…`) in the zeroclaw config template so `knowledge.db`, `plugins/`, `project-reports/`, `estop-state.json`, security-ops `playbooks/` + `security-reports/`, and `workspaces/` all resolve under each agent's own home. Prevents cross-agent data collision on multi-agent hosts and recovers project-intel / knowledge features that were writing to the wrong home. Also recovers `#913`. (#911)
 
 ### Documentation
