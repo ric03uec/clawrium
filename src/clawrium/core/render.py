@@ -244,6 +244,9 @@ class GatewayInputs:
     auth: str = ""
     bind: str = ""
     allow_public_bind: bool = True
+    # ethos-only fields; stay empty/0 for all other agent types.
+    api_key: str = field(default="", repr=False)
+    internal_port: int = 0
 
 
 @dataclass(frozen=True)
@@ -620,6 +623,11 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
             auth=_clean_secret(read_gateway_auth(gateway_blob)),
             bind=str(gateway_blob.get("bind", "")),
             allow_public_bind=bool(gateway_blob.get("allow_public_bind", True)),
+            # ethos-only: api_key and internal_port live in the gateway blob
+            # for ethos agents (written by install.py). Other agent types leave
+            # these at their defaults (empty string / 0).
+            api_key=_clean_secret(str(gateway_blob.get("api_key", "") or "")),
+            internal_port=int(gateway_blob.get("internal_port", 0) or 0),
         )
 
     # --- Hermes multi-provider bundle (hermes-only) ------------------------
@@ -2320,3 +2328,133 @@ def supported_integrations_for_agent_type(agent_type: str) -> frozenset[str] | N
     type the renderer does not personally know about.
     """
     return _AGENT_TYPE_INTEGRATION_SUPPORT.get(agent_type)
+
+
+# ---------------------------------------------------------------------------
+# ethos renderer
+# ---------------------------------------------------------------------------
+
+_ETHOS_SUPPORTED_PROVIDERS: frozenset[str] = frozenset(
+    {"anthropic", "openai", "openrouter", "codex"}
+)
+
+
+@_functools.lru_cache(maxsize=8)
+def _ethos_template(template_name: str):
+    """Load + compile an ethos template once per process."""
+    from importlib.resources import files
+
+    import re as _re
+
+    from jinja2 import Environment, StrictUndefined
+
+    template_source = (
+        files("clawrium.platform.registry.ethos.templates")
+        .joinpath(template_name)
+        .read_text(encoding="utf-8")
+    )
+    env = Environment(
+        undefined=StrictUndefined,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+        autoescape=False,
+    )
+    # `regex_replace` is an Ansible built-in used in the GitHub integration
+    # block of ethos.env.j2 to sanitize variable names.
+    env.filters["regex_replace"] = lambda v, pattern, replacement="": _re.sub(
+        pattern, replacement, str(v)
+    )
+    return env.from_string(template_source)
+
+
+def _render_ethos_template(template_name: str, **context) -> str:
+    return _ethos_template(template_name).render(**context)
+
+
+def render_ethos(inputs: RenderInputs) -> RenderedFiles:
+    """Render ethos config files from RenderInputs.
+
+    Produces the same set of files as the ethos configure.yaml playbook:
+      - `.ethos/.env`                              — provider key + gateway + channels
+      - `.ethos/config.yaml`                       — provider + model
+      - `.ethos/personalities/default/SOUL.md`    — agent identity
+      - `.ethos/personalities/default/toolset.yaml` — tools (static)
+      - `.ethos/personalities/default/config.yaml` — memory config (static)
+    """
+    _validate_agent_name(inputs.agent_name)
+    ptype = inputs.provider.type
+    if ptype not in _ETHOS_SUPPORTED_PROVIDERS:
+        raise AgentConfigError(
+            f"render_ethos does not support provider type {ptype!r}. "
+            f"Supported: {sorted(_ETHOS_SUPPORTED_PROVIDERS)}"
+        )
+    if inputs.gateway is None:
+        raise AgentConfigError(
+            f"render_ethos requires gateway config for agent "
+            f"{inputs.agent_name!r}; none supplied"
+        )
+
+    # Build the `config` dict the ethos Jinja2 templates expect. The
+    # templates were originally Ansible templates whose `config` extravar
+    # carries the hosts.json agent-config blob verbatim; we reconstruct
+    # the relevant sub-keys from RenderInputs.
+    channels_dict: dict = {}
+    for ch in inputs.channels:
+        channels_dict[ch.type] = {
+            "enabled": True,
+            "bot_token": ch.bot_token,
+            "app_token": ch.app_token,
+            "allowed_users": list(ch.allowed_users),
+            "allowed_channels": list(ch.allowed_channels),
+            "allowed_guilds": list(ch.allowed_guilds),
+            "allow_all_users": ch.allow_all_users,
+            "home_channel": ch.home_channel,
+            "home_channel_name": ch.home_channel_name,
+            "home_channel_thread_id": ch.home_channel_thread_id,
+            "require_mention": ch.require_mention,
+        }
+
+    config = {
+        "provider": {
+            "type": inputs.provider.type,
+            "default_model": inputs.provider.default_model,
+        },
+        "gateway": {
+            "port": inputs.gateway.port,
+            "internal_port": inputs.gateway.internal_port,
+            "api_key": inputs.gateway.api_key,
+        },
+        "channels": channels_dict,
+    }
+
+    integrations_dict: dict = {}
+    for it in inputs.integrations:
+        entry: dict = {"type": it.type}
+        entry.update(dict(it.credentials))
+        integrations_dict[it.name] = entry
+
+    ctx = dict(
+        agent_name=inputs.agent_name,
+        config=config,
+        provider_api_key=inputs.provider.api_key,
+        integrations=integrations_dict,
+    )
+
+    env_body = _render_ethos_template("ethos.env.j2", **ctx)
+    config_body = _render_ethos_template("ethos-config.yaml.j2", **ctx)
+    soul_body = _render_ethos_template("ethos-soul.md.j2", **ctx)
+    toolset_body = _render_ethos_template("ethos-toolset.yaml.j2", **ctx)
+    personality_config_body = _render_ethos_template(
+        "ethos-personality-config.yaml.j2", **ctx
+    )
+
+    return RenderedFiles(
+        files={
+            ".ethos/.env": env_body,
+            ".ethos/config.yaml": config_body,
+            ".ethos/personalities/default/SOUL.md": soul_body,
+            ".ethos/personalities/default/config.yaml": personality_config_body,
+            ".ethos/personalities/default/toolset.yaml": toolset_body,
+        }
+    )

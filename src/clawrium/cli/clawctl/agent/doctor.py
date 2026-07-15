@@ -37,6 +37,7 @@ from clawrium.core.render import (
     RenderedFiles,
     RenderInputs,
     build_render_inputs,
+    render_ethos,  # noqa: F401 — re-exported for test monkeypatching.
     render_hermes,  # noqa: F401 — re-exported for test monkeypatching.
     render_openclaw,  # noqa: F401 — re-exported for test monkeypatching.
     render_zeroclaw,  # noqa: F401 — re-exported for test monkeypatching.
@@ -48,6 +49,7 @@ from clawrium.core.render import (
 # import time) lets `monkeypatch.setattr(doctor_mod, "render_X", ...)`
 # work without callers having to know about the dispatch table.
 _RENDERER_NAMES = {
+    "ethos": "render_ethos",
     "hermes": "render_hermes",
     "zeroclaw": "render_zeroclaw",
     "openclaw": "render_openclaw",
@@ -181,6 +183,8 @@ def _inputs_block(inputs: RenderInputs) -> dict:
             "auth": _present(inputs.gateway.auth),
             "bind": inputs.gateway.bind,
             "allow_public_bind": inputs.gateway.allow_public_bind,
+            "api_key": _present(inputs.gateway.api_key),
+            "internal_port": inputs.gateway.internal_port,
         }
     return {
         "provider": provider,

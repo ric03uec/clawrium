@@ -38,6 +38,14 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- `clawctl agent doctor <name>` now works for **ethos agents** (#923). Previously the command
+  failed with `Error: no renderer registered for agent type 'ethos'` because the doctor
+  dispatch table only covered hermes, zeroclaw, and openclaw. Fix adds a `render_ethos()`
+  Python renderer that exercises the same five Jinja2 templates as the Ansible configure
+  playbook (`.ethos/.env`, `.ethos/config.yaml`, and three personality files), extends
+  `GatewayInputs` with `api_key` and `internal_port` fields (populated from the gateway
+  blob for ethos; default-empty for all other types), and surfaces both fields in the
+  doctor gateway diagnostic block.
 - Ethos agents stuck in `onboarding.state=pending` (e.g. due to SSH drop or provider API
   unreachable during configure) now auto-recover when `clawctl agent start` is called.
   `start_agent` re-runs configure before raising `LifecycleError`; if recovery succeeds
