@@ -1792,7 +1792,15 @@ def sync_agent_canonical(
         raise CanonicalSyncError(
             f"agent {agent_name!r} not found in hosts.json"
         )
-    host, agent_key, _claw_record = resolved
+    # Issue #917: the middle element of `get_agent_by_name` is the
+    # agent *type* (e.g. "zeroclaw"), NOT the instance name. The old
+    # `agent_key` local misled its two consumers below into treating
+    # the type as an instance name, producing a spurious "registry
+    # record missing for zeroclaw after sync" warning at line ~2417
+    # when `_transition` looked up the type as if it were a claw name.
+    # Callers that actually want the instance name use `agent_name`
+    # (the function parameter at line 1742).
+    host, agent_type, _claw_record = resolved
     hostname = host.get("hostname", "")
 
     # Issue #810 — refuse sync on an incomplete installation
@@ -2414,17 +2422,23 @@ def sync_agent_canonical(
     transition_error: str | None = None
     state_write_ok = True
     try:
-        _transition(hostname, agent_key, _OS.READY)
+        # Issue #917: `_transition` (onboarding.transition_state) is
+        # keyed by the agent *instance* name in hosts.json, not the
+        # agent type. Passing the type here (e.g. "zeroclaw") caused
+        # a spurious "registry record missing for zeroclaw" warning
+        # on every sync of a zeroclaw agent whose instance name
+        # differed from its type.
+        _transition(hostname, agent_name, _OS.READY)
     except _ITE as exc:
         emit(
             "sync",
-            f"note: skipped state=READY transition for {agent_key} "
+            f"note: skipped state=READY transition for {agent_name} "
             f"(agent is mid-walk: {exc!s}). `clawctl agent start` will "
             f"surface the current onboarding stage.",
         )
     except (_ANF, _ONF) as exc:
         transition_error = (
-            f"registry record missing for {agent_key} after sync: "
+            f"registry record missing for {agent_name} after sync: "
             f"{exc!s}. Inspect hosts.json before running "
             f"clawctl agent start."
         )

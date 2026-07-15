@@ -334,6 +334,98 @@ def test_sync_state_ready_generic_exception_populates_error(monkeypatch):
     assert "disk full" in result.error
 
 
+def test_sync_zeroclaw_transition_uses_instance_name(monkeypatch):
+    """Issue #917: `_transition` (onboarding.transition_state) is
+    keyed by the agent *instance* name recorded in hosts.json, NOT
+    the agent type. Passing the type (e.g. "zeroclaw") caused the
+    registry lookup inside `transition_state` to raise
+    `AgentNotFoundError`, which then surfaced as a spurious
+    `registry record missing for zeroclaw after sync` warning on
+    every sync of a zeroclaw whose instance name differs from its
+    type.
+
+    This test stubs `get_agent_by_name` to return the canonical
+    tuple shape `(host, agent_type, agent_record)` with distinct
+    values so a regression that passes `agent_type` again is caught
+    immediately.
+    """
+    events, _ = _stub_sync_environment(monkeypatch, agent_type="zeroclaw")
+    # Override the environment stub's tuple to make the type/name
+    # distinction visible — the fix must pass "e2e-zeroclaw" (instance),
+    # not "zeroclaw" (type).
+    monkeypatch.setattr(
+        lc,
+        "get_agent_by_name",
+        lambda _: ({"hostname": "h"}, "zeroclaw", {}),
+    )
+    captured: list[tuple[str, str]] = []
+
+    def _capture_transition(host, claw_name, to_state):
+        captured.append((host, claw_name))
+        return None
+
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state", _capture_transition
+    )
+    # zeroclaw's post-write bearer-repair path calls into
+    # lifecycle._zeroclaw_repair_after_start; short-circuit it so the
+    # sync reaches the transition block.
+    with patch(
+        "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+        return_value=(True, None),
+    ):
+        result = sync_agent_canonical(
+            "e2e-zeroclaw",
+            restart=False,
+            verify=False,
+            on_event=lambda s, m: events.append((s, m)),
+        )
+
+    assert result.success
+    assert captured, "transition_state was never called"
+    assert captured == [("h", "e2e-zeroclaw")], (
+        f"transition_state received the wrong claw name; expected the "
+        f"instance name 'e2e-zeroclaw' but got {captured!r}"
+    )
+
+
+def test_sync_zeroclaw_no_registry_missing_warning(monkeypatch):
+    """Issue #917: with the fix in place, `sync_agent_canonical`
+    for a zeroclaw agent must not emit the spurious
+    `registry record missing for <type>` warning line that #917
+    reported. This is the operator-facing symptom of the bug —
+    guarding the emit stream directly ensures the warning does not
+    reappear even if a future refactor re-introduces the underlying
+    mis-key.
+    """
+    events, _ = _stub_sync_environment(monkeypatch, agent_type="zeroclaw")
+    monkeypatch.setattr(
+        lc,
+        "get_agent_by_name",
+        lambda _: ({"hostname": "h"}, "zeroclaw", {}),
+    )
+    monkeypatch.setattr(
+        "clawrium.core.onboarding.transition_state",
+        lambda *a, **kw: None,
+    )
+    with patch(
+        "clawrium.core.lifecycle._zeroclaw_repair_after_start",
+        return_value=(True, None),
+    ):
+        result = sync_agent_canonical(
+            "e2e-zeroclaw",
+            restart=False,
+            verify=False,
+            on_event=lambda s, m: events.append((s, m)),
+        )
+
+    assert result.success
+    warnings = [m for s, m in events if "registry record missing" in m]
+    assert warnings == [], (
+        f"unexpected 'registry record missing' warning emitted: {warnings!r}"
+    )
+
+
 def test_open_ssh_raises_when_no_private_key(monkeypatch):
     """W9 (ATX #555 polish round 2): missing SSH key for the host
     surfaces as `CanonicalSyncError` with the operator-actionable hint
