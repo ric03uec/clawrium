@@ -259,6 +259,13 @@ class RenderInputs:
     # zeroclaw/openclaw — their renderers do not read this field, and
     # `build_render_inputs` skips the multi-provider walk for them.
     hermes: HermesProviderBundle | None = None
+    # #910: zeroclaw daemon tracks onboarding completion in
+    # `~/.zeroclaw/config.toml` under `[onboard_state].completed_sections`.
+    # `build_render_inputs` never populates this — it is threaded in by
+    # `sync_agent_canonical` after reading the on-host config so
+    # re-render preserves live daemon state instead of wiping it back
+    # to `[]`. Ignored by non-zeroclaw renderers.
+    onboard_completed_sections: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1526,6 +1533,7 @@ def render_zeroclaw(
         shell_env_passthrough=passthrough,
         slack_integrations=slack_views,
         slack_mcp_binary=slack_mcp_binary,
+        onboard_completed_sections=list(inputs.onboard_completed_sections),
     )
 
     # --- systemd env drop-in (integrations) -------------------------------
@@ -1642,6 +1650,7 @@ def _render_zeroclaw_config_template(
     shell_env_passthrough: list[str],
     slack_integrations: list[dict] | tuple[dict, ...] = (),
     slack_mcp_binary: str = "",
+    onboard_completed_sections: list[str] | tuple[str, ...] = (),
 ) -> str:
     """Render the full-canonical zeroclaw config.toml Jinja template.
 
@@ -1656,6 +1665,12 @@ def _render_zeroclaw_config_template(
     template emits only the baseline `[mcp]` header (no `[[mcp.servers]]`
     blocks, `enabled = false`) — pre-#836 byte-identity is preserved
     for every existing zeroclaw agent.
+
+    `onboard_completed_sections` (#910) drives the
+    `[onboard_state].completed_sections` array. Empty default preserves
+    fresh-install semantics (byte-identical `= []`); populated on
+    subsequent sync by `sync_agent_canonical` reading the on-host
+    daemon state so re-render does not wipe it.
     """
     template = _zeroclaw_template()
     return template.render(
@@ -1667,6 +1682,7 @@ def _render_zeroclaw_config_template(
         shell_env_passthrough=shell_env_passthrough,
         slack_integrations=list(slack_integrations),
         slack_mcp_binary=slack_mcp_binary,
+        onboard_completed_sections=list(onboard_completed_sections),
     )
 
 
