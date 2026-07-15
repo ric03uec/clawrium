@@ -416,7 +416,7 @@ timeout_secs = 30
 [knowledge]
 auto_capture = false
 cross_workspace_search = false
-db_path = "/home/clawrium-d01/.zeroclaw/knowledge.db"
+db_path = "{{ home_root }}/{{ agent_name }}/.zeroclaw/knowledge.db"
 enabled = false
 max_nodes = 100000
 suggest_on_query = true
@@ -598,7 +598,7 @@ max_steps = 20
 auto_discover = false
 enabled = false
 max_plugins = 50
-plugins_dir = "/home/clawrium-d01/.zeroclaw/plugins"
+plugins_dir = "{{ home_root }}/{{ agent_name }}/.zeroclaw/plugins"
 
 [plugins.security]
 signature_mode = "disabled"
@@ -609,7 +609,7 @@ default_language = "en"
 enabled = false
 include_git_data = true
 include_jira_data = false
-report_output_dir = "/home/clawrium-d01/.zeroclaw/project-reports"
+report_output_dir = "{{ home_root }}/{{ agent_name }}/.zeroclaw/project-reports"
 risk_sensitivity = "medium"
 
 [proxy]
@@ -665,7 +665,7 @@ sign_events = false
 [security.estop]
 enabled = false
 require_otp_to_resume = true
-state_file = "/home/clawrium-d01/.zeroclaw/estop-state.json"
+state_file = "{{ home_root }}/{{ agent_name }}/.zeroclaw/estop-state.json"
 
 [security.nevis]
 client_id = ""
@@ -707,8 +707,8 @@ rp_origin = "http://localhost:42617"
 auto_triage = false
 enabled = false
 max_auto_severity = "low"
-playbooks_dir = "/home/clawrium-d01/.zeroclaw/playbooks"
-report_output_dir = "/home/clawrium-d01/.zeroclaw/security-reports"
+playbooks_dir = "{{ home_root }}/{{ agent_name }}/.zeroclaw/playbooks"
+report_output_dir = "{{ home_root }}/{{ agent_name }}/.zeroclaw/security-reports"
 require_approval_for_actions = true
 
 [shell_tool]
@@ -804,4 +804,4 @@ enabled = false
 isolate_audit = true
 isolate_memory = true
 isolate_secrets = true
-workspaces_dir = "/home/clawrium-d01/.zeroclaw/workspaces"
+workspaces_dir = "{{ home_root }}/{{ agent_name }}/.zeroclaw/workspaces"

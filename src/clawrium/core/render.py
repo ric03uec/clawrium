@@ -1519,6 +1519,7 @@ def render_zeroclaw(
     )
     toml_body = _render_zeroclaw_config_template(
         agent_name=inputs.agent_name,
+        home_root=home_root,
         gateway=inputs.gateway,
         provider=provider,
         discord_channel=discord_channel,
@@ -1634,6 +1635,7 @@ def _zeroclaw_template():
 def _render_zeroclaw_config_template(
     *,
     agent_name: str,
+    home_root: str = "/home",
     gateway: "GatewayInputs",
     provider: "ProviderInputs",
     discord_channel: "ChannelInputs | None",
@@ -1658,6 +1660,7 @@ def _render_zeroclaw_config_template(
     template = _zeroclaw_template()
     return template.render(
         agent_name=agent_name,
+        home_root=home_root,
         gateway=gateway,
         provider=provider,
         discord_channel=discord_channel,

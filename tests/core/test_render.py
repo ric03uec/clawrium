@@ -1268,6 +1268,72 @@ def test_zeroclaw_requires_gateway():
         render_zeroclaw(inputs)
 
 
+# #911: previously the zeroclaw config template hardcoded
+# `/home/clawrium-d01/…` (an operator-specific home) at seven daemon-owned
+# paths — knowledge db, plugins dir, project-intel reports, e-stop state,
+# security-ops playbooks + reports, and workspaces dir. Every rendered
+# zeroclaw agent pointed those paths at a single operator's home,
+# regardless of the agent's actual name — cross-agent data collision.
+# These two tests lock the fix: config paths must resolve under the
+# agent's own home for both linux and darwin.
+_ZEROCLAW_AGENT_HOMED_KEYS = (
+    "db_path",
+    "plugins_dir",
+    "state_file",
+    "playbooks_dir",
+    "workspaces_dir",
+    # `report_output_dir` appears twice (project_intel + security_ops).
+    "report_output_dir",
+)
+
+
+def _extract_key_value(toml_body: str, key: str) -> list[str]:
+    """Return every value assigned to `key` in a TOML body (`key = "value"`)."""
+    import re
+
+    return re.findall(rf'^\s*{re.escape(key)}\s*=\s*"([^"]+)"', toml_body, flags=re.M)
+
+
+def test_zeroclaw_config_paths_use_agent_home_linux():
+    inputs = RenderInputs(
+        agent_name="test-agent",
+        agent_type="zeroclaw",
+        provider=ProviderInputs(name="p", type="openrouter", api_key="k"),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, allow_public_bind=True),
+    )
+    toml = render_zeroclaw(inputs, os_family="linux").files[".zeroclaw/config.toml"]
+    # No operator-specific home leaks into the render.
+    assert "clawrium-d01" not in toml, (
+        "hardcoded operator home leaked into zeroclaw config render"
+    )
+    # Every previously-hardcoded key must resolve under the agent's own home.
+    for key in _ZEROCLAW_AGENT_HOMED_KEYS:
+        values = _extract_key_value(toml, key)
+        assert values, f"expected at least one `{key} = …` line in rendered TOML"
+        for value in values:
+            assert value.startswith("/home/test-agent/.zeroclaw/"), (
+                f"{key!r} resolved to {value!r}, expected /home/test-agent/.zeroclaw/…"
+            )
+
+
+def test_zeroclaw_config_paths_use_agent_home_darwin():
+    inputs = RenderInputs(
+        agent_name="test-agent",
+        agent_type="zeroclaw",
+        provider=ProviderInputs(name="p", type="openrouter", api_key="k"),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, allow_public_bind=True),
+    )
+    toml = render_zeroclaw(inputs, os_family="darwin").files[".zeroclaw/config.toml"]
+    assert "clawrium-d01" not in toml
+    for key in _ZEROCLAW_AGENT_HOMED_KEYS:
+        values = _extract_key_value(toml, key)
+        assert values, f"expected at least one `{key} = …` line in rendered TOML"
+        for value in values:
+            assert value.startswith("/Users/test-agent/.zeroclaw/"), (
+                f"{key!r} resolved to {value!r}, expected /Users/test-agent/.zeroclaw/…"
+            )
+
+
 def test_openclaw_openrouter_prefixes_model():
     inputs = _baseline_inputs(ptype="openrouter")
     inputs = RenderInputs(
