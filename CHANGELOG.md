@@ -36,5 +36,10 @@ cut. The `itx:release` skill archives this section into a new
   device-auth provider is now also wired through `build_render_inputs`
   without requiring a stored API key.
 - `clawctl agent sync` no longer prints a spurious `warning: registry record missing for <type> after sync` line for zeroclaw agents whose instance name differs from their type. The post-sync state transition now looks up the agent by its instance name instead of its type (#917).
+- `clawctl agent chat <name> --once "msg"` now sends a single message,
+  prints the reply, and exits with code 0 on success (non-zero on
+  transport / auth / protocol error). Previously the flag was
+  advertised in `--help` but short-circuited to a `Not implemented`
+  message. (#918)
 
 ### Documentation

@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import re
 import sys
-from typing import Any, TypedDict
+from typing import Any, Optional, TypedDict
 
 import typer
 from prompt_toolkit import PromptSession
@@ -56,6 +56,14 @@ class GatewayConfig(TypedDict, total=False):
     device_id: str
     device_private_key: str
 
+
+# Single-shot mode hard cap. `--once` skips the REPL and awaits ONE top-
+# level completion, so a stuck agent must not hang the caller forever.
+# The effective per-request timeout in once mode is min(--timeout,
+# _ONCE_IDLE_TIMEOUT_SECONDS); the CLI --timeout still bounds slow but
+# progressing turns. Kept as a module constant rather than a flag to
+# keep the surface small — promotable in a follow-up if operators ask.
+_ONCE_IDLE_TIMEOUT_SECONDS = 60.0
 
 _SESSION_PATTERN = re.compile(r"^[a-zA-Z0-9_:.-]{1,255}$")
 
@@ -120,6 +128,14 @@ def chat(
         "--idle-timeout",
         min=0.0,
         help="Seconds to wait for user input before auto-exit (0 disables).",
+    ),
+    once: Optional[str] = typer.Option(
+        None,
+        "--once",
+        help=(
+            "Send one message, print the reply, and exit. Exit code 0 on "
+            "success, non-zero on transport error."
+        ),
     ),
 ) -> None:
     """Start an interactive chat session with an installed agent.
@@ -217,28 +233,32 @@ def chat(
     # on the gateway daemon for the lifetime of the WebSocket. The old
     # generic "in-memory only" line was accurate for hermes but
     # misleading for zeroclaw.
-    if chat_type == "openai" and session != "main":
-        console.print(
-            "[dim]`--session` is accepted but has no effect for this agent type "
-            "— conversation history is in-memory only and will not be routed to "
-            "a named session.[/dim]"
-        )
-    elif chat_type == "zeroclaw" and session != "main":
-        console.print(
-            "[dim]`--session` is accepted but has no effect for zeroclaw — the "
-            "gateway daemon owns session state for the duration of this "
-            "WebSocket connection.[/dim]"
-        )
+    # Scripted callers (`--once`) get clean stdout containing only the
+    # reply. The session-noop notices and interactive banners are
+    # gated on interactive mode.
+    if once is None:
+        if chat_type == "openai" and session != "main":
+            console.print(
+                "[dim]`--session` is accepted but has no effect for this agent type "
+                "— conversation history is in-memory only and will not be routed to "
+                "a named session.[/dim]"
+            )
+        elif chat_type == "zeroclaw" and session != "main":
+            console.print(
+                "[dim]`--session` is accepted but has no effect for zeroclaw — the "
+                "gateway daemon owns session state for the duration of this "
+                "WebSocket connection.[/dim]"
+            )
 
-    console.print(
-        f"[green]Connected target:[/green] {rich_escape(str(display_agent))} on {rich_escape(str(display_host))}"
-    )
-    if chat_type == "openai":
         console.print(
-            "Type /exit or press Ctrl+D to end. Use /reset to clear conversation history."
+            f"[green]Connected target:[/green] {rich_escape(str(display_agent))} on {rich_escape(str(display_host))}"
         )
-    else:
-        console.print("Type /exit or press Ctrl+D to end the chat session.")
+        if chat_type == "openai":
+            console.print(
+                "Type /exit or press Ctrl+D to end. Use /reset to clear conversation history."
+            )
+        else:
+            console.print("Type /exit or press Ctrl+D to end the chat session.")
 
     attempted_reconnect = False
     while True:
@@ -260,6 +280,7 @@ def chat(
                     idle_timeout_seconds=idle_timeout,
                     chat_type=chat_type,
                     agent_label=str(display_agent),
+                    once=once,
                 )
             )
             if attempted_reconnect:
@@ -377,6 +398,46 @@ def chat(
             raise typer.Exit(code=1)
 
 
+async def _chat_once(
+    backend: ChatBackend,
+    session_key: str,
+    response_timeout_seconds: float,
+    message: str,
+) -> None:
+    """Single-shot chat turn: connect, send one message, print reply, close.
+
+    Exceptions (`ChatAuthenticationError`, `ChatConnectionError`,
+    `ChatProtocolError`) propagate to the outer `chat()` handlers, which
+    render a diagnostic and exit non-zero. Stdout stays clean — only the
+    assembled reply is written via `console.print` — so scripted callers
+    (`clawctl agent chat <name> --once "hi"`) can consume it directly.
+
+    The per-request timeout is capped at `_ONCE_IDLE_TIMEOUT_SECONDS` so
+    a stuck agent cannot hang the caller indefinitely even if the
+    operator passed a large `--timeout`.
+    """
+    effective_timeout = min(response_timeout_seconds, _ONCE_IDLE_TIMEOUT_SECONDS)
+    await backend.connect()
+    try:
+        # Stream nothing to stdout during the turn; we print the full
+        # assembled reply after `send_message` returns. This keeps the
+        # scripted-caller contract simple: one newline-terminated reply
+        # on stdout, no partial writes interleaved with progress noise.
+        final_text = await backend.send_message(
+            message=message,
+            session_key=session_key,
+            on_delta=None,
+            response_timeout_seconds=effective_timeout,
+        )
+    finally:
+        await backend.close()
+
+    if final_text:
+        console.print(final_text, markup=False, highlight=False)
+    else:
+        console.print("[no response]", markup=False, highlight=False)
+
+
 async def _chat_loop(
     backend: ChatBackend,
     session_key: str,
@@ -384,7 +445,17 @@ async def _chat_loop(
     idle_timeout_seconds: float,
     chat_type: str = "websocket",
     agent_label: str = "agent",
+    once: Optional[str] = None,
 ) -> None:
+    if once is not None:
+        await _chat_once(
+            backend=backend,
+            session_key=session_key,
+            response_timeout_seconds=response_timeout_seconds,
+            message=once,
+        )
+        return
+
     with console.status("Connecting to agent...", spinner="dots"):
         await backend.connect()
 
