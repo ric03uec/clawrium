@@ -16,6 +16,13 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- `clawctl apply` now generates an ed25519 SSH keypair for new Host resources
+  that declare `bootstrap: true`, printing the public key with instructions to
+  add it to `authorized_keys` on the remote host. Previously the host record
+  was written to `hosts.json` but no key was generated, causing every
+  subsequent Ansible operation to fail with "No SSH key found for host"
+  (#902).
+
 ### Changed
 
 ### Fixed
