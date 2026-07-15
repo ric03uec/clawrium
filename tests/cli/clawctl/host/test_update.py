@@ -84,6 +84,22 @@ def test_edit_hostname_combined_with_alias(fleet_dir) -> None:
     assert primaries[0]["address"] == "10.0.0.50"
 
 
+def test_edit_hostname_invalid_format_rejected(fleet_dir) -> None:
+    """--hostname rejects values that fail address format validation."""
+    # Shell metacharacter — rejected by _validate_address
+    result = runner.invoke(app, ["host", "edit", "wolf-i", "--hostname", "10.0.0.1;rm"])
+    assert result.exit_code != 0
+
+    # CIDR notation — not a bare address
+    result2 = runner.invoke(app, ["host", "edit", "wolf-i", "--hostname", "10.0.0.0/24"])
+    assert result2.exit_code != 0
+
+    # host record must be unchanged
+    host = get_host("wolf-i")
+    assert host is not None
+    assert host["hostname"] == "10.0.0.1"
+
+
 def test_edit_hostname_describe_reflects_update(fleet_dir) -> None:
     """describe -o json reports the new hostname after edit --hostname."""
     runner.invoke(app, ["host", "edit", "wolf-i", "--hostname", "10.0.0.77"])

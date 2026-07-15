@@ -15,7 +15,7 @@ import typer
 from clawrium.cli.clawctl._common import validate_alias
 from clawrium.cli.clawctl.host._shared import display_name, hostname_key, safe_get_host
 from clawrium.cli.output import emit_error, stream_action
-from clawrium.core.hosts import alias_exists, load_hosts, update_host
+from clawrium.core.hosts import AddressError, _validate_address, alias_exists, load_hosts, update_host
 
 
 def edit(
@@ -55,6 +55,10 @@ def edit(
         new_ip = hostname_new.strip()
         if not new_ip:
             emit_error("--hostname cannot be empty")
+        try:
+            _validate_address(new_ip)
+        except AddressError as exc:
+            emit_error(str(exc))
         if new_ip != canonical:
             conflicting = [
                 h

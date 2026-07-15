@@ -22,7 +22,7 @@ cut. The `itx:release` skill archives this section into a new
   was written to `hosts.json` but no key was generated, causing every
   subsequent Ansible operation to fail with "No SSH key found for host"
   (#902).
-- `clawctl host update --hostname <new-ip>` lets operators update a host's IP
+- `clawctl host edit --hostname <new-ip>` lets operators update a host's IP
   address (e.g. after a DHCP lease renewal) without deleting and recreating
   the host record. Updates `hostname` and the primary `addresses[]` entry
   atomically; `key_id` and the SSH key are preserved. Prints a reminder to
