@@ -177,6 +177,25 @@ class TestUnitPathFor:
         assert "oc1" in path
         assert "openclaw" in path
 
+    def test_linux_ethos_returns_systemd_unit_path(self):
+        """Regression guard: ethos added to _SUPPORTED_AGENT_TYPES means
+        unit_path_for must now return the correct systemd path, not raise."""
+        from clawrium.core.playbook_resolver import unit_path_for
+
+        assert (
+            unit_path_for("linux", "ethos", "kevin")
+            == "/etc/systemd/system/ethos-kevin.service"
+        )
+
+    def test_darwin_ethos_raises_value_error(self):
+        """ethos is linux-only; darwin path must still raise ValueError
+        (from launchd._label_prefix_for, since ethos has no plist label)."""
+        import pytest as _pytest
+        from clawrium.core.playbook_resolver import unit_path_for
+
+        with _pytest.raises(ValueError):
+            unit_path_for("darwin", "ethos", "kevin")
+
     def test_linux_unknown_agent_type_raises(self):
         """ATX iter-3 W7: linux branch was previously unvalidated and
         would happily materialize a service path for any string. The
@@ -189,7 +208,7 @@ class TestUnitPathFor:
         from clawrium.core.playbook_resolver import unit_path_for
 
         with _pytest.raises(ValueError, match="unsupported agent_type"):
-            unit_path_for("linux", "ethos", "alpha")
+            unit_path_for("linux", "nemoclaw", "alpha")
 
     def test_darwin_zeroclaw_raises_value_error(self):
         """ATX iter-1 B3: zeroclaw has no launchd label prefix
