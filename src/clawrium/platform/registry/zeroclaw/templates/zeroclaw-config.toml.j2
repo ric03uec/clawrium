@@ -577,7 +577,7 @@ runtime_trace_mode = "none"
 runtime_trace_path = "state/runtime-trace.jsonl"
 
 [onboard_state]
-completed_sections = []
+completed_sections = {{ onboard_completed_sections | tojson }}
 
 [opencode_cli]
 enabled = false

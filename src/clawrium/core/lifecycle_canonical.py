@@ -42,7 +42,7 @@ from __future__ import annotations
 import logging
 import re
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _dc_replace
 from pathlib import Path
 from typing import Callable
 
@@ -59,7 +59,10 @@ from clawrium.core.render import (
 )
 from clawrium.core.render_diff import (
     FileDiff,
+    RemoteReadError,
     diff_files,
+    read_remote_toml,
+    remote_path_for,
 )
 
 logger = logging.getLogger(__name__)
@@ -2042,6 +2045,80 @@ def sync_agent_canonical(
     from clawrium.core.playbook_resolver import normalize_os_family
 
     _os_family = normalize_os_family(host)
+
+    # #910: preserve zeroclaw `[onboard_state].completed_sections` across
+    # re-render. The template used to hardcode `= []`, so every sync
+    # wiped the daemon's live onboarding-completion state and forced it
+    # back into pre-onboard mode — `clawctl agent chat` then failed with
+    # a `Quickstart` protocol error on the next request. Read the
+    # on-host config here (outside the renderer, which by contract stays
+    # pure — see render.py docstring line ~12) and thread the field
+    # into the render inputs so the re-render preserves whatever
+    # sections the daemon has already completed.
+    #
+    # First install (`configure_agent` path, or fresh sync with no
+    # remote file) → `None` → the default `()` is kept and template
+    # emits `= []` byte-identical to the pre-#910 baseline.
+    #
+    # Defensive extraction: a future upstream schema rename (renamed
+    # section, non-list value) becomes a silent no-op with a debug
+    # emit. Trade-off documented on the PR: guarding against a live
+    # daemon crash outweighs the silent-drift risk.
+    if inputs.agent_type == "zeroclaw":
+        key_id = host.get("key_id") or host.get("hostname") or ""
+        private_key = get_host_private_key(key_id)
+        if private_key is not None:
+            zc_toml_path = remote_path_for(
+                _os_family, agent_name, ".zeroclaw/config.toml"
+            )
+            try:
+                remote_toml = read_remote_toml(
+                    hostname=host.get("hostname", ""),
+                    port=int(host.get("port", 22) or 22),
+                    user=host.get("user", "xclm"),
+                    key_filename=str(private_key),
+                    remote_path=zc_toml_path,
+                )
+            except RemoteReadError:
+                # Propagate — an ssh/sudo/TOML failure here MUST NOT
+                # silently degrade to `[]`, or the fix regresses to the
+                # exact #910 bug (wipe onboard state). The CLI already
+                # surfaces `RemoteReadError` as an operator-actionable
+                # diagnostic in the diff phase.
+                raise
+            preserved: tuple[str, ...] = ()
+            if remote_toml is not None:
+                section = remote_toml.get("onboard_state")
+                if isinstance(section, dict):
+                    raw = section.get("completed_sections")
+                    if isinstance(raw, list) and all(
+                        isinstance(s, str) for s in raw
+                    ):
+                        preserved = tuple(raw)
+                    else:
+                        emit(
+                            "render",
+                            f"onboard_state.completed_sections on "
+                            f"{hostname} is not a list[str] "
+                            f"(got {type(raw).__name__}); "
+                            f"defaulting to []",
+                        )
+                else:
+                    emit(
+                        "render",
+                        f"onboard_state section absent on {hostname}; "
+                        f"defaulting to []",
+                    )
+            if preserved:
+                emit(
+                    "render",
+                    f"preserving {len(preserved)} onboard section(s) "
+                    f"from on-host {agent_name} config",
+                )
+            inputs = _dc_replace(
+                inputs, onboard_completed_sections=preserved
+            )
+
     if inputs.agent_type in ("hermes", "openclaw", "zeroclaw"):
         rendered = renderer(inputs, os_family=_os_family)
     else:

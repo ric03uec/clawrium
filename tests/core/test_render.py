@@ -1334,6 +1334,49 @@ def test_zeroclaw_config_paths_use_agent_home_darwin():
             )
 
 
+def test_zeroclaw_onboard_state_defaults_empty_on_first_render():
+    """#910: with no `onboard_completed_sections` context (fresh install),
+    the template must emit `completed_sections = []` — byte-identical to
+    the pre-#910 baseline so `configure_agent` on a brand-new host does
+    not regress."""
+    inputs = _zeroclaw_inputs(ptype="openrouter")
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    assert "[onboard_state]" in toml
+    assert "completed_sections = []" in toml
+
+
+def test_zeroclaw_onboard_state_preserved_when_supplied():
+    """#910: passing the on-host list through the render context emits
+    it verbatim so `sync` preserves the daemon's live onboarding state
+    across re-renders (root-cause fix for the `Quickstart` chat error)."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        gateway=base.gateway,
+        onboard_completed_sections=(
+            "memory",
+            "providers",
+            "identity",
+            "channels",
+            "validate",
+        ),
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    assert "[onboard_state]" in toml
+    expected = (
+        'completed_sections = ["memory", "providers", '
+        '"identity", "channels", "validate"]'
+    )
+    assert expected in toml, (
+        f"expected preserved onboard sections in TOML; "
+        f"got:\n{toml.split('[onboard_state]', 1)[-1][:200]}"
+    )
+
+
 def test_openclaw_openrouter_prefixes_model():
     inputs = _baseline_inputs(ptype="openrouter")
     inputs = RenderInputs(

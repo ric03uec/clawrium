@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import difflib
 import shlex
+import tomllib
 from dataclasses import dataclass, field
 
 import paramiko
@@ -25,6 +26,7 @@ __all__ = [
     "FileDiff",
     "RemoteReadError",
     "read_remote_file",
+    "read_remote_toml",
     "remote_path_for",
     "diff_files",
 ]
@@ -180,6 +182,47 @@ def read_remote_file(
         )
     finally:
         client.close()
+
+
+def read_remote_toml(
+    *,
+    hostname: str,
+    port: int,
+    user: str,
+    key_filename: str,
+    remote_path: str,
+    timeout: int = 10,
+) -> dict | None:
+    """Read `remote_path` from the host and parse as TOML.
+
+    Thin wrapper over `read_remote_file` + stdlib `tomllib.loads`.
+    Returns `None` when the file is absent (so callers can distinguish
+    "first sync" from "present but empty"). Propagates `RemoteReadError`
+    verbatim on ssh / sudo failures — the caller must not silently
+    substitute a `None` here, or a transient ssh failure would masquerade
+    as a missing file and the caller would render an incorrect default.
+
+    Malformed TOML (`tomllib.TOMLDecodeError`) is also wrapped as
+    `RemoteReadError` — a garbled host-side config is operator-actionable
+    and must not be swallowed. #910: added to support preserving
+    zeroclaw `[onboard_state].completed_sections` across sync/re-render.
+    """
+    present, body = read_remote_file(
+        hostname=hostname,
+        port=port,
+        user=user,
+        key_filename=key_filename,
+        remote_path=remote_path,
+        timeout=timeout,
+    )
+    if not present:
+        return None
+    try:
+        return tomllib.loads(body)
+    except tomllib.TOMLDecodeError as exc:
+        raise RemoteReadError(
+            f"TOML parse failure on {remote_path!r} at {hostname}: {exc}"
+        ) from exc
 
 
 def diff_files(
