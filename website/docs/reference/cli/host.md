@@ -122,6 +122,7 @@ The host is identified by its existing name or alias (the positional
 | `--user` | `-u` | New SSH user |
 | `--port` | `-p` | New SSH port (1–65535) |
 | `--alias` | `-a` | New friendly name for this host |
+| `--hostname` | | New IP address or hostname (e.g. after a DHCP lease renewal). `key_id` is preserved. |
 
 ### Example — change SSH user
 
@@ -140,6 +141,18 @@ $ clawctl host edit mybox --port 2222
 ```bash
 $ clawctl host edit mybox --alias lab-pi-4
 ```
+
+### Example — change IP address (DHCP renewal)
+
+```bash
+$ clawctl host edit mybox --hostname 10.0.0.55
+```
+
+When `--hostname` is used, `hostname` and the primary `addresses[]` entry
+are updated atomically; the host's `key_id` (and therefore the SSH key)
+is preserved so per-agent secrets stored under the host remain valid.
+Confirm the public key is still present in `authorized_keys` on the new
+address.
 
 ### Example — change several fields at once
 
