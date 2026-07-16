@@ -572,10 +572,10 @@ clawctl agent chat opc-work --once "Reply pong" --timeout 30
 **Single-shot mode (`--once`):**
 
 The `--once` flag is designed for scripted callers (CI pipelines, monitoring
-scripts, automation). It suppresses all REPL chrome — no connecting spinner,
-no banner, no prompt — and prints only the agent's reply to stdout. The idle
-timeout is capped at 60 seconds to prevent a stuck agent from hanging the
-caller indefinitely.
+scripts, automation). It sends a single message, prints the agent's reply to
+stdout, and exits. Exit code is `0` on success and non-zero on any transport,
+auth, or protocol error so shell pipelines can gate on it. The `--timeout`
+and `--idle-timeout` values apply as usual.
 
 ```bash
 # Scripted usage
@@ -592,7 +592,9 @@ echo "$REPLY"
 
 ### doctor
 
-Run read-only health diagnostics on a deployed agent.
+Diagnose an agent's render bundle (attachments, secrets, files). Local-only —
+never touches the host. Reports what clawctl would render *right now* from
+its own stores (providers, channels, integrations, secrets, hosts).
 
 ```bash
 clawctl agent doctor <agent-name> [options]
@@ -610,47 +612,32 @@ clawctl agent doctor <agent-name> [options]
 # Default table output
 clawctl agent doctor maurice
 
-# JSON output for scripting
+# JSON output for diffing / scripting
 clawctl agent doctor maurice -o json
 ```
 
-**What it checks (in dependency order):**
+**What it reports:**
 
-| # | Check | What it verifies |
-|---|-------|-----------------|
-| 1 | SSH reachable | Can clawctl SSH to the agent's host? |
-| 2 | Unit running | Is the agent's systemd unit active? |
-| 3 | Gateway reachable | Is the agent's gateway port listening? |
-| 4 | Token stored | Is the gateway bearer token present in the secrets store? |
-| 5 | Onboarding complete | Has the agent finished onboarding? |
+- **Declared attachments** — the providers, channels, integrations, and
+  skills the agent record claims.
+- **Resolved provider** — name, type, endpoint, region, default model, and
+  the presence status of each credential (`present` / `missing`).
+- **Resolved channels** and **integrations** — with per-secret presence.
+- **Rendered files** — every file the renderer would write to the host,
+  with byte count, line count, and a `sha256` prefix for deterministic
+  comparison.
 
-If a check fails, downstream checks that depend on it are marked `skip`
-rather than reporting spurious cascading failures. Each failed check includes
-a remediation hint.
-
-**Output:**
-
-```
-Agent Health: maurice
-┌─────────────────────────┬────────┬──────────────────────────────────┐
-│ Check                   │ Status │ Detail                           │
-├─────────────────────────┼────────┼──────────────────────────────────┤
-│ SSH reachable           │ pass   │ 192.168.1.100:22                │
-│ Unit running            │ pass   │ hermes-maurice.service            │
-│ Gateway reachable       │ pass   │ 127.0.0.1:45001                   │
-│ Token stored            │ pass   │ bearer present                    │
-│ Onboarding complete     │ pass   │ all sections done                 │
-└─────────────────────────┴────────┴──────────────────────────────────┘
-```
+If `build_render_inputs` fails (a missing attach, an unresolved secret, a
+stale registry record), `status` is reported as `broken` and the exact
+lookup error is printed so the operator can fix the gap.
 
 **Exit codes:**
-- `0` — All checks passed
-- `1` — One or more checks failed or were skipped
+- `0` — Render bundle resolves cleanly
+- `1` — Render bundle is broken (missing attach, secret, or renderer)
 
 **Related:**
 - [clawctl agent chat](#chat) — Chat with the agent
-- [clawctl agent describe](#status) — Check agent status and configuration
-- [Sync and Safety Guide](../../operations/sync.md) — When to use `doctor` vs `--diff`
+- [clawctl agent sync](#sync) — Push the resolved bundle to the host
 
 ---
 

@@ -133,7 +133,7 @@ clawctl apply -f fleet.yaml --yes
 
 ## Related
 
-- [`clawctl diff`](#) — Preview changes a fleet manifest would make
-- [`clawctl delete`](#) — Delete resources declared in a fleet manifest
+- `clawctl diff` — Preview changes a fleet manifest would make (run `clawctl diff --help`)
+- `clawctl delete` — Delete resources declared in a fleet manifest (run `clawctl delete --help`)
 - [`clawctl host create`](./host.md#clawctl-host-create) — Imperative host registration
 - [Host Preparation](../../guides/host-setup.md) — Manual host setup steps
