@@ -549,7 +549,7 @@ clawctl agent chat <agent-name> [options]
 
 **Options:**
 - `--session <key>` / `-s` - Gateway session key (default: `main`)
-- `--timeout <seconds>` - Response timeout in seconds (default: 120.0)
+- `--timeout <seconds>` - Response timeout in seconds (min: 1.0, default: 120.0)
 - `--idle-timeout <seconds>` - Idle timeout before disconnect (0 disables, default: 300.0)
 - `--once <message>` - Send one message, print the reply, and exit. Exit code 0 on success, non-zero on transport error.
 

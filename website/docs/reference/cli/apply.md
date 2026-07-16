@@ -32,37 +32,36 @@ commands.
 
 ## Fleet Manifest Format
 
-A fleet manifest declares hosts, providers, agents, and their relationships
-in a single YAML file:
+A fleet manifest is one or more YAML documents (separated by `---`), one
+per resource. Supported `kind` values are `Host`, `Provider`, `Channel`,
+`Integration`, and `Agent`. Each document uses
+`apiVersion: clawrium.io/v1`.
 
 ```yaml
-apiVersion: v1
-kind: Fleet
+apiVersion: clawrium.io/v1
+kind: Host
 metadata:
-  name: my-fleet
-
-hosts:
-  - metadata:
-      name: lab-pi
-      alias: lab-pi
-    spec:
-      hostname: 192.168.1.100
-      port: 22
-      user: xclm
-      bootstrap: true
-
-agents:
-  - metadata:
-      name: opc-work
-    spec:
-      type: openclaw
-      host: lab-pi
-
-providers:
-  - metadata:
-      name: openai-prod
-    spec:
-      type: openai
+  name: lab-pi
+spec:
+  hostname: 192.168.1.100
+  port: 22
+  user: xclm
+  bootstrap: true
+---
+apiVersion: clawrium.io/v1
+kind: Provider
+metadata:
+  name: openai-prod
+spec:
+  type: openai
+---
+apiVersion: clawrium.io/v1
+kind: Agent
+metadata:
+  name: opc-work
+spec:
+  type: openclaw
+  host: lab-pi
 ```
 
 ## Bootstrap SSH Keypair Generation
