@@ -11,6 +11,7 @@ clawctl host <command> [options]
 | Command | Description |
 |---------|-------------|
 | [`clawctl host create`](#clawctl-host-create) | Register a new host with the fleet |
+| [`clawctl host edit`](#clawctl-host-edit) | Edit a host's properties (alias, IP address) |
 | [`clawctl host get`](#clawctl-host-get) | List all registered hosts |
 | [`clawctl host delete`](#clawctl-host-delete) | Remove a host from the fleet |
 | [`clawctl host status`](#clawctl-host-status) | Check status of a host |
@@ -94,6 +95,77 @@ If the host key is unknown, the command surfaces a prompt and exits non-zero. Ru
 |------|---------|
 | 0 | Host registered (or already exists with matching settings) |
 | 1 | xclm SSH verification failed (manual setup needed), or host already exists with different settings |
+
+---
+
+## clawctl host edit
+
+Edit a host record in place — update the SSH user, SSH port, or alias.
+
+```bash
+clawctl host edit <hostname> [options]
+```
+
+The host is identified by its existing name or alias (the positional
+`HOSTNAME` argument). At least one option must be provided.
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `hostname` | Existing host name or alias to edit |
+
+### Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--user` | `-u` | New SSH user |
+| `--port` | `-p` | New SSH port (1–65535) |
+| `--alias` | `-a` | New friendly name for this host |
+| `--hostname` | | New IP address or hostname (e.g. after a DHCP lease renewal). `key_id` is preserved. |
+
+### Example — change SSH user
+
+```bash
+$ clawctl host edit mybox --user ops
+```
+
+### Example — change SSH port
+
+```bash
+$ clawctl host edit mybox --port 2222
+```
+
+### Example — change alias
+
+```bash
+$ clawctl host edit mybox --alias lab-pi-4
+```
+
+### Example — change IP address (DHCP renewal)
+
+```bash
+$ clawctl host edit mybox --hostname 10.0.0.55
+```
+
+When `--hostname` is used, `hostname` and the primary `addresses[]` entry
+are updated atomically; the host's `key_id` (and therefore the SSH key)
+is preserved so per-agent secrets stored under the host remain valid.
+Confirm the public key is still present in `authorized_keys` on the new
+address.
+
+### Example — change several fields at once
+
+```bash
+$ clawctl host edit mybox --user ops --port 2222 --alias lab-pi-4
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Host updated successfully |
+| 1 | Host not found or invalid input |
 
 ---
 

@@ -38,7 +38,9 @@ clawctl <group> <command> [options]
 
 | Group | Description |
 |-------|-------------|
+| [`clawctl apply`](apply.md) | Declarative fleet reconciliation via manifest |
 | [`clawctl host`](host.md) | Manage hosts in your fleet |
+| [`clawctl agent`](agent.md) | Manage agent lifecycle (create, configure, start, chat, doctor) |
 | [`clawctl agent registry`](registry.md) | Browse available agent types |
 | [`clawctl agent secret`](secret.md) | Manage secrets for agent instances |
 

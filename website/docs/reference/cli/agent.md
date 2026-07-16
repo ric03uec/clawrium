@@ -536,6 +536,111 @@ Installed Agents (4):
 
 ---
 
+### chat
+
+Chat with an agent via the CLI.
+
+```bash
+clawctl agent chat <agent-name> [options]
+```
+
+**Arguments:**
+- `agent-name` - Name of the agent to chat with
+
+**Options:**
+- `--session <key>` / `-s` - Gateway session key (default: `main`)
+- `--timeout <seconds>` - Response timeout in seconds (min: 1.0, default: 120.0)
+- `--idle-timeout <seconds>` - Idle timeout before disconnect (0 disables, default: 300.0)
+- `--once <message>` - Send one message, print the reply, and exit. Exit code 0 on success, non-zero on transport error.
+
+**Examples:**
+
+```bash
+# Interactive chat session
+clawctl agent chat opc-work
+
+# Single-shot mode — send one message, get one reply, exit
+clawctl agent chat opc-work --once "What is your status?"
+
+# Chat with a specific session
+clawctl agent chat opc-work --session direct:my-session
+
+# Single-shot with custom timeout
+clawctl agent chat opc-work --once "Reply pong" --timeout 30
+```
+
+**Single-shot mode (`--once`):**
+
+The `--once` flag is designed for scripted callers (CI pipelines, monitoring
+scripts, automation). It sends a single message, prints the agent's reply to
+stdout, and exits. Exit code is `0` on success and non-zero on transport
+error so shell pipelines can gate on it. The `--timeout` and
+`--idle-timeout` values apply as usual.
+
+```bash
+# Scripted usage
+REPLY=$(clawctl agent chat wise-hypatia --once "reply pong")
+echo "$REPLY"
+# → pong
+```
+
+**Related:**
+- [clawctl agent doctor](#doctor) — Diagnose agent health before chatting
+- [Agent Onboarding Guide](../../guides/agent-onboarding.md) — Getting agents ready for chat
+
+---
+
+### doctor
+
+Diagnose an agent's render bundle (attachments, secrets, files). Local-only —
+never touches the host. Reports what clawctl would render *right now* from
+its own stores (providers, channels, integrations, secrets, hosts).
+
+```bash
+clawctl agent doctor <agent-name> [options]
+```
+
+**Arguments:**
+- `agent-name` - Name of the agent to diagnose
+
+**Options:**
+- `--output <fmt>` / `-o` - Output format: `table` (default), `json`, `yaml`, `wide`, or `name`
+
+**Examples:**
+
+```bash
+# Default table output
+clawctl agent doctor maurice
+
+# JSON output for diffing / scripting
+clawctl agent doctor maurice -o json
+```
+
+**What it reports:**
+
+- **Declared attachments** — the providers, channels, integrations, and
+  skills the agent record claims.
+- **Resolved provider** — name, type, endpoint, region, default model, and
+  the presence status of each credential (`present` / `missing`).
+- **Resolved channels** and **integrations** — with per-secret presence.
+- **Rendered files** — every file the renderer would write to the host,
+  with byte count, line count, and a `sha256` prefix for deterministic
+  comparison.
+
+If `build_render_inputs` fails (a missing attach, an unresolved secret, a
+stale registry record), `status` is reported as `broken` and the exact
+lookup error is printed so the operator can fix the gap.
+
+**Exit codes:**
+- `0` — Render bundle resolves cleanly
+- `1` — Render bundle is broken (missing attach, secret, or renderer)
+
+**Related:**
+- [clawctl agent chat](#chat) — Chat with the agent
+- [clawctl agent sync](#sync) — Push the resolved bundle to the host
+
+---
+
 ### upgrade
 
 Upgrade an agent to the registry's max supported version for the host's
