@@ -39,7 +39,7 @@ End-to-end walkthrough: install `clawctl`, register a host, deploy a [Hermes](ht
   </iframe>
 </div>
 
-75-second narrated tour of every tab in `clawctl gui` — Dashboard, Agents, Topology, Providers, Skills, Integrations, Settings. Full reference in the [Web Dashboard guide](./web-dashboard.md).
+75-second narrated tour of every tab in the web dashboard — Dashboard, Agents, Topology, Providers, Skills, Integrations, Settings. Full reference in the [Web Dashboard guide](./web-dashboard.md).
 
 ## What is an Agent?
 
@@ -68,7 +68,7 @@ Clawrium gives you `kubectl`-style fleet control for AI agents:
 - **Specialized agents.** Run a fleet of purpose-built agents - a research agent, a support agent, an internal assistant - each with its own context and configuration.
 - **Model flexibility.** Use any provider: OpenAI, Anthropic, local Ollama, or self-hosted inference.
 - **Lifecycle management.** Upgrades, rollbacks, secrets rotation - handled from one place.
-- **Local web dashboard.** `clawctl gui` opens a visual fleet view on `127.0.0.1` — chat with agents, browse topology, manage providers. See the [Web Dashboard guide](./web-dashboard.md).
+- **Local web dashboard.** `clawctl server start` opens a visual fleet view on `127.0.0.1` — chat with agents, browse topology, manage providers. See the [Web Dashboard guide](./web-dashboard.md).
 
 ## How It Works
 
@@ -132,11 +132,11 @@ Installing openclaw on homelab...
 ```
 
 ```bash
-# Open the local web dashboard
-clawctl gui
+# Start the local web dashboard
+clawctl server start
 ```
 ```
-Clawrium GUI starting on http://127.0.0.1:36000 — press Ctrl+C to stop
+Server started at http://127.0.0.1:36000 (pid 48291)
 ```
 
 ## Key Concepts

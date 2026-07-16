@@ -8,10 +8,10 @@ keywords: [gui, web dashboard, ui, fleet, topology, providers, integrations, cha
 Clawrium ships with a local web dashboard that mirrors most of the CLI but renders it visually. Launch it with one command, and use it instead of the CLI when you'd rather click than type.
 
 ```bash
-clawctl gui
+clawctl server start
 ```
 
-The server binds to `127.0.0.1:36000` only — it is **never reachable from the network**. Your browser opens to the dashboard automatically. Press <kbd>Ctrl+C</kbd> to stop.
+The server binds to `127.0.0.1:36000` only — it is **never reachable from the network**. Use `clawctl server stop` to shut it down. For foreground/supervisor mode (systemd, Docker), use `clawctl server run`.
 
 > Prefer the terminal? `clawctl tui` gives you the same fleet overview without leaving the shell.
 
@@ -118,4 +118,4 @@ The GUI is a read-leaning convenience layer; the CLI remains the source of truth
 
 ## Troubleshooting
 
-See the [`clawctl gui` CLI reference](./reference/cli/gui.md#troubleshooting) for symptom / fix pairs (port-in-use, missing extras, dev-vs-prod port confusion).
+See the [`clawctl server` CLI reference](./reference/cli/server.md#troubleshooting) for symptom / fix pairs (port-in-use, missing extras, dev-vs-prod port confusion).
