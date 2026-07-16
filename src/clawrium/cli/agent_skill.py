@@ -76,7 +76,7 @@ err_console = Console(stderr=True)
 # Catch list: every SkillError subclass we expect to surface to the
 # user. We list them explicitly (vs. catching `SkillError`) so a new
 # subclass added later raises loudly until it's intentionally wired
-# into the CLI — same pattern as `clm skill show` in cli/skill.py.
+# into the CLI.
 _USER_FACING_ERRORS: tuple[type[SkillError], ...] = (
     AgentNotFoundError,
     ExternalSourceBlocked,

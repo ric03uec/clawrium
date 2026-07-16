@@ -76,9 +76,9 @@ def _summarize(ref: SkillRef) -> dict[str, Any]:
     """Card-shape summary for the catalog list endpoint.
 
     Per-skill loader failures degrade to a row with ``description: None``
-    rather than blowing up the whole list — same UX rule the CLI uses in
-    ``cli/skill.py::_short_description``. A single bad ``_meta.yaml``
-    should not blank the GUI catalog tab.
+    rather than blowing up the whole list — same UX rule the clawctl
+    ``skill registry`` command applies. A single bad ``_meta.yaml`` should
+    not blank the GUI catalog tab.
 
     Catches OSError (e.g. permission glitch on _meta.yaml) in addition
     to SkillError so a flaky filesystem entry can't crash the whole
