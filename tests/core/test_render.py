@@ -6614,9 +6614,15 @@ def test_render_ethos_integration_type_wins_over_credential_key():
     )
     out = render_ethos(inputs)
     env = out.files[".ethos/.env"]
-    # The rendered env must not embed the stray credential value as the
-    # integration type; it must use "github".
-    assert "github" in env or "GITHUB_TOKEN" in env
+    # W6 (#924): the GITHUB_TOKEN lines are only emitted when the
+    # integration's resolved type is exactly 'github'. If the stray
+    # credential key ("type": "should-be-ignored") clobbered `it.type`,
+    # the template's `integration.type == 'github'` guard would be False
+    # and no token line would render — so these assertions fail exactly
+    # when the production `entry["type"] = it.type` line is removed.
+    assert "GITHUB_TOKEN='ghp-1'" in env
+    assert "GITHUB_TOKEN_GH='ghp-1'" in env
+    assert "should-be-ignored" not in env
 
 
 # ---------------------------------------------------------------------------
@@ -6624,25 +6630,15 @@ def test_render_ethos_integration_type_wins_over_credential_key():
 # ---------------------------------------------------------------------------
 
 
-def test_build_render_inputs_populates_ethos_gateway_api_key_and_internal_port(stores):
-    """B4: api_key and internal_port from gateway blob are surfaced in GatewayInputs
-    for ethos agents. Other agent types must receive empty/0 defaults."""
+def _ethos_agent_with_gateway(stores, gateway_blob: dict) -> None:
+    """Wire a minimal ethos agent whose gateway blob is `gateway_blob`."""
     stores.agent = (
         {"hostname": "host-1"},
         "ethos",
         {
             "agent_name": "kevin",
             "providers": [{"name": "or", "role": "primary", "model": ""}],
-            "config": {
-                "gateway": {
-                    "host": "0.0.0.0",
-                    "port": 44400,
-                    "auth": "ethos-tkn",
-                    "bind": "lan",
-                    "api_key": "ethos-gw-key",
-                    "internal_port": 44410,
-                }
-            },
+            "config": {"gateway": gateway_blob},
         },
     )
     stores.providers["or"] = {
@@ -6651,39 +6647,113 @@ def test_build_render_inputs_populates_ethos_gateway_api_key_and_internal_port(s
         "default_model": "anthropic/claude-opus-4.7",
     }
     stores.provider_api_keys["or"] = "sk-or-1"
+
+
+@pytest.mark.parametrize(
+    ("gateway_blob", "expected_api_key", "expected_internal_port"),
+    [
+        # B4: both fields present flow through verbatim.
+        (
+            {
+                "host": "0.0.0.0",
+                "port": 44400,
+                "auth": "ethos-tkn",
+                "bind": "lan",
+                "api_key": "ethos-gw-key",
+                "internal_port": 44412,
+            },
+            "ethos-gw-key",
+            44412,
+        ),
+        # S1: internal_port absent → default 44410.
+        (
+            {
+                "host": "0.0.0.0",
+                "port": 44400,
+                "auth": "ethos-tkn",
+                "api_key": "ethos-gw-key",
+            },
+            "ethos-gw-key",
+            44410,
+        ),
+        # S1: api_key absent → empty string, internal_port unaffected.
+        (
+            {
+                "host": "0.0.0.0",
+                "port": 44400,
+                "auth": "ethos-tkn",
+                "internal_port": 44412,
+            },
+            "",
+            44412,
+        ),
+        # W3 (#924): an explicit 0 must surface as 0 — the old `or 44410`
+        # idiom silently substituted the default for it.
+        (
+            {
+                "host": "0.0.0.0",
+                "port": 44400,
+                "auth": "ethos-tkn",
+                "api_key": "ethos-gw-key",
+                "internal_port": 0,
+            },
+            "ethos-gw-key",
+            0,
+        ),
+        # W3 (#924): a whitespace-only string is truthy — the old idiom
+        # crashed on int('  '). Now it falls back to the default.
+        (
+            {
+                "host": "0.0.0.0",
+                "port": 44400,
+                "auth": "ethos-tkn",
+                "api_key": "ethos-gw-key",
+                "internal_port": "  ",
+            },
+            "ethos-gw-key",
+            44410,
+        ),
+        # Numeric string is accepted (hosts.json hand-edits).
+        (
+            {
+                "host": "0.0.0.0",
+                "port": 44400,
+                "auth": "ethos-tkn",
+                "api_key": "ethos-gw-key",
+                "internal_port": " 44415 ",
+            },
+            "ethos-gw-key",
+            44415,
+        ),
+    ],
+)
+def test_build_render_inputs_ethos_gateway_fields(
+    stores, gateway_blob, expected_api_key, expected_internal_port
+):
+    """B4 + W3 + S1 (#923/#924): api_key and internal_port extraction from
+    the ethos gateway blob, including default and degenerate-value cases."""
+    _ethos_agent_with_gateway(stores, gateway_blob)
     inputs = build_render_inputs("kevin")
     assert inputs.gateway is not None
-    assert inputs.gateway.api_key == "ethos-gw-key"
-    assert inputs.gateway.internal_port == 44410
+    assert inputs.gateway.api_key == expected_api_key
+    assert inputs.gateway.internal_port == expected_internal_port
 
 
-def test_build_render_inputs_ethos_gateway_internal_port_defaults_to_44410(stores):
-    """When internal_port is absent from the gateway blob, it defaults to 44410."""
-    stores.agent = (
-        {"hostname": "host-1"},
-        "ethos",
+def test_build_render_inputs_ethos_non_numeric_internal_port_raises(stores):
+    """W3 (#924): garbage internal_port surfaces as AgentConfigError (doctor
+    renders it as status=broken), not an unhandled ValueError."""
+    _ethos_agent_with_gateway(
+        stores,
         {
-            "agent_name": "kevin",
-            "providers": [{"name": "or", "role": "primary", "model": ""}],
-            "config": {
-                "gateway": {
-                    "host": "0.0.0.0",
-                    "port": 44400,
-                    "auth": "ethos-tkn",
-                    "api_key": "ethos-gw-key",
-                }
-            },
+            "host": "0.0.0.0",
+            "port": 44400,
+            "auth": "ethos-tkn",
+            "api_key": "ethos-gw-key",
+            "internal_port": "not-a-port",
         },
     )
-    stores.providers["or"] = {
-        "name": "or",
-        "type": "openrouter",
-        "default_model": "anthropic/claude-opus-4.7",
-    }
-    stores.provider_api_keys["or"] = "sk-or-1"
-    inputs = build_render_inputs("kevin")
-    assert inputs.gateway is not None
-    assert inputs.gateway.internal_port == 44410
+    with pytest.raises(AgentConfigError, match="non-integer gateway.internal_port"):
+        build_render_inputs("kevin")
 
 
 def test_build_render_inputs_non_ethos_gateway_api_key_stays_empty(stores):

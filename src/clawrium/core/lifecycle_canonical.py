@@ -53,6 +53,7 @@ from clawrium.core.keys import get_host_private_key
 from clawrium.core.playbook_resolver import home_root_for, unit_path_for
 from clawrium.core.render import (
     build_render_inputs,
+    render_ethos,
     render_hermes,
     render_openclaw,
     render_zeroclaw,
@@ -79,6 +80,10 @@ __all__ = [
 
 
 _RENDERERS = {
+    # #924 (ATX B1): ethos syncs through the same render_ethos the
+    # doctor command and configure_agent use — single Jinja2 engine,
+    # single source of truth for the five on-host config files.
+    "ethos": render_ethos,
     "hermes": render_hermes,
     "zeroclaw": render_zeroclaw,
     "openclaw": render_openclaw,

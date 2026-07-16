@@ -608,6 +608,38 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
         # default unconditionally here is safe and keeps the assembler
         # agent-type-agnostic.
         host_raw = _clean_secret(gateway_blob.get("host")).strip()
+        # ethos-only: api_key (ETHOS_GATEWAY_API_KEY) and internal_port
+        # (ACP port, default 44410) live in the gateway blob for ethos
+        # agents (written by install.py). Gated on agent_type so a stray
+        # api_key in a zeroclaw/openclaw blob doesn't mislead doctor output.
+        #
+        # W3 (#924): explicit None/blank check instead of `or 44410` — an
+        # explicit `internal_port: 0` must surface as 0 (a misconfiguration
+        # the operator should see), not silently substitute the default,
+        # and a whitespace-only string must fall back to the default
+        # instead of crashing on `int('  ')`. A non-numeric value raises
+        # AgentConfigError so doctor reports `status: broken` instead of
+        # an unhandled traceback.
+        ethos_api_key = ""
+        ethos_internal_port = 0
+        if agent_type == "ethos":
+            ethos_api_key = _clean_secret(
+                str(gateway_blob.get("api_key", "") or "")
+            )
+            raw_internal_port = gateway_blob.get("internal_port")
+            if isinstance(raw_internal_port, str):
+                raw_internal_port = raw_internal_port.strip() or None
+            if raw_internal_port is None:
+                ethos_internal_port = 44410
+            else:
+                try:
+                    ethos_internal_port = int(raw_internal_port)
+                except (TypeError, ValueError) as exc:
+                    raise AgentConfigError(
+                        f"agent {agent_name!r} has a non-integer "
+                        f"gateway.internal_port "
+                        f"{gateway_blob.get('internal_port')!r} in hosts.json"
+                    ) from exc
         gateway_input = GatewayInputs(
             # W6 (ATX #555 polish): NUL in host value would silently
             # truncate the TOML at parse time. Sanitize at assembly
@@ -624,20 +656,8 @@ def build_render_inputs(agent_name: str) -> RenderInputs:
             auth=_clean_secret(read_gateway_auth(gateway_blob)),
             bind=str(gateway_blob.get("bind", "")),
             allow_public_bind=bool(gateway_blob.get("allow_public_bind", True)),
-            # ethos-only: api_key (ETHOS_GATEWAY_API_KEY) and internal_port
-            # (ACP port, default 44410) live in the gateway blob for ethos
-            # agents (written by install.py). Gated on agent_type so a stray
-            # api_key in a zeroclaw/openclaw blob doesn't mislead doctor output.
-            api_key=(
-                _clean_secret(str(gateway_blob.get("api_key", "") or ""))
-                if agent_type == "ethos"
-                else ""
-            ),
-            internal_port=(
-                int(gateway_blob.get("internal_port") or 44410)
-                if agent_type == "ethos"
-                else 0
-            ),
+            api_key=ethos_api_key,
+            internal_port=ethos_internal_port,
         )
 
     # --- Hermes multi-provider bundle (hermes-only) ------------------------
@@ -2346,7 +2366,13 @@ def supported_integrations_for_agent_type(agent_type: str) -> frozenset[str] | N
 
 @_functools.lru_cache(maxsize=8)
 def _ethos_template(template_name: str):
-    """Load + compile an ethos template once per process."""
+    """Load + compile an ethos template once per process.
+
+    Same shape as `_hermes_template` above (S4 #924): the
+    `jinja2.Environment` is constructed inside this lru-cached loader,
+    so it runs once per template name (≤5 per process) — the compiled
+    `Template` object is what gets cached and reused on every render.
+    """
     from importlib.resources import files
 
     import re as _re

@@ -2,13 +2,17 @@ schemaVersion: 1
 {% set provider = config.provider | default({}) %}
 {% set provider_type = provider.type | default('') %}
 {% set model_id = provider.default_model | default('') %}
+{# W4 (#924): user-supplied strings are emitted via `tojson` — a JSON
+   string is a valid (double-quoted) YAML scalar, so a model id with a
+   colon (e.g. `anthropic/claude-3.5-sonnet:20241022`) cannot produce
+   unparseable YAML or inject sibling keys. #}
 {% if provider_type %}
-provider: {{ provider_type }}
+provider: {{ provider_type | tojson }}
 {% else %}
 provider: anthropic
 {% endif %}
 apiKey: ${secrets:providers/{{ provider_type | default('anthropic') }}/apiKey}
 {% if model_id %}
-model: {{ model_id }}
+model: {{ model_id | tojson }}
 {% endif %}
 personality: default

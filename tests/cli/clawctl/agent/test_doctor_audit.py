@@ -50,11 +50,16 @@ def test_audit_fixture_loads() -> None:
 
 
 def test_audit_fixture_rows_have_required_fields() -> None:
+    # S3 (#924): derive the allowed type set from doctor's dispatch table
+    # instead of a hardcoded copy, so a newly supported agent type (e.g.
+    # ethos) can appear in a future fixture refresh without editing here.
+    from clawrium.cli.clawctl.agent.doctor import _RENDERER_NAMES
+
     payload = json.loads(FIXTURE.read_text())
     for row in payload["agents"]:
         assert "name" in row
         assert "type" in row
-        assert row["type"] in {"hermes", "zeroclaw", "openclaw"}
+        assert row["type"] in _RENDERER_NAMES
         assert row["expected_status"] in {"ok", "broken"}
         if row["expected_status"] == "broken":
             assert "expected_error_contains" in row, (

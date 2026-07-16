@@ -183,9 +183,15 @@ def _inputs_block(inputs: RenderInputs) -> dict:
             "auth": _present(inputs.gateway.auth),
             "bind": inputs.gateway.bind,
             "allow_public_bind": inputs.gateway.allow_public_bind,
-            "api_key": _present(inputs.gateway.api_key),
-            "internal_port": inputs.gateway.internal_port,
         }
+        # W1 (#924): api_key / internal_port are ethos-only gateway
+        # fields. Emitting them unconditionally would silently widen the
+        # JSON schema for every zeroclaw/openclaw agent with a gateway
+        # block (`"api_key": "missing"`, `"internal_port": 0`) — noise
+        # for consumers parsing `-o json`.
+        if inputs.agent_type == "ethos":
+            gateway["api_key"] = _present(inputs.gateway.api_key)
+            gateway["internal_port"] = inputs.gateway.internal_port
     return {
         "provider": provider,
         "channels": channels,
@@ -234,7 +240,16 @@ def _report(name: str, claw_record: dict) -> dict:
         report["error"] = str(exc)
         return report
     report["inputs"] = _inputs_block(inputs)
-    rendered = _render_for(inputs)
+    # W5 (#924): the renderer itself can raise AgentConfigError (duplicate
+    # channel type, gateway=None, unsupported provider). Doctor's contract
+    # is a structured `status: broken` report + non-zero exit — never an
+    # unhandled traceback.
+    try:
+        rendered = _render_for(inputs)
+    except AgentConfigError as exc:
+        report["status"] = "broken"
+        report["error"] = str(exc)
+        return report
     if rendered is None:
         report["status"] = "broken"
         report["error"] = (
@@ -308,6 +323,24 @@ def _render_table(report: dict) -> str:
                 )
         else:
             lines.append("Resolved integrations: none")
+
+        # W2 (#924): the gateway diagnostic block must be visible in the
+        # default table output too, not only via `-o json` / `-o yaml` —
+        # the api_key present/missing signal is the primary thing an
+        # ethos operator runs doctor for.
+        gw = inputs.get("gateway")
+        if gw:
+            lines.append("")
+            lines.append("Resolved gateway:")
+            lines.append(f"  host:           {_s(gw['host'])}")
+            lines.append(f"  port:           {gw['port']}")
+            lines.append(f"  auth:           {gw['auth']}")
+            if gw["bind"]:
+                lines.append(f"  bind:           {_s(gw['bind'])}")
+            if "api_key" in gw:
+                lines.append(f"  api_key:        {gw['api_key']}")
+            if "internal_port" in gw:
+                lines.append(f"  internal_port:  {gw['internal_port']}")
 
         files = report["files"]
         lines.append("")
