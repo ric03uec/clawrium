@@ -106,8 +106,9 @@ $ clawctl apply -f fleet.yaml --dry-run
 ```
 
 Lines are prefixed with `~` for pending create/update/attach/detach/start/restart
-operations, and with a leading space for `unchanged` no-ops. Without `--dry-run`
-the same lines are printed without the leading `~` as each operation applies.
+operations, and with a leading space for `unchanged` no-ops. During a live
+apply the same changeset preview is printed first; per-operation progress
+is then streamed via the output helpers as each resource is reconciled.
 
 ## Examples
 
