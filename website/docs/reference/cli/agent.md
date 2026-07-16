@@ -551,7 +551,7 @@ clawctl agent chat <agent-name> [options]
 - `--session <key>` / `-s` - Gateway session key (default: `main`)
 - `--timeout <seconds>` - Response timeout in seconds (default: 120.0)
 - `--idle-timeout <seconds>` - Idle timeout before disconnect (0 disables, default: 300.0)
-- `--once <message>` - Send one message, print the reply, and exit. Exit code 0 on success, non-zero on transport / auth / protocol error.
+- `--once <message>` - Send one message, print the reply, and exit. Exit code 0 on success, non-zero on transport error.
 
 **Examples:**
 
@@ -573,9 +573,9 @@ clawctl agent chat opc-work --once "Reply pong" --timeout 30
 
 The `--once` flag is designed for scripted callers (CI pipelines, monitoring
 scripts, automation). It sends a single message, prints the agent's reply to
-stdout, and exits. Exit code is `0` on success and non-zero on any transport,
-auth, or protocol error so shell pipelines can gate on it. The `--timeout`
-and `--idle-timeout` values apply as usual.
+stdout, and exits. Exit code is `0` on success and non-zero on transport
+error so shell pipelines can gate on it. The `--timeout` and
+`--idle-timeout` values apply as usual.
 
 ```bash
 # Scripted usage

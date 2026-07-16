@@ -25,7 +25,7 @@ commands.
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--file` | `-f` | Fleet manifest file or directory (required unless a default exists) |
+| `--file` | `-f` | Fleet manifest file or directory |
 | `--kustomize` | `-k` | Directory of manifests (alias for `--file` with a directory) |
 | `--dry-run` | | Preview changes without applying |
 | `--yes` | `-y` | Skip confirmation on destructive changes |
@@ -99,13 +99,15 @@ Preview what changes would be made without applying them:
 
 ```bash
 $ clawctl apply -f fleet.yaml --dry-run
-
-Changes that would be applied:
-  create host/lab-pi
-  create provider/openai-prod
-  create agent/opc-work
-  no changes to host/nuc-01
+~ host/lab-pi  would create
+~ provider/openai-prod  would create
+~ agent/opc-work  would create
+  host/nuc-01  unchanged
 ```
+
+Lines are prefixed with `~` for pending create/update/attach/detach/start/restart
+operations, and with a leading space for `unchanged` no-ops. Without `--dry-run`
+the same lines are printed without the leading `~` as each operation applies.
 
 ## Examples
 
@@ -127,9 +129,8 @@ clawctl apply -f fleet.yaml --yes
 
 | Code | Meaning |
 |------|---------|
-| 0 | Manifest applied successfully (or dry-run completed) |
-| 1 | One or more resources failed to create/update |
-| 2 | Invalid manifest or missing required options |
+| 0 | Manifest applied successfully (or dry-run completed, or nothing to apply) |
+| 1 | Any failure — missing `--file`/`-k`, path not found, invalid manifest, or one or more resources failed to apply |
 
 ## Related
 
