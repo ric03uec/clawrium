@@ -219,7 +219,7 @@ class ZeroClawChatBackend:
         if not token:
             raise ChatAuthenticationError(
                 "ZeroClaw gateway auth token is empty. "
-                "Re-run `clm agent configure <name>`."
+                "Re-run `clawctl agent configure <name>`."
             )
 
         _warn_if_token_in_cleartext(self.gateway_url)
@@ -249,7 +249,7 @@ class ZeroClawChatBackend:
             ) from exc
         except InvalidStatus as exc:
             # 401/403 surface as a dedicated auth error so the CLI can
-            # route the user to `clm agent configure`. websockets ≥14
+            # route the user to `clawctl agent configure`. websockets ≥14
             # raises InvalidStatus carrying a `.response` (Response object
             # with `.status_code`); older releases used `.status_code`
             # directly. Probe both shapes.
@@ -260,7 +260,7 @@ class ZeroClawChatBackend:
             if status in (401, 403):
                 raise ChatAuthenticationError(
                     "ZeroClaw gateway rejected the bearer token. "
-                    "Re-run `clm agent configure <name>` to re-pair."
+                    "Re-run `clawctl agent configure <name>` to re-pair."
                 ) from exc
             raise ChatConnectionError(
                 f"ZeroClaw gateway returned HTTP {status} during connect"
@@ -400,7 +400,7 @@ class ZeroClawChatBackend:
                 # error frames). Explicitly close the socket before
                 # raising so the REPL's outer cleanup path drops the
                 # connection and the user is forced to re-`connect()`
-                # (which today means re-running `clm chat`).
+                # (which today means re-running `clawctl chat`).
                 #
                 # ATX Round 1 B6: sanitize EVERY caller-visible field
                 # from the approval frame — `tool`, `name`, AND the
@@ -428,7 +428,7 @@ class ZeroClawChatBackend:
                     "Inline approval is not supported yet; either "
                     "pre-approve the tool in ~/.zeroclaw/config.toml "
                     "on the agent host, or disable the tool there and "
-                    "re-run `clm agent configure <name>`."
+                    "re-run `clawctl agent configure <name>`."
                 )
 
             if frame_type == "done":

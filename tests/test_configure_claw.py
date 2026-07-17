@@ -600,7 +600,7 @@ class TestConfigureZeroclawFactExtraction:
         assert success is False
         assert "pairing token was not captured" in error
         # Operator-visible remediation hint is non-empty.
-        assert "clm agent configure" in error
+        assert "clawctl agent configure" in error
 
     def test_returns_false_when_payload_key_missing(self, tmp_path: Path):
         """Fact file present but lacking __payload__ → fail-fast."""
@@ -617,7 +617,7 @@ class TestConfigureZeroclawFactExtraction:
         # ATX Round 2 W10: every failure-mode test asserts the remediation
         # hint too, so a regression that drops the operator guidance can't
         # ship green.
-        assert "clm agent configure" in error
+        assert "clawctl agent configure" in error
 
     def test_returns_false_when_token_empty_after_strip(self, tmp_path: Path):
         """Whitespace-only token must be rejected — the eventual chat
@@ -635,7 +635,7 @@ class TestConfigureZeroclawFactExtraction:
 
         assert success is False
         assert "pairing token was not captured" in error
-        assert "clm agent configure" in error
+        assert "clawctl agent configure" in error
 
     def test_returns_false_when_url_missing(self, tmp_path: Path):
         """Token present but URL missing → also fail-fast (the chat path
@@ -652,7 +652,7 @@ class TestConfigureZeroclawFactExtraction:
 
         assert success is False
         assert "pairing token was not captured" in error
-        assert "clm agent configure" in error
+        assert "clawctl agent configure" in error
 
     def test_no_health_warning_when_fact_absent(self, tmp_path: Path):
         """ATX Round 3 W10: when the playbook did NOT set

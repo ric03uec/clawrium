@@ -538,7 +538,7 @@ def test_configure_agent_migrates_loopback_bind_to_wildcard(
 ):
     """W-NEW-2 (lifecycle.py:1856-1875). A persisted api_server.host of
     '127.0.0.1' must be rewritten to '0.0.0.0' before reaching the
-    inventory, otherwise `clm chat <hermes>` from a non-loopback host
+    inventory, otherwise `clawctl chat <hermes>` from a non-loopback host
     silently breaks."""
     _seed_single_provider(render_stores, hermes_configure_env)
     # Fixture already seeds host='127.0.0.1' on the agent record — explicit

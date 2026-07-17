@@ -523,7 +523,7 @@ class TestTestProviderConnectivity:
 class TestTestOllamaConnectivity:
     """Tests for Ollama connectivity skip behaviour.
 
-    `clm` runs on the control machine but the agent (which will actually
+    `clawctl` runs on the control machine but the agent (which will actually
     talk to Ollama) runs on a remote host. A control-machine HTTP probe
     can fail purely because the operator's laptop is on a different
     network than the agent host. The check is deliberately skipped with

@@ -61,7 +61,7 @@ def test_zeroclaw_install_playbook_shape():
     # Workspace + state scaffolding must land inside ~/.zeroclaw.
     assert "/home/{{ agent_name }}/.zeroclaw/workspace" in content
     assert "/home/{{ agent_name }}/.zeroclaw/state" in content
-    # Service unit MUST NOT be enabled or started in install.yaml — `clm agent
+    # Service unit MUST NOT be enabled or started in install.yaml — `clawctl agent
     # configure` owns the start half of the lifecycle.
     data = yaml.safe_load(content)
     tasks = data[0]["tasks"]
@@ -390,14 +390,14 @@ def test_zeroclaw_workspace_templates_exist():
     }
     actual = {p.name for p in ws.iterdir() if p.name.endswith(".j2")}
     assert expected == actual, f"Workspace templates mismatch: {expected ^ actual}"
-    # BOOTSTRAP.md MUST NOT be rendered by clm — the runtime generates it
+    # BOOTSTRAP.md MUST NOT be rendered by clawctl — the runtime generates it
     # on first boot and self-deletes after use.
     assert not (ws / "BOOTSTRAP.md.j2").exists()
 
 
 def test_zeroclaw_configure_renders_workspace_with_force_no():
     """configure.yaml must render all 7 templates with force: no so a
-    subsequent `clm agent configure` run never clobbers user edits."""
+    subsequent `clawctl agent configure` run never clobbers user edits."""
     from importlib.resources import files
     import yaml
 

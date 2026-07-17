@@ -22,10 +22,10 @@ Hard-coded list. The skill will edit exactly these and warn if it finds version-
 | `pyproject.toml` | `version = "<NEW>"` (line near top) |
 | `uv.lock` | Re-run `uv sync` after editing `pyproject.toml`; the clawrium entry's `version` updates as a derived artifact. Stage and commit alongside `pyproject.toml`. |
 | `AGENTS.md` | `- Version: <NEW>` line |
-| `docs/installation.md` | `clawrium==<NEW>` and `clm, version <NEW>`. **Canonical install doc — edit this first, then mirror body verbatim into `website/docs/installation.md`.** |
-| `website/docs/installation.md` | `clawrium==<NEW>` and `clm, version <NEW>`. Mirror of `docs/installation.md`; body must stay identical (only the Docusaurus frontmatter and mirror-warning comment at the top differ). |
+| `docs/installation.md` | `clawrium==<NEW>` and `clawctl, version <NEW>`. **Canonical install doc — edit this first, then mirror body verbatim into `website/docs/installation.md`.** |
+| `website/docs/installation.md` | `clawrium==<NEW>` and `clawctl, version <NEW>`. Mirror of `docs/installation.md`; body must stay identical (only the Docusaurus frontmatter and mirror-warning comment at the top differ). |
 | `website/docs/guides/quickstart.md` | `clawrium==<NEW>` |
-| `website/docs/scenarios/101.md` | `clm <NEW>` |
+| `website/docs/scenarios/101.md` | `clawctl <NEW>` |
 | `CHANGELOG.md` (root) | Archive the current contents to `docs/releases/<NEW>/CHANGELOG.md`, then reset this file to the empty `[Unreleased]` template. See Phase 1 step 6a. |
 | `docs/releases/<NEW>/CHANGELOG.md` | New per-release archive folder created from the root changelog at cut time. See Phase 1 step 6a. |
 

@@ -43,7 +43,7 @@ dependencies = [
 clawctl = "clawrium.cli:app"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "tomli; python_version < '3.11'"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.custom]
@@ -63,7 +63,7 @@ exclude = ["src/clawrium/gui/frontend"]
 # file selection excludes it. The sdist force-include keeps the
 # staged frontend in the source archive so that uv's sdist→wheel
 # roundtrip can find it; the wheel force-include then rewrites it
-# into the install layout. Without these, `clm gui` 404s on every
+# into the install layout. Without these, `clawctl gui` 404s on every
 # non-API route after install (see #401).
 [tool.hatch.build.targets.sdist.force-include]
 # `src/clawrium/gui/frontend/` is a gitignored build artifact — force-include

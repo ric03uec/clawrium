@@ -4,7 +4,7 @@ Plan §4 / §5:
 
 | Subcommand   | Status (this bundle) |
 |--------------|----------------------|
-| `init`       | Real — delegates to the same `init` implementation the legacy `clm init` used. |
+| `init`       | Real — delegates to the same `init` implementation the legacy `clawctl init` used. |
 | `start`      | Stub — prints `Not implemented: service start`, exits 0. |
 | `stop`       | Stub — prints `Not implemented: service stop`, exits 0. |
 | `snapshot`   | Stub — prints `Not implemented: service snapshot`, exits 0. |

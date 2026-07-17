@@ -437,7 +437,7 @@ def test_pairing_code_400_when_resolver_returns_none(isolated_config: Path):
 
 
 def test_pairing_code_409_when_bearer_missing(isolated_config: Path):
-    """No persisted gateway.auth → 409 with `clm agent configure` guidance."""
+    """No persisted gateway.auth → 409 with `clawctl agent configure` guidance."""
     _seed_hosts(isolated_config, "zeroclaw", {"gateway": {"port": 40123}})
     with patch("clawrium.core.web_ui.resolve", return_value=_zeroclaw_resolved()):
         with TestClient(app) as client:

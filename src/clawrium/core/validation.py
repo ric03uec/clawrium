@@ -57,17 +57,17 @@ class ValidationResult:
 ERROR_MESSAGES = {
     "soul_md_missing": (
         "SOUL.md personality file not found. "
-        "Run 'clm agent configure <claw> --stage identity' first."
+        "Run 'clawctl agent configure <claw> --stage identity' first."
     ),
     "soul_md_unreadable": "SOUL.md exists but cannot be read: {error}",
     "provider_not_found": (
         "No provider assigned to this agent. "
-        "Run 'clm agent configure <claw> --stage providers' first."
+        "Run 'clawctl agent configure <claw> --stage providers' first."
     ),
     "provider_config_missing": "Provider '{provider}' not found in configuration.",
     "api_key_missing": (
         "No API key configured for provider '{provider}'. "
-        "Run 'clm provider add' with --api-key to set it."
+        "Run 'clawctl provider add' with --api-key to set it."
     ),
     "api_key_invalid": (
         "API key for '{provider}' appears to be invalid. Check your API key is correct."
@@ -83,7 +83,7 @@ ERROR_MESSAGES = {
     ),
     "bedrock_credentials": (
         "AWS credentials not configured for Bedrock provider '{provider}'. "
-        "Run: clm provider add --type bedrock --name <name>"
+        "Run: clawctl provider add --type bedrock --name <name>"
     ),
     "vertex_credentials": (
         "GCP credentials not configured for Vertex AI. "
@@ -91,7 +91,7 @@ ERROR_MESSAGES = {
     ),
     "agent_not_installed": (
         "Agent binary not found on host. "
-        "Run 'clm agent install --type {claw_type} --host {host}' first."
+        "Run 'clawctl agent install --type {claw_type} --host {host}' first."
     ),
     "agent_wrong_permissions": (
         "Agent binary has incorrect permissions. Expected {expected}, found {actual}."
@@ -99,11 +99,11 @@ ERROR_MESSAGES = {
     "onboarding_not_found": "Onboarding record not found for {claw_name} on {host}.",
     "gateway_not_configured": (
         "Gateway endpoint not configured for this agent. "
-        "Re-run 'clm agent configure <claw> --stage providers' to sync config."
+        "Re-run 'clawctl agent configure <claw> --stage providers' to sync config."
     ),
     "gateway_auth_missing": (
         "Gateway auth token not configured for this agent. "
-        "Re-run 'clm agent install' or 'clm agent configure <claw> --stage providers'."
+        "Re-run 'clawctl agent install' or 'clawctl agent configure <claw> --stage providers'."
     ),
     "gateway_unreachable": (
         "Could not connect to OpenClaw gateway at {endpoint}. "
@@ -120,7 +120,7 @@ ERROR_MESSAGES = {
     ),
     "hermes_env_missing": (
         "`~/.hermes/.env` does not exist for agent '{claw_name}' on host '{host}'. "
-        "Run 'clm agent configure {claw_name} --stage providers' first."
+        "Run 'clawctl agent configure {claw_name} --stage providers' first."
     ),
     "hermes_health_failed": (
         "api_server /health did not return 200 for agent '{claw_name}' on host '{host}'. "
@@ -337,7 +337,7 @@ def verify_provider_connectivity(
     provider_type = provider.get("type", "")
 
     # Ollama connectivity is skipped: this check runs on the control
-    # machine (where `clm` is invoked), but Ollama will be reached from
+    # machine (where `clawctl` is invoked), but Ollama will be reached from
     # the agent host at runtime. A control-machine probe can fail purely
     # because the operator's laptop is on a different network than the
     # agent host, even when the agent → Ollama path works fine. The
@@ -944,7 +944,7 @@ def validate_hermes_health(
 
     The api_server platform binds to loopback on the agent host by design,
     so the /health probe must be issued from inside that host. We use the
-    same ansible-runner infrastructure as the rest of clm rather than
+    same ansible-runner infrastructure as the rest of clawctl rather than
     setting up a port-forward.
 
     Args:
@@ -966,7 +966,7 @@ def validate_hermes_health(
 
     # Defense-in-depth: claw_name is interpolated into a `sudo -u <name>` shell
     # command below. hosts.json is normally trusted (the canonical writer is
-    # `clm agent install` which validates the name via validate_agent_name()),
+    # `clawctl agent install` which validates the name via validate_agent_name()),
     # but we re-validate at point of use so a corrupted record can never
     # trigger shell injection through this path.
     if not _AGENT_NAME_PATTERN.match(claw_name):

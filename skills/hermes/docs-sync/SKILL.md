@@ -29,12 +29,12 @@ hits the same surface real users hit today.
 
 Include a change in scope when **any** of the following is true:
 
-- Adds, renames, removes, or changes the signature of a `clm` CLI
+- Adds, renames, removes, or changes the signature of a `clawctl` CLI
   command or option (`src/clawrium/cli/`).
 - Changes a documented config path or env var.
 - Changes an installation, configuration, or onboarding stage.
 - Changes a GUI route, control, or visible label.
-- Changes output of a `clm ps`-style status command in a way a user
+- Changes output of a `clawctl ps`-style status command in a way a user
   would notice.
 
 Exclude pure refactors, test-only changes, dependency bumps that do

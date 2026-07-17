@@ -1,7 +1,7 @@
 """Structural tests for the per-claw skills_apply.yaml playbooks.
 
 These tests assert invariants that the safety + idempotency story for
-`clm agent skill install/remove` depends on: file existence, presence of
+`clawctl agent skill install/remove` depends on: file existence, presence of
 the ownership boundary mechanism (hermes subdir / openclaw sentinel /
 zeroclaw tracking file), and bounded pruning. They do NOT run ansible —
 runtime behavior is exercised by `tests/test_core_skills_apply.py` with

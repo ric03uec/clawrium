@@ -135,7 +135,7 @@ def test_sync_carries_optional_provider_fields():
 def test_sync_legacy_agent_without_attachment_unchanged():
     """Regression guard: agents installed before #426 (no
     `agent.providers` field, `config.provider` already populated by
-    the legacy `clm` flow) must sync without the bridge interfering."""
+    the legacy `clawctl` flow) must sync without the bridge interfering."""
     legacy_config = {
         "gateway": {"port": 40000},
         "provider": {
@@ -208,7 +208,7 @@ def test_sync_pending_without_attachment_keeps_legacy_error():
             sync_agent("192.168.1.100", "openclaw")
 
     assert "onboarding not started" in str(exc_info.value)
-    # Error message now points at the new attach surface, not legacy clm.
+    # Error message now points at the new attach surface, not legacy clawctl.
     assert "clawctl agent provider attach" in str(exc_info.value)
 
 

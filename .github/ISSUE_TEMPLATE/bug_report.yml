@@ -41,7 +41,7 @@ body:
       label: What's happening?
       description: Describe the current broken behavior
       placeholder: |
-        When I run `clm claw install zeroclaw`, the command fails with a version mismatch error...
+        When I run `clawctl claw install zeroclaw`, the command fails with a version mismatch error...
     validations:
       required: true
 
@@ -60,9 +60,9 @@ body:
       label: Steps to Reproduce
       description: Provide clear steps to reproduce the issue
       placeholder: |
-        1. Run `clm init`
-        2. Run `clm host add myhost --ip 192.168.1.10`
-        3. Run `clm claw install zeroclaw --host myhost`
+        1. Run `clawctl init`
+        2. Run `clawctl host add myhost --ip 192.168.1.10`
+        3. Run `clawctl claw install zeroclaw --host myhost`
         4. See error...
     validations:
       required: true
@@ -80,7 +80,7 @@ body:
     id: version
     attributes:
       label: Clawrium Version
-      description: Output of `clm --version`
+      description: Output of `clawctl --version`
       placeholder: "26.3.1"
     validations:
       required: true

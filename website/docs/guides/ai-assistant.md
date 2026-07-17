@@ -276,7 +276,7 @@ AI: clawctl agent skill add heragent --from-template clawrium/tdd
 
 The `/clawctl` skill reminds the assistant of important invariants:
 
-- Always use `clawctl`, never `clm` (removed in v26.6.3).
+- Always use `clawctl`, never `clawctl` (removed in v26.6.3).
 - Always run `clawctl agent sync <name>` after configuration changes.
 - Token rotation happens automatically on `configure`, `sync`, and `restart` —
   remote chat sessions will receive a 401 and must reconnect.

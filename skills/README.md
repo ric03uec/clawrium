@@ -1,7 +1,7 @@
 # Clawrium Skills Catalog
 
 This directory is the **single source of truth** for skills installable via
-`clm` onto clawrium-managed agents. Skills are organized into four
+`clawctl` onto clawrium-managed agents. Skills are organized into four
 **registries** (namespaces). The path layout is hard-wired into
 `src/clawrium/core/skills.py` and validated in CI.
 
@@ -42,7 +42,7 @@ desired-state files. Bare names (e.g. `tdd`) are rejected with
 
 Non-registry sources (URLs, absolute paths, tarballs) are rejected at the
 `parse_skill_ref` chokepoint with `ExternalSourceBlocked`. The only install
-source for `clm` is this in-repo tree.
+source for `clawctl` is this in-repo tree.
 
 ## Slug rules
 
@@ -61,7 +61,7 @@ source for `clm` is this in-repo tree.
      claw's namespace.
 2. Create `skills/<registry>/<name>/SKILL.md` (and `_meta.yaml` for
    `clawrium/`).
-3. Run `clm skill show <registry>/<name>` to confirm the catalog loader
+3. Run `clawctl skill show <registry>/<name>` to confirm the catalog loader
    accepts it.
 4. CI runs dual-schema validation on every PR; a clawrium-shaped file
    placed under a native registry (or vice versa) will fail the build.

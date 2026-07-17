@@ -2,7 +2,7 @@
 
 Phase 1 mechanism for issue #478. Reads `features.web_ui` from an agent's
 manifest and `hosts.json` agent record, returning enough structured data
-for downstream callers (tunnel manager, CLI `clm agent open`, GUI button)
+for downstream callers (tunnel manager, CLI `clawctl agent open`, GUI button)
 to act on. URL construction is intentionally *not* performed here.
 
 Returns `None` whenever an agent is not installed or its manifest does
@@ -205,7 +205,7 @@ def resolve(agent_key: str) -> ResolvedUI | None:
         # Corrupt manifest is operator-actionable — surface it.
         logger.warning(
             "resolve(%s): manifest for type %r is corrupted: %s — "
-            "run 'clm registry list' to verify",
+            "run 'clawctl registry list' to verify",
             agent_key,
             agent_type,
             exc,

@@ -1,6 +1,6 @@
 """`clawctl host label <hostname> KEY=VALUE [KEY=VALUE ...] [KEY- ...]`.
 
-Replaces legacy `clm host tag`. Stores labels under `metadata.labels`
+Replaces legacy `clawctl host tag`. Stores labels under `metadata.labels`
 (dict) going forward. Legacy `metadata.tags` (list) is migrated lazily
 when labels are touched on a record.
 """

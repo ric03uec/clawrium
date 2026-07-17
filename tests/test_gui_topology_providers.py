@@ -9,7 +9,7 @@ def _make_agent(
     *,
     host: str = "wolf-i",
     agent_type: str = "openclaw",
-    provider: str | None = "clm-bedrock",
+    provider: str | None = "clawctl-bedrock",
     provider_type: str | None = "bedrock",
 ):
     return {
@@ -71,9 +71,9 @@ def test_provider_endpoint_attached_when_provider_has_endpoint(monkeypatch):
 
 
 def test_provider_endpoint_is_none_for_provider_without_endpoint(monkeypatch):
-    agents = [_make_agent("a1", provider="clm-bedrock", provider_type="bedrock")]
+    agents = [_make_agent("a1", provider="clawctl-bedrock", provider_type="bedrock")]
     hosts = [_make_host()]
-    providers = [{"name": "clm-bedrock", "type": "bedrock"}]
+    providers = [{"name": "clawctl-bedrock", "type": "bedrock"}]
 
     monkeypatch.setattr(
         topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)
@@ -314,9 +314,9 @@ def test_provider_accelerator_vendor_respects_explicit_amd(monkeypatch):
 
 def test_provider_accelerator_vendor_none_for_cloud_providers(monkeypatch):
     """Non-local providers (e.g. bedrock) have no accelerator vendor."""
-    agents = [_make_agent("a1", provider="clm-bedrock", provider_type="bedrock")]
+    agents = [_make_agent("a1", provider="clawctl-bedrock", provider_type="bedrock")]
     hosts = [_make_host()]
-    providers = [{"name": "clm-bedrock", "type": "bedrock"}]
+    providers = [{"name": "clawctl-bedrock", "type": "bedrock"}]
 
     monkeypatch.setattr(
         topology_mod, "get_fleet_data_local", _stub_get_fleet_data(agents)

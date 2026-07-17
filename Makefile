@@ -19,7 +19,7 @@ help:
 	@echo "  make lint-ui      Run GUI (next lint) only"
 	@echo "  make format       Format code"
 	@echo "  make build        Build Python package (includes GUI)"
-	@echo "  make build-ui     Build the GUI frontend and stage it for clm gui"
+	@echo "  make build-ui     Build the GUI frontend and stage it for clawctl gui"
 	@echo "  make clean        Remove build artifacts"
 	@echo "  make upgrade      Upgrade all dependencies"
 	@echo "  make lock         Update lock file"

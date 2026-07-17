@@ -1,6 +1,6 @@
 """Regression test: built wheel must ship the staged GUI frontend.
 
-Without this, `clm gui` after `uv tool install clawrium` returns 404 on every
+Without this, `clawctl gui` after `uv tool install clawrium` returns 404 on every
 non-API route because `mount_frontend()` short-circuits when
 `clawrium/gui/frontend/index.html` is missing inside the installed package
 (see issue #401).
@@ -67,7 +67,7 @@ def test_wheel_includes_frontend_index(wheel_names: set[str]) -> None:
     assert "clawrium/gui/frontend/index.html" in wheel_names, (
         "Wheel is missing the staged Next.js frontend. "
         "Check `[tool.hatch.build.targets.wheel.force-include]` in pyproject.toml — "
-        "without this, `clm gui` 404s on every non-API route after install (#401)."
+        "without this, `clawctl gui` 404s on every non-API route after install (#401)."
     )
 
 
@@ -117,7 +117,7 @@ def test_wheel_includes_all_skill_namespaces(wheel_names: set[str]) -> None:
 
     A previous assertion only checked that `clawrium/_skills/` had any entry,
     which `skills/README.md` alone would satisfy — letting three of four skill
-    namespaces silently drop out of the wheel and break `clm skill list`
+    namespaces silently drop out of the wheel and break `clawctl skill list`
     post-install. This test enumerates the source tree so it stays accurate
     as namespaces are added or removed.
     """

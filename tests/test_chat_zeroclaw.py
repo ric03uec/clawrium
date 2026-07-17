@@ -116,7 +116,7 @@ def test_connect_failure(monkeypatch):
 
 def test_auth_error(monkeypatch):
     """A 401 from the gateway surfaces as ChatAuthenticationError so the
-    CLI can route the user to `clm agent configure`."""
+    CLI can route the user to `clawctl agent configure`."""
     from websockets.exceptions import InvalidStatus
 
     class _FakeResponse:

@@ -41,7 +41,7 @@ body:
       description: What are you trying to accomplish? What have you tried?
       placeholder: |
         I'm trying to connect to a host that requires a specific SSH key, but I don't
-        see an option in `clm host add`. I tried setting SSH_KEY env var but it didn't work...
+        see an option in `clawctl host add`. I tried setting SSH_KEY env var but it didn't work...
     validations:
       required: false
 

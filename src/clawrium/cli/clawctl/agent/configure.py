@@ -200,7 +200,7 @@ def configure(
                 "missing required flag --stage",
                 hint="pass --stage providers|identity|validate",
             )
-        # ATX iter-2 W2: stale hint pointed at the retired `clm` binary;
+        # ATX iter-2 W2: stale hint pointed at the retired `clawctl` binary;
         # the kubectl-style rewrite replaced it.
         emit_error(
             "interactive multi-stage configure not yet exposed via clawctl",

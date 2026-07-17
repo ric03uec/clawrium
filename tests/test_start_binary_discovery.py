@@ -1,7 +1,7 @@
 """Tests for binary discovery convergence in the openclaw `start` playbook.
 
 The `start` playbook regenerates the systemd unit file every time it runs. If
-its binary discovery diverges from `install.yaml`, a `clm agent start` on a
+its binary discovery diverges from `install.yaml`, a `clawctl agent start` on a
 host where `/usr/local/bin/openclaw` exists at version A will silently rewrite
 the unit's `ExecStart` to point at the system-wide binary, even when the
 per-agent install at `/home/<agent>/.openclaw/bin/openclaw` is the binary

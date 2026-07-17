@@ -124,7 +124,7 @@ def _resolve_agent_type(agent_name: str) -> str:
         # Ambiguous name across hosts (see core.hosts.get_agent_by_name).
         raise AgentNotFoundError(str(error)) from error
     if resolved is None:
-        raise AgentNotFoundError(f"Agent {agent_name!r} not found. Run `clm agent ps`.")
+        raise AgentNotFoundError(f"Agent {agent_name!r} not found. Run `clawctl agent ps`.")
     _host, agent_type, _agent_record = resolved
     return agent_type
 
@@ -175,7 +175,7 @@ def list_command(
     if not refs:
         console.print(
             f"No skills installed on [cyan]{escape(agent_name)}[/cyan]. "
-            f"Try [cyan]clm agent skill install {escape(agent_name)} "
+            f"Try [cyan]clawctl agent skill install {escape(agent_name)} "
             "clawrium/tdd[/cyan]."
         )
         return
@@ -256,7 +256,7 @@ def install(
             )
             err_console.print(
                 "[yellow]Warning:[/yellow] State rollback failed. "
-                f"Run [cyan]clm agent skill list {escape(agent_name)}"
+                f"Run [cyan]clawctl agent skill list {escape(agent_name)}"
                 "[/cyan] to verify the desired state."
             )
         _exit_with_error(error)
@@ -305,7 +305,7 @@ def remove(
         prior_state = read_state(agent_name)
         target = agent_skills_dir(agent_name) / ref.name
         existed = target.exists()
-        backup = target.with_name(f".{target.name}.clm-remove-backup")
+        backup = target.with_name(f".{target.name}.clawctl-remove-backup")
         if backup.exists():
             shutil.rmtree(backup, ignore_errors=True)
         if existed:
@@ -330,7 +330,7 @@ def remove(
             )
             err_console.print(
                 "[yellow]Warning:[/yellow] State rollback failed. "
-                f"Run [cyan]clm agent skill list {escape(agent_name)}"
+                f"Run [cyan]clawctl agent skill list {escape(agent_name)}"
                 "[/cyan] to verify the desired state."
             )
         _exit_with_error(error)

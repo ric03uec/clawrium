@@ -1,4 +1,4 @@
-"""Tests for `clm agent skill list/install/remove`.
+"""Tests for `clawctl agent skill list/install/remove`.
 
 Exercise the CLI surface end-to-end against a mocked `apply_state` so we
 verify the orchestration (state mutation order, error rendering, idempotent
@@ -236,7 +236,7 @@ def test_apply_error_bidi_stripped_does_not_destroy_ordinary_diagnostics(monkeyp
     "Error: " with no body)."""
     msg = (
         "Skills apply failed (status=failed): /home/agent/.openclaw/skills "
-        "not writable by user-12345 (log: /var/log/clm-apply.log)."
+        "not writable by user-12345 (log: /var/log/clawctl-apply.log)."
     )
 
     def boom(name, **_kwargs):
@@ -255,7 +255,7 @@ def test_apply_error_bidi_stripped_does_not_destroy_ordinary_diagnostics(monkeyp
         "/home/agent/.openclaw/skills",
         "not writable",
         "user-12345",
-        "/var/log/clm-apply.log",
+        "/var/log/clawctl-apply.log",
     ):
         assert token in flat, f"sanitizer stripped {token!r}"
 
@@ -266,7 +266,7 @@ def test_install_renders_apply_not_supported(monkeypatch):
     def boom(name, **_kwargs):
         raise SkillApplyNotSupported(
             "Skills install is not yet supported for openclaw agents. "
-            "Run `clm agent ps` to find a compatible agent."
+            "Run `clawctl agent ps` to find a compatible agent."
         )
 
     monkeypatch.setattr(cli_agent_skill, "apply_state", boom)
@@ -479,7 +479,7 @@ def test_install_rollback_failure_surfaces_warning_to_user(monkeypatch):
     """If `write_state` itself raises during the rollback (extremely
     rare — the file was just written successfully one statement
     earlier), the user must see a yellow warning telling them to
-    verify with `clm agent skill list`. Silent rollback failure
+    verify with `clawctl agent skill list`. Silent rollback failure
     would leave the state file lying about the host."""
     _stub_agent_resolution(monkeypatch)
     monkeypatch.setattr(cli_agent_skill, "validate_skill", lambda _skill: None)
@@ -513,7 +513,7 @@ def test_install_rollback_failure_surfaces_warning_to_user(monkeypatch):
     assert "ssh down" in result.output
     assert "rollback failed" in result.output.lower()
     # Hint should point at the verification command.
-    assert "clm agent skill list" in result.output
+    assert "clawctl agent skill list" in result.output
 
 
 def test_remove_rollback_failure_surfaces_warning_to_user(monkeypatch):
@@ -538,7 +538,7 @@ def test_remove_rollback_failure_surfaces_warning_to_user(monkeypatch):
     assert result.exit_code == 1
     assert "ssh down" in result.output
     assert "rollback failed" in result.output.lower()
-    assert "clm agent skill list" in result.output
+    assert "clawctl agent skill list" in result.output
 
 
 def test_exit_with_error_sanitizes_bidi_in_message(monkeypatch):

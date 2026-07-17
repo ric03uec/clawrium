@@ -1500,7 +1500,7 @@ class TestProcessNameByAgentType:
         """zeroclaw agent type uses 'pgrep -u {user} -f "zeroclaw daemon"'.
 
         Previously zeroclaw fell through to the catch-all `pgrep node`, which
-        meant clm ps reported zeroclaw as STOPPED even when the daemon was
+        meant clawctl ps reported zeroclaw as STOPPED even when the daemon was
         healthy. Fixed in ATX review of PR #361 (W1)."""
         host = {
             "hostname": "192.168.1.100",

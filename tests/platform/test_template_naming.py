@@ -1,6 +1,6 @@
 """Guard tests for the per-agent-type template naming convention.
 
-Issue #510 (Bundle 5 of #435) removes the historical `clm-` prefix from
+Issue #510 (Bundle 5 of #435) removes the historical `clawctl-` prefix from
 Jinja2 templates under `src/clawrium/platform/registry/*/templates/`.
 The convention going forward is that templates carry their agent-type
 prefix (`zeroclaw-*`, `hermes-*`, etc.) so the source-vs-destination
@@ -8,7 +8,7 @@ file naming stays unambiguous at a glance.
 
 This module enforces the regression-safe half of that convention: no
 template anywhere under any registry's `templates/` tree may start with
-`clm-`. The full `<type>-` / `<type>.` prefix convention is documented
+`clawctl-`. The full `<type>-` / `<type>.` prefix convention is documented
 in `.itx/435/00_PLAN.md` §10 but is not asserted here — pre-existing
 unprefixed templates (`openclaw/templates/AGENTS.md.j2` etc.) remain
 out of scope for this bundle per the explicit rename list in the
@@ -47,10 +47,10 @@ def test_template_root_resolves():
 
 @pytest.mark.parametrize("template", _registry_templates(), ids=lambda p: str(p))
 def test_no_clm_prefixed_templates(template: Path) -> None:
-    """No template anywhere may carry the historical `clm-` prefix."""
+    """No template anywhere may carry the historical `clawctl-` prefix."""
 
-    assert not template.name.startswith("clm-"), (
-        f"Template {template} starts with the deprecated `clm-` prefix. "
+    assert not template.name.startswith("clawctl-"), (
+        f"Template {template} starts with the deprecated `clawctl-` prefix. "
         f"Rename per `.itx/435/00_PLAN.md` §10 (use `<type>-` or `<type>.`)."
     )
 
@@ -71,15 +71,15 @@ def _registry_playbooks() -> list[Path]:
 
 @pytest.mark.parametrize("playbook", _registry_playbooks(), ids=lambda p: str(p))
 def test_no_clm_prefix_in_playbook_path_refs(playbook: Path) -> None:
-    """Playbook `src:` and `dest:` path refs must not point at `clm-*` files.
+    """Playbook `src:` and `dest:` path refs must not point at `clawctl-*` files.
 
     ATX #510 W5 — the `*.j2` filename scanner above does not catch a
-    regression where a playbook re-introduces `10-clm-env.conf` as a
+    regression where a playbook re-introduces `10-clawctl-env.conf` as a
     `dest:` value (the rendered file on the agent host) even though the
     source template is correctly named. This test scans every YAML line
-    that names a path field for the deprecated `clm-` prefix.
+    that names a path field for the deprecated `clawctl-` prefix.
 
-    The legacy filename `10-clm-env.conf` is also caught by this rule —
+    The legacy filename `10-clawctl-env.conf` is also caught by this rule —
     even after `configure.yaml` learned to remove the orphan dropin in
     Bundle 5, re-introducing it as a managed `dest:` would land a stale
     file path back on every agent host.
@@ -95,15 +95,15 @@ def test_no_clm_prefix_in_playbook_path_refs(playbook: Path) -> None:
         if not (stripped.startswith("src:") or stripped.startswith("dest:")):
             continue
         # The Bundle 5 (#510) cleanup task in zeroclaw/configure.yaml
-        # legitimately references `10-clm-env.conf` as a `path:` (not
+        # legitimately references `10-clawctl-env.conf` as a `path:` (not
         # `src:`/`dest:`) — that legitimate ref is filtered out by the
         # startswith check above, but be explicit in case the cleanup
         # task ever changes shape.
-        if "clm-" in line:
+        if "clawctl-" in line:
             offenders.append((lineno, line.rstrip()))
 
     assert not offenders, (
-        f"{playbook}: src:/dest: line(s) reference deprecated `clm-*` paths "
+        f"{playbook}: src:/dest: line(s) reference deprecated `clawctl-*` paths "
         f"(reintroducing #510 W1 regression):\n"
         + "\n".join(f"  L{ln}: {ln_text}" for ln, ln_text in offenders)
     )

@@ -161,7 +161,7 @@ def test_resolve_missing_agent_returns_none(monkeypatch):
 def test_resolve_ambiguous_agent_returns_none(monkeypatch, caplog):
     """Ambiguous name (matches multiple hosts) → `None` and a WARNING log.
 
-    `clm chat` and similar surfaces raise an interactive prompt for this
+    `clawctl chat` and similar surfaces raise an interactive prompt for this
     case; the resolver returns `None` so the caller can render a static
     "Native UI not available" rather than a stack trace. The log surfaces
     the disambiguation hint to operators.
@@ -334,12 +334,12 @@ def test_resolve_returns_none_for_host_without_address(monkeypatch):
 def test_resolve_ssh_config_resolves_identity_via_key_id(monkeypatch, tmp_path):
     """ssh_config.identity_file is resolved via get_host_private_key(key_id).
 
-    Real clm host records store `key_id` (e.g. "wolf-i") and the private
+    Real clawctl host records store `key_id` (e.g. "wolf-i") and the private
     key lives under ~/.config/clawrium/keys/<key_id>/xclm_ed25519. The
     resolver MUST go through `get_host_private_key`, not look at an
     inline `ssh_key` / `identity_file` field that does not exist in real
     records. Regression anchor for the bug that caused
-    `Permission denied (publickey)` when the GUI / `clm agent open`
+    `Permission denied (publickey)` when the GUI / `clawctl agent open`
     tried to tunnel to a hermes dashboard.
     """
     key_file = tmp_path / "xclm_ed25519"

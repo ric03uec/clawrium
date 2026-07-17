@@ -39,7 +39,10 @@ def _get_version() -> str:
     Reads ``pyproject.toml`` first so that the *build* version is always used,
     not a stale previously-installed one (W1).
     """
-    import tomllib
+    try:
+        import tomllib  # py3.11+ stdlib
+    except ModuleNotFoundError:  # py3.10
+        import tomli as tomllib  # type: ignore[no-redef]
 
     pyproject = _ROOT / "pyproject.toml"
     if pyproject.exists():
