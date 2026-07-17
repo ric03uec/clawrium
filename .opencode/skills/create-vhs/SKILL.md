@@ -250,7 +250,7 @@ Standard settings (built into the template — deviate only with a reason commen
 | Setting       | Value              | Rationale                                              |
 |---------------|--------------------|--------------------------------------------------------|
 | FontSize      | 18                 | Readable on 1080p YouTube                              |
-| Width         | 1400               | Fits `clm` tables at COLUMNS≥160                       |
+| Width         | 1400               | Fits `clawctl` tables at COLUMNS≥160                       |
 | Height        | 900 (long-form)    | Storyboard checklist needs vertical room               |
 | Height        | 600 (short)        | Compact for README                                     |
 | Theme         | Catppuccin Mocha   | Dark, high contrast                                    |
@@ -324,11 +324,11 @@ Apply to long-form demos; pick-and-choose for short demos.
 
 | Problem                    | Solution                                                                |
 |----------------------------|-------------------------------------------------------------------------|
-| `clm` not found             | Source the venv inside the `Hide`/`Show` setup block.                  |
+| `clawctl` not found             | Source the venv inside the `Hide`/`Show` setup block.                  |
 | Helper functions not found  | Confirm `source ... _<name>_helpers.sh` is inside the Hide block.       |
 | GIF too large               | Lower `Framerate` to 24, raise `PlaybackSpeed`, trim `Sleep` durations. |
 | Output truncated            | Increase `Height` (900 for long-form), increase per-scene `Sleep`.      |
-| Tables misaligned           | Ensure `Width` ≥ 1400 for `clm` table output.                           |
+| Tables misaligned           | Ensure `Width` ≥ 1400 for `clawctl` table output.                           |
 | Recording hangs             | Check command isn't waiting on interactive input; consider `Ctrl+C`.    |
 | Capture file missing        | Re-run the capture script in step 2 of Flow B for that one scene.       |
 | LIVE scene desyncs          | Add a hidden `until ... do sleep 3; done` after the visible `Sleep`.    |

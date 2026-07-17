@@ -48,10 +48,10 @@ body:
       label: Proposed Solution
       description: How do you envision this working?
       placeholder: |
-        Add a `clm backup` command that:
+        Add a `clawctl backup` command that:
         - Exports all claw configurations to a JSON file
         - Optionally uploads to S3 or other storage
-        - Supports restore via `clm restore`
+        - Supports restore via `clawctl restore`
     validations:
       required: true
 

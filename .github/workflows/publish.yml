@@ -35,7 +35,7 @@ jobs:
 
       # `make build` runs `build-ui` first so the Next.js export is staged at
       # src/clawrium/gui/frontend/ before `uv build` packages the wheel.
-      # Bare `uv build` ships a wheel without the UI and `clm gui` 404s.
+      # Bare `uv build` ships a wheel without the UI and `clawctl gui` 404s.
       # Running build before `uv sync` is required: the wheel target
       # force-includes the staged frontend, so an editable install via
       # `uv sync` would fail if the frontend isn't staged yet.
