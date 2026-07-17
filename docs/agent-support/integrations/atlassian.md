@@ -133,7 +133,7 @@ Earlier releases shipped separate `jira` and `confluence` integration types. The
 If you have a stale record from a previous version:
 
 - `clawctl integration registry get` will mark the row `<type> (unknown)` in yellow.
-- `clawctl integration registry describe <name>` and `clawctl integration registry describe <name>` exit non-zero with a remediation message.
+- `clawctl integration registry describe <name>` exits non-zero with a remediation message.
 - `clawctl agent configure` emits a `WARNING: integration '<name>' has unknown type '<type>' — skipping` and continues without wiring MCP for that record.
 
 To recover:

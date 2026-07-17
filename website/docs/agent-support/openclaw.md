@@ -1,12 +1,10 @@
-# OpenClaw
+# OpenClaw Support Matrix
 
-OpenClaw is a full-featured AI assistant supporting multiple LLM providers, communication channels, and third-party integrations.
+OpenClaw is a full-featured agent supporting multiple LLM providers, communication channels, and third-party integrations.
 
 **Status:** ✅ Production Ready
 
 **Best for:** Discord bots, multi-channel assistants, complex workflows
-
-**GitHub:** [openclaw/openclaw](https://github.com/openclaw/openclaw)
 
 ---
 
@@ -158,7 +156,7 @@ clawctl agent sync <openclaw-name>
 <summary><strong>"Discord bot token invalid"</strong></summary>
 
 1. Verify the bot token in Discord Developer Portal
-2. Re-run: `clawctl agent configure <name> --stage channels`
+2. Re-create the channel record (`clawctl channel registry delete <channel-name> --yes --force` then `clawctl channel registry create <channel-name> --type discord --token-stdin <<<"$BOT_TOKEN" ...`), re-attach if needed (`clawctl agent channel attach <channel-name> --agent <name>`), and `clawctl agent sync <name>`
 3. Ensure the bot has proper server permissions
 </details>
 

@@ -1,8 +1,8 @@
 # Atlassian (Jira + Confluence)
 
-**Status:** ✅ Supported (Hermes via MCP, OpenClaw via `.env`). ZeroClaw integrations are deferred — see [ZeroClaw → Deferred items](../zeroclaw.md#deferred-items--follow-ups).
+**Status:** ✅ Supported (Hermes via MCP, OpenClaw via `.env`, ZeroClaw via `config.toml`)
 
-Atlassian integration connects agents to **Jira** and **Confluence** on Atlassian Cloud using a single set of credentials. On Hermes the integration is wired through the [`mcp-atlassian`](https://pypi.org/project/mcp-atlassian/) MCP server — hermes launches it as a subprocess via `uvx` and registers its Jira/Confluence tools at startup. On OpenClaw the credentials are rendered into the agent's environment (`.env`) so the agent can call the Jira/Confluence REST API directly.
+Atlassian integration connects agents to **Jira** and **Confluence** on Atlassian Cloud using a single set of credentials. On Hermes the integration is wired through the [`mcp-atlassian`](https://pypi.org/project/mcp-atlassian/) MCP server — hermes launches it as a subprocess via `uvx` and registers its Jira/Confluence tools at startup. On OpenClaw and ZeroClaw the credentials are rendered into the agent's environment (`.env` / `config.toml`) so the agent can call the Jira/Confluence REST API directly.
 
 This is a **headless, no-UI** integration. Authentication is via Atlassian API token only — there is no browser-based OAuth approval at any step.
 
@@ -10,8 +10,8 @@ This is a **headless, no-UI** integration. Authentication is via Atlassian API t
 
 ## What you can do
 
-| Capability | Hermes (MCP) | OpenClaw |
-|------------|:------------:|:--------:|
+| Capability | Hermes (MCP) | OpenClaw / ZeroClaw |
+|------------|:------------:|:-------------------:|
 | Read Jira issues / JQL search | ✅ | via API |
 | Create / update / transition issues | ✅ | via API |
 | Read / search Confluence pages | ✅ | via API |
@@ -19,7 +19,7 @@ This is a **headless, no-UI** integration. Authentication is via Atlassian API t
 | Add Jira comments | ✅ | via API |
 | Sprint queries | ✅ | via API |
 
-On Hermes the surface is the full `mcp-atlassian` toolset (≈72 tools across Jira + Confluence). On OpenClaw the agent uses its general tool-use surface (HTTP, shell) backed by the rendered credentials.
+On Hermes the surface is the full `mcp-atlassian` toolset (≈72 tools across Jira + Confluence). On OpenClaw/ZeroClaw the agent uses its general tool-use surface (HTTP, shell) backed by the rendered credentials.
 
 ---
 
@@ -82,7 +82,7 @@ For **Hermes**, the configure playbook:
 
 For **OpenClaw**, the playbook renders the same credentials into `~/.openclaw/.env` as `JIRA_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN` / `CONFLUENCE_URL` / `CONFLUENCE_EMAIL` / `CONFLUENCE_API_TOKEN` (shell-quoted via the template's `shell_quote` macro).
 
-For **ZeroClaw**, Atlassian (and all other) integrations are not wired in this iteration. The `[integrations]` table is not emitted by `clawctl`'s `config.toml.j2`. Tracked as a follow-up to issue #112 — see [ZeroClaw → Deferred items](../zeroclaw.md#deferred-items--follow-ups).
+For **ZeroClaw**, the playbook renders the same credentials into the `[integrations]` table of `~/.zeroclaw/config.toml` (TOML-escaped).
 
 ### 5. Verify
 
@@ -133,7 +133,7 @@ Earlier releases shipped separate `jira` and `confluence` integration types. The
 If you have a stale record from a previous version:
 
 - `clawctl integration registry get` will mark the row `<type> (unknown)` in yellow.
-- `clawctl integration registry describe <name>` and `clawctl integration registry describe <name>` exit non-zero with a remediation message.
+- `clawctl integration registry describe <name>` exits non-zero with a remediation message.
 - `clawctl agent configure` emits a `WARNING: integration '<name>' has unknown type '<type>' — skipping` and continues without wiring MCP for that record.
 
 To recover:
