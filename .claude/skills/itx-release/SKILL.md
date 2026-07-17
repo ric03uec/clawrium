@@ -89,8 +89,8 @@ Do NOT touch:
     Then reset the root `CHANGELOG.md` to the empty template — keep the
     `# Changelog` preamble and the `docs/releases/` archive note, drop all
     shipped entries, and leave a bare `## [Unreleased]` with empty
-    `### BREAKING` / `### Added` / `### Changed` / `### Fixed` /
-    `### Documentation` subsections. Use the existing archived release as the
+    `### BREAKING` / `### Added` / `### Changed` / `### Fixed` / `### Documentation` /
+    `### Internal` subsections. Use the existing archived release as the
     structural reference (see `docs/releases/26.6.0/CHANGELOG.md`, the first
     one created under this convention).
 
