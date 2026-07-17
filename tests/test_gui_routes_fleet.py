@@ -1171,12 +1171,9 @@ def test_fleet_health_returns_200_under_concurrent_clients(isolated_config: Path
         "clawrium.gui.routes.fleet.get_fleet_data",
         return_value=([vm], _fleet_summary()),
     ):
-        executor = _TPE(max_workers=3)
-        try:
+        with _TPE(max_workers=3) as executor:
             futures = [executor.submit(_probe) for _ in range(3)]
             results = [f.result(timeout=15) for f in futures]
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
 
     assert len(results) == 3, f"only {len(results)} threads completed"
     assert all(s == 200 for s in results), results

@@ -46,6 +46,8 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- `tests/test_gui_routes_fleet.py::test_fleet_health_returns_200_under_concurrent_clients` and `test_fleet_health_host_filter_forwarded` — module-level `asyncio.Lock()` (`_LAST_ACCESS_LOCK`) was bound to the first pytest event loop, causing `RuntimeError: Lock is bound to a different event loop` on subsequent tests. Migrated to the same per-loop lazy accessor pattern (`_get_last_access_lock`) already used for the fleet-health semaphore. The concurrent-clients test also switched from `executor.shutdown(wait=False, cancel_futures=True)` to a `with`-block so futures complete normally instead of being force-cancelled, eliminating spurious `CancelledError` (#676).
+
 - `clawctl agent doctor <name>` now works for **ethos agents** (#923). Previously the command
   failed with `Error: no renderer registered for agent type 'ethos'` because the doctor
   dispatch table only covered hermes, zeroclaw, and openclaw. Fix adds a `render_ethos()`
