@@ -55,6 +55,9 @@ _PHASES = (
 
 
 _RENDERERS = {
+    # #924 (ATX B1): ethos renders through render_ethos on every path
+    # (doctor, configure, sync, and this --dry-run --diff table).
+    "ethos": "render_ethos",
     "hermes": "render_hermes",
     "zeroclaw": "render_zeroclaw",
     "openclaw": "render_openclaw",

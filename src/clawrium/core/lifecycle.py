@@ -2837,6 +2837,64 @@ def configure_agent(
             # bad hosts.json shape, IOError on baseline read — surface
             # as a clean (False, msg) instead of an unhandled traceback.
             return False, f"Openclaw render failed (internal): {exc}"
+    elif resolved_type == "ethos":
+        # #924 (ATX B1): pre-render all five canonical ethos files via
+        # render_ethos so the configure playbook deploys them with
+        # `copy: content:` instead of templating server-side. This
+        # collapses the dual-render path (Python Jinja2 for doctor vs
+        # Ansible Jinja2 for configure) into a single engine — the same
+        # class of bug #622 closed for hermes. Doctor (#923) renders
+        # through the same function, so its report is byte-identical to
+        # what configure writes.
+        from clawrium.core.render import (
+            AgentConfigError,
+            build_render_inputs,
+            render_ethos,
+        )
+
+        try:
+            import dataclasses as _dataclasses
+
+            from clawrium.core.render import GatewayInputs
+
+            render_inputs = build_render_inputs(unix_agent_name)
+            # The gateway bearer was already validated against
+            # secrets.json above (the `merged_gateway["api_key"]` block
+            # is authoritative — a stale hosts.json copy is ignored
+            # there). Pin the render to that exact value so the
+            # pre-rendered .env can never diverge from the config the
+            # playbook's verify tasks check.
+            if render_inputs.gateway is not None:
+                gw = _dataclasses.replace(
+                    render_inputs.gateway, api_key=ethos_api_key
+                )
+            else:
+                # hosts.json gateway shape was missing; mirror the
+                # reconstruction the merge block above applied to
+                # config_data so configure still recovers legacy
+                # installs instead of failing the render.
+                merged_gw = config_data.get("gateway") or {}
+                gw = GatewayInputs(
+                    host="127.0.0.1",
+                    port=int(merged_gw.get("port", 3000) or 3000),
+                    api_key=ethos_api_key,
+                    internal_port=int(
+                        merged_gw.get("internal_port", 44410) or 44410
+                    ),
+                )
+            render_inputs = _dataclasses.replace(render_inputs, gateway=gw)
+            rendered = render_ethos(render_inputs)
+            prerendered_files.update(rendered.files)
+        except AgentConfigError as exc:
+            # Loud failure at assembly time: unsupported provider,
+            # duplicate channel type, missing gateway block. Nothing
+            # pushed to host.
+            return False, f"Ethos render failed: {exc}"
+        except Exception as exc:
+            # Mirror hermes' broad except: TemplateError, KeyError on a
+            # bad hosts.json shape, IOError on template read — surface
+            # as a clean (False, msg) instead of an unhandled traceback.
+            return False, f"Ethos render failed: {exc}"
 
     # #734 / #755 Openclaw brave plugin preflight on the configure
     # path. Plugin install itself now lives in
@@ -2936,6 +2994,22 @@ def configure_agent(
         # hermes/zeroclaw bearers.
         "prerendered_openclaw_config_json": prerendered_files.get(
             ".openclaw/openclaw.json", ""
+        ),
+        # #924 (ATX B1): ethos canonical files, pre-rendered by
+        # render_ethos above. Keys match the rendered.files dict so the
+        # var name and the file path stay locked together.
+        "prerendered_ethos_env": prerendered_files.get(".ethos/.env", ""),
+        "prerendered_ethos_config_yaml": prerendered_files.get(
+            ".ethos/config.yaml", ""
+        ),
+        "prerendered_ethos_soul_md": prerendered_files.get(
+            ".ethos/personalities/default/SOUL.md", ""
+        ),
+        "prerendered_ethos_toolset_yaml": prerendered_files.get(
+            ".ethos/personalities/default/toolset.yaml", ""
+        ),
+        "prerendered_ethos_personality_config_yaml": prerendered_files.get(
+            ".ethos/personalities/default/config.yaml", ""
         ),
     }
 

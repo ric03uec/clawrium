@@ -46,6 +46,28 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- `clawctl agent doctor <name>` now works for **ethos agents** (#923). Previously the command
+  failed with `Error: no renderer registered for agent type 'ethos'` because the doctor
+  dispatch table only covered hermes, zeroclaw, and openclaw. Fix adds a `render_ethos()`
+  Python renderer that exercises the same five Jinja2 templates as the Ansible configure
+  playbook (`.ethos/.env`, `.ethos/config.yaml`, and three personality files), extends
+  `GatewayInputs` with `api_key` and `internal_port` fields (populated from the gateway
+  blob for ethos; default-empty for all other types), and surfaces both fields in the
+  doctor gateway diagnostic block.
+- Ethos configure/sync now render config through the same Python renderer doctor uses
+  (#924 review of #923). `clawctl agent configure` pre-renders all five ethos config
+  files via `render_ethos` and the configure playbook deploys the bytes with
+  `copy: content:` instead of templating server-side; `clawctl agent sync` gains an
+  ethos entry in the canonical renderer table. This collapses the dual Jinja2 render
+  path (Python for doctor vs Ansible for configure) — the bug class #622 closed for
+  hermes. Also from the same review: the doctor gateway block (api_key presence,
+  internal_port) now appears in the default table output and is emitted only for
+  ethos agents in JSON/YAML output; renderer errors surface as a structured
+  `status: broken` report instead of a traceback; an explicit
+  `gateway.internal_port: 0` is no longer silently replaced with the 44410 default,
+  and non-numeric values produce an actionable config error; `provider`/`model`
+  values in the rendered ethos `config.yaml` are now JSON-quoted so model ids with
+  colons cannot produce unparseable YAML.
 - Ethos agents stuck in `onboarding.state=pending` (e.g. due to SSH drop or provider API
   unreachable during configure) now auto-recover when `clawctl agent start` is called.
   `start_agent` re-runs configure before raising `LifecycleError`; if recovery succeeds

@@ -17,6 +17,7 @@ from clawrium.cli import app
 from clawrium.core.render import (
     AgentConfigError,
     ChannelInputs,
+    GatewayInputs,
     IntegrationInputs,
     ProviderInputs,
     RenderInputs,
@@ -222,3 +223,213 @@ def test_doctor_broken_json_includes_error(fleet_dir, monkeypatch) -> None:
     payload = json.loads(body[: arr_end + 1])
     assert payload[0]["status"] == "broken"
     assert "BOT_TOKEN" in payload[0]["error"]
+
+
+# ---------------------------------------------------------------------------
+# B3 regression guard: ethos dispatches to render_ethos, exits 0 (#923)
+# ---------------------------------------------------------------------------
+
+_ETHOS_INPUTS = RenderInputs(
+    agent_name="kevin",
+    agent_type="ethos",
+    provider=ProviderInputs(
+        name="openrouter-primary",
+        type="openrouter",
+        default_model="anthropic/claude-opus-4.7",
+        api_key="sk-or-xxx",
+    ),
+    channels=(),
+    integrations=(),
+    gateway=GatewayInputs(
+        host="0.0.0.0",
+        port=44400,
+        auth="ethos-tkn",
+        bind="lan",
+        api_key="ethos-gw-key",
+        internal_port=44410,
+    ),
+)
+
+_ETHOS_FILES = RenderedFiles(
+    files={
+        ".ethos/.env": "OPENROUTER_API_KEY='sk-or-xxx'\n",
+        ".ethos/config.yaml": "provider:\n  type: openrouter\n",
+        ".ethos/personalities/default/SOUL.md": "# kevin\n",
+        ".ethos/personalities/default/config.yaml": "memory: {}\n",
+        ".ethos/personalities/default/toolset.yaml": "tools: []\n",
+    }
+)
+
+
+_ETHOS_CLAW_RECORD = {
+    "type": "ethos",
+    "agent_name": "kevin",
+    "providers": ["openrouter-primary"],
+    "channels": [],
+    "integrations": [],
+    "skills": [],
+}
+
+
+def test_doctor_ethos_dispatches_and_exits_zero(fleet_dir, monkeypatch) -> None:
+    """B3 regression guard (#923): ethos must dispatch to render_ethos and exit 0.
+
+    Before the fix, doctor exited non-zero with
+    'no renderer registered for agent type ethos'.
+
+    W7 (#924): the renderer stub is a MagicMock with call assertions so a
+    subtler dispatch bug (e.g. routing ethos to render_hermes) fails this
+    test instead of still exiting 0 through the wrong renderer.
+    """
+    from unittest.mock import MagicMock
+
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    monkeypatch.setattr(
+        doctor_mod,
+        "safe_resolve_agent",
+        lambda name: ({"hostname": "host-1"}, "ethos:kevin", _ETHOS_CLAW_RECORD),
+    )
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda name: _ETHOS_INPUTS)
+    mock_render_ethos = MagicMock(return_value=_ETHOS_FILES)
+    mock_render_hermes = MagicMock(return_value=_ETHOS_FILES)
+    monkeypatch.setattr(doctor_mod, "render_ethos", mock_render_ethos)
+    monkeypatch.setattr(doctor_mod, "render_hermes", mock_render_hermes)
+
+    result = runner.invoke(app, ["agent", "doctor", "kevin"])
+    assert result.exit_code == 0, result.output
+    assert "Status:  ok" in result.output
+    assert "ethos" in result.output
+    mock_render_ethos.assert_called_once_with(_ETHOS_INPUTS)
+    mock_render_hermes.assert_not_called()
+
+
+def test_doctor_ethos_gateway_fields_present_in_json(fleet_dir, monkeypatch) -> None:
+    """api_key and internal_port surface in the doctor JSON output for ethos."""
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    monkeypatch.setattr(
+        doctor_mod,
+        "safe_resolve_agent",
+        lambda name: ({"hostname": "host-1"}, "ethos:kevin", _ETHOS_CLAW_RECORD),
+    )
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda name: _ETHOS_INPUTS)
+    monkeypatch.setattr(doctor_mod, "render_ethos", lambda inputs: _ETHOS_FILES)
+
+    result = runner.invoke(app, ["agent", "doctor", "kevin", "-o", "json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    gw = payload[0]["inputs"]["gateway"]
+    assert gw["api_key"] == "present"
+    assert gw["internal_port"] == 44410
+    # Secret value must not appear.
+    assert "ethos-gw-key" not in result.output
+
+
+def test_doctor_ethos_gateway_fields_present_in_yaml(fleet_dir, monkeypatch) -> None:
+    """S2 (#924): YAML mirror of the JSON test — api_key reads 'present'
+    and the raw secret value never appears in the YAML output."""
+    import yaml
+
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    monkeypatch.setattr(
+        doctor_mod,
+        "safe_resolve_agent",
+        lambda name: ({"hostname": "host-1"}, "ethos:kevin", _ETHOS_CLAW_RECORD),
+    )
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda name: _ETHOS_INPUTS)
+    monkeypatch.setattr(doctor_mod, "render_ethos", lambda inputs: _ETHOS_FILES)
+
+    result = runner.invoke(app, ["agent", "doctor", "kevin", "-o", "yaml"])
+    assert result.exit_code == 0, result.output
+    payload = yaml.safe_load(result.output)
+    gw = payload[0]["inputs"]["gateway"]
+    assert gw["api_key"] == "present"
+    assert gw["internal_port"] == 44410
+    assert "ethos-gw-key" not in result.output
+
+
+def test_doctor_ethos_gateway_fields_visible_in_table(fleet_dir, monkeypatch) -> None:
+    """W2 (#924): the gateway diagnostic block must appear in the default
+    table output, not only via `-o json` / `-o yaml`."""
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    monkeypatch.setattr(
+        doctor_mod,
+        "safe_resolve_agent",
+        lambda name: ({"hostname": "host-1"}, "ethos:kevin", _ETHOS_CLAW_RECORD),
+    )
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda name: _ETHOS_INPUTS)
+    monkeypatch.setattr(doctor_mod, "render_ethos", lambda inputs: _ETHOS_FILES)
+
+    result = runner.invoke(app, ["agent", "doctor", "kevin"])
+    assert result.exit_code == 0, result.output
+    out = result.output
+    assert "Resolved gateway:" in out
+    assert "api_key:        present" in out
+    assert "internal_port:  44410" in out
+    assert "ethos-gw-key" not in out
+
+
+def test_doctor_non_ethos_gateway_omits_ethos_only_fields(
+    fleet_dir, monkeypatch
+) -> None:
+    """W1 (#924): a non-ethos agent with a gateway block must NOT emit the
+    ethos-only api_key / internal_port keys in JSON output — that would
+    silently widen the schema for consumers parsing `-o json`."""
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    zc_inputs = RenderInputs(
+        agent_name="wise-hypatia",
+        agent_type="openclaw",
+        provider=ProviderInputs(
+            name="anthropic-primary",
+            type="anthropic",
+            default_model="claude-opus",
+            api_key="sk-xxx",
+        ),
+        channels=(),
+        integrations=(),
+        gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tkn", bind="lan"),
+    )
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda name: zc_inputs)
+    monkeypatch.setattr(doctor_mod, "render_openclaw", lambda inputs: _OK_FILES)
+
+    result = runner.invoke(app, ["agent", "doctor", "wise-hypatia", "-o", "json"])
+    assert result.exit_code == 0, result.output
+    gw = json.loads(result.output)[0]["inputs"]["gateway"]
+    assert "api_key" not in gw
+    assert "internal_port" not in gw
+    # The generic gateway fields still surface.
+    assert gw["port"] == 40000
+    assert gw["auth"] == "present"
+
+
+def test_doctor_renderer_config_error_reports_broken(fleet_dir, monkeypatch) -> None:
+    """W5 (#924): an AgentConfigError raised by the renderer itself (not
+    build_render_inputs) must surface as a structured status=broken report
+    with a non-zero exit — never an unhandled traceback."""
+    from clawrium.cli.clawctl.agent import doctor as doctor_mod
+
+    monkeypatch.setattr(
+        doctor_mod,
+        "safe_resolve_agent",
+        lambda name: ({"hostname": "host-1"}, "ethos:kevin", _ETHOS_CLAW_RECORD),
+    )
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda name: _ETHOS_INPUTS)
+
+    def _boom(inputs):
+        raise AgentConfigError("duplicate channel type 'slack' on agent 'kevin'")
+
+    monkeypatch.setattr(doctor_mod, "render_ethos", _boom)
+
+    result = runner.invoke(app, ["agent", "doctor", "kevin", "-o", "json"])
+    assert result.exit_code != 0
+    # The JSON payload still prints to stdout before the non-zero exit.
+    # Extract the first JSON-array prefix (the error banner follows it).
+    body = result.output
+    arr_end = body.rfind("]")
+    payload = json.loads(body[: arr_end + 1])
+    assert payload[0]["status"] == "broken"
+    assert "duplicate channel type" in payload[0]["error"]

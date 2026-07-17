@@ -90,10 +90,16 @@
       no_log: true
       notify: Restart ethos service
 
-    # Render ~/.ethos/.env from template
-    - name: Render ~/.ethos/.env from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/ethos.env.j2"
+    # All five config files below are deployed as pre-rendered bytes from
+    # clawrium.core.render.render_ethos (#924 ATX B1, same pattern as
+    # hermes #622). The canonical Python renderer owns the single source
+    # of truth for the file contents; Ansible just lays the bytes down.
+    # Do NOT switch these back to ansible.builtin.template — a second
+    # (server-side) Jinja2 engine is exactly the dual-render-path bug
+    # class #622 closed.
+    - name: Deploy ~/.ethos/.env (pre-rendered canonical content)
+      ansible.builtin.copy:
+        content: "{{ prerendered_ethos_env }}"
         dest: "{{ ethos_home }}/.env"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -102,10 +108,9 @@
       no_log: true
       notify: Restart ethos service
 
-    # Render ~/.ethos/config.yaml from template
-    - name: Render ~/.ethos/config.yaml from template
-      ansible.builtin.template:
-        src: "{{ template_path }}/ethos-config.yaml.j2"
+    - name: Deploy ~/.ethos/config.yaml (pre-rendered canonical content)
+      ansible.builtin.copy:
+        content: "{{ prerendered_ethos_config_yaml }}"
         dest: "{{ ethos_home }}/config.yaml"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -114,10 +119,9 @@
       no_log: true
       notify: Restart ethos service
 
-    # Render default personality SOUL.md
-    - name: Render SOUL.md for default personality
-      ansible.builtin.template:
-        src: "{{ template_path }}/ethos-soul.md.j2"
+    - name: Deploy SOUL.md for default personality (pre-rendered)
+      ansible.builtin.copy:
+        content: "{{ prerendered_ethos_soul_md }}"
         dest: "{{ ethos_home }}/personalities/default/SOUL.md"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -126,10 +130,9 @@
       no_log: true
       notify: Restart ethos service
 
-    # Render default personality toolset.yaml
-    - name: Render toolset.yaml for default personality
-      ansible.builtin.template:
-        src: "{{ template_path }}/ethos-toolset.yaml.j2"
+    - name: Deploy toolset.yaml for default personality (pre-rendered)
+      ansible.builtin.copy:
+        content: "{{ prerendered_ethos_toolset_yaml }}"
         dest: "{{ ethos_home }}/personalities/default/toolset.yaml"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
@@ -138,10 +141,9 @@
       no_log: true
       notify: Restart ethos service
 
-    # Render default personality config.yaml
-    - name: Render personality config.yaml for default personality
-      ansible.builtin.template:
-        src: "{{ template_path }}/ethos-personality-config.yaml.j2"
+    - name: Deploy personality config.yaml for default personality (pre-rendered)
+      ansible.builtin.copy:
+        content: "{{ prerendered_ethos_personality_config_yaml }}"
         dest: "{{ ethos_home }}/personalities/default/config.yaml"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
