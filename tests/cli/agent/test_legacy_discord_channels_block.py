@@ -1,10 +1,10 @@
-"""PR #747 W1 (ATX review): cover the legacy `clm` discord-wizard
+"""PR #747 W1 (ATX review): cover the legacy `clawctl` discord-wizard
 channel-block shape so a future revert to `{"allow": True}` is caught
 by `make test`, not by a human running `clawctl agent configure`.
 
 The wizard logic lives in `clawrium.cli.agent._run_channels_stage` and
 is partly-dead (per the clawctl-vs-legacy split) but still imported by
-the test suite and reachable via the legacy `clm` entrypoint. The data
+the test suite and reachable via the legacy `clawctl` entrypoint. The data
 construction was extracted into `_build_legacy_discord_channels_block`
 specifically so this invariant can be exercised in isolation.
 """

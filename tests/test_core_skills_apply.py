@@ -843,7 +843,7 @@ def test_apply_state_dispatch_table_miss_raises_not_supported(monkeypatch):
     _patch_runtime(monkeypatch, agent_type="hermes")
     monkeypatch.setattr(skills_apply, "_APPLY_PLAYBOOK_BY_CLAW", {})
     # Message must mention the claw type (so the user can fix the
-    # mismatch) and direct them at `clm agent ps`. After the iter 1
+    # mismatch) and direct them at `clawctl agent ps`. After the iter 1
     # consolidation with base, the message form is "Skills install
     # is not yet supported for <claw> agents."
     with pytest.raises(SkillApplyNotSupported, match="not yet supported for hermes"):
@@ -855,7 +855,7 @@ def test_dispatch_table_covers_every_native_registry():
     an entry in `_APPLY_PLAYBOOK_BY_CLAW`. Catches the
     "added to NATIVE_REGISTRIES but forgot the playbook" mistake at
     development time instead of at the user's first
-    `clm agent skill install <new-claw-agent> ...`."""
+    `clawctl agent skill install <new-claw-agent> ...`."""
     missing = NATIVE_REGISTRIES - set(skills_apply._APPLY_PLAYBOOK_BY_CLAW)
     assert not missing, (
         f"NATIVE_REGISTRIES claws missing from _APPLY_PLAYBOOK_BY_CLAW: "
@@ -940,11 +940,11 @@ def test_make_log_dir_error_does_not_leak_computed_path(monkeypatch, tmp_path):
     assert str(tmp_path) not in error_text
     assert "resolved" not in error_text.lower()
     # The friendly remediation hint still surfaces. Points at
-    # `clm host update` (the right command for alias mutation per
-    # ATX iter 4 W-new7), not `clm host add` (would fail with
+    # `clawctl host update` (the right command for alias mutation per
+    # ATX iter 4 W-new7), not `clawctl host add` (would fail with
     # "alias already in use" since the user reached _make_log_dir,
     # meaning the host record already exists).
-    assert "clm host update" in error_text
+    assert "clawctl host update" in error_text
 
 
 def test_stage_skills_internal_failure_cleans_tempdir(monkeypatch):

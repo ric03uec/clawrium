@@ -62,7 +62,7 @@ def _select_host() -> str:
 
     if not hosts:
         console.print(
-            "[red]Error:[/red] No hosts registered. Run 'clm host add' first."
+            "[red]Error:[/red] No hosts registered. Run 'clawctl host add' first."
         )
         raise typer.Exit(code=1)
 

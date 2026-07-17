@@ -1314,7 +1314,7 @@ class TestResolveAgentWithMemoryHermes:
 
 class TestGetMemoryInfoHermes:
     def test_show_hermes_lists_memory_user_files(self, tmp_path: Path):
-        """Phase 3 acceptance: `clm agent memory show <hermes>` returns the
+        """Phase 3 acceptance: `clawctl agent memory show <hermes>` returns the
         canonical MEMORY.md + USER.md stats from the hermes memory_info
         playbook output."""
         host = _host_with_hermes()

@@ -12,7 +12,7 @@ runner = CliRunner()
 
 class TestServiceInit:
     def test_creates_config_dir(self, isolated_config: Path) -> None:
-        """`clawctl service init` creates `~/.config/clawrium/` (same as `clm init`)."""
+        """`clawctl service init` creates `~/.config/clawrium/` (same as `clawctl init`)."""
         assert not isolated_config.exists()
         result = runner.invoke(app, ["service", "init"], env=os.environ)
         assert result.exit_code == 0

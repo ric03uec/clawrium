@@ -1,7 +1,7 @@
 """`clawctl` — the kubectl-style CLI for Clawrium.
 
 This module exports `app`, the top-level Typer entrypoint wired to the
-`clawctl` script in `pyproject.toml`. The legacy `clm` entry point
+`clawctl` script in `pyproject.toml`. The legacy `clawctl` entry point
 (`cli/main.py`) was removed in #706; the pure orphan modules
 (`host.py`, `integration.py`, `provider.py`, `skill.py`) were removed
 in #707 Phase 1. Remaining parallel modules under `src/clawrium/cli/`
@@ -64,7 +64,7 @@ app.command(name="completion", help="Emit a shell-completion script.")(completio
 
 
 # `tui` is a rebrand wrapper — it delegates to the same implementation
-# the legacy `clm` CLI used. No behavioural change. The former `gui`
+# the legacy `clawctl` CLI used. No behavioural change. The former `gui`
 # command was removed in favour of the `server` group (#874).
 @app.command(name="tui", help="Launch the interactive TUI dashboard.")
 def tui_cmd() -> None:

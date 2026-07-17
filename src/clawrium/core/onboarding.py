@@ -442,8 +442,8 @@ def initialize_onboarding(host: str, claw_name: str) -> bool:
     # `auto_skip: true`. When that's the case there is nothing for the operator
     # to do during onboarding, so we mark the agent READY immediately. This
     # lets agent types whose configuration is performed entirely outside the
-    # onboarding pipeline (e.g., hermes Phase 1, where `clm agent configure`
-    # writes ~/.hermes/.env directly) advance to `clm agent start` without
+    # onboarding pipeline (e.g., hermes Phase 1, where `clawctl agent configure`
+    # writes ~/.hermes/.env directly) advance to `clawctl agent start` without
     # requiring `--force`.
     agent_type = claw.get("type") or claw_name
     stages_initial: dict[str, dict[str, Any]] = {

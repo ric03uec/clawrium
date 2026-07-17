@@ -58,7 +58,7 @@ def test_install_playbook_pipefail_uses_bash_executable():
 
         /bin/sh: 1: set: Illegal option -o pipefail
 
-    Regression anchor for the bug that crashed `clm agent install
+    Regression anchor for the bug that crashed `clawctl agent install
     --force` for hermes on wolf-i.
     """
     tasks = _tasks(_hermes_playbook("install"))
@@ -163,7 +163,7 @@ def test_install_playbook_extras_install_is_editable_from_source_checkout():
       PyPI installs.
 
     Regression anchor for the chat-sidebar bug surfaced after
-    `clm agent install --force` on maurice@wolf-i.
+    `clawctl agent install --force` on maurice@wolf-i.
     """
     tasks = _tasks(_hermes_playbook("install"))
     extras_task = next(
@@ -278,7 +278,7 @@ def test_hermes_start_playbook_starts_and_enables_dashboard_unit():
 
 def test_hermes_start_playbook_resyncs_dashboard_unit_with_port():
     """On every start we re-render the dashboard unit (idempotent) so a
-    clm upgrade that changes the ExecStart shape is picked up without a
+    clawctl upgrade that changes the ExecStart shape is picked up without a
     full re-install. The render needs `dashboard_port`."""
     content = _hermes_playbook("start")
     assert "Sync dashboard systemd service file" in content

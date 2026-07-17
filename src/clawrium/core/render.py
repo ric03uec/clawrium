@@ -2258,7 +2258,7 @@ def _render_openclaw_json(
         discord["allowFrom"] = list(discord_channel.allowed_users)
         # Pin `groupPolicy: "allowlist"` explicitly so the channel-presence
         # invariant below does not depend on openclaw's implicit default.
-        # The legacy `clm` wizard at `cli/agent.py` writes the same value
+        # The legacy `clawctl` wizard at `cli/agent.py` writes the same value
         # when it constructs `channels_config["discord"]`; emitting it here
         # keeps the canonical render path semantically aligned.
         discord["groupPolicy"] = "allowlist"

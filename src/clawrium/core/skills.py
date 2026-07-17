@@ -1,7 +1,7 @@
 """Skills catalog loader for clawrium-managed registries.
 
 Single chokepoint for resolving and validating skill references. The only
-install source recognized by `clm` is the in-repo `skills/` catalog —
+install source recognized by `clawctl` is the in-repo `skills/` catalog —
 shipped inside the wheel as `clawrium/_skills/` (see `pyproject.toml`
 `force-include`) and present at the repo root for development.
 

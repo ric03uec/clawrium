@@ -271,7 +271,7 @@ def test_hermes_manifest_onboarding_real_pipeline():
       * ``providers`` is required (no auto_skip) and exposes the canonical
         provider_select + provider_test tasks.
       * ``identity`` keeps auto_skip:true (hermes manages SOUL.md/AGENTS.md
-        internally inside ~/.hermes/; clm does not push identity files in
+        internally inside ~/.hermes/; clawctl does not push identity files in
         this iteration).
       * ``channels`` is required (no auto_skip) with a confirm task — the
         only legal option is `cli` since the api_server platform is the

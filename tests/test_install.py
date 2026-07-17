@@ -1063,7 +1063,7 @@ def test_install_onboarding_raises_does_not_corrupt_state(monkeypatch, tmp_path)
     warn_events = [e for e in events if e[0] == "warn"]
     assert len(warn_events) >= 1, "Should emit warning when onboarding fails"
     # Check that at least one warning mentions onboarding
-    onboarding_warnings = [e for e in warn_events if "clm onboard init" in e[1]]
+    onboarding_warnings = [e for e in warn_events if "clawctl onboard init" in e[1]]
     assert len(onboarding_warnings) >= 1, (
         "Warning should include onboarding retry command"
     )
@@ -2362,7 +2362,7 @@ def _hermes_install_scaffold(monkeypatch, tmp_path, *, preexisting_agents=None):
 
 def test_install_hermes_dashboard_port_deterministic(monkeypatch, tmp_path):
     """Two installs of the same agent name on a clean host must compute the
-    same dashboard port — the resolver and `clm agent open` need a stable
+    same dashboard port — the resolver and `clawctl agent open` need a stable
     value, not a per-run random one."""
     import hashlib
 

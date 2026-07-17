@@ -137,7 +137,7 @@
     # Fail loudly if the unit is not running. Previously the playbook
     # reported success regardless of ActiveState, so the Python lifecycle
     # layer wrote runtime.status='running' even when the service had exited
-    # with rc=1. This caused state divergence between clm and systemd.
+    # with rc=1. This caused state divergence between clawctl and systemd.
     - name: Fail if service is not active
       ansible.builtin.fail:
         msg: >-

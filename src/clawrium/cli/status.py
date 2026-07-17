@@ -86,7 +86,7 @@ def status(
         raise typer.Exit(code=1)
 
     if not hosts:
-        console.print("No hosts registered. Run 'clm host add' to add a host.")
+        console.print("No hosts registered. Run 'clawctl host add' to add a host.")
         return
 
     # Filter to specific host if requested
@@ -108,7 +108,7 @@ def status(
 
     if not claws_by_type:
         console.print("No agents installed on any host.")
-        console.print("Run 'clm agent install' to install an agent.")
+        console.print("Run 'clawctl agent install' to install an agent.")
         return
 
     # Perform live health checks with progress spinner

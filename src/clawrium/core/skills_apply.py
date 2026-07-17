@@ -1,7 +1,7 @@
 """Apply per-agent local skill desired-state onto a remote host.
 
 `apply_state(agent_name)` is the single entry point both the CLI
-(`clm agent skill install/remove`) and (eventually) the GUI call into. It
+(`clawctl agent skill install/remove`) and (eventually) the GUI call into. It
 is intentionally a tight orchestrator:
 
   1. Resolve `agent_name` → (host record, agent_type) via `core.hosts`.
@@ -137,7 +137,7 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
         # ambiguous name across hosts
         raise AgentNotFoundError(str(error)) from error
     if resolved is None:
-        raise AgentNotFoundError(f"Agent {agent_name!r} not found. Run `clm agent ps`.")
+        raise AgentNotFoundError(f"Agent {agent_name!r} not found. Run `clawctl agent ps`.")
 
     host, agent_type, _agent_record = resolved
     if agent_type not in NATIVE_REGISTRIES:
@@ -149,12 +149,12 @@ def apply_state(agent_name: str, *, timeout: int = 60) -> ApplyResult:
     if not playbook_name:
         # Operator-facing error text — no plan/phase jargon. Lists the
         # claw types that currently support skills so the user can
-        # `clm agent ps | grep <supported>` for a target.
+        # `clawctl agent ps | grep <supported>` for a target.
         supported = ", ".join(sorted(_APPLY_PLAYBOOK_BY_CLAW)) or "none"
         raise SkillApplyNotSupported(
             f"Skills install is not yet supported for {agent_type} agents. "
             f"Currently supported claw types: {supported}. "
-            "Run `clm agent ps` to find a compatible agent."
+            "Run `clawctl agent ps` to find a compatible agent."
         )
 
     # Validate everything in the desired state BEFORE touching the remote.
@@ -310,7 +310,7 @@ def _make_log_dir(agent_name: str, agent_type: str, host: dict) -> Path:
         raise SkillApplyError(
             "Host alias or hostname contains unsafe characters that would "
             "escape the clawrium logs directory. Update the host alias: "
-            "`clm host update <alias-or-address> --alias <safe-name>`, "
+            "`clawctl host update <alias-or-address> --alias <safe-name>`, "
             "then retry."
         )
     log_dir.mkdir(parents=True, exist_ok=True)

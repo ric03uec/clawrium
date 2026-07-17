@@ -55,7 +55,7 @@ def _ansible_regex_replace(value, pattern, replacement=""):
 
 
 def _render_systemd_dropin(integrations: dict | None) -> str:
-    """Render the clm-env.conf.j2 drop-in with the supplied integrations dict."""
+    """Render the clawctl-env.conf.j2 drop-in with the supplied integrations dict."""
     env = Environment(
         loader=FileSystemLoader(str(ZEROCLAW_TEMPLATES)),
         keep_trailing_newline=True,
@@ -66,7 +66,7 @@ def _render_systemd_dropin(integrations: dict | None) -> str:
 
 
 class TestSystemdDropIn:
-    """clm-env.conf.j2 lands at /etc/systemd/system/zeroclaw-<n>.service.d/
+    """clawctl-env.conf.j2 lands at /etc/systemd/system/zeroclaw-<n>.service.d/
     and must emit one canonical `Environment=GITHUB_TOKEN=` line plus a
     per-name line per github integration. Shell-quote semantics differ
     from hermes (.env files use single-quotes; systemd Environment= uses

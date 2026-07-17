@@ -517,7 +517,7 @@ def _run_lifecycle_playbook(
     # Issue #478 phase 2: hermes start/stop/remove playbooks need to re-render
     # the dashboard systemd unit, which requires the per-instance loopback
     # port persisted at install time. Pull it from hosts.json on every
-    # lifecycle op so the unit stays consistent if `clm` is upgraded
+    # lifecycle op so the unit stays consistent if `clawctl` is upgraded
     # between install and the next restart. Absent for agents installed
     # before this change — the playbook guards on `dashboard_port is defined`.
     if _resolve_agent_type(agent_type) == "hermes":
@@ -1117,7 +1117,7 @@ def start_agent(
                 instance_key,
                 "ETHOS_CHAT_TOKEN",
                 ethos_chat_token,
-                description="Ethos /v1 chat bearer token (clm-managed)",
+                description="Ethos /v1 chat bearer token (clawctl-managed)",
             )
             emit("start", f"Refreshed ETHOS_CHAT_TOKEN for {agent_key}")
             if on_event:
@@ -1442,7 +1442,7 @@ def _zeroclaw_repair_after_start(
         return (
             False,
             f"Gateway port missing from hosts.json for {agent_key}. "
-            f"Re-run `clm agent configure {agent_key}`.",
+            f"Re-run `clawctl agent configure {agent_key}`.",
         )
     # Issue #445: the playbook's locked-pair branch (tasks/pair.yaml) calls
     # POST /api/pairing/initiate with this bearer when /pair/code returns
@@ -1545,7 +1545,7 @@ def _zeroclaw_repair_after_start(
             return (
                 False,
                 "Re-pair playbook succeeded but pairing token was not "
-                f"captured. Re-run `clm agent configure {agent_key}` and "
+                f"captured. Re-run `clawctl agent configure {agent_key}` and "
                 f"check `journalctl --unit zeroclaw-{agent_key}`.",
             )
 
@@ -1747,7 +1747,7 @@ def sync_agent(
     # refusing loudly when a required stage has no clawctl declarative
     # surface yet (today only `identity` for openclaw — tracked in #523).
     #
-    # This mirrors the legacy `clm agent configure` driver loop
+    # This mirrors the legacy `clawctl agent configure` driver loop
     # (cli/agent.py:2110-2211): transition_state INTO each stage,
     # complete_stage on it, transition_state to the NEXT stage. The
     # difference: we never prompt — anything that would require user
@@ -2147,7 +2147,7 @@ def _hydrate_channels_from_canonical(
                 False,
                 "Discord channel attached to this agent but BOT_TOKEN "
                 "is missing or invalid in secrets.json. Re-run "
-                "'clm channel set-secret <channel> BOT_TOKEN <token>'.",
+                "'clawctl channel set-secret <channel> BOT_TOKEN <token>'.",
             )
         current_channels["discord"] = {
             **cfg,
@@ -2292,13 +2292,13 @@ def configure_agent(
                 False,
                 "Hermes agent missing or invalid HERMES_API_SERVER_KEY in "
                 "secrets.json (expected 64-char lowercase hex). "
-                "Re-run 'clm agent install --type hermes ...' to generate one.",
+                "Re-run 'clawctl agent install --type hermes ...' to generate one.",
             )
 
         if isinstance(persisted_api_server, dict):
             # Opportunistic migration: legacy hermes installs persisted
             # host="127.0.0.1". The OpenAI-compatible gateway must bind a
-            # reachable interface so `clm chat <hermes>` works from any clm
+            # reachable interface so `clawctl chat <hermes>` works from any clawctl
             # machine. Hermes' own startup check (api_server.py:3150) refuses
             # to bind non-loopback unless a strong API_SERVER_KEY is set; we
             # always generate a 64-char hex key, so the safety check passes.
@@ -2360,7 +2360,7 @@ def configure_agent(
             # alongside the token from secrets.json so the playbook can run.
             # ATX iter-1 W1: legacy pre-#533 hermes daemons are actually bound
             # to 8642 (the old hardcoded port). Prefer 8642 if it's free on
-            # this host so the running daemon is what `clm chat` reaches;
+            # this host so the running daemon is what `clawctl chat` reaches;
             # only fall through to picking a fresh port when 8642 is taken
             # by a co-tenant. Emit a warning either way so the operator
             # knows a port assignment happened outside the install flow.
@@ -2379,7 +2379,7 @@ def configure_agent(
             logger.warning(
                 "Hermes %s on %s has no api_server block in hosts.json — "
                 "reconstructing with port %d. If the live daemon is bound "
-                "to a different port, `clm chat` will fail until the daemon "
+                "to a different port, `clawctl chat` will fail until the daemon "
                 "is restarted on this port.",
                 unix_agent_name,
                 host["hostname"],
@@ -2641,8 +2641,8 @@ def configure_agent(
             warning_msg = (
                 f"WARNING: integration '{integration_name}' has unknown type "
                 f"'{integration_type}' — skipping. Valid types: {valid}. "
-                f"Run `clm integration remove {integration_name}` and "
-                f"`clm integration add {integration_name} --type <valid-type>` "
+                f"Run `clawctl integration remove {integration_name}` and "
+                f"`clawctl integration add {integration_name} --type <valid-type>` "
                 "to recover."
             )
             emit("configure", warning_msg)
@@ -3167,7 +3167,7 @@ def configure_agent(
                         # warning to the CLI event stream. Without this
                         # the operator finishes configure with exit 0
                         # and a silently-misconfigured provider — they
-                        # only learn at the next `clm chat` invocation.
+                        # only learn at the next `clawctl chat` invocation.
                         if health_warn_raw is True or health_warn_raw == "true":
                             # ATX Round 4 B1: same "WARNING:" /
                             # stage="configure" pattern as the
@@ -3182,7 +3182,7 @@ def configure_agent(
                                 f"'{config_data.get('provider', {}).get('type', '?')}' "
                                 f"credentials may be invalid. Verify "
                                 f"the API key and re-run "
-                                f"`clm agent configure {agent_key}` "
+                                f"`clawctl agent configure {agent_key}` "
                                 f"if needed."
                             )
                             emit("configure", health_warning_msg)
@@ -3208,12 +3208,12 @@ def configure_agent(
             if not zc_gateway_token or not zc_gateway_url:
                 # The playbook succeeded but the token did not surface in
                 # the fact cache. Fail fast — without a bearer token, the
-                # later `clm chat` call has nothing to authenticate with
+                # later `clawctl chat` call has nothing to authenticate with
                 # and would dead-end at the gateway.
                 return (
                     False,
                     "Configure playbook succeeded but the pairing token "
-                    "was not captured. Re-run `clm agent configure "
+                    "was not captured. Re-run `clawctl agent configure "
                     f"{agent_key}` and check daemon logs at "
                     f"`journalctl --unit zeroclaw-{agent_key}` for the "
                     "pairing handshake.",
@@ -3341,7 +3341,7 @@ def configure_agent(
                     instance_key,
                     "ETHOS_CHAT_TOKEN",
                     ethos_chat_token,
-                    description="Ethos /v1 chat bearer token (clm-managed)",
+                    description="Ethos /v1 chat bearer token (clawctl-managed)",
                 )
                 emit("configure", f"Stored ETHOS_CHAT_TOKEN for {agent_key}")
 
@@ -3526,7 +3526,7 @@ def remove_agent(
             "operation": "remove",
             "pid": None,
             "started_at": None,
-            "error": f"Remote removal succeeded but local config update failed: {e}. Run 'clm host ps {hostname}' to verify or manually edit hosts.json.",
+            "error": f"Remote removal succeeded but local config update failed: {e}. Run 'clawctl host ps {hostname}' to verify or manually edit hosts.json.",
         }
 
     emit("remove", f"Removed {agent_key} successfully")

@@ -84,7 +84,7 @@ def show(
     except ManifestNotFoundError:
         console.print(
             f"[red]Error:[/red] Agent type '{escape(agent_type)}' not found in registry. "
-            "Run 'clm agent registry list' to view available agent types."
+            "Run 'clawctl agent registry list' to view available agent types."
         )
         raise typer.Exit(code=1)
     except ManifestParseError as e:
@@ -98,7 +98,7 @@ def show(
     except InvalidAgentTypeError as e:
         console.print(
             f"[red]Error:[/red] {escape(str(e))}. "
-            "Run 'clm agent registry list' to see valid agent type names."
+            "Run 'clawctl agent registry list' to see valid agent type names."
         )
         raise typer.Exit(code=1)
 

@@ -1,6 +1,6 @@
 """Memory management commands for memory-capable agents.
 
-Surfaces ``clm agent memory show|delete|edit <name>`` (registered by
+Surfaces ``clawctl agent memory show|delete|edit <name>`` (registered by
 ``clawrium.cli.agent``). Thin layer over ``clawrium.core.memory`` —
 argument parsing, confirmation flows, and human-readable rendering.
 
@@ -140,7 +140,7 @@ def show_cmd(
         )
         console.print(
             "[dim]The agent may be unreachable, still installing, or in a "
-            "failed state. Run 'clm ps' to check status.[/dim]"
+            "failed state. Run 'clawctl ps' to check status.[/dim]"
         )
         raise typer.Exit(code=1)
 
@@ -378,7 +378,7 @@ def edit_cmd(
             )
             console.print(
                 "[dim]The agent may be unreachable, still installing, or in a "
-                "failed state. Run 'clm ps' to check status.[/dim]"
+                "failed state. Run 'clawctl ps' to check status.[/dim]"
             )
             raise typer.Exit(code=1)
 
@@ -493,7 +493,7 @@ def edit_cmd(
             console.print(f"[green]Saved '{safe_file}' to '{safe_claw}'.[/green]")
             console.print(
                 f"[red]Error:[/red] restart failed: {rich_escape(str(e))}. "
-                f"The agent may now be stopped. Run 'clm agent start "
+                f"The agent may now be stopped. Run 'clawctl agent start "
                 f"{safe_claw}' to bring it back up."
             )
             raise typer.Exit(code=1)
@@ -503,7 +503,7 @@ def edit_cmd(
             console.print(
                 f"[red]Error:[/red] restart failed: "
                 f"{rich_escape(str(result.get('error') or 'unknown'))}. "
-                f"The agent may now be stopped. Run 'clm agent start "
+                f"The agent may now be stopped. Run 'clawctl agent start "
                 f"{safe_claw}' to bring it back up."
             )
             raise typer.Exit(code=1)

@@ -741,7 +741,7 @@ class TestStartClaw:
 
         error_msg = str(exc_info.value)
         assert "incomplete" in error_msg
-        # The new error message uses 'clawctl', not 'clm'.
+        # The new error message uses 'clawctl', not 'clawctl'.
         assert "clawctl" in error_msg
 
     def test_returns_success_on_successful_start(self, tmp_path: Path):
@@ -1268,7 +1268,7 @@ class TestZeroclawRepairAfterStart:
 
     def test_returns_failure_when_fact_cache_empty(self, tmp_path: Path):
         """ATX W-COV-2: playbook reports successful but the fact cache
-        is empty — the pair token never made it back to clm. This is
+        is empty — the pair token never made it back to clawctl. This is
         the exact timing window the always-repair invariant must
         surface as a failure, not silently leave hosts.json stale."""
         host = self._host()

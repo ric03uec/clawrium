@@ -130,7 +130,7 @@ def _print_configure_warnings(stage: str, message: str) -> None:
     """on_event callback for configure_agent that surfaces WARNING-prefixed
     messages and structured lifecycle events to the terminal so silent
     lifecycle gaps (e.g. an integration with an unknown type, or an
-    operator-visible token rotation) become visible during `clm agent
+    operator-visible token rotation) become visible during `clawctl agent
     configure`/`sync`/`restart`."""
     if stage == "gateway_token_rotated":
         # Issue #437: structured rotation event. Payload is JSON with
@@ -231,7 +231,7 @@ def _resolve_agent_instance(agent_name: str) -> tuple[str, dict, str, dict, str]
 
     if not matches:
         raise AgentNameResolutionError(
-            f"Agent '{agent_name}' not found. Use 'clm agent ps' to list installed agents."
+            f"Agent '{agent_name}' not found. Use 'clawctl agent ps' to list installed agents."
         )
 
     if len(matches) > 1:
@@ -438,7 +438,7 @@ def _run_providers_stage(
 
     if not providers:
         console.print("[yellow]No providers configured.[/yellow]")
-        console.print("Run 'clm provider add' to add an inference provider first.")
+        console.print("Run 'clawctl provider add' to add an inference provider first.")
         return False
 
     console.print("[bold]Available providers:[/bold]")
@@ -484,7 +484,7 @@ def _run_providers_stage(
         agent_name = installed_name or claw_type
         console.print(
             f"[red]Error:[/red] Failed to apply provider configuration. "
-            f"Run 'clm agent configure {rich_escape(agent_name)} --stage providers' to retry."
+            f"Run 'clawctl agent configure {rich_escape(agent_name)} --stage providers' to retry."
         )
         return False
 
@@ -677,7 +677,7 @@ def _run_identity_stage(
             console.print("[red]✗[/red]")
             console.print(f"  [yellow]Warning:[/yellow] Workspace sync failed: {error}")
             console.print(
-                "  [dim]Identity files saved locally. Sync later with 'clm agent sync'[/dim]"
+                "  [dim]Identity files saved locally. Sync later with 'clawctl agent sync'[/dim]"
             )
             # Don't fail the stage - local files are saved
     except Exception as e:
@@ -686,7 +686,7 @@ def _run_identity_stage(
             f"  [yellow]Warning:[/yellow] Workspace sync failed: {rich_escape(str(e))}"
         )
         console.print(
-            "  [dim]Identity files saved locally. Sync later with 'clm agent sync'[/dim]"
+            "  [dim]Identity files saved locally. Sync later with 'clawctl agent sync'[/dim]"
         )
         # Don't fail the stage - local files are saved
 
@@ -973,7 +973,7 @@ def _run_channels_stage(
                 console.print(
                     "[yellow]Note:[/yellow] without DISCORD_HOME_CHANNEL, hermes will "
                     "nudge users to run /sethome on every cold start. Set it later via "
-                    "'clm agent configure <name> --stage channels'."
+                    "'clawctl agent configure <name> --stage channels'."
                 )
 
             home_channel_name = "Home"
@@ -1136,7 +1136,7 @@ def _run_channels_stage(
                     "bot is reachable from any Discord server it joins."
                 )
 
-            # `require_mention` is the clm-side knob; lifecycle/config.toml.j2
+            # `require_mention` is the clawctl-side knob; lifecycle/config.toml.j2
             # translates it to upstream `mention_only` (the canonical field
             # in zeroclaw-channels/src/discord.rs at v0.7.5). Default true
             # is intentional security hardening — more restrictive than the
@@ -1276,7 +1276,7 @@ def _run_channels_stage(
             console.print(f"[red]✗[/red] {rich_escape(str(e))}")
             agent_name = installed_name or claw_type
             console.print(
-                f"[dim]Retry with: clm agent configure {rich_escape(agent_name)} --stage channels[/dim]"
+                f"[dim]Retry with: clawctl agent configure {rich_escape(agent_name)} --stage channels[/dim]"
             )
             return False
 
@@ -1360,7 +1360,7 @@ def _run_channels_stage(
                 console.print(
                     "[yellow]Note:[/yellow] without SLACK_HOME_CHANNEL, hermes "
                     "cannot send scheduled/cron messages to Slack. Set it later "
-                    "via 'clm agent configure <name> --stage channels'."
+                    "via 'clawctl agent configure <name> --stage channels'."
                 )
 
             home_channel_name = ""
@@ -1452,7 +1452,7 @@ def _run_channels_stage(
             console.print(f"[red]✗[/red] {rich_escape(str(e))}")
             agent_name = installed_name or claw_type
             console.print(
-                f"[dim]Retry with: clm agent configure {rich_escape(agent_name)} --stage channels[/dim]"
+                f"[dim]Retry with: clawctl agent configure {rich_escape(agent_name)} --stage channels[/dim]"
             )
             return False
 
@@ -1715,7 +1715,7 @@ def _run_validate_stage(
         # hermes runs three checks on the agent host (binary + .env +
         # loopback /health). The api_server platform binds to 127.0.0.1:8642
         # on the agent host, so the probe runs there via Ansible rather than
-        # from the clm machine.
+        # from the clawctl machine.
         step_idx += 1
         console.print(
             f"[{step_idx}/{total_checks}] Verifying hermes health on agent host..."
@@ -1854,14 +1854,14 @@ def _run_edit_config(
         console.print(
             "\nRun the onboarding wizard first to create initial configuration:"
         )
-        console.print(f"  clm agent configure {rich_escape(installed_name)}")
+        console.print(f"  clawctl agent configure {rich_escape(installed_name)}")
         raise typer.Exit(code=1)
 
     # Resolve editor
     editor_cmd = _resolve_editor(editor)
 
     # Create temp file with agent config
-    temp_dir = tempfile.mkdtemp(prefix="clm-edit-")
+    temp_dir = tempfile.mkdtemp(prefix="clawctl-edit-")
     config_file = Path(temp_dir) / f"{installed_name}.json"
     preserve_temp_dir = False  # Track if we should preserve temp dir for error recovery
 
@@ -1895,7 +1895,7 @@ def _run_edit_config(
             )
             console.print("\nSpecify a different editor with --editor option:")
             console.print(
-                f"  clm agent configure {rich_escape(installed_name)} --edit-config --editor nano"
+                f"  clawctl agent configure {rich_escape(installed_name)} --edit-config --editor nano"
             )
             raise typer.Exit(code=1)
 
@@ -1916,7 +1916,7 @@ def _run_edit_config(
             console.print(f"  {config_file}")
             console.print("\nFix the JSON error and try again with:")
             console.print(
-                f"  clm agent configure {rich_escape(installed_name)} --edit-config"
+                f"  clawctl agent configure {rich_escape(installed_name)} --edit-config"
             )
             # Don't clean up temp dir so user can recover their edits
             preserve_temp_dir = True
@@ -1970,7 +1970,7 @@ def _run_edit_config(
                 "\nConfiguration synced but agent not restarted. "
                 "Restart manually to apply changes:"
             )
-            console.print(f"  clm agent restart {rich_escape(installed_name)}")
+            console.print(f"  clawctl agent restart {rich_escape(installed_name)}")
 
     finally:
         # Clean up temp directory only if we don't need to preserve it for error recovery
@@ -2025,12 +2025,12 @@ def configure(
     Use --edit-config to directly edit the agent's config file.
 
     Examples:
-        clm agent configure wise-hypatia
-        clm agent configure clever-einstein --stage providers
-        clm agent configure work-assistant --yes
-        clm agent configure wolf-i --stage identity --file ~/SOUL.md
-        clm agent configure wolf-i --edit-config
-        clm agent configure wolf-i --edit-config --editor nano
+        clawctl agent configure wise-hypatia
+        clawctl agent configure clever-einstein --stage providers
+        clawctl agent configure work-assistant --yes
+        clawctl agent configure wolf-i --stage identity --file ~/SOUL.md
+        clawctl agent configure wolf-i --edit-config
+        clawctl agent configure wolf-i --edit-config --editor nano
     """
     # Validate --edit-config incompatible options
     if edit_config:
@@ -2193,7 +2193,7 @@ def configure(
         console.print("\n[green]Onboarding already complete![/green]")
         console.print(f"State: {current_state.value.upper()}")
         console.print(
-            f"Run 'clm agent start {rich_escape(installed_name)}' to start your agent."
+            f"Run 'clawctl agent start {rich_escape(installed_name)}' to start your agent."
         )
         raise typer.Exit(code=0)
 
@@ -2216,7 +2216,7 @@ def configure(
                 # skipped rather than silently swallowed. The reason comes
                 # from the manifest stage's `description` field (set by the
                 # claw author), e.g. "Hermes manages SOUL.md/AGENTS.md
-                # inside ~/.hermes/; clm does not push identity files in
+                # inside ~/.hermes/; clawctl does not push identity files in
                 # this iteration".
                 from clawrium.core.registry import load_manifest
 
@@ -2320,7 +2320,7 @@ def configure(
     console.print()
     console.print("State: [green]READY[/green]")
     console.print(
-        f"Run 'clm agent start {rich_escape(installed_name)}' to start your agent."
+        f"Run 'clawctl agent start {rich_escape(installed_name)}' to start your agent."
     )
 
 
@@ -2344,7 +2344,7 @@ def _show_start_blocked_error(
         )
         console.print()
         console.print(
-            f"Run 'clm agent configure {rich_escape(installed_name)}' to begin onboarding."
+            f"Run 'clawctl agent configure {rich_escape(installed_name)}' to begin onboarding."
         )
         console.print()
         return
@@ -2386,11 +2386,11 @@ def _show_start_blocked_error(
         console.print()
 
     console.print(
-        f"Run 'clm agent configure {rich_escape(installed_name)}' to complete onboarding."
+        f"Run 'clawctl agent configure {rich_escape(installed_name)}' to complete onboarding."
     )
     console.print()
     console.print("To force start anyway (not recommended):")
-    console.print(f"  clm agent start {rich_escape(installed_name)} --force")
+    console.print(f"  clawctl agent start {rich_escape(installed_name)} --force")
     console.print()
 
 
@@ -2405,8 +2405,8 @@ def remove(
     and removes the agent from local configuration.
 
     Examples:
-        clm agent remove wise-hypatia
-        clm agent remove work-assistant --force
+        clawctl agent remove wise-hypatia
+        clawctl agent remove work-assistant --force
     """
     from clawrium.core.lifecycle import remove_agent, LifecycleError
 
@@ -2544,7 +2544,7 @@ def start(
 
         if result["success"]:
             console.print("[green]✓[/green] Agent started successfully")
-            console.print("  Run 'clm agent ps' to check status")
+            console.print("  Run 'clawctl agent ps' to check status")
         else:
             console.print(
                 f"[red]✗[/red] Failed to start agent: "
@@ -2684,7 +2684,7 @@ def restart(
 
         if result["success"]:
             console.print("[green]✓[/green] Agent restarted successfully")
-            console.print("  Run 'clm agent ps' to check status")
+            console.print("  Run 'clawctl agent ps' to check status")
         else:
             console.print(
                 f"[red]✗[/red] Failed to restart agent: "
@@ -2706,7 +2706,7 @@ def restart(
 @agent_app.command()
 def sync(
     claw_name: str = typer.Argument(
-        ..., help="Agent instance name to sync (use 'clm agent ps' to list agents)"
+        ..., help="Agent instance name to sync (use 'clawctl agent ps' to list agents)"
     ),
     workspace: bool = typer.Option(
         False,
@@ -2722,8 +2722,8 @@ def sync(
     without restart.
 
     Examples:
-        clm agent sync wise-hypatia
-        clm agent sync work-assistant --workspace
+        clawctl agent sync wise-hypatia
+        clawctl agent sync work-assistant --workspace
     """
     from clawrium.core.lifecycle import sync_agent, LifecycleError
 
@@ -2774,7 +2774,7 @@ def sync(
             # drop-in actually changed. Drop the misleading "agent
             # restarted" string.
             console.print("[green]✓[/green] Configuration synced")
-            console.print("  Run 'clm agent ps' to check status")
+            console.print("  Run 'clawctl agent ps' to check status")
         else:
             console.print(
                 f"[red]✗[/red] Failed to sync agent: "
@@ -2796,7 +2796,7 @@ def sync(
 def _host_is_local(host: str) -> bool:
     """Heuristic: return True if ``host`` resolves to a loopback / local IP.
 
-    Used by ``clm agent open`` to skip the SSH tunnel when the agent runs
+    Used by ``clawctl agent open`` to skip the SSH tunnel when the agent runs
     on the same machine as the CLI invocation. Conservative — anything we
     cannot definitively classify as loopback returns False so we err on
     the side of opening a tunnel.
@@ -2892,7 +2892,7 @@ def open_ui(
         err_console.print(
             f"[red]Error:[/red] Agent '{rich_escape(installed_name)}' is not "
             f"running (status: {rich_escape(status_label)}). "
-            f"Try: clm agent start {rich_escape(installed_name)}"
+            f"Try: clawctl agent start {rich_escape(installed_name)}"
         )
         raise typer.Exit(code=1)
 
@@ -3215,7 +3215,7 @@ def integrations_list(
     if not assigned:
         console.print("  No integrations assigned")
         console.print(
-            "\n[dim]Use 'clm agent integration add <agent> <integration>' to assign integrations[/dim]"
+            "\n[dim]Use 'clawctl agent integration add <agent> <integration>' to assign integrations[/dim]"
         )
         return
 
@@ -3257,8 +3257,8 @@ def integrations_add(
     """Assign an integration to an agent.
 
     Examples:
-        clm agent integration add my-agent work-github
-        clm agent integration add my-agent work-atlassian
+        clawctl agent integration add my-agent work-github
+        clawctl agent integration add my-agent work-atlassian
     """
     from clawrium.core.integrations import (
         add_agent_integration,
@@ -3285,7 +3285,7 @@ def integrations_add(
         console.print(
             f"[red]Error:[/red] Integration '{rich_escape(integration_name)}' not found"
         )
-        console.print("Use 'clm integration list' to see available integrations")
+        console.print("Use 'clawctl integration list' to see available integrations")
         raise typer.Exit(code=1)
 
     # Singleton enforcement happens atomically inside `add_agent_integration`'s
@@ -3298,7 +3298,7 @@ def integrations_add(
         console.print(f"[red]Error:[/red] {e}")
         console.print(
             "[dim]Hint: detach the existing one first with "
-            f"'clm agent integration remove {rich_escape(claw_name)} {rich_escape(e.existing_name)}'.[/dim]"
+            f"'clawctl agent integration remove {rich_escape(claw_name)} {rich_escape(e.existing_name)}'.[/dim]"
         )
         raise typer.Exit(code=1)
 
@@ -3321,7 +3321,7 @@ def integrations_remove(
     """Remove an integration from an agent.
 
     Examples:
-        clm agent integration remove my-agent work-github
+        clawctl agent integration remove my-agent work-github
     """
     from clawrium.core.integrations import (
         get_agent_integrations,

@@ -338,7 +338,7 @@ def run_installation(
     host = get_host(hostname)
     if not host:
         raise InstallationError(
-            f"Host '{hostname}' not found. Run 'clm host add' first."
+            f"Host '{hostname}' not found. Run 'clawctl host add' first."
         )
 
     # Step 3: Check compatibility
@@ -503,7 +503,7 @@ def run_installation(
     # Ports actually picked inside the set_installing lock (ATX iter-1 W2/W3).
     # Computing them inside the updater closure ensures concurrent installs on
     # the same host serialize through `_hosts_lock()` — without this, two
-    # parallel `clm agent install` could read the same empty `used_ports` set
+    # parallel `clawctl agent install` could read the same empty `used_ports` set
     # and both pick the same slot. The picks are also written onto the
     # in-progress agent record so a third install sees them.
     chosen_dashboard_port = [None]
@@ -563,7 +563,7 @@ def run_installation(
             # warn "credentials missing" (Round 2 W1).
             #
             # Includes zeroclaw — pairing-bearer token lands in
-            # `config.gateway.auth` during `clm agent configure` (issue #357).
+            # `config.gateway.auth` during `clawctl agent configure` (issue #357).
             # Re-running install on a paired zeroclaw must not wipe the token,
             # so the restore path in set_installed() needs the snapshot.
             if claw_name in ("openclaw", "zeroclaw"):
@@ -660,7 +660,7 @@ def run_installation(
                 # `config.gateway` shapes that should NOT be restored.
                 #
                 # Includes zeroclaw — pairing-bearer token lands in
-                # `config.gateway.auth` during `clm agent configure`
+                # `config.gateway.auth` during `clawctl agent configure`
                 # (issue #357). Re-running install on a paired zeroclaw must
                 # not wipe the token.
                 if claw_name in ("openclaw", "zeroclaw"):
@@ -1315,7 +1315,7 @@ def run_installation(
             # ZeroClaw install does NOT pair (pairing lives in configure.yaml),
             # so a re-install at the same version is a pure binary no-op. The
             # preserved_gateway capture is purely to keep the bearer token
-            # (set by a prior `clm agent configure`) from being wiped on the
+            # (set by a prior `clawctl agent configure`) from being wiped on the
             # restore path in set_installed(). Emit a status line so a user
             # re-running install can tell credentials were retained.
             preserved = preserved_gateway[0] or {}
@@ -1348,7 +1348,7 @@ def run_installation(
                 # #305: on the skip path the playbook does not re-emit gateway
                 # facts (template-write + pairing block are gated). Restore the
                 # gateway config we captured in set_installing() so re-running
-                # `clm agent install` at the same version does not silently drop
+                # `clawctl agent install` at the same version does not silently drop
                 # the agent's auth token + device credentials. Scoped to claws
                 # that store credentials under `config.gateway`:
                 # - openclaw: token + device credentials, captured during install
@@ -1426,7 +1426,7 @@ def run_installation(
                     }
 
                 # Persist hermes dashboard shape so the web_ui resolver and
-                # `clm agent open` can read host/port without recomputing.
+                # `clawctl agent open` can read host/port without recomputing.
                 # Loopback-only — the SSH tunnel is the authentication
                 # boundary (issue #478).
                 if claw_name == "hermes" and dashboard_port is not None:
@@ -1447,7 +1447,7 @@ def run_installation(
                 try:
                     emit(
                         "warn",
-                        f"Onboarding setup incomplete - run `clm onboard init {host['hostname']} {agent_name}` to retry",
+                        f"Onboarding setup incomplete - run `clawctl onboard init {host['hostname']} {agent_name}` to retry",
                     )
                 except Exception:
                     logger.warning(
@@ -1458,7 +1458,7 @@ def run_installation(
             try:
                 emit(
                     "warn",
-                    f"Onboarding setup failed - run `clm onboard init {host['hostname']} {agent_name}` to retry",
+                    f"Onboarding setup failed - run `clawctl onboard init {host['hostname']} {agent_name}` to retry",
                 )
             except Exception:
                 logger.warning("Failed to emit onboarding warning event", exc_info=True)

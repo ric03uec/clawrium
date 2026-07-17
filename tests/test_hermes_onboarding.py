@@ -381,7 +381,7 @@ def test_validate_hermes_health_cleans_up_runner_directory_on_exception(
 ):
     """ATX B5: cleanup must fire on the exception path too. If
     ansible_runner.run raises, the per-run private_data_dir must still be
-    removed — otherwise a long-running clm process with many failures would
+    removed — otherwise a long-running clawctl process with many failures would
     accumulate inventory files in /tmp."""
     import os
 

@@ -3,7 +3,7 @@
 Issue #478 Phase 3. Maintains idempotent local-port-forward SSH tunnels
 from the user's machine to an agent host's loopback dashboard port. State
 is persisted at ``~/.config/clawrium/tunnels/<agent_key>.json`` so a second
-``clm agent open`` (or GUI ``/web-ui`` request) reuses the same local
+``clawctl agent open`` (or GUI ``/web-ui`` request) reuses the same local
 port instead of spawning a duplicate ``ssh -L`` process.
 
 Each state file records the PID, local port, start time, and the exact
