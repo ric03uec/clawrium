@@ -46,6 +46,11 @@ clawctl = "clawrium.cli:app"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.coverage.report]
+# TODO(#471): set fail_under after measuring baseline coverage in CI.
+# The publish.yml pipeline now runs `make test-cov` (W1) which will
+# gate releases once this threshold is configured.
+
 [tool.hatch.build.hooks.custom]
 path = "hatch_build.py"
 

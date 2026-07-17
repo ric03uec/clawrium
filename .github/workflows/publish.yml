@@ -6,13 +6,17 @@ on:
 
 jobs:
   publish:
+    # W3 — refuse to publish from pre-release tags
+    if: github.event.release.prerelease == false
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write  # Required for trusted publishing
+      contents: read  # W5 — explicit instead of implicit
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        # https://github.com/actions/checkout/releases/tag/v4.3.1
 
       - name: Install uv
         # v4.2.0 — SHA-pinned. The wider OIDC permissions on this job make a
@@ -27,7 +31,8 @@ jobs:
         run: uv python install 3.11
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        # https://github.com/actions/setup-node/releases/tag/v4.4.0
         with:
           node-version: "20"
           cache: "npm"
@@ -42,15 +47,32 @@ jobs:
       - name: Build package
         run: make build
 
+      # S1 — wheel smoke test: verify the built wheel installs and imports correctly
+      - name: Wheel smoke test
+        run: |
+          python -m venv /tmp/smoke-venv
+          /tmp/smoke-venv/bin/pip install dist/*.whl
+          /tmp/smoke-venv/bin/python -c "import clawrium; print(clawrium.__version__)"
+
       - name: Install test dependencies
-        run: uv sync
+        run: uv sync --frozen
+
+      # W4 — assert pyproject.toml version matches the release tag
+      - name: Assert pyproject version matches release tag
+        run: |
+          PYPROJECT_VER=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          TAG="${{ github.event.release.tag_name }}"
+          if [ "v${PYPROJECT_VER}" != "${TAG}" ]; then
+            echo "::error::pyproject version v${PYPROJECT_VER} does not match release tag ${TAG}"
+            exit 1
+          fi
 
       - name: Lint
         run: make lint
 
       # Full test suite (Python + JS) — broken UI or backend can't ship.
       - name: Run tests
-        run: make test
+        run: make test-cov
 
       - name: Publish to PyPI
         # v1.14.0 — SHA-pinned to the COMMIT SHA the tag points to, NOT
@@ -64,3 +86,5 @@ jobs:
         # in scope, a force-push or compromise of that branch could
         # publish a malicious wheel to PyPI under our identity.
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
+        with:
+          skip-existing: true
