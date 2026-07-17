@@ -14,5 +14,5 @@ skills/hermes/<name>/
 A cross-agent skill belongs in `skills/clawrium/` instead — see the
 top-level [`skills/README.md`](../README.md). No native hermes skills ship
 in this initial cut; this directory is a registered registry so that
-`clm skill list --registry hermes` returns an empty list rather than a
+`clawctl skill list --registry hermes` returns an empty list rather than a
 "registry not found" error.

@@ -36,7 +36,7 @@ Bundled posts produce shallow writeups; split aggressively.
 
 A change qualifies if it falls into one of:
 
-- New `clm` command, option, or workflow.
+- New `clawctl` command, option, or workflow.
 - New agent type, integration, channel, or skill.
 - New GUI route or page.
 - Behavior change a user would notice on upgrade.
