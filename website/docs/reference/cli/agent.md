@@ -637,7 +637,6 @@ lookup error is printed so the operator can fix the gap.
 
 **Related:**
 - [clawctl agent chat](#chat) — Chat with the agent
-- [clawctl agent sync](#sync) — Push the resolved bundle to the host
 
 ---
 
