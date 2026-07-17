@@ -43,7 +43,7 @@ dependencies = [
 clawctl = "clawrium.cli:app"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "tomli; python_version < '3.11'"]
 build-backend = "hatchling.build"
 
 [tool.coverage.report]
