@@ -3,11 +3,10 @@ name = "clawrium"
 version = "26.7.2"
 description = "CLI tool for managing AI assistant fleets"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
@@ -45,6 +44,11 @@ clawctl = "clawrium.cli:app"
 [build-system]
 requires = ["hatchling", "tomli; python_version < '3.11'"]
 build-backend = "hatchling.build"
+
+[tool.coverage.report]
+# TODO(#471): set fail_under after measuring baseline coverage in CI.
+# The publish.yml pipeline now runs `make test-cov` (W1) which will
+# gate releases once this threshold is configured.
 
 [tool.hatch.build.hooks.custom]
 path = "hatch_build.py"

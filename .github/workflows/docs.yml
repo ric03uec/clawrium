@@ -32,10 +32,12 @@ jobs:
         working-directory: website
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        # https://github.com/actions/checkout/releases/tag/v4.3.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        # https://github.com/actions/setup-node/releases/tag/v4.4.0
         with:
           node-version: '20'
           cache: 'npm'
@@ -52,7 +54,8 @@ jobs:
 
       - name: Upload artifact
         if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3
+        # https://github.com/actions/upload-pages-artifact/releases/tag/v3.0.1
         with:
           path: website/build
 
@@ -70,4 +73,5 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e  # v4
+        # https://github.com/actions/deploy-pages/releases/tag/v4.0.5

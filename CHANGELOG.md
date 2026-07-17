@@ -36,6 +36,16 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- **CI workflow hardening (#471)**: pinned all floating action tags to
+  commit SHAs across `publish.yml`, `test.yml`, and `docs.yml` with
+  release-URL comments (B1, S3). Added pre-release guard to
+  `publish.yml` (W3), version/tag parity check (W4), `contents: read`
+  permission (W5), and Python matrix `3.10–3.12` to `test.yml` (W6).
+  Switched publish pipeline to `make test-cov` (W1), `uv sync --frozen`
+  (W2), wheel smoke test (S1), and `skip-existing: true` on PyPI
+  publish (S2). Note: S4 (fail-fast reorder) is deferred to a follow-up
+  PR as it changes pipeline semantics.
+
 - Removed the legacy `src/clawrium/cli/skill.py`, `host.py`,
   `integration.py`, and `provider.py` modules (#707, Phase 1). These
   four files were orphaned when the `clm` entry point was deleted in

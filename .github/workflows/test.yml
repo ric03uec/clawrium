@@ -18,10 +18,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-14]
+        python-version: ["3.11", "3.12"]
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        # https://github.com/actions/checkout/releases/tag/v4.3.1
 
       - name: Install uv
         # v4.2.0 — pinned to SHA. Matches the `version: "0.5.x"` convention
@@ -32,10 +34,11 @@ jobs:
           version: "0.5.x"
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        # https://github.com/actions/setup-node/releases/tag/v4.4.0
         with:
           node-version: "20"
           cache: "npm"
@@ -77,7 +80,8 @@ jobs:
       # narrower set without --cov so there's no `.coverage` artifact.
       - name: Upload coverage report
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        # https://github.com/actions/upload-artifact/releases/tag/v4.6.2
         with:
           name: coverage-report
           path: .coverage
