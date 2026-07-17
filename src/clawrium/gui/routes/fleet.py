@@ -77,8 +77,25 @@ _LIFECYCLE_GENERIC_ERROR = "Lifecycle operation failed. Check server logs."
 # Per-agent last-access timestamp for the GUI web-ui tunnel reaper. Keys
 # are agent_key strings; values are wall-clock unix seconds from the most
 # recent /web-ui hit. The reaper task in server.py reads this map.
-_LAST_ACCESS_LOCK = asyncio.Lock()
+
+
+def _get_last_access_lock() -> asyncio.Lock:
+    """Return a per-loop Lock for WEB_UI_LAST_ACCESS.
+
+    Same lazy-initialization pattern as `_get_fleet_health_semaphore` so
+    pytest (which creates a fresh event loop per test) does not trip on
+    "Lock is bound to a different event loop" errors.
+    """
+    loop = asyncio.get_running_loop()
+    lock = getattr(loop, "_clawrium_last_access_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        loop._clawrium_last_access_lock = lock  # type: ignore[attr-defined]
+    return lock
+
+
 WEB_UI_LAST_ACCESS: dict[str, float] = {}
+
 
 
 def _host_is_local(host: str) -> bool:
@@ -475,7 +492,7 @@ async def agent_web_ui(agent_key: str) -> dict[str, Any]:
             "reason": "Internal error establishing tunnel; see server logs.",
         }
 
-    async with _LAST_ACCESS_LOCK:
+    async with _get_last_access_lock():
         WEB_UI_LAST_ACCESS[agent_key] = time.time()
 
     return {
@@ -592,7 +609,7 @@ async def agent_pairing_code(agent_key: str) -> dict[str, Any]:
                 detail="Internal error establishing tunnel; see server logs.",
             ) from e
 
-        async with _LAST_ACCESS_LOCK:
+        async with _get_last_access_lock():
             WEB_UI_LAST_ACCESS[agent_key] = time.time()
         base = f"http://127.0.0.1:{local_port}"
 
@@ -756,7 +773,7 @@ async def reap_idle_tunnels(threshold_seconds: float = 1800.0) -> int:
     """
     closed = 0
     now = time.time()
-    async with _LAST_ACCESS_LOCK:
+    async with _get_last_access_lock():
         stale = [
             key
             for key, ts in WEB_UI_LAST_ACCESS.items()
@@ -767,7 +784,7 @@ async def reap_idle_tunnels(threshold_seconds: float = 1800.0) -> int:
     for key in stale:
         # Re-check under the lock: a concurrent /web-ui request may have
         # re-stamped this key between the initial snapshot and now.
-        async with _LAST_ACCESS_LOCK:
+        async with _get_last_access_lock():
             if key in WEB_UI_LAST_ACCESS:
                 continue
         # Lock released before the blocking close() so concurrent /web-ui
