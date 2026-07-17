@@ -747,7 +747,7 @@ def _sync_channel_config(
             f"'clawctl agent provider attach <provider> --agent {agent_name}' first."
         )
 
-    # Issue #794: the legacy `clm agent configure --stage channels` flow
+    # Issue #794: the legacy `clawctl agent configure --stage channels` flow
     # used to merge channels_config into existing_config so the Ansible
     # extravar payload received it. That merge is gone — `configure_agent`
     # now hydrates channels from canonical `channels.json` (hermes /
@@ -772,7 +772,7 @@ def _sync_channel_config(
 def _build_legacy_discord_channels_block(
     *, guild_id: str, channel_id: str, user_id: str
 ) -> dict:
-    """Build the `channels.discord` block emitted by the legacy `clm`
+    """Build the `channels.discord` block emitted by the legacy `clawctl`
     wizard (`_run_channels_stage` discord branch).
 
     Each `guilds.<id>.channels.<id>` entry MUST be the empty object `{}`
@@ -826,7 +826,7 @@ def _run_channels_stage(
     # Demoting the `raise typer.Exit(code=2)` to conditional (e.g.
     # behind a feature flag) silently restores an interactive
     # token-prompt path — keep the raise unconditional until the dead
-    # body is removed alongside the legacy `clm` driver retirement
+    # body is removed alongside the legacy `clawctl` driver retirement
     # (#707).
     # Channel-type hint must mirror `_hydrate_channels_from_canonical`
     # in `core/lifecycle.py` (`if resolved_type in ("hermes", "zeroclaw",
