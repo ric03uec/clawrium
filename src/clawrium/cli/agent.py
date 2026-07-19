@@ -19,7 +19,7 @@ from rich.panel import Panel
 
 from clawrium.cli.agent_skill import agent_skill_app
 from clawrium.cli.install import install as install_command
-from clawrium.cli.output._sanitize import sanitize_passthrough
+from clawrium.cli.output._sanitize import sanitize, sanitize_passthrough
 from clawrium.cli.status import status as status_command
 from clawrium.core.config import get_config_dir
 from clawrium.core.hosts import (
@@ -165,7 +165,7 @@ def _print_configure_warnings(stage: str, message: str) -> None:
         # integrations.json, which may be hand-edited and contain Rich
         # tokens like `[bold]`. Without escape Rich would either garble the
         # output or raise MarkupError mid-configure.
-        console.print(f"  [yellow]{rich_escape(message)}[/yellow]")
+        console.print(f"  [yellow]{rich_escape(sanitize(message))}[/yellow]")
 
 
 def _validate_name_component(name: str, component_type: str) -> None:
@@ -431,7 +431,9 @@ def _run_providers_stage(
     try:
         providers = load_providers()
     except ProvidersFileCorruptedError as e:
-        console.print(f"[red]Error:[/red] Providers file corrupted: {e}")
+        console.print(
+            f"[red]Error:[/red] Providers file corrupted: {rich_escape(sanitize(str(e)))}"
+        )
         return False
     except FileNotFoundError:
         providers = []
@@ -480,7 +482,7 @@ def _run_providers_stage(
         _sync_provider_config(host, claw_type, selected, installed_name)
         console.print("[green]✓[/green]")
     except Exception as e:
-        console.print(f"[red]✗[/red] {rich_escape(str(e))}")
+        console.print(f"[red]✗[/red] {rich_escape(sanitize(str(e)))}")
         agent_name = installed_name or claw_type
         console.print(
             f"[red]Error:[/red] Failed to apply provider configuration. "
@@ -509,7 +511,7 @@ def _run_providers_stage(
         except Exception as e:
             console.print(
                 f"[red]✗[/red] Failed to update provider metadata: "
-                f"{rich_escape(str(e))}"
+                f"{rich_escape(sanitize(str(e)))}"
             )
             return False
         console.print("[green]✓[/green] Provider configuration updated")
@@ -528,7 +530,7 @@ def _run_providers_stage(
         console.print("[green]✓[/green]")
         return True
     except Exception as e:
-        console.print(f"[red]✗[/red] {rich_escape(str(e))}")
+        console.print(f"[red]✗[/red] {rich_escape(sanitize(str(e)))}")
         return False
 
 
@@ -571,7 +573,7 @@ def _run_identity_stage(
                 console.print(f"  [green]✓[/green] Imported {src_file.name}")
             except Exception as e:
                 console.print(
-                    f"[red]Error:[/red] Failed to copy {src_file.name}: {rich_escape(str(e))}"
+                    f"[red]Error:[/red] Failed to copy {src_file.name}: {rich_escape(sanitize(str(e)))}"
                 )
                 return False
 
@@ -587,7 +589,7 @@ def _run_identity_stage(
                 console.print("  [green]✓[/green] Created default SOUL.md")
             except Exception as e:
                 console.print(
-                    f"[red]Error:[/red] Failed to write SOUL.md: {rich_escape(str(e))}"
+                    f"[red]Error:[/red] Failed to write SOUL.md: {rich_escape(sanitize(str(e)))}"
                 )
                 return False
     else:
@@ -621,7 +623,7 @@ def _run_identity_stage(
             console.print(f"  [green]✓[/green] Created {soul_path}")
         except Exception as e:
             console.print(
-                f"[red]Error:[/red] Failed to write SOUL.md: {rich_escape(str(e))}"
+                f"[red]Error:[/red] Failed to write SOUL.md: {rich_escape(sanitize(str(e)))}"
             )
             return False
 
@@ -675,7 +677,10 @@ def _run_identity_stage(
             console.print("[green]✓[/green]")
         else:
             console.print("[red]✗[/red]")
-            console.print(f"  [yellow]Warning:[/yellow] Workspace sync failed: {error}")
+            console.print(
+                f"  [yellow]Warning:[/yellow] Workspace sync failed: "
+                f"{rich_escape(sanitize(error or ''))}"
+            )
             console.print(
                 "  [dim]Identity files saved locally. Sync later with 'clawctl agent sync'[/dim]"
             )
@@ -683,7 +688,7 @@ def _run_identity_stage(
     except Exception as e:
         console.print("[red]✗[/red]")
         console.print(
-            f"  [yellow]Warning:[/yellow] Workspace sync failed: {rich_escape(str(e))}"
+            f"  [yellow]Warning:[/yellow] Workspace sync failed: {rich_escape(sanitize(str(e)))}"
         )
         console.print(
             "  [dim]Identity files saved locally. Sync later with 'clawctl agent sync'[/dim]"
@@ -700,7 +705,7 @@ def _run_identity_stage(
             complete_stage(host, agent_name, "identity", StageStatus.COMPLETE)
         except Exception as e:
             console.print(
-                f"[red]Error:[/red] Failed to save identity stage: {rich_escape(str(e))}"
+                f"[red]Error:[/red] Failed to save identity stage: {rich_escape(sanitize(str(e)))}"
             )
             return False
 
@@ -1273,7 +1278,7 @@ def _run_channels_stage(
             _sync_channel_config(host, claw_type, channels_config, installed_name)
             console.print("[green]✓[/green]")
         except Exception as e:
-            console.print(f"[red]✗[/red] {rich_escape(str(e))}")
+            console.print(f"[red]✗[/red] {rich_escape(sanitize(str(e)))}")
             agent_name = installed_name or claw_type
             console.print(
                 f"[dim]Retry with: clawctl agent configure {rich_escape(agent_name)} --stage channels[/dim]"
@@ -1449,7 +1454,7 @@ def _run_channels_stage(
             _sync_channel_config(host, claw_type, channels_config, installed_name)
             console.print("[green]✓[/green]")
         except Exception as e:
-            console.print(f"[red]✗[/red] {rich_escape(str(e))}")
+            console.print(f"[red]✗[/red] {rich_escape(sanitize(str(e)))}")
             agent_name = installed_name or claw_type
             console.print(
                 f"[dim]Retry with: clawctl agent configure {rich_escape(agent_name)} --stage channels[/dim]"
@@ -1487,7 +1492,7 @@ def _run_channels_stage(
             )
         except Exception as e:
             console.print(
-                f"[red]✗[/red] Failed to update channel metadata: {rich_escape(str(e))}"
+                f"[red]✗[/red] Failed to update channel metadata: {rich_escape(sanitize(str(e)))}"
             )
             return False
         console.print("[green]✓[/green] Channels configuration updated")
@@ -1504,7 +1509,7 @@ def _run_channels_stage(
         return True
     except Exception as e:
         console.print(
-            f"[red]Error:[/red] Failed to save channels stage: {rich_escape(str(e))}"
+            f"[red]Error:[/red] Failed to save channels stage: {rich_escape(sanitize(str(e)))}"
         )
         return False
 
@@ -1788,7 +1793,7 @@ def _run_validate_stage(
         return True
     except Exception as e:
         console.print(
-            f"[red]Error:[/red] Failed to save validate stage: {rich_escape(str(e))}"
+            f"[red]Error:[/red] Failed to save validate stage: {rich_escape(sanitize(str(e)))}"
         )
         return False
 
@@ -1911,7 +1916,9 @@ def _run_edit_config(
         try:
             edited_config = json.loads(edited_content)
         except json.JSONDecodeError as e:
-            console.print(f"\n[red]Error:[/red] Invalid JSON: {e}")
+            console.print(
+                f"\n[red]Error:[/red] Invalid JSON: {rich_escape(sanitize(str(e)))}"
+            )
             console.print("\nYour edited file has been preserved at:")
             console.print(f"  {config_file}")
             console.print("\nFix the JSON error and try again with:")
@@ -1934,7 +1941,9 @@ def _run_edit_config(
         )
 
         if not success:
-            console.print(f"\n[red]Error:[/red] Sync failed: {error}")
+            console.print(
+                f"\n[red]Error:[/red] Sync failed: {rich_escape(sanitize(error or ''))}"
+            )
             console.print("\nYour edited file has been preserved at:")
             console.print(f"  {config_file}")
             preserve_temp_dir = True
@@ -1963,7 +1972,9 @@ def _run_edit_config(
                     )
                     raise typer.Exit(code=1)
             except LifecycleError as e:
-                console.print(f"[red]Error:[/red] Restart failed: {e}")
+                console.print(
+                    f"[red]Error:[/red] Restart failed: {rich_escape(sanitize(str(e)))}"
+                )
                 raise typer.Exit(code=1)
         else:
             console.print(
@@ -2089,10 +2100,10 @@ def configure(
             installed_name,
         ) = _resolve_agent_instance(claw_name)
     except HostsFileCorruptedError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except AgentNameResolutionError as e:
-        console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         console.print("\nCancelled.")
@@ -2119,10 +2130,10 @@ def configure(
             initialize_onboarding(hostname, installed_name)
             current_state = get_onboarding_state(hostname, installed_name)
         except AgentNotFoundError as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
             raise typer.Exit(code=1)
     except AgentNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
 
     console.print(
@@ -2248,7 +2259,7 @@ def configure(
                     )
                 except Exception as e:
                     console.print(
-                        f"[red]Error:[/red] Failed to skip stage: {rich_escape(str(e))}"
+                        f"[red]Error:[/red] Failed to skip stage: {rich_escape(sanitize(str(e)))}"
                     )
                     raise typer.Exit(code=1)
                 # Also advance the state pointer so the next required stage's
@@ -2278,7 +2289,7 @@ def configure(
                 try:
                     transition_state(hostname, installed_name, current_stage_state)
                 except InvalidTransitionError as e:
-                    console.print(f"[red]Error:[/red] {e}")
+                    console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
                     raise typer.Exit(code=1)
 
             if stage_name == "validate":
@@ -2304,7 +2315,7 @@ def configure(
             try:
                 transition_state(hostname, installed_name, next_state)
             except InvalidTransitionError as e:
-                console.print(f"[red]Error:[/red] {e}")
+                console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
                 raise typer.Exit(code=1)
 
             _stage_complete(stage_name)
@@ -2433,9 +2444,9 @@ def remove(
 
         def on_event(stage: str, message: str) -> None:
             if stage == "validate":
-                console.print(f"  [dim]{message}[/dim]")
+                console.print(f"  [dim]{rich_escape(sanitize(message))}[/dim]")
             elif stage == "remove":
-                console.print(f"  {message}")
+                console.print(f"  {rich_escape(sanitize(message))}")
 
         try:
             if installed_name in host_data.get("agents", {}):
@@ -2445,7 +2456,7 @@ def remove(
             else:
                 result = remove_agent(hostname, claw_type, on_event=on_event)
         except LifecycleError as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
             raise typer.Exit(code=1)
 
         if result["success"]:
@@ -2453,15 +2464,15 @@ def remove(
         else:
             console.print(
                 f"[red]✗[/red] Failed to remove agent: "
-                f"{rich_escape(result['error'] or '')}"
+                f"{rich_escape(sanitize(result['error'] or ''))}"
             )
             raise typer.Exit(code=1)
 
     except HostsFileCorruptedError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except AgentNameResolutionError as e:
-        console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         console.print("\nCancelled.")
@@ -2498,7 +2509,7 @@ def start(
                 initialize_onboarding(hostname, installed_name)
                 current_state = get_onboarding_state(hostname, installed_name)
             except AgentNotFoundError as e:
-                console.print(f"[red]Error:[/red] {e}")
+                console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
                 raise typer.Exit(code=1)
 
         if current_state != OnboardingState.READY and not force:
@@ -2516,9 +2527,9 @@ def start(
 
         def on_event(stage: str, message: str) -> None:
             if stage == "validate":
-                console.print(f"  [dim]{message}[/dim]")
+                console.print(f"  [dim]{rich_escape(sanitize(message))}[/dim]")
             elif stage == "start":
-                console.print(f"  {message}")
+                console.print(f"  {rich_escape(sanitize(message))}")
             elif stage == "gateway_token_rotated":
                 _print_configure_warnings(stage, message)
 
@@ -2539,7 +2550,7 @@ def start(
                     on_event=on_event,
                 )
         except LifecycleError as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
             raise typer.Exit(code=1)
 
         if result["success"]:
@@ -2548,15 +2559,15 @@ def start(
         else:
             console.print(
                 f"[red]✗[/red] Failed to start agent: "
-                f"{rich_escape(result['error'] or '')}"
+                f"{rich_escape(sanitize(result['error'] or ''))}"
             )
             raise typer.Exit(code=1)
 
     except HostsFileCorruptedError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except AgentNameResolutionError as e:
-        console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         console.print("\nCancelled.")
@@ -2591,9 +2602,9 @@ def stop(
 
         def on_event(stage: str, message: str) -> None:
             if stage == "validate":
-                console.print(f"  [dim]{message}[/dim]")
+                console.print(f"  [dim]{rich_escape(sanitize(message))}[/dim]")
             elif stage == "stop":
-                console.print(f"  {message}")
+                console.print(f"  {rich_escape(sanitize(message))}")
 
         try:
             if installed_name in host_data.get("agents", {}):
@@ -2612,7 +2623,7 @@ def stop(
                     on_event=on_event,
                 )
         except LifecycleError as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
             raise typer.Exit(code=1)
 
         if result["success"]:
@@ -2620,15 +2631,15 @@ def stop(
         else:
             console.print(
                 f"[red]✗[/red] Failed to stop agent: "
-                f"{rich_escape(result['error'] or '')}"
+                f"{rich_escape(sanitize(result['error'] or ''))}"
             )
             raise typer.Exit(code=1)
 
     except HostsFileCorruptedError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except AgentNameResolutionError as e:
-        console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         console.print("\nCancelled.")
@@ -2659,14 +2670,14 @@ def restart(
 
         def on_event(stage: str, message: str) -> None:
             if stage in ("validate", "restart"):
-                console.print(f"  [dim]{message}[/dim]")
+                console.print(f"  [dim]{rich_escape(sanitize(message))}[/dim]")
             elif stage == "gateway_token_rotated":
                 # ATX W3: route structured rotation events through the
                 # shared renderer so the operator sees the yellow notice
                 # documented in AGENTS.md instead of raw JSON.
                 _print_configure_warnings(stage, message)
             else:
-                console.print(f"  {message}")
+                console.print(f"  {rich_escape(sanitize(message))}")
 
         try:
             if installed_name in host_data.get("agents", {}):
@@ -2679,7 +2690,7 @@ def restart(
             else:
                 result = restart_agent(hostname, claw_type, on_event=on_event)
         except LifecycleError as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
             raise typer.Exit(code=1)
 
         if result["success"]:
@@ -2688,15 +2699,15 @@ def restart(
         else:
             console.print(
                 f"[red]✗[/red] Failed to restart agent: "
-                f"{rich_escape(result['error'] or '')}"
+                f"{rich_escape(sanitize(result['error'] or ''))}"
             )
             raise typer.Exit(code=1)
 
     except HostsFileCorruptedError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except AgentNameResolutionError as e:
-        console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         console.print("\nCancelled.")
@@ -2743,7 +2754,7 @@ def sync(
         def on_event(stage: str, message: str) -> None:
             # configure stage gets dim, sync stage gets normal
             if stage == "configure":
-                console.print(f"  [dim]{message}[/dim]")
+                console.print(f"  [dim]{rich_escape(sanitize(message))}[/dim]")
             elif stage == "gateway_token_rotated":
                 # ATX W3: structured rotation events get the yellow
                 # notice from the shared renderer, not raw JSON.
@@ -2753,7 +2764,7 @@ def sync(
                 # `[Errno 13]`-style OSError text doesn't trigger
                 # MarkupError mid-stream. Producers in core/ emit raw
                 # strings; the rendering boundary is here.
-                console.print(f"  {rich_escape(message)}")
+                console.print(f"  {rich_escape(sanitize(message))}")
 
         try:
             result = sync_agent(
@@ -2764,7 +2775,7 @@ def sync(
                 on_event=on_event,
             )
         except LifecycleError as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
             raise typer.Exit(code=1)
 
         if result["success"]:
@@ -2778,15 +2789,15 @@ def sync(
         else:
             console.print(
                 f"[red]✗[/red] Failed to sync agent: "
-                f"{rich_escape(result['error'] or '')}"
+                f"{rich_escape(sanitize(result['error'] or ''))}"
             )
             raise typer.Exit(code=1)
 
     except HostsFileCorruptedError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except AgentNameResolutionError as e:
-        console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         console.print("\nCancelled.")
@@ -2852,10 +2863,10 @@ def open_ui(
             claw_name
         )
     except AgentNameResolutionError as e:
-        err_console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        err_console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except HostsFileCorruptedError as e:
-        err_console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        err_console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
 
     resolved = resolve_web_ui(installed_name)
@@ -2879,7 +2890,7 @@ def open_ui(
     except Exception as e:  # noqa: BLE001 — best-effort probe; surface but don't crash
         err_console.print(
             f"[yellow]Warning:[/yellow] Could not verify agent status "
-            f"({rich_escape(str(e))}); proceeding."
+            f"({rich_escape(sanitize(str(e)))}); proceeding."
         )
         health = None
 
@@ -2909,7 +2920,7 @@ def open_ui(
     try:
         local_port = ensure_tunnel(installed_name)
     except TunnelError as e:
-        err_console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        err_console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
 
     local_url = f"http://127.0.0.1:{local_port}/"
@@ -2972,10 +2983,10 @@ def doctor(
             _resolve_agent_instance(agent_name)
         )
     except AgentNameResolutionError as e:
-        err_console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        err_console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
     except HostsFileCorruptedError as e:
-        err_console.print(f"[red]Error:[/red] {rich_escape(str(e))}")
+        err_console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
 
     # Header
@@ -3205,7 +3216,7 @@ def integrations_list(
     try:
         hostname, claw_type, name = get_installed_claw(claw_name)
     except AgentNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
 
     assigned = get_agent_integrations(hostname, name)
@@ -3228,7 +3239,7 @@ def integrations_list(
     try:
         all_integrations = {i["name"]: i for i in load_integrations()}
     except IntegrationsFileCorruptedError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
 
     for integration_name in assigned:
@@ -3271,14 +3282,14 @@ def integrations_add(
     try:
         hostname, claw_type, name = get_installed_claw(claw_name)
     except AgentNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
 
     # Verify integration exists
     try:
         integration = get_integration(integration_name)
     except IntegrationsFileCorruptedError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
 
     if not integration:
@@ -3295,10 +3306,10 @@ def integrations_add(
     try:
         added = add_agent_integration(hostname, name, integration_name)
     except IntegrationSingletonViolation as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         console.print(
             "[dim]Hint: detach the existing one first with "
-            f"'clawctl agent integration remove {rich_escape(claw_name)} {rich_escape(e.existing_name)}'.[/dim]"
+            f"'clawctl agent integration remove {rich_escape(sanitize(claw_name))} {rich_escape(sanitize(e.existing_name))}'.[/dim]"
         )
         raise typer.Exit(code=1)
 
@@ -3332,7 +3343,7 @@ def integrations_remove(
     try:
         hostname, claw_type, name = get_installed_claw(claw_name)
     except AgentNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {rich_escape(sanitize(str(e)))}")
         raise typer.Exit(code=1)
 
     # Check if integration is assigned
