@@ -56,6 +56,18 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- **Security (#453)**: `clawctl agent` CLI now sanitizes remote-host
+  messages and exception strings before printing them. `console.print`
+  sites in `src/clawrium/cli/agent.py` (`on_event` lifecycle callbacks,
+  `LifecycleError` / generic exception interpolations, error-string
+  return paths, and `_print_configure_warnings`) previously rendered
+  values sourced from ansible-runner artifacts and remote daemons
+  without stripping C0/C1 control bytes and Unicode bidi / zero-width
+  codepoints. A compromised remote host could visually reorder the
+  operator's terminal (RLO/LRO) or hide content (ZWSP/ZWJ) in a
+  routine `clawctl agent sync` / `restart` / `remove` run. Both
+  `rich_escape()` and the canonical `sanitize()` from
+  `cli/output/_sanitize.py` are now applied at every render boundary.
 - `tests/test_gui_routes_fleet.py::test_fleet_health_returns_200_under_concurrent_clients` and `test_fleet_health_host_filter_forwarded` — module-level `asyncio.Lock()` (`_LAST_ACCESS_LOCK`) was bound to the first pytest event loop, causing `RuntimeError: Lock is bound to a different event loop` on subsequent tests. Migrated to the same per-loop lazy accessor pattern (`_get_last_access_lock`) already used for the fleet-health semaphore. The concurrent-clients test also switched from `executor.shutdown(wait=False, cancel_futures=True)` to a `with`-block so futures complete normally instead of being force-cancelled, eliminating spurious `CancelledError` (#676).
 
 - `clawctl agent doctor <name>` now works for **ethos agents** (#923). Previously the command
