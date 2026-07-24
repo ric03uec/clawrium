@@ -129,7 +129,7 @@ def test_render_gitconfig_body_strips_shell_metachars_from_core_editor():
     editor_line = next(
         line for line in body.splitlines() if line.strip().startswith("editor")
     )
-    for meta in (";", "|", "&", "`", "$", "(", ")", "<", ">", "\\"):
+    for meta in (";", "|", "&", "`", "$", "(", ")", "<", ">", "\\", "'", '"'):
         assert meta not in editor_line, (
             f"shell metachar {meta!r} leaked into rendered editor line: "
             f"{editor_line!r}"
@@ -216,13 +216,18 @@ def test_git_integration_raises_on_tee_failure():
         )
 
 
-def test_git_integration_uses_macos_home_root_on_darwin_host():
+@pytest.mark.parametrize("os_family_alias", ["darwin", "macos", "mac", "osx"])
+def test_git_integration_uses_macos_home_root_on_darwin_host(os_family_alias):
+    """All macOS os_family aliases normalize to /Users. Deleting the
+    alias-normalization block in production would still leave the
+    literal-'darwin' case passing; parametrizing keeps the alias
+    table covered."""
     client = MagicMock()
     client.exec_command.return_value = _exec_stub(0)
     _setup_github_integration(
         client,
         "alpha",
-        host={"os_family": "darwin"},
+        host={"os_family": os_family_alias},
         inputs=_inputs(_git_integration()),
     )
     cmd = client.exec_command.call_args_list[0].args[0]

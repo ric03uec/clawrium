@@ -1939,7 +1939,10 @@ def _run_ssh_with_stdin(
         stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
         if stdin_body is not None:
             stdin.write(stdin_body)
-            stdin.channel.shutdown_write()
+        # Close stdin unconditionally — a future caller passing a
+        # stdin-reading command with stdin_body=None would otherwise
+        # hang on recv_exit_status waiting for EOF.
+        stdin.channel.shutdown_write()
         # Drain BEFORE recv_exit_status: `gh` prints login banners /
         # setup-git advice up to ~2KB; on a chatty combined stream the
         # ~64KB SSH pipe buffer can fill and block the remote's write,
@@ -1976,7 +1979,7 @@ def _render_gitconfig_body(creds: dict) -> str:
         # (operators legitimately use `code --wait`, `nvim -c ...`,
         # `emacs -nw`) but any metacharacter is disqualifying.
         cleaned = _sanitize(v)
-        for meta in (";", "|", "&", "`", "$", "(", ")", "<", ">", "\\"):
+        for meta in (";", "|", "&", "`", "$", "(", ")", "<", ">", "\\", "'", '"'):
             cleaned = cleaned.replace(meta, "")
         return cleaned
 
