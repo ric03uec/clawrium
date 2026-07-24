@@ -14,6 +14,47 @@ cut. The `itx:release` skill archives this section into a new
 
 ### BREAKING
 
+- zeroclaw agents synced before this release wrote `knowledge.db`,
+  `plugins/`, `project-reports/`, `estop-state.json`, security-ops
+  `playbooks/` + `security-reports/`, and `workspaces/` under the
+  previously-hardcoded operator home (`/home/clawrium-d01/.zeroclaw/`).
+  After upgrading, `clawctl agent sync` re-renders `config.toml`
+  pointing those paths at `/home/<agent_name>/.zeroclaw/` (or
+  `/Users/<agent_name>/.zeroclaw/` on macOS). The daemon will no
+  longer find data at the old location. There is no automated
+  migration — move directories manually before or immediately after
+  sync, for example:
+
+  On Linux:
+
+  ```bash
+  mv /home/clawrium-d01/.zeroclaw/knowledge.db      /home/<agent_name>/.zeroclaw/
+  mv /home/clawrium-d01/.zeroclaw/plugins           /home/<agent_name>/.zeroclaw/
+  mv /home/clawrium-d01/.zeroclaw/project-reports   /home/<agent_name>/.zeroclaw/
+  mv /home/clawrium-d01/.zeroclaw/estop-state.json  /home/<agent_name>/.zeroclaw/
+  mv /home/clawrium-d01/.zeroclaw/playbooks         /home/<agent_name>/.zeroclaw/
+  mv /home/clawrium-d01/.zeroclaw/security-reports  /home/<agent_name>/.zeroclaw/
+  mv /home/clawrium-d01/.zeroclaw/workspaces        /home/<agent_name>/.zeroclaw/
+  ```
+
+  On macOS (substitute `/Users/` for `/home/` — consistent with the
+  darwin home-root convention documented for the workspace-overlay
+  macOS matrix, #770/#771/#772):
+
+  ```bash
+  mv /Users/clawrium-d01/.zeroclaw/knowledge.db      /Users/<agent_name>/.zeroclaw/
+  mv /Users/clawrium-d01/.zeroclaw/plugins           /Users/<agent_name>/.zeroclaw/
+  mv /Users/clawrium-d01/.zeroclaw/project-reports   /Users/<agent_name>/.zeroclaw/
+  mv /Users/clawrium-d01/.zeroclaw/estop-state.json  /Users/<agent_name>/.zeroclaw/
+  mv /Users/clawrium-d01/.zeroclaw/playbooks         /Users/<agent_name>/.zeroclaw/
+  mv /Users/clawrium-d01/.zeroclaw/security-reports  /Users/<agent_name>/.zeroclaw/
+  mv /Users/clawrium-d01/.zeroclaw/workspaces        /Users/<agent_name>/.zeroclaw/
+  ```
+
+  This BREAKING entry closes both #911 (path parameterization) and
+  #913 (project-intel / knowledge features recovered as a
+  side-effect once the paths point at the agent's own home).
+
 ### Added
 
 - `clawctl apply` now generates an ed25519 SSH keypair for new Host resources
@@ -41,6 +82,5 @@ cut. The `itx:release` skill archives this section into a new
   transport / auth / protocol error). Previously the flag was
   advertised in `--help` but short-circuited to a `Not implemented`
   message. (#918)
-- Parameterized seven hardcoded operator-home paths (`/home/clawrium-d01/…`) in the zeroclaw config template so `knowledge.db`, `plugins/`, `project-reports/`, `estop-state.json`, security-ops `playbooks/` + `security-reports/`, and `workspaces/` all resolve under each agent's own home. Prevents cross-agent data collision on multi-agent hosts and recovers project-intel / knowledge features that were writing to the wrong home. Also recovers `#913`. (#911)
 
 ### Documentation

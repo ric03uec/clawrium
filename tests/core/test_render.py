@@ -1310,6 +1310,11 @@ def test_zeroclaw_config_paths_use_agent_home_linux():
     for key in _ZEROCLAW_AGENT_HOMED_KEYS:
         values = _extract_key_value(toml, key)
         assert values, f"expected at least one `{key} = …` line in rendered TOML"
+        if key == "report_output_dir":
+            assert len(values) == 2, (
+                f"expected exactly 2 `report_output_dir` entries "
+                f"(project_intel + security_ops), got {len(values)}: {values!r}"
+            )
         for value in values:
             assert value.startswith("/home/test-agent/.zeroclaw/"), (
                 f"{key!r} resolved to {value!r}, expected /home/test-agent/.zeroclaw/…"
@@ -1328,6 +1333,11 @@ def test_zeroclaw_config_paths_use_agent_home_darwin():
     for key in _ZEROCLAW_AGENT_HOMED_KEYS:
         values = _extract_key_value(toml, key)
         assert values, f"expected at least one `{key} = …` line in rendered TOML"
+        if key == "report_output_dir":
+            assert len(values) == 2, (
+                f"expected exactly 2 `report_output_dir` entries "
+                f"(project_intel + security_ops), got {len(values)}: {values!r}"
+            )
         for value in values:
             assert value.startswith("/Users/test-agent/.zeroclaw/"), (
                 f"{key!r} resolved to {value!r}, expected /Users/test-agent/.zeroclaw/…"
