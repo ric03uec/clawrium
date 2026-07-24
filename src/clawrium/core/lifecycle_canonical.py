@@ -1746,6 +1746,189 @@ def _zeroclaw_install_slack_mcp(
         )
 
 
+# #649: github + git integration wiring. Sync-time hook, uniform across
+# hermes / openclaw / zeroclaw. Replaces the per-agent-type
+# `GitHub CLI authentication block` + `Render ~/.gitconfig` tasks that
+# used to live in each configure.yaml — those never ran on the modern
+# `clawctl agent sync` path (see AGENTS.md §"Integration Binary Install"
+# for the same class of bug closed by #755 / #834). Ships as a single
+# helper because github/git wiring is agent-type-agnostic: the on-host
+# steps (`gh auth login` as agent user, `gh auth setup-git`) are
+# identical.
+#
+# Idempotent: `gh auth login --with-token` overwrites `~/.config/gh/hosts.yml`
+# every call, `gh auth setup-git` overwrites the `[credential]` section
+# in `~/.gitconfig` every call. No sentinel needed — the operations are
+# fast (single sudo + gh subprocess) and re-safe.
+def _setup_github_integration(
+    client: paramiko.SSHClient,
+    agent_name: str,
+    *,
+    host: dict,
+    inputs,
+    on_event: Callable[[str, str], None] | None = None,
+    timeout: int = 30,
+) -> None:
+    """Wire git + gh CLI for each attached github/git integration.
+
+    Two independent per-integration effects, in order (ordering matters —
+    setup-git appends to ~/.gitconfig; a subsequent gitconfig overwrite
+    would drop the credential.helper line):
+
+    1. For each `git`-type integration: write `~/.gitconfig` `[user]`,
+       `[init]`, `[pull]`, `[core]` sections from GIT_USER_NAME,
+       GIT_USER_EMAIL, GIT_INIT_DEFAULT_BRANCH, GIT_PULL_REBASE,
+       GIT_CORE_EDITOR credentials. Missing credentials fall back to
+       safe defaults (empty user, `main`, `false`, `vim`).
+
+    2. For each `github`-type integration: `gh auth login --with-token`
+       (token via stdin) so gh's `~/.config/gh/hosts.yml` is populated,
+       then `gh auth setup-git` so `~/.gitconfig` gets the
+       `credential.helper = !gh auth git-credential` block that raw
+       `git push` over HTTPS needs.
+
+    Gate: skips entirely (no SSH round-trip) when no `git` and no
+    `github` integrations are attached — the common case for agents
+    that only run LLM inference.
+
+    Raises `CanonicalSyncError` on any failure so
+    `sync_agent_canonical` short-circuits before `_restart_unit`. `gh`
+    is a base-install package (`install.yaml` apt-installs it on Debian
+    hosts, brew on macOS); a missing `gh` binary here means the base
+    install is broken and should be loudly surfaced, not silently
+    skipped.
+    """
+    git_ints = [i for i in inputs.integrations if i.type == "git"]
+    github_ints = [i for i in inputs.integrations if i.type == "github"]
+    if not git_ints and not github_ints:
+        return
+
+    os_family = str(host.get("os_family") or "linux").strip().lower()
+    if os_family in ("mac", "macos", "osx"):
+        os_family = "darwin"
+    home = f"{home_root_for(os_family)}/{agent_name}"
+    gitconfig_path = f"{home}/.gitconfig"
+    quoted_agent = shlex.quote(agent_name)
+    quoted_gitconfig = shlex.quote(gitconfig_path)
+
+    # Step 1: render ~/.gitconfig for each git integration. Multi-git
+    # is a rare shape (one identity per agent is the norm), but the
+    # loop is cheap and matches the pre-existing per-integration
+    # semantics.
+    for integ in git_ints:
+        creds = dict(integ.credentials)
+        gitconfig_body = _render_gitconfig_body(creds)
+        # `tee` (via sudo -u) writes as the agent user, so the resulting
+        # file's owner + mode context match a `become_user`-scoped
+        # ansible template task. `chmod 0600` is separate so a tee that
+        # inherits umask 0022 still ends with the tight mode we want.
+        write_cmd = (
+            f"sudo -n -H -u {quoted_agent} tee {quoted_gitconfig} > /dev/null "
+            f"&& sudo -n -H -u {quoted_agent} chmod 0600 {quoted_gitconfig}"
+        )
+        stdin, stdout, stderr = client.exec_command(write_cmd, timeout=timeout)
+        stdin.write(gitconfig_body)
+        stdin.channel.shutdown_write()
+        _ = stdout.read()
+        err_bytes = stderr.read()
+        rc = stdout.channel.recv_exit_status()
+        if rc != 0:
+            err_text = err_bytes.decode("utf-8", errors="replace").strip()
+            raise CanonicalSyncError(
+                f"gitconfig write failed for {agent_name!r} "
+                f"(integration {integ.name!r}): {err_text}"
+            )
+        if on_event is not None:
+            on_event(
+                "github_integration",
+                f"wrote {gitconfig_path} for git integration {integ.name!r}",
+            )
+
+    # Step 2: per github integration, gh auth login + setup-git.
+    for integ in github_ints:
+        creds = dict(integ.credentials)
+        token = creds.get("GITHUB_TOKEN", "")
+        if not token:
+            raise CanonicalSyncError(
+                f"github integration {integ.name!r} attached to "
+                f"{agent_name!r} but GITHUB_TOKEN credential is missing"
+            )
+
+        # `gh auth login --with-token` reads a single-line token from
+        # stdin. Runs as the agent user so `~/.config/gh/hosts.yml`
+        # lands in the right home. Idempotent: subsequent runs
+        # overwrite the same hosts.yml with the same content when the
+        # token is unchanged.
+        login_cmd = f"sudo -n -H -u {quoted_agent} gh auth login --with-token"
+        stdin, stdout, stderr = client.exec_command(login_cmd, timeout=timeout)
+        stdin.write(token + "\n")
+        stdin.channel.shutdown_write()
+        _ = stdout.read()
+        err_bytes = stderr.read()
+        rc = stdout.channel.recv_exit_status()
+        if rc != 0:
+            err_text = err_bytes.decode("utf-8", errors="replace").strip()
+            raise CanonicalSyncError(
+                f"gh auth login failed for {agent_name!r} "
+                f"(integration {integ.name!r}): {err_text}"
+            )
+
+        # `gh auth setup-git` appends the `[credential]` section to
+        # `~/.gitconfig`. Runs after the gitconfig render above (if
+        # any) — reversing the order silently drops the credential
+        # helper line the next time gitconfig is re-rendered.
+        setup_cmd = f"sudo -n -H -u {quoted_agent} gh auth setup-git"
+        _, s_out, s_err = client.exec_command(setup_cmd, timeout=timeout)
+        _ = s_out.read()
+        err_bytes = s_err.read()
+        rc = s_out.channel.recv_exit_status()
+        if rc != 0:
+            err_text = err_bytes.decode("utf-8", errors="replace").strip()
+            raise CanonicalSyncError(
+                f"gh auth setup-git failed for {agent_name!r} "
+                f"(integration {integ.name!r}): {err_text}"
+            )
+        if on_event is not None:
+            on_event(
+                "github_integration",
+                f"wired gh + git credential helper for github "
+                f"integration {integ.name!r} on {agent_name}",
+            )
+
+
+def _render_gitconfig_body(creds: dict) -> str:
+    """Build a ~/.gitconfig body from a `git` integration's credentials.
+
+    Same shape the operator has been getting from the (now-deleted)
+    Ansible template — `[user]`, `[init]`, `[pull]`, `[core]` sections
+    with safe defaults. CR/LF/NUL stripped from every interpolated
+    value as defense-in-depth against a tampered secrets store that
+    could otherwise inject `[credential] helper=/evil` sections.
+    """
+    def _sanitize(v: str) -> str:
+        return v.replace("\n", " ").replace("\r", "").replace("\x00", "")
+
+    user_name = _sanitize(str(creds.get("GIT_USER_NAME", "") or ""))
+    user_email = _sanitize(str(creds.get("GIT_USER_EMAIL", "") or ""))
+    default_branch = _sanitize(str(creds.get("GIT_INIT_DEFAULT_BRANCH", "") or "main"))
+    pull_rebase = _sanitize(str(creds.get("GIT_PULL_REBASE", "") or "false"))
+    core_editor = _sanitize(str(creds.get("GIT_CORE_EDITOR", "") or "vim"))
+    return (
+        "[user]\n"
+        f"    name = {user_name}\n"
+        f"    email = {user_email}\n"
+        "\n"
+        "[init]\n"
+        f"    defaultBranch = {default_branch}\n"
+        "\n"
+        "[pull]\n"
+        f"    rebase = {pull_rebase}\n"
+        "\n"
+        "[core]\n"
+        f"    editor = {core_editor}\n"
+    )
+
+
 def sync_agent_canonical(
     agent_name: str,
     *,
@@ -2280,6 +2463,21 @@ def sync_agent_canonical(
                 inputs,
                 on_event=on_event,
             )
+
+        # #649: github + git integration wiring. Agent-type-agnostic;
+        # fast no-op when neither integration type is attached. Runs
+        # BEFORE the file-write loop so a fresh gitconfig + gh auth
+        # state and a freshly-rendered config land in a single restart.
+        # Failure raises `CanonicalSyncError` and short-circuits before
+        # `_restart_unit` — same short-circuit contract as the slack
+        # MCP install hooks above.
+        _setup_github_integration(
+            client,
+            agent_name,
+            host=host,
+            inputs=inputs,
+            on_event=on_event,
+        )
 
         for d in diffs:
             if not d.unified_diff:
