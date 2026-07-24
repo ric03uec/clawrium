@@ -330,6 +330,88 @@ def test_check_compatibility_matching():
     assert result["reasons"] == []
 
 
+def test_check_compatibility_partial_facts_os_version_unknown():
+    """Issue #737: partial facts (os set but os_version unknown) short-circuit.
+
+    The tightened gate must skip the requirements loop and return the
+    hardware-not-gathered contract (compatible=True, matched_entry=None),
+    so callers route through the install refusal path instead of emitting
+    'host has ubuntu unknown' against every manifest entry.
+    """
+    from clawrium.core.registry import check_compatibility
+
+    hardware = {
+        "os": "ubuntu",
+        "os_version": "unknown",
+        "architecture": "x86_64",
+        "memtotal_mb": 8192,
+        "gpu": {"present": False, "vendor": None, "error": None},
+        "processor_cores": 4,
+        "processor_count": 1,
+        "mounts": [],
+    }
+
+    result = check_compatibility("openclaw", hardware)
+
+    assert result["compatible"] is True
+    assert result["matched_entry"] is None
+    assert result["reasons"] == []
+
+
+def test_check_compatibility_partial_facts_os_unknown():
+    """Issue #737 (ATX S2): os='unknown' with valid os_version short-circuits."""
+    from clawrium.core.registry import check_compatibility
+
+    hardware = {
+        "os": "unknown",
+        "os_version": "24.04",
+        "architecture": "x86_64",
+        "memtotal_mb": 8192,
+    }
+
+    result = check_compatibility("openclaw", hardware)
+
+    assert result["compatible"] is True
+    assert result["matched_entry"] is None
+    assert result["reasons"] == []
+
+
+def test_check_compatibility_partial_facts_memtotal_negative():
+    """Issue #737 (ATX S2): memtotal_mb<=0 short-circuits (guards against -1)."""
+    from clawrium.core.registry import check_compatibility
+
+    hardware = {
+        "os": "ubuntu",
+        "os_version": "24.04",
+        "architecture": "x86_64",
+        "memtotal_mb": -1,
+    }
+
+    result = check_compatibility("openclaw", hardware)
+
+    assert result["compatible"] is True
+    assert result["matched_entry"] is None
+    assert result["reasons"] == []
+
+
+def test_check_compatibility_partial_facts_memtotal_zero():
+    """Issue #737: memtotal_mb=0 short-circuits regardless of os being set."""
+    from clawrium.core.registry import check_compatibility
+
+    hardware = {
+        "os": "ubuntu",
+        "os_version": "24.04",
+        "architecture": "x86_64",
+        "memtotal_mb": 0,
+    }
+
+    result = check_compatibility("openclaw", hardware)
+
+    assert result["compatible"] is True
+    assert result["matched_entry"] is None
+    assert result["reasons"] == []
+
+
 def test_check_compatibility_wrong_os():
     """Test compatibility check with wrong OS returns compatible=False with reason."""
     from clawrium.core.registry import check_compatibility

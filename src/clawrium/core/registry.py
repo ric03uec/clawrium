@@ -1076,11 +1076,18 @@ def check_compatibility(
             reverse=True,
         )
 
-    # Hardware not yet gathered (fresh host — no scan run yet). Skip all
-    # hardware checks and let the install playbook proceed; Ansible will
-    # collect facts and the host record will be updated after first install.
+    # Hardware not yet gathered (fresh host — no scan run yet) or gathered
+    # only partially. Skip the requirements loop and route through the
+    # install-refusal path so the operator sees a clean "missing facts"
+    # message instead of manifest requirements formatted against sentinel
+    # values (see issue #737).
+    os_value = hardware.get("os")
+    os_version_value = hardware.get("os_version")
     hardware_known = bool(
-        hardware.get("os") and hardware.get("os") != "unknown"
+        os_value
+        and os_value != "unknown"
+        and os_version_value
+        and os_version_value != "unknown"
         and hardware.get("memtotal_mb", 0) > 0
     )
     if not hardware_known:

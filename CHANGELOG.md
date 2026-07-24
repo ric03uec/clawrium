@@ -56,6 +56,14 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- Clearer error when `clawctl agent create` runs against a host whose
+  facts have not been (or could not be) gathered. Instead of formatting
+  manifest requirements against sentinel values (`"host has ubuntu
+  unknown"`, `"host has 0MB"`), the CLI now enumerates the exact missing
+  facts (`os`, `os_version`, `memtotal_mb`), suggests re-running
+  `clawctl host create` or passing `--version`, and points at #738 for
+  the Docker-container case (#737).
+
 - **Security (#453)**: `clawctl agent` CLI now sanitizes remote-host
   messages and exception strings before printing them. `console.print`
   sites in `src/clawrium/cli/agent.py` (`on_event` lifecycle callbacks,

@@ -2548,8 +2548,138 @@ def test_install_hardware_unknown_raises(monkeypatch, tmp_path):
         lambda *args, **kwargs: compat_result,
     )
 
-    with pytest.raises(InstallationError, match="hardware information is not available"):
+    with pytest.raises(InstallationError) as exc_info:
         run_installation("openclaw", "test-host")
+
+    msg = str(exc_info.value)
+    # New copy (issue #737): enumerates missing facts + names Docker + #738.
+    assert "missing required facts" in msg
+    # Pin the full parenthetical so a regression that drops a standalone
+    # token but keeps a superset word (e.g. "os" hidden inside "os_version")
+    # still fails the assertion (ATX W2).
+    assert "(os, os_version, memtotal_mb)" in msg
+    assert "Docker" in msg
+    assert "738" in msg
+
+
+def test_install_hardware_partial_facts_message(monkeypatch, tmp_path):
+    """Issue #737: partial-facts host produces the clean refusal message.
+
+    When only some facts are missing (e.g. os_version="unknown"), the
+    refusal must still enumerate only the missing ones, not all of them.
+    """
+    from clawrium.core.install import run_installation, InstallationError
+    import clawrium.core.install
+
+    mock_manifest = {
+        "name": "openclaw",
+        "platforms": [
+            {
+                "version": "2026.6.8",
+                "os": "ubuntu",
+                "os_version": "24.04",
+                "arch": "x86_64",
+            }
+        ],
+    }
+    monkeypatch.setattr(clawrium.core.install, "load_manifest", lambda x: mock_manifest)
+
+    host_partial = {
+        "hostname": "docker-worker",
+        "agent_name": "xclm",
+        "port": 22,
+        "hardware": {
+            "os": "ubuntu",
+            "os_version": "unknown",
+            "memtotal_mb": 8192,
+        },
+        "agents": {},
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: host_partial)
+
+    # New tighter gate at registry.py now routes partial facts to the
+    # install refusal path (matched_entry=None, compatible=True).
+    monkeypatch.setattr(
+        clawrium.core.install,
+        "check_compatibility",
+        lambda *args, **kwargs: {
+            "compatible": True,
+            "matched_entry": None,
+            "reasons": [],
+        },
+    )
+
+    with pytest.raises(InstallationError) as exc_info:
+        run_installation("openclaw", "docker-worker")
+
+    msg = str(exc_info.value)
+    assert "missing required facts" in msg
+    assert "os_version" in msg
+    # os and memtotal_mb are present — should NOT be listed as missing.
+    assert "(os_version)" in msg
+    assert "Docker" in msg
+
+
+@pytest.mark.parametrize(
+    "hardware,expected",
+    [
+        ({}, ["os", "os_version", "memtotal_mb"]),
+        (
+            {"os": "ubuntu", "os_version": "24.04", "memtotal_mb": 4096},
+            [],
+        ),
+        (
+            {"os": "ubuntu", "os_version": "unknown", "memtotal_mb": 0},
+            ["os_version", "memtotal_mb"],
+        ),
+        (
+            {"os": "unknown", "os_version": "24.04", "memtotal_mb": 4096},
+            ["os"],
+        ),
+    ],
+)
+def test_missing_host_facts_direct(hardware, expected):
+    """Issue #737 (ATX S3): pin _missing_host_facts contract directly."""
+    from clawrium.core.install import _missing_host_facts
+
+    assert _missing_host_facts(hardware) == expected
+
+
+def test_install_hardware_partial_facts_integration(monkeypatch, tmp_path):
+    """Issue #737 (ATX S1): real check_compatibility gate + real refusal message.
+
+    Companion to test_install_hardware_partial_facts_message which mocks
+    check_compatibility. This one exercises the real registry gate — if
+    the gate ever stops short-circuiting on partial facts, run_installation
+    would fall into the incompatible branch instead of the missing-facts
+    refusal, and this test would fail.
+    """
+    from clawrium.core.install import run_installation, InstallationError
+    import clawrium.core.install
+
+    # Use the real openclaw manifest (loaded from disk) so the gate has
+    # a plausible target to score against.
+    host_partial = {
+        "hostname": "docker-worker",
+        "agent_name": "xclm",
+        "port": 22,
+        "hardware": {
+            "os": "ubuntu",
+            "os_version": "unknown",
+            "architecture": "x86_64",
+            "memtotal_mb": 8192,
+        },
+        "agents": {},
+    }
+    monkeypatch.setattr(clawrium.core.install, "get_host", lambda x: host_partial)
+
+    with pytest.raises(InstallationError) as exc_info:
+        run_installation("openclaw", "docker-worker")
+
+    msg = str(exc_info.value)
+    assert "missing required facts" in msg
+    assert "(os_version)" in msg
+    assert "Docker" in msg
 
 
 def test_install_hardware_unknown_with_version_override_bypasses_check(monkeypatch, tmp_path):

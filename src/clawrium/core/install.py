@@ -75,6 +75,19 @@ class InstallationError(Exception):
     pass
 
 
+def _missing_host_facts(hardware: dict) -> list[str]:
+    missing: list[str] = []
+    os_value = hardware.get("os")
+    if not os_value or os_value == "unknown":
+        missing.append("os")
+    os_version_value = hardware.get("os_version")
+    if not os_version_value or os_version_value == "unknown":
+        missing.append("os_version")
+    if not hardware.get("memtotal_mb", 0):
+        missing.append("memtotal_mb")
+    return missing
+
+
 def _pick_per_instance_port(
     host: dict,
     agent_name: str,
@@ -357,14 +370,19 @@ def run_installation(
         matched_version = compat["matched_entry"]["version"]
         emit("validate", f"Compatible with {claw_name} v{matched_version}")
     else:
-        # Hardware not yet gathered — cannot determine correct version.
-        # Refuse to proceed: guessing a version risks installing an
-        # incompatible or non-existent package (see issue #720).
+        # Hardware not yet gathered (or gathered only partially) — cannot
+        # determine correct version. Refuse to proceed: guessing a version
+        # risks installing an incompatible or non-existent package (see
+        # issues #720, #737).
+        missing = _missing_host_facts(hardware)
+        missing_str = ", ".join(missing) if missing else "os, os_version, memtotal_mb"
         raise InstallationError(
             f"Cannot determine compatible version for '{claw_name}': "
-            f"host hardware information is not available. "
-            f"Run 'clawctl host create' with SSH access first to gather "
-            f"hardware facts, then retry the install."
+            f"host '{hostname}' is missing required facts ({missing_str}). "
+            f"Re-run 'clawctl host create' to gather facts over SSH, or pass "
+            f"'--version <X>' to override. Note: Docker containers are not "
+            f"yet a supported host type — see "
+            f"https://github.com/ric03uec/clawrium/issues/738."
         )
 
     # Step 4: Validate custom name if provided (format only, uniqueness checked in updater)
