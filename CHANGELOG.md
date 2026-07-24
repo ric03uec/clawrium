@@ -131,3 +131,12 @@ cut. The `itx:release` skill archives this section into a new
 ### Documentation
 
 ### Internal
+
+- Removed ~640 lines of unreachable legacy wizard body from
+  `_run_channels_stage` in `src/clawrium/cli/agent.py`, plus the
+  `_build_legacy_discord_channels_block` and `_sync_channel_config`
+  helpers whose only production callers lived in that dead body
+  (#860). `_run_channels_stage` is now typed `-> NoReturn` since it
+  always exits. No user-visible change: `clawctl agent configure
+  <name> --stage channels` continues to print the deprecation guidance
+  and exit 1.
