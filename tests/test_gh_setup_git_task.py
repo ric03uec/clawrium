@@ -7,10 +7,10 @@ put a valid token in gh's config — because git uses credential helpers,
 not env vars. `gh auth setup-git` writes the credential.helper entry to
 `~/.gitconfig`.
 
-These tests enforce that the same task exists on hermes and openclaw
-(Linux + openclaw macOS), sits inside the `GitHub CLI authentication
-block`, and is gated so it is a no-op on agents without a `github`
-integration.
+These tests enforce that the same task exists on zeroclaw (reference),
+hermes, and openclaw (Linux + openclaw macOS), sits inside the
+`GitHub CLI authentication block`, and is gated so it is a no-op on
+agents without a `github` integration.
 """
 
 from importlib.resources import files
@@ -21,8 +21,16 @@ import yaml
 
 SETUP_GIT_TASK_NAME = "Configure git credential helper via gh auth setup-git"
 AUTH_LOGIN_TASK_NAME = "Authenticate gh CLI for each github integration"
+GITCONFIG_TASK_NAME = "Render ~/.gitconfig for each git integration"
 GITCONFIG_DEST_LINUX = "/home/{{ agent_name }}/.gitconfig"
 GITCONFIG_DEST_MACOS = "/Users/{{ agent_name }}/.gitconfig"
+
+# Canonical Jinja for the github-integration guard: every playbook MUST use
+# the exact same filter chain so a partial / mistyped guard is caught.
+GITHUB_INTEGRATION_WHEN = (
+    "integrations | dict2items | selectattr('value.type', 'equalto', 'github') "
+    "| list | length > 0"
+)
 
 
 def _load_playbook(claw: str, filename: str):
@@ -60,23 +68,35 @@ def _find_task_index(tasks, name):
     return None
 
 
-# (claw, playbook filename, expected gitconfig dest)
+def _normalize_when_expr(expr: str) -> str:
+    """Collapse whitespace so multi-line YAML `when:` clauses compare cleanly."""
+    return " ".join(expr.split())
+
+
+# (claw, playbook filename, gitconfig dest, expected argv[0], expected gh probe expr)
+#
+# expected_gh_guard is the exact substring that MUST appear in the setup-git
+# task's `when:` clauses:
+#   - Linux uses `which gh` which sets rc=0 on success => guard on rc.
+#   - macOS uses `which gh || true` (rc always 0) => guard on stdout length.
+# Swapping these is semantically wrong and this test catches that.
 PLAYBOOK_MATRIX = [
-    ("hermes", "configure.yaml", GITCONFIG_DEST_LINUX),
-    ("openclaw", "configure.yaml", GITCONFIG_DEST_LINUX),
-    ("openclaw", "configure_macos.yaml", GITCONFIG_DEST_MACOS),
+    ("zeroclaw", "configure.yaml", GITCONFIG_DEST_LINUX, "gh", "gh_check.rc == 0"),
+    ("hermes", "configure.yaml", GITCONFIG_DEST_LINUX, "gh", "gh_check.rc == 0"),
+    ("openclaw", "configure.yaml", GITCONFIG_DEST_LINUX, "{{ gh_check.stdout | trim }}", "gh_check.rc == 0"),
+    ("openclaw", "configure_macos.yaml", GITCONFIG_DEST_MACOS, "{{ gh_check.stdout | trim }}", "(gh_check.stdout | trim) | length > 0"),
 ]
 
 
 @pytest.fixture(params=PLAYBOOK_MATRIX, ids=lambda p: f"{p[0]}/{p[1]}")
 def playbook(request):
-    claw, filename, gitconfig_dest = request.param
+    claw, filename, gitconfig_dest, expected_argv0, expected_gh_guard = request.param
     tasks = _load_playbook(claw, filename)
-    return claw, filename, gitconfig_dest, tasks
+    return claw, filename, gitconfig_dest, expected_argv0, expected_gh_guard, tasks
 
 
 def test_setup_git_task_present(playbook):
-    claw, filename, _, tasks = playbook
+    claw, filename, _, _, _, tasks = playbook
     task = _find_task_in_tree(tasks, SETUP_GIT_TASK_NAME)
     assert task is not None, (
         f"{claw}/{filename} is missing the `{SETUP_GIT_TASK_NAME}` task. "
@@ -86,7 +106,7 @@ def test_setup_git_task_present(playbook):
 
 
 def test_setup_git_task_runs_as_agent_user(playbook):
-    claw, filename, _, tasks = playbook
+    claw, filename, _, _, _, tasks = playbook
     task = _find_task_in_tree(tasks, SETUP_GIT_TASK_NAME)
     assert task.get("become") is True, f"{claw}/{filename}: must `become: yes`"
     assert task.get("become_user") == "{{ agent_name }}", (
@@ -96,7 +116,7 @@ def test_setup_git_task_runs_as_agent_user(playbook):
 
 
 def test_setup_git_task_is_idempotent(playbook):
-    claw, filename, _, tasks = playbook
+    claw, filename, _, _, _, tasks = playbook
     task = _find_task_in_tree(tasks, SETUP_GIT_TASK_NAME)
     assert task.get("changed_when") is False, (
         f"{claw}/{filename}: `changed_when: false` — setup-git is idempotent, "
@@ -105,39 +125,43 @@ def test_setup_git_task_is_idempotent(playbook):
 
 
 def test_setup_git_task_gated_on_github_integration(playbook):
-    claw, filename, _, tasks = playbook
+    """Verifies the exact canonical guard, not just substring presence."""
+    claw, filename, _, _, expected_gh_guard, tasks = playbook
     task = _find_task_in_tree(tasks, SETUP_GIT_TASK_NAME)
     when_clause = task.get("when")
     assert isinstance(when_clause, list), (
         f"{claw}/{filename}: `when:` must be a list of clauses"
     )
-    when_str = " ".join(when_clause)
-    # Must guard on the `github`-integration selectattr — no github integration
-    # attached => task is a no-op, so it does not touch gh on non-github agents.
-    assert "selectattr" in when_str and "'github'" in when_str, (
-        f"{claw}/{filename}: setup-git must be gated on presence of a "
-        f"github integration via selectattr. Got: {when_clause!r}"
+    normalized = [_normalize_when_expr(c) for c in when_clause]
+
+    # Exact github-integration selectattr guard: catches truncated or
+    # malformed filter chains that a substring match would miss.
+    assert GITHUB_INTEGRATION_WHEN in normalized, (
+        f"{claw}/{filename}: setup-git must be gated on the exact github "
+        f"integration filter:\n  expected: {GITHUB_INTEGRATION_WHEN!r}\n"
+        f"  got: {normalized!r}"
     )
-    # Must also guard on gh being installed (rc == 0 on Linux, stdout|trim
-    # length > 0 on macOS-shell probe).
-    assert "gh_check" in when_str, (
-        f"{claw}/{filename}: setup-git must be gated on the gh_check "
-        f"probe result. Got: {when_clause!r}"
+
+    # OS-appropriate gh probe guard: Linux uses rc, macOS uses stdout length.
+    # Swapping these is a semantic bug (which gh vs. which gh || true).
+    assert expected_gh_guard in normalized, (
+        f"{claw}/{filename}: setup-git must guard on the OS-appropriate "
+        f"gh probe form:\n  expected: {expected_gh_guard!r}\n"
+        f"  got: {normalized!r}"
     )
 
 
 def test_setup_git_task_invokes_gh_auth_setup_git(playbook):
-    claw, filename, _, tasks = playbook
+    """Pin the exact argv[0] per playbook — no substring matching."""
+    claw, filename, _, expected_argv0, _, tasks = playbook
     task = _find_task_in_tree(tasks, SETUP_GIT_TASK_NAME)
     cmd = task.get("ansible.builtin.command")
     assert isinstance(cmd, dict), f"{claw}/{filename}: must use ansible.builtin.command"
     argv = cmd.get("argv", [])
-    assert len(argv) == 3, f"{claw}/{filename}: argv must be [gh, auth, setup-git]. Got: {argv!r}"
-    # argv[0] varies by file convention (bare `gh` on hermes; `gh_check.stdout`
-    # on openclaw). Only require it references gh.
-    assert "gh" in argv[0], f"{claw}/{filename}: argv[0] must invoke gh. Got: {argv[0]!r}"
-    assert argv[1] == "auth", f"{claw}/{filename}: argv[1] must be 'auth'. Got: {argv[1]!r}"
-    assert argv[2] == "setup-git", f"{claw}/{filename}: argv[2] must be 'setup-git'. Got: {argv[2]!r}"
+    assert argv == [expected_argv0, "auth", "setup-git"], (
+        f"{claw}/{filename}: argv must be [{expected_argv0!r}, 'auth', 'setup-git']. "
+        f"Got: {argv!r}"
+    )
 
 
 def test_setup_git_task_follows_gitconfig_render(playbook):
@@ -146,20 +170,19 @@ def test_setup_git_task_follows_gitconfig_render(playbook):
     If ordering is reversed, the credential.helper line setup-git writes is
     silently dropped by the next configure run. This is the invariant called
     out in the zeroclaw comment block.
+
+    Uses the same depth-first finder as setup-git so a future refactor that
+    moves the render task into a block gives a correct error message.
     """
-    claw, filename, gitconfig_dest, tasks = playbook
+    claw, filename, _, _, _, tasks = playbook
+    render_idx = _find_task_index(tasks, GITCONFIG_TASK_NAME)
     setup_idx = _find_task_index(tasks, SETUP_GIT_TASK_NAME)
-    # Find the gitconfig render task by dest.
-    render_idx = None
-    for i, task in enumerate(tasks):
-        if not isinstance(task, dict):
-            continue
-        block = task.get("ansible.builtin.template", {})
-        if isinstance(block, dict) and block.get("dest") == gitconfig_dest:
-            render_idx = i
-            break
-    assert render_idx is not None, f"{claw}/{filename}: gitconfig render task not found"
-    assert setup_idx is not None, f"{claw}/{filename}: setup-git task not found"
+    assert render_idx is not None, (
+        f"{claw}/{filename}: `{GITCONFIG_TASK_NAME}` task not found"
+    )
+    assert setup_idx is not None, (
+        f"{claw}/{filename}: `{SETUP_GIT_TASK_NAME}` task not found"
+    )
     assert render_idx < setup_idx, (
         f"{claw}/{filename}: gitconfig render (idx {render_idx}) must precede "
         f"setup-git (idx {setup_idx}) — template overwrites, setup-git appends"
@@ -167,14 +190,17 @@ def test_setup_git_task_follows_gitconfig_render(playbook):
 
 
 def test_setup_git_task_follows_gh_auth_login(playbook):
-    """setup-git relies on gh's stored token; it MUST run after `gh auth login`."""
-    claw, filename, _, tasks = playbook
+    """setup-git relies on gh's stored token; it MUST run after `gh auth login`.
+
+    Both live inside the same `GitHub CLI authentication block`; assert the
+    ordering within that block, not just at top level.
+    """
+    claw, filename, _, _, _, tasks = playbook
     login_task = _find_task_in_tree(tasks, AUTH_LOGIN_TASK_NAME)
     assert login_task is not None, (
         f"{claw}/{filename}: `{AUTH_LOGIN_TASK_NAME}` task missing"
     )
-    # Both tasks live in the same GitHub CLI authentication block on all
-    # three playbooks; find their positions within that block.
+
     def _find_in_block(block_list, name):
         for i, t in enumerate(block_list):
             if isinstance(t, dict) and t.get("name") == name:
@@ -195,5 +221,5 @@ def test_setup_git_task_follows_gh_auth_login(playbook):
             return
     pytest.fail(
         f"{claw}/{filename}: could not find both auth-login and setup-git in "
-        f"the same block:"
+        f"the same block"
     )

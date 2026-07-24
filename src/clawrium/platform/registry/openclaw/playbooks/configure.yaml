@@ -159,7 +159,7 @@
         - name: Configure git credential helper via gh auth setup-git
           ansible.builtin.command:
             argv:
-              - "{{ gh_check.stdout }}"
+              - "{{ gh_check.stdout | trim }}"
               - auth
               - setup-git
           become: yes
