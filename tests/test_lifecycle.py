@@ -423,7 +423,7 @@ class TestRunLifecyclePlaybook:
         assert inventory["all"]["vars"]["dashboard_port"] == 45100
 
     def test_non_hermes_agent_does_not_get_dashboard_port(self, tmp_path: Path):
-        """ATX B2: zeroclaw / openclaw / nemoclaw must NOT receive a
+        """ATX B2: zeroclaw / openclaw must NOT receive a
         dashboard_port var. The agent-type guard is the only thing
         preventing future playbook tasks guarded by `when: dashboard_port
         is defined` from firing on the wrong claw."""

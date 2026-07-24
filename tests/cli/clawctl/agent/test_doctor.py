@@ -126,12 +126,12 @@ def test_doctor_unknown_renderer_type(fleet_dir, monkeypatch) -> None:
     """ATX iter-1 B5 — `_RENDERER_NAMES` miss must be surfaced as broken."""
     from clawrium.cli.clawctl.agent import doctor as doctor_mod
 
-    nemoclaw_inputs = RenderInputs(
+    phantom_inputs = RenderInputs(
         agent_name="wise-hypatia",
-        agent_type="nemoclaw",  # Not in _RENDERER_NAMES.
+        agent_type="phantomclaw",  # Not in _RENDERER_NAMES.
         provider=ProviderInputs(name="x", type="anthropic", api_key="k"),
     )
-    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda n: nemoclaw_inputs)
+    monkeypatch.setattr(doctor_mod, "build_render_inputs", lambda n: phantom_inputs)
 
     result = runner.invoke(app, ["agent", "doctor", "wise-hypatia"])
     assert result.exit_code != 0

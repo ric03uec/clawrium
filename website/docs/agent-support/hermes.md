@@ -167,7 +167,7 @@ Hermes is the only agent type in clawrium that accepts more than one provider at
 | 9 | `title_generation` | Generating session / transcript titles. |
 | 10 | `curator` | Memory curation / pruning. |
 
-The slot list comes from upstream `NousResearch/hermes-agent` (`hermes_cli/config.py`) and is mirrored in `src/clawrium/core/provider_attachments.py:AUXILIARY_SLOTS`. `zeroclaw`, `openclaw`, and `nemoclaw` reject `--role` and continue to enforce the single-provider invariant.
+The slot list comes from upstream `NousResearch/hermes-agent` (`hermes_cli/config.py`) and is mirrored in `src/clawrium/core/provider_attachments.py:AUXILIARY_SLOTS`. `zeroclaw` and `openclaw` reject `--role` and continue to enforce the single-provider invariant.
 
 #### Attach a primary and an auxiliary
 

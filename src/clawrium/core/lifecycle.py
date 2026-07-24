@@ -133,7 +133,6 @@ class LifecycleResult(TypedDict):
 ALIAS_TO_CANONICAL = {
     "opc": "openclaw",
     "zc": "zeroclaw",
-    "nc": "nemoclaw",
     "ethos": "ethos",
 }
 

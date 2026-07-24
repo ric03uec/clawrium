@@ -133,7 +133,7 @@ def test_run_agent_exec_timeout(monkeypatch, patched_env):
 
 def test_unknown_claw_type_raises(patched_env):
     with pytest.raises(agent_exec.AgentExecError):
-        agent_exec.run_agent_exec("10.0.0.1", "x", "nemoclaw", ["foo"])
+        agent_exec.run_agent_exec("10.0.0.1", "x", "phantomclaw", ["foo"])
 
 
 @pytest.mark.parametrize("cmd_argv", [[], None])

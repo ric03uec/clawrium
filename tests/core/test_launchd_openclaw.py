@@ -74,7 +74,7 @@ def test_render_openclaw_plist_paths_target_user_home():
 
 def test_unsupported_agent_type_raises():
     with pytest.raises(ValueError, match="unsupported agent_type"):
-        label_for("o1", agent_type="nemoclaw")
+        label_for("o1", agent_type="phantomclaw")
 
 
 def test_hermes_default_agent_type_unchanged():

@@ -172,8 +172,8 @@ def _compatibility_map(ref: SkillRef, metadata: dict[str, Any]) -> dict[str, boo
     the GUI doesn't have to special-case native skills.
 
     Claw list comes from ``NATIVE_REGISTRIES`` so any future claw
-    (e.g. ``nemoclaw``) added to ``core.skills`` automatically appears
-    in the compatibility map. ``sorted()`` for stable JSON ordering.
+    added to ``core.skills`` automatically appears in the compatibility
+    map. ``sorted()`` for stable JSON ordering.
     """
     claws = sorted(NATIVE_REGISTRIES)
     if ref.registry == "clawrium":

@@ -77,7 +77,7 @@ def test_install_non_openclaw_passes_empty_string_for_prerendered_var():
     `prerendered_openclaw_config_json = ""` and only overwrites it when
     `claw_name == "openclaw"`. This test pins the contract by reading
     the source: for non-openclaw claw_names (hermes / zeroclaw /
-    nemoclaw), the install ansible vars must carry an empty string for
+    any future non-openclaw type), the install ansible vars must carry an empty string for
     `prerendered_openclaw_config_json`. We assert the contract by
     checking the source code, since `run_installation` is too deeply
     nested to call ergonomically and the openclaw-only guard is the
