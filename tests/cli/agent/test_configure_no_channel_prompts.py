@@ -69,7 +69,7 @@ def test_configure_channels_stage_emits_deprecation_pointer(
         app,
         ["agent", "configure", "wise-hypatia", "--stage", "channels"],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "deprecated" in result.output
     assert "clawctl channel registry create" in result.output
     assert "clawctl agent channel attach" in result.output
@@ -175,7 +175,7 @@ def test_configure_stage_channels_fires_before_agent_resolution(
             "channels",
         ],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "deprecated" in result.output
     assert "clawctl channel registry create" in result.output
     assert "agent 'no-such-agent-here' not found" not in result.output

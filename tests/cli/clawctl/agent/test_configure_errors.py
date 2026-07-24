@@ -194,6 +194,6 @@ def test_channels_stage_deprecation_fires_before_agent_lookup(fleet_dir) -> None
         app,
         ["agent", "configure", "NO-SUCH-AGENT", "--stage", "channels"],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "deprecated" in result.output
     assert "not found" not in result.output
