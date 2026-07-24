@@ -118,58 +118,9 @@
         mode: "0600"
       no_log: true
 
-    - name: Render ~/.gitconfig for each git integration
-      ansible.builtin.template:
-        src: "{{ shared_template_path }}/gitconfig.j2"
-        dest: "/Users/{{ agent_name }}/.gitconfig"
-        owner: "{{ agent_name }}"
-        group: staff
-        mode: "0600"
-      become: yes
-      become_user: "{{ agent_name }}"
-      no_log: true
-      when: integrations is defined
-      loop: "{{ integrations | dict2items | selectattr('value.type', 'equalto', 'git') | list }}"
-      loop_control:
-        label: "{{ item.key }}"
-      vars:
-        git:
-          user_name:            "{{ item.value.GIT_USER_NAME | default('') }}"
-          user_email:           "{{ item.value.GIT_USER_EMAIL | default('') }}"
-          init_default_branch:  "{{ item.value.GIT_INIT_DEFAULT_BRANCH | default('main') }}"
-          pull_rebase:          "{{ item.value.GIT_PULL_REBASE | default('false') }}"
-          core_editor:          "{{ item.value.GIT_CORE_EDITOR | default('vim') }}"
-
-    - name: GitHub CLI authentication block
-      when: integrations is defined
-      block:
-        - name: Check if gh CLI is installed
-          ansible.builtin.shell: |
-            PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin which gh || true
-          args:
-            executable: /bin/bash
-          register: gh_check
-          changed_when: false
-          failed_when: false
-
-        - name: Authenticate gh CLI for each github integration
-          ansible.builtin.command:
-            argv:
-              - "{{ gh_check.stdout | trim }}"
-              - auth
-              - login
-              - --with-token
-            stdin: "{{ item.value.GITHUB_TOKEN }}"
-          become: yes
-          become_user: "{{ agent_name }}"
-          no_log: true
-          when:
-            - (gh_check.stdout | trim) | length > 0
-            - item.value.type == 'github'
-            - item.value.GITHUB_TOKEN is defined
-          loop: "{{ integrations | dict2items }}"
-          loop_control:
-            label: "{{ item.key }}"
+    # #649: github + git integration wiring moved to the canonical sync
+    # pipeline (`core/lifecycle_canonical.py:_setup_github_integration`).
+    # See the sibling comment in zeroclaw/playbooks/configure.yaml.
 
     - name: Write openclaw config (pre-rendered)
       ansible.builtin.copy:

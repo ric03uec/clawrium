@@ -2679,10 +2679,6 @@ def configure_agent(
     if not template_path.exists():
         return False, f"Template directory not found: {template_path}"
 
-    # Shared cross-claw templates (e.g. gitconfig.j2 — issue #531).
-    # Referenced from per-claw playbooks via `{{ shared_template_path }}`.
-    shared_template_path = Path(__file__).parent.parent / "platform" / "templates"
-
     # Get playbook path. The `playbook_path_override` hook lets the
     # caller (e.g. `lifecycle_macos.configure_agent`) supply a different
     # playbook without core/lifecycle.py needing to know which OS it is.
@@ -2973,7 +2969,6 @@ def configure_agent(
         "agent_type": resolved_type,
         "config": config_data,
         "template_path": str(template_path),
-        "shared_template_path": str(shared_template_path),
         "provider_api_key": provider_api_key,
         "aws_access_key": aws_access_key,
         "aws_secret_key": aws_secret_key,

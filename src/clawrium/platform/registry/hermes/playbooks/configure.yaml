@@ -133,75 +133,9 @@
       no_log: true
       notify: Restart hermes service
 
-    # Render ~/.gitconfig for each `git` integration (#531). Position
-    # mirrors zeroclaw: before the GitHub auth block so a future
-    # `gh auth setup-git` in hermes would not be wiped by the template.
-    # selectattr filter returns an empty list when no `git` integration
-    # is assigned, making this a no-op on existing fleets.
-    - name: Render ~/.gitconfig for each git integration
-      ansible.builtin.template:
-        src: "{{ shared_template_path }}/gitconfig.j2"
-        dest: "/home/{{ agent_name }}/.gitconfig"
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
-        mode: "0600"
-      become: yes
-      become_user: "{{ agent_name }}"
-      no_log: true
-      when: integrations is defined
-      loop: "{{ integrations | dict2items | selectattr('value.type', 'equalto', 'git') | list }}"
-      loop_control:
-        label: "{{ item.key }}"
-      vars:
-        git:
-          user_name:            "{{ item.value.GIT_USER_NAME | default('') }}"
-          user_email:           "{{ item.value.GIT_USER_EMAIL | default('') }}"
-          init_default_branch:  "{{ item.value.GIT_INIT_DEFAULT_BRANCH | default('main') }}"
-          pull_rebase:          "{{ item.value.GIT_PULL_REBASE | default('false') }}"
-          core_editor:          "{{ item.value.GIT_CORE_EDITOR | default('vim') }}"
-
-    # GitHub CLI authentication — runs `gh auth login --with-token` as the
-    # agent user for each assigned github integration. `gh` is a soft
-    # dependency: if it isn't installed, the env var path (GITHUB_TOKEN in
-    # .env above) still wires the token so skills calling the GitHub REST
-    # API directly continue to work.
-    #
-    # The `which gh` probe uses failed_when:false + a `when` guard on
-    # `gh_check.rc == 0` so absence of gh short-circuits the loop without
-    # failing the play. We pass the bare command `gh` (not `gh_check.stdout`)
-    # to the auth task: Ansible's own PATH resolution at exec time is the
-    # established pattern for system binaries and avoids inheriting any
-    # quoting / multi-line edge cases from the probe's stdout.
-    # `changed_when: false` keeps the task idempotent — re-running configure
-    # against a host that's already authenticated reports `ok`, not `changed`.
-    - name: GitHub CLI authentication block
-      when: integrations is defined
-      block:
-        - name: Check if gh CLI is installed
-          ansible.builtin.command: which gh
-          register: gh_check
-          changed_when: false
-          failed_when: false
-
-        - name: Authenticate gh CLI for each github integration
-          ansible.builtin.command:
-            argv:
-              - gh
-              - auth
-              - login
-              - --with-token
-            stdin: "{{ item.value.GITHUB_TOKEN }}"
-          become: yes
-          become_user: "{{ agent_name }}"
-          no_log: true
-          changed_when: false
-          when:
-            - gh_check.rc == 0
-            - item.value.type == 'github'
-            - item.value.GITHUB_TOKEN is defined
-          loop: "{{ integrations | dict2items }}"
-          loop_control:
-            label: "{{ item.key }}"
+    # #649: github + git integration wiring moved to the canonical sync
+    # pipeline (`core/lifecycle_canonical.py:_setup_github_integration`).
+    # See the sibling comment in zeroclaw/playbooks/configure.yaml.
 
     # Per-provider credential verification — uses `grep -q` so we get a clean
     # zero/non-zero exit status without leaking the rendered key into logs.

@@ -14,6 +14,11 @@ cut. The `itx:release` skill archives this section into a new
 
 ### BREAKING
 
+- **`clawctl agent sync` now wires github + git integrations end-to-end (#649).** Attaching a `clawrium-github` integration to a hermes, openclaw, zeroclaw, or ethos agent and running `clawctl agent sync <name>` now runs `gh auth login --with-token` and `gh auth setup-git` on the host as the agent user, so raw `git push` / `git pull` over HTTPS from an agent shell works with no manual steps. Same for `git`-type integrations: `~/.gitconfig` `[user]` / `[init]` / `[pull]` / `[core]` sections are rendered at sync time.
+  - **Migration**: none for operators — the first `clawctl agent sync` after upgrading materializes the fix. Existing hermes/openclaw agents that were provisioned before this release and never had `gh auth setup-git` run manually will get `~/.gitconfig` populated on their next sync.
+  - **Playbook contract change**: the `Render ~/.gitconfig for each git integration` and `GitHub CLI authentication block` tasks are **removed** from every `configure.yaml` (hermes, openclaw Linux + macOS, zeroclaw, ethos). Any third-party fork that invoked those playbooks directly must move github wiring to their sync path.
+  - The `src/clawrium/platform/templates/gitconfig.j2` template file and the `shared_template_path` Ansible extravar are **deleted** — no consumers remain.
+
 ### Added
 
 - `clawctl agent doctor <name>` — read-only health diagnostics command that
@@ -55,6 +60,8 @@ cut. The `itx:release` skill archives this section into a new
   tracked for staged removal in follow-up phases on #707.
 
 ### Fixed
+
+- `git push` / `git pull` over HTTPS from a hermes or openclaw agent shell now works out of the box when a `github` integration is attached (#649). Previously `gh auth login` had to be run manually via SSH after every fresh agent create — the modern `clawctl agent sync` pipeline never ran the github-wiring block that lived in the (largely-unreachable) `configure.yaml`. See the BREAKING entry for the sync-path lift.
 
 - Clearer error when `clawctl agent create` runs against a host whose
   facts have not been (or could not be) gathered. Instead of formatting

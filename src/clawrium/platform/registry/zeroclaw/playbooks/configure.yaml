@@ -147,93 +147,14 @@
       no_log: true
       notify: Restart zeroclaw service
 
-    # Render ~/.gitconfig for each `git` integration (#531). Positioned
-    # BEFORE `gh auth setup-git` so the credential.helper key that setup-git
-    # writes survives — setup-git appends to the existing gitconfig, but
-    # ansible.builtin.template overwrites the whole file. Reverse order
-    # would silently drop the credential.helper line.
-    # selectattr filter returns an empty list when no `git` integration is
-    # assigned, making this a no-op on existing fleets.
-    - name: Render ~/.gitconfig for each git integration
-      ansible.builtin.template:
-        src: "{{ shared_template_path }}/gitconfig.j2"
-        dest: "/home/{{ agent_name }}/.gitconfig"
-        owner: "{{ agent_name }}"
-        group: "{{ agent_name }}"
-        mode: "0600"
-      become: yes
-      become_user: "{{ agent_name }}"
-      no_log: true
-      when: integrations is defined
-      loop: "{{ integrations | dict2items | selectattr('value.type', 'equalto', 'git') | list }}"
-      loop_control:
-        label: "{{ item.key }}"
-      vars:
-        git:
-          user_name:            "{{ item.value.GIT_USER_NAME | default('') }}"
-          user_email:           "{{ item.value.GIT_USER_EMAIL | default('') }}"
-          init_default_branch:  "{{ item.value.GIT_INIT_DEFAULT_BRANCH | default('main') }}"
-          pull_rebase:          "{{ item.value.GIT_PULL_REBASE | default('false') }}"
-          core_editor:          "{{ item.value.GIT_CORE_EDITOR | default('vim') }}"
-
-    # GitHub CLI authentication block (#422).
-    # `gh` is a soft dependency: when absent, the Environment= drop-in above
-    # still wires GITHUB_TOKEN so skills calling the GitHub REST API
-    # directly continue to work. `changed_when: false` keeps the task
-    # idempotent — re-running configure against an authenticated host
-    # reports `ok` rather than `changed`.
-    - name: GitHub CLI authentication block
-      when: integrations is defined
-      block:
-        - name: Check if gh CLI is installed
-          ansible.builtin.command: which gh
-          register: gh_check
-          changed_when: false
-          failed_when: false
-
-        - name: Authenticate gh CLI for each github integration
-          ansible.builtin.command:
-            argv:
-              - gh
-              - auth
-              - login
-              - --with-token
-            stdin: "{{ item.value.GITHUB_TOKEN }}"
-          become: yes
-          become_user: "{{ agent_name }}"
-          no_log: true
-          changed_when: false
-          when:
-            - gh_check.rc == 0
-            - item.value.type == 'github'
-            - item.value.GITHUB_TOKEN is defined
-          loop: "{{ integrations | dict2items }}"
-          loop_control:
-            label: "{{ item.key }}"
-
-        # Configure git's credential helper to use gh's stored token for
-        # HTTPS pushes. `gh auth login --with-token` authenticates the
-        # `gh` CLI but does NOT touch git's credential.helper — without
-        # this, `git push https://github.com/...` fails to find the
-        # token even though the agent shell has GITHUB_TOKEN in env.
-        # Runs once per configure (not per-integration) because the
-        # credential helper is a host-level git config, not a per-token
-        # setting. Idempotent — `gh auth setup-git` overwrites the
-        # same config keys on each run.
-        - name: Configure git credential helper via gh auth setup-git
-          ansible.builtin.command:
-            argv:
-              - gh
-              - auth
-              - setup-git
-          become: yes
-          become_user: "{{ agent_name }}"
-          changed_when: false
-          when:
-            - gh_check.rc == 0
-            - integrations | dict2items
-              | selectattr('value.type', 'equalto', 'github')
-              | list | length > 0
+    # #649: github + git integration wiring moved to the canonical sync
+    # pipeline (`core/lifecycle_canonical.py:_setup_github_integration`).
+    # Fires on every `clawctl agent sync` when a `git` or `github`
+    # integration is attached, agent-type-agnostic. configure.yaml is
+    # not invoked by the modern kubectl-style CLI, so keeping the
+    # legacy `Render ~/.gitconfig` + `GitHub CLI authentication block`
+    # here was dead code — same class of bug as #755 / #834 (openclaw
+    # brave / hermes slack MCP install moved out of configure.yaml).
 
     # Apply pending restart (from the template task) before the readiness
     # probe so /health is observing the just-rendered config, not the
