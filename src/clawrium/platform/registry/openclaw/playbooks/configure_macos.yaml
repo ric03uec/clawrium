@@ -171,6 +171,26 @@
           loop_control:
             label: "{{ item.key }}"
 
+        # Configure git's credential helper to use gh's stored token for
+        # HTTPS pushes (#649). Mirrors the Linux sibling in
+        # configure.yaml — `gh auth login --with-token` above does NOT
+        # touch git's credential.helper, so raw `git push` over HTTPS
+        # from an agent shell fails until this task runs.
+        - name: Configure git credential helper via gh auth setup-git
+          ansible.builtin.command:
+            argv:
+              - "{{ gh_check.stdout | trim }}"
+              - auth
+              - setup-git
+          become: yes
+          become_user: "{{ agent_name }}"
+          changed_when: false
+          when:
+            - (gh_check.stdout | trim) | length > 0
+            - integrations | dict2items
+              | selectattr('value.type', 'equalto', 'github')
+              | list | length > 0
+
     - name: Write openclaw config (pre-rendered)
       ansible.builtin.copy:
         content: "{{ prerendered_openclaw_config_json }}"

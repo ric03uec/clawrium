@@ -56,6 +56,16 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- hermes and openclaw agents now run `gh auth setup-git` after
+  `gh auth login --with-token` during `clawctl agent configure`, so
+  raw `git push` / `git pull` over HTTPS from an agent shell works
+  out of the box whenever a `github` integration is attached — matching
+  zeroclaw's behavior. Previously `gh auth login` succeeded but git's
+  `credential.helper` was never configured, so `git push` failed with
+  `fatal: could not read Username for 'https://github.com'` and each
+  new agent required a manual `sudo -u <agent> gh auth setup-git` on
+  the host (#649).
+
 - **Security (#453)**: `clawctl agent` CLI now sanitizes remote-host
   messages and exception strings before printing them. `console.print`
   sites in `src/clawrium/cli/agent.py` (`on_event` lifecycle callbacks,

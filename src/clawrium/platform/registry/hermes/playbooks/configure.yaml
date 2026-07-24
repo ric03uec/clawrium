@@ -203,6 +203,30 @@
           loop_control:
             label: "{{ item.key }}"
 
+        # Configure git's credential helper to use gh's stored token for
+        # HTTPS pushes (#649). `gh auth login --with-token` above
+        # authenticates the `gh` CLI but does NOT touch git's
+        # credential.helper — without this, raw `git push` over HTTPS
+        # from an agent shell fails with "could not read Username",
+        # even though the agent has GITHUB_TOKEN in .env. Runs once
+        # per configure (not per-integration) because credential.helper
+        # is a host-level git setting. Idempotent — `gh auth setup-git`
+        # overwrites the same config keys on each run.
+        - name: Configure git credential helper via gh auth setup-git
+          ansible.builtin.command:
+            argv:
+              - gh
+              - auth
+              - setup-git
+          become: yes
+          become_user: "{{ agent_name }}"
+          changed_when: false
+          when:
+            - gh_check.rc == 0
+            - integrations | dict2items
+              | selectattr('value.type', 'equalto', 'github')
+              | list | length > 0
+
     # Per-provider credential verification — uses `grep -q` so we get a clean
     # zero/non-zero exit status without leaking the rendered key into logs.
     - name: Verify .env credentials for OpenRouter provider
