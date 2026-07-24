@@ -189,37 +189,47 @@ def test_setup_git_task_follows_gitconfig_render(playbook):
     )
 
 
+def _find_index_in_tree(tasks, name):
+    """Depth-first search that returns the *index* of `name` within its
+    containing list, plus the list itself. Returns (None, None) if not found.
+
+    Consistent with `_find_task_in_tree` — descends into `block:` lists so a
+    future refactor that nests tasks one level deeper (e.g. into `rescue:`)
+    still finds them and produces a real assertion, not a false pytest.fail.
+    """
+    for i, task in enumerate(tasks):
+        if not isinstance(task, dict):
+            continue
+        if task.get("name") == name:
+            return i, tasks
+        inner = task.get("block")
+        if isinstance(inner, list):
+            idx, container = _find_index_in_tree(inner, name)
+            if idx is not None:
+                return idx, container
+    return None, None
+
+
 def test_setup_git_task_follows_gh_auth_login(playbook):
     """setup-git relies on gh's stored token; it MUST run after `gh auth login`.
 
-    Both live inside the same `GitHub CLI authentication block`; assert the
-    ordering within that block, not just at top level.
+    Both live inside the same `GitHub CLI authentication block`. Requires
+    them to share a container list AND the setup-git index to come after.
     """
     claw, filename, _, _, _, tasks = playbook
-    login_task = _find_task_in_tree(tasks, AUTH_LOGIN_TASK_NAME)
-    assert login_task is not None, (
+    login_idx, login_container = _find_index_in_tree(tasks, AUTH_LOGIN_TASK_NAME)
+    setup_idx, setup_container = _find_index_in_tree(tasks, SETUP_GIT_TASK_NAME)
+    assert login_idx is not None, (
         f"{claw}/{filename}: `{AUTH_LOGIN_TASK_NAME}` task missing"
     )
-
-    def _find_in_block(block_list, name):
-        for i, t in enumerate(block_list):
-            if isinstance(t, dict) and t.get("name") == name:
-                return i
-        return None
-
-    for task in tasks:
-        inner = task.get("block") if isinstance(task, dict) else None
-        if not isinstance(inner, list):
-            continue
-        login_i = _find_in_block(inner, AUTH_LOGIN_TASK_NAME)
-        setup_i = _find_in_block(inner, SETUP_GIT_TASK_NAME)
-        if login_i is not None and setup_i is not None:
-            assert login_i < setup_i, (
-                f"{claw}/{filename}: setup-git (idx {setup_i}) must run after "
-                f"gh auth login (idx {login_i}) within the auth block"
-            )
-            return
-    pytest.fail(
-        f"{claw}/{filename}: could not find both auth-login and setup-git in "
-        f"the same block"
+    assert setup_idx is not None, (
+        f"{claw}/{filename}: `{SETUP_GIT_TASK_NAME}` task missing"
+    )
+    assert login_container is setup_container, (
+        f"{claw}/{filename}: setup-git and gh auth login must share a "
+        f"container (same block); found them in different lists"
+    )
+    assert login_idx < setup_idx, (
+        f"{claw}/{filename}: setup-git (idx {setup_idx}) must run after "
+        f"gh auth login (idx {login_idx}) within the auth block"
     )
