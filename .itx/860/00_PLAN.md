@@ -138,12 +138,100 @@ Local:
     zero hits inside `_run_channels_stage`'s remaining ~70-line body.
   - `wc -l src/clawrium/cli/agent.py` — should shrink by ~670 lines.
 
-Real-host UAT — **not required** for this change per the memory rule.
-Justification: (a) the removed code is provably unreachable (guarded
-by unconditional `raise` at line 876, verified via mypy/pytest), and
-(b) the two deprecation tests directly cover the only exit path an
-operator can reach via `--stage channels`. There is no on-host
-behavior to observe. Note this justification in the PR body.
+### Real-host UAT (mandatory before opening PR)
+
+Per the `no-PR-without-real-host-UAT` rule in AGENTS.md, this change
+requires real-host verification even though the removed code is dead.
+Reason: the change touches the operator-side `clawctl` CLI that talks
+to real agents; the smallest end-to-end signal that we did not break
+imports, dispatch, or the deprecation surface is a live run against
+wolf-i.
+
+**Target host:** `wolf-i` (the standing multi-agent host — hermes,
+zeroclaw, openclaw all present, plus real `clawrium-github`
+integrations to regression-check).
+
+**Target agents on wolf-i** (chosen to cover all three branches of
+`_channel_types_by_agent`):
+
+| Agent | Type | Attached integrations | Why chosen |
+|---|---|---|---|
+| `clawrium-gtm` | hermes | `clawrium-github` | Real production integration — best regression signal |
+| `e2e-zeroclaw` | zeroclaw | (none) | Exercises the zeroclaw branch of the deprecation message ("supported types: discord") |
+| `e2e-openclaw` | openclaw | (none) | Exercises the `channel_examples is None` branch (openclaw / nemoclaw fallback message) — the branch W3 flagged as untested |
+| `clawrium-d01` | zeroclaw | `clawrium-d01-github` | Second real-integration regression signal on a different agent type |
+
+Additional integrations that MUST remain unchanged on wolf-i after
+UAT (baseline captured from `clawctl agent integration get --agent
+<name>` before UAT begins):
+
+- `clawrium-triage` → `clawrium-github`
+- `clawrium-exec` → `clawrium-github`
+- `clawrium-maurice` → `clawrium-github`
+- `clawrium-gtm` → `clawrium-github`
+- `clawrium-d01` → `clawrium-d01-github`
+- `espresso`, `e2e-hermes`, `e2e-zeroclaw`, `e2e-openclaw`,
+  `ep6-hermes` → (none — pinned as still empty)
+
+**UAT steps** (run from operator machine with this branch checked
+out and `uv sync` fresh so the local edit is exercised):
+
+1. Baseline capture — for each agent above, run
+   `clawctl agent integration get --agent <name>` and save the
+   output. This is the invariant list.
+2. Exercise the changed code path on each target:
+   - `clawctl agent configure clawrium-gtm --stage channels`
+     → expect exit code 1, message contains "deprecated",
+     "clawctl channel registry create", "clawctl agent channel
+     attach clawrium-gtm", "clawctl agent sync clawrium-gtm",
+     and the hermes-typed hint "supported types: discord, slack".
+   - `clawctl agent configure e2e-zeroclaw --stage channels`
+     → expect exit code 1, same shape, but hint reads
+     "supported types: discord".
+   - `clawctl agent configure e2e-openclaw --stage channels`
+     → expect exit code 1, message hits the `channel_examples is
+     None` branch: text contains "does not currently support
+     attaching channels via the canonical store" and mentions
+     "#790".
+   - `clawctl agent configure clawrium-d01 --stage channels`
+     → expect exit code 1, zeroclaw hint.
+3. Regression check — re-run the baseline command on each agent from
+   step 1 and `diff` against saved output. MUST be byte-identical.
+4. Smoke that unrelated CLI paths still work (import surface check):
+   - `clawctl agent get` → lists all agents, no traceback.
+   - `clawctl agent describe clawrium-gtm` → renders without error.
+5. Confirm the daemon on each targeted agent is still `ready`:
+   `clawctl agent get | grep -E "clawrium-gtm|e2e-zeroclaw|e2e-openclaw|clawrium-d01"`
+   → all show `ready`.
+
+**Failure handling:** any UAT step failing blocks the PR. Do not
+open the PR with a "UAT failed but change is safe" caveat.
+
+**PR body evidence block** (verbatim, per AGENTS.md
+`no-PR-without-real-host-UAT` rule):
+
+```markdown
+## Real-host UAT
+
+**Host:** wolf-i
+**Agents exercised:** clawrium-gtm (hermes), e2e-zeroclaw (zeroclaw),
+e2e-openclaw (openclaw), clawrium-d01 (zeroclaw)
+**Integrations verified unchanged:** clawrium-github on
+clawrium-{gtm,triage,exec,maurice}; clawrium-d01-github on
+clawrium-d01; empty on {espresso, e2e-hermes, e2e-zeroclaw,
+e2e-openclaw, ep6-hermes}.
+
+Observed behavior:
+- `--stage channels` on all four targets exited 1 with the expected
+  per-type deprecation text (hermes → "discord, slack"; zeroclaw →
+  "discord"; openclaw → `channel_examples is None` fallback pointing
+  at #790).
+- `clawctl agent integration get` output byte-identical to the
+  pre-UAT baseline on every agent listed above.
+- `clawctl agent get` still shows all four targeted agents as `ready`.
+- `clawctl agent describe clawrium-gtm` rendered without error
+  (import surface intact).
+```
 
 ## Risk
 
