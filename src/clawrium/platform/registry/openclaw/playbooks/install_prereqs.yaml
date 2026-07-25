@@ -25,12 +25,17 @@
     # supply-chain fetch of arbitrary script content can't slip past
     # the AGENTS.md "Integration Binary Install" Rule 3 checksum
     # contract on a non-integration script.
-    nvm_installer_sha256: null
+    # v0.39.7 (pinned above); fetched + hashed by orchestrator on 2026-07-24
+    # from https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh.
+    # Bumping nvm_version MUST re-hash and update this constant (ATX iter-4 B1).
+    nvm_installer_sha256: "8e45fa547f428e9196a5613efad3bfa4d4608b74ca870f930090598f5af5f643"
     # SHA256 of the Docker apt GPG signing key
     # (https://download.docker.com/linux/ubuntu/gpg). `null` sentinel
     # forces a fail-fast so TLS-only trust can't gate all subsequent
     # root-level `apt install docker-ce` tasks (ATX iter-2 B1).
-    docker_gpg_sha256: null
+    # Fetched + hashed by orchestrator on 2026-07-24. Docker's GPG key
+    # rotates infrequently; re-hash if apt reports mismatch (ATX iter-4 B1).
+    docker_gpg_sha256: "1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
     # NVM is scoped to the SSH user (host prereq), not the agent user
     # which does not exist yet at prereqs-time. Agent-user npm scoping
     # is a Phase-3 concern once the actual npm-consuming subprocess is

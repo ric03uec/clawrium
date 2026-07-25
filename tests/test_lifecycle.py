@@ -39,7 +39,8 @@ class TestAliasToCanonical:
     Any silent re-introduction of an alias pointing at a phantom agent
     type (see #943 for the `nc → nemoclaw` removal) would cause
     `--type <alias>` to map to a nonexistent registry entry without a
-    clean failure — the whole point of removing the alias.
+    clean failure — the whole point of removing the alias. Restored in
+    ATX iter-4 B4 after being dropped during phase 1 refactor.
     """
 
     def test_nc_alias_absent(self):
