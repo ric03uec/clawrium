@@ -51,6 +51,18 @@
         create_home: yes
         shell: /bin/bash
 
+    # ATX iter-3 B2: `install_prereqs.yaml` adds the SSH user to the
+    # `docker` group at prereqs-time (agent user doesn't exist yet
+    # there); the agent user itself needs `docker` membership so
+    # nemoclaw sandbox tooling can talk to the Docker socket. Add it
+    # right after user creation so ownership of subsequent per-agent
+    # files sits with the right groups.
+    - name: Add agent user to docker group
+      ansible.builtin.user:
+        name: "{{ agent_name }}"
+        groups: docker
+        append: yes
+
     - name: Check per-agent openclaw binary
       ansible.builtin.stat:
         path: "/home/{{ agent_name }}/.openclaw/bin/openclaw"
