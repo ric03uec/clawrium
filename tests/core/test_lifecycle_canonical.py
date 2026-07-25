@@ -5527,6 +5527,36 @@ class TestOpenclawNemoclawOnboardOrdering:
             sync_agent_canonical("oc-nemo", verify=False)
         assert restart_called == []
 
+    def test_onboard_refuses_on_darwin_host(self, monkeypatch):
+        """ATX iter-2 B2: sandboxed openclaw on a darwin host must
+        raise `CanonicalSyncError` at sync time. The install-time
+        guard in `install_nemoclaw_macos.yaml` blocks the create path,
+        but a hand-edited hosts.json flipping `os_family` to darwin
+        must not silently route to the Linux runbook."""
+        host_record = self._build_openclaw_sync_env(
+            monkeypatch, runtime_key="runtime"
+        )
+        host_record["os_family"] = "darwin"
+
+        # Sentinel — if the Linux runbook fires despite darwin, the
+        # guard leaked. `_restart_unit` must also not be reached.
+        called: list[bool] = []
+
+        def _sentinel(*_a, **_kw):
+            called.append(True)
+            return True, None
+
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle._run_lifecycle_playbook", _sentinel
+        )
+        monkeypatch.setattr(lc, "_restart_unit", lambda *_a, **_kw: None)
+
+        with pytest.raises(CanonicalSyncError, match="darwin"):
+            sync_agent_canonical("oc-nemo", verify=False)
+        assert called == [], (
+            "_run_lifecycle_playbook ran on darwin — refuse guard leaked"
+        )
+
     def test_onboard_skipped_when_runtime_absent(self, monkeypatch):
         """Bare openclaw path (Phase 2 non-regression): if `config` does
         not declare `runtime: "nemoclaw"`, the onboard helper is a fast

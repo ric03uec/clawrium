@@ -26,6 +26,11 @@
     # the AGENTS.md "Integration Binary Install" Rule 3 checksum
     # contract on a non-integration script.
     nvm_installer_sha256: null
+    # SHA256 of the Docker apt GPG signing key
+    # (https://download.docker.com/linux/ubuntu/gpg). `null` sentinel
+    # forces a fail-fast so TLS-only trust can't gate all subsequent
+    # root-level `apt install docker-ce` tasks (ATX iter-2 B1).
+    docker_gpg_sha256: null
     # NVM is scoped to the SSH user (host prereq), not the agent user
     # which does not exist yet at prereqs-time. Agent-user npm scoping
     # is a Phase-3 concern once the actual npm-consuming subprocess is
@@ -115,6 +120,19 @@
         group: root
         mode: '0755'
 
+    # ATX iter-2 B1: without a content checksum, a CDN compromise or
+    # MITM during the initial uncached fetch could substitute a rogue
+    # PGP key that then gates all `apt install docker-ce` traffic.
+    - name: Fail if Docker GPG SHA256 pin is unresolved
+      ansible.builtin.fail:
+        msg: >-
+          `docker_gpg_sha256` is unresolved. Populate it in
+          `install_prereqs.yaml` `vars:` (sha256 of
+          https://download.docker.com/linux/ubuntu/gpg) before
+          installing. See AGENTS.md "Integration Binary Install"
+          Rule 3.
+      when: docker_gpg_sha256 in (None, "", "pending-upstream-freeze")
+
     - name: Fetch Docker apt signing key
       ansible.builtin.get_url:
         url: https://download.docker.com/linux/ubuntu/gpg
@@ -123,6 +141,7 @@
         group: root
         mode: '0644'
         force: no
+        checksum: "sha256:{{ docker_gpg_sha256 }}"
 
     - name: Add Docker apt repository
       ansible.builtin.apt_repository:
