@@ -1,0 +1,53 @@
+---
+# Phase 3 of #11 (issue #945): read-only sandbox health probe. Invoked
+# by `clawctl host validate` once per openclaw agent on the target
+# host. The playbook runs `nemoclaw status <sandbox_name>` and lets
+# the runner's rc/stdout bubble up to the caller — no idempotency
+# semantics beyond "did the command succeed?".
+#
+# Linux-only (mirrors `nemoclaw_onboard.yaml`). macOS is intentionally
+# unsupported: `install_nemoclaw_macos.yaml` refuses loudly, so a
+# darwin host with any openclaw agent would already have failed
+# earlier — this dispatcher guard is belt-and-suspenders.
+- hosts: all
+  become: yes
+  vars:
+    nemoclaw_binary: "/usr/local/bin/nemoclaw"
+  tasks:
+    - name: Refuse to run on non-Linux hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: nemoclaw_status.yaml invoked against non-Linux host
+      when: ansible_os_family == "Darwin"
+
+    - name: Assert sandbox_name extravar is provided
+      ansible.builtin.assert:
+        that:
+          - sandbox_name is defined
+          - sandbox_name | length > 0
+        fail_msg: >-
+          `sandbox_name` extravar is required. Threaded in by
+          `_run_lifecycle_playbook` for every openclaw op — a missing
+          value points to a legacy bare record predating #945.
+
+    - name: Assert nemoclaw binary is present on host
+      ansible.builtin.stat:
+        path: "{{ nemoclaw_binary }}"
+      register: nemoclaw_stat
+
+    - name: Fail if nemoclaw binary is missing
+      ansible.builtin.fail:
+        msg: >-
+          nemoclaw binary not found at {{ nemoclaw_binary }}. Re-run
+          `clawctl host prepare <host>` to install NemoClaw before
+          validating.
+      when: not nemoclaw_stat.stat.exists
+
+    - name: Query NemoClaw sandbox {{ sandbox_name }} status
+      ansible.builtin.command:
+        argv:
+          - "{{ nemoclaw_binary }}"
+          - status
+          - "{{ sandbox_name }}"
+      register: nemoclaw_status_result
+      changed_when: false
+      failed_when: nemoclaw_status_result.rc != 0

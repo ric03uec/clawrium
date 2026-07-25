@@ -93,6 +93,11 @@ def agent_to_row(
 ) -> dict:
     """Render an agent as a serializable row (plan §6.5 schema)."""
     install_at = claw_record.get("installed_at")
+    # Phase 3 of #11 (issue #945): surface the openclaw runtime substrate
+    # ("nemoclaw@<version>") on the fleet listing. Non-openclaw agents
+    # report a blank runtime — the column stays but reads as "-" in
+    # table output so the schema is uniform across agent types.
+    runtime = _runtime_display(claw_record)
     return {
         "kind": "agent",
         "name": claw_record.get("agent_name") or agent_key,
@@ -104,8 +109,29 @@ def agent_to_row(
         "age_seconds": now_seconds_since(install_at),
         "port": claw_record.get("gateway", {}).get("port"),
         "version": claw_record.get("version", ""),
+        "runtime": runtime,
         "installed_at": install_at,
     }
+
+
+def _runtime_display(claw_record: dict) -> Optional[str]:
+    """Return `<name>@<version>` for the agent's runtime substrate.
+
+    Reads `config.runtime` + `config.nemoclaw_version` (post-#945
+    every openclaw record carries both). Non-openclaw agents and
+    legacy records without a runtime field return None; the table
+    layer renders None as "-" so the column shape is uniform.
+    """
+    config = claw_record.get("config") or {}
+    if not isinstance(config, dict):
+        return None
+    runtime = config.get("runtime")
+    if not isinstance(runtime, str) or not runtime:
+        return None
+    version = config.get("nemoclaw_version") if runtime == "nemoclaw" else None
+    if isinstance(version, str) and version:
+        return f"{runtime}@{version}"
+    return runtime
 
 
 def _first_provider(claw_record: dict) -> Optional[str]:

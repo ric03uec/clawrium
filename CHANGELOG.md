@@ -18,6 +18,27 @@ cut. The `itx:release` skill archives this section into a new
   - **Migration**: none for operators — the first `clawctl agent sync` after upgrading materializes the fix. Existing hermes/openclaw agents that were provisioned before this release and never had `gh auth setup-git` run manually will get `~/.gitconfig` populated on their next sync.
   - **Playbook contract change**: the `Render ~/.gitconfig for each git integration` and `GitHub CLI authentication block` tasks are **removed** from every `configure.yaml` (hermes, openclaw Linux + macOS, zeroclaw, ethos). Any third-party fork that invoked those playbooks directly must move github wiring to their sync path.
   - The `src/clawrium/platform/templates/gitconfig.j2` template file and the `shared_template_path` Ansible extravar are **deleted** — no consumers remain.
+- **Openclaw is now sandboxed under NemoClaw (#11 / #945).** New
+  openclaw creates go through `install.sh` with the NemoClaw
+  substrate; `runtime: nemoclaw` is recorded in `hosts.json`. Existing
+  bare openclaw records are **grandfathered** — they continue to
+  sync + run untouched until you explicitly `remove + create` them.
+  The `runtime != "nemoclaw"` acceptance in
+  `core/lifecycle_canonical._openclaw_nemoclaw_onboard` is intentional
+  so operators can upgrade Clawrium without touching working prod
+  agents. To migrate an individual agent at your own pace:
+
+  ```bash
+  clawctl agent delete <name>
+  clawctl agent create --type openclaw --host <host> --name <name> --provider <provider>
+  ```
+
+  Full migration notes live in
+  [`docs/releases/26.7.3/CHANGELOG.md`](docs/releases/26.7.3/CHANGELOG.md).
+  macOS openclaw remains blocked at install pending an upstream
+  NemoClaw darwin binary (#11 §7.2). Ubuntu 24.04+ is the supported
+  floor for sandboxed openclaws.
+
 - **Removed the `nc` agent-type alias.** The alias was stale — no
   `nemoclaw` agent type exists in the registry, so `clawctl agent
   create --type nc <…>` was silently mapping to a nonexistent target
@@ -28,6 +49,18 @@ cut. The `itx:release` skill archives this section into a new
   NemoClaw runtime substrate (#11 / #943).
 
 ### Added
+
+- `clawctl host validate <hostname>` — read-only fleet-visibility probe
+  that runs `nemoclaw status <sandbox>` for every openclaw agent on the
+  host and reports per-agent health in a table. Exits 0 when all
+  sandboxes are healthy, 1 when any sandbox is unhealthy or a legacy
+  bare record blocks the probe. Supports `-o table|json|yaml`.
+  Phase 3 of the NemoClaw rollout (#11 / #945).
+- `clawctl agent get` now shows a `RUNTIME` column at the end of the
+  default table. Openclaw rows render `nemoclaw@<version>`; other
+  agent types render `-` so the schema stays uniform. Wide view
+  keeps the previous columns and appends `RUNTIME` before `INSTALLED`
+  (#11 / #945).
 
 - NemoClaw runtime substrate (`v0.0.97`) is now installed as part of
   `clawctl host prepare` for openclaw hosts. New openclaw agents are

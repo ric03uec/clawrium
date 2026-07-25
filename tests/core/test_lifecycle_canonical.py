@@ -189,9 +189,7 @@ def _stub_sync_environment(monkeypatch, *, agent_type: str = "hermes"):
         provider=ProviderInputs(
             name="o", type="openrouter", api_key="sk", default_model="m"
         ),
-        channels=(
-            ChannelInputs(name="d", type="discord", bot_token="t"),
-        ),
+        channels=(ChannelInputs(name="d", type="discord", bot_token="t"),),
         gateway=GatewayInputs(host="h", port=40000, auth="a"),
     )
     monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
@@ -650,19 +648,19 @@ def test_sync_agent_missing_from_hosts_raises(monkeypatch):
 @pytest.mark.parametrize(
     "bad_name",
     [
-        "..",                # path traversal (dotdot)
-        "foo/../bar",        # path traversal (nested)
-        "Wolf",              # uppercase
-        "a" * 33,            # too long
-        "",                  # empty string
-        "root",              # reserved Unix account
-        "xclm",              # reserved clawrium account
-        "wolf-i\n",          # trailing newline (ATX iter-1 B1 regression guard)
-        "wolf\x00",          # NUL byte
-        ";wolf",             # shell metacharacter
-        "wolf|bar",          # shell pipe
-        "wolf agent",        # space
-        "wolf$IFS",          # env var expansion
+        "..",  # path traversal (dotdot)
+        "foo/../bar",  # path traversal (nested)
+        "Wolf",  # uppercase
+        "a" * 33,  # too long
+        "",  # empty string
+        "root",  # reserved Unix account
+        "xclm",  # reserved clawrium account
+        "wolf-i\n",  # trailing newline (ATX iter-1 B1 regression guard)
+        "wolf\x00",  # NUL byte
+        ";wolf",  # shell metacharacter
+        "wolf|bar",  # shell pipe
+        "wolf agent",  # space
+        "wolf$IFS",  # env var expansion
     ],
     ids=[
         "dotdot",
@@ -691,6 +689,7 @@ def test_sync_rejects_invalid_agent_name(monkeypatch, bad_name):
     valid regex-only cases AND reserved-name cases must trip before
     any render work happens.)
     """
+
     def _boom_render(*_a, **_kw):
         raise AssertionError("build_render_inputs called before validation")
 
@@ -711,6 +710,7 @@ def test_sync_rejects_non_string_agent_name(monkeypatch, bad_name):
     slot) must be rejected by the isinstance guard BEFORE reaching
     `core.names.validate_agent_name` (which would `TypeError` on a
     non-string input)."""
+
     def _boom_render(*_a, **_kw):
         raise AssertionError("build_render_inputs called before validation")
 
@@ -723,7 +723,13 @@ def test_sync_rejects_non_string_agent_name(monkeypatch, bad_name):
 @pytest.mark.parametrize(
     "good_name",
     ["a", "a" * 32, "wolf_i", "wolf-i", "z9"],
-    ids=["single-char-min", "max-length-32", "with-underscore", "with-hyphen", "letter-digit"],
+    ids=[
+        "single-char-min",
+        "max-length-32",
+        "with-underscore",
+        "with-hyphen",
+        "letter-digit",
+    ],
 )
 def test_validate_agent_name_accepts_boundary_valid_names(good_name):
     """#753 W3 (ATX iter-1): direct positive boundary tests for
@@ -775,9 +781,7 @@ def test_sync_force_bypass_writes_through_secret_removal(monkeypatch):
         agent_name="alpha",
         agent_type="hermes",
         provider=ProviderInputs(name="o", type="openrouter", api_key="sk"),
-        channels=(
-            ChannelInputs(name="d", type="discord", bot_token="t"),
-        ),
+        channels=(ChannelInputs(name="d", type="discord", bot_token="t"),),
         gateway=GatewayInputs(host="h", port=1, auth="a"),
     )
     monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
@@ -883,9 +887,7 @@ def test_atomic_write_raises_when_install_fails():
     ]
     sftp = MagicMock()
     client.open_sftp.return_value = sftp
-    with pytest.raises(
-        CanonicalSyncError, match="install '/host/.hermes/.env' failed"
-    ):
+    with pytest.raises(CanonicalSyncError, match="install '/host/.hermes/.env' failed"):
         _atomic_write(
             client,
             agent_name="alpha",
@@ -982,12 +984,13 @@ def test_zeroclaw_sync_restart_false_still_repairs_bearer(monkeypatch):
     )
 
     repair_called = []
-    with patch(
-        "clawrium.core.lifecycle._zeroclaw_repair_after_start"
-    ) as mock_repair:
-        mock_repair.side_effect = lambda *a, **kw: repair_called.append(True) or (
-            True,
-            None,
+    with patch("clawrium.core.lifecycle._zeroclaw_repair_after_start") as mock_repair:
+        mock_repair.side_effect = lambda *a, **kw: (
+            repair_called.append(True)
+            or (
+                True,
+                None,
+            )
         )
         events: list[tuple[str, str]] = []
         result = sync_agent_canonical(
@@ -1096,8 +1099,7 @@ class TestDiagnoseUnitFailure:
             b"empty in /home/zeroclaw-x/.zeroclaw/config.toml\n",
             # Canonical phrasing — "must not be empty" branch (ATX
             # iter-2 W3: previously unexercised).
-            b"zeroclaw[1234]: validation: gateway.host must not be "
-            b"empty\n",
+            b"zeroclaw[1234]: validation: gateway.host must not be empty\n",
         ],
     )
     def test_zeroclaw_broadened_gateway_host_token(self, journal_line):
@@ -1126,8 +1128,7 @@ class TestDiagnoseUnitFailure:
             # original `|required` alternation produced.
             b"zeroclaw[1234]: Config field gateway.host (required): "
             b"set this to 0.0.0.0\n",
-            b"zeroclaw[1234]: checking gateway.host... required for "
-            b"daemon init\n",
+            b"zeroclaw[1234]: checking gateway.host... required for daemon init\n",
             # ATX iter-3 S3: also pin the exact `is required` /
             # `required` phrasings that the dropped `|required` branch
             # would have over-matched. These exercise the specific
@@ -1137,9 +1138,7 @@ class TestDiagnoseUnitFailure:
             b"zeroclaw[1234]: gateway.host required\n",
         ],
     )
-    def test_zeroclaw_required_annotation_does_not_over_match(
-        self, journal_line
-    ):
+    def test_zeroclaw_required_annotation_does_not_over_match(self, journal_line):
         """ATX iter-2 B1 + iter-3 S3: dropping `|required` from the
         alternation means startup logs mentioning `(required)`,
         `is required`, or bare `required` alongside `gateway.host` no
@@ -1192,8 +1191,7 @@ class TestDiagnoseUnitFailure:
         coverage so a regex typo or remediation truncation fails
         loudly."""
         journal = (
-            b"hermes[1234]: ConfigError: OPENROUTER_API_KEY is not set "
-            b"in environment\n"
+            b"hermes[1234]: ConfigError: OPENROUTER_API_KEY is not set in environment\n"
         )
         client = _FakeSSHClient(
             [("journalctl", 0, journal)],
@@ -1236,14 +1234,12 @@ class TestDiagnoseUnitFailure:
             # present at boot.
             b"hermes[1234]: OPENROUTER_API_KEY was not set on previous "
             b"boot, now present\n",
-            b"hermes[1234]: OPENROUTER_API_KEY was not set, now using "
-            b"fallback\n",
+            b"hermes[1234]: OPENROUTER_API_KEY was not set, now using fallback\n",
             # ATX iter-4 S3: bracket-form stale-env case that the
             # iter-2 comment narrated but no test previously
             # covered. Bracket separator is not in the `[\t :=]+`
             # class, so the diagnostic must NOT fire.
-            b"hermes[1234]: OPENROUTER_API_KEY [was not set, "
-            b"using fallback]\n",
+            b"hermes[1234]: OPENROUTER_API_KEY [was not set, using fallback]\n",
             # ATX iter-4 S4: a case that would fire under a naive
             # `.*` pattern but NOT under the tightened
             # `[\t :=]+(?:is\s+)?not\s+set\b` — the key name and
@@ -1306,8 +1302,7 @@ class TestDiagnoseUnitFailure:
         [
             # ATX iter-3 W-NEW-1: the colon-separator case the
             # iter-2 pattern silently missed.
-            b"hermes[1234]: OPENROUTER_API_KEY: is not set in "
-            b"environment\n",
+            b"hermes[1234]: OPENROUTER_API_KEY: is not set in environment\n",
             b"hermes[1234]: OPENROUTER_API_KEY: not set\n",
             # `KEY=` style — covered by the same `[\\t :=]+` class.
             b"hermes[1234]: OPENROUTER_API_KEY=not set\n",
@@ -1332,9 +1327,7 @@ class TestDiagnoseUnitFailure:
             b"hermes[1234]: OPENROUTER_API_KEY: is\tnot set\n",
         ],
     )
-    def test_provider_key_pattern_matches_canonical_separators(
-        self, journal_line
-    ):
+    def test_provider_key_pattern_matches_canonical_separators(self, journal_line):
         """ATX iter-3 W-NEW-1 + S6: the `[\\t :=]+` separator class
         (horizontal whitespace + colon + equals) plus the `(?i)`
         flag means colon, equals, and case-shifted variants all
@@ -1397,9 +1390,7 @@ class TestDiagnoseUnitFailure:
         a sudoers regression rather than hang waiting on a password
         prompt."""
         client = _FakeSSHClient([("journalctl", 0, b"")])
-        lc._diagnose_unit_failure(
-            client, unit="hermes-x.service", agent_type="hermes"
-        )
+        lc._diagnose_unit_failure(client, unit="hermes-x.service", agent_type="hermes")
         assert any("sudo -n " in cmd for cmd in client.calls), client.calls
 
     def test_zeroclaw_pattern_does_not_fire_on_hermes(self):
@@ -1433,8 +1424,7 @@ class TestDiagnoseUnitFailure:
         S1: make the dual nature explicit — the regex matches, the
         scope filter blocks."""
         journal = (
-            b"openclaw[1234]: [required_field_empty] gateway.host must "
-            b"not be empty\n"
+            b"openclaw[1234]: [required_field_empty] gateway.host must not be empty\n"
         )
         # Make the test intent explicit: the regex would match this
         # body. The scope filter is what suppresses the diagnostic.
@@ -1544,9 +1534,7 @@ class TestVerifyHealthDiagnosticWrap:
         ]
         client = _FakeSSHClient(scripted)
         with pytest.raises(CanonicalSyncError) as exc:
-            lc._verify_health(
-                client, agent_type="hermes", agent_name="x"
-            )
+            lc._verify_health(client, agent_type="hermes", agent_name="x")
         msg = str(exc.value)
         assert "not active after restart" in msg
         assert "state='activating'" in msg
@@ -1565,9 +1553,7 @@ class TestVerifyHealthDiagnosticWrap:
         ]
         client = _FakeSSHClient(scripted)
         with pytest.raises(CanonicalSyncError) as exc:
-            lc._verify_health(
-                client, agent_type="hermes", agent_name="x"
-            )
+            lc._verify_health(client, agent_type="hermes", agent_name="x")
         msg = str(exc.value)
         # No diagnostic suffix when no catalog entry matched — the
         # operator gets the same message as before #575.
@@ -1590,9 +1576,7 @@ class TestVerifyHealthDiagnosticWrap:
         # No second `journalctl` call — happy-path is one round trip.
         assert all("journalctl" not in c for c in client.calls)
 
-    def test_diagnose_helper_raise_does_not_mask_health_verdict(
-        self, monkeypatch
-    ):
+    def test_diagnose_helper_raise_does_not_mask_health_verdict(self, monkeypatch):
         """ATX B5: if `_diagnose_unit_failure` raises internally
         (defensive belt-and-braces against future regressions in the
         catalog or regex), `_verify_health` must still raise
@@ -1606,9 +1590,7 @@ class TestVerifyHealthDiagnosticWrap:
 
         monkeypatch.setattr(lc, "_diagnose_unit_failure", _raising_diagnose)
         with pytest.raises(CanonicalSyncError) as exc:
-            lc._verify_health(
-                client, agent_type="hermes", agent_name="x"
-            )
+            lc._verify_health(client, agent_type="hermes", agent_name="x")
         msg = str(exc.value)
         assert "not active after restart" in msg
         assert "state='activating'" in msg
@@ -1712,9 +1694,7 @@ def _stub_monotonic_linux(monkeypatch, ticks: list[float]) -> None:
 
     def _next_tick() -> float:
         if not feed:
-            raise AssertionError(
-                "test under-fed monotonic ticks — extend the list"
-            )
+            raise AssertionError("test under-fed monotonic ticks — extend the list")
         return feed.pop(0)
 
     monkeypatch.setattr(time_mod, "monotonic", _next_tick)
@@ -1843,9 +1823,7 @@ class TestVerifyHealthLinuxGatewayProbe:
             b"sh: command not found: bash\n",
         ],
     )
-    def test_bash_missing_breaks_early_with_diagnostic(
-        self, monkeypatch, stderr_text
-    ):
+    def test_bash_missing_breaks_early_with_diagnostic(self, monkeypatch, stderr_text):
         """If `bash` is not on PATH the probe surfaces as rc=127 with
         a "not found"-shaped error. The helper must break early with a
         diagnostic pointing at the missing tool — not chase the 15s
@@ -1885,9 +1863,7 @@ class TestVerifyHealthLinuxGatewayProbe:
         success here would write `state=READY` for a never-verified
         daemon and reintroduce the silent-green failure mode #812
         closes."""
-        client = _LinuxProbeClient(
-            [("systemctl is-active", 0, b"active\n", b"")]
-        )
+        client = _LinuxProbeClient([("systemctl is-active", 0, b"active\n", b"")])
         with pytest.raises(
             lc.CanonicalSyncError,
             match=r"no gateway port persisted.*install\.py never allocated",
@@ -1905,20 +1881,18 @@ class TestVerifyHealthLinuxGatewayProbe:
         "invalid_port",
         [
             "40198",  # string-typed (hand-edited hosts.json)
-            0,        # zero — POSIX reserved
-            -1,       # negative
-            65536,    # exact upper-bound off-by-one
-            3.14,     # float
-            True,     # bool (subclass of int)
-            False,    # also a bool
+            0,  # zero — POSIX reserved
+            -1,  # negative
+            65536,  # exact upper-bound off-by-one
+            3.14,  # float
+            True,  # bool (subclass of int)
+            False,  # also a bool
         ],
     )
     def test_invalid_port_rejected_before_probe(self, invalid_port):
         """Refuse to interpolate hand-edited junk into the shell probe.
         Mirrors the macOS dispatch invariant."""
-        client = _LinuxProbeClient(
-            [("systemctl is-active", 0, b"active\n", b"")]
-        )
+        client = _LinuxProbeClient([("systemctl is-active", 0, b"active\n", b"")])
         with pytest.raises(
             lc.CanonicalSyncError,
             match=r"invalid gateway_port",
@@ -2029,9 +2003,7 @@ class TestVerifyHealthLinuxGatewayProbe:
             pytest.param(EOFError("transport closed"), id="EOFError"),
         ],
     )
-    def test_ssh_channel_error_wrapped_as_canonical_error(
-        self, monkeypatch, exc
-    ):
+    def test_ssh_channel_error_wrapped_as_canonical_error(self, monkeypatch, exc):
         """ATX iter-2 B1 + ATX iter-3 W3/S1: every exception type
         paramiko can raise mid-poll MUST surface as
         `CanonicalSyncError`, not propagate raw through
@@ -2122,6 +2094,13 @@ class TestOpenclawBraveVersionPreflight:
         monkeypatch.setattr(
             lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
         )
+        # Phase 3 (#945): sync now dispatches nemoclaw onboard for
+        # openclaw agents even without a `runtime` key on the host
+        # record. Stub it here so tests targeting unrelated code paths
+        # (brave preflight, guard rails, slack MCP) don't spawn a real
+        # ansible-runner. Tests that DO target onboard behavior stub
+        # it themselves.
+        monkeypatch.setattr(lc, "_openclaw_nemoclaw_onboard", lambda *_a, **_kw: None)
 
     def test_below_min_version_raises(self, monkeypatch):
         self._setup(monkeypatch, (2026, 3, 13))
@@ -2158,9 +2137,7 @@ class TestOpenclawBraveVersionPreflight:
         unknown host where the plugin's minHostVersion contract cannot
         be evaluated."""
         self._setup(monkeypatch, None)
-        with pytest.raises(
-            CanonicalSyncError, match=r"openclaw on 'h' is <unknown>"
-        ):
+        with pytest.raises(CanonicalSyncError, match=r"openclaw on 'h' is <unknown>"):
             sync_agent_canonical("oc", restart=False, verify=False)
 
     def test_unknown_version_includes_probe_stderr(self, monkeypatch):
@@ -2248,9 +2225,7 @@ class TestOpenclawBraveVersionPreflight:
             called.append(True)
             return (2026, 5, 28), ""
 
-        monkeypatch.setattr(
-            lc, "_get_host_openclaw_version", _should_not_be_called
-        )
+        monkeypatch.setattr(lc, "_get_host_openclaw_version", _should_not_be_called)
         # ATX iter-2 W5: stub `_openclaw_install_plugins` so this test
         # does not implicitly exercise it (and the disk-bound
         # `_load_openclaw_plugins` it would call) — the test targets
@@ -2258,6 +2233,13 @@ class TestOpenclawBraveVersionPreflight:
         monkeypatch.setattr(
             lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
         )
+        # Phase 3 (#945): sync now dispatches nemoclaw onboard for
+        # openclaw agents even without a `runtime` key on the host
+        # record. Stub it here so tests targeting unrelated code paths
+        # (brave preflight, guard rails, slack MCP) don't spawn a real
+        # ansible-runner. Tests that DO target onboard behavior stub
+        # it themselves.
+        monkeypatch.setattr(lc, "_openclaw_nemoclaw_onboard", lambda *_a, **_kw: None)
         sync_agent_canonical("oc", restart=False, verify=False)
         assert called == [], "_get_host_openclaw_version was invoked"
 
@@ -2348,9 +2330,7 @@ class TestGetHostOpenclawVersionLinux:
         fail the test rather than survive on generic substring
         matches."""
         probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
-        version, _ = lc._get_host_openclaw_version_linux(
-            probe.as_client(), "wolf-i"
-        )
+        version, _ = lc._get_host_openclaw_version_linux(probe.as_client(), "wolf-i")
         assert version == (2026, 6, 8)
         cmd = probe.commands[0]
         # Per-agent path is Linux-rooted.
@@ -2391,9 +2371,7 @@ class TestGetHostOpenclawVersionLinux:
         """W5 ATX iter 2: stderr is captured and surfaced even when
         the probe fails. Operator now sees sudo / pam errors instead
         of an opaque `<unknown>`."""
-        probe = _ProbeMockClient(
-            "", "sudo: a password is required\n", 1
-        )
+        probe = _ProbeMockClient("", "sudo: a password is required\n", 1)
         version, stderr = lc._get_host_openclaw_version_linux(
             probe.as_client(), "wolf-i"
         )
@@ -2402,9 +2380,7 @@ class TestGetHostOpenclawVersionLinux:
 
     def test_unparseable_output_returns_none(self):
         probe = _ProbeMockClient("garbage output\n", "", 0)
-        version, _ = lc._get_host_openclaw_version_linux(
-            probe.as_client(), "wolf-i"
-        )
+        version, _ = lc._get_host_openclaw_version_linux(probe.as_client(), "wolf-i")
         assert version is None
 
     def test_agent_name_is_shell_quoted(self):
@@ -2437,9 +2413,7 @@ class TestGetHostOpenclawVersionMacos:
 
     def test_command_shape_includes_macos_per_agent_path_and_safelist(self):
         probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
-        version, _ = lc._get_host_openclaw_version_macos(
-            probe.as_client(), "wolf-m"
-        )
+        version, _ = lc._get_host_openclaw_version_macos(probe.as_client(), "wolf-m")
         assert version == (2026, 6, 8)
         cmd = probe.commands[0]
         # Per-agent path is macOS-rooted.
@@ -2504,9 +2478,7 @@ class TestGetHostOpenclawVersionDispatcher:
         """Older hosts.json records may pre-date os_family persistence;
         treat missing/empty as Linux to match the install.yaml default."""
         probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
-        lc._get_host_openclaw_version(
-            probe.as_client(), "wolf-i", os_family=""
-        )
+        lc._get_host_openclaw_version(probe.as_client(), "wolf-i", os_family="")
         assert "/home/wolf-i/.openclaw/bin/openclaw" in probe.commands[0]
 
     def test_capitalized_darwin_routes_to_macos(self):
@@ -2516,9 +2488,7 @@ class TestGetHostOpenclawVersionDispatcher:
         silently fall back to Linux and the macOS fork would be
         dead code for that host."""
         probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
-        lc._get_host_openclaw_version(
-            probe.as_client(), "wolf-m", os_family="Darwin"
-        )
+        lc._get_host_openclaw_version(probe.as_client(), "wolf-m", os_family="Darwin")
         assert "/Users/wolf-m/.openclaw/bin/openclaw" in probe.commands[0]
 
 
@@ -2543,9 +2513,7 @@ class TestGetHostOpenclawVersionHomeRootSeam:
 
         def _fake_home_root_for(os_family: str) -> str:
             if os_family != "linux":
-                raise ValueError(
-                    f"expected linux, got {os_family!r}"
-                )
+                raise ValueError(f"expected linux, got {os_family!r}")
             return "/SENTINEL-LINUX"
 
         monkeypatch.setattr(lc, "home_root_for", _fake_home_root_for)
@@ -2562,9 +2530,7 @@ class TestGetHostOpenclawVersionHomeRootSeam:
 
         def _fake_home_root_for(os_family: str) -> str:
             if os_family != "darwin":
-                raise ValueError(
-                    f"expected darwin, got {os_family!r}"
-                )
+                raise ValueError(f"expected darwin, got {os_family!r}")
             return "/SENTINEL-DARWIN"
 
         monkeypatch.setattr(lc, "home_root_for", _fake_home_root_for)
@@ -2589,15 +2555,11 @@ class TestGetHostOpenclawVersionHomeRootSeam:
         """
         probe_l = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
         lc._get_host_openclaw_version_linux(probe_l.as_client(), "wolf-i")
-        assert (
-            "/home/wolf-i/.openclaw/bin/openclaw" in probe_l.commands[0]
-        )
+        assert "/home/wolf-i/.openclaw/bin/openclaw" in probe_l.commands[0]
 
         probe_m = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
         lc._get_host_openclaw_version_macos(probe_m.as_client(), "wolf-m")
-        assert (
-            "/Users/wolf-m/.openclaw/bin/openclaw" in probe_m.commands[0]
-        )
+        assert "/Users/wolf-m/.openclaw/bin/openclaw" in probe_m.commands[0]
 
 
 class TestGetHostOpenclawVersionMacosInjection:
@@ -2644,10 +2606,7 @@ class TestOpenclawVersionProbeShellSemantics:
         version line + a marker echoing the resolved path so tests
         can confirm which binary actually ran."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            "#!/bin/bash\n"
-            'echo "openclaw 2026.6.8"\n'
-        )
+        path.write_text('#!/bin/bash\necho "openclaw 2026.6.8"\n')
         path.chmod(0o755)
 
     def _run(self, inner_script, *, path_dirs):
@@ -2678,9 +2637,7 @@ class TestOpenclawVersionProbeShellSemantics:
         # we can tell which binary ran.
         path_bin = tmp_path / "path-fallback"
         path_bin.mkdir()
-        (path_bin / "openclaw").write_text(
-            "#!/bin/bash\necho 'openclaw 1.0.0'\n"
-        )
+        (path_bin / "openclaw").write_text("#!/bin/bash\necho 'openclaw 1.0.0'\n")
         (path_bin / "openclaw").chmod(0o755)
 
         script = lc._build_openclaw_version_inner_script(
@@ -2836,9 +2793,7 @@ class TestLoadOpenclawBravePin:
                 }
             },
         )
-        with pytest.raises(
-            CanonicalSyncError, match=r"not a valid X\.Y\.Z version"
-        ):
+        with pytest.raises(CanonicalSyncError, match=r"not a valid X\.Y\.Z version"):
             lc._load_openclaw_brave_pin()
 
 
@@ -2936,9 +2891,7 @@ class _ScriptedSSHClient:
     def exec_command(self, cmd: str, timeout: int | None = None):
         self.calls.append(cmd)
         if not self._script:
-            raise AssertionError(
-                f"unexpected extra exec_command: {cmd!r}"
-            )
+            raise AssertionError(f"unexpected extra exec_command: {cmd!r}")
         stdout_body, stderr_body, rc = self._script.pop(0)
         shared_channel = _FakeChannel(rc)
         stdout = _FakeStream(stdout_body, rc)
@@ -2953,9 +2906,7 @@ def _inputs_with_integrations(types: list[str]):
     is read by `_openclaw_install_plugins`."""
     from clawrium.core.render import IntegrationInputs
 
-    integrations = tuple(
-        IntegrationInputs(name=f"my-{t}", type=t) for t in types
-    )
+    integrations = tuple(IntegrationInputs(name=f"my-{t}", type=t) for t in types)
     inputs = MagicMock()
     inputs.integrations = integrations
     return inputs
@@ -3167,13 +3118,14 @@ class TestOpenclawInstallPlugins:
             "_get_host_openclaw_version",
             lambda *_a, **_kw: ((2026, 6, 9), ""),
         )
-        monkeypatch.setattr(
-            lc, "_diff_removes_secrets", lambda _d: set()
-        )
+        monkeypatch.setattr(lc, "_diff_removes_secrets", lambda _d: set())
         monkeypatch.setattr(lc, "_atomic_write", lambda *_a, **_kw: None)
         monkeypatch.setattr(lc, "_openclaw_install_plugins", spy_install)
         monkeypatch.setattr(lc, "_restart_unit", spy_restart)
         monkeypatch.setattr(lc, "_verify_health", lambda **_: None)
+        # Phase 3 (#945): nemoclaw onboard now dispatches for openclaw;
+        # stub so this test's spy only sees plugin-install → restart.
+        monkeypatch.setattr(lc, "_openclaw_nemoclaw_onboard", lambda *_a, **_kw: None)
         # workspace_sync push: stub at import site
         monkeypatch.setattr(
             "clawrium.core.workspace_sync.push_workspace_phase",
@@ -3185,9 +3137,7 @@ class TestOpenclawInstallPlugins:
         sync_agent_canonical("wolf-i", verify=False)
         assert order == ["install_plugins", "restart_unit"]
 
-    def test_install_failure_short_circuits_before_restart(
-        self, monkeypatch
-    ):
+    def test_install_failure_short_circuits_before_restart(self, monkeypatch):
         """Companion to T5: when `_openclaw_install_plugins` raises,
         `_restart_unit` MUST NOT run. The agent is never restarted on
         a half-installed plugin set — mirrors the workspace-overlay
@@ -3226,9 +3176,7 @@ class TestOpenclawInstallPlugins:
                 ),
             ),
         )
-        rendered = RenderedFiles(
-            files={".openclaw/env": "BRAVE_API_KEY='bsk'\n"}
-        )
+        rendered = RenderedFiles(files={".openclaw/env": "BRAVE_API_KEY='bsk'\n"})
 
         monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
         monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
@@ -3246,14 +3194,13 @@ class TestOpenclawInstallPlugins:
         )
         monkeypatch.setattr(lc, "_openclaw_install_plugins", boom_install)
         monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+        monkeypatch.setattr(lc, "_openclaw_nemoclaw_onboard", lambda *_a, **_kw: None)
 
         with pytest.raises(CanonicalSyncError, match=r"plugin install boom"):
             sync_agent_canonical("wolf-i", verify=False)
         assert restart_called == []
 
-    def test_stamp_failure_after_successful_install_raises(
-        self, monkeypatch
-    ):
+    def test_stamp_failure_after_successful_install_raises(self, monkeypatch):
         """ATX iter-2 B2: the sentinel-stamp failure branch had zero
         coverage in iter-1. Distinct from install-failure: at this
         point the plugin IS installed; the only fallout is that a
@@ -3289,9 +3236,7 @@ class TestOpenclawInstallPlugins:
         # before the stamp step.
         assert "openclaw plugins install" in client.calls[1]
 
-    def test_t6_propagates_install_failure_with_pkg_and_stderr(
-        self, monkeypatch
-    ):
+    def test_t6_propagates_install_failure_with_pkg_and_stderr(self, monkeypatch):
         """T6: a non-zero install raises CanonicalSyncError whose
         message names both the npm package and the captured stderr —
         the operator's actionable signal."""
@@ -3381,9 +3326,7 @@ class TestLoadOpenclawPlugins:
         monkeypatch.setattr(
             yaml, "safe_load", lambda _txt: {"plugins": "not-a-mapping"}
         )
-        with pytest.raises(
-            CanonicalSyncError, match=r"not a mapping"
-        ):
+        with pytest.raises(CanonicalSyncError, match=r"not a mapping"):
             lc._load_openclaw_plugins()
 
 
@@ -3419,6 +3362,7 @@ class TestProbeHostInstall:
         client = _FakeSSHExec("unit:1\nhome:1\n")
         host = {"hostname": "h", "os_family": "linux"}
         from clawrium.core.lifecycle_canonical import probe_host_install as _probe
+
         result = _probe(
             client,
             agent_type="zeroclaw",
@@ -3438,6 +3382,7 @@ class TestProbeHostInstall:
     def test_unit_missing_only(self):
         client = _FakeSSHExec("unit:0\nhome:1\n")
         from clawrium.core.lifecycle_canonical import probe_host_install as _probe
+
         result = _probe(
             client,
             agent_type="zeroclaw",
@@ -3453,6 +3398,7 @@ class TestProbeHostInstall:
     def test_home_missing_only(self):
         client = _FakeSSHExec("unit:1\nhome:0\n")
         from clawrium.core.lifecycle_canonical import probe_host_install as _probe
+
         result = _probe(
             client,
             agent_type="hermes",
@@ -3466,6 +3412,7 @@ class TestProbeHostInstall:
     def test_both_missing_lists_both(self):
         client = _FakeSSHExec("unit:0\nhome:0\n")
         from clawrium.core.lifecycle_canonical import probe_host_install as _probe
+
         result = _probe(
             client,
             agent_type="zeroclaw",
@@ -3480,6 +3427,7 @@ class TestProbeHostInstall:
     def test_macos_uses_plist_path(self):
         client = _FakeSSHExec("unit:1\nhome:1\n")
         from clawrium.core.lifecycle_canonical import probe_host_install as _probe
+
         result = _probe(
             client,
             agent_type="hermes",
@@ -3570,9 +3518,7 @@ class TestSyncValidatePhaseProbe:
         # Regression guard against the iter-5 B1 bug.
         assert "clawctl agent install" not in msg
         # The validate emit fired.
-        assert any(
-            s == "validate" and "checking host install" in m for s, m in events
-        )
+        assert any(s == "validate" and "checking host install" in m for s, m in events)
         assert renderer_called["count"] == 0
         assert diff_called["count"] == 0
 
@@ -3584,8 +3530,12 @@ class TestSyncValidatePhaseProbe:
             lambda *_a, **_kw: self._make_probe(unit=True, home=False),
         )
         with pytest.raises(lc.AgentInstallMissingError) as excinfo:
-            sync_agent_canonical("alpha", restart=False, verify=False,
-                                 on_event=lambda s, m: events.append((s, m)))
+            sync_agent_canonical(
+                "alpha",
+                restart=False,
+                verify=False,
+                on_event=lambda s, m: events.append((s, m)),
+            )
         assert "/home/alpha/.zeroclaw" in str(excinfo.value)
 
     def test_probe_failure_lists_both_missing_artifacts(self, monkeypatch):
@@ -3596,8 +3546,12 @@ class TestSyncValidatePhaseProbe:
             lambda *_a, **_kw: self._make_probe(unit=False, home=False),
         )
         with pytest.raises(lc.AgentInstallMissingError) as excinfo:
-            sync_agent_canonical("alpha", restart=False, verify=False,
-                                 on_event=lambda s, m: events.append((s, m)))
+            sync_agent_canonical(
+                "alpha",
+                restart=False,
+                verify=False,
+                on_event=lambda s, m: events.append((s, m)),
+            )
         msg = str(excinfo.value)
         assert "zeroclaw-alpha.service" in msg
         assert "/home/alpha/.zeroclaw" in msg
@@ -3620,12 +3574,8 @@ class TestSyncValidatePhaseProbe:
         def _sentinel_repair(*_a, **_kw):
             raise AssertionError("zeroclaw repair must not run when probe fails")
 
-        monkeypatch.setattr(
-            workspace_sync, "push_workspace_phase", _sentinel_push
-        )
-        monkeypatch.setattr(
-            lifecycle, "_zeroclaw_repair_after_start", _sentinel_repair
-        )
+        monkeypatch.setattr(workspace_sync, "push_workspace_phase", _sentinel_push)
+        monkeypatch.setattr(lifecycle, "_zeroclaw_repair_after_start", _sentinel_repair)
         with pytest.raises(lc.AgentInstallMissingError):
             sync_agent_canonical(
                 "alpha",
@@ -3676,9 +3626,7 @@ class TestProbeHostInstallFailureModes:
         )
 
         client = _FakeSSHExec("totally not the probe output\n")
-        with pytest.raises(
-            CanonicalSyncError, match="unparseable output"
-        ):
+        with pytest.raises(CanonicalSyncError, match="unparseable output"):
             probe_host_install(
                 client,
                 agent_type="zeroclaw",
@@ -3700,9 +3648,7 @@ class TestProbeHostInstallFailureModes:
             def exec_command(self, _cmd, timeout=None):
                 raise paramiko.SSHException("session lost")
 
-        with pytest.raises(
-            CanonicalSyncError, match="transport failure"
-        ):
+        with pytest.raises(CanonicalSyncError, match="transport failure"):
             probe_host_install(
                 _Boom(),
                 agent_type="zeroclaw",
@@ -3721,9 +3667,7 @@ class TestProbeHostInstallFailureModes:
             def exec_command(self, _cmd, timeout=None):
                 raise OSError("connection reset by peer")
 
-        with pytest.raises(
-            CanonicalSyncError, match="transport failure"
-        ):
+        with pytest.raises(CanonicalSyncError, match="transport failure"):
             probe_host_install(
                 _Broken(),
                 agent_type="zeroclaw",
@@ -3774,9 +3718,7 @@ class TestProbeHostInstallFailureModes:
                 return (
                     None,
                     _C("unit:1\nhome:0\n"),
-                    _C(
-                        "sudo: a password is required\n"
-                    ),
+                    _C("sudo: a password is required\n"),
                 )
 
         with pytest.raises(CanonicalSyncError, match="sudo refused"):
@@ -3945,9 +3887,7 @@ def test_looks_like_sudo_refusal_does_not_match_benign_stderr():
 
     assert not _looks_like_sudo_refusal("warning: unrelated noise")
     assert not _looks_like_sudo_refusal("")
-    assert not _looks_like_sudo_refusal(
-        "ssh: connect to host x: connection refused"
-    )
+    assert not _looks_like_sudo_refusal("ssh: connect to host x: connection refused")
 
 
 @pytest.mark.parametrize(
@@ -4026,6 +3966,13 @@ class TestSyncRefusesIncompleteInstall:
         monkeypatch.setattr(
             lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
         )
+        # Phase 3 (#945): sync now dispatches nemoclaw onboard for
+        # openclaw agents even without a `runtime` key on the host
+        # record. Stub it here so tests targeting unrelated code paths
+        # (brave preflight, guard rails, slack MCP) don't spawn a real
+        # ansible-runner. Tests that DO target onboard behavior stub
+        # it themselves.
+        monkeypatch.setattr(lc, "_openclaw_nemoclaw_onboard", lambda *_a, **_kw: None)
         # ATX review W8: stub `push_workspace_phase` so the clean-record
         # path reaches a deterministic return value instead of bubbling
         # an unrelated workspace-sync failure that could mask the
@@ -4126,9 +4073,7 @@ class TestSyncRefusesIncompleteInstall:
             {"status": "failed", "installed_at": None},
         )
         with pytest.raises(CanonicalSyncError, match=r"incomplete installation"):
-            sync_agent_canonical(
-                "oc", restart=False, verify=False, workspace_only=True
-            )
+            sync_agent_canonical("oc", restart=False, verify=False, workspace_only=True)
 
 
 # ---------------------------------------------------------------------------
@@ -4169,9 +4114,7 @@ class TestHermesInstallSlackMCP:
             )
             return success, err
 
-        monkeypatch.setattr(
-            "clawrium.core.lifecycle._run_lifecycle_playbook", _fake
-        )
+        monkeypatch.setattr("clawrium.core.lifecycle._run_lifecycle_playbook", _fake)
         return calls
 
     def test_no_slack_integration_is_noop(self, monkeypatch):
@@ -4327,9 +4270,7 @@ class TestHermesInstallSlackMCP:
         against a future refactor narrowing `any(t in slack_types
         for i in ...)` to equality against a single type."""
         calls = self._stub_playbook(monkeypatch)
-        inputs = _inputs_with_integrations(
-            ["github", "slack-user", "atlassian"]
-        )
+        inputs = _inputs_with_integrations(["github", "slack-user", "atlassian"])
 
         lc._hermes_install_slack_mcp(
             "maurice", "wolf-i", {"os_family": "linux"}, inputs
@@ -4424,9 +4365,7 @@ class TestHermesSlackInstallRunsBeforeRestart:
         # #835: hermes renderer now takes `os_family=` from
         # `sync_agent_canonical`. `**_kw` accepts it and any future
         # renderer kwargs without silently masking a signature bug.
-        monkeypatch.setitem(
-            lc._RENDERERS, "hermes", lambda _, **_kw: rendered
-        )
+        monkeypatch.setitem(lc._RENDERERS, "hermes", lambda _, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -4482,9 +4421,7 @@ class TestHermesSlackInstallRunsBeforeRestart:
 
         assert order == ["slack_mcp_install", "restart_unit"]
 
-    def test_b2_install_failure_short_circuits_before_restart(
-        self, monkeypatch
-    ):
+    def test_b2_install_failure_short_circuits_before_restart(self, monkeypatch):
         """B2 (ATX iter-4): when `_hermes_install_slack_mcp` raises,
         `_restart_unit` MUST NOT run — the daemon is never restarted
         on a rendered config pointing at a binary that failed to land.
@@ -4531,9 +4468,7 @@ class TestConfigurePlaybooksNoSlackInstall:
     not "configure_macos.yaml must exist"."""
 
     @pytest.mark.parametrize("agent_type", ["hermes", "openclaw", "zeroclaw"])
-    def test_configure_playbooks_contain_no_slack_install(
-        self, agent_type: str
-    ):
+    def test_configure_playbooks_contain_no_slack_install(self, agent_type: str):
         """Slack install must not appear in configure.yaml or
         configure_macos.yaml. Mirrors the openclaw brave regression
         guard at
@@ -4611,9 +4546,7 @@ class TestOpenclawInstallSlackMCP:
             )
             return success, err
 
-        monkeypatch.setattr(
-            "clawrium.core.lifecycle._run_lifecycle_playbook", _fake
-        )
+        monkeypatch.setattr("clawrium.core.lifecycle._run_lifecycle_playbook", _fake)
         return calls
 
     def test_no_slack_integration_is_noop(self, monkeypatch):
@@ -4763,7 +4696,7 @@ class TestOpenclawSlackInstallRunsBeforeRestart:
         return RenderedFiles(
             files={
                 ".openclaw/env": "OPENROUTER_API_KEY='sk'\n",
-                ".openclaw/openclaw.json": "{\n  \"mcp\": {\"servers\": {}}\n}\n",
+                ".openclaw/openclaw.json": '{\n  "mcp": {"servers": {}}\n}\n',
             }
         )
 
@@ -4804,9 +4737,7 @@ class TestOpenclawSlackInstallRunsBeforeRestart:
         fake_diff.remote_body = ""
 
         monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
-        monkeypatch.setitem(
-            lc._RENDERERS, "openclaw", lambda _, **_kw: rendered
-        )
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -4831,6 +4762,10 @@ class TestOpenclawSlackInstallRunsBeforeRestart:
         # openclaw branch; stub it so the slack-install-before-restart
         # invariant we're actually testing isn't obscured.
         monkeypatch.setattr(lc, "_openclaw_install_plugins", lambda *_a, **_kw: None)
+        # Phase 3 (#945): nemoclaw onboard dispatches unconditionally for
+        # openclaw; stub so the slack-install-before-restart invariant
+        # isn't obscured by an onboard SSH probe.
+        monkeypatch.setattr(lc, "_openclaw_nemoclaw_onboard", lambda *_a, **_kw: None)
         monkeypatch.setattr(
             "clawrium.core.workspace_sync.push_workspace_phase",
             lambda **_kw: MagicMock(
@@ -4922,9 +4857,7 @@ class TestZeroclawInstallSlackMCP:
             )
             return success, err
 
-        monkeypatch.setattr(
-            "clawrium.core.lifecycle._run_lifecycle_playbook", _fake
-        )
+        monkeypatch.setattr("clawrium.core.lifecycle._run_lifecycle_playbook", _fake)
         return calls
 
     def test_no_slack_integration_is_noop(self, monkeypatch):
@@ -5134,9 +5067,7 @@ class TestZeroclawSlackInstallRunsBeforeRestart:
         fake_diff.remote_body = ""
 
         monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
-        monkeypatch.setitem(
-            lc._RENDERERS, "zeroclaw", lambda _, **_kw: rendered
-        )
+        monkeypatch.setitem(lc._RENDERERS, "zeroclaw", lambda _, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -5267,9 +5198,7 @@ def _stub_zeroclaw_sync_env(monkeypatch, tmp_path):
     captured: dict = {"onboard": None, "called": False}
 
     def spy_renderer(rendered_inputs, **_kw):
-        captured["onboard"] = tuple(
-            rendered_inputs.onboard_completed_sections
-        )
+        captured["onboard"] = tuple(rendered_inputs.onboard_completed_sections)
         captured["called"] = True
         return RenderedFiles(
             files={
@@ -5448,9 +5377,7 @@ class TestOpenclawNemoclawOnboardOrdering:
             },
         }
         monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
-        monkeypatch.setitem(
-            lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered
-        )
+        monkeypatch.setitem(lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered)
         monkeypatch.setattr(
             lc,
             "get_agent_by_name",
@@ -5463,16 +5390,16 @@ class TestOpenclawNemoclawOnboardOrdering:
             "_get_host_openclaw_version",
             lambda *_a, **_kw: ((2026, 6, 9), ""),
         )
-        monkeypatch.setattr(
-            lc, "_diff_removes_secrets", lambda _d: set()
-        )
+        monkeypatch.setattr(lc, "_diff_removes_secrets", lambda _d: set())
         monkeypatch.setattr(lc, "_atomic_write", lambda *_a, **_kw: None)
         monkeypatch.setattr(
             lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
         )
-        monkeypatch.setattr(
-            lc, "_openclaw_install_slack_mcp", lambda *_a, **_kw: None
-        )
+        # NB: `_openclaw_nemoclaw_onboard` is intentionally NOT stubbed
+        # here — this fixture is the shared setup for
+        # TestOpenclawNemoclawOnboardOrdering, whose tests exercise the
+        # real onboard function.
+        monkeypatch.setattr(lc, "_openclaw_install_slack_mcp", lambda *_a, **_kw: None)
         monkeypatch.setattr(lc, "_verify_health", lambda **_: None)
         monkeypatch.setattr(
             "clawrium.core.workspace_sync.push_workspace_phase",
@@ -5533,9 +5460,7 @@ class TestOpenclawNemoclawOnboardOrdering:
         guard in `install_nemoclaw_macos.yaml` blocks the create path,
         but a hand-edited hosts.json flipping `os_family` to darwin
         must not silently route to the Linux runbook."""
-        host_record = self._build_openclaw_sync_env(
-            monkeypatch, runtime_key="runtime"
-        )
+        host_record = self._build_openclaw_sync_env(monkeypatch, runtime_key="runtime")
         host_record["os_family"] = "darwin"
 
         # Sentinel — if the Linux runbook fires despite darwin, the
@@ -5557,28 +5482,37 @@ class TestOpenclawNemoclawOnboardOrdering:
             "_run_lifecycle_playbook ran on darwin — refuse guard leaked"
         )
 
-    def test_onboard_skipped_when_runtime_absent(self, monkeypatch):
-        """Bare openclaw path (Phase 2 non-regression): if `config` does
-        not declare `runtime: "nemoclaw"`, the onboard helper is a fast
-        no-op — no ansible-runner spawn, no SSH exec."""
+    def test_onboard_fails_loud_on_stale_non_nemoclaw_runtime(self, monkeypatch):
+        """Phase 3 (#945): a record explicitly stamped with a
+        non-nemoclaw runtime (e.g. `runtime: bare` from a broken
+        sync) MUST raise `CanonicalSyncError` with the migration URL
+        so the operator knows exactly what to do."""
+        host_record = self._build_openclaw_sync_env(monkeypatch, runtime_key="runtime")
+        host_record["agents"]["oc-nemo"]["config"]["runtime"] = "bare"
+
+        with pytest.raises(CanonicalSyncError, match=r"docs/releases/26\.7\.3"):
+            sync_agent_canonical("oc-nemo", verify=False)
+
+    def test_onboard_skipped_for_legacy_bare_record(self, monkeypatch):
+        """Legacy bare openclaw records (no `runtime` key at all) are
+        left alone by the onboard helper — sync stays a no-op on
+        untouched-since-migration records. Post-#945 `set_installing`
+        stamps every new/re-created openclaw with `runtime: nemoclaw`,
+        so this compatibility path only fires for records that have
+        not been touched by any Phase 3+ clawctl op."""
         self._build_openclaw_sync_env(monkeypatch, runtime_key=None)
 
-        # Do NOT stub `_openclaw_nemoclaw_onboard` — we want the real
-        # gating code to run and short-circuit on absent runtime. Stub
-        # `_run_lifecycle_playbook` as a sentinel: if it fires, the gate
-        # leaked and the test fails.
-        called: list[bool] = []
+        dispatched: list[bool] = []
 
-        def _sentinel(*_a, **_kw):
-            called.append(True)
+        def _spy(*_a, **_kw):
+            dispatched.append(True)
             return True, None
 
-        monkeypatch.setattr(
-            "clawrium.core.lifecycle._run_lifecycle_playbook", _sentinel
-        )
+        monkeypatch.setattr("clawrium.core.lifecycle._run_lifecycle_playbook", _spy)
         monkeypatch.setattr(lc, "_restart_unit", lambda *_a, **_kw: None)
 
         sync_agent_canonical("oc-nemo", verify=False)
-        assert called == [], (
-            "_run_lifecycle_playbook was invoked for a bare openclaw agent"
+        assert dispatched == [], (
+            "onboard playbook must NOT dispatch for a legacy bare "
+            "record; the compatibility skip trips before ansible-runner"
         )

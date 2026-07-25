@@ -311,12 +311,8 @@ def _get_host_openclaw_version(
     dispatcher-only-OS-fork convention in AGENTS.md.
     """
     if (os_family or "linux").lower() == "darwin":
-        return _get_host_openclaw_version_macos(
-            client, agent_name, timeout=timeout
-        )
-    return _get_host_openclaw_version_linux(
-        client, agent_name, timeout=timeout
-    )
+        return _get_host_openclaw_version_macos(client, agent_name, timeout=timeout)
+    return _get_host_openclaw_version_linux(client, agent_name, timeout=timeout)
 
 
 class CanonicalSyncError(Exception):
@@ -473,8 +469,7 @@ def probe_host_install(
         stderr_text = err.read().decode("utf-8", errors="replace")
     except (paramiko.SSHException, OSError) as exc:
         raise CanonicalSyncError(
-            f"host install probe transport failure for "
-            f"{agent_name!r}: {exc}"
+            f"host install probe transport failure for {agent_name!r}: {exc}"
         ) from exc
     parsed, unit_present, home_present = _parse_probe_output(body)
     if not parsed:
@@ -482,11 +477,7 @@ def probe_host_install(
         # stderr, an SSH MOTD interleaved into stdout, or a
         # transport hiccup. Raise the typed error rather than
         # invent a "both missing" verdict.
-        hint = (
-            f" stderr: {stderr_text.strip()!r}"
-            if stderr_text.strip()
-            else ""
-        )
+        hint = f" stderr: {stderr_text.strip()!r}" if stderr_text.strip() else ""
         raise CanonicalSyncError(
             f"host install probe for {agent_name!r} returned "
             f"unparseable output: {body!r}.{hint}"
@@ -495,11 +486,7 @@ def probe_host_install(
     # stderr looks like a sudo refusal, we cannot trust the
     # home_present verdict — raise instead of mis-flagging the
     # agent as INSTALL_MISSING.
-    if (
-        not home_present
-        and stderr_text
-        and _looks_like_sudo_refusal(stderr_text)
-    ):
+    if not home_present and stderr_text and _looks_like_sudo_refusal(stderr_text):
         raise CanonicalSyncError(
             f"host install probe for {agent_name!r} could not "
             f"verify {home_path!r}: sudo refused on host "
@@ -515,9 +502,7 @@ def probe_host_install(
     )
 
 
-def _agent_home_path(
-    os_family: str, agent_type: str, agent_name: str
-) -> str:
+def _agent_home_path(os_family: str, agent_type: str, agent_name: str) -> str:
     """Single source of truth for the agent's `.<type>` home dir.
 
     Mirrored by `health._probe_install_artifacts`. Extracted (ATX
@@ -892,9 +877,7 @@ def _restart_unit(
 # callers — only the compile-time `summary` + `remediation` strings
 # are returned, so adding a tuple element that captures the matched
 # line would be a security regression (avoid).
-_KNOWN_UNIT_FATAL_PATTERNS: tuple[
-    tuple[str, frozenset[str], str, str], ...
-] = (
+_KNOWN_UNIT_FATAL_PATTERNS: tuple[tuple[str, frozenset[str], str, str], ...] = (
     (
         r"discord\.errors\.LoginFailure",
         frozenset({"hermes"}),
@@ -931,7 +914,7 @@ _KNOWN_UNIT_FATAL_PATTERNS: tuple[
         "zeroclaw daemon refused an empty `gateway.host`.",
         "Re-run `clawctl agent sync <agent>` after `clawctl` is upgraded "
         "to a release containing the #576 fix, or hand-edit "
-        "`~/.zeroclaw/config.toml` on the host to set `host = \"0.0.0.0\"` "
+        '`~/.zeroclaw/config.toml` on the host to set `host = "0.0.0.0"` '
         "under `[gateway]` and restart the unit.",
     ),
     (
@@ -1088,9 +1071,7 @@ def _verify_health(
                 exc,
             )
             diagnostic = None
-        base = (
-            f"unit {unit} is not active after restart (state={state!r})"
-        )
+        base = f"unit {unit} is not active after restart (state={state!r})"
         if diagnostic:
             raise CanonicalSyncError(f"{base}. Diagnosis: {diagnostic}")
         raise CanonicalSyncError(base)
@@ -1189,19 +1170,12 @@ def _verify_gateway_listening_linux(
     # `type(...) is int` (not `isinstance`) so True/False are rejected:
     # bool is an int subclass and a JSON parser that round-trips `true`
     # through `int` would otherwise sail through.
-    if (
-        type(gateway_port) is not int
-        or not 0 < gateway_port < 65536
-    ):
+    if type(gateway_port) is not int or not 0 < gateway_port < 65536:
         raise CanonicalSyncError(
-            f"_verify_gateway_listening_linux: invalid gateway_port "
-            f"{gateway_port!r}"
+            f"_verify_gateway_listening_linux: invalid gateway_port {gateway_port!r}"
         )
 
-    probe = (
-        f"bash -c 'exec 3<>/dev/tcp/127.0.0.1/{gateway_port}' "
-        f"</dev/null 2>&1"
-    )
+    probe = f"bash -c 'exec 3<>/dev/tcp/127.0.0.1/{gateway_port}' </dev/null 2>&1"
     deadline = _time.monotonic() + timeout
     while _time.monotonic() < deadline:
         # ATX iter-2 B1: every other `exec_command` call site in this
@@ -1319,9 +1293,7 @@ def _load_openclaw_plugins() -> dict[str, dict]:
     return block
 
 
-def _openclaw_plugin_paths(
-    agent_name: str, *, os_family: str
-) -> tuple[str, str]:
+def _openclaw_plugin_paths(agent_name: str, *, os_family: str) -> tuple[str, str]:
     """Return `(openclaw_home, openclaw_bin)` for `agent_name` on the
     given `os_family`. `/home` vs `/Users` is sourced via
     `home_root_for(os_family)` so the OS→home-root mapping stays in
@@ -1374,9 +1346,7 @@ def _openclaw_install_plugins(
         return (), ()
 
     attached_types = {i.type for i in inputs.integrations}
-    home, openclaw_bin = _openclaw_plugin_paths(
-        agent_name, os_family=os_family
-    )
+    home, openclaw_bin = _openclaw_plugin_paths(agent_name, os_family=os_family)
     quoted_agent = shlex.quote(agent_name)
     quoted_bin = shlex.quote(openclaw_bin)
 
@@ -1410,9 +1380,7 @@ def _openclaw_install_plugins(
         # `~<agent>/.openclaw/state/` (surfaced live during #755 UAT
         # on esper-mac-oc, where the install otherwise inherited
         # `/Users/xclm` as HOME and failed EACCES on the state DB).
-        probe = (
-            f"sudo -n -H -u {quoted_agent} test -f {quoted_sentinel}"
-        )
+        probe = f"sudo -n -H -u {quoted_agent} test -f {quoted_sentinel}"
         _, p_out, _ = client.exec_command(probe, timeout=probe_timeout)
         if p_out.channel.recv_exit_status() == 0:
             if on_event is not None:
@@ -1442,9 +1410,7 @@ def _openclaw_install_plugins(
             f"sudo -n -H -u {quoted_agent} {quoted_bin} plugins install "
             f"--force --pin {shlex.quote(f'{pkg}@{ver}')}"
         )
-        _, i_out, i_err = client.exec_command(
-            install_cmd, timeout=install_timeout
-        )
+        _, i_out, i_err = client.exec_command(install_cmd, timeout=install_timeout)
         # ATX iter-2 W1: drain stdout + stderr BEFORE recv_exit_status.
         # `openclaw plugins install` proxies `npm install` whose output
         # can exceed the ~64KB SSH pipe buffer on fresh-host installs
@@ -1468,12 +1434,8 @@ def _openclaw_install_plugins(
         # but the plugin itself is already present; surface as an
         # error so the operator can investigate fs / perms now rather
         # than seeing repeated installs on every subsequent sync.
-        stamp_inner = (
-            f"touch {quoted_sentinel} && chmod 0600 {quoted_sentinel}"
-        )
-        stamp = (
-            f"sudo -n -H -u {quoted_agent} sh -c {shlex.quote(stamp_inner)}"
-        )
+        stamp_inner = f"touch {quoted_sentinel} && chmod 0600 {quoted_sentinel}"
+        stamp = f"sudo -n -H -u {quoted_agent} sh -c {shlex.quote(stamp_inner)}"
         _, s_out, s_err = client.exec_command(stamp, timeout=probe_timeout)
         if s_out.channel.recv_exit_status() != 0:
             err_text = s_err.read().decode("utf-8", errors="replace")
@@ -2020,10 +1982,11 @@ def _openclaw_nemoclaw_onboard(
 ) -> None:
     """Onboard the NemoClaw sandbox backing an openclaw agent.
 
-    Fast no-op when the agent's on-disk config does not declare
-    `runtime: "nemoclaw"` — during Phase 2 that is the only sandbox
-    runtime supported, but the explicit gate keeps bare openclaw
-    installs (still the default until Phase 3) untouched.
+    Post-#945 (Phase 3): every openclaw agent is sandboxed. If
+    `config.runtime` is present it must equal `"nemoclaw"`; a missing
+    runtime key (freshly-`set_installing`-d record where the write
+    hasn't landed yet in this call graph) is also accepted so the
+    onboard step still runs.
 
     Positioned in `sync_agent_canonical` BEFORE the file-write loop
     AND before `_restart_unit` so:
@@ -2043,10 +2006,25 @@ def _openclaw_nemoclaw_onboard(
     config = agent_record.get("config") or {}
     if not isinstance(config, dict):
         return
-    runtime = str(config.get("runtime") or "").strip().lower()
-    if runtime != "nemoclaw":
-        # Bare openclaw path — Phase 2 keeps it working; Phase 3
-        # deletes it.
+    runtime = config.get("runtime")
+    runtime_norm = str(runtime or "").strip().lower()
+    if runtime_norm and runtime_norm != "nemoclaw":
+        # Explicitly-stamped non-nemoclaw runtime — impossible post-#945
+        # for a healthy install. Fail loud with the migration URL so the
+        # operator sees exactly what to do.
+        raise CanonicalSyncError(
+            f"openclaw agent {agent_name!r} has legacy runtime "
+            f"{runtime_norm!r} (expected 'nemoclaw'); bare openclaw "
+            "is no longer supported. Run `clawctl agent remove` + "
+            "re-create (see docs/releases/26.7.3/CHANGELOG.md)."
+        )
+    if runtime_norm != "nemoclaw":
+        # No runtime key: this is a legacy bare record that predates
+        # Phase 3. Skip onboard — post-#945 `set_installing` always
+        # stamps `runtime: nemoclaw` for openclaw, so any surviving
+        # bare record here is untouched-since-migration. The next
+        # `clawctl agent create` / `upgrade` will stamp the key and
+        # bring the record into the sandboxed path.
         return
 
     # Lazy import to sidestep the lifecycle ↔ lifecycle_canonical
@@ -2083,9 +2061,7 @@ def _openclaw_nemoclaw_onboard(
         timeout=timeout,
     )
     if not success:
-        raise CanonicalSyncError(
-            f"nemoclaw onboard failed for {agent_name!r}: {err}"
-        )
+        raise CanonicalSyncError(f"nemoclaw onboard failed for {agent_name!r}: {err}")
 
 
 def sync_agent_canonical(
@@ -2139,9 +2115,7 @@ def sync_agent_canonical(
 
     resolved = get_agent_by_name(agent_name)
     if resolved is None:
-        raise CanonicalSyncError(
-            f"agent {agent_name!r} not found in hosts.json"
-        )
+        raise CanonicalSyncError(f"agent {agent_name!r} not found in hosts.json")
     # Issue #917: the middle element of `get_agent_by_name` is the
     # agent *type* (e.g. "zeroclaw"), NOT the instance name. The old
     # `agent_key` local misled its two consumers below into treating
@@ -2288,8 +2262,7 @@ def sync_agent_canonical(
             # short-circuit contract. Symmetric with the in-loop path
             # below.
             raise CanonicalSyncError(
-                f"workspace overlay push failed for {agent_name!r}: "
-                f"{ws_result.error}"
+                f"workspace overlay push failed for {agent_name!r}: {ws_result.error}"
             )
 
         # Issue #760 Phase 2 (#768) — bearer rotation invariant.
@@ -2312,8 +2285,7 @@ def sync_agent_canonical(
 
             emit(
                 "repair",
-                f"re-pairing zeroclaw gateway for {agent_name} "
-                f"(workspace-only sync)",
+                f"re-pairing zeroclaw gateway for {agent_name} (workspace-only sync)",
             )
             # iter-1 lifecycle-core S5: pass a distinct `reason` so
             # post-mortem analysis can grep `gateway_token_rotated`
@@ -2438,9 +2410,7 @@ def sync_agent_canonical(
                 section = remote_toml.get("onboard_state")
                 if isinstance(section, dict):
                     raw = section.get("completed_sections")
-                    if isinstance(raw, list) and all(
-                        isinstance(s, str) for s in raw
-                    ):
+                    if isinstance(raw, list) and all(isinstance(s, str) for s in raw):
                         preserved = tuple(raw)
                     else:
                         emit(
@@ -2453,8 +2423,7 @@ def sync_agent_canonical(
                 else:
                     emit(
                         "render",
-                        f"onboard_state section absent on {hostname}; "
-                        f"defaulting to []",
+                        f"onboard_state section absent on {hostname}; defaulting to []",
                     )
             if preserved:
                 emit(
@@ -2462,9 +2431,7 @@ def sync_agent_canonical(
                     f"preserving {len(preserved)} onboard section(s) "
                     f"from on-host {agent_name} config",
                 )
-            inputs = _dc_replace(
-                inputs, onboard_completed_sections=preserved
-            )
+            inputs = _dc_replace(inputs, onboard_completed_sections=preserved)
 
     if inputs.agent_type in ("hermes", "openclaw", "zeroclaw"):
         rendered = renderer(inputs, os_family=_os_family)
@@ -2472,9 +2439,7 @@ def sync_agent_canonical(
         rendered = renderer(inputs)
 
     emit("diff", f"reading on-host files from {hostname}")
-    diffs = diff_files(
-        host=host, agent_name=agent_name, rendered_files=rendered.files
-    )
+    diffs = diff_files(host=host, agent_name=agent_name, rendered_files=rendered.files)
 
     # Secret-removal guard. See module docstring; this is the single
     # behavior #555 added that the legacy path lacks.
@@ -2825,13 +2790,9 @@ def sync_agent_canonical(
             # in --no-restart mode (operators would otherwise look for
             # systemctl evidence of a restart that never happened).
             if restart:
-                preamble = (
-                    f"sync wrote and restarted {agent_name!r}"
-                )
+                preamble = f"sync wrote and restarted {agent_name!r}"
             else:
-                preamble = (
-                    f"sync of {agent_name!r} (restart skipped)"
-                )
+                preamble = f"sync of {agent_name!r} (restart skipped)"
             raise CanonicalSyncError(
                 f"{preamble} but the gateway re-pair failed: "
                 f"{repair_err}. `clawctl agent chat` will return 401 "

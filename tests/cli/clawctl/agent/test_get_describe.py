@@ -25,7 +25,8 @@ def _patch_fleet_agent(fleet_dir, mutator) -> None:
 def test_get_default_columns(fleet_dir) -> None:
     result = runner.invoke(app, ["agent", "get"])
     assert result.exit_code == 0
-    for col in ("NAME", "TYPE", "HOST", "PROVIDER", "STATUS", "AGE"):
+    # Phase 3 (#945): RUNTIME column ships in the default view.
+    for col in ("NAME", "TYPE", "HOST", "PROVIDER", "STATUS", "AGE", "RUNTIME"):
         assert col in result.output, f"missing column: {col}"
     assert "wise-hypatia" in result.output
 
@@ -33,8 +34,39 @@ def test_get_default_columns(fleet_dir) -> None:
 def test_get_wide_includes_extra_columns(fleet_dir) -> None:
     result = runner.invoke(app, ["agent", "get", "-o", "wide"])
     assert result.exit_code == 0
-    for col in ("ADDRESS", "PORT", "VERSION", "INSTALLED"):
+    for col in ("ADDRESS", "PORT", "VERSION", "RUNTIME", "INSTALLED"):
         assert col in result.output, f"missing wide column: {col}"
+
+
+def test_get_runtime_column_shows_nemoclaw_for_openclaw(fleet_dir) -> None:
+    """Phase 3 (#945): openclaw rows carrying `config.runtime = nemoclaw`
+    + `config.nemoclaw_version` render as `nemoclaw@<version>` in the
+    RUNTIME column of the default view."""
+
+    def mutate(agent: dict) -> None:
+        agent.setdefault("config", {})
+        agent["config"]["runtime"] = "nemoclaw"
+        agent["config"]["nemoclaw_version"] = "v0.0.94"
+        agent["config"]["sandbox_name"] = "wise-hypatia"
+
+    _patch_fleet_agent(fleet_dir, mutate)
+
+    result = runner.invoke(app, ["agent", "get"])
+    assert result.exit_code == 0
+    assert "nemoclaw@v0.0.94" in result.output
+
+
+def test_get_runtime_column_renders_dash_when_absent(fleet_dir) -> None:
+    """A record with no `config.runtime` (legacy bare or non-openclaw)
+    renders `-` in the RUNTIME column rather than an empty cell."""
+    result = runner.invoke(app, ["agent", "get"])
+    assert result.exit_code == 0
+    # The fleet fixture's openclaw record has no runtime key; the
+    # RUNTIME column must render "-" for that row.
+    lines = [ln for ln in result.output.splitlines() if "wise-hypatia" in ln]
+    assert lines and lines[0].rstrip().endswith("-"), (
+        f"expected trailing '-' in RUNTIME column, got {lines!r}"
+    )
 
 
 def test_get_json_round_trip_yaml(fleet_dir) -> None:

@@ -72,6 +72,7 @@ def get(
             "AGE",
             "PORT",
             "VERSION",
+            "RUNTIME",
             "INSTALLED",
         ]
         body = [
@@ -85,12 +86,24 @@ def get(
                 format_age(int(r["age_seconds"])),
                 str(r["port"] or "-"),
                 str(r["version"] or "-"),
+                str(r.get("runtime") or "-"),
                 str(r["installed_at"] or "-"),
             ]
             for r in rows
         ]
     else:
-        headers = ["NAME", "TYPE", "HOST", "PROVIDER", "STATUS", "AGE"]
+        # Phase 3 of #11 (issue #945): RUNTIME column at the end of the
+        # default view — every openclaw row shows `nemoclaw@<version>`.
+        # Non-openclaw agents render "-" so the shape stays uniform.
+        headers = [
+            "NAME",
+            "TYPE",
+            "HOST",
+            "PROVIDER",
+            "STATUS",
+            "AGE",
+            "RUNTIME",
+        ]
         body = [
             [
                 str(r["name"]),
@@ -99,6 +112,7 @@ def get(
                 str(r["provider"] or "-"),
                 format_status(str(r["status"])),
                 format_age(int(r["age_seconds"])),
+                str(r.get("runtime") or "-"),
             ]
             for r in rows
         ]
