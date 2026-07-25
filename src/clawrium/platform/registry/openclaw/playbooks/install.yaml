@@ -9,11 +9,15 @@
 # still import them here rather than skipping so a darwin host
 # gets a clear failure at install time instead of silently
 # skipping the NemoClaw substrate.
+# NB: `when:` on `import_playbook` is a static import — Ansible
+# evaluates it at parse time and silently ignores the condition
+# (>= 2.8). Each imported runbook enforces its own OS gate via a
+# task-0 `Refuse to run on non-Linux hosts` dispatcher-contract
+# guard (per AGENTS.md "Integration Binary Install" Rule 2). A
+# darwin host reaches these plays and fails loudly at task 0
+# rather than blowing up opaquely on `apt`.
 - import_playbook: install_prereqs.yaml
-  when: ansible_os_family != "Darwin"
-
 - import_playbook: install_nemoclaw.yaml
-  when: ansible_os_family != "Darwin"
 
 - hosts: all
   become: yes

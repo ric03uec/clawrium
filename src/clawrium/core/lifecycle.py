@@ -552,14 +552,15 @@ def _run_lifecycle_playbook(
         sandbox_name = (
             config.get("sandbox_name") if isinstance(config, dict) else None
         )
-        # Validate against the same shape as `agent_name` — sandbox_name
-        # ends up as an argv element to /usr/local/bin/nemoclaw; a
-        # hand-edited hosts.json with a shell fragment would otherwise
-        # ride into the runbook untouched.
-        if (
-            isinstance(sandbox_name, str)
-            and re.match(r"^[a-z][a-z0-9_-]{0,31}$", sandbox_name)
-        ):
+        # Validate via the canonical validator so the regex only lives in
+        # one place (ATX iter-1 W4). Absent-key stays a silent skip
+        # (bare-openclaw non-regression); present-but-invalid fails loud
+        # (W3 — a malformed hosts.json edit can't be blamed on the
+        # downstream install skip).
+        if sandbox_name is not None:
+            from clawrium.core.nemoclaw import _validate_sandbox_name
+
+            _validate_sandbox_name(sandbox_name)
             extra_vars["sandbox_name"] = sandbox_name
 
     inventory = {

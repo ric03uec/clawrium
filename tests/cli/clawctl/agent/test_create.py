@@ -194,7 +194,12 @@ class TestOpenclawCreatePreservesLegacyBareConfig:
         # simple re-install path. The gate `if "runtime" not in
         # record["config"]` guards against silent flip nonetheless
         # — the assertion below trips only if that gate is removed.
-        assert "runtime" not in config or config.get("runtime") != "nemoclaw", (
-            "bare openclaw re-install silently flipped to sandboxed "
-            "runtime — Phase 2 must not migrate legacy records"
+        # Strict key-absence (ATX iter-1 B5). The looser
+        # `"runtime" not in config or config != "nemoclaw"` shape
+        # would silently accept a regression to `runtime="__bare__"`
+        # or empty-string; the invariant is that the key must not
+        # appear on a bare-openclaw re-install.
+        assert "runtime" not in config, (
+            "bare openclaw re-install must not write `runtime` at all — "
+            f"got config={config!r}"
         )

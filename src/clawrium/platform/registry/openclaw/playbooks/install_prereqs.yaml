@@ -20,8 +20,32 @@
   vars:
     node_version: "22.16.0"
     nvm_version: "v0.39.7"
+    # SHA256 of the pinned NVM install.sh (nvm_version), populated by
+    # release automation. `null` sentinel forces a fail-fast so a
+    # supply-chain fetch of arbitrary script content can't slip past
+    # the AGENTS.md "Integration Binary Install" Rule 3 checksum
+    # contract on a non-integration script.
+    nvm_installer_sha256: null
+    # NVM is scoped to the SSH user (host prereq), not the agent user
+    # which does not exist yet at prereqs-time. Agent-user npm scoping
+    # is a Phase-3 concern once the actual npm-consuming subprocess is
+    # wired (ATX W1 callout).
     nvm_install_dir: "/home/{{ ansible_user }}/.nvm"
   tasks:
+    # Task 0: dispatcher-contract guard. `install.yaml` imports this
+    # playbook unconditionally (see the comment there — `when:` on
+    # `import_playbook` is ignored). Refuse loudly on darwin so an
+    # openclaw create against a mac host surfaces the plan §7.2
+    # unsupported-platform message here rather than deep inside an
+    # `apt` module-not-found stack trace.
+    - name: Refuse to run on non-Linux hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: >-
+          openclaw on {{ ansible_os_family }} is not supported by
+          Phase 2 of NemoClaw (#11 / #944). See
+          `.itx/11/00_PLAN.md` §7.2.
+      when: ansible_os_family == "Darwin"
+
     # ---- Baseline OS + hardware assertions ------------------------------
     - name: Assert host is Ubuntu
       ansible.builtin.assert:
@@ -155,6 +179,24 @@
         path: "{{ nvm_install_dir }}/nvm.sh"
       register: nvm_stat
 
+    # ATX iter-1 B3: NVM installer must not execute without a content
+    # checksum. TLS binds server, not payload — a CDN compromise or
+    # tag rewrite would ship arbitrary code running as the agent user.
+    # Fail fast if the SHA256 pin hasn't been populated for
+    # `nvm_version`. Bump both together.
+    - name: Fail if NVM installer SHA256 pin is unresolved
+      ansible.builtin.fail:
+        msg: >-
+          `nvm_installer_sha256` is unresolved for
+          nvm_version={{ nvm_version }}. Populate it in
+          `install_prereqs.yaml` `vars:` (sha256 of
+          https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_version
+          }}/install.sh) before installing. See AGENTS.md
+          "Integration Binary Install" Rule 3.
+      when:
+        - not nvm_stat.stat.exists
+        - nvm_installer_sha256 in (None, "", "pending-upstream-freeze")
+
     - name: Download NVM installer
       ansible.builtin.get_url:
         url: "https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_version }}/install.sh"
@@ -162,6 +204,7 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: '0700'
+        checksum: "sha256:{{ nvm_installer_sha256 }}"
       when: not nvm_stat.stat.exists
 
     - name: Run NVM installer as SSH user
