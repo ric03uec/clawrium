@@ -154,12 +154,37 @@ class TestGatewayRegisterProvider:
         with pytest.raises(ValueError, match="base_url"):
             nemoclaw.gateway_register_provider("sbx", "p", "k", base_url)
 
-    @pytest.mark.parametrize("api_key", ["", "sk-\nleak", "sk-\x00"])
+    @pytest.mark.parametrize(
+        "api_key",
+        [
+            "",
+            "sk-\nleak",
+            "sk-\x00",
+            "sk-\rleak",  # ATX iter-4 W1: \r coverage was missing
+            "sk- leaky",  # ATX iter-4 W2: space breaks /bin/sh -c argv
+            "sk-\tleak",  # ATX iter-4 W1: tab
+        ],
+    )
     def test_rejects_invalid_api_key(self, api_key):
         with pytest.raises(ValueError, match="api_key"):
             nemoclaw.gateway_register_provider(
                 "sbx", "p", api_key, "https://example.com"
             )
+
+    def test_repr_redacts_api_key(self):
+        """ATX iter-4 B1: NemoclawCommand.__repr__ must not leak the api_key
+        via argv. Default @dataclass repr printed the raw secret.
+        """
+        cmd = nemoclaw.gateway_register_provider(
+            "sbx", "openai", "sk-super-secret-42", "https://example.com"
+        )
+        rendered = repr(cmd)
+        assert "sk-super-secret-42" not in rendered
+        assert "REDACTED" in rendered
+        # Non-secret argv elements survive so debug output stays useful.
+        assert "gateway" in rendered
+        assert "openai" in rendered
+        assert "https://example.com" in rendered
 
 
 class TestDefaultSandboxName:

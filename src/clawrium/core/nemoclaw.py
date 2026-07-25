@@ -84,6 +84,28 @@ class NemoclawCommand:
     sandbox_name: str
     argv: tuple[str, ...]
 
+    def __repr__(self) -> str:
+        # ATX iter-4 B1: default @dataclass __repr__ prints argv verbatim,
+        # leaking any api_key that gateway_register_provider embedded after
+        # `--api-key`. Redact any argv element immediately following a
+        # `--api-key` / `--secret` / `--token` sentinel so debug logs and
+        # test failures (see S2) never surface raw credentials.
+        redacted: list[str] = []
+        skip_next = False
+        for arg in self.argv:
+            if skip_next:
+                redacted.append("***REDACTED***")
+                skip_next = False
+                continue
+            redacted.append(arg)
+            if arg in ("--api-key", "--secret", "--token", "--password"):
+                skip_next = True
+        return (
+            f"NemoclawCommand(verb={self.verb!r}, "
+            f"sandbox_name={self.sandbox_name!r}, "
+            f"argv={tuple(redacted)!r})"
+        )
+
 
 def _validate_sandbox_name(sandbox_name: str) -> None:
     """Fail closed on any sandbox name that could smuggle a shell
@@ -198,10 +220,15 @@ def _validate_base_url(base_url: str) -> None:
 def _validate_api_key(api_key: str) -> None:
     if not isinstance(api_key, str) or not api_key:
         raise ValueError("nemoclaw: api_key must be a non-empty string")
-    for ch in ("\n", "\r", "\0"):
+    # ATX iter-4 W1 + W2: reject whitespace + control bytes. The docstring
+    # advertises SSH exec_command as a supported executor path (which passes
+    # a joined string to /bin/sh -c) so any character that shell would
+    # tokenize on or interpret as a control byte must fail-closed here,
+    # regardless of the current argv-only subprocess call path.
+    for ch in ("\n", "\r", "\0", " ", "\t"):
         if ch in api_key:
             raise ValueError(
-                "nemoclaw: api_key contains illegal newline/null byte"
+                "nemoclaw: api_key contains illegal whitespace/control char"
             )
 
 
