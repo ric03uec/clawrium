@@ -1,4 +1,20 @@
 ---
+# Phase 2 of #11 (issue #944): every openclaw install runs on a
+# host prepped for the NemoClaw runtime substrate. Prereqs
+# (Ubuntu >= 24.04 + docker + node) land first via a dedicated
+# playbook, then the nemoclaw runtime binary via its own single-
+# purpose playbook (also invocable at sync time by
+# `_openclaw_nemoclaw_onboard`). Both are Linux-only. The macOS
+# siblings currently refuse loudly per plan §7.2 (option b) — we
+# still import them here rather than skipping so a darwin host
+# gets a clear failure at install time instead of silently
+# skipping the NemoClaw substrate.
+- import_playbook: install_prereqs.yaml
+  when: ansible_os_family != "Darwin"
+
+- import_playbook: install_nemoclaw.yaml
+  when: ansible_os_family != "Darwin"
+
 - hosts: all
   become: yes
   tasks:

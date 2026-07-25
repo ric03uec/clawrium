@@ -1,0 +1,36 @@
+---
+# macOS counterpart to install_nemoclaw.yaml (openclaw). Per plan §7.2
+# option (b): openclaw on darwin is blocked at preflight pending a
+# NemoClaw darwin binary. The dispatcher-contract sibling exists so the
+# operation lookup in `_run_lifecycle_playbook` resolves consistently
+# on darwin hosts and produces a loud, actionable failure rather than
+# a silent Linux-path fallback.
+#
+# When NemoClaw ships a darwin tarball, this file gains a real install
+# body mirroring `install_nemoclaw.yaml` (arch guard, get_url with
+# checksum, extraction, symlink) — same shape as
+# `install_slack_mcp_macos.yaml` for slack MCP.
+#
+# Architectural pattern: see AGENTS.md §"Integration Binary Install".
+- hosts: all
+  become: yes
+  vars:
+    nemoclaw_version: "v0.0.94"
+  tasks:
+    - name: Refuse to run on non-Darwin hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: install_nemoclaw_macos.yaml invoked against non-Darwin host
+      when: ansible_os_family != "Darwin"
+
+    # Plan §7.2 option (b): fail loudly on darwin openclaw installs
+    # until NemoClaw publishes a darwin binary. This lands in the
+    # sibling runbook (not the Python dispatcher) so a direct
+    # `ansible-playbook install_nemoclaw_macos.yaml` invocation
+    # trips the same guard.
+    - name: NemoClaw is not yet supported on macOS
+      ansible.builtin.fail:
+        msg: >-
+          openclaw on macOS is unsupported pending a NemoClaw macOS
+          binary — see issue #11 §7.2. Deploy openclaw on an Ubuntu
+          24.04+ host or track https://github.com/NVIDIA/NemoClaw for
+          upstream darwin support.

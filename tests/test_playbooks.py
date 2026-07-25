@@ -115,7 +115,10 @@ def test_openclaw_install_playbook_structure():
     data = yaml.safe_load(content)
     assert isinstance(data, list), "Playbook should be a list of plays"
     assert len(data) > 0, "Playbook should have at least one play"
-    tasks = data[0].get("tasks", [])
+    # #944 phase-2 prepends host-prep import_playbook entries; the
+    # openclaw tasks live in the last tasks-bearing play.
+    openclaw_play = next(p for p in data if isinstance(p, dict) and "tasks" in p)
+    tasks = openclaw_play.get("tasks", [])
     exec_approvals_task = next(
         t for t in tasks if t.get("name") == "Write exec approvals policy from template"
     )

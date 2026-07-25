@@ -1,0 +1,141 @@
+---
+# Single-purpose runbook: install the NemoClaw runtime substrate on a
+# Linux openclaw host. Invoked at sync time by
+# `core.lifecycle_canonical._openclaw_nemoclaw_onboard` (see also
+# `install.yaml`, which now delegates to this runbook + `install_prereqs`
+# before dropping the openclaw binary). Not called from `configure.yaml`.
+#
+# Architectural pattern: see AGENTS.md §"Integration Binary Install".
+# Companion runbook: `install_nemoclaw_macos.yaml` (darwin — currently
+# refuses loudly per §7.2 of `.itx/11/00_PLAN.md`; will ship a real
+# install path once NemoClaw publishes darwin tarballs).
+#
+# Idempotency: `get_url` with `checksum:` short-circuits when the on-
+# host tarball already matches the pinned sha256. A version bump
+# changes the URL + hash so reinstall auto-fires via mismatch. The
+# per-version extraction directory (`/usr/local/lib/nemoclaw/<ver>/`)
+# means a downgrade never overwrites a live install in place — the
+# symlink at `/usr/local/bin/nemoclaw` is the atomic switch.
+#
+# Version pin lockstep: `nemoclaw_version` MUST equal
+# `NEMOCLAW_VERSION` in `src/clawrium/core/nemoclaw.py` AND the
+# `runtime.nemoclaw.version` field in the openclaw `manifest.yaml`.
+# The equality is asserted directly (not transitively) by
+# `tests/platform/test_nemoclaw_pin_lockstep.py`.
+- hosts: all
+  become: yes
+  vars:
+    nemoclaw_version: "v0.0.94"
+    # Ansible's `ansible_architecture` → upstream asset suffix. NemoClaw
+    # ships linux amd64 + arm64 tarballs; armv7l is intentionally not
+    # supported (the substrate targets 64-bit Ubuntu hosts only). The
+    # arch guard below fails fast with a link to the release page
+    # rather than silently skipping.
+    nemoclaw_arch_map:
+      x86_64: "linux-amd64"
+      aarch64: "linux-arm64"
+    # Populated once the upstream tarball is frozen. Phase 1 seeded
+    # `None` sentinels in `src/clawrium/core/nemoclaw.py:TARBALL_SHA256`;
+    # the pin lockstep test would fail here if the sentinels ever
+    # landed on-host uncorrected (see the "SHA pending" fail task
+    # below). Do NOT install NemoClaw with a null / bogus checksum —
+    # the checksum guard is the only line of defense against a
+    # tampered mirror.
+    nemoclaw_sha256_map:
+      x86_64: null
+      aarch64: null
+    nemoclaw_install_root: "/usr/local/lib/nemoclaw/{{ nemoclaw_version }}"
+    nemoclaw_symlink: "/usr/local/bin/nemoclaw"
+    nemoclaw_tarball_dest: "/tmp/nemoclaw-{{ nemoclaw_version }}.tar.zst"
+  tasks:
+    - name: Refuse to run on non-Linux hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: install_nemoclaw.yaml invoked against non-Linux host
+      when: ansible_os_family == "Darwin"
+
+    - name: Fail early if host architecture is unsupported
+      ansible.builtin.fail:
+        msg: >-
+          nemoclaw install: ansible_architecture='{{ ansible_architecture }}'
+          is not mapped to a NemoClaw release asset. NemoClaw
+          {{ nemoclaw_version }} ships linux amd64/arm64 only — no
+          armv7l. Supported here:
+          {{ nemoclaw_arch_map.keys() | list | join(', ') }}. See
+          https://github.com/NVIDIA/NemoClaw/releases/tag/{{ nemoclaw_version }}.
+      when: ansible_architecture not in nemoclaw_arch_map
+
+    # Callout — see Phase 2 PR body. The SHA table in
+    # `core/nemoclaw.py` still holds `None` sentinels because the
+    # upstream tarball has not been frozen at the time of writing.
+    # Every install attempt MUST fail here rather than fall through
+    # `get_url` with an omitted checksum, which is the exact
+    # regression class the "Integration Binary Install" pattern rule 3
+    # (idempotency via checksum) exists to prevent.
+    - name: Fail if SHA256 pin is unresolved for this architecture
+      ansible.builtin.fail:
+        msg: >-
+          NemoClaw sha256 for {{ ansible_architecture }} is unresolved
+          (pending upstream freeze). Bump `TARBALL_SHA256[{{ ansible_architecture }}]`
+          in `src/clawrium/core/nemoclaw.py` AND the matching
+          `nemoclaw_sha256_map[{{ ansible_architecture }}]` in this
+          runbook + its `_macos` sibling before running host install.
+          Do NOT drop the checksum guard.
+      when: nemoclaw_sha256_map[ansible_architecture] is none
+
+    - name: Ensure /usr/local/lib/nemoclaw parent directory exists
+      ansible.builtin.file:
+        path: "/usr/local/lib/nemoclaw"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download pinned NemoClaw tarball
+      ansible.builtin.get_url:
+        url: "https://github.com/NVIDIA/NemoClaw/releases/download/{{ nemoclaw_version }}/nemoclaw-{{ nemoclaw_version }}-{{ nemoclaw_arch_map[ansible_architecture] }}.tar.zst"
+        dest: "{{ nemoclaw_tarball_dest }}"
+        checksum: "sha256:{{ nemoclaw_sha256_map[ansible_architecture] }}"
+        validate_certs: yes
+        owner: root
+        group: root
+        mode: '0644'
+        # Mirrors the 120s < 180s runner-budget gap in the slack MCP
+        # runbook so get_url's own clearer timeout fires before
+        # ansible-runner's generic `operation timed out`.
+        timeout: 120
+
+    - name: Ensure per-version install directory exists
+      ansible.builtin.file:
+        path: "{{ nemoclaw_install_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Extract NemoClaw tarball into per-version directory
+      ansible.builtin.unarchive:
+        src: "{{ nemoclaw_tarball_dest }}"
+        dest: "{{ nemoclaw_install_root }}"
+        remote_src: yes
+        owner: root
+        group: root
+        # `creates` gives us checksum-driven idempotency for the
+        # unarchive step: `get_url` already short-circuits on matching
+        # sha256, so a repeat sync at the same pin never re-downloads;
+        # this guard ensures we also do not re-extract when the pinned
+        # binary already sits at the expected path.
+        creates: "{{ nemoclaw_install_root }}/bin/nemoclaw"
+
+    - name: Symlink /usr/local/bin/nemoclaw → pinned version
+      ansible.builtin.file:
+        src: "{{ nemoclaw_install_root }}/bin/nemoclaw"
+        dest: "{{ nemoclaw_symlink }}"
+        state: link
+        owner: root
+        group: root
+        force: yes
+
+    - name: Remove downloaded tarball to reclaim /tmp space
+      ansible.builtin.file:
+        path: "{{ nemoclaw_tarball_dest }}"
+        state: absent

@@ -2,6 +2,27 @@ agent:
   type: openclaw
   description: "Open-source AI assistant framework"
 
+# Runtime substrate (issue #944 / #11 phase 2).
+#
+# Every openclaw agent created after Phase 2 lands runs inside a
+# NemoClaw sandbox. The `version` field here is the single manifest-
+# side entry in the 3-way version-pin lockstep contract:
+#
+#   `src/clawrium/core/nemoclaw.py:NEMOCLAW_VERSION`
+#     == `runtime.nemoclaw.version` (this field)
+#     == `install_nemoclaw.yaml` `vars.nemoclaw_version`
+#
+# Direct equality against each side is asserted by
+# `tests/platform/test_nemoclaw_pin_lockstep.py`. Bumping the pin is
+# a coordinated edit of all three sites in the same commit.
+#
+# Phase 2 is additive — bare openclaw still ships. Phase 3 (issue
+# #945) removes the bare path and turns `runtime: nemoclaw` into the
+# implicit default.
+runtime:
+  nemoclaw:
+    version: "v0.0.94"
+
 # Plugin pin table — versions are referenced by configure.yaml so a
 # bump is a single-line change. `min_host_version` mirrors the
 # upstream plugin's `minHostVersion` so `lifecycle_canonical` and

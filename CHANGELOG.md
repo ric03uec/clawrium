@@ -29,6 +29,19 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- NemoClaw runtime substrate (`v0.0.94`) is now installed as part of
+  `clawctl host prepare` for openclaw hosts. New openclaw agents are
+  provisioned into a NemoClaw sandbox — `clawctl agent get` records
+  `runtime: nemoclaw` in the agent's `config` block, and every
+  `clawctl agent sync` short-circuits before restart if the sandbox
+  fails to onboard. Existing bare openclaw agents keep their shape
+  and continue to sync cleanly through Phase 2 (Phase 3 / issue #945
+  is the breaking cut-over that removes the bare path). Host prereqs
+  the substrate depends on (Ubuntu >= 24.04, >= 8 GB RAM, >= 20 GB
+  disk, Docker Engine, NVM + Node 22.16) are asserted / installed by
+  the same host-prep phase. macOS openclaw installs are blocked at
+  preflight pending an upstream NemoClaw darwin binary (see #11 §7.2).
+  Part of Phase 2 of the NemoClaw rollout (#11 / #944).
 - `clawctl doctor nemoclaw` — read-only probe that verifies the pinned
   NemoClaw upstream release
   ([`NVIDIA/NemoClaw`](https://github.com/NVIDIA/NemoClaw)) is

@@ -537,6 +537,31 @@ def _run_lifecycle_playbook(
         ):
             extra_vars["dashboard_port"] = dashboard_port
 
+    # Phase 2 of #11 (issue #944): openclaw's nemoclaw_onboard runbook
+    # needs the sandbox_name persisted at install time
+    # (`hosts.json.agents.<name>.config.sandbox_name`). Thread it in
+    # for every openclaw op so start/stop/status/logs runbooks can pick
+    # it up in Phase 3 without re-plumbing.
+    if _resolve_agent_type(agent_type) == "openclaw":
+        agent_record = host.get("agents", {}).get(agent_name, {})
+        config = (
+            agent_record.get("config", {})
+            if isinstance(agent_record, dict)
+            else {}
+        )
+        sandbox_name = (
+            config.get("sandbox_name") if isinstance(config, dict) else None
+        )
+        # Validate against the same shape as `agent_name` — sandbox_name
+        # ends up as an argv element to /usr/local/bin/nemoclaw; a
+        # hand-edited hosts.json with a shell fragment would otherwise
+        # ride into the runbook untouched.
+        if (
+            isinstance(sandbox_name, str)
+            and re.match(r"^[a-z][a-z0-9_-]{0,31}$", sandbox_name)
+        ):
+            extra_vars["sandbox_name"] = sandbox_name
+
     inventory = {
         "all": {
             "hosts": {
