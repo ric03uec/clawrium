@@ -1430,7 +1430,8 @@ def test_openclaw_openrouter_prefixes_model():
     )
     env = render_openclaw(inputs).files[".openclaw/env"]
     assert "OPENCLAW_DEFAULT_MODEL='openrouter/anthropic/claude-opus-4.7'" in env
-    assert "OPENROUTER_API_KEY='sk-or-1'" in env
+    # Phase 4 (#946): provider bearer no longer lands in openclaw env.
+    assert "OPENROUTER_API_KEY" not in env
 
 
 def test_zeroclaw_opencode_renders_base_url_and_api_key():
@@ -1485,8 +1486,9 @@ def test_openclaw_opencode_emits_api_key_and_unprefixed_model():
     out = render_openclaw(inputs)
     env = out.files[".openclaw/env"]
     json_body = out.files[".openclaw/openclaw.json"]
-    assert "OPENCODE_API_KEY='sk-opencode-1'" in env
-    assert "OPENAI_BASE_URL='https://opencode.ai/zen/v1'" in env
+    # Phase 4 (#946): opencode bearer + base URL no longer land in env.
+    assert "OPENCODE_API_KEY" not in env
+    assert "OPENAI_BASE_URL" not in env
     assert "OPENCLAW_DEFAULT_MODEL='kimi-k2.5'" in env
     assert '"primary": "kimi-k2.5"' in json_body
 
@@ -1504,8 +1506,9 @@ def test_openclaw_opencode_go_emits_api_key_and_unprefixed_model():
     out = render_openclaw(inputs)
     env = out.files[".openclaw/env"]
     json_body = out.files[".openclaw/openclaw.json"]
-    assert "OPENCODE_API_KEY='sk-opencode-go-1'" in env
-    assert "OPENAI_BASE_URL='https://opencode.ai/zen/go/v1'" in env
+    # Phase 4 (#946): opencode-go bearer + base URL no longer land in env.
+    assert "OPENCODE_API_KEY" not in env
+    assert "OPENAI_BASE_URL" not in env
     assert "OPENCLAW_DEFAULT_MODEL='kimi-k2.5'" in env
     assert '"primary": "kimi-k2.5"' in json_body
 
@@ -2086,7 +2089,9 @@ def test_render_module_exports():
 
 
 def test_openclaw_zai_emits_zai_api_key():
-    """Iter-3 B1: pin the openclaw `zai` provider env-var emission."""
+    """Phase 4 (#946): openclaw's zai provider no longer emits ZAI_API_KEY
+    to the sandbox env — the bearer is handed to the NemoClaw gateway
+    instead. Test kept (repurposed) to lock the non-emission."""
     inputs = RenderInputs(
         agent_name="alpha",
         agent_type="openclaw",
@@ -2094,7 +2099,8 @@ def test_openclaw_zai_emits_zai_api_key():
         gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tk", bind="lan"),
     )
     env = render_openclaw(inputs).files[".openclaw/env"]
-    assert "ZAI_API_KEY='sk-zai-1'" in env
+    assert "ZAI_API_KEY" not in env
+    assert "sk-zai-1" not in env
 
 
 def test_openclaw_atlassian_integration_emits_to_env():
@@ -3068,6 +3074,12 @@ def _openclaw_inputs(*, ptype: str) -> RenderInputs:
     )
 
 
+# Phase 4 (#946): the provider `*_API_KEY` / AWS_*_KEY / OPENCLAW_OLLAMA_URL
+# / OPENAI_BASE_URL block was deleted from the openclaw env template. The
+# sandboxed openclaw process must NOT see the raw bearer; credentials are
+# handed to the NemoClaw gateway instead. Byte-lock expectations updated
+# accordingly. Ollama URL is now also carried by the gateway, so its env
+# line disappeared alongside the credential lines.
 _OPENCLAW_ENV_OPENROUTER = (
     "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
     "OPENCLAW_GATEWAY_BIND='lan'\n"
@@ -3075,7 +3087,6 @@ _OPENCLAW_ENV_OPENROUTER = (
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
     "OPENCLAW_DEFAULT_MODEL='openrouter/anthropic/claude-opus-4.7'\n"
-    "OPENROUTER_API_KEY='sk-or-1'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
@@ -3088,7 +3099,6 @@ _OPENCLAW_ENV_ANTHROPIC = (
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
     "OPENCLAW_DEFAULT_MODEL='claude-opus-4-7'\n"
-    "ANTHROPIC_API_KEY='sk-ant-1'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
@@ -3101,7 +3111,6 @@ _OPENCLAW_ENV_OPENAI = (
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
     "OPENCLAW_DEFAULT_MODEL='gpt-5'\n"
-    "OPENAI_API_KEY='sk-oa-1'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
@@ -3114,9 +3123,6 @@ _OPENCLAW_ENV_BEDROCK = (
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
     "OPENCLAW_DEFAULT_MODEL='amazon-bedrock/anthropic.claude-opus-4-1-v1:0'\n"
-    "AWS_ACCESS_KEY_ID='AKIA-1'\n"
-    "AWS_SECRET_ACCESS_KEY='secret-1'\n"
-    "AWS_DEFAULT_REGION='us-east-1'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
@@ -3129,7 +3135,6 @@ _OPENCLAW_ENV_OLLAMA = (
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
     "OPENCLAW_DEFAULT_MODEL='llama3'\n"
-    "OPENCLAW_OLLAMA_URL='http://10.0.0.5:11434'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
@@ -3142,7 +3147,6 @@ _OPENCLAW_ENV_ZAI = (
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
     "OPENCLAW_DEFAULT_MODEL='glm-4.5'\n"
-    "ZAI_API_KEY='sk-zai-1'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
@@ -3183,6 +3187,39 @@ def test_openclaw_env_byte_lock(ptype, expected):
     intentional and surface here with a clear diff."""
     out = render_openclaw(_openclaw_inputs(ptype=ptype))
     assert out.files[".openclaw/env"] == expected
+
+
+@pytest.mark.parametrize(
+    "ptype,expected_var",
+    [
+        ("openrouter", "OPENROUTER_API_KEY"),
+        ("anthropic", "ANTHROPIC_API_KEY"),
+        ("openai", "OPENAI_API_KEY"),
+        ("zai", "ZAI_API_KEY"),
+        ("opencode", "OPENCODE_API_KEY"),
+        ("opencode-go", "OPENCODE_API_KEY"),
+        ("bedrock", "AWS_ACCESS_KEY_ID"),
+        ("bedrock", "AWS_SECRET_ACCESS_KEY"),
+        ("ollama", "OPENCLAW_OLLAMA_URL"),
+    ],
+)
+def test_openclaw_provider_credentials_absent_from_sandbox_env(ptype, expected_var):
+    """Phase 4 (#946): the sandboxed openclaw process must NEVER receive
+    the raw provider bearer / AWS credentials / ollama URL via its
+    environment file. Every supported provider type is exercised.
+
+    Non-regression scope reminder: hermes / zeroclaw share `core/render.py`
+    but have separate `render_hermes` / `render_zeroclaw` templates that
+    still emit these vars — see the neighboring hermes/zeroclaw tests
+    which continue to assert positive presence.
+    """
+    out = render_openclaw(_openclaw_inputs(ptype=ptype))
+    env = out.files[".openclaw/env"]
+    assert expected_var not in env, (
+        f"Phase 4 leak: openclaw env for ptype={ptype!r} still contains "
+        f"{expected_var!r}. Credentials must be handed to NemoClaw's "
+        f"gateway (core/nemoclaw.py:gateway_register_provider) instead."
+    )
 
 
 def test_openclaw_litellm_env_has_no_litellm_specific_vars():

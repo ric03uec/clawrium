@@ -97,6 +97,71 @@ class TestVerbWrappers:
             nemoclaw.onboard("Bad Name")
 
 
+class TestGatewayRegisterProvider:
+    """Phase 4 (#946): gateway_register_provider builder.
+
+    Argv shape is guessed per orchestrator directive and matches
+    `.itx/946/00_BLOCKED.md` §7.5 UNRESOLVED — single seam that swaps to
+    the real upstream shape once §7.5 is answered.
+    """
+
+    def test_argv_shape(self):
+        cmd = nemoclaw.gateway_register_provider(
+            "e2e-openclaw", "openai-primary", "sk-secret-1", "https://api.openai.com/v1"
+        )
+        assert cmd.verb == "gateway-provider-add"
+        assert cmd.sandbox_name == "e2e-openclaw"
+        assert cmd.argv == (
+            NEMOCLAW_BINARY,
+            "e2e-openclaw",
+            "gateway",
+            "provider",
+            "add",
+            "openai-primary",
+            "--api-key",
+            "sk-secret-1",
+            "--base-url",
+            "https://api.openai.com/v1",
+        )
+
+    def test_rejects_invalid_sandbox_name(self):
+        with pytest.raises(ValueError, match="sandbox_name"):
+            nemoclaw.gateway_register_provider(
+                "Bad Sandbox", "p", "k", "https://example.com"
+            )
+
+    @pytest.mark.parametrize(
+        "provider_name",
+        ["", "!bad", "with space", "a" * 65],
+    )
+    def test_rejects_invalid_provider_name(self, provider_name):
+        with pytest.raises(ValueError, match="provider name"):
+            nemoclaw.gateway_register_provider(
+                "sbx", provider_name, "k", "https://example.com"
+            )
+
+    @pytest.mark.parametrize(
+        "base_url",
+        [
+            "",
+            "example.com",           # no scheme
+            "ftp://example.com",     # wrong scheme
+            "https://ex.com/\nfoo",  # newline injection
+            "https://ex .com",       # embedded space
+        ],
+    )
+    def test_rejects_invalid_base_url(self, base_url):
+        with pytest.raises(ValueError, match="base_url"):
+            nemoclaw.gateway_register_provider("sbx", "p", "k", base_url)
+
+    @pytest.mark.parametrize("api_key", ["", "sk-\nleak", "sk-\x00"])
+    def test_rejects_invalid_api_key(self, api_key):
+        with pytest.raises(ValueError, match="api_key"):
+            nemoclaw.gateway_register_provider(
+                "sbx", "p", api_key, "https://example.com"
+            )
+
+
 class TestDefaultSandboxName:
     def test_identity_for_valid_agent(self):
         assert default_sandbox_name("e2e-openclaw") == "e2e-openclaw"

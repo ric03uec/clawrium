@@ -20,28 +20,12 @@ OPENCLAW_GATEWAY_AUTH_MODE=none
 {% endif %}
 {% endif %}
 OPENCLAW_DEFAULT_MODEL={{ default_model_id | shq }}
-{% if provider.type == 'anthropic' %}
-ANTHROPIC_API_KEY={{ provider.api_key | shq }}
-{% elif provider.type == 'openai' %}
-OPENAI_API_KEY={{ provider.api_key | shq }}
-{% elif provider.type == 'openrouter' %}
-OPENROUTER_API_KEY={{ provider.api_key | shq }}
-{% elif provider.type == 'zai' %}
-ZAI_API_KEY={{ provider.api_key | shq }}
-{% elif provider.type == 'opencode' or provider.type == 'opencode-go' %}
-OPENCODE_API_KEY={{ provider.api_key | shq }}
-OPENAI_BASE_URL={{ provider.endpoint | shq }}
-{% elif provider.type == 'bedrock' %}
-AWS_ACCESS_KEY_ID={{ provider.aws_access_key | shq }}
-AWS_SECRET_ACCESS_KEY={{ provider.aws_secret_key | shq }}
-{# W3 (ATX #555 polish): AWS SDK has no default region — without
-   AWS_DEFAULT_REGION the bedrock client errors out at first call on
-   bare homelab boxes that have no `~/.aws/config`. Mirror hermes
-   canonical env's bedrock branch. #}
-AWS_DEFAULT_REGION={{ (provider.region or 'us-east-1') | shq }}
-{% elif provider.type == 'ollama' %}
-OPENCLAW_OLLAMA_URL={{ provider.endpoint | shq }}
-{% endif %}
+{# Phase 4 (#946): provider credentials no longer land in the sandboxed
+   openclaw process env. api_key + base_url are handed to NemoClaw's
+   gateway registry (see core/nemoclaw.py:gateway_register_provider) and
+   the gateway substitutes the bearer transparently at egress. Any
+   scripts that previously read `*_API_KEY` from openclaw's environment
+   MUST route their calls through the gateway proxy instead. #}
 {% for channel in channels %}
 {% if channel.type == 'discord' %}
 DISCORD_BOT_TOKEN={{ channel.bot_token | shq }}

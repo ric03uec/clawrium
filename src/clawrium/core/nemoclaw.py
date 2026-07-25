@@ -146,6 +146,99 @@ def destroy(sandbox_name: str) -> NemoclawCommand:
     return _build("destroy", sandbox_name)
 
 
+# ---------------------------------------------------------------------------
+# Phase 4: gateway provider registration (issue #946).
+#
+# Provider credentials (api_key + base_url) are handed to NemoClaw's
+# gateway registry so the sandboxed openclaw process never sees the raw
+# bearer. The gateway substitutes the key transparently on every egress
+# call. This wrapper is a **best-guess** shape for the upstream CLI (see
+# `.itx/946/00_BLOCKED.md` — parent-issue #11 §7.5 is still unresolved);
+# the argv layout mirrors the directive the orchestrator delivered:
+#   nemoclaw <sandbox> gateway provider add <name>
+#       --api-key <k> --base-url <u>
+# If upstream diverges, this is the single seam to update — every caller
+# routes through `gateway_register_provider` and the Ansible playbook
+# consumes `NemoclawCommand.argv` verbatim.
+# ---------------------------------------------------------------------------
+
+
+_PROVIDER_NAME_PATTERN = r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"
+
+
+def _validate_provider_name(provider_name: str) -> None:
+    import re
+
+    if not isinstance(provider_name, str) or not provider_name:
+        raise ValueError(
+            f"nemoclaw: invalid provider name {provider_name!r}"
+        )
+    if not re.match(_PROVIDER_NAME_PATTERN, provider_name):
+        raise ValueError(
+            f"nemoclaw: provider name {provider_name!r} must match "
+            f"{_PROVIDER_NAME_PATTERN}"
+        )
+
+
+def _validate_base_url(base_url: str) -> None:
+    if not isinstance(base_url, str) or not base_url:
+        raise ValueError(f"nemoclaw: invalid base_url {base_url!r}")
+    if not (base_url.startswith("http://") or base_url.startswith("https://")):
+        raise ValueError(
+            f"nemoclaw: base_url {base_url!r} must start with http:// or https://"
+        )
+    # Reject shell/argv smuggling; upstream CLI receives base_url via argv.
+    for ch in ("\n", "\r", "\0", " "):
+        if ch in base_url:
+            raise ValueError(
+                f"nemoclaw: base_url {base_url!r} contains illegal whitespace/control char"
+            )
+
+
+def _validate_api_key(api_key: str) -> None:
+    if not isinstance(api_key, str) or not api_key:
+        raise ValueError("nemoclaw: api_key must be a non-empty string")
+    for ch in ("\n", "\r", "\0"):
+        if ch in api_key:
+            raise ValueError(
+                "nemoclaw: api_key contains illegal newline/null byte"
+            )
+
+
+def gateway_register_provider(
+    sandbox_name: str,
+    provider_name: str,
+    api_key: str,
+    base_url: str,
+) -> NemoclawCommand:
+    """Register a provider (api_key + base_url) on the sandbox's NemoClaw
+    gateway. Returns a `NemoclawCommand` whose `argv` a caller passes to
+    `subprocess.run` or ansible-runner. The api_key travels in argv here —
+    upstream may prefer stdin/env; the seam is single-sourced in this
+    helper so a future upstream-verified change is one edit.
+    """
+    _validate_sandbox_name(sandbox_name)
+    _validate_provider_name(provider_name)
+    _validate_api_key(api_key)
+    _validate_base_url(base_url)
+    return NemoclawCommand(
+        verb="gateway-provider-add",
+        sandbox_name=sandbox_name,
+        argv=(
+            NEMOCLAW_BINARY,
+            sandbox_name,
+            "gateway",
+            "provider",
+            "add",
+            provider_name,
+            "--api-key",
+            api_key,
+            "--base-url",
+            base_url,
+        ),
+    )
+
+
 def default_sandbox_name(agent_name: str) -> str:
     """Deterministic sandbox name derived from the openclaw agent name.
 
