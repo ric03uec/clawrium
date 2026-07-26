@@ -147,6 +147,7 @@ class TestGatewayRegisterProvider:
             "example.com",           # no scheme
             "ftp://example.com",     # wrong scheme
             "https://ex.com/\nfoo",  # newline injection
+            "https://ex.com/\tfoo",  # tab injection
             "https://ex .com",       # embedded space
         ],
     )
@@ -185,6 +186,17 @@ class TestGatewayRegisterProvider:
         assert "gateway" in rendered
         assert "openai" in rendered
         assert "https://example.com" in rendered
+
+    def test_repr_redacts_equals_form_secret_flags(self):
+        """Future-proof debug redaction for CLIs that accept --api-key=value."""
+        cmd = nemoclaw.NemoclawCommand(
+            verb="gateway-provider-add",
+            sandbox_name="sbx",
+            argv=(NEMOCLAW_BINARY, "--api-key=sk-equals-secret"),
+        )
+        rendered = repr(cmd)
+        assert "sk-equals-secret" not in rendered
+        assert "--api-key=***REDACTED***" in rendered
 
 
 class TestDefaultSandboxName:

@@ -3190,20 +3190,22 @@ def test_openclaw_env_byte_lock(ptype, expected):
 
 
 @pytest.mark.parametrize(
-    "ptype,expected_var",
+    "ptype,expected_var,expected_secret",
     [
-        ("openrouter", "OPENROUTER_API_KEY"),
-        ("anthropic", "ANTHROPIC_API_KEY"),
-        ("openai", "OPENAI_API_KEY"),
-        ("zai", "ZAI_API_KEY"),
-        ("opencode", "OPENCODE_API_KEY"),
-        ("opencode-go", "OPENCODE_API_KEY"),
-        ("bedrock", "AWS_ACCESS_KEY_ID"),
-        ("bedrock", "AWS_SECRET_ACCESS_KEY"),
-        ("ollama", "OPENCLAW_OLLAMA_URL"),
+        ("openrouter", "OPENROUTER_API_KEY", "sk-or-1"),
+        ("anthropic", "ANTHROPIC_API_KEY", "sk-ant-1"),
+        ("openai", "OPENAI_API_KEY", "sk-oa-1"),
+        ("zai", "ZAI_API_KEY", "sk-zai-1"),
+        ("opencode", "OPENCODE_API_KEY", "sk-opencode-1"),
+        ("opencode-go", "OPENCODE_API_KEY", "sk-opencode-go-1"),
+        ("bedrock", "AWS_ACCESS_KEY_ID", "AKIA-1"),
+        ("bedrock", "AWS_SECRET_ACCESS_KEY", "secret-1"),
+        ("ollama", "OPENCLAW_OLLAMA_URL", "http://10.0.0.5:11434"),
     ],
 )
-def test_openclaw_provider_credentials_absent_from_sandbox_env(ptype, expected_var):
+def test_openclaw_provider_credentials_absent_from_sandbox_env(
+    ptype, expected_var, expected_secret
+):
     """Phase 4 (#946): the sandboxed openclaw process must NEVER receive
     the raw provider bearer / AWS credentials / ollama URL via its
     environment file. Every supported provider type is exercised.
@@ -3219,6 +3221,10 @@ def test_openclaw_provider_credentials_absent_from_sandbox_env(ptype, expected_v
         f"Phase 4 leak: openclaw env for ptype={ptype!r} still contains "
         f"{expected_var!r}. Credentials must be handed to NemoClaw's "
         f"gateway (core/nemoclaw.py:gateway_register_provider) instead."
+    )
+    assert expected_secret not in env, (
+        f"Phase 4 leak: openclaw env for ptype={ptype!r} still contains "
+        "the raw provider credential/value even though the env var name was removed."
     )
 
 

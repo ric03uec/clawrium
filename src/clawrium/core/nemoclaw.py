@@ -97,6 +97,13 @@ class NemoclawCommand:
                 redacted.append("***REDACTED***")
                 skip_next = False
                 continue
+            if any(
+                arg.startswith(f"{flag}=")
+                for flag in ("--api-key", "--secret", "--token", "--password")
+            ):
+                flag, _value = arg.split("=", 1)
+                redacted.append(f"{flag}=***REDACTED***")
+                continue
             redacted.append(arg)
             if arg in ("--api-key", "--secret", "--token", "--password"):
                 skip_next = True
@@ -210,7 +217,7 @@ def _validate_base_url(base_url: str) -> None:
             f"nemoclaw: base_url {base_url!r} must start with http:// or https://"
         )
     # Reject shell/argv smuggling; upstream CLI receives base_url via argv.
-    for ch in ("\n", "\r", "\0", " "):
+    for ch in ("\n", "\r", "\0", " ", "\t"):
         if ch in base_url:
             raise ValueError(
                 f"nemoclaw: base_url {base_url!r} contains illegal whitespace/control char"
