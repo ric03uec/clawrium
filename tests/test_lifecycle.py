@@ -523,6 +523,102 @@ class TestRunLifecyclePlaybook:
         )
         assert "dashboard_port" not in inventory["all"]["vars"]
 
+    def test_openclaw_sandbox_name_injected_into_inventory(self, tmp_path: Path):
+        """ATX iter-6 B3: sandboxed openclaw records must thread their
+        persisted sandbox_name into lifecycle playbook vars. Phase 2 uses
+        this for nemoclaw_onboard; Phase 3 start/stop/status/logs will use
+        the same single injection path."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "oc-nemo": {
+                    "type": "openclaw",
+                    "config": {
+                        "runtime": "nemoclaw",
+                        "sandbox_name": "oc-nemo",
+                    },
+                }
+            },
+        }
+
+        inventory = self._run_with_inventory_capture(
+            tmp_path, host, "openclaw", "oc-nemo"
+        )
+
+        assert inventory["all"]["vars"]["sandbox_name"] == "oc-nemo"
+
+    def test_bare_openclaw_does_not_get_sandbox_name(self, tmp_path: Path):
+        """Bare openclaw records remain additive in phase 2: no
+        sandbox_name key means no extra var is injected."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {"oc-bare": {"type": "openclaw", "config": {}}},
+        }
+
+        inventory = self._run_with_inventory_capture(
+            tmp_path, host, "openclaw", "oc-bare"
+        )
+
+        assert "sandbox_name" not in inventory["all"]["vars"]
+
+    def test_invalid_openclaw_sandbox_name_rejected_before_runner(
+        self, tmp_path: Path
+    ):
+        """A hand-edited hosts.json cannot smuggle shell syntax into
+        Ansible inventory; validation happens before ansible_runner.run."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "oc-nemo": {
+                    "type": "openclaw",
+                    "config": {
+                        "runtime": "nemoclaw",
+                        "sandbox_name": "oc-nemo;docker ps",
+                    },
+                }
+            },
+        }
+        playbook_path = tmp_path / "start.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+        key_path = tmp_path / "key"
+        key_path.write_text("k")
+
+        with (
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+            ),
+            patch("clawrium.core.lifecycle.get_config_dir", return_value=tmp_path),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value={},
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_key",
+                return_value="test-key",
+            ),
+            patch("clawrium.core.lifecycle.ansible_runner.run") as mock_run,
+        ):
+            with pytest.raises(ValueError, match="sandbox_name"):
+                _run_lifecycle_playbook(
+                    "openclaw", "oc-nemo", host["hostname"], "start", host
+                )
+
+        mock_run.assert_not_called()
+
 
 class TestStartClaw:
     """Tests for start_claw function."""
