@@ -1982,11 +1982,10 @@ def _openclaw_nemoclaw_onboard(
 ) -> None:
     """Onboard the NemoClaw sandbox backing an openclaw agent.
 
-    Post-#945 (Phase 3): every openclaw agent is sandboxed. If
-    `config.runtime` is present it must equal `"nemoclaw"`; a missing
-    runtime key (freshly-`set_installing`-d record where the write
-    hasn't landed yet in this call graph) is also accepted so the
-    onboard step still runs.
+    Post-#945 (Phase 3): every openclaw agent is sandboxed. The
+    persisted `config.runtime` must equal `"nemoclaw"`; missing or
+    non-nemoclaw values are legacy bare records and fail with the
+    migration note.
 
     Positioned in `sync_agent_canonical` BEFORE the file-write loop
     AND before `_restart_unit` so:
@@ -2002,7 +2001,12 @@ def _openclaw_nemoclaw_onboard(
     if inputs.agent_type != "openclaw":
         return
 
-    agent_record = (host.get("agents") or {}).get(agent_name) or {}
+    agent_record = (host.get("agents") or {}).get(agent_name)
+    if not isinstance(agent_record, dict):
+        # Unit tests and a few defensive call sites pass a minimized host
+        # record alongside the already-resolved claw_record. Production
+        # hosts.json records contain the agent under host["agents"].
+        return
     config = agent_record.get("config") or {}
     if not isinstance(config, dict):
         return
@@ -2020,12 +2024,15 @@ def _openclaw_nemoclaw_onboard(
         )
     if runtime_norm != "nemoclaw":
         # No runtime key: this is a legacy bare record that predates
-        # Phase 3. Skip onboard — post-#945 `set_installing` always
-        # stamps `runtime: nemoclaw` for openclaw, so any surviving
-        # bare record here is untouched-since-migration. The next
-        # `clawctl agent create` / `upgrade` will stamp the key and
-        # bring the record into the sandboxed path.
-        return
+        # Phase 3. Bare openclaw is no longer a supported sync path;
+        # fail loudly so the operator follows the remove + re-create
+        # migration instead of seeing a silent no-op.
+        raise CanonicalSyncError(
+            f"openclaw agent {agent_name!r} has no runtime substrate "
+            "recorded in hosts.json (expected 'nemoclaw'); bare openclaw "
+            "is no longer supported. Run `clawctl agent remove` + "
+            "re-create (see docs/releases/26.7.3/CHANGELOG.md)."
+        )
 
     # Lazy import to sidestep the lifecycle ↔ lifecycle_canonical
     # cycle (same rationale as the hermes / openclaw slack helpers).

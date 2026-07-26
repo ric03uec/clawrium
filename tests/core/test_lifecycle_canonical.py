@@ -5493,13 +5493,10 @@ class TestOpenclawNemoclawOnboardOrdering:
         with pytest.raises(CanonicalSyncError, match=r"docs/releases/26\.7\.3"):
             sync_agent_canonical("oc-nemo", verify=False)
 
-    def test_onboard_skipped_for_legacy_bare_record(self, monkeypatch):
+    def test_onboard_fails_loud_for_legacy_bare_record(self, monkeypatch):
         """Legacy bare openclaw records (no `runtime` key at all) are
-        left alone by the onboard helper — sync stays a no-op on
-        untouched-since-migration records. Post-#945 `set_installing`
-        stamps every new/re-created openclaw with `runtime: nemoclaw`,
-        so this compatibility path only fires for records that have
-        not been touched by any Phase 3+ clawctl op."""
+        unsupported after Phase 3. Sync must fail with the migration
+        note instead of silently preserving the bare path."""
         self._build_openclaw_sync_env(monkeypatch, runtime_key=None)
 
         dispatched: list[bool] = []
@@ -5511,8 +5508,9 @@ class TestOpenclawNemoclawOnboardOrdering:
         monkeypatch.setattr("clawrium.core.lifecycle._run_lifecycle_playbook", _spy)
         monkeypatch.setattr(lc, "_restart_unit", lambda *_a, **_kw: None)
 
-        sync_agent_canonical("oc-nemo", verify=False)
+        with pytest.raises(CanonicalSyncError, match=r"docs/releases/26\.7\.3"):
+            sync_agent_canonical("oc-nemo", verify=False)
         assert dispatched == [], (
             "onboard playbook must NOT dispatch for a legacy bare "
-            "record; the compatibility skip trips before ansible-runner"
+            "record; the migration failure trips before ansible-runner"
         )
