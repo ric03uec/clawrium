@@ -553,15 +553,21 @@ def _run_lifecycle_playbook(
             config.get("sandbox_name") if isinstance(config, dict) else None
         )
         # Validate via the canonical validator so the regex only lives in
-        # one place (ATX iter-1 W4). Absent-key stays a silent skip
-        # (bare-openclaw non-regression); present-but-invalid fails loud
-        # (W3 — a malformed hosts.json edit can't be blamed on the
-        # downstream install skip).
-        if sandbox_name is not None:
-            from clawrium.core.nemoclaw import _validate_sandbox_name
+        # one place (ATX iter-1 W4). Phase 3 (#945) removed bare
+        # openclaw lifecycle support: every openclaw lifecycle runbook
+        # requires a sandbox_name, so a missing key fails before
+        # ansible-runner instead of silently taking a host-systemd path.
+        if sandbox_name is None:
+            return (
+                False,
+                "openclaw lifecycle requires config.sandbox_name; bare "
+                "openclaw is no longer supported. Remove + re-create "
+                "the agent (see docs/releases/26.7.3/CHANGELOG.md).",
+            )
+        from clawrium.core.nemoclaw import _validate_sandbox_name
 
-            _validate_sandbox_name(sandbox_name)
-            extra_vars["sandbox_name"] = sandbox_name
+        _validate_sandbox_name(sandbox_name)
+        extra_vars["sandbox_name"] = sandbox_name
 
     inventory = {
         "all": {

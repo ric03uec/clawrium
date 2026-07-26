@@ -852,6 +852,22 @@ def _restart_unit(
             on_event=on_event,
             timeout=timeout,
         )
+    if agent_type == "openclaw" and host is not None:
+        from clawrium.core.lifecycle import _run_lifecycle_playbook
+
+        success, err = _run_lifecycle_playbook(
+            agent_type="openclaw",
+            agent_name=agent_name,
+            hostname=host["hostname"],
+            operation="start",
+            host=host,
+            timeout=timeout + 60,
+        )
+        if not success:
+            raise CanonicalSyncError(
+                f"nemoclaw start failed for {agent_name!r} after sync: {err}"
+            )
+        return
     _restart_unit_linux(
         client,
         agent_type=agent_type,
@@ -1047,6 +1063,23 @@ def _verify_health(
             on_event=on_event,
             timeout=max(timeout, 30),
         )
+
+    if agent_type == "openclaw" and host is not None:
+        from clawrium.core.lifecycle import _run_lifecycle_playbook
+
+        success, err = _run_lifecycle_playbook(
+            agent_type="openclaw",
+            agent_name=agent_name,
+            hostname=host["hostname"],
+            operation="status",
+            host=host,
+            timeout=timeout + 45,
+        )
+        if not success:
+            raise CanonicalSyncError(
+                f"nemoclaw status failed for {agent_name!r} after sync: {err}"
+            )
+        return
 
     unit = f"{agent_type}-{agent_name}.service"
     cmd = f"systemctl is-active {shlex.quote(unit)}"

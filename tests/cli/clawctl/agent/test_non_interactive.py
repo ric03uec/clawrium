@@ -94,13 +94,27 @@ def test_registry_describe_unknown_type_errors(fleet_dir) -> None:
     assert result.exit_code != 0
 
 
-def test_logs_placeholder_emits_event(fleet_dir) -> None:
-    # ATX iter-2 W3: text-mode placeholder uses canonical
-    # `Not implemented: agent logs` line. JSON mode tested separately
-    # in test_logs_json_emits_json.
+def _stamp_openclaw_sandbox(fleet_dir) -> None:
+    import json
+
+    hosts_path = fleet_dir / "hosts.json"
+    hosts = json.loads(hosts_path.read_text())
+    config = hosts[0]["agents"]["openclaw"].setdefault("config", {})
+    config["runtime"] = "nemoclaw"
+    config["sandbox_name"] = "wise-hypatia"
+    hosts_path.write_text(json.dumps(hosts, indent=2))
+
+
+def test_logs_delegates_openclaw_to_nemoclaw(fleet_dir, monkeypatch) -> None:
+    _stamp_openclaw_sandbox(fleet_dir)
+    from clawrium.core import lifecycle
+
+    monkeypatch.setattr(
+        lifecycle, "_run_lifecycle_playbook", lambda **_kw: (True, None)
+    )
     result = runner.invoke(app, ["agent", "logs", "wise-hypatia", "--tail", "3"])
     assert result.exit_code == 0
-    assert "Not implemented: agent logs" in result.output
+    assert "logs read from NemoClaw sandbox" in result.output
 
 
 def test_logs_json_emits_json(fleet_dir) -> None:
@@ -112,4 +126,4 @@ def test_logs_json_emits_json(fleet_dir) -> None:
     assert result.exit_code == 0
     parsed = json.loads(result.output.strip())
     assert parsed["level"] == "info"
-    assert "Not implemented: agent logs" in parsed["msg"]
+    assert "NemoClaw log streaming" in parsed["msg"]

@@ -37,6 +37,7 @@ from clawrium.cli.clawctl.agent import (
     shell as _shell,
     skill as _skill,
     start as _start,
+    status as _status,
     stop as _stop,
     sync as _sync,
     upgrade as _upgrade,
@@ -65,6 +66,7 @@ agent_app.command(name="configure", help="Configure an agent (per stage).")(
 )
 agent_app.command(name="start", help="Start an agent.")(_start.start)
 agent_app.command(name="stop", help="Stop an agent.")(_stop.stop)
+agent_app.command(name="status", help="Probe an agent runtime.")(_status.status)
 agent_app.command(name="restart", help="Restart an agent.")(_restart.restart)
 agent_app.command(
     name="sync",

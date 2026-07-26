@@ -82,7 +82,7 @@ class TestRunLifecyclePlaybook:
             "key_id": "test",
             "agent_name": "xclm",
             "port": 22,
-            "agents": {"opc-work": {"type": "openclaw"}},
+            "agents": {"opc-work": {"type": "openclaw", "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"}}},
         }
 
         with patch("clawrium.core.lifecycle._get_lifecycle_playbook_path") as mock_path:
@@ -100,7 +100,7 @@ class TestRunLifecyclePlaybook:
             "key_id": "missing-key",
             "agent_name": "xclm",
             "port": 22,
-            "agents": {"opc-work": {"type": "openclaw"}},
+            "agents": {"opc-work": {"type": "openclaw", "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"}}},
         }
 
         playbook_path = tmp_path / "start.yaml"
@@ -650,6 +650,7 @@ class TestStartClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "onboarding": {"state": "pending"},
                 }
             },
@@ -852,6 +853,7 @@ class TestStartClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "onboarding": {"state": "pending"},
                 }
             },
@@ -875,6 +877,7 @@ class TestStartClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "onboarding": {"state": "ready"},
                 }
             },
@@ -947,6 +950,7 @@ class TestStopClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                 }
             },
         }
@@ -999,6 +1003,7 @@ class TestRestartClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                 }
             },
         }
@@ -1045,6 +1050,7 @@ class TestRestartClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "onboarding": {"state": "ready"},
                 }
             },
@@ -2174,6 +2180,7 @@ class TestStartAgentZeroclawRepairWiring:
             "agents": {
                 "opc-test": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "onboarding": {"state": "ready"},
                 }
             },
@@ -2296,6 +2303,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "runtime": {"status": "running"},
                 }
             },
@@ -2350,6 +2358,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "runtime": {"status": "running"},
                 }
             },
@@ -2412,6 +2421,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "runtime": {"status": "stopped"},
                 }
             },
@@ -2463,6 +2473,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "runtime": {"status": "stopped"},
                 }
             },
@@ -2514,6 +2525,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "runtime": {"status": "stopped"},
                 }
             },
@@ -2581,6 +2593,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "agent_name": "opc-work",
                     "runtime": {"status": "stopped"},
                 }
@@ -2637,8 +2650,16 @@ class TestResolveAgentRecord:
         host = {
             "hostname": "test-host",
             "agents": {
-                "assistant-1": {"type": "openclaw", "status": "installed"},
-                "assistant-2": {"type": "openclaw", "status": "installed"},
+                "assistant-1": {
+                    "type": "openclaw",
+                    "status": "installed",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "assistant-1"},
+                },
+                "assistant-2": {
+                    "type": "openclaw",
+                    "status": "installed",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "assistant-2"},
+                },
             },
         }
 
@@ -2684,7 +2705,11 @@ class TestResolveAgentRecord:
         host = {
             "hostname": "test-host",
             "agents": {
-                "work-bot": {"type": "openclaw", "status": "installed"},
+                "work-bot": {
+                    "type": "openclaw",
+                    "status": "installed",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "work-bot"},
+                },
             },
         }
 
@@ -2699,7 +2724,11 @@ class TestResolveAgentRecord:
         host = {
             "hostname": "test-host",
             "agents": {
-                "work-bot": {"type": "openclaw", "status": "installed"},
+                "work-bot": {
+                    "type": "openclaw",
+                    "status": "installed",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "work-bot"},
+                },
             },
         }
 

@@ -1,126 +1,58 @@
 ---
+# Phase 3 of #11 (#945): openclaw lifecycle is delegated to the
+# NemoClaw sandbox. This playbook intentionally does not create,
+# rewrite, start, or verify a host-side openclaw systemd service.
 - hosts: all
   become: yes
+  vars:
+    nemoclaw_binary: "/usr/local/bin/nemoclaw"
   tasks:
-    - name: Get agent user home directory
-      ansible.builtin.getent:
-        database: passwd
-        key: "{{ agent_name }}"
-      register: user_info
-      failed_when: false
-
-    - name: Check if systemd service exists
-      ansible.builtin.stat:
-        path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
-      register: service_file
-
-    - name: Fail if service not installed
+    - name: Refuse to run on non-Linux hosts (dispatcher contract)
       ansible.builtin.fail:
-        msg: "OpenClaw service not installed. Run 'clawctl agent install' first."
-      when: not service_file.stat.exists
+        msg: start.yaml invoked against non-Linux host for NemoClaw-backed openclaw
+      when: ansible_os_family == "Darwin"
 
-    - name: Check per-agent openclaw binary
+    - name: Assert sandbox_name extravar is provided
+      ansible.builtin.assert:
+        that:
+          - sandbox_name is defined
+          - sandbox_name | length > 0
+        fail_msg: >-
+          `sandbox_name` extravar is required for NemoClaw-backed
+          openclaw start. This is a legacy bare record; remove +
+          re-create the agent per docs/releases/26.7.3/CHANGELOG.md.
+
+    - name: Assert nemoclaw binary is present on host
       ansible.builtin.stat:
-        path: "/home/{{ agent_name }}/.openclaw/bin/openclaw"
-      register: openclaw_per_agent_stat
+        path: "{{ nemoclaw_binary }}"
+      register: nemoclaw_stat
 
-    - name: Discover openclaw binary in PATH
-      ansible.builtin.command: which openclaw
-      register: openclaw_which_result
-      changed_when: false
-      failed_when: false
-
-    # W2: a zero-byte or non-executable per-agent file (e.g. crashed mid-flight
-    # install artifact) must NOT be accepted as a working binary — otherwise the
-    # service enters an infinite Restart=always crash-loop.
-    - name: Resolve openclaw binary (per-agent preferred, PATH fallback)
-      ansible.builtin.set_fact:
-        openclaw_runtime_binary: >-
-          {{ ('/home/' ~ agent_name ~ '/.openclaw/bin/openclaw')
-             if (openclaw_per_agent_stat.stat.exists
-                 and openclaw_per_agent_stat.stat.executable | default(false)
-                 and (openclaw_per_agent_stat.stat.size | default(0)) > 0)
-             else (openclaw_which_result.stdout
-                   if (openclaw_which_result.rc | default(1)) == 0
-                   else ('/home/' ~ agent_name ~ '/.openclaw/bin/openclaw')) }}
-
-    # Validator runs on the RESOLVED variable (the same one written to
-    # ExecStart), not on the raw `which` result. This closes the gap where a
-    # bad per-agent binary gets rejected by W2 but the PATH fallback then
-    # bypasses validation. Per-agent /home/... trivially passes.
-    - name: Validate resolved binary path
+    - name: Fail if nemoclaw binary is missing
       ansible.builtin.fail:
-        msg: "Resolved openclaw binary at unsafe path: {{ openclaw_runtime_binary }}. Expected under /usr/local/bin/, /usr/bin/, or /home/."
-      when: >
-        (openclaw_runtime_binary | length) > 0 and
-        not (openclaw_runtime_binary.startswith('/usr/local/bin/') or
-             openclaw_runtime_binary.startswith('/usr/bin/') or
-             openclaw_runtime_binary.startswith('/home/'))
+        msg: >-
+          nemoclaw binary not found at {{ nemoclaw_binary }}. Re-run
+          `clawctl host prepare <host>` before starting openclaw.
+      when: not nemoclaw_stat.stat.exists
 
-    - name: Sync systemd service file
-      ansible.builtin.copy:
-        dest: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"
-        content: |
-          [Unit]
-          Description=OpenClaw AI Assistant ({{ agent_name }})
-          After=network.target
-
-          [Service]
-          Type=simple
-          User={{ agent_name }}
-          WorkingDirectory=/home/{{ agent_name }}/workspace
-          EnvironmentFile=/home/{{ agent_name }}/.openclaw/env
-          ExecStart={{ openclaw_runtime_binary }} gateway run --allow-unconfigured
-          Restart=always
-          RestartSec=5
-
-          [Install]
-          WantedBy=multi-user.target
-        mode: "0644"
-      register: service_file_changed
-
-    # B3 + W3: bundle daemon_reload with the restart so `systemctl restart`
-    # cannot fire against stale unit content if the prior reload step is
-    # reordered or removed. `enabled: yes` (W1) closes the boot-time window
-    # between `state: restarted` and the later `state: started, enabled: yes`
-    # task — otherwise a reboot mid-install would leave the service running
-    # but not registered for boot.
-    - name: Restart openclaw service if unit file changed
-      ansible.builtin.systemd:
-        name: "{{ agent_type }}-{{ agent_name }}"
-        state: restarted
-        enabled: yes
-        daemon_reload: yes
-      when: service_file_changed.changed
-
-    - name: Start openclaw service
-      ansible.builtin.systemd:
-        name: "{{ agent_type }}-{{ agent_name }}"
-        state: started
-        enabled: yes
-      register: start_result
-
-    - name: Wait for service to be active
-      ansible.builtin.systemd:
-        name: "{{ agent_type }}-{{ agent_name }}"
-      register: service_status
-      until: service_status.status.ActiveState == "active"
-      retries: 10
-      delay: 3
-
-    - name: Verify process is running
+    - name: Start NemoClaw sandbox {{ sandbox_name }}
       ansible.builtin.command:
-        cmd: pgrep -u {{ agent_name }} openclaw
-      register: process_check
-      changed_when: false
-      failed_when: process_check.rc != 0
+        argv:
+          - "{{ nemoclaw_binary }}"
+          - start
+          - "{{ sandbox_name }}"
+      register: nemoclaw_start_result
+      changed_when: nemoclaw_start_result.rc == 0
 
-    - name: Get process info
+    - name: Verify NemoClaw sandbox {{ sandbox_name }} status
       ansible.builtin.command:
-        cmd: pgrep -u {{ agent_name }} openclaw
-      register: pid_result
+        argv:
+          - "{{ nemoclaw_binary }}"
+          - status
+          - "{{ sandbox_name }}"
+      register: nemoclaw_status_result
       changed_when: false
+      failed_when: nemoclaw_status_result.rc != 0
 
     - name: Display success message
       ansible.builtin.debug:
-        msg: "OpenClaw started successfully (PID: {{ pid_result.stdout_lines[0] }})"
+        msg: "OpenClaw NemoClaw sandbox {{ sandbox_name }} started successfully"
