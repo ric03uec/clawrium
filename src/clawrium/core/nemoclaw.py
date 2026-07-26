@@ -188,11 +188,23 @@ def destroy(sandbox_name: str) -> NemoclawCommand:
 #       --api-key <k> --base-url <u>
 # If upstream diverges, this is the single seam to update — every caller
 # routes through `gateway_register_provider` and the Ansible playbook
-# consumes `NemoclawCommand.argv` verbatim.
+# consumes `NemoclawCommand.argv` verbatim. Until parent-plan §7.5 is
+# answered, the helper is intentionally fail-closed unless the caller
+# passes an explicit upstream-confirmation flag; this prevents the guessed
+# argv from becoming production behavior by accident.
 # ---------------------------------------------------------------------------
 
 
 _PROVIDER_NAME_PATTERN = r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"
+_GATEWAY_PROVIDER_CLI_UNCONFIRMED_ERROR = (
+    "nemoclaw gateway provider registration CLI shape is unconfirmed "
+    "(parent-plan §7.5). Devashish must choose the production contract: "
+    "A) confirm `nemoclaw <sandbox> gateway provider add <name> --api-key "
+    "<key> --base-url <url>`, B) require stdin/env/file secret handoff, or "
+    "C) defer Clawrium-managed registration and expose an explicit operator "
+    "NemoClaw step. Recommended default: B (stdin/env/file) to avoid "
+    "putting provider bearers in argv/process listings."
+)
 
 
 def _validate_provider_name(provider_name: str) -> None:
@@ -244,17 +256,25 @@ def gateway_register_provider(
     provider_name: str,
     api_key: str,
     base_url: str,
+    *,
+    upstream_cli_shape_confirmed: bool = False,
 ) -> NemoclawCommand:
     """Register a provider (api_key + base_url) on the sandbox's NemoClaw
-    gateway. Returns a `NemoclawCommand` whose `argv` a caller passes to
-    `subprocess.run` or ansible-runner. The api_key travels in argv here —
-    upstream may prefer stdin/env; the seam is single-sourced in this
-    helper so a future upstream-verified change is one edit.
+    gateway.
+
+    The argv shape below is the ITX-STUCK best guess. It is deliberately
+    fail-closed unless the caller passes `upstream_cli_shape_confirmed=True`,
+    so a future lifecycle/playbook integration cannot accidentally ship the
+    guessed CLI as production behavior before parent-plan §7.5 is answered.
+    Once Devashish confirms the real upstream contract, remove the guard or
+    replace this function with the confirmed stdin/env/file/argv handoff.
     """
     _validate_sandbox_name(sandbox_name)
     _validate_provider_name(provider_name)
     _validate_api_key(api_key)
     _validate_base_url(base_url)
+    if not upstream_cli_shape_confirmed:
+        raise NotImplementedError(_GATEWAY_PROVIDER_CLI_UNCONFIRMED_ERROR)
     return NemoclawCommand(
         verb="gateway-provider-add",
         sandbox_name=sandbox_name,

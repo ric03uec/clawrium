@@ -107,7 +107,11 @@ class TestGatewayRegisterProvider:
 
     def test_argv_shape(self):
         cmd = nemoclaw.gateway_register_provider(
-            "e2e-openclaw", "openai-primary", "sk-secret-1", "https://api.openai.com/v1"
+            "e2e-openclaw",
+            "openai-primary",
+            "sk-secret-1",
+            "https://api.openai.com/v1",
+            upstream_cli_shape_confirmed=True,
         )
         assert cmd.verb == "gateway-provider-add"
         assert cmd.sandbox_name == "e2e-openclaw"
@@ -177,7 +181,11 @@ class TestGatewayRegisterProvider:
         via argv. Default @dataclass repr printed the raw secret.
         """
         cmd = nemoclaw.gateway_register_provider(
-            "sbx", "openai", "sk-super-secret-42", "https://example.com"
+            "sbx",
+            "openai",
+            "sk-super-secret-42",
+            "https://example.com",
+            upstream_cli_shape_confirmed=True,
         )
         rendered = repr(cmd)
         assert "sk-super-secret-42" not in rendered
@@ -186,6 +194,16 @@ class TestGatewayRegisterProvider:
         assert "gateway" in rendered
         assert "openai" in rendered
         assert "https://example.com" in rendered
+
+    def test_refuses_to_build_until_upstream_cli_shape_is_confirmed(self):
+        """Do not let the ITX-STUCK guessed argv become production behavior
+        silently. Future lifecycle/playbook wiring must first resolve §7.5
+        and then pass the explicit confirmation flag or replace this seam.
+        """
+        with pytest.raises(NotImplementedError, match="§7.5"):
+            nemoclaw.gateway_register_provider(
+                "sbx", "openai", "sk-secret", "https://example.com"
+            )
 
     def test_repr_redacts_equals_form_secret_flags(self):
         """Future-proof debug redaction for CLIs that accept --api-key=value."""
