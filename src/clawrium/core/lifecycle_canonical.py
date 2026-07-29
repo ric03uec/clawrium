@@ -2574,14 +2574,13 @@ def sync_agent_canonical(
                 on_event=on_event,
             )
 
-        # Phase 2 of #11 (issue #944): NemoClaw sandbox onboard for
-        # openclaw agents whose config opts into `runtime: "nemoclaw"`.
-        # Same slot as `_openclaw_install_plugins` above — runs BEFORE
-        # the file-write loop so a freshly-rendered openclaw config
-        # and a freshly-onboarded sandbox land in a single daemon
-        # restart. Fast no-op for bare openclaw agents (Phase 2 keeps
-        # them working alongside sandboxed installs; Phase 3 deletes
-        # the bare path).
+        # Phase 3 of #11 (issue #945): every openclaw MUST carry
+        # `runtime: "nemoclaw"` in config; bare records raise
+        # `CanonicalSyncError` with the migration URL. Same slot as
+        # `_openclaw_install_plugins` above — runs BEFORE the
+        # file-write loop so a freshly-rendered openclaw config and
+        # a freshly-onboarded sandbox land in a single daemon
+        # restart.
         if inputs.agent_type == "openclaw":
             _openclaw_nemoclaw_onboard(
                 agent_name,

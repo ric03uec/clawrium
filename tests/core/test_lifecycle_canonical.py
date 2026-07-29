@@ -5493,11 +5493,34 @@ class TestOpenclawNemoclawOnboardOrdering:
         with pytest.raises(CanonicalSyncError, match=r"docs/releases/26\.7\.3"):
             sync_agent_canonical("oc-nemo", verify=False)
 
-    def test_onboard_fails_loud_for_legacy_bare_record(self, monkeypatch):
-        """Legacy bare openclaw records (no `runtime` key at all) are
-        unsupported after Phase 3. Sync must fail with the migration
-        note instead of silently preserving the bare path."""
-        self._build_openclaw_sync_env(monkeypatch, runtime_key=None)
+    @pytest.mark.parametrize(
+        "runtime_val",
+        [
+            pytest.param("__missing__", id="missing-key"),
+            pytest.param(None, id="explicit-none"),
+            pytest.param("", id="empty-string"),
+            pytest.param("  ", id="whitespace-only"),
+        ],
+    )
+    def test_onboard_fails_loud_for_legacy_bare_record(
+        self, monkeypatch, runtime_val
+    ):
+        """Legacy bare openclaw records (missing `runtime`, empty
+        string, whitespace, or explicit None) are unsupported after
+        Phase 3. Sync must fail with the migration note instead of
+        silently preserving the bare path.
+
+        ATX iter-1 W2: parametrized so a future refactor that adds an
+        `if not runtime:` guard before the `str(runtime or '').strip()`
+        normalization cannot silently break the empty/None branches.
+        """
+        if runtime_val == "__missing__":
+            self._build_openclaw_sync_env(monkeypatch, runtime_key=None)
+        else:
+            host_record = self._build_openclaw_sync_env(
+                monkeypatch, runtime_key="runtime"
+            )
+            host_record["agents"]["oc-nemo"]["config"]["runtime"] = runtime_val
 
         dispatched: list[bool] = []
 

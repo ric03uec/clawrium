@@ -106,15 +106,30 @@ def _stamp_openclaw_sandbox(fleet_dir) -> None:
 
 
 def test_logs_delegates_openclaw_to_nemoclaw(fleet_dir, monkeypatch) -> None:
+    """ATX iter-1 W1: capture kwargs so we actually assert delegation
+    parameters — the output-string check alone would pass even if the
+    playbook was invoked with the wrong operation or sandbox_name."""
     _stamp_openclaw_sandbox(fleet_dir)
     from clawrium.core import lifecycle
 
-    monkeypatch.setattr(
-        lifecycle, "_run_lifecycle_playbook", lambda **_kw: (True, None)
-    )
+    captured: dict = {}
+
+    def _spy(**kwargs):
+        captured.update(kwargs)
+        return (True, None)
+
+    monkeypatch.setattr(lifecycle, "_run_lifecycle_playbook", _spy)
     result = runner.invoke(app, ["agent", "logs", "wise-hypatia", "--tail", "3"])
     assert result.exit_code == 0
     assert "logs read from NemoClaw sandbox" in result.output
+    # Pin delegation contract: operation + agent-type/name routed to
+    # the openclaw playbook (which internally runs `nemoclaw logs
+    # <sandbox>`). agent_name is the hosts.json record key that the
+    # CLI resolves from the input alias.
+    assert captured.get("operation") == "logs"
+    assert captured.get("agent_type") == "openclaw"
+    assert captured.get("agent_name") == "openclaw"
+    assert captured.get("hostname"), "hostname must be threaded through"
 
 
 def test_logs_json_emits_json(fleet_dir) -> None:

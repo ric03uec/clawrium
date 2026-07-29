@@ -8,30 +8,28 @@
     # Phase 3 of #11 (issue #945): tear down the NemoClaw sandbox
     # BEFORE uninstalling the host-side openclaw bits. `sandbox_name`
     # is threaded in by `_run_lifecycle_playbook` for every openclaw
-    # op (see `core/lifecycle.py`). A missing sandbox_name — legacy
-    # bare record that predates Phase 3 — is a fail-fast condition:
-    # the operator needs to know their record is stale so they can
-    # remove it manually with `nemoclaw destroy` if necessary. Missing
-    # nemoclaw binary (never installed) is a fast-skip, not a failure,
-    # so `remove` still succeeds against a half-installed host.
-    - name: Assert sandbox_name is present for sandbox teardown
-      ansible.builtin.assert:
-        that:
-          - sandbox_name is defined
-          - sandbox_name | length > 0
-        fail_msg: >-
+    # op (see `core/lifecycle.py`). Legacy bare records predating
+    # Phase 3 have no `sandbox_name` — for `remove` we tolerate the
+    # missing var and skip the sandbox teardown, then proceed with
+    # host-side residue cleanup so the migration workflow completes
+    # (ATX iter-1 B1). Missing nemoclaw binary (never installed) is
+    # a fast-skip, not a failure, so `remove` still succeeds against
+    # a half-installed host.
+    - name: Note legacy bare record (no sandbox_name)
+      ansible.builtin.debug:
+        msg: >-
           openclaw remove: no sandbox_name in hosts.json config.
           This is a legacy bare openclaw record predating Phase 3
-          of #11 (issue #945). Remove it manually with
-          `nemoclaw destroy <sandbox>` on the host, then re-run
-          `clawctl agent remove` to clean local state.
+          of #11 (issue #945). Skipping NemoClaw sandbox teardown
+          and proceeding with host-side cleanup.
+      when: sandbox_name is not defined or (sandbox_name | length) == 0
 
     - name: Check nemoclaw binary is present
       ansible.builtin.stat:
         path: "{{ nemoclaw_binary }}"
       register: nemoclaw_stat
 
-    - name: Destroy NemoClaw sandbox {{ sandbox_name }}
+    - name: Destroy NemoClaw sandbox {{ sandbox_name | default('') }}
       ansible.builtin.command:
         argv:
           - "{{ nemoclaw_binary }}"
@@ -47,7 +45,10 @@
         # now we only treat rc != 0 as failure when stderr also lacks
         # a "not found" hint.
         - "'not found' not in (nemoclaw_destroy_result.stderr | default(''))"
-      when: nemoclaw_stat.stat.exists
+      when:
+        - nemoclaw_stat.stat.exists
+        - sandbox_name is defined
+        - (sandbox_name | length) > 0
 
     - name: Check if systemd service exists
       ansible.builtin.stat:
