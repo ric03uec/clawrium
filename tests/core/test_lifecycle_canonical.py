@@ -5537,3 +5537,116 @@ class TestOpenclawNemoclawOnboardOrdering:
             "onboard playbook must NOT dispatch for a legacy bare "
             "record; the migration failure trips before ansible-runner"
         )
+
+
+class TestOpenclawRestartUnitDispatch:
+    """ATX iter-3 B1 (issue #945): pin the openclaw dispatch branches
+    of `_restart_unit` and `_verify_health` added in this PR. Every
+    other sync-path test stubs these functions whole, so the inner
+    delegation to `_run_lifecycle_playbook(operation='start'/'status')`
+    and the CanonicalSyncError-raise-on-failure paths had no coverage.
+    """
+
+    def _openclaw_host(self):
+        return {
+            "hostname": "192.168.1.100",
+            "os_family": "linux",
+            "agents": {
+                "oc-nemo": {
+                    "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "oc-nemo"},
+                }
+            },
+        }
+
+    def test_restart_unit_openclaw_delegates_to_nemoclaw_start(self, monkeypatch):
+        captured: dict = {}
+
+        def _spy(**kwargs):
+            captured.update(kwargs)
+            return True, None
+
+        monkeypatch.setattr("clawrium.core.lifecycle._run_lifecycle_playbook", _spy)
+
+        lc._restart_unit(
+            client=MagicMock(),
+            agent_type="openclaw",
+            agent_name="oc-nemo",
+            host=self._openclaw_host(),
+        )
+        assert captured.get("operation") == "start"
+        assert captured.get("agent_type") == "openclaw"
+        assert captured.get("agent_name") == "oc-nemo"
+        assert captured.get("hostname") == "192.168.1.100"
+
+    def test_restart_unit_openclaw_failure_raises_canonical_sync_error(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle._run_lifecycle_playbook",
+            lambda **_kw: (False, "nemoclaw start: sandbox did not become active"),
+        )
+        with pytest.raises(CanonicalSyncError, match=r"nemoclaw start failed for 'oc-nemo'"):
+            lc._restart_unit(
+                client=MagicMock(),
+                agent_type="openclaw",
+                agent_name="oc-nemo",
+                host=self._openclaw_host(),
+            )
+
+    def test_restart_unit_non_openclaw_does_not_hit_playbook(self, monkeypatch):
+        """Regression guard: hermes/zeroclaw must NOT dispatch through
+        the openclaw playbook path. Shared-code invariant for #945."""
+        dispatched: list[bool] = []
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle._run_lifecycle_playbook",
+            lambda **_kw: (dispatched.append(True), (True, None))[1],
+        )
+        # Stub the linux systemd path so we don't need a real SSH client.
+        monkeypatch.setattr(
+            lc, "_restart_unit_linux", lambda *_a, **_kw: None
+        )
+        for agent_type in ("hermes", "zeroclaw"):
+            lc._restart_unit(
+                client=MagicMock(),
+                agent_type=agent_type,
+                agent_name="x",
+                host={"hostname": "h", "os_family": "linux"},
+            )
+        assert dispatched == [], (
+            f"non-openclaw agent types dispatched through openclaw path: {dispatched}"
+        )
+
+    def test_verify_health_openclaw_delegates_to_nemoclaw_status(self, monkeypatch):
+        captured: dict = {}
+
+        def _spy(**kwargs):
+            captured.update(kwargs)
+            return True, None
+
+        monkeypatch.setattr("clawrium.core.lifecycle._run_lifecycle_playbook", _spy)
+
+        lc._verify_health(
+            client=MagicMock(),
+            agent_type="openclaw",
+            agent_name="oc-nemo",
+            host=self._openclaw_host(),
+        )
+        assert captured.get("operation") == "status"
+        assert captured.get("agent_type") == "openclaw"
+        assert captured.get("agent_name") == "oc-nemo"
+
+    def test_verify_health_openclaw_failure_raises_canonical_sync_error(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle._run_lifecycle_playbook",
+            lambda **_kw: (False, "nemoclaw status: sandbox unhealthy"),
+        )
+        with pytest.raises(CanonicalSyncError, match=r"nemoclaw status failed for 'oc-nemo'"):
+            lc._verify_health(
+                client=MagicMock(),
+                agent_type="openclaw",
+                agent_name="oc-nemo",
+                host=self._openclaw_host(),
+            )
