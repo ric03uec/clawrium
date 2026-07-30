@@ -37,7 +37,7 @@ state.
 
 **Rollback path.** There is no in-place rollback; pin the previous
 Clawrium release and re-install per the migration note in
-[`docs/releases/26.7.3/CHANGELOG.md`](../releases/26.7.3/CHANGELOG.md).
+[`docs/releases/26.7.3/CHANGELOG.md`](https://github.com/ric03uec/clawrium/blob/main/docs/releases/26.7.3/CHANGELOG.md).
 
 **macOS.** Openclaw on macOS is blocked at install pending an upstream
 NemoClaw darwin binary (#11 §7.2). Deploy openclaw on an Ubuntu 24.04+
@@ -45,7 +45,7 @@ host until that support lands.
 
 **Migration from bare openclaw.** Legacy bare records predating v26.7.3
 fail `clawctl agent sync` with a message pointing at
-[`docs/releases/26.7.3/CHANGELOG.md`](../releases/26.7.3/CHANGELOG.md).
+[`docs/releases/26.7.3/CHANGELOG.md`](https://github.com/ric03uec/clawrium/blob/main/docs/releases/26.7.3/CHANGELOG.md).
 The migration is `remove` + `create` + `configure` + `start`; there is
 no automated migration.
 
