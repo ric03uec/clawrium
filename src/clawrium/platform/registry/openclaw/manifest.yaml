@@ -21,7 +21,7 @@ agent:
 # implicit default.
 runtime:
   nemoclaw:
-    version: "v0.0.94"
+    version: "v0.0.97"
 
 # Plugin pin table — versions are referenced by configure.yaml so a
 # bump is a single-line change. `min_host_version` mirrors the

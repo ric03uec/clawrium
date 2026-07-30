@@ -25,7 +25,7 @@
 - hosts: all
   become: yes
   vars:
-    nemoclaw_version: "v0.0.94"
+    nemoclaw_version: "v0.0.97"
     # Ansible's `ansible_architecture` → upstream asset suffix. NemoClaw
     # ships linux amd64 + arm64 tarballs; armv7l is intentionally not
     # supported (the substrate targets 64-bit Ubuntu hosts only). The

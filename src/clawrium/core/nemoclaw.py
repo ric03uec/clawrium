@@ -24,7 +24,7 @@ from dataclasses import dataclass
 UPSTREAM_REPO = "NVIDIA/NemoClaw"
 UPSTREAM_DOCS = "https://docs.nvidia.com/nemoclaw/latest/"
 
-NEMOCLAW_VERSION = "v0.0.94"
+NEMOCLAW_VERSION = "v0.0.97"
 
 _TARBALL_URL_TEMPLATE = (
     "https://github.com/NVIDIA/NemoClaw/releases/download/"

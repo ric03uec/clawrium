@@ -29,7 +29,7 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
-- NemoClaw runtime substrate (`v0.0.94`) is now installed as part of
+- NemoClaw runtime substrate (`v0.0.97`) is now installed as part of
   `clawctl host prepare` for openclaw hosts. New openclaw agents are
   provisioned into a NemoClaw sandbox — `clawctl agent get` records
   `runtime: nemoclaw` in the agent's `config` block, and every

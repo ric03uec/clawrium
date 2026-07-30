@@ -15,7 +15,7 @@
 - hosts: all
   become: yes
   vars:
-    nemoclaw_version: "v0.0.94"
+    nemoclaw_version: "v0.0.97"
   tasks:
     - name: Refuse to run on non-Darwin hosts (dispatcher contract)
       ansible.builtin.fail:
