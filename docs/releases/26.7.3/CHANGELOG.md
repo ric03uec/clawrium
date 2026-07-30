@@ -1,4 +1,4 @@
-# Release 26.7.3 — bare openclaw removed
+# Release 26.7.3 — openclaw sandboxed under NemoClaw
 
 Placeholder migration note for the release that lands Phase 3 of the
 NemoClaw rollout (#11 / #945). The frozen changelog for **26.7.3** will
@@ -10,13 +10,16 @@ document exists ahead of that cut so operators referenced from the root
 
 ## Migration: bare openclaw → NemoClaw sandbox
 
-Every openclaw agent is now sandboxed under
-[NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw). The `__bare__`
-non-regression preserve branch that Phase 2 (#944) put in place has
-been removed. Any openclaw agent that still has no `runtime` key in
-`hosts.json` will refuse to sync — you must remove and re-create it.
+New openclaw agents are sandboxed under
+[NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw). `runtime:
+nemoclaw` gets recorded in `hosts.json` at create time. Existing bare
+openclaw records (installed before this release) are **grandfathered**
+— they keep syncing + running until you explicitly migrate them.
 
-### Am I affected?
+There is no hard cutover: `clawctl agent sync` continues to work for
+bare records. Migrating each agent is opt-in, at your own pace.
+
+### Do I have bare openclaws?
 
 Run:
 
@@ -27,7 +30,8 @@ clawctl agent get -o json | jq -r '
 '
 ```
 
-Every name printed is a bare openclaw record that needs migration.
+Every name printed is a bare openclaw. Migrating is recommended (the
+sandbox model is the go-forward substrate) but not required.
 Alternatively, on any host that runs openclaw:
 
 ```bash
