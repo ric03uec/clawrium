@@ -622,3 +622,293 @@ def test_upgrade_skip_drift_check_bypasses_preflight(isolated_config: Path):
         )
     assert result.exit_code == 0, result.output
     mock_install.assert_called_once()
+
+
+# ─── #754: live-version probe tests ──────────────────────────────────────────
+
+def test_upgrade_no_op_when_live_equals_max(
+    isolated_config: Path, _patch_drift_clean
+):
+    """T1: live=manifest_max, snapshot < max → no-op, snapshot untouched.
+
+    The host binary is already at the latest version but the snapshot
+    records an older version. Upgrade should detect via SSH that the
+    host is current and exit 0 without touching the snapshot.
+    """
+    _write_host(isolated_config, "openclaw", "2026.3.13")
+    with patch(
+        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
+        return_value="2026.6.11",
+    ), patch("clawrium.core.install.run_installation") as mock_install:
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+    assert "already at latest" in result.output.lower()
+    mock_install.assert_not_called()
+    # Snapshot stays at the old value — NOT auto-corrected
+    assert _read_version(isolated_config) == "2026.3.13"
+
+
+def test_upgrade_no_op_when_live_above_max(
+    isolated_config: Path, _patch_drift_clean
+):
+    """T2: live > manifest_max → no-op, snapshot untouched."""
+    _write_host(isolated_config, "openclaw", "2026.5.28")
+    with patch(
+        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
+        return_value="2026.7.0",
+    ), patch("clawrium.core.install.run_installation") as mock_install:
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+    assert "already at latest" in result.output.lower()
+    mock_install.assert_not_called()
+    assert _read_version(isolated_config) == "2026.5.28"
+
+
+def test_upgrade_runs_when_live_below_max(isolated_config: Path, _patch_drift_clean):
+    """T3: live < manifest_max, snapshot = manifest_max → install runs."""
+    _write_host(isolated_config, "openclaw", "2026.6.11")
+
+    def _fake_install(*args, **kwargs):
+        path = isolated_config / "hosts.json"
+        data = json.loads(path.read_text())
+        data[0]["agents"]["test-agent"]["version"] = "2026.6.11"
+        path.write_text(json.dumps(data, indent=2))
+        return {
+            "success": True,
+            "agent": "openclaw",
+            "version": "2026.6.11",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
+        return_value="2026.5.28",
+    ), patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ) as mock_install:
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+    mock_install.assert_called_once()
+    assert "already at latest" not in result.output.lower()
+
+
+def test_upgrade_corrects_false_already_at_max_snapshot(
+    isolated_config: Path, _patch_drift_clean
+):
+    """T4: wolf-i scenario — snapshot=max but live < max → install runs.
+
+    This is the real incident that motivated #754. The snapshot said
+    2026.6.11 but the per-agent binary was actually 2026.3.13.
+    """
+    _write_host(isolated_config, "openclaw", "2026.6.11")
+
+    def _fake_install(*args, **kwargs):
+        path = isolated_config / "hosts.json"
+        data = json.loads(path.read_text())
+        data[0]["agents"]["test-agent"]["version"] = "2026.6.11"
+        path.write_text(json.dumps(data, indent=2))
+        return {
+            "success": True,
+            "agent": "openclaw",
+            "version": "2026.6.11",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
+        return_value="2026.3.13",
+    ), patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ) as mock_install:
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+    mock_install.assert_called_once()
+    # Should NOT have exited as no-op
+    assert "already at latest" not in result.output.lower()
+
+
+def test_upgrade_no_op_does_not_run_install(isolated_config: Path, _patch_drift_clean):
+    """T5: T1 setup — assert run_installation not called."""
+    _write_host(isolated_config, "openclaw", "2026.3.13")
+    with patch(
+        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
+        return_value="2026.6.11",
+    ), patch(
+        "clawrium.core.install.run_installation",
+        side_effect=AssertionError("run_installation must not be called"),
+    ):
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+
+
+def test_upgrade_uses_shared_resolver(isolated_config: Path, _patch_drift_clean):
+    """T6: the upgrade path calls the shared live-version resolver.
+
+    Mock _get_live_openclaw_version to return the manifest max and
+    confirm upgrade treats it as a no-op — proving the resolver
+    output drives the decision.
+    """
+    _write_host(isolated_config, "openclaw", "2026.5.28")
+    with patch(
+        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
+        return_value="2026.6.11",
+    ), patch("clawrium.core.install.run_installation") as mock_install:
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+    assert "already at latest" in result.output.lower()
+    mock_install.assert_not_called()
+
+
+def test_upgrade_live_probe_fallback_to_snapshot_on_ssh_failure(
+    isolated_config: Path, _patch_drift_clean
+):
+    """When the live version probe fails (SSH error, no key), fall back to
+    the snapshot version. This ensures the upgrade still works even when
+    the host is temporarily unreachable during the version probe."""
+    _write_host(isolated_config, "openclaw", "2026.4.2")
+
+    def _fake_install(*args, **kwargs):
+        path = isolated_config / "hosts.json"
+        data = json.loads(path.read_text())
+        data[0]["agents"]["test-agent"]["version"] = "2026.6.11"
+        path.write_text(json.dumps(data, indent=2))
+        return {
+            "success": True,
+            "agent": "openclaw",
+            "version": "2026.6.11",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    # _get_live_openclaw_version returns None (SSH failed)
+    with patch(
+        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
+        return_value=None,
+    ), patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ) as mock_install:
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+    # Falls back to snapshot-based comparison → proceeds with upgrade
+    mock_install.assert_called_once()
+
+
+def test_upgrade_live_probe_skipped_for_failed_retry(
+    isolated_config: Path, _patch_drift_clean
+):
+    """When status=failed, the live probe is skipped and the failed-status
+    retry path takes over (mirrors the pre-#754 ATX B3 behavior)."""
+    _write_host(isolated_config, "openclaw", "2026.6.11")
+    data = json.loads((isolated_config / "hosts.json").read_text())
+    data[0]["agents"]["test-agent"]["status"] = "failed"
+    (isolated_config / "hosts.json").write_text(json.dumps(data))
+
+    def _fake_install(*args, **kwargs):
+        return {
+            "success": True,
+            "agent": "openclaw",
+            "version": "2026.6.11",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
+        side_effect=AssertionError(
+            "live probe must be skipped when status=failed"
+        ),
+    ), patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ) as mock_install:
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+    mock_install.assert_called_once()
+
+
+def test_upgrade_live_probe_non_openclaw_uses_snapshot(
+    isolated_config: Path, _patch_drift_clean
+):
+    """Non-openclaw agents (zeroclaw, hermes) still use snapshot comparison.
+
+    Live version probing for zeroclaw/hermes is deferred per issue #754
+    plan step 3. The probe function must NOT be called for these types."""
+    _write_host(isolated_config, "zeroclaw", "0.8.2")
+    with patch(
+        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
+        side_effect=AssertionError(
+            "live probe must not be called for non-openclaw agents"
+        ),
+    ), patch("clawrium.core.install.run_installation") as mock_install:
+        result = runner.invoke(
+            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
+        )
+    assert result.exit_code == 0, result.output
+    assert "already at latest" in result.output.lower()
+    mock_install.assert_not_called()
+
+
+def test_upgrade_live_version_shown_in_from_version_json(
+    isolated_config: Path, _patch_drift_clean
+):
+    """When live version is used for comparison, the JSON output reflects
+    the live version as from_version."""
+    _write_host(isolated_config, "openclaw", "2026.3.13")
+
+    def _fake_install(*args, **kwargs):
+        path = isolated_config / "hosts.json"
+        data = json.loads(path.read_text())
+        data[0]["agents"]["test-agent"]["version"] = "2026.6.11"
+        path.write_text(json.dumps(data, indent=2))
+        return {
+            "success": True,
+            "agent": "openclaw",
+            "version": "2026.6.11",
+            "host": "192.168.1.100",
+            "playbooks_run": [],
+            "error": None,
+        }
+
+    with patch(
+        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
+        return_value="2026.5.28",
+    ), patch(
+        "clawrium.core.install.run_installation", side_effect=_fake_install
+    ):
+        result = runner.invoke(
+            app,
+            ["agent", "upgrade", "test-agent", "-o", "json", "--yes"],
+            env=os.environ,
+        )
+    assert result.exit_code == 0, result.output
+    # Find the JSON payload
+    payload = None
+    for line in reversed(result.output.strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            payload = json.loads(line)
+            break
+    assert payload is not None, result.output
+    # from_version should be the live version, not the snapshot
+    assert payload["from_version"] == "2026.5.28"
