@@ -82,7 +82,7 @@ class TestRunLifecyclePlaybook:
             "key_id": "test",
             "agent_name": "xclm",
             "port": 22,
-            "agents": {"opc-work": {"type": "openclaw"}},
+            "agents": {"opc-work": {"type": "openclaw", "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"}}},
         }
 
         with patch("clawrium.core.lifecycle._get_lifecycle_playbook_path") as mock_path:
@@ -100,7 +100,7 @@ class TestRunLifecyclePlaybook:
             "key_id": "missing-key",
             "agent_name": "xclm",
             "port": 22,
-            "agents": {"opc-work": {"type": "openclaw"}},
+            "agents": {"opc-work": {"type": "openclaw", "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"}}},
         }
 
         playbook_path = tmp_path / "start.yaml"
@@ -550,9 +550,19 @@ class TestRunLifecyclePlaybook:
 
         assert inventory["all"]["vars"]["sandbox_name"] == "oc-nemo"
 
-    def test_bare_openclaw_does_not_get_sandbox_name(self, tmp_path: Path):
-        """Bare openclaw records remain additive in phase 2: no
-        sandbox_name key means no extra var is injected."""
+    def test_bare_openclaw_start_returns_migration_error(self, tmp_path: Path):
+        """Phase 3 semi-soft cutover (#11 / #945): bare openclaw records
+        continue to sync + can be removed cleanly, but interactive
+        lifecycle verbs (start/stop/status/logs) short-circuit before
+        ansible-runner with a migration hint. This is intentionally
+        stricter than the sync path — operators who want to control the
+        agent must migrate; operators who just want it to keep running
+        can coast on sync.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from clawrium.core.lifecycle import _run_lifecycle_playbook
+
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
@@ -560,12 +570,41 @@ class TestRunLifecyclePlaybook:
             "port": 22,
             "agents": {"oc-bare": {"type": "openclaw", "config": {}}},
         }
+        key_path = tmp_path / "key"
+        key_path.write_text("fake")
 
-        inventory = self._run_with_inventory_capture(
-            tmp_path, host, "openclaw", "oc-bare"
-        )
+        with (
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                return_value=MagicMock(status="successful"),
+            ) as mock_run,
+            patch(
+                "clawrium.core.lifecycle.get_config_dir",
+                return_value=tmp_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value={},
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_key",
+                return_value="test-key",
+            ),
+        ):
+            success, err = _run_lifecycle_playbook(
+                "openclaw", "oc-bare", host["hostname"], "start", host
+            )
 
-        assert "sandbox_name" not in inventory["all"]["vars"]
+        assert success is False
+        assert err is not None
+        assert "sandbox_name" in err
+        assert "bare" in err
+        # Short-circuit MUST happen before ansible-runner spins up.
+        assert mock_run.call_count == 0
 
     def test_invalid_openclaw_sandbox_name_rejected_before_runner(
         self, tmp_path: Path
@@ -650,6 +689,7 @@ class TestStartClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "onboarding": {"state": "pending"},
                 }
             },
@@ -852,6 +892,7 @@ class TestStartClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "onboarding": {"state": "pending"},
                 }
             },
@@ -875,6 +916,7 @@ class TestStartClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "onboarding": {"state": "ready"},
                 }
             },
@@ -947,6 +989,7 @@ class TestStopClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                 }
             },
         }
@@ -999,6 +1042,7 @@ class TestRestartClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                 }
             },
         }
@@ -1045,6 +1089,7 @@ class TestRestartClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "onboarding": {"state": "ready"},
                 }
             },
@@ -2174,6 +2219,7 @@ class TestStartAgentZeroclawRepairWiring:
             "agents": {
                 "opc-test": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "onboarding": {"state": "ready"},
                 }
             },
@@ -2296,6 +2342,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "runtime": {"status": "running"},
                 }
             },
@@ -2350,6 +2397,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "runtime": {"status": "running"},
                 }
             },
@@ -2412,6 +2460,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "runtime": {"status": "stopped"},
                 }
             },
@@ -2463,6 +2512,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "runtime": {"status": "stopped"},
                 }
             },
@@ -2514,6 +2564,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "runtime": {"status": "stopped"},
                 }
             },
@@ -2581,6 +2632,7 @@ class TestRemoveClaw:
             "agents": {
                 "opc-work": {
                     "type": "openclaw",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "opc-work"},
                     "agent_name": "opc-work",
                     "runtime": {"status": "stopped"},
                 }
@@ -2628,6 +2680,126 @@ class TestRemoveClaw:
         assert result["success"] is True
         assert not agent_state_dir.exists()
 
+    def test_remove_legacy_bare_openclaw_proceeds_without_sandbox_name(
+        self, tmp_path: Path
+    ):
+        """ATX iter-1 B1 (issue #945): a legacy bare openclaw record
+        (no config.sandbox_name) MUST complete `remove` successfully.
+
+        Migration doc step 1 is `clawctl agent remove <name>`; if the
+        Python sandbox_name guard hard-fails here, hosts.json is never
+        cleaned and the operator is stuck. The extravar must be omitted
+        for the `remove` op and remove.yaml short-circuits sandbox
+        teardown when sandbox_name is absent.
+        """
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-legacy": {
+                    "type": "openclaw",
+                    # bare record — no runtime, no sandbox_name
+                    "config": {},
+                    "runtime": {"status": "stopped"},
+                }
+            },
+        }
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("private key")
+
+        playbook_path = tmp_path / "remove.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        mock_runner = MagicMock()
+        mock_runner.status = "successful"
+        mock_runner.events = []
+
+        captured_inventory: dict = {}
+
+        def _capture(**kwargs):
+            captured_inventory.update(kwargs)
+            return mock_runner
+
+        with (
+            patch("clawrium.core.lifecycle.get_host", return_value=host),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                side_effect=_capture,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_config_dir",
+                return_value=tmp_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle.remove_agent_from_host",
+                return_value=True,
+            ),
+        ):
+            result = remove_agent("192.168.1.100", "openclaw")
+
+        assert result["success"] is True, result.get("error")
+        # sandbox_name MUST be absent from the inventory for legacy records
+        inv_vars = captured_inventory["inventory"]["all"]["vars"]
+        assert "sandbox_name" not in inv_vars, (
+            f"legacy bare-record remove leaked sandbox_name into inventory: {inv_vars}"
+        )
+
+    @pytest.mark.parametrize("operation", ["start", "stop", "status", "logs", "sync"])
+    def test_non_remove_ops_still_fail_fast_on_legacy_bare(
+        self, tmp_path: Path, operation: str
+    ):
+        """ATX iter-1 B1 negative: the sandbox_name guard MUST still
+        hard-fail for non-remove ops (start/stop/status/logs/sync) on
+        legacy bare records. Only `remove` is exempt so the migration
+        workflow (remove → recreate) can complete."""
+        host = {
+            "hostname": "192.168.1.100",
+            "key_id": "test",
+            "agent_name": "xclm",
+            "port": 22,
+            "agents": {
+                "opc-legacy": {
+                    "type": "openclaw",
+                    "config": {},  # bare — no sandbox_name
+                }
+            },
+        }
+
+        key_path = tmp_path / "test_key"
+        key_path.write_text("private key")
+
+        playbook_path = tmp_path / f"{operation}.yaml"
+        playbook_path.write_text("---\n- hosts: all\n")
+
+        with (
+            patch(
+                "clawrium.core.lifecycle._get_lifecycle_playbook_path",
+                return_value=playbook_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+            ),
+        ):
+            success, error = _run_lifecycle_playbook(
+                "openclaw", "opc-legacy", "192.168.1.100", operation, host
+            )
+
+        assert success is False
+        assert "sandbox_name" in (error or "")
+        assert "docs/releases/26.7.3" in (error or "")
+
 
 class TestResolveAgentRecord:
     """Tests for _resolve_agent_record function."""
@@ -2637,8 +2809,16 @@ class TestResolveAgentRecord:
         host = {
             "hostname": "test-host",
             "agents": {
-                "assistant-1": {"type": "openclaw", "status": "installed"},
-                "assistant-2": {"type": "openclaw", "status": "installed"},
+                "assistant-1": {
+                    "type": "openclaw",
+                    "status": "installed",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "assistant-1"},
+                },
+                "assistant-2": {
+                    "type": "openclaw",
+                    "status": "installed",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "assistant-2"},
+                },
             },
         }
 
@@ -2684,7 +2864,11 @@ class TestResolveAgentRecord:
         host = {
             "hostname": "test-host",
             "agents": {
-                "work-bot": {"type": "openclaw", "status": "installed"},
+                "work-bot": {
+                    "type": "openclaw",
+                    "status": "installed",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "work-bot"},
+                },
             },
         }
 
@@ -2699,7 +2883,11 @@ class TestResolveAgentRecord:
         host = {
             "hostname": "test-host",
             "agents": {
-                "work-bot": {"type": "openclaw", "status": "installed"},
+                "work-bot": {
+                    "type": "openclaw",
+                    "status": "installed",
+                    "config": {"runtime": "nemoclaw", "sandbox_name": "work-bot"},
+                },
             },
         }
 

@@ -29,6 +29,7 @@ from clawrium.cli.clawctl.host import (
     label as _label,
     registry as _registry,
     reset as _reset,
+    validate as _validate,
 )
 
 __all__ = ["host_app"]
@@ -45,13 +46,18 @@ host_app = typer.Typer(
 
 # Verb registration. Order matches plan §4.
 host_app.command(
-    name="create", help="Register a host after verifying SSH access to the xclm management user."
+    name="create",
+    help="Register a host after verifying SSH access to the xclm management user.",
 )(_create.create)
 host_app.command(name="get", help="List hosts.")(_get.get)
 host_app.command(name="describe", help="Describe a host.")(_describe.describe)
 host_app.command(name="delete", help="Delete a host record.")(_delete.delete)
 host_app.command(name="edit", help="Edit a host record in place.")(_edit.edit)
 host_app.command(name="reset", help="Wipe remote `xclm` state on a host.")(_reset.reset)
+host_app.command(
+    name="validate",
+    help="Aggregate `nemoclaw status` for every openclaw on the host (#945).",
+)(_validate.validate)
 host_app.command(name="alias", help="Manage host aliases (multi-value).")(_alias.alias)
 host_app.command(name="label", help="Manage host labels (KEY=VALUE / KEY-).")(
     _label.label

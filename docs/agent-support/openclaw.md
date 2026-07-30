@@ -8,6 +8,49 @@ OpenClaw is a full-featured agent supporting multiple LLM providers, communicati
 
 ---
 
+## Runtime Substrate — NemoClaw
+
+**Since v26.7.3 (Phase 3 of #11, issue #945):** every openclaw agent runs
+inside an [NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw) sandbox.
+There is no bare-runtime fallback and no `--runtime bare` flag. The
+sandbox is created automatically on `clawctl agent create` and torn down
+automatically on `clawctl agent remove`. `clawctl agent get` shows
+`runtime: nemoclaw@<version>` on every openclaw row.
+
+**Host prerequisites (installed by `clawctl host prepare`):**
+
+- Ubuntu 24.04+ (Debian 12 is unverified; other distros unsupported)
+- ≥ 8 GB RAM, ≥ 20 GB disk
+- Docker Engine (via Docker's Ubuntu apt repo)
+- NVM + Node 22.16
+- Agent user in the `docker` group
+
+**Fleet-visibility probe:** `clawctl host validate <hostname>` runs
+`nemoclaw status <sandbox>` for every openclaw on the host and exits
+non-zero when any sandbox is unhealthy.
+
+**Upgrade path.** Bumping the pinned NemoClaw version rewires
+`sync_agent_canonical` to re-onboard on the next `clawctl agent sync`;
+`sync` short-circuits before the daemon restart if the onboard fails,
+so a broken pin never leaves an agent in a restarted-but-unhealthy
+state.
+
+**Rollback path.** There is no in-place rollback; pin the previous
+Clawrium release and re-install per the migration note in
+[`docs/releases/26.7.3/CHANGELOG.md`](../releases/26.7.3/CHANGELOG.md).
+
+**macOS.** Openclaw on macOS is blocked at install pending an upstream
+NemoClaw darwin binary (#11 §7.2). Deploy openclaw on an Ubuntu 24.04+
+host until that support lands.
+
+**Migration from bare openclaw.** Legacy bare records predating v26.7.3
+fail `clawctl agent sync` with a message pointing at
+[`docs/releases/26.7.3/CHANGELOG.md`](../releases/26.7.3/CHANGELOG.md).
+The migration is `remove` + `create` + `configure` + `start`; there is
+no automated migration.
+
+---
+
 ## Legend
 
 | Symbol | Meaning |

@@ -553,11 +553,30 @@ def _run_lifecycle_playbook(
             config.get("sandbox_name") if isinstance(config, dict) else None
         )
         # Validate via the canonical validator so the regex only lives in
-        # one place (ATX iter-1 W4). Absent-key stays a silent skip
-        # (bare-openclaw non-regression); present-but-invalid fails loud
-        # (W3 — a malformed hosts.json edit can't be blamed on the
-        # downstream install skip).
-        if sandbox_name is not None:
+        # one place (ATX iter-1 W4). Phase 3 (#945) removed bare
+        # openclaw lifecycle support: every openclaw lifecycle runbook
+        # requires a sandbox_name, so a missing key fails before
+        # ansible-runner instead of silently taking a host-systemd path.
+        #
+        # `remove` is exempt (ATX iter-1 B1): the migration doc
+        # instructs operators to run `clawctl agent remove` as step 1
+        # on legacy bare records. Hard-failing here would leave the
+        # hosts.json entry unremovable. remove.yaml tolerates a
+        # missing sandbox_name by skipping the nemoclaw destroy task
+        # and proceeding straight to host-side teardown.
+        if sandbox_name is None:
+            if operation == "remove":
+                # legacy bare record — proceed without sandbox_name;
+                # remove.yaml's destroy task is guarded on the var
+                pass
+            else:
+                return (
+                    False,
+                    "openclaw lifecycle requires config.sandbox_name; bare "
+                    "openclaw is no longer supported. Remove + re-create "
+                    "the agent (see docs/releases/26.7.3/CHANGELOG.md).",
+                )
+        else:
             from clawrium.core.nemoclaw import _validate_sandbox_name
 
             _validate_sandbox_name(sandbox_name)

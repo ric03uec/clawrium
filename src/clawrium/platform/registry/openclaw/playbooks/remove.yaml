@@ -2,7 +2,70 @@
 - hosts: all
   become: yes
   become_method: sudo
+  vars:
+    nemoclaw_binary: "/usr/local/bin/nemoclaw"
   tasks:
+    # Phase 3 of #11 (issue #945): tear down the NemoClaw sandbox
+    # BEFORE uninstalling the host-side openclaw bits. `sandbox_name`
+    # is threaded in by `_run_lifecycle_playbook` for every openclaw
+    # op (see `core/lifecycle.py`). Legacy bare records predating
+    # Phase 3 have no `sandbox_name` — for `remove` we tolerate the
+    # missing var and skip the sandbox teardown, then proceed with
+    # host-side residue cleanup so the migration workflow completes
+    # (ATX iter-1 B1). Missing nemoclaw binary (never installed) is
+    # a fast-skip, not a failure, so `remove` still succeeds against
+    # a half-installed host.
+    - name: Note legacy bare record (no sandbox_name)
+      ansible.builtin.debug:
+        msg: >-
+          openclaw remove: no sandbox_name in hosts.json config.
+          This is a legacy bare openclaw record predating Phase 3
+          of #11 (issue #945). Skipping NemoClaw sandbox teardown
+          and proceeding with host-side cleanup. See
+          docs/releases/26.7.3/CHANGELOG.md for migration steps to
+          re-create this agent on the NemoClaw substrate.
+      when: sandbox_name is not defined or (sandbox_name | length) == 0
+
+    - name: Check nemoclaw binary is present
+      ansible.builtin.stat:
+        path: "{{ nemoclaw_binary }}"
+      register: nemoclaw_stat
+
+    - name: Destroy NemoClaw sandbox {{ sandbox_name | default('') }}
+      ansible.builtin.command:
+        argv:
+          - "{{ nemoclaw_binary }}"
+          - destroy
+          - "{{ sandbox_name }}"
+      register: nemoclaw_destroy_result
+      # ATX iter-2 W1: fail-open on the destroy task. The primary
+      # goal of `remove` is that the operator can always evict the
+      # agent — a stubborn destroy MUST NOT block host-side residue
+      # cleanup or hosts.json eviction. nemoclaw's exit-code/stderr
+      # contract for "sandbox not found" is not stable at this pin;
+      # once upstream stabilizes, tighten to `failed_when: rc not in
+      # [0, <not-found-rc>]` so a real destroy failure surfaces
+      # again. Failures are still visible in the ansible log via
+      # `register: nemoclaw_destroy_result`.
+      changed_when: nemoclaw_destroy_result.rc == 0
+      failed_when: false
+      when:
+        - nemoclaw_stat.stat.exists
+        - sandbox_name is defined
+        - (sandbox_name | length) > 0
+
+    - name: Warn when NemoClaw destroy returned non-zero
+      ansible.builtin.debug:
+        msg: >-
+          nemoclaw destroy exited non-zero (rc={{ nemoclaw_destroy_result.rc }}).
+          Continuing with host-side cleanup — inspect stderr in the ansible
+          log if the sandbox still exists on the host:
+          {{ nemoclaw_destroy_result.stderr | default('') }}
+      when:
+        - nemoclaw_destroy_result is defined
+        - nemoclaw_destroy_result.rc is defined
+        - nemoclaw_destroy_result.rc != 0
+
     - name: Check if systemd service exists
       ansible.builtin.stat:
         path: "/etc/systemd/system/{{ agent_type }}-{{ agent_name }}.service"

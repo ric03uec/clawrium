@@ -1,7 +1,6 @@
 ---
-# Phase 3 of #11 (#945): openclaw lifecycle is delegated to the
-# NemoClaw sandbox. This playbook intentionally does not stop or
-# inspect the legacy host-side openclaw systemd service.
+# Phase 3 of #11 (#945): read-only log retrieval from the NemoClaw
+# sandbox backing an openclaw agent.
 - hosts: all
   become: yes
   vars:
@@ -9,7 +8,7 @@
   tasks:
     - name: Refuse to run on non-Linux hosts (dispatcher contract)
       ansible.builtin.fail:
-        msg: stop.yaml invoked against non-Linux host for NemoClaw-backed openclaw
+        msg: logs.yaml invoked against non-Linux host for NemoClaw-backed openclaw
       when: ansible_os_family == "Darwin"
 
     - name: Assert sandbox_name extravar is provided
@@ -19,7 +18,7 @@
           - sandbox_name | length > 0
         fail_msg: >-
           `sandbox_name` extravar is required for NemoClaw-backed
-          openclaw stop. This is a legacy bare record; remove +
+          openclaw logs. This is a legacy bare record; remove +
           re-create the agent per docs/releases/26.7.3/CHANGELOG.md.
 
     - name: Assert nemoclaw binary is present on host
@@ -31,18 +30,19 @@
       ansible.builtin.fail:
         msg: >-
           nemoclaw binary not found at {{ nemoclaw_binary }}. Re-run
-          `clawctl host prepare <host>` before stopping openclaw.
+          `clawctl host prepare <host>` before reading openclaw logs.
       when: not nemoclaw_stat.stat.exists
 
-    - name: Stop NemoClaw sandbox {{ sandbox_name }}
+    - name: Read NemoClaw sandbox {{ sandbox_name }} logs
       ansible.builtin.command:
         argv:
           - "{{ nemoclaw_binary }}"
-          - stop
+          - logs
           - "{{ sandbox_name }}"
-      register: nemoclaw_stop_result
-      changed_when: nemoclaw_stop_result.rc == 0
+      register: nemoclaw_logs_result
+      changed_when: false
+      failed_when: nemoclaw_logs_result.rc != 0
 
-    - name: Display success message
+    - name: Display NemoClaw sandbox logs
       ansible.builtin.debug:
-        msg: "OpenClaw NemoClaw sandbox {{ sandbox_name }} stopped successfully"
+        msg: "{{ nemoclaw_logs_result.stdout }}"

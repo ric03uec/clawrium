@@ -55,9 +55,7 @@ def openclaw_install_env(isolated_config, monkeypatch):
     reaches `set_installed` without touching the network."""
     import clawrium.core.install as install_mod
 
-    monkeypatch.setattr(
-        install_mod, "get_host_private_key", lambda x: "fake-ssh-key"
-    )
+    monkeypatch.setattr(install_mod, "get_host_private_key", lambda x: "fake-ssh-key")
     monkeypatch.setattr(
         install_mod,
         "load_manifest",
@@ -101,9 +99,7 @@ class TestOpenclawCreateNemoclawConfig:
         ):
             run_installation("openclaw", "192.168.1.100", name="oc-nemo")
 
-        hosts_data = json.loads(
-            (openclaw_install_env / "hosts.json").read_text()
-        )
+        hosts_data = json.loads((openclaw_install_env / "hosts.json").read_text())
         config = hosts_data[0]["agents"]["oc-nemo"]["config"]
         assert config["runtime"] == "nemoclaw"
 
@@ -117,9 +113,9 @@ class TestOpenclawCreateNemoclawConfig:
         ):
             run_installation("openclaw", "192.168.1.100", name="oc-nemo")
 
-        config = json.loads(
-            (openclaw_install_env / "hosts.json").read_text()
-        )[0]["agents"]["oc-nemo"]["config"]
+        config = json.loads((openclaw_install_env / "hosts.json").read_text())[0][
+            "agents"
+        ]["oc-nemo"]["config"]
         # Phase 2 default: sandbox_name is identity of agent_name.
         # Phase 3+ may namespace / hash — updates land in
         # `core.nemoclaw.default_sandbox_name` and this test.
@@ -135,23 +131,22 @@ class TestOpenclawCreateNemoclawConfig:
         ):
             run_installation("openclaw", "192.168.1.100", name="oc-nemo")
 
-        config = json.loads(
-            (openclaw_install_env / "hosts.json").read_text()
-        )[0]["agents"]["oc-nemo"]["config"]
+        config = json.loads((openclaw_install_env / "hosts.json").read_text())[0][
+            "agents"
+        ]["oc-nemo"]["config"]
         assert config["nemoclaw_version"] == NEMOCLAW_VERSION
 
 
-class TestOpenclawCreatePreservesLegacyBareConfig:
-    """Phase 2 non-regression: existing bare openclaw records must not
-    grow the new keys on a re-install. The bare install path stays
-    intact through Phase 2; Phase 3 (issue #945) is the breaking
-    cut-over that removes it."""
+class TestOpenclawCreateMigratesLegacyBareOnReinstall:
+    """Phase 3 (issue #945): bare openclaw is gone. A re-install of a
+    legacy bare record MUST stamp `runtime: "nemoclaw"` + `sandbox_name`
+    + `nemoclaw_version` — the Phase 2 `__bare__` preserve branch was
+    the non-regression carve-out; deleting it here is the breaking cut-
+    over documented in `docs/releases/26.7.3/CHANGELOG.md`."""
 
-    def test_reinstall_of_bare_openclaw_keeps_legacy_shape(
+    def test_reinstall_of_bare_openclaw_migrates_to_nemoclaw(
         self, openclaw_install_env, monkeypatch
     ):
-        # Pre-existing bare openclaw record — `config` has no runtime
-        # key (the shape pre-#944 shipped for years).
         _write_bare_host(
             openclaw_install_env,
             agents_block={
@@ -170,36 +165,11 @@ class TestOpenclawCreatePreservesLegacyBareConfig:
             "clawrium.core.install.ansible_runner.run",
             return_value=_run_ansible_successfully(),
         ):
-            # Re-install of the same name — set_installing takes the
-            # `chosen_name[0] in agents` branch. The new keys must
-            # NOT be injected because the legacy record does not have
-            # a `runtime` key (it should be left as-is until Phase 3
-            # explicitly migrates).
             run_installation("openclaw", "192.168.1.100", name="legacy")
 
-        config = json.loads(
-            (openclaw_install_env / "hosts.json").read_text()
-        )[0]["agents"]["legacy"]["config"]
-        # Phase 2 additivity contract: bare openclaw stays bare.
-        # Reason: an in-place mutation would flip the sandboxed gate
-        # in `_openclaw_nemoclaw_onboard` on the very next sync, and
-        # the host has no NemoClaw substrate installed. See plan
-        # §"Non-breaking guarantee (phases 1–2)".
-        #
-        # NOTE: this test asserts the invariant that matters for
-        # sync — `runtime` must not appear. Whether or not
-        # `set_installing` writes the keys on re-install is a
-        # separate implementation detail; the Phase 2 wiring in
-        # `install.py` short-circuits on `resume=True` but not on a
-        # simple re-install path. The gate `if "runtime" not in
-        # record["config"]` guards against silent flip nonetheless
-        # — the assertion below trips only if that gate is removed.
-        # Strict key-absence (ATX iter-1 B5). The looser
-        # `"runtime" not in config or config != "nemoclaw"` shape
-        # would silently accept a regression to `runtime="__bare__"`
-        # or empty-string; the invariant is that the key must not
-        # appear on a bare-openclaw re-install.
-        assert "runtime" not in config, (
-            "bare openclaw re-install must not write `runtime` at all — "
-            f"got config={config!r}"
-        )
+        config = json.loads((openclaw_install_env / "hosts.json").read_text())[0][
+            "agents"
+        ]["legacy"]["config"]
+        assert config["runtime"] == "nemoclaw"
+        assert config["sandbox_name"] == "legacy"
+        assert config["nemoclaw_version"] == NEMOCLAW_VERSION

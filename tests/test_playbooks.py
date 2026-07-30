@@ -192,8 +192,8 @@ def test_openclaw_configure_playbook_structure():
     )
 
 
-def test_openclaw_start_playbook_uses_openclaw_process_check():
-    """Start playbook should verify openclaw process, not node."""
+def test_openclaw_start_playbook_delegates_to_nemoclaw():
+    """Phase 3: start must delegate to NemoClaw, not host systemd/process checks."""
     from importlib.resources import files
     import yaml
 
@@ -205,12 +205,15 @@ def test_openclaw_start_playbook_uses_openclaw_process_check():
 
     assert isinstance(data, list), "Playbook should be a list of plays"
     assert len(data) > 0, "Playbook should have at least one play"
-    assert "pgrep -u {{ agent_name }} openclaw" in content
+    assert "- start" in content
+    assert "{{ sandbox_name }}" in content
+    assert "ansible.builtin.systemd" not in content
+    assert "pgrep -u {{ agent_name }} openclaw" not in content
     assert "pgrep -u {{ agent_name }} node" not in content
 
 
-def test_openclaw_stop_playbook_uses_openclaw_process_check():
-    """Stop playbook should verify openclaw process, not node."""
+def test_openclaw_stop_playbook_delegates_to_nemoclaw():
+    """Phase 3: stop must delegate to NemoClaw, not host systemd/process checks."""
     from importlib.resources import files
     import yaml
 
@@ -222,7 +225,10 @@ def test_openclaw_stop_playbook_uses_openclaw_process_check():
 
     assert isinstance(data, list), "Playbook should be a list of plays"
     assert len(data) > 0, "Playbook should have at least one play"
-    assert "pgrep -u {{ agent_name }} openclaw" in content
+    assert "- stop" in content
+    assert "{{ sandbox_name }}" in content
+    assert "ansible.builtin.systemd" not in content
+    assert "pgrep -u {{ agent_name }} openclaw" not in content
     assert "pgrep -u {{ agent_name }} node" not in content
 
 

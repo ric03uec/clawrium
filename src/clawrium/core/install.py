@@ -502,11 +502,10 @@ def run_installation(
     # silently disappear on every clean re-install at the same version.
     preserved_gateway = [None]
     # Phase 2 of #11 (issue #944): preserve the openclaw runtime opt-in
-    # across the wipe-and-recreate branch of `set_installing`. A legacy
-    # bare openclaw record (no `runtime` key) MUST stay bare on
-    # re-install; a sandboxed record MUST stay sandboxed. This snapshot
-    # is `None` for anything except an existing openclaw re-install.
-    preserved_openclaw_runtime = [None]
+    # Phase 3 of #11 (issue #945): the `__bare__` non-regression path
+    # is removed — every openclaw is sandboxed by NemoClaw. Legacy bare
+    # records must be `clawctl agent remove` + re-created (see
+    # `docs/releases/26.7.3/CHANGELOG.md`).
     # #816: Capture provider/channel/integration/skill attachments BEFORE
     # set_installing() overwrites the agent record. These are stable
     # user config (attach lists at the top of the agent record); they
@@ -703,24 +702,11 @@ def run_installation(
                         and 40000 <= existing_gw_port <= 41999
                     ):
                         preserved_gateway_port[0] = existing_gw_port
-                # Phase 2 of #11 (issue #944): remember whether the
-                # existing openclaw record opted into the sandboxed
-                # runtime — a legacy bare record has no `runtime` key
-                # and must stay bare across the wipe-and-recreate that
-                # follows. Sentinel values:
-                #   None                — no prior record / non-openclaw
-                #   "__bare__"          — existed but never opted in
-                #   "nemoclaw"          — existed with sandbox runtime
-                if claw_name == "openclaw":
-                    existing_runtime = (
-                        h["agents"][chosen_name[0]]
-                        .get("config", {})
-                        .get("runtime")
-                    )
-                    if existing_runtime == "nemoclaw":
-                        preserved_openclaw_runtime[0] = "nemoclaw"
-                    else:
-                        preserved_openclaw_runtime[0] = "__bare__"
+                # Phase 3 of #11 (issue #945): openclaw is always
+                # sandboxed under NemoClaw now — no `__bare__` preserve
+                # branch. `set_installing` on an existing openclaw
+                # record simply falls through to the write below, which
+                # unconditionally stamps `runtime: nemoclaw`.
                 if claw_name == "hermes":
                     existing_port = (
                         h["agents"][chosen_name[0]]
@@ -793,33 +779,23 @@ def run_installation(
                 port_field_path=("gateway", "port"),
                 preserved_port=preserved_gateway_port[0],
             )
-            record["config"].setdefault("gateway", {})["port"] = (
-                chosen_gateway_port[0]
-            )
-        # Phase 2 of #11 (issue #944): opt new openclaw creates into
-        # the NemoClaw sandbox runtime. A legacy bare record
-        # (`preserved_openclaw_runtime[0] == "__bare__"`) MUST stay
-        # bare across a re-install — Phase 2 is additive; Phase 3
-        # (issue #945) is the breaking cut-over that migrates every
-        # openclaw. A prior sandboxed record (`"nemoclaw"`) keeps its
-        # runtime opt-in across a re-install. A truly-new install
-        # (`preserved_openclaw_runtime[0] is None`) opts in.
-        if claw_name == "openclaw" and not resume:
+            record["config"].setdefault("gateway", {})["port"] = chosen_gateway_port[0]
+        # Phase 3 of #11 (issue #945) — BREAKING: every openclaw is
+        # sandboxed under NemoClaw. There is no bare fallback and no
+        # `--runtime bare` flag. Legacy bare records that predate this
+        # cut-over must be removed + re-created (migration note in
+        # `docs/releases/26.7.3/CHANGELOG.md`). This write runs on both
+        # fresh installs and `resume` paths so a partially-installed
+        # bare openclaw ends up sandboxed after the resume.
+        if claw_name == "openclaw":
             from clawrium.core.nemoclaw import (
                 NEMOCLAW_VERSION,
                 default_sandbox_name,
             )
 
-            _prior = preserved_openclaw_runtime[0]
-            if _prior == "__bare__":
-                # Non-regression path — leave the record bare.
-                pass
-            else:
-                record["config"]["runtime"] = "nemoclaw"
-                record["config"]["sandbox_name"] = default_sandbox_name(
-                    chosen_name[0]
-                )
-                record["config"]["nemoclaw_version"] = NEMOCLAW_VERSION
+            record["config"]["runtime"] = "nemoclaw"
+            record["config"]["sandbox_name"] = default_sandbox_name(chosen_name[0])
+            record["config"]["nemoclaw_version"] = NEMOCLAW_VERSION
         if claw_name == "hermes":
             chosen_dashboard_port[0] = _pick_per_instance_port(
                 h,
@@ -975,9 +951,7 @@ def run_installation(
                 gateway_auth_token=gateway_auth_token,
             )
         except Exception as exc:
-            raise InstallationError(
-                f"openclaw pre-render failed: {exc}"
-            ) from exc
+            raise InstallationError(f"openclaw pre-render failed: {exc}") from exc
 
     # Hermes: generate (or reuse) the API_SERVER_KEY that gates the local
     # OpenAI-compatible gateway on 127.0.0.1:8642. Generated once on first
@@ -1037,8 +1011,10 @@ def run_installation(
         instance_key = get_instance_key(canonical_hostname, claw_name, agent_name)
         existing_entry = get_instance_secrets(instance_key).get("ETHOS_GATEWAY_API_KEY")
         existing_key = existing_entry.get("value") if existing_entry else None
-        if isinstance(existing_key, str) and len(existing_key) == 64 and all(
-            c in "0123456789abcdef" for c in existing_key
+        if (
+            isinstance(existing_key, str)
+            and len(existing_key) == 64
+            and all(c in "0123456789abcdef" for c in existing_key)
         ):
             ethos_gateway_api_key = existing_key
         else:
@@ -1140,9 +1116,7 @@ def run_installation(
         if overlay_spec is not None:
             from clawrium.core.config import get_config_dir as _gcd
 
-            local_ws = (
-                _gcd() / "agents" / claw_name / agent_name / "workspace"
-            )
+            local_ws = _gcd() / "agents" / claw_name / agent_name / "workspace"
             if not local_ws.exists():
                 local_ws.mkdir(parents=True, exist_ok=True, mode=0o700)
                 logger.info("Scaffolded local workspace at %s", local_ws)
@@ -1441,7 +1415,9 @@ def run_installation(
                         h["agents"][agent_name]["config"] = {}
                     h["agents"][agent_name]["config"]["gateway"] = {
                         "port": 3000,
-                        "internal_port": chosen_gateway_port[0] if chosen_gateway_port else 44410,
+                        "internal_port": chosen_gateway_port[0]
+                        if chosen_gateway_port
+                        else 44410,
                         "api_key": ethos_gateway_api_key,
                     }
                     # Persist the ethos state directory so Python-side code
