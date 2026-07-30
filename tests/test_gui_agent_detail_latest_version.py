@@ -57,7 +57,7 @@ def _seed_hosts(
 
 def test_agent_detail_includes_latest_supported_version(isolated_config: Path):
     _seed_hosts(isolated_config, agent_type="openclaw", installed_version="2026.4.2")
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.get("/api/fleet/agents/demo/health")
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -75,7 +75,7 @@ def test_agent_detail_latest_supported_version_is_none_for_unmatched_host(
         installed_version="2026.4.2",
         architecture="aarch64",
     )
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.get("/api/fleet/agents/demo/health")
     assert resp.status_code == 200, resp.text
     body = resp.json()

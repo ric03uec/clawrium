@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -93,6 +94,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
+)
+
+# TrustedHostMiddleware is added LAST so Starlette's insert(0,…) makes it
+# outermost — it runs first on every request, including CORS preflight
+# (OPTIONS) requests that CORSMiddleware would otherwise short-circuit.
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts={"localhost", "127.0.0.1", "localhost:36000", "127.0.0.1:36000"},
 )
 
 # Register API routers

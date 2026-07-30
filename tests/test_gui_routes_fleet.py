@@ -69,7 +69,7 @@ def test_web_ui_404_for_unknown_agent(isolated_config: Path):
     _seed_hosts(isolated_config, "hermes")
     # We deliberately do NOT mount the lifespan reaper here; TestClient
     # default behavior is fine for the route-only assertions below.
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.get("/api/fleet/agents/nope/web-ui")
     assert resp.status_code == 404
 
@@ -87,7 +87,7 @@ def test_web_ui_returns_unavailable_when_manifest_lacks_feature(
     """
     _seed_hosts(isolated_config, "openclaw")
     with patch("clawrium.core.web_ui.resolve", return_value=None):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/web-ui")
     assert resp.status_code == 200
     body = resp.json()
@@ -108,7 +108,7 @@ def test_web_ui_returns_tunnel_url_for_remote_hermes(isolated_config: Path):
         patch("clawrium.core.web_ui.resolve", return_value=resolved),
         patch("clawrium.core.web_ui_tunnel.ensure", return_value=54321) as mock_ensure,
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/web-ui")
             # Assert inside the lifespan window — the shutdown handler
             # intentionally clears WEB_UI_LAST_ACCESS as part of draining.
@@ -142,7 +142,7 @@ def test_web_ui_returns_tunnel_url_for_remote_openclaw(isolated_config: Path):
         patch("clawrium.core.web_ui.resolve", return_value=resolved),
         patch("clawrium.core.web_ui_tunnel.ensure", return_value=54322) as mock_ensure,
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/web-ui")
             assert "demo" in fleet_mod.WEB_UI_LAST_ACCESS
 
@@ -168,7 +168,7 @@ def test_web_ui_skips_tunnel_for_loopback_host(isolated_config: Path):
         patch("clawrium.core.web_ui.resolve", return_value=resolved),
         patch("clawrium.core.web_ui_tunnel.ensure") as mock_ensure,
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/web-ui")
 
     assert resp.status_code == 200
@@ -194,7 +194,7 @@ def test_web_ui_reports_tunnel_failure_as_unavailable(isolated_config: Path):
             "clawrium.core.web_ui_tunnel.ensure", side_effect=TunnelError("ssh failed")
         ),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/web-ui")
 
     assert resp.status_code == 200
@@ -227,7 +227,7 @@ def test_web_ui_tunnel_error_no_ssh_stderr_leak(isolated_config: Path):
             side_effect=TunnelError(ssh_stderr),
         ),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/web-ui")
 
     assert resp.status_code == 200
@@ -257,7 +257,7 @@ def test_web_ui_returns_unavailable_on_unexpected_tunnel_exception(
             side_effect=RuntimeError("unexpected internal failure"),
         ),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/web-ui")
     assert resp.status_code == 200
     body = resp.json()
@@ -391,7 +391,7 @@ def _zeroclaw_resolved(host: str = "192.168.1.100") -> ResolvedUI:
 
 def test_pairing_code_404_for_unknown_agent(isolated_config: Path):
     _seed_hosts(isolated_config, "zeroclaw", _zeroclaw_config())
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.post("/api/fleet/agents/nope/pairing-code")
     assert resp.status_code == 404
 
@@ -399,7 +399,7 @@ def test_pairing_code_404_for_unknown_agent(isolated_config: Path):
 def test_pairing_code_400_for_non_pairing_agent_type(isolated_config: Path):
     """hermes uses features.web_ui but does not run the pairing handshake."""
     _seed_hosts(isolated_config, "hermes", {"dashboard": {"port": 45123}})
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.post("/api/fleet/agents/demo/pairing-code")
     assert resp.status_code == 400
     assert "pairing handshake" in resp.json()["detail"].lower()
@@ -414,7 +414,7 @@ def test_pairing_code_400_for_openclaw_not_in_pairing_types(isolated_config: Pat
     "no native web UI" branch is reached.
     """
     _seed_hosts(isolated_config, "openclaw", {"gateway": {"port": 40456}})
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.post("/api/fleet/agents/demo/pairing-code")
     assert resp.status_code == 400
     assert "pairing handshake" in resp.json()["detail"].lower()
@@ -430,7 +430,7 @@ def test_pairing_code_400_when_resolver_returns_none(isolated_config: Path):
     """
     _seed_hosts(isolated_config, "zeroclaw", _zeroclaw_config())
     with patch("clawrium.core.web_ui.resolve", return_value=None):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
     assert resp.status_code == 400
     assert "native web ui" in resp.json()["detail"].lower()
@@ -440,7 +440,7 @@ def test_pairing_code_409_when_bearer_missing(isolated_config: Path):
     """No persisted gateway.auth → 409 with `clawctl agent configure` guidance."""
     _seed_hosts(isolated_config, "zeroclaw", {"gateway": {"port": 40123}})
     with patch("clawrium.core.web_ui.resolve", return_value=_zeroclaw_resolved()):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
     assert resp.status_code == 409
     assert "clawctl agent configure" in resp.json()["detail"]
@@ -449,7 +449,7 @@ def test_pairing_code_409_when_bearer_missing(isolated_config: Path):
 def test_pairing_code_409_when_bearer_blank(isolated_config: Path):
     _seed_hosts(isolated_config, "zeroclaw", {"gateway": {"auth": "   "}})
     with patch("clawrium.core.web_ui.resolve", return_value=_zeroclaw_resolved()):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
     assert resp.status_code == 409
     assert "clawctl agent configure" in resp.json()["detail"]
@@ -466,7 +466,7 @@ def test_pairing_code_502_on_tunnel_failure(isolated_config: Path):
             side_effect=TunnelError("ssh refused"),
         ),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
     assert resp.status_code == 502
     # (#714) TunnelError handler must return a constant string, never the raw error
@@ -492,7 +492,7 @@ def test_pairing_code_502_on_tunnel_failure_no_ssh_stderr_leak(
             side_effect=TunnelError(ssh_stderr),
         ),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
     assert resp.status_code == 502
     assert resp.json()["detail"] == "Tunnel could not be established. Check server logs for details."
@@ -533,7 +533,7 @@ def test_pairing_code_success(isolated_config: Path):
         patch("clawrium.core.web_ui_tunnel.ensure", return_value=39211),
         patch("httpx.AsyncClient", _FakeClient),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
 
     assert resp.status_code == 200
@@ -571,7 +571,7 @@ def test_pairing_code_409_on_daemon_401(isolated_config: Path):
         patch("clawrium.core.web_ui_tunnel.ensure", return_value=39211),
         patch("httpx.AsyncClient", _FakeClient),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
 
     assert resp.status_code == 409
@@ -606,7 +606,7 @@ def test_pairing_code_503_on_daemon_503(isolated_config: Path):
         patch("clawrium.core.web_ui_tunnel.ensure", return_value=39211),
         patch("httpx.AsyncClient", _FakeClient),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
 
     assert resp.status_code == 503
@@ -641,7 +641,7 @@ def test_pairing_code_502_on_unexpected_daemon_status(isolated_config: Path):
         patch("clawrium.core.web_ui_tunnel.ensure", return_value=39211),
         patch("httpx.AsyncClient", _FakeClient),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
 
     assert resp.status_code == 502
@@ -677,7 +677,7 @@ def test_pairing_code_502_on_empty_code(isolated_config: Path):
         patch("clawrium.core.web_ui_tunnel.ensure", return_value=39211),
         patch("httpx.AsyncClient", _FakeClient),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
 
     assert resp.status_code == 502
@@ -709,7 +709,7 @@ def test_pairing_code_502_on_http_error(isolated_config: Path):
         patch("clawrium.core.web_ui_tunnel.ensure", return_value=39211),
         patch("httpx.AsyncClient", _FakeClient),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
 
     assert resp.status_code == 502
@@ -745,7 +745,7 @@ def test_pairing_code_502_on_non_json_response(isolated_config: Path):
         patch("clawrium.core.web_ui_tunnel.ensure", return_value=39211),
         patch("httpx.AsyncClient", _FakeClient),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
 
     assert resp.status_code == 502
@@ -763,7 +763,7 @@ def test_pairing_code_500_on_unexpected_tunnel_exception(isolated_config: Path):
             side_effect=RuntimeError("unexpected internal failure"),
         ),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
     assert resp.status_code == 500
     assert "Internal error" in resp.json()["detail"]
@@ -794,7 +794,7 @@ def test_pairing_code_504_on_upstream_timeout(isolated_config: Path):
         patch("clawrium.core.web_ui_tunnel.ensure", return_value=39211),
         patch("httpx.AsyncClient", _FakeClient),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
 
     assert resp.status_code == 504
@@ -842,7 +842,7 @@ def test_pairing_code_local_host_skips_tunnel(isolated_config: Path):
         ),
         patch("httpx.AsyncClient", _FakeClient),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/pairing-code")
 
     assert resp.status_code == 200
@@ -872,7 +872,7 @@ def _openclaw_resolved(host: str = "192.168.1.100") -> ResolvedUI:
 
 def test_connection_token_404_for_unknown_agent(isolated_config: Path):
     _seed_hosts(isolated_config, "openclaw", _openclaw_config())
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.post("/api/fleet/agents/nope/connection-token")
     assert resp.status_code == 404
 
@@ -880,7 +880,7 @@ def test_connection_token_404_for_unknown_agent(isolated_config: Path):
 def test_connection_token_400_for_non_reveal_agent_type(isolated_config: Path):
     """hermes does not use a long-lived gateway token for browser auth."""
     _seed_hosts(isolated_config, "hermes", {"dashboard": {"port": 45123}})
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.post("/api/fleet/agents/demo/connection-token")
     assert resp.status_code == 400
     assert "gateway token" in resp.json()["detail"].lower()
@@ -891,7 +891,7 @@ def test_connection_token_400_for_zeroclaw(isolated_config: Path):
     earlier guard fires before the manifest check.
     """
     _seed_hosts(isolated_config, "zeroclaw", _zeroclaw_config())
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.post("/api/fleet/agents/demo/connection-token")
     assert resp.status_code == 400
     assert "gateway token" in resp.json()["detail"].lower()
@@ -904,7 +904,7 @@ def test_connection_token_400_when_resolver_returns_none(isolated_config: Path):
     """
     _seed_hosts(isolated_config, "openclaw", _openclaw_config())
     with patch("clawrium.core.web_ui.resolve", return_value=None):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/connection-token")
     assert resp.status_code == 400
     assert "native web ui" in resp.json()["detail"].lower()
@@ -914,7 +914,7 @@ def test_connection_token_409_when_bearer_missing(isolated_config: Path):
     """openclaw without persisted gateway.auth → 409 + configure guidance."""
     _seed_hosts(isolated_config, "openclaw", {"gateway": {"port": 40456}})
     with patch("clawrium.core.web_ui.resolve", return_value=_openclaw_resolved()):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/connection-token")
     assert resp.status_code == 409
     assert "clawctl agent configure" in resp.json()["detail"]
@@ -923,7 +923,7 @@ def test_connection_token_409_when_bearer_missing(isolated_config: Path):
 def test_connection_token_409_when_bearer_blank(isolated_config: Path):
     _seed_hosts(isolated_config, "openclaw", {"gateway": {"auth": "   "}})
     with patch("clawrium.core.web_ui.resolve", return_value=_openclaw_resolved()):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/connection-token")
     assert resp.status_code == 409
     assert "clawctl agent configure" in resp.json()["detail"]
@@ -933,7 +933,7 @@ def test_connection_token_success(isolated_config: Path):
     """Happy path: returns the persisted gateway.auth verbatim."""
     _seed_hosts(isolated_config, "openclaw", _openclaw_config("oc_real_bearer"))
     with patch("clawrium.core.web_ui.resolve", return_value=_openclaw_resolved()):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/connection-token")
     assert resp.status_code == 200
     assert resp.json() == {"token": "oc_real_bearer"}
@@ -943,7 +943,7 @@ def test_connection_token_strips_trailing_whitespace(isolated_config: Path):
     """Hand-edited hosts.json with a trailing newline → returned stripped."""
     _seed_hosts(isolated_config, "openclaw", _openclaw_config("oc_bearer\n"))
     with patch("clawrium.core.web_ui.resolve", return_value=_openclaw_resolved()):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/connection-token")
     assert resp.status_code == 200
     assert resp.json() == {"token": "oc_bearer"}
@@ -969,7 +969,7 @@ def test_connection_token_prefers_secrets_store_over_legacy_hosts_json(
             return_value=("oc_rotated", None),
         ),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/connection-token")
     assert resp.status_code == 200
     assert resp.json() == {"token": "oc_rotated"}
@@ -998,7 +998,7 @@ def test_connection_token_uses_instance_key_not_raw_agent_key(isolated_config: P
             side_effect=_capture,
         ),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/fleet/agents/demo/connection-token")
 
     assert resp.status_code == 200
@@ -1016,7 +1016,7 @@ def test_connection_token_get_does_not_leak_bearer(isolated_config: Path):
     _seed_hosts(
         isolated_config, "openclaw", _openclaw_config("oc_should_not_leak")
     )
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.get("/api/fleet/agents/demo/connection-token")
     # Either 405 (route refuses GET) or 200 (SPA fallback). The
     # invariant is that the bearer never appears in the GET body.
@@ -1076,7 +1076,7 @@ def test_fleet_overview_returns_agent_list(isolated_config: Path):
         "clawrium.gui.routes.fleet.get_fleet_data_local",
         return_value=([vm], _fleet_summary()),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet")
     assert resp.status_code == 200
     data = resp.json()
@@ -1092,7 +1092,7 @@ def test_fleet_overview_host_filter_forwarded(isolated_config: Path):
         "clawrium.gui.routes.fleet.get_fleet_data_local",
         return_value=([], _fleet_summary(total=0, running=0, hosts=0)),
     ) as mock_fn:
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             client.get("/api/fleet?host=box")
     mock_fn.assert_called_once_with("box")
 
@@ -1104,7 +1104,7 @@ def test_fleet_overview_excludes_gateway_auth(isolated_config: Path):
         "clawrium.gui.routes.fleet.get_fleet_data_local",
         return_value=([vm], _fleet_summary()),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet")
     assert "secret_bearer_must_not_leak" not in resp.text
     assert "gateway_auth" not in resp.json()["agents"][0]
@@ -1121,7 +1121,7 @@ def test_fleet_health_returns_health_data(isolated_config: Path):
         "clawrium.gui.routes.fleet.get_fleet_data",
         return_value=([vm], _fleet_summary()),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/health")
     assert resp.status_code == 200
     data = resp.json()
@@ -1139,7 +1139,7 @@ def test_fleet_health_sanitizes_path_in_health_error(isolated_config: Path):
         "clawrium.gui.routes.fleet.get_fleet_data",
         return_value=([vm], _fleet_summary()),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/health")
     assert resp.status_code == 200
     agent = resp.json()["agents"][0]
@@ -1151,7 +1151,7 @@ def test_fleet_health_504_on_timeout(isolated_config: Path):
     with patch(
         "asyncio.wait_for", side_effect=asyncio.TimeoutError
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/health")
     assert resp.status_code == 504
     assert "timed out" in resp.json()["detail"]
@@ -1164,7 +1164,7 @@ def test_fleet_health_returns_200_under_concurrent_clients(isolated_config: Path
     vm = _agent_vm()
 
     def _probe() -> int:
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             return client.get("/api/fleet/health").status_code
 
     with patch(
@@ -1185,7 +1185,7 @@ def test_fleet_health_host_filter_forwarded(isolated_config: Path):
         "clawrium.gui.routes.fleet.get_fleet_data",
         return_value=([], _fleet_summary(total=0, running=0, hosts=0)),
     ) as mock_fn:
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/health?host=box")
     assert resp.status_code == 200
     mock_fn.assert_called_once_with("box")
@@ -1198,7 +1198,7 @@ def test_fleet_health_host_filter_forwarded(isolated_config: Path):
 
 def test_agent_detail_404_for_unknown(isolated_config: Path):
     _seed_hosts(isolated_config, "hermes")
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.get("/api/fleet/agents/nope")
     assert resp.status_code == 404
 
@@ -1219,7 +1219,7 @@ def test_agent_detail_success(isolated_config: Path):
     with patch(
         "clawrium.gui.routes.fleet.get_agent_static", side_effect=_capture_static
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo")
     assert resp.status_code == 200
     data = resp.json()
@@ -1241,7 +1241,7 @@ def test_agent_health_returns_latest_supported_version(isolated_config: Path):
             return_value="2026.6.0",
         ),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/health")
     assert resp.status_code == 200
     data = resp.json()
@@ -1253,7 +1253,7 @@ def test_agent_detail_404_when_get_agent_static_returns_none(isolated_config: Pa
     """Second 404 path: resolve_agent succeeds but get_agent_static returns None."""
     _seed_hosts(isolated_config, "hermes")
     with patch("clawrium.gui.routes.fleet.get_agent_static", return_value=None):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo")
     assert resp.status_code == 404
 
@@ -1261,7 +1261,7 @@ def test_agent_detail_404_when_get_agent_static_returns_none(isolated_config: Pa
 def test_agent_detail_404_when_host_mismatch(isolated_config: Path):
     """?host=wronghost for a known agent returns 404 (not 200 with wrong host data)."""
     _seed_hosts(isolated_config, "hermes")
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.get("/api/fleet/agents/demo?host=wronghost")
     assert resp.status_code == 404
     assert "demo" in resp.json()["detail"]
@@ -1295,7 +1295,7 @@ def test_agent_health_hardware_null_coercion(isolated_config: Path):
     (isolated_config / "hosts.json").write_text(json.dumps(hosts))
     vm = _agent_vm()
     with patch("clawrium.gui.routes.fleet.get_agent_detail", return_value=vm):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/health")
     assert resp.status_code == 200
     # latest_supported_version raises on hardware={} with no arch; caught → None
@@ -1307,7 +1307,7 @@ def test_agent_detail_excludes_gateway_auth(isolated_config: Path):
     _seed_hosts(isolated_config, "hermes")
     vm = _agent_vm()
     with patch("clawrium.gui.routes.fleet.get_agent_static", return_value=vm):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo")
     assert "secret_bearer_must_not_leak" not in resp.text
     assert "gateway_auth" not in resp.json()
@@ -1320,7 +1320,7 @@ def test_agent_detail_excludes_device_private_key(isolated_config: Path):
     _seed_hosts(isolated_config, "hermes")
     vm = _agent_vm(device_private_key="SENTINEL_PRIVKEY_NEVER_LEAK")
     with patch("clawrium.gui.routes.fleet.get_agent_static", return_value=vm):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo")
     assert resp.status_code == 200
     assert "SENTINEL_PRIVKEY_NEVER_LEAK" not in resp.text
@@ -1334,7 +1334,7 @@ def test_agent_detail_excludes_device_private_key(isolated_config: Path):
 
 def test_start_agent_404_for_unknown(isolated_config: Path):
     _seed_hosts(isolated_config, "hermes")
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.post("/api/agents/nope/start")
     assert resp.status_code == 404
 
@@ -1344,7 +1344,7 @@ def test_start_agent_success(isolated_config: Path):
     with patch(
         "clawrium.gui.routes.fleet.start_agent", return_value={"success": True}
     ) as mock_start:
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/start")
     assert resp.status_code == 200
     data = resp.json()
@@ -1361,7 +1361,7 @@ def test_start_agent_lifecycle_error_uses_safe_message(isolated_config: Path):
         "clawrium.gui.routes.fleet.start_agent",
         side_effect=LifecycleError("failed at /home/user/.config/clawrium/secrets.json"),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/start")
     assert resp.status_code == 500
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
@@ -1374,7 +1374,7 @@ def test_start_agent_generic_exception_uses_safe_message(isolated_config: Path):
         "clawrium.gui.routes.fleet.start_agent",
         side_effect=RuntimeError("internal detail /etc/secrets"),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/start")
     assert resp.status_code == 500
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
@@ -1387,7 +1387,7 @@ def test_start_agent_returns_502_when_result_success_false(isolated_config: Path
         "clawrium.gui.routes.fleet.start_agent",
         return_value={"success": False, "error": "daemon failed to start"},
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/start")
     assert resp.status_code == 502
     # (#714) success=False path also returns constant message, never raw error text
@@ -1405,7 +1405,7 @@ def test_start_agent_502_no_path_leak(isolated_config: Path):
             "error": "failed at /home/user/.config/clawrium/secrets.json",
         },
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/start")
     assert resp.status_code == 502
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
@@ -1419,7 +1419,7 @@ def test_start_agent_502_no_path_leak(isolated_config: Path):
 
 def test_stop_agent_404_for_unknown(isolated_config: Path):
     _seed_hosts(isolated_config, "hermes")
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.post("/api/agents/nope/stop")
     assert resp.status_code == 404
 
@@ -1429,7 +1429,7 @@ def test_stop_agent_success(isolated_config: Path):
     with patch(
         "clawrium.gui.routes.fleet.stop_agent", return_value={"success": True}
     ) as mock_stop:
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/stop")
     assert resp.status_code == 200
     data = resp.json()
@@ -1445,7 +1445,7 @@ def test_stop_agent_lifecycle_error_uses_safe_message(isolated_config: Path):
         "clawrium.gui.routes.fleet.stop_agent",
         side_effect=LifecycleError("failed at /home/user/.config/clawrium/hosts.json"),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/stop")
     assert resp.status_code == 500
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
@@ -1458,7 +1458,7 @@ def test_stop_agent_generic_exception_uses_safe_message(isolated_config: Path):
         "clawrium.gui.routes.fleet.stop_agent",
         side_effect=RuntimeError("boom"),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/stop")
     assert resp.status_code == 500
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
@@ -1471,7 +1471,7 @@ def test_stop_agent_returns_502_when_result_success_false(isolated_config: Path)
         "clawrium.gui.routes.fleet.stop_agent",
         return_value={"success": False, "error": "agent not running"},
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/stop")
     assert resp.status_code == 502
     # (#714) success=False path also returns constant message, never raw error text
@@ -1489,7 +1489,7 @@ def test_stop_agent_502_no_path_leak(isolated_config: Path):
             "error": "failed at /home/user/.config/clawrium/hosts.json",
         },
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/stop")
     assert resp.status_code == 502
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
@@ -1503,7 +1503,7 @@ def test_stop_agent_502_no_path_leak(isolated_config: Path):
 
 def test_restart_agent_404_for_unknown(isolated_config: Path):
     _seed_hosts(isolated_config, "hermes")
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.post("/api/agents/nope/restart")
     assert resp.status_code == 404
 
@@ -1513,7 +1513,7 @@ def test_restart_agent_success(isolated_config: Path):
     with patch(
         "clawrium.gui.routes.fleet.restart_agent", return_value={"success": True}
     ) as mock_restart:
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/restart")
     assert resp.status_code == 200
     data = resp.json()
@@ -1529,7 +1529,7 @@ def test_restart_agent_lifecycle_error_uses_safe_message(isolated_config: Path):
         "clawrium.gui.routes.fleet.restart_agent",
         side_effect=LifecycleError("failed at /home/user/.config/clawrium/hosts.json"),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/restart")
     assert resp.status_code == 500
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
@@ -1542,7 +1542,7 @@ def test_restart_agent_generic_exception_uses_safe_message(isolated_config: Path
         "clawrium.gui.routes.fleet.restart_agent",
         side_effect=RuntimeError("boom"),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/restart")
     assert resp.status_code == 500
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
@@ -1555,7 +1555,7 @@ def test_restart_agent_returns_502_when_result_success_false(isolated_config: Pa
         "clawrium.gui.routes.fleet.restart_agent",
         return_value={"success": False, "error": "stop phase timed out"},
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/restart")
     assert resp.status_code == 502
     # (#714) success=False path also returns constant message, never raw error text
@@ -1573,7 +1573,7 @@ def test_restart_agent_502_no_path_leak(isolated_config: Path):
             "error": "failed at /home/user/.config/clawrium/restart.log",
         },
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.post("/api/agents/demo/restart")
     assert resp.status_code == 502
     assert resp.json()["detail"] == "Lifecycle operation failed. Check server logs."
@@ -1625,7 +1625,7 @@ def test_fleet_endpoint_returns_tier1_model(isolated_config: Path):
         )
     )
 
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.get("/api/fleet")
     assert resp.status_code == 200
     body = resp.json()
@@ -1676,7 +1676,7 @@ def test_fleet_endpoint_broken_attachment_fails_closed(isolated_config: Path):
     # No providers.json — get_provider returns None for any lookup.
     (isolated_config / "providers.json").write_text("[]")
 
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.get("/api/fleet")
     assert resp.status_code == 200
     agents = resp.json()["agents"]

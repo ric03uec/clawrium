@@ -338,10 +338,8 @@ export interface AgentUsage {
 // Settings types
 export interface Settings {
   config_dir: string;
-  hosts_file: string;
-  providers_file: string;
-  secrets_file: string;
   usage_db: string;
+  secrets_configured: boolean;
 }
 
 export interface VersionInfo {

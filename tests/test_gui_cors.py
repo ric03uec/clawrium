@@ -11,14 +11,14 @@ from clawrium.gui.server import app
 
 def test_health_endpoint_works():
     """Baseline: health endpoint should respond."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.get("/api/health")
     assert response.status_code == 200
 
 
 def test_credentials_flag_set_on_allowed_origin():
     """Responses to allowed origins include access-control-allow-credentials."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.get(
         "/api/health",
         headers={"Origin": "http://localhost:3000"},
@@ -29,7 +29,7 @@ def test_credentials_flag_set_on_allowed_origin():
 
 def test_alternative_origin_localhost_36000():
     """The localhost:36000 origin should also work."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.get(
         "/api/health",
         headers={"Origin": "http://localhost:36000"},
@@ -45,7 +45,7 @@ def test_untrusted_origin_no_allow_origin_header():
     so this is the critical protection even though allow-credentials
     remains set (Starlette behavior).
     """
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.get(
         "/api/health",
         headers={"Origin": "http://evil.com"},
@@ -55,7 +55,7 @@ def test_untrusted_origin_no_allow_origin_header():
 
 def test_no_wildcard_methods():
     """Preflight should list explicit methods, not wildcard."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.options(
         "/api/health",
         headers={
@@ -74,7 +74,7 @@ def test_no_wildcard_methods():
 
 def test_no_wildcard_headers():
     """Preflight should list explicit headers, not wildcard."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.options(
         "/api/health",
         headers={
@@ -94,7 +94,7 @@ def test_no_wildcard_headers():
 
 def test_preflight_custom_header_blocked():
     """Preflight for unlisted headers should be rejected with 400."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.options(
         "/api/health",
         headers={
@@ -111,7 +111,7 @@ def test_preflight_custom_header_blocked():
 
 def test_preflight_untrusted_origin():
     """Preflight from untrusted origins should not include allow-origin."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.options(
         "/api/health",
         headers={
@@ -124,7 +124,7 @@ def test_preflight_untrusted_origin():
 
 def test_preflight_allowed_method():
     """POST preflight should succeed for allowed origin."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.options(
         "/api/health",
         headers={
@@ -141,7 +141,7 @@ def test_preflight_allowed_method():
 
 def test_put_method_cors_headers():
     """PUT should return CORS headers for allowed origins."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.put(
         "/api/agents/foo/memory/test.txt",
         content=b"test",
@@ -154,7 +154,7 @@ def test_put_method_cors_headers():
 
 def test_delete_method_cors_headers():
     """DELETE should return CORS headers for allowed origins."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.delete(
         "/api/providers/test",
         headers={"Origin": "http://localhost:3000"},
@@ -165,7 +165,7 @@ def test_delete_method_cors_headers():
 
 def test_post_cors_headers():
     """POST should return CORS headers for allowed origins."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.post(
         "/api/agents/foo/start",
         headers={"Origin": "http://localhost:3000"},
@@ -176,7 +176,7 @@ def test_post_cors_headers():
 
 def test_patch_cors_headers():
     """PATCH should return CORS headers for allowed origins."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.patch(
         "/api/integrations/test/credentials",
         json={"key": "value"},
@@ -193,7 +193,7 @@ def test_preflight_blocked_method_rejected():
     to an explicit list must actually block disallowed methods.
     TRACE is not in allow_methods, so its preflight should fail.
     """
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.options(
         "/api/health",
         headers={
@@ -211,7 +211,7 @@ def test_preflight_blocked_method_rejected():
 
 def test_authorization_header_passes_preflight():
     """Authorization header should pass preflight."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.options(
         "/api/health",
         headers={
@@ -231,7 +231,7 @@ def test_pairing_code_cors():
     The connection-token and pairing-code endpoints return bearer secrets.
     This test ensures the global CORS middleware applies to them.
     """
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.post(
         "/api/fleet/agents/foo/pairing-code",
         headers={"Origin": "http://localhost:3000"},
@@ -244,7 +244,7 @@ def test_pairing_code_cors():
 
 def test_connection_token_cors():
     """W4: Verify /connection-token endpoint is covered by CORS middleware."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.post(
         "/api/fleet/agents/foo/connection-token",
         headers={"Origin": "http://localhost:3000"},
@@ -256,7 +256,7 @@ def test_connection_token_cors():
 
 def test_no_origin_header():
     """W3: Requests without an Origin header should pass through without CORS headers."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.get("/api/health")
     assert response.status_code == 200
     # No Origin means no CORS negotiation — browser requests always send Origin
@@ -265,7 +265,7 @@ def test_no_origin_header():
 
 def test_wrong_scheme_origin():
     """W3: HTTPS origin should not match HTTP localhost entries."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.get(
         "/api/health",
         headers={"Origin": "https://localhost:3000"},
@@ -276,7 +276,7 @@ def test_wrong_scheme_origin():
 
 def test_pairing_code_blocked_untrusted():
     """W4: Verify /pairing-code endpoint blocks untrusted origins."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.post(
         "/api/fleet/agents/foo/pairing-code",
         headers={"Origin": "http://evil.com"},
@@ -286,7 +286,7 @@ def test_pairing_code_blocked_untrusted():
 
 def test_connection_token_blocked_untrusted():
     """W4: Verify /connection-token endpoint blocks untrusted origins."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.post(
         "/api/fleet/agents/foo/connection-token",
         headers={"Origin": "http://evil.com"},
@@ -301,7 +301,7 @@ def test_origin_list_no_wildcard():
     than echoed back. This catches drift where allow_origins gets reset to
     ['*'] by accident.
     """
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.get(
         "/api/health",
         headers={"Origin": "http://random-non-localhost-site.com"},
@@ -316,7 +316,7 @@ def test_head_method_cors_headers():
     without preflight failure. Individual endpoints may still return 405,
     but the CORS preflight succeeds.
     """
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.options(
         "/api/health",
         headers={
@@ -330,7 +330,7 @@ def test_head_method_cors_headers():
 
 def test_methods_exact_set():
     """Pin the exact allowed methods to prevent drift."""
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost:36000")
     response = client.options(
         "/api/health",
         headers={
