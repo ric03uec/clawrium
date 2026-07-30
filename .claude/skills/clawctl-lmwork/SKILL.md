@@ -512,19 +512,37 @@ First work out how long the run took — session created to PR opened:
 ```bash
 N=<issue>
 WT="$(dirname "$(git rev-parse --show-toplevel)")/clawrium-issue-${N}"
-START="$(cat "$WT/.itx/${N}/lmwork-started")"
-MINS=$(( ( $(date -u +%s) - $(date -u -d "$START" +%s) ) / 60 ))
-ROUGH=$(( (MINS + 2) / 5 * 5 ))    # nearest 5 minutes
+
+MINS=$(python3 -c "import datetime as d,sys; s=d.datetime.fromisoformat(open(sys.argv[1]).read().strip().replace('Z','+00:00')); print(int((d.datetime.now(d.timezone.utc)-s).total_seconds()//60))" \
+  "$WT/.itx/${N}/lmwork-started" 2>/dev/null)
+
+if [ -z "$MINS" ] || [ "$MINS" -lt 0 ]; then
+  WALL=unknown                          # stamp missing, or the clock stepped back
+else
+  WALL="~$(( (MINS + 2) / 5 * 5 ))m"    # nearest 5 minutes
+fi
 ```
 
-`WT` is re-derived here rather than reused from step 4 because the
-orchestrator's shell state does not survive between tool calls — an empty
-`$WT` would read a nonexistent stamp and hand lmjudge a fabricated number.
-If the stamp file is genuinely missing, report the wall time as `unknown`;
-do not estimate one.
+Three things here exist to stop a wrong number reaching the PR, because a
+fabricated duration is worse than an absent one — nobody audits a number
+that looks plausible.
+
+`WT` is re-derived rather than reused from step 4: the orchestrator's shell
+state does not survive between tool calls, and an empty `$WT` would read a
+nonexistent stamp.
+
+The elapsed time is computed in `python3`, not `date -u -d`. BSD `date` has
+no `-d` flag, so on macOS that subshell fails, bash arithmetic receives an
+empty string, and `WALL` silently becomes `~0m`. Step 4's `date -u +%Y…`
+*is* portable, which makes the asymmetry easy to miss.
+
+`MINS` is checked for negative before rounding. If the clock steps backward
+mid-run — a laptop resuming from sleep is enough — the rounding formula
+happily yields `~-5m`. Both that and the missing-stamp case collapse to
+`unknown`. Never estimate.
 
 ```bash
-tmux send-keys -t "$S:lmjudge" "Open the PR for #${N}. Use .github/PULL_REQUEST_TEMPLATE.md verbatim. Rebase on origin/main first. Include the ATX Review Summary and a Callouts section. Fill the Agent Execution table: wall time ~${ROUGH}m, judge rounds <n>, ATX rounds <n>, human interventions <n>. Apply the existing label authored-by:local_qwen. Do not create any new labels." Enter
+tmux send-keys -t "$S:lmjudge" "Open the PR for #${N}. Use .github/PULL_REQUEST_TEMPLATE.md verbatim. Rebase on origin/main first. Include the ATX Review Summary and a Callouts section. Fill the Agent Execution table: wall time ${WALL}, judge rounds <n>, ATX rounds <n>, human interventions <n>. Apply the existing label authored-by:local_qwen. Do not create any new labels." Enter
 ```
 
 Requirements:
@@ -563,9 +581,11 @@ worktree — it never rides along in any one issue's PR. Append one line to
 ```
 
 `started` is the step-4 stamp, `ended` is when the PR opened, and
-`wall_min` is the gap in whole minutes — the same number the PR reports,
-unrounded. `interventions` counts the times a human had to unstick the
-run. Together they answer the only question that decides whether this
+`wall_min` is `$MINS` — the **unrounded** gap, not the `$WALL` value the PR
+shows. The PR gets a rounded number because a human reads it; the ledger
+keeps the precise one so trends across runs are not quantised into
+five-minute buckets. Write `null` if the wall time came out `unknown`.
+`interventions` counts the times a human had to unstick the run. Together they answer the only question that decides whether this
 loop is worth running: is it cheaper than doing the issue yourself? A
 shape averaging 40 minutes at zero interventions is a win; the same shape
 at three interventions is a human doing the work with extra steps.
