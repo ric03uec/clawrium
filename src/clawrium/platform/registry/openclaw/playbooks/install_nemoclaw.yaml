@@ -56,11 +56,31 @@
       aarch64: linux-arm64
     nemoclaw_marker_dir: "/var/lib/nemoclaw"
     nemoclaw_marker: "{{ nemoclaw_marker_dir }}/installed-{{ nemoclaw_version }}"
+    # Provider vars come from ansible-runner extravars (see
+    # core.install:run_installation). Unset defaults surface a clear
+    # fail-fast below rather than a mid-onboarding NemoClaw crash.
+    nemoclaw_provider: "{{ lookup('env', 'NEMOCLAW_PROVIDER') | default('', true) }}"
+    nemoclaw_provider_key: "{{ lookup('env', 'NEMOCLAW_PROVIDER_KEY') | default('', true) }}"
+    nemoclaw_policy_mode: "{{ lookup('env', 'NEMOCLAW_POLICY_MODE') | default('suggested', true) }}"
+    nemoclaw_sandbox_name: "{{ lookup('env', 'NEMOCLAW_SANDBOX_NAME') | default('', true) }}"
   tasks:
     - name: Refuse to run on non-Linux hosts (dispatcher contract)
       ansible.builtin.fail:
         msg: install_nemoclaw.yaml invoked against non-Linux host
       when: ansible_os_family == "Darwin"
+
+    - name: Fail fast when NEMOCLAW_PROVIDER / NEMOCLAW_PROVIDER_KEY missing
+      ansible.builtin.fail:
+        msg: >-
+          NEMOCLAW_PROVIDER and NEMOCLAW_PROVIDER_KEY must be passed via
+          ansible-runner envvars. NemoClaw's install.sh bundles substrate
+          install with sandbox onboarding and step 3/8 requires provider
+          config — the runbook cannot proceed without them. If you invoked
+          this playbook by hand, set both env vars first. If clawctl
+          invoked it, this is a bug in `core.install:run_installation` —
+          the provider validation there did not thread the env vars.
+      when:
+        - (nemoclaw_provider | length) == 0 or (nemoclaw_provider_key | length) == 0
 
     - name: Fail early if host architecture is unsupported
       ansible.builtin.fail:
@@ -104,8 +124,17 @@
         NEMOCLAW_INSTALL_TAG: "{{ nemoclaw_version }}"
         NEMOCLAW_NON_INTERACTIVE: "1"
         NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1"
+        NEMOCLAW_PROVIDER: "{{ nemoclaw_provider }}"
+        NEMOCLAW_PROVIDER_KEY: "{{ nemoclaw_provider_key }}"
+        NEMOCLAW_POLICY_MODE: "{{ nemoclaw_policy_mode }}"
+        NEMOCLAW_SANDBOX_NAME: "{{ nemoclaw_sandbox_name }}"
       when: not nemoclaw_marker_stat.stat.exists
       register: nemoclaw_install_result
+      # `no_log` prevents the provider bearer from landing in ansible-runner
+      # artifacts / stdout. On failure we lose the crash detail; the runbook
+      # register + Ansible's own error surface still cover the exit code and
+      # a redacted summary. Worth the tradeoff — bearer leakage is not.
+      no_log: true
 
     - name: Write per-version install marker
       ansible.builtin.copy:

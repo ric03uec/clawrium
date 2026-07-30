@@ -47,6 +47,54 @@ def install_sh_url(version: str = NEMOCLAW_VERSION) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Provider mapping — Clawrium provider `type` → NemoClaw's NEMOCLAW_PROVIDER
+# vocabulary. NemoClaw's install.sh accepts a fixed enum (see the `--help`
+# section of https://raw.githubusercontent.com/NVIDIA/NemoClaw/main/install.sh);
+# unmapped types must fail loudly at install time rather than silently
+# substitute a default (which is `build` — NVIDIA Endpoints — and would
+# demand a key the operator didn't set).
+# ---------------------------------------------------------------------------
+
+
+CLAWRIUM_TO_NEMOCLAW_PROVIDER: dict[str, str] = {
+    "openrouter": "openrouter",
+    "openai": "openai",
+    "anthropic": "anthropic",
+    "anthropic-compatible": "anthropicCompatible",
+    "litellm-anthropic": "anthropicCompatible",
+    "gemini": "gemini",
+    "ollama": "ollama",
+    "nim-local": "nim-local",
+    "vllm": "vllm",
+    "vllm-inx": "vllm",
+    "custom": "custom",
+}
+
+
+class UnmappedProviderError(ValueError):
+    """Clawrium provider type has no NemoClaw counterpart."""
+
+
+def clawrium_provider_type_to_nemoclaw(clawrium_type: str) -> str:
+    """Translate a Clawrium provider `type` into NemoClaw's install.sh vocabulary.
+
+    Raises `UnmappedProviderError` on any type not in
+    `CLAWRIUM_TO_NEMOCLAW_PROVIDER` so a `NEMOCLAW_PROVIDER=<unknown>`
+    can never reach install.sh's `--provider` arg where it would either
+    fall through to the `build` default or crash with a less actionable
+    error mid-onboarding.
+    """
+    try:
+        return CLAWRIUM_TO_NEMOCLAW_PROVIDER[clawrium_type]
+    except KeyError as exc:
+        raise UnmappedProviderError(
+            f"Clawrium provider type {clawrium_type!r} has no NemoClaw "
+            f"mapping. Supported types: "
+            f"{sorted(CLAWRIUM_TO_NEMOCLAW_PROVIDER)}."
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
 # Phase 2: thin CLI wrapper (issue #944).
 #
 # Every verb below wraps a single `nemoclaw <verb> <sandbox_name>`

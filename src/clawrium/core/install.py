@@ -312,6 +312,7 @@ def run_installation(
     resume: bool = False,
     force: bool = False,
     version_override: str | None = None,
+    provider: str | None = None,
 ) -> InstallResult:
     """Run full installation of an agent on a host.
 
@@ -326,6 +327,11 @@ def run_installation(
         force: Override the "already installed" skip and reinstall the binary
             even when the same version is present. Also re-runs the pairing
             block, rotating gateway token and device credentials.
+        provider: Provider name (from `clawctl provider registry`) to attach
+            at install time. Required for openclaw (NemoClaw substrate
+            requires provider config at install time — see
+            `install_nemoclaw.yaml`). Optional for hermes/zeroclaw which
+            retain the split lifecycle.
 
     Returns:
         InstallResult with success status and details
@@ -345,6 +351,57 @@ def run_installation(
         load_manifest(claw_name)  # Validates agent exists
     except ManifestNotFoundError as e:
         raise InstallationError(f"Agent '{claw_name}' not found in registry") from e
+
+    # Openclaw-only: if the caller passed a provider, resolve it up front
+    # (before any host work) so a bad name/missing key fails fast with a
+    # human-actionable message instead of mid-install after we've mutated
+    # wolf-i. NemoClaw's install.sh bundles substrate install with sandbox
+    # onboarding; step 3/8 requires NEMOCLAW_PROVIDER + NEMOCLAW_PROVIDER_KEY
+    # or install.sh crashes there anyway. The user-facing "provider is
+    # required" mandate lives at the CLI layer (`cli/clawctl/agent/create.py`)
+    # where a hint can point at `clawctl provider registry get`. Absent a
+    # provider here, the runbook's own task-0 fail-fast surfaces the same
+    # error, which is what direct-runbook / test callers see.
+    nemoclaw_provider_env: dict[str, str] = {}
+    openclaw_provider_canonical: str | None = None
+    if claw_name == "openclaw" and provider:
+        from clawrium.core.nemoclaw import (
+            UnmappedProviderError,
+            clawrium_provider_type_to_nemoclaw,
+        )
+        from clawrium.core.providers.storage import (
+            get_provider,
+            get_provider_api_key,
+        )
+
+        provider_record = get_provider(provider)
+        if not provider_record:
+            raise InstallationError(
+                f"provider {provider!r} not registered. "
+                f"Run 'clawctl provider registry get' to list providers."
+            )
+        provider_api_key = get_provider_api_key(provider)
+        if not provider_api_key:
+            raise InstallationError(
+                f"provider {provider!r} has no API_KEY secret set. "
+                f"Run 'clawctl secret set --provider {provider} API_KEY=<key>'."
+            )
+        try:
+            nemoclaw_provider_name = clawrium_provider_type_to_nemoclaw(
+                provider_record.get("type", "")
+            )
+        except UnmappedProviderError as exc:
+            raise InstallationError(str(exc)) from exc
+        nemoclaw_provider_env = {
+            "NEMOCLAW_PROVIDER": nemoclaw_provider_name,
+            "NEMOCLAW_PROVIDER_KEY": provider_api_key,
+            "NEMOCLAW_POLICY_MODE": "suggested",
+        }
+        # Preserve the canonical provider name (from the registry record)
+        # rather than the CLI arg — downstream lifecycle code looks it up
+        # by exact string. Best-effort auto-attach after successful install
+        # uses this.
+        openclaw_provider_canonical = provider_record.get("name", provider)
 
     # Step 2: Get host record
     emit("validate", f"Loading host {hostname}...")
@@ -1181,6 +1238,13 @@ def run_installation(
         claw_data_dir = install_log_dir / "claw"
         claw_data_dir.mkdir(exist_ok=True)
 
+        claw_envvars = {"ANSIBLE_BECOME_TIMEOUT": "120"}
+        if claw_name == "openclaw" and nemoclaw_provider_env:
+            claw_envvars.update(nemoclaw_provider_env)
+            # NemoClaw sandbox name = agent name so Phase 3's
+            # `nemoclaw <sandbox> <verb>` wrappers (see
+            # `core.nemoclaw:default_sandbox_name`) resolve to this sandbox.
+            claw_envvars["NEMOCLAW_SANDBOX_NAME"] = agent_name
         result = ansible_runner.run(
             private_data_dir=str(claw_data_dir),
             inventory=inventory,
@@ -1188,7 +1252,7 @@ def run_installation(
             quiet=False,  # Show output
             verbosity=1,  # Show task details (-v)
             timeout=1800,  # 30 min timeout for claw install
-            envvars={"ANSIBLE_BECOME_TIMEOUT": "120"},
+            envvars=claw_envvars,
         )
 
         if result.status != "successful":
@@ -1482,6 +1546,47 @@ def run_installation(
             return h
 
         update_host(host["hostname"], set_installed)
+
+        # Best-effort: auto-attach the provider in hosts.json so
+        # `clawctl agent provider get --agent <name>` immediately reflects
+        # the provider we just wired into the sandbox. If the write fails
+        # (concurrent registry mutation, hosts.json contention), log and
+        # continue — the sandbox is up on the host, and the operator can
+        # recover with `clawctl agent configure --stage providers`.
+        if (
+            claw_name == "openclaw"
+            and openclaw_provider_canonical is not None
+        ):
+            try:
+
+                def _attach_openclaw_provider(h: dict) -> dict:
+                    if "agents" in h and agent_name in h["agents"]:
+                        h["agents"][agent_name]["providers"] = [
+                            openclaw_provider_canonical
+                        ]
+                    return h
+
+                update_host(host["hostname"], _attach_openclaw_provider)
+                emit(
+                    "provider",
+                    f"attached {openclaw_provider_canonical!r} to {agent_name}",
+                )
+            except Exception as exc:  # noqa: BLE001 — best-effort by design
+                logger.warning(
+                    "post-install provider auto-attach failed for %s: %s. "
+                    "Run 'clawctl agent configure %s --stage providers "
+                    "--provider %s' to recover.",
+                    agent_name,
+                    exc,
+                    agent_name,
+                    openclaw_provider_canonical,
+                )
+                emit(
+                    "warn",
+                    f"provider auto-attach failed ({exc}); "
+                    f"run `clawctl agent configure {agent_name} "
+                    f"--stage providers --provider {openclaw_provider_canonical}`",
+                )
 
         # Step 11: Initialize onboarding record (non-fatal if it fails)
         try:
