@@ -148,6 +148,12 @@ def upgrade(
         help="Bypass the drift pre-flight gate.",
         hidden=True,
     ),
+    skip_live_probe: bool = typer.Option(
+        False,
+        "--skip-live-probe",
+        help="Trust the hosts.json snapshot instead of probing the host.",
+        hidden=True,
+    ),
     output: OutputFormat = typer.Option(
         OutputFormat.table, "--output", "-o", help="Output format (table or json)."
     ),
@@ -218,6 +224,25 @@ def upgrade(
             # Live version is below target — proceed with upgrade.
             # Use live_version_str for the "from_version" display.
             installed = live_version_str
+        else:
+            # Probe failed (SSH error, binary missing, unparseable output).
+            # Fail loudly rather than silently falling back to the snapshot
+            # comparison — that would re-open the wolf-i false-no-op trap
+            # (#754) when the snapshot says max but the on-host binary is
+            # actually older.
+            if skip_live_probe:
+                stream_action(
+                    resource=resource,
+                    message="live version probe failed; trusting snapshot "
+                    "(override by --skip-live-probe)",
+                )
+                # Fall through to snapshot-based comparison.
+            else:
+                emit_error(
+                    "live openclaw version probe failed",
+                    hint=f"check SSH connectivity to {hostname!r}, then re-run; "
+                    f"pass --skip-live-probe to trust the snapshot",
+                )
 
     installed_v = _parse(installed)
     target_v = _parse(target)
