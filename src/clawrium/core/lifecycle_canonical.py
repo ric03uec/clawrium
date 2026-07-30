@@ -2002,6 +2002,90 @@ def _render_gitconfig_body(creds: dict) -> str:
         "[core]\n"
         f"    editor = {core_editor}\n"
     )
+# Phase 2 of #11 (issue #944): NemoClaw sandbox onboard is invoked
+# at sync time via a single-purpose runbook. Mirrors the shape of
+# `_openclaw_install_slack_mcp` / `_openclaw_install_plugins` exactly:
+# gate at the Python entry-point (only openclaw agents whose config
+# opts into `runtime: "nemoclaw"`), run BEFORE the file-write loop
+# and BEFORE `_restart_unit`, raise `CanonicalSyncError` on failure
+# so the pipeline short-circuits.
+def _openclaw_nemoclaw_onboard(
+    agent_name: str,
+    hostname: str,
+    host: dict,
+    inputs,
+    *,
+    on_event: Callable[[str, str], None] | None = None,
+    timeout: int = 180,
+) -> None:
+    """Onboard the NemoClaw sandbox backing an openclaw agent.
+
+    Fast no-op when the agent's on-disk config does not declare
+    `runtime: "nemoclaw"` — during Phase 2 that is the only sandbox
+    runtime supported, but the explicit gate keeps bare openclaw
+    installs (still the default until Phase 3) untouched.
+
+    Positioned in `sync_agent_canonical` BEFORE the file-write loop
+    AND before `_restart_unit` so:
+    1. A sandbox onboard failure short-circuits the sync before the
+       daemon restart — the operator never sees a restarted openclaw
+       whose sandbox failed to come up.
+    2. The freshly-onboarded sandbox and the freshly-rendered
+       config land in a single daemon restart.
+
+    Raises `CanonicalSyncError` on any playbook failure so
+    `sync_agent_canonical` short-circuits before `_restart_unit`.
+    """
+    if inputs.agent_type != "openclaw":
+        return
+
+    agent_record = (host.get("agents") or {}).get(agent_name) or {}
+    config = agent_record.get("config") or {}
+    if not isinstance(config, dict):
+        return
+    runtime = str(config.get("runtime") or "").strip().lower()
+    if runtime != "nemoclaw":
+        # Bare openclaw path — Phase 2 keeps it working; Phase 3
+        # deletes it.
+        return
+
+    # Lazy import to sidestep the lifecycle ↔ lifecycle_canonical
+    # cycle (same rationale as the hermes / openclaw slack helpers).
+    from clawrium.core.lifecycle import _run_lifecycle_playbook
+
+    os_family = str(host.get("os_family") or "linux").strip().lower()
+    if os_family in ("mac", "macos", "osx"):
+        os_family = "darwin"
+    if os_family == "darwin":
+        # macOS openclaw is blocked at install (see
+        # `install_nemoclaw_macos.yaml`). If we ever reach sync on a
+        # darwin host with `runtime: nemoclaw` in config, something
+        # slipped past the install-time guard — fail loudly rather
+        # than silently routing to the Linux runbook.
+        raise CanonicalSyncError(
+            f"nemoclaw onboard is not supported on darwin hosts "
+            f"(agent {agent_name!r}); see plan #11 §7.2. Deploy this "
+            "openclaw on an Ubuntu 24.04+ host."
+        )
+
+    if on_event is not None:
+        on_event(
+            "nemoclaw_onboard",
+            f"onboarding NemoClaw sandbox for {agent_name}",
+        )
+
+    success, err = _run_lifecycle_playbook(
+        agent_type="openclaw",
+        agent_name=agent_name,
+        hostname=hostname,
+        operation="nemoclaw_onboard",
+        host=host,
+        timeout=timeout,
+    )
+    if not success:
+        raise CanonicalSyncError(
+            f"nemoclaw onboard failed for {agent_name!r}: {err}"
+        )
 
 
 def sync_agent_canonical(
@@ -2482,6 +2566,23 @@ def sync_agent_canonical(
                 agent_name,
                 os_family=host.get("os_family", "linux"),
                 inputs=inputs,
+                on_event=on_event,
+            )
+
+        # Phase 2 of #11 (issue #944): NemoClaw sandbox onboard for
+        # openclaw agents whose config opts into `runtime: "nemoclaw"`.
+        # Same slot as `_openclaw_install_plugins` above — runs BEFORE
+        # the file-write loop so a freshly-rendered openclaw config
+        # and a freshly-onboarded sandbox land in a single daemon
+        # restart. Fast no-op for bare openclaw agents (Phase 2 keeps
+        # them working alongside sandboxed installs; Phase 3 deletes
+        # the bare path).
+        if inputs.agent_type == "openclaw":
+            _openclaw_nemoclaw_onboard(
+                agent_name,
+                hostname,
+                host,
+                inputs,
                 on_event=on_event,
             )
 

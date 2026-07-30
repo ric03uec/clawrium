@@ -1,0 +1,66 @@
+---
+# Sync-time runbook: onboard the openclaw agent's NemoClaw sandbox on
+# the host. Invoked by
+# `core.lifecycle_canonical._openclaw_nemoclaw_onboard` from
+# `sync_agent_canonical` BEFORE the file-write loop AND before
+# `_restart_unit`, matching the "install BEFORE restart" contract in
+# AGENTS.md §"Integration Binary Install".
+#
+# Idempotent by NemoClaw's own state — `nemoclaw onboard <name>`
+# short-circuits when the sandbox already exists. We use
+# `changed_when: false` because the command itself is fast and its
+# stdout is what we surface to the caller; a "sandbox already exists"
+# exit is a healthy state, not a change.
+#
+# Linux-only for Phase 2 (plan §7.2 defers macOS). The dispatcher
+# guard mirrors the Linux install runbook — a darwin route would
+# have been rejected upstream by `install_nemoclaw_macos.yaml`
+# anyway; this guard is belt-and-suspenders.
+- hosts: all
+  become: yes
+  vars:
+    nemoclaw_binary: "/usr/local/bin/nemoclaw"
+  tasks:
+    - name: Refuse to run on non-Linux hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: nemoclaw_onboard.yaml invoked against non-Linux host
+      when: ansible_os_family == "Darwin"
+
+    - name: Assert sandbox_name extravar is provided
+      ansible.builtin.assert:
+        that:
+          - sandbox_name is defined
+          - sandbox_name | length > 0
+        fail_msg: >-
+          `sandbox_name` extravar is required. `sync_agent_canonical`
+          derives it from `hosts.json.agents.<name>.config.sandbox_name`;
+          a missing value points to a Phase 2 install skipping the
+          `set_installed` `config.sandbox_name` write.
+
+    - name: Assert nemoclaw binary is present on host
+      ansible.builtin.stat:
+        path: "{{ nemoclaw_binary }}"
+      register: nemoclaw_stat
+
+    - name: Fail if nemoclaw binary is missing
+      ansible.builtin.fail:
+        msg: >-
+          nemoclaw binary not found at {{ nemoclaw_binary }}. Re-run
+          `clawctl host prepare <host>` so `install_nemoclaw.yaml`
+          runs before the onboard step.
+      when: not nemoclaw_stat.stat.exists
+
+    - name: Onboard NemoClaw sandbox {{ sandbox_name }}
+      ansible.builtin.command:
+        argv:
+          - "{{ nemoclaw_binary }}"
+          - onboard
+          - "{{ sandbox_name }}"
+      register: nemoclaw_onboard_result
+      changed_when: false
+      failed_when:
+        - nemoclaw_onboard_result.rc != 0
+        # NemoClaw exits 0 on "already onboarded"; a hypothetical
+        # future non-zero "already onboarded" exit should not fail
+        # the sync — extend this list once upstream stabilizes the
+        # exit-code contract.

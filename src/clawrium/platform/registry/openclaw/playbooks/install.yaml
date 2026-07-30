@@ -1,4 +1,24 @@
 ---
+# Phase 2 of #11 (issue #944): every openclaw install runs on a
+# host prepped for the NemoClaw runtime substrate. Prereqs
+# (Ubuntu >= 24.04 + docker + node) land first via a dedicated
+# playbook, then the nemoclaw runtime binary via its own single-
+# purpose playbook (also invocable at sync time by
+# `_openclaw_nemoclaw_onboard`). Both are Linux-only. The macOS
+# siblings currently refuse loudly per plan §7.2 (option b) — we
+# still import them here rather than skipping so a darwin host
+# gets a clear failure at install time instead of silently
+# skipping the NemoClaw substrate.
+# NB: `when:` on `import_playbook` is a static import — Ansible
+# evaluates it at parse time and silently ignores the condition
+# (>= 2.8). Each imported runbook enforces its own OS gate via a
+# task-0 `Refuse to run on non-Linux hosts` dispatcher-contract
+# guard (per AGENTS.md "Integration Binary Install" Rule 2). A
+# darwin host reaches these plays and fails loudly at task 0
+# rather than blowing up opaquely on `apt`.
+- import_playbook: install_prereqs.yaml
+- import_playbook: install_nemoclaw.yaml
+
 - hosts: all
   become: yes
   tasks:
@@ -30,6 +50,18 @@
         state: present
         create_home: yes
         shell: /bin/bash
+
+    # ATX iter-3 B2: `install_prereqs.yaml` adds the SSH user to the
+    # `docker` group at prereqs-time (agent user doesn't exist yet
+    # there); the agent user itself needs `docker` membership so
+    # nemoclaw sandbox tooling can talk to the Docker socket. Add it
+    # right after user creation so ownership of subsequent per-agent
+    # files sits with the right groups.
+    - name: Add agent user to docker group
+      ansible.builtin.user:
+        name: "{{ agent_name }}"
+        groups: docker
+        append: yes
 
     - name: Check per-agent openclaw binary
       ansible.builtin.stat:

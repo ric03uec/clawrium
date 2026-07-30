@@ -5390,3 +5390,195 @@ def test_sync_zeroclaw_defensive_on_non_list_value(monkeypatch, tmp_path):
 
     assert result.success
     assert captured["onboard"] == ()
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 of #11 (issue #944): `_openclaw_nemoclaw_onboard` ordering.
+#
+# The onboard helper MUST run BEFORE the file-write loop and BEFORE
+# `_restart_unit`, mirroring the shape enforced for
+# `_openclaw_install_plugins` (see `test_t5_install_runs_before_restart_via_sync`
+# above) and `_openclaw_install_slack_mcp`. A failure short-circuits
+# before restart so the daemon never spawns pointing at a config whose
+# NemoClaw sandbox is not up.
+# ---------------------------------------------------------------------------
+
+
+class TestOpenclawNemoclawOnboardOrdering:
+    def _build_openclaw_sync_env(self, monkeypatch, *, runtime_key):
+        """Common fixture: wire enough of sync_agent_canonical so the
+        `_openclaw_nemoclaw_onboard` call site is reached with the
+        agent's config carrying `runtime: nemoclaw`."""
+        from clawrium.core.render import (
+            GatewayInputs,
+            ProviderInputs,
+            RenderInputs,
+            RenderedFiles,
+        )
+
+        inputs = RenderInputs(
+            agent_name="oc-nemo",
+            agent_type="openclaw",
+            provider=ProviderInputs(
+                name="or",
+                type="openrouter",
+                api_key="sk",
+                default_model="m",
+            ),
+            gateway=GatewayInputs(host="h", port=40000, auth="a"),
+        )
+        rendered = RenderedFiles(
+            files={".openclaw/env": "", ".openclaw/openclaw.json": "{}"}
+        )
+        fake_diff = MagicMock()
+        fake_diff.unified_diff = "+x"
+        fake_diff.path = ".openclaw/env"
+        fake_diff.remote_path = "/home/oc-nemo/.openclaw/env"
+        fake_diff.rendered_body = ""
+        fake_diff.remote_body = ""
+
+        host_record = {
+            "hostname": "h",
+            "agents": {
+                "oc-nemo": {
+                    "config": {runtime_key: "nemoclaw", "sandbox_name": "oc-nemo"}
+                    if runtime_key
+                    else {}
+                }
+            },
+        }
+        monkeypatch.setattr(lc, "build_render_inputs", lambda _: inputs)
+        monkeypatch.setitem(
+            lc._RENDERERS, "openclaw", lambda _inputs, **_kw: rendered
+        )
+        monkeypatch.setattr(
+            lc,
+            "get_agent_by_name",
+            lambda _: (host_record, "openclaw:oc-nemo", {}),
+        )
+        monkeypatch.setattr(lc, "diff_files", lambda **_: [fake_diff])
+        monkeypatch.setattr(lc, "_open_ssh", lambda _h, **__: MagicMock())
+        monkeypatch.setattr(
+            lc,
+            "_get_host_openclaw_version",
+            lambda *_a, **_kw: ((2026, 6, 9), ""),
+        )
+        monkeypatch.setattr(
+            lc, "_diff_removes_secrets", lambda _d: set()
+        )
+        monkeypatch.setattr(lc, "_atomic_write", lambda *_a, **_kw: None)
+        monkeypatch.setattr(
+            lc, "_openclaw_install_plugins", lambda *_a, **_kw: ((), ())
+        )
+        monkeypatch.setattr(
+            lc, "_openclaw_install_slack_mcp", lambda *_a, **_kw: None
+        )
+        monkeypatch.setattr(lc, "_verify_health", lambda **_: None)
+        monkeypatch.setattr(
+            "clawrium.core.workspace_sync.push_workspace_phase",
+            lambda **_kw: MagicMock(
+                success=True, files_pushed=(), files_excluded=(), error=None
+            ),
+        )
+        return host_record
+
+    def test_onboard_runs_before_write_and_restart(self, monkeypatch):
+        """The onboard helper MUST fire before `_atomic_write` (the file-
+        write loop) and before `_restart_unit`. Spies on the IO surface
+        catch a reorder that a body-level test would miss."""
+        self._build_openclaw_sync_env(monkeypatch, runtime_key="runtime")
+
+        order: list[str] = []
+
+        def spy_onboard(*_a, **_kw):
+            order.append("nemoclaw_onboard")
+
+        def spy_write(*_a, **_kw):
+            order.append("atomic_write")
+
+        def spy_restart(*_a, **_kw):
+            order.append("restart_unit")
+
+        monkeypatch.setattr(lc, "_openclaw_nemoclaw_onboard", spy_onboard)
+        monkeypatch.setattr(lc, "_atomic_write", spy_write)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+
+        sync_agent_canonical("oc-nemo", verify=False)
+        assert order == ["nemoclaw_onboard", "atomic_write", "restart_unit"]
+
+    def test_onboard_failure_short_circuits_before_restart(self, monkeypatch):
+        """Companion to the ordering test: an onboard failure raises
+        `CanonicalSyncError` and `_restart_unit` MUST NOT run — mirrors
+        the workspace-overlay short-circuit contract."""
+        self._build_openclaw_sync_env(monkeypatch, runtime_key="runtime")
+
+        restart_called: list[bool] = []
+
+        def boom_onboard(*_a, **_kw):
+            raise CanonicalSyncError("nemoclaw onboard boom")
+
+        def spy_restart(*_a, **_kw):
+            restart_called.append(True)
+
+        monkeypatch.setattr(lc, "_openclaw_nemoclaw_onboard", boom_onboard)
+        monkeypatch.setattr(lc, "_restart_unit", spy_restart)
+
+        with pytest.raises(CanonicalSyncError, match="nemoclaw onboard boom"):
+            sync_agent_canonical("oc-nemo", verify=False)
+        assert restart_called == []
+
+    def test_onboard_refuses_on_darwin_host(self, monkeypatch):
+        """ATX iter-2 B2: sandboxed openclaw on a darwin host must
+        raise `CanonicalSyncError` at sync time. The install-time
+        guard in `install_nemoclaw_macos.yaml` blocks the create path,
+        but a hand-edited hosts.json flipping `os_family` to darwin
+        must not silently route to the Linux runbook."""
+        host_record = self._build_openclaw_sync_env(
+            monkeypatch, runtime_key="runtime"
+        )
+        host_record["os_family"] = "darwin"
+
+        # Sentinel — if the Linux runbook fires despite darwin, the
+        # guard leaked. `_restart_unit` must also not be reached.
+        called: list[bool] = []
+
+        def _sentinel(*_a, **_kw):
+            called.append(True)
+            return True, None
+
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle._run_lifecycle_playbook", _sentinel
+        )
+        monkeypatch.setattr(lc, "_restart_unit", lambda *_a, **_kw: None)
+
+        with pytest.raises(CanonicalSyncError, match="darwin"):
+            sync_agent_canonical("oc-nemo", verify=False)
+        assert called == [], (
+            "_run_lifecycle_playbook ran on darwin — refuse guard leaked"
+        )
+
+    def test_onboard_skipped_when_runtime_absent(self, monkeypatch):
+        """Bare openclaw path (Phase 2 non-regression): if `config` does
+        not declare `runtime: "nemoclaw"`, the onboard helper is a fast
+        no-op — no ansible-runner spawn, no SSH exec."""
+        self._build_openclaw_sync_env(monkeypatch, runtime_key=None)
+
+        # Do NOT stub `_openclaw_nemoclaw_onboard` — we want the real
+        # gating code to run and short-circuit on absent runtime. Stub
+        # `_run_lifecycle_playbook` as a sentinel: if it fires, the gate
+        # leaked and the test fails.
+        called: list[bool] = []
+
+        def _sentinel(*_a, **_kw):
+            called.append(True)
+            return True, None
+
+        monkeypatch.setattr(
+            "clawrium.core.lifecycle._run_lifecycle_playbook", _sentinel
+        )
+        monkeypatch.setattr(lc, "_restart_unit", lambda *_a, **_kw: None)
+
+        sync_agent_canonical("oc-nemo", verify=False)
+        assert called == [], (
+            "_run_lifecycle_playbook was invoked for a bare openclaw agent"
+        )

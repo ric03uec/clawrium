@@ -1,0 +1,126 @@
+---
+# Single-purpose runbook: install the NemoClaw runtime substrate on a
+# Linux openclaw host via NVIDIA's official install.sh bootstrap.
+# Invoked at sync time by
+# `core.lifecycle_canonical._openclaw_nemoclaw_onboard` (see also
+# `install.yaml`, which now delegates to this runbook + `install_prereqs`
+# before dropping the openclaw binary). Not called from `configure.yaml`.
+#
+# Distribution model
+# ------------------
+# NVIDIA/NemoClaw does NOT publish binary release artifacts on GitHub
+# Releases. The canonical install path documented upstream is:
+#
+#   curl -fsSL https://raw.githubusercontent.com/NVIDIA/NemoClaw/<ref>/install.sh | bash
+#
+# The bootstrap clones the ref at runtime and executes
+# `scripts/install.sh` from the checkout. See
+# https://github.com/NVIDIA/NemoClaw/blob/main/install.sh.
+#
+# Integrity model
+# ---------------
+# We cannot pin a binary SHA (none exists upstream). We pin the
+# install.sh bootstrap's SHA256 (`nemoclaw_install_sh_sha256`) and
+# verify it at fetch time via `get_url`'s `checksum:` param. A version
+# bump requires re-hashing install.sh at the new tag and updating
+# `INSTALL_SH_SHA256` in `src/clawrium/core/nemoclaw.py` + the var
+# below in lockstep. The equality is asserted by
+# `tests/platform/test_nemoclaw_pin_lockstep.py`.
+#
+# Idempotency
+# -----------
+# Per-version marker at `/var/lib/nemoclaw/installed-<version>`. If
+# present, skip. Bumping the pin invalidates the marker automatically
+# (path contains the version), so a version bump auto-fires reinstall.
+#
+# Architectural pattern: see AGENTS.md §"Integration Binary Install".
+# Companion runbook: `install_nemoclaw_macos.yaml` (darwin — currently
+# refuses loudly per §7.2 of `.itx/11/00_PLAN.md`; will ship a real
+# install path once NemoClaw macOS install is validated).
+- hosts: all
+  become: yes
+  vars:
+    nemoclaw_version: "v0.0.97"
+    nemoclaw_install_sh_sha256: "7de1c1e630672e8afa3333e3e17c8b162ab93cdaefae9450be9ac270bc74626f"
+    nemoclaw_install_sh_url: "https://raw.githubusercontent.com/NVIDIA/NemoClaw/{{ nemoclaw_version }}/install.sh"
+    nemoclaw_install_sh_dest: "/tmp/nemoclaw-install-{{ nemoclaw_version }}.sh"
+    # NemoClaw's install.sh does not itself branch on arch — it clones
+    # the ref and runs `scripts/install.sh` uniformly. This arch map is
+    # a fail-loud short-circuit for architectures NemoClaw does not
+    # support (e.g. armv7l), so operators get a clear error before the
+    # network fetch + clone rather than a cryptic mid-install failure.
+    # `tests/platform/test_nemoclaw_pin_lockstep.py` asserts these keys
+    # equal `SUPPORTED_ARCHES` in `src/clawrium/core/nemoclaw.py`.
+    nemoclaw_arch_map:
+      x86_64: linux-amd64
+      aarch64: linux-arm64
+    nemoclaw_marker_dir: "/var/lib/nemoclaw"
+    nemoclaw_marker: "{{ nemoclaw_marker_dir }}/installed-{{ nemoclaw_version }}"
+  tasks:
+    - name: Refuse to run on non-Linux hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: install_nemoclaw.yaml invoked against non-Linux host
+      when: ansible_os_family == "Darwin"
+
+    - name: Fail early if host architecture is unsupported
+      ansible.builtin.fail:
+        msg: >-
+          nemoclaw install: ansible_architecture='{{ ansible_architecture }}'
+          is not mapped to a NemoClaw-supported platform. NemoClaw
+          supports linux amd64/arm64 only — no armv7l or other 32-bit
+          arches. Supported here:
+          {{ nemoclaw_arch_map.keys() | list | join(', ') }}. See
+          https://github.com/NVIDIA/NemoClaw/tree/{{ nemoclaw_version }}.
+      when: ansible_architecture not in nemoclaw_arch_map
+
+    - name: Check for existing NemoClaw install marker at pinned version
+      ansible.builtin.stat:
+        path: "{{ nemoclaw_marker }}"
+      register: nemoclaw_marker_stat
+
+    - name: Ensure NemoClaw marker directory exists
+      ansible.builtin.file:
+        path: "{{ nemoclaw_marker_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: not nemoclaw_marker_stat.stat.exists
+
+    - name: Fetch NemoClaw install.sh bootstrap (SHA256-pinned)
+      ansible.builtin.get_url:
+        url: "{{ nemoclaw_install_sh_url }}"
+        dest: "{{ nemoclaw_install_sh_dest }}"
+        checksum: "sha256:{{ nemoclaw_install_sh_sha256 }}"
+        mode: '0755'
+        force: true
+      when: not nemoclaw_marker_stat.stat.exists
+
+    - name: Run NemoClaw install.sh non-interactively (pinned ref)
+      ansible.builtin.command:
+        cmd: "{{ nemoclaw_install_sh_dest }} --non-interactive --yes-i-accept-third-party-software"
+      environment:
+        NEMOCLAW_INSTALL_REF: "{{ nemoclaw_version }}"
+        NEMOCLAW_INSTALL_TAG: "{{ nemoclaw_version }}"
+        NEMOCLAW_NON_INTERACTIVE: "1"
+        NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1"
+      when: not nemoclaw_marker_stat.stat.exists
+      register: nemoclaw_install_result
+
+    - name: Write per-version install marker
+      ansible.builtin.copy:
+        content: |
+          {{ nemoclaw_version }}
+          installed_at: {{ ansible_date_time.iso8601 }}
+          install_sh_sha256: {{ nemoclaw_install_sh_sha256 }}
+        dest: "{{ nemoclaw_marker }}"
+        owner: root
+        group: root
+        mode: '0644'
+      when: not nemoclaw_marker_stat.stat.exists
+
+    - name: Clean up install.sh bootstrap file
+      ansible.builtin.file:
+        path: "{{ nemoclaw_install_sh_dest }}"
+        state: absent
+      when: not nemoclaw_marker_stat.stat.exists

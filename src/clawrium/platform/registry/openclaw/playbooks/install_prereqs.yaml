@@ -1,0 +1,260 @@
+---
+# Host-prep runbook for openclaw+NemoClaw (Linux). Ensures the host
+# meets the NemoClaw substrate's baseline: Ubuntu >= 24.04, >= 8 GB
+# RAM, >= 20 GB disk on /, git + zstd installed, Docker Engine from
+# Docker's Ubuntu apt repo, and NVM + Node 22.16. Also joins the SSH
+# user to the `docker` group so subsequent runs can `docker …` without
+# sudo.
+#
+# Called from `install.yaml` BEFORE the openclaw binary install and
+# BEFORE `install_nemoclaw.yaml`. Assumes root via `become: yes`.
+#
+# Architectural note: package-manager-installed HOST dependencies
+# belong in a host-prep runbook (this file), not in an
+# integration-binary runbook (see AGENTS.md §"Integration Binary
+# Install" — "When NOT to use this pattern"). The nemoclaw binary
+# itself follows the integration-binary contract in
+# `install_nemoclaw.yaml`.
+- hosts: all
+  become: yes
+  vars:
+    node_version: "22.16.0"
+    nvm_version: "v0.39.7"
+    # SHA256 of the pinned NVM install.sh (nvm_version), populated by
+    # release automation. `null` sentinel forces a fail-fast so a
+    # supply-chain fetch of arbitrary script content can't slip past
+    # the AGENTS.md "Integration Binary Install" Rule 3 checksum
+    # contract on a non-integration script.
+    # v0.39.7 (pinned above); fetched + hashed by orchestrator on 2026-07-24
+    # from https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh.
+    # Bumping nvm_version MUST re-hash and update this constant (ATX iter-4 B1).
+    nvm_installer_sha256: "8e45fa547f428e9196a5613efad3bfa4d4608b74ca870f930090598f5af5f643"
+    # SHA256 of the Docker apt GPG signing key
+    # (https://download.docker.com/linux/ubuntu/gpg). `null` sentinel
+    # forces a fail-fast so TLS-only trust can't gate all subsequent
+    # root-level `apt install docker-ce` tasks (ATX iter-2 B1).
+    # Fetched + hashed by orchestrator on 2026-07-24. Docker's GPG key
+    # rotates infrequently; re-hash if apt reports mismatch (ATX iter-4 B1).
+    docker_gpg_sha256: "1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+    # NVM is scoped to the SSH user (host prereq), not the agent user
+    # which does not exist yet at prereqs-time. Agent-user npm scoping
+    # is a Phase-3 concern once the actual npm-consuming subprocess is
+    # wired (ATX W1 callout).
+    nvm_install_dir: "/home/{{ ansible_user }}/.nvm"
+  tasks:
+    # Task 0: dispatcher-contract guard. `install.yaml` imports this
+    # playbook unconditionally (see the comment there — `when:` on
+    # `import_playbook` is ignored). Refuse loudly on darwin so an
+    # openclaw create against a mac host surfaces the plan §7.2
+    # unsupported-platform message here rather than deep inside an
+    # `apt` module-not-found stack trace.
+    - name: Refuse to run on non-Linux hosts (dispatcher contract)
+      ansible.builtin.fail:
+        msg: >-
+          openclaw on {{ ansible_os_family }} is not supported by
+          Phase 2 of NemoClaw (#11 / #944). See
+          `.itx/11/00_PLAN.md` §7.2.
+      when: ansible_os_family == "Darwin"
+
+    # ---- Baseline OS + hardware assertions ------------------------------
+    - name: Assert host is Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Ubuntu'
+        fail_msg: >-
+          NemoClaw requires Ubuntu. Detected
+          {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}.
+
+    - name: Assert Ubuntu >= 24.04
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution_version'] is version('24.04', '>=')
+        fail_msg: >-
+          NemoClaw requires Ubuntu >= 24.04. Detected
+          {{ ansible_facts['distribution_version'] }}.
+
+    - name: Assert >= 8 GB RAM
+      ansible.builtin.assert:
+        that:
+          - (ansible_facts['memtotal_mb'] | int) >= 8000
+        fail_msg: >-
+          NemoClaw requires >= 8 GB RAM. Detected
+          {{ ansible_facts['memtotal_mb'] }} MB.
+
+    - name: Discover free space on /
+      ansible.builtin.set_fact:
+        root_mount_free_gb: >-
+          {{ (
+               (ansible_facts['mounts']
+                  | selectattr('mount', 'eq', '/')
+                  | map(attribute='size_available')
+                  | first
+                  | default(0)
+               ) / (1024 * 1024 * 1024)
+             ) | round(1)
+          }}
+
+    - name: Assert >= 20 GB free on /
+      ansible.builtin.assert:
+        that:
+          - (root_mount_free_gb | float) >= 20.0
+        fail_msg: >-
+          NemoClaw requires >= 20 GB free on /. Detected
+          {{ root_mount_free_gb }} GB.
+
+    # ---- Base packages --------------------------------------------------
+    - name: Install git + zstd + baseline apt utilities
+      ansible.builtin.apt:
+        name:
+          - git
+          - zstd
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    # ---- Docker Engine via Docker's Ubuntu apt repo ---------------------
+    - name: Ensure /etc/apt/keyrings exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # ATX iter-2 B1: without a content checksum, a CDN compromise or
+    # MITM during the initial uncached fetch could substitute a rogue
+    # PGP key that then gates all `apt install docker-ce` traffic.
+    - name: Fail if Docker GPG SHA256 pin is unresolved
+      ansible.builtin.fail:
+        msg: >-
+          `docker_gpg_sha256` is unresolved. Populate it in
+          `install_prereqs.yaml` `vars:` (sha256 of
+          https://download.docker.com/linux/ubuntu/gpg) before
+          installing. See AGENTS.md "Integration Binary Install"
+          Rule 3.
+      when: docker_gpg_sha256 in (None, "", "pending-upstream-freeze")
+
+    - name: Fetch Docker apt signing key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        owner: root
+        group: root
+        mode: '0644'
+        force: no
+        checksum: "sha256:{{ docker_gpg_sha256 }}"
+
+    - name: Add Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}
+          signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/ubuntu
+          {{ ansible_facts['distribution_release'] }} stable
+        state: present
+        filename: docker
+        update_cache: yes
+
+    - name: Install Docker Engine + CLI + containerd
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+
+    - name: Ensure docker service is enabled and running
+      ansible.builtin.systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Add SSH user to docker group
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    # docker group membership only takes effect on a fresh session;
+    # any follow-up task in the same play needs a reconnect to be
+    # able to `docker …` without sudo. Downstream tasks (nemoclaw,
+    # openclaw) currently do NOT depend on this in-session, but the
+    # reset is cheap and matches the ansible convention.
+    - name: Reset SSH connection so docker group takes effect
+      ansible.builtin.meta: reset_connection
+
+    # ---- NVM + Node 22.16 -----------------------------------------------
+    - name: Ensure NVM install directory exists
+      ansible.builtin.file:
+        path: "{{ nvm_install_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+
+    - name: Check for existing NVM install
+      ansible.builtin.stat:
+        path: "{{ nvm_install_dir }}/nvm.sh"
+      register: nvm_stat
+
+    # ATX iter-1 B3: NVM installer must not execute without a content
+    # checksum. TLS binds server, not payload — a CDN compromise or
+    # tag rewrite would ship arbitrary code running as the agent user.
+    # Fail fast if the SHA256 pin hasn't been populated for
+    # `nvm_version`. Bump both together.
+    - name: Fail if NVM installer SHA256 pin is unresolved
+      ansible.builtin.fail:
+        msg: >-
+          `nvm_installer_sha256` is unresolved for
+          nvm_version={{ nvm_version }}. Populate it in
+          `install_prereqs.yaml` `vars:` (sha256 of
+          https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_version
+          }}/install.sh) before installing. See AGENTS.md
+          "Integration Binary Install" Rule 3.
+      when:
+        - not nvm_stat.stat.exists
+        - nvm_installer_sha256 in (None, "", "pending-upstream-freeze")
+
+    - name: Download NVM installer
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_version }}/install.sh"
+        dest: "/home/{{ ansible_user }}/nvm-install.sh"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0700'
+        checksum: "sha256:{{ nvm_installer_sha256 }}"
+      when: not nvm_stat.stat.exists
+
+    - name: Run NVM installer as SSH user
+      ansible.builtin.command:
+        cmd: bash /home/{{ ansible_user }}/nvm-install.sh
+      environment:
+        NVM_DIR: "{{ nvm_install_dir }}"
+        HOME: "/home/{{ ansible_user }}"
+      become_user: "{{ ansible_user }}"
+      when: not nvm_stat.stat.exists
+      changed_when: true
+
+    - name: Clean up NVM installer script
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/nvm-install.sh"
+        state: absent
+
+    - name: Install Node {{ node_version }} via NVM
+      ansible.builtin.shell: |
+        export NVM_DIR="{{ nvm_install_dir }}"
+        . "$NVM_DIR/nvm.sh"
+        nvm install {{ node_version }}
+        nvm alias default {{ node_version }}
+      args:
+        executable: /bin/bash
+        creates: "{{ nvm_install_dir }}/versions/node/v{{ node_version }}/bin/node"
+      become_user: "{{ ansible_user }}"
+      environment:
+        HOME: "/home/{{ ansible_user }}"

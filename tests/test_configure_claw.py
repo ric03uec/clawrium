@@ -1509,7 +1509,9 @@ class TestDevicePairingValidation:
     """Tests for device pairing credential validation in Ansible playbook."""
 
     def _load_playbook(self):
-        """Load the install playbook."""
+        """Load the install playbook, returning [openclaw_play] to keep
+        tasks[0]-style indexing working after the phase-2 host-prep
+        import_playbook entries were prepended (#944)."""
         playbook_path = (
             Path(__file__).parent.parent
             / "src/clawrium/platform/registry/openclaw/playbooks/install.yaml"
@@ -1517,7 +1519,8 @@ class TestDevicePairingValidation:
         import yaml
 
         with open(playbook_path) as f:
-            return yaml.safe_load(f)
+            plays = yaml.safe_load(f)
+        return [p for p in plays if isinstance(p, dict) and "tasks" in p]
 
     def test_playbook_validates_device_token_exists(self):
         """Test that playbook has validation for missing deviceToken."""

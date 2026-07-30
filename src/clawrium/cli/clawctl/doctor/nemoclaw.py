@@ -1,21 +1,23 @@
-"""`clawctl doctor nemoclaw` — Phase 1 read-only probe (issue #943).
+"""`clawctl doctor nemoclaw` — read-only substrate probe.
 
-Contract: fetch upstream release metadata for the pinned
-``clawrium.core.nemoclaw.NEMOCLAW_VERSION`` and print a small table with
-three checks — ``reachable``, ``correct-sha``, ``arch-match``. Exits
+Contract: verify the pinned ``clawrium.core.nemoclaw.NEMOCLAW_VERSION``
+against live upstream and print a small table with four checks —
+``reachable``, ``tag-exists``, ``correct-sha``, ``arch-match``. Exits
 non-zero on any FAIL / UNKNOWN so CI + shell pipelines can gate on it.
 
-The probe never downloads the tarball. It hits two endpoints only:
+The probe hits three endpoints:
 
 - ``GET /repos/NVIDIA/NemoClaw`` — confirms the repo resolves.
 - ``GET /repos/NVIDIA/NemoClaw/tags`` — confirms the pinned tag exists.
+- ``GET raw.githubusercontent.com/.../install.sh`` — verifies the
+  pinned ``INSTALL_SH_SHA256`` matches what upstream serves today.
+  A mismatch means NVIDIA pushed a new install.sh under the tag (rare
+  but possible for a moving branch ref like ``lkg``); operators must
+  re-hash and bump.
 
-Phase-1 pins ship with ``TARBALL_SHA256`` sentinels of ``None`` (the
-tarball artefacts are frozen upstream during phase-2 release
-preparation). Until then, ``correct-sha`` is reported as
-``pending-upstream-freeze`` — the probe still fails so an operator does
-not mistake it for green, but the message distinguishes "we haven't
-frozen the SHA yet" from "the SHA drifted".
+NVIDIA does not publish binary release artifacts; the substrate installs
+via ``install.sh`` (see ``core/nemoclaw.py`` module docstring and
+``playbooks/install_nemoclaw.yaml``).
 """
 
 from __future__ import annotations
@@ -40,6 +42,17 @@ def _default_fetch(url: str) -> dict[str, Any] | list[Any]:
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     with urllib.request.urlopen(req, timeout=10) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _default_fetch_bytes(url: str) -> bytes:
+    """Raw-bytes fetch used by `_check_sha` for install.sh SHA verification.
+
+    Distinct from `_default_fetch` (which decodes JSON) so the test-side
+    monkeypatch swap for one endpoint does not mask the other.
+    """
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return resp.read()
 
 
 def _current_arch() -> str:
@@ -75,14 +88,31 @@ def _check_tag_exists(fetch: Callable[[str], Any]) -> tuple[str, str]:
     return "FAIL", f"tag {_nemoclaw.NEMOCLAW_VERSION} not found in first page of tags"
 
 
-def _check_sha() -> tuple[str, str]:
-    arch = _current_arch()
-    expected = _nemoclaw.TARBALL_SHA256.get(arch)
-    if arch not in _nemoclaw.SUPPORTED_ARCHES:
-        return "FAIL", f"arch {arch!r} not in SUPPORTED_ARCHES"
-    if expected is None:
-        return "UNKNOWN", "pending-upstream-freeze"
-    return "PASS", f"sha256 pinned for {arch}: {expected[:12]}…"
+def _check_sha(fetch_bytes: Callable[[str], bytes] | None = None) -> tuple[str, str]:
+    """Verify pinned INSTALL_SH_SHA256 against live upstream install.sh.
+
+    Tests inject a stub bytes-fetcher via monkeypatch of
+    ``_default_fetch_bytes`` on this module.
+    """
+    expected = _nemoclaw.INSTALL_SH_SHA256
+    if not expected:
+        return "UNKNOWN", "INSTALL_SH_SHA256 not pinned"
+    if fetch_bytes is None:
+        fetch_bytes = _default_fetch_bytes
+    try:
+        import hashlib
+
+        raw = fetch_bytes(_nemoclaw.install_sh_url())
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as e:
+        return "FAIL", f"install.sh fetch failed: {e}"
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual == expected:
+        return "PASS", f"install.sh sha256 matches ({actual[:12]}…)"
+    return (
+        "FAIL",
+        f"install.sh sha256 drift: pin={expected[:12]}… "
+        f"actual={actual[:12]}…",
+    )
 
 
 def _check_arch_match() -> tuple[str, str]:

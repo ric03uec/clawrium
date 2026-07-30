@@ -31,12 +31,15 @@ PER_AGENT_CONCAT = "'/home/' ~ agent_name ~ '/.openclaw/bin/openclaw'"
 
 @pytest.fixture(scope="module")
 def install_tasks() -> list[dict]:
-    play = yaml.safe_load(INSTALL_PLAYBOOK.read_text())
-    assert isinstance(play, list) and len(play) == 1, (
-        "install.yaml must be a single play"
+    plays = yaml.safe_load(INSTALL_PLAYBOOK.read_text())
+    assert isinstance(plays, list)
+    openclaw_play = next(
+        (p for p in plays if isinstance(p, dict) and "tasks" in p),
+        None,
     )
-    tasks = play[0].get("tasks", [])
-    assert tasks, "install.yaml must declare tasks"
+    assert openclaw_play is not None, "install.yaml must contain a tasks-bearing play"
+    tasks = openclaw_play.get("tasks", [])
+    assert tasks, "openclaw play in install.yaml must declare tasks"
     return tasks
 
 
