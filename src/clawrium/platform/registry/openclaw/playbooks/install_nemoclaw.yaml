@@ -56,11 +56,31 @@
       aarch64: linux-arm64
     nemoclaw_marker_dir: "/var/lib/nemoclaw"
     nemoclaw_marker: "{{ nemoclaw_marker_dir }}/installed-{{ nemoclaw_version }}"
+    # Provider vars come from ansible-runner extravars (see
+    # core.install:run_installation). Unset defaults surface a clear
+    # fail-fast below rather than a mid-onboarding NemoClaw crash.
+    nemoclaw_provider: "{{ lookup('env', 'NEMOCLAW_PROVIDER') | default('', true) }}"
+    nemoclaw_provider_key: "{{ lookup('env', 'NEMOCLAW_PROVIDER_KEY') | default('', true) }}"
+    nemoclaw_policy_mode: "{{ lookup('env', 'NEMOCLAW_POLICY_MODE') | default('suggested', true) }}"
+    nemoclaw_sandbox_name: "{{ lookup('env', 'NEMOCLAW_SANDBOX_NAME') | default('', true) }}"
   tasks:
     - name: Refuse to run on non-Linux hosts (dispatcher contract)
       ansible.builtin.fail:
         msg: install_nemoclaw.yaml invoked against non-Linux host
       when: ansible_os_family == "Darwin"
+
+    - name: Fail fast when NEMOCLAW_PROVIDER / NEMOCLAW_PROVIDER_KEY missing
+      ansible.builtin.fail:
+        msg: >-
+          NEMOCLAW_PROVIDER and NEMOCLAW_PROVIDER_KEY must be passed via
+          ansible-runner envvars. NemoClaw's install.sh bundles substrate
+          install with sandbox onboarding and step 3/8 requires provider
+          config — the runbook cannot proceed without them. If you invoked
+          this playbook by hand, set both env vars first. If clawctl
+          invoked it, this is a bug in `core.install:run_installation` —
+          the provider validation there did not thread the env vars.
+      when:
+        - (nemoclaw_provider | length) == 0 or (nemoclaw_provider_key | length) == 0
 
     - name: Fail early if host architecture is unsupported
       ansible.builtin.fail:
@@ -97,15 +117,34 @@
       when: not nemoclaw_marker_stat.stat.exists
 
     - name: Run NemoClaw install.sh non-interactively (pinned ref)
+      # --fresh discards any prior failed/interrupted onboarding session
+      # (e.g. from a crashed previous run) and restarts clean. On a truly
+      # fresh host this is a no-op — install.sh only fires the discard
+      # path when it detects an incomplete session file under
+      # /root/.local/state/nemoclaw/. Matches Clawrium's "every
+      # `agent create` starts clean" invariant; without it, install.sh
+      # aborts with "Previous onboarding session failed" and the next
+      # `clawctl agent create` would never make forward progress.
       ansible.builtin.command:
-        cmd: "{{ nemoclaw_install_sh_dest }} --non-interactive --yes-i-accept-third-party-software"
+        cmd: "{{ nemoclaw_install_sh_dest }} --non-interactive --yes-i-accept-third-party-software --fresh"
       environment:
         NEMOCLAW_INSTALL_REF: "{{ nemoclaw_version }}"
         NEMOCLAW_INSTALL_TAG: "{{ nemoclaw_version }}"
         NEMOCLAW_NON_INTERACTIVE: "1"
         NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE: "1"
+        NEMOCLAW_PROVIDER: "{{ nemoclaw_provider }}"
+        NEMOCLAW_PROVIDER_KEY: "{{ nemoclaw_provider_key }}"
+        NEMOCLAW_POLICY_MODE: "{{ nemoclaw_policy_mode }}"
+        NEMOCLAW_SANDBOX_NAME: "{{ nemoclaw_sandbox_name }}"
       when: not nemoclaw_marker_stat.stat.exists
       register: nemoclaw_install_result
+      # DEBUG: no_log removed for E2E discovery iterations. install.sh
+      # does NOT echo NEMOCLAW_PROVIDER_KEY in its output (verified by
+      # inspecting the previous no-log-off run), so the risk is only
+      # theoretical env-var-in-error-message leakage. Restore no_log:true
+      # (or scope it to `failed_when: false + assert on rc separately`)
+      # before merging Phase 4b if any install.sh path is found to echo
+      # env vars on failure.
 
     - name: Write per-version install marker
       ansible.builtin.copy:

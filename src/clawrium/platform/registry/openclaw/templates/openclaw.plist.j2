@@ -8,8 +8,8 @@
   Why a shell wrapper around `openclaw gateway run`:
   launchd has no `EnvironmentFile=` analog. On Linux the systemd unit
   loads `/home/<agent>/.openclaw/env` at unit start; the file contains
-  the provider API keys + the OPENCLAW_GATEWAY_AUTH_TOKEN written by
-  `clawctl agent configure`. To match that source-of-truth contract on
+  OPENCLAW_GATEWAY_* state, channel tokens, and integration tokens written
+  by `clawctl agent configure`. To match that source-of-truth contract on
   macOS without re-rendering the plist on every configure, we wrap the
   binary in a `bash -lc 'set -a; . <env>; exec <openclaw> ...'` stub.
   The env file remains the single mutable surface; restart picks up

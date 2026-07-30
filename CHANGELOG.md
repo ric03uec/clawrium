@@ -18,6 +18,29 @@ cut. The `itx:release` skill archives this section into a new
   - **Migration**: none for operators — the first `clawctl agent sync` after upgrading materializes the fix. Existing hermes/openclaw agents that were provisioned before this release and never had `gh auth setup-git` run manually will get `~/.gitconfig` populated on their next sync.
   - **Playbook contract change**: the `Render ~/.gitconfig for each git integration` and `GitHub CLI authentication block` tasks are **removed** from every `configure.yaml` (hermes, openclaw Linux + macOS, zeroclaw, ethos). Any third-party fork that invoked those playbooks directly must move github wiring to their sync path.
   - The `src/clawrium/platform/templates/gitconfig.j2` template file and the `shared_template_path` Ansible extravar are **deleted** — no consumers remain.
+- **`clawctl agent create --type openclaw` now requires `--provider` (#11 / #946).**
+  NemoClaw's `install.sh` bundles substrate install with sandbox
+  onboarding, and onboarding step 3/8 demands a provider or install
+  crashes with a half-configured sandbox on the host. Every openclaw
+  create must now name a registered provider whose API key sits in the
+  secrets store; the install path threads `NEMOCLAW_PROVIDER` +
+  `NEMOCLAW_PROVIDER_KEY` + `NEMOCLAW_POLICY_MODE=suggested` +
+  `NEMOCLAW_SANDBOX_NAME` into NemoClaw's install.sh and auto-attaches
+  the provider to `hosts.json.agents.<name>.providers` on success. No
+  post-install `configure` step is required for `clawctl agent chat`
+  to work end-to-end. Recovery for scripted workflows: `clawctl
+  provider registry create` a provider first, then re-run with
+  `--provider <name>`. Other agent types (hermes, zeroclaw, ethos) are
+  unchanged — the split `create → configure` lifecycle stays intact
+  for them.
+
+  §7.5 answered with Option A (env-var handoff into sandbox), not the
+  guessed `nemoclaw <sandbox> gateway provider add` argv shape. The
+  fail-closed `gateway_register_provider` seam in `core/nemoclaw.py`
+  is kept as a future-proofing surface for a gateway-forwarded auth
+  substitute; today the sandbox reads bearers from its own env like
+  bare openclaw always did.
+
 - **Openclaw is now sandboxed under NemoClaw (#11 / #945).** New
   openclaw creates go through `install.sh` with the NemoClaw
   substrate; `runtime: nemoclaw` is recorded in `hosts.json`. Existing

@@ -97,6 +97,126 @@ class TestVerbWrappers:
             nemoclaw.onboard("Bad Name")
 
 
+class TestGatewayRegisterProvider:
+    """Phase 4 (#946): gateway_register_provider builder.
+
+    Argv shape is guessed per orchestrator directive and matches
+    `.itx/946/00_BLOCKED.md` §7.5 UNRESOLVED — single seam that swaps to
+    the real upstream shape once §7.5 is answered.
+    """
+
+    def test_argv_shape(self):
+        cmd = nemoclaw.gateway_register_provider(
+            "e2e-openclaw",
+            "openai-primary",
+            "sk-secret-1",
+            "https://api.openai.com/v1",
+            upstream_cli_shape_confirmed=True,
+        )
+        assert cmd.verb == "gateway-provider-add"
+        assert cmd.sandbox_name == "e2e-openclaw"
+        assert cmd.argv == (
+            NEMOCLAW_BINARY,
+            "e2e-openclaw",
+            "gateway",
+            "provider",
+            "add",
+            "openai-primary",
+            "--api-key",
+            "sk-secret-1",
+            "--base-url",
+            "https://api.openai.com/v1",
+        )
+
+    def test_rejects_invalid_sandbox_name(self):
+        with pytest.raises(ValueError, match="sandbox_name"):
+            nemoclaw.gateway_register_provider(
+                "Bad Sandbox", "p", "k", "https://example.com"
+            )
+
+    @pytest.mark.parametrize(
+        "provider_name",
+        ["", "!bad", "with space", "a" * 65],
+    )
+    def test_rejects_invalid_provider_name(self, provider_name):
+        with pytest.raises(ValueError, match="provider name"):
+            nemoclaw.gateway_register_provider(
+                "sbx", provider_name, "k", "https://example.com"
+            )
+
+    @pytest.mark.parametrize(
+        "base_url",
+        [
+            "",
+            "example.com",           # no scheme
+            "ftp://example.com",     # wrong scheme
+            "https://ex.com/\nfoo",  # newline injection
+            "https://ex.com/\tfoo",  # tab injection
+            "https://ex .com",       # embedded space
+        ],
+    )
+    def test_rejects_invalid_base_url(self, base_url):
+        with pytest.raises(ValueError, match="base_url"):
+            nemoclaw.gateway_register_provider("sbx", "p", "k", base_url)
+
+    @pytest.mark.parametrize(
+        "api_key",
+        [
+            "",
+            "sk-\nleak",
+            "sk-\x00",
+            "sk-\rleak",  # ATX iter-4 W1: \r coverage was missing
+            "sk- leaky",  # ATX iter-4 W2: space breaks /bin/sh -c argv
+            "sk-\tleak",  # ATX iter-4 W1: tab
+        ],
+    )
+    def test_rejects_invalid_api_key(self, api_key):
+        with pytest.raises(ValueError, match="api_key"):
+            nemoclaw.gateway_register_provider(
+                "sbx", "p", api_key, "https://example.com"
+            )
+
+    def test_repr_redacts_api_key(self):
+        """ATX iter-4 B1: NemoclawCommand.__repr__ must not leak the api_key
+        via argv. Default @dataclass repr printed the raw secret.
+        """
+        cmd = nemoclaw.gateway_register_provider(
+            "sbx",
+            "openai",
+            "sk-super-secret-42",
+            "https://example.com",
+            upstream_cli_shape_confirmed=True,
+        )
+        rendered = repr(cmd)
+        assert "sk-super-secret-42" not in rendered
+        assert "REDACTED" in rendered
+        # Non-secret argv elements survive so debug output stays useful.
+        assert "gateway" in rendered
+        assert "openai" in rendered
+        assert "https://example.com" in rendered
+
+    def test_refuses_to_build_until_upstream_cli_shape_is_confirmed(self):
+        """Do not let the ITX-STUCK guessed argv become production behavior
+        silently. Future lifecycle/playbook wiring must first resolve §7.5
+        and then pass the explicit confirmation flag or replace this seam.
+        """
+        with pytest.raises(NotImplementedError, match="§7.5"):
+            nemoclaw.gateway_register_provider(
+                "sbx", "openai", "sk-secret", "https://example.com"
+            )
+
+    def test_repr_redacts_equals_form_secret_flags(self):
+        """Future-proof debug redaction for CLIs that accept --api-key=value."""
+        cmd = nemoclaw.NemoclawCommand(
+            verb="gateway-provider-add",
+            sandbox_name="sbx",
+            argv=(NEMOCLAW_BINARY, "--api-key=sk-equals-secret"),
+        )
+        rendered = repr(cmd)
+        assert "sk-equals-secret" not in rendered
+        assert "--api-key=***REDACTED***" in rendered
+
+
 class TestDefaultSandboxName:
     def test_identity_for_valid_agent(self):
         assert default_sandbox_name("e2e-openclaw") == "e2e-openclaw"

@@ -508,7 +508,9 @@ MATRIX_CELLS: list[tuple] = [
         "openclaw_bedrock_discord",
         "openclaw",
         _setup_openclaw_bedrock_discord,
-        ["AWS_ACCESS_KEY_ID", "DISCORD_BOT_TOKEN"],
+        # Phase 4 (#946): AWS credentials no longer land in openclaw env;
+        # only the channel token remains as an env-visible attachment.
+        ["DISCORD_BOT_TOKEN"],
     ),
     # Issue #756 cells: per-provider-type openclaw coverage. Each cell
     # asserts the provider's expected on-host secret / model substring
@@ -531,29 +533,34 @@ MATRIX_CELLS: list[tuple] = [
             "\"primary\": \"lt/writer\"",
         ],
     ),
+    # Phase 4 (#946): openclaw provider env-key injection removed. The
+    # bearer / base_url / ollama URL are handed to the NemoClaw gateway
+    # instead. These cells now assert the prefixed default model id ends
+    # up in the rendered env (the sole load-bearing provider signal that
+    # still leaves the render layer for the sandbox).
     (
         "openclaw_openrouter_bare",
         "openclaw",
         _setup_openclaw_openrouter_bare,
-        ["OPENROUTER_API_KEY", "sk-or-XXXX"],
+        ["OPENCLAW_DEFAULT_MODEL", "openrouter/"],
     ),
     (
         "openclaw_ollama_bare",
         "openclaw",
         _setup_openclaw_ollama_bare,
-        ["OPENCLAW_OLLAMA_URL", "http://localhost:11434"],
+        ["OPENCLAW_DEFAULT_MODEL"],
     ),
     (
         "openclaw_anthropic_bare",
         "openclaw",
         _setup_openclaw_anthropic_bare,
-        ["ANTHROPIC_API_KEY", "sk-ant-XXXX"],
+        ["OPENCLAW_DEFAULT_MODEL"],
     ),
     (
         "openclaw_openai_bare",
         "openclaw",
         _setup_openclaw_openai_bare,
-        ["OPENAI_API_KEY", "sk-oa-XXXX"],
+        ["OPENCLAW_DEFAULT_MODEL"],
     ),
 ]
 

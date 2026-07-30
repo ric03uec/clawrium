@@ -239,13 +239,25 @@
       changed_when: false
 
     - name: Create environment file for agent
+      # Fix #1 (post-Phase-4 provider-strip regression): when the
+      # operator passed --provider at create time, `install.py`
+      # pre-renders the .openclaw/env body via
+      # `_prerender_openclaw_install_stub` with the resolved provider
+      # bearer + model already wired, and threads it here as
+      # `prerendered_openclaw_env`. When empty (provider-less bootstrap
+      # or non-openclaw code path), fall back to the previous empty-file
+      # behavior so a subsequent `agent configure` can still populate.
+      # `force: yes` because the operator's --provider intent is the
+      # source of truth — a stale env from a prior install must be
+      # replaced.
       ansible.builtin.copy:
         dest: "/home/{{ agent_name }}/.openclaw/env"
-        content: ""
+        content: "{{ prerendered_openclaw_env | default('') }}"
         owner: "{{ agent_name }}"
         group: "{{ agent_name }}"
         mode: "0600"
-        force: no
+        force: "{{ prerendered_openclaw_env | default('') | length > 0 }}"
+      no_log: "{{ (prerendered_openclaw_env | default('') | length) > 0 }}"
 
     - name: Create systemd service file
       ansible.builtin.copy:

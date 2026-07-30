@@ -409,7 +409,9 @@ def test_create_opencode_end_to_end_renders_hermes(hermes_fleet_dir, stdin_not_t
 
 
 def test_create_opencode_end_to_end_renders_openclaw(fleet_dir, stdin_not_tty) -> None:
-    """W4: OPENAI_BASE_URL is rendered when an opencode provider is attached to openclaw."""
+    """W4: opencode provider attached to openclaw renders the prefixed
+    default model. Phase 4 (#946): the bearer and base URL no longer land
+    in the sandbox env — they are routed to the NemoClaw gateway."""
     runner.invoke(
         app,
         [
@@ -439,8 +441,10 @@ def test_create_opencode_end_to_end_renders_openclaw(fleet_dir, stdin_not_tty) -
     inputs = build_render_inputs("wise-hypatia")
     out = render_openclaw(inputs)
     env = out.files[".openclaw/env"]
-    assert "OPENCODE_API_KEY='sk-test'" in env
-    assert "OPENAI_BASE_URL='https://opencode.ai/zen/go/v1'" in env
+    # Phase 4 (#946): bearer + base URL no longer land in sandbox env.
+    assert "OPENCODE_API_KEY" not in env
+    assert "OPENAI_BASE_URL" not in env
+    assert "sk-test" not in env
     assert "OPENCLAW_DEFAULT_MODEL='deepseek-v4-flash'" in env
 
 

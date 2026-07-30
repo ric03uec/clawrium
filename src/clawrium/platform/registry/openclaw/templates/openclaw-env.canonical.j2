@@ -20,26 +20,40 @@ OPENCLAW_GATEWAY_AUTH_MODE=none
 {% endif %}
 {% endif %}
 OPENCLAW_DEFAULT_MODEL={{ default_model_id | shq }}
-{% if provider.type == 'anthropic' %}
-ANTHROPIC_API_KEY={{ provider.api_key | shq }}
+{# Provider bearer emission — restored after Phase 4's premature strip
+   left every sandboxed openclaw unable to reach any LLM. The long-term
+   design still routes provider bearers through a NemoClaw gateway
+   registry (see core/nemoclaw.py:gateway_register_provider); until that
+   §7.5 wire-up lands, openclaw needs its provider key in-process the
+   same way bare openclaw always did. This block emits one canonical
+   env var per known provider type. Unmapped types are intentionally
+   silent — the operator can attach a provider whose CLI wrapper reads
+   its own env var out-of-band. See tests/core/test_render.py for the
+   full coverage matrix. #}
+{% if provider is not none and provider.api_key %}
+{% if provider.type == 'openrouter' %}
+OPENROUTER_API_KEY={{ provider.api_key | shq }}
 {% elif provider.type == 'openai' %}
 OPENAI_API_KEY={{ provider.api_key | shq }}
-{% elif provider.type == 'openrouter' %}
-OPENROUTER_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'anthropic' %}
+ANTHROPIC_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'anthropic-compatible' or provider.type == 'litellm-anthropic' %}
+ANTHROPIC_API_KEY={{ provider.api_key | shq }}
+{% if provider.endpoint %}
+ANTHROPIC_BASE_URL={{ provider.endpoint | shq }}
+{% endif %}
 {% elif provider.type == 'zai' %}
 ZAI_API_KEY={{ provider.api_key | shq }}
-{% elif provider.type == 'opencode' or provider.type == 'opencode-go' %}
-OPENCODE_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'gemini' %}
+GEMINI_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'custom' %}
+OPENAI_API_KEY={{ provider.api_key | shq }}
+{% if provider.endpoint %}
 OPENAI_BASE_URL={{ provider.endpoint | shq }}
-{% elif provider.type == 'bedrock' %}
-AWS_ACCESS_KEY_ID={{ provider.aws_access_key | shq }}
-AWS_SECRET_ACCESS_KEY={{ provider.aws_secret_key | shq }}
-{# W3 (ATX #555 polish): AWS SDK has no default region — without
-   AWS_DEFAULT_REGION the bedrock client errors out at first call on
-   bare homelab boxes that have no `~/.aws/config`. Mirror hermes
-   canonical env's bedrock branch. #}
-AWS_DEFAULT_REGION={{ (provider.region or 'us-east-1') | shq }}
-{% elif provider.type == 'ollama' %}
+{% endif %}
+{% endif %}
+{% endif %}
+{% if provider is not none and provider.type == 'ollama' and provider.endpoint %}
 OPENCLAW_OLLAMA_URL={{ provider.endpoint | shq }}
 {% endif %}
 {% for channel in channels %}

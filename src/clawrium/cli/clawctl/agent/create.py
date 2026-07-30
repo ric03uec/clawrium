@@ -79,6 +79,20 @@ def create(
             hint="clawctl agent registry get",
         )
 
+    # NemoClaw's install.sh bundles substrate install with sandbox onboard,
+    # and step 3/8 of onboard demands a provider or the install fails
+    # mid-way. Openclaw therefore requires --provider at create time.
+    # Other agent types (hermes, zeroclaw, ethos) keep the split lifecycle
+    # (create → configure) intact.
+    if agent_type == "openclaw" and not provider:
+        emit_error(
+            "--provider is required for openclaw",
+            hint=(
+                "clawctl provider registry get  # list providers, "
+                "then re-run: clawctl agent create ... -P <name>"
+            ),
+        )
+
     if force and not yes:
         confirm_destructive(
             prompt=(
@@ -100,6 +114,7 @@ def create(
             cleanup_failed=cleanup_failed,
             resume=False,
             force=force,
+            provider=provider,
         )
     except IncompleteInstallationError as exc:
         emit_error(
@@ -112,7 +127,10 @@ def create(
     version = result.get("version", "?")
     stream_action(resource=f"agent/{name}", message=f"installed ({version})")
 
-    if provider:
+    # For openclaw, the provider was wired at install time and auto-attached
+    # to hosts.json by run_installation. For other agent types, the flag is
+    # still a follow-up hint since split-lifecycle configure remains.
+    if provider and agent_type != "openclaw":
         stream_action(
             resource=f"agent/{name}",
             message=(

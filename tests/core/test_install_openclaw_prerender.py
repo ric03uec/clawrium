@@ -1,18 +1,15 @@
-"""Tests for the #756 openclaw prerender branch in `install.run_installation`.
+"""Tests for the openclaw prerender branch in `install.run_installation`.
+
+Extended by fix #1 (post-Phase-4 provider-strip regression): the stub
+now returns a `(json_body, env_body)` tuple and threads
+`provider_record` + `provider_api_key` into the env body so a sandboxed
+openclaw is chattable on first `systemctl start` without any configure
+step.
 
 Mirrors `tests/core/test_lifecycle_openclaw_prerender.py` for the install
-path. The install branch is exercised indirectly via the small
-`_prerender_openclaw_install_stub` helper that `run_installation` calls.
-
-[DECISION] `run_installation` is too deeply nested (manifest load, SSH
-probe, ansible-runner) to call ergonomically from a unit test. We
-extracted `_prerender_openclaw_install_stub(openclaw_port,
-gateway_auth_token) -> str` in `src/clawrium/core/install.py` (B3 ATX
-iter-2) so the install-path render branch is testable in isolation.
-The end-to-end "bytes flow into ansible_vars" assertion is exercised
-by the matrix harness at `tests/integration/test_render_matrix.py`
-and by `tests/core/test_lifecycle_openclaw_prerender.py` for the
-configure path.
+path. `run_installation` itself is too deeply nested (manifest load, SSH
+probe, ansible-runner) to call from a unit test, so the extracted stub
+carries the coverage.
 """
 
 from __future__ import annotations
@@ -24,9 +21,10 @@ from clawrium.core.render import GatewayInputs
 
 
 def test_install_openclaw_pre_renders_with_correct_gateway_inputs(monkeypatch):
-    """The install stub must call `_render_openclaw_json` with
-    provider=None, provider_default_model=None, discord_channel=None,
-    and a `GatewayInputs` carrying the install-minted port + bearer."""
+    """Provider-less install path: stub calls `_render_openclaw_json`
+    with provider=None + provider_default_model=None + discord_channel=None
+    and a `GatewayInputs` carrying the install-minted port + bearer.
+    Env body has gateway lines only, no bearer."""
     captured: dict = {}
 
     def _spy(*, provider, provider_default_model, gateway, discord_channel):
@@ -38,12 +36,12 @@ def test_install_openclaw_pre_renders_with_correct_gateway_inputs(monkeypatch):
 
     monkeypatch.setattr("clawrium.core.render._render_openclaw_json", _spy)
 
-    out = install._prerender_openclaw_install_stub(
+    json_body, env_body = install._prerender_openclaw_install_stub(
         openclaw_port=40500,
         gateway_auth_token="install-bearer-xyz",
     )
 
-    assert out == '{"rendered": true}'
+    assert json_body == '{"rendered": true}'
     assert captured["provider"] is None
     assert captured["provider_default_model"] is None
     assert captured["discord_channel"] is None
@@ -52,50 +50,105 @@ def test_install_openclaw_pre_renders_with_correct_gateway_inputs(monkeypatch):
     assert gw.port == 40500
     assert gw.bind == "lan"
     assert gw.auth == "install-bearer-xyz"
+    # Provider-less env body: gateway lines + empty OPENCLAW_DEFAULT_MODEL
+    # only. No bearer, no model prefix magic.
+    assert "OPENCLAW_GATEWAY_PORT=40500" in env_body
+    assert "OPENCLAW_GATEWAY_AUTH_TOKEN='install-bearer-xyz'" in env_body
+    assert "OPENROUTER_API_KEY" not in env_body
+    assert "ANTHROPIC_API_KEY" not in env_body
 
 
 def test_install_openclaw_puts_rendered_bytes_in_ansible_vars():
-    """End-to-end (no monkeypatch): the stub returns parseable JSON whose
-    gateway block carries the supplied port + bearer. These are the
-    bytes `run_installation` assigns to
-    `ansible_vars["prerendered_openclaw_config_json"]` (see
-    `install.py:991`); proving the stub produces them is equivalent to
-    proving the var carries them, given the stub is the sole writer."""
-    rendered = install._prerender_openclaw_install_stub(
+    """End-to-end (no monkeypatch): the stub returns a `(json, env)` tuple
+    whose bodies carry the supplied port + bearer. These are the bytes
+    `run_installation` assigns to
+    `ansible_vars["prerendered_openclaw_config_json"]` (json) +
+    `ansible_vars["prerendered_openclaw_env"]` (env)."""
+    json_body, env_body = install._prerender_openclaw_install_stub(
         openclaw_port=41234,
         gateway_auth_token="bearer-abc",
     )
 
-    parsed = json.loads(rendered)
+    parsed = json.loads(json_body)
     assert parsed["gateway"]["port"] == 41234
     assert parsed["gateway"]["bind"] == "lan"
     assert parsed["gateway"]["auth"] == {"mode": "token", "token": "bearer-abc"}
+    assert "OPENCLAW_GATEWAY_PORT=41234" in env_body
+
+
+def test_install_openclaw_prerender_with_provider_threads_bearer_into_env():
+    """Fix #1: when the operator passes --provider at create time,
+    provider_record + provider_api_key flow into the stub. The env body
+    includes the canonical bearer line for the provider's type; the json
+    body's `agents.defaults.model.primary` gets the type-prefixed model."""
+    provider_record = {
+        "name": "test-or",
+        "type": "openrouter",
+        "default_model": "openai/gpt-4o",
+    }
+    json_body, env_body = install._prerender_openclaw_install_stub(
+        openclaw_port=41235,
+        gateway_auth_token="bearer-x",
+        provider_record=provider_record,
+        provider_api_key="sk-or-test-abc",
+        agent_name="oc-nemo",
+    )
+
+    parsed = json.loads(json_body)
+    assert (
+        parsed["agents"]["defaults"]["model"]["primary"]
+        == "openrouter/openai/gpt-4o"
+    )
+    assert "OPENROUTER_API_KEY='sk-or-test-abc'" in env_body
+    assert "OPENCLAW_DEFAULT_MODEL='openrouter/openai/gpt-4o'" in env_body
+    assert "OPENCLAW_GATEWAY_PORT=41235" in env_body
+
+
+def test_install_openclaw_prerender_anthropic_provider():
+    """Fix #1 coverage: anthropic type emits ANTHROPIC_API_KEY (not the
+    openrouter/bedrock model prefix magic)."""
+    provider_record = {
+        "name": "test-anthropic",
+        "type": "anthropic",
+        "default_model": "claude-opus-4-7",
+    }
+    _, env_body = install._prerender_openclaw_install_stub(
+        openclaw_port=41236,
+        gateway_auth_token="bearer-y",
+        provider_record=provider_record,
+        provider_api_key="sk-ant-real",
+        agent_name="oc-anthro",
+    )
+    assert "ANTHROPIC_API_KEY='sk-ant-real'" in env_body
+    assert "OPENCLAW_DEFAULT_MODEL='claude-opus-4-7'" in env_body
+    # No cross-type contamination.
+    assert "OPENROUTER_API_KEY" not in env_body
 
 
 def test_install_non_openclaw_passes_empty_string_for_prerendered_var():
-    """The `run_installation` openclaw branch initializes
-    `prerendered_openclaw_config_json = ""` and only overwrites it when
-    `claw_name == "openclaw"`. This test pins the contract by reading
-    the source: for non-openclaw claw_names (hermes / zeroclaw /
-    any future non-openclaw type), the install ansible vars must carry an empty string for
-    `prerendered_openclaw_config_json`. We assert the contract by
-    checking the source code, since `run_installation` is too deeply
-    nested to call ergonomically and the openclaw-only guard is the
-    sole writer of the var."""
+    """The `run_installation` openclaw branch initializes both
+    prerender vars to empty string and only overwrites them under the
+    `claw_name == "openclaw"` guard. For non-openclaw claw_names the
+    install ansible vars must carry empty strings for both. Contract
+    asserted by source inspection since `run_installation` is too
+    deeply nested to call ergonomically."""
     import inspect
 
     src = inspect.getsource(install.run_installation)
-    # The install path must initialize the var to empty string ...
+    # Both openclaw prerender vars must initialize to empty string ...
     assert 'prerendered_openclaw_config_json = ""' in src, (
         "install.run_installation no longer initializes the openclaw "
         "prerender var to empty string — non-openclaw installs would "
         "carry stale bytes from a prior iteration."
     )
-    # ... and only overwrite it under the openclaw guard.
+    assert 'prerendered_openclaw_env = ""' in src, (
+        "fix #1 companion var must also default to empty string."
+    )
+    # ... and only overwrite them under the openclaw guard.
     assert 'if claw_name == "openclaw":' in src
-    # The ansible inventory must reference the var (so it ships to the
-    # install playbook for openclaw and is empty-string for the rest).
+    # Both ansible inventory keys must reference the vars.
     assert (
         '"prerendered_openclaw_config_json": prerendered_openclaw_config_json'
         in src
     )
+    assert '"prerendered_openclaw_env": prerendered_openclaw_env' in src

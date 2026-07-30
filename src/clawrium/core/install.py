@@ -274,33 +274,90 @@ def _openclaw_install_was_skipped(playbook_result: object) -> bool:
 
 
 def _prerender_openclaw_install_stub(
-    *, openclaw_port: int, gateway_auth_token: str
-) -> str:
-    """Pre-render `~/.openclaw/openclaw.json` for the install-time bootstrap.
+    *,
+    openclaw_port: int,
+    gateway_auth_token: str,
+    provider_record: dict | None = None,
+    provider_api_key: str | None = None,
+    agent_name: str = "",
+) -> tuple[str, str]:
+    """Pre-render `~/.openclaw/openclaw.json` + `~/.openclaw/env` for the
+    install-time bootstrap.
 
-    Issue #756: at install time no provider is attached yet, so this
-    delegates to `_render_openclaw_json` with `provider=None` — yielding
-    the baseline scaffold plus the install-minted gateway bearer. Model
-    selection (`agents.defaults.model.primary` +
-    `models.providers.<litellm-name>`) is deferred until configure, where
-    `build_render_inputs` resolves the attached provider.
+    Returns a `(openclaw_json_body, env_body)` tuple. Both bodies are
+    written by `install.yaml` via extravars so a freshly-installed openclaw
+    has provider + model configured from the first `systemctl start` —
+    without the operator running `configure` (which is broken standalone
+    for openclaw per #523).
+
+    Provider handling: if `provider_record` + `provider_api_key` are set,
+    `agents.defaults.model.primary` gets the record's `default_model`
+    (with any type-prefix magic applied) and the env body includes the
+    canonical bearer + endpoint for the provider's type. When not set,
+    both bodies render the baseline scaffold + gateway only (bootstrap
+    path used for retries where hosts.json no longer holds provider
+    context and the operator is expected to re-attach).
 
     Extracted from `run_installation` so the install-path render branch
-    is unit-testable without standing up the full installer (B3 ATX
-    iter-2).
+    is unit-testable without standing up the full installer.
     """
-    from clawrium.core.render import GatewayInputs, _render_openclaw_json
+    from clawrium.core.render import (
+        GatewayInputs,
+        ProviderInputs,
+        _OPENCLAW_DEFAULT_GATEWAY_PORT,
+        _render_openclaw_json,
+        _render_openclaw_template,
+    )
 
-    return _render_openclaw_json(
-        provider=None,
-        provider_default_model=None,
-        gateway=GatewayInputs(
-            port=openclaw_port,
-            bind="lan",
-            auth=gateway_auth_token,
-        ),
+    gateway = GatewayInputs(
+        port=openclaw_port,
+        bind="lan",
+        auth=gateway_auth_token,
+    )
+
+    provider_inputs: ProviderInputs | None = None
+    model_id = ""
+    if provider_record and provider_api_key:
+        default_model = provider_record.get("default_model", "") or ""
+        p_type = provider_record.get("type", "") or ""
+        # openrouter models must be prefixed `openrouter/` in the
+        # OPENCLAW_DEFAULT_MODEL string per openclaw's model dispatch
+        # convention. Mirrors the .env.j2 legacy template's rule so a
+        # cross-check against a configured bare openclaw matches.
+        if p_type == "openrouter" and default_model and not default_model.startswith("openrouter/"):
+            model_id = f"openrouter/{default_model}"
+        elif p_type == "bedrock" and default_model and not default_model.startswith("amazon-bedrock/"):
+            model_id = f"amazon-bedrock/{default_model}"
+        else:
+            model_id = default_model
+        provider_inputs = ProviderInputs(
+            name=provider_record.get("name", ""),
+            type=p_type,
+            endpoint=provider_record.get("endpoint", "") or "",
+            default_model=default_model,
+            api_key=provider_api_key,
+        )
+
+    json_body = _render_openclaw_json(
+        provider=provider_inputs,
+        provider_default_model=model_id or None,
+        gateway=gateway,
         discord_channel=None,
     )
+
+    env_body = _render_openclaw_template(
+        "openclaw-env.canonical.j2",
+        agent_name=agent_name,
+        provider=provider_inputs,
+        gateway=gateway,
+        default_gateway_port=_OPENCLAW_DEFAULT_GATEWAY_PORT,
+        default_model_id=model_id,
+        channels=[],
+        integrations=[],
+        last_github_token=None,
+    )
+
+    return json_body, env_body
 
 
 def run_installation(
@@ -312,6 +369,7 @@ def run_installation(
     resume: bool = False,
     force: bool = False,
     version_override: str | None = None,
+    provider: str | None = None,
 ) -> InstallResult:
     """Run full installation of an agent on a host.
 
@@ -326,6 +384,11 @@ def run_installation(
         force: Override the "already installed" skip and reinstall the binary
             even when the same version is present. Also re-runs the pairing
             block, rotating gateway token and device credentials.
+        provider: Provider name (from `clawctl provider registry`) to attach
+            at install time. Required for openclaw (NemoClaw substrate
+            requires provider config at install time — see
+            `install_nemoclaw.yaml`). Optional for hermes/zeroclaw which
+            retain the split lifecycle.
 
     Returns:
         InstallResult with success status and details
@@ -345,6 +408,57 @@ def run_installation(
         load_manifest(claw_name)  # Validates agent exists
     except ManifestNotFoundError as e:
         raise InstallationError(f"Agent '{claw_name}' not found in registry") from e
+
+    # Openclaw-only: if the caller passed a provider, resolve it up front
+    # (before any host work) so a bad name/missing key fails fast with a
+    # human-actionable message instead of mid-install after we've mutated
+    # wolf-i. NemoClaw's install.sh bundles substrate install with sandbox
+    # onboarding; step 3/8 requires NEMOCLAW_PROVIDER + NEMOCLAW_PROVIDER_KEY
+    # or install.sh crashes there anyway. The user-facing "provider is
+    # required" mandate lives at the CLI layer (`cli/clawctl/agent/create.py`)
+    # where a hint can point at `clawctl provider registry get`. Absent a
+    # provider here, the runbook's own task-0 fail-fast surfaces the same
+    # error, which is what direct-runbook / test callers see.
+    nemoclaw_provider_env: dict[str, str] = {}
+    openclaw_provider_canonical: str | None = None
+    if claw_name == "openclaw" and provider:
+        from clawrium.core.nemoclaw import (
+            UnmappedProviderError,
+            clawrium_provider_type_to_nemoclaw,
+        )
+        from clawrium.core.providers.storage import (
+            get_provider,
+            get_provider_api_key,
+        )
+
+        provider_record = get_provider(provider)
+        if not provider_record:
+            raise InstallationError(
+                f"provider {provider!r} not registered. "
+                f"Run 'clawctl provider registry get' to list providers."
+            )
+        provider_api_key = get_provider_api_key(provider)
+        if not provider_api_key:
+            raise InstallationError(
+                f"provider {provider!r} has no API_KEY secret set. "
+                f"Run 'clawctl secret set --provider {provider} API_KEY=<key>'."
+            )
+        try:
+            nemoclaw_provider_name = clawrium_provider_type_to_nemoclaw(
+                provider_record.get("type", "")
+            )
+        except UnmappedProviderError as exc:
+            raise InstallationError(str(exc)) from exc
+        nemoclaw_provider_env = {
+            "NEMOCLAW_PROVIDER": nemoclaw_provider_name,
+            "NEMOCLAW_PROVIDER_KEY": provider_api_key,
+            "NEMOCLAW_POLICY_MODE": "suggested",
+        }
+        # Preserve the canonical provider name (from the registry record)
+        # rather than the CLI arg — downstream lifecycle code looks it up
+        # by exact string. Best-effort auto-attach after successful install
+        # uses this.
+        openclaw_provider_canonical = provider_record.get("name", provider)
 
     # Step 2: Get host record
     emit("validate", f"Loading host {hostname}...")
@@ -938,6 +1052,7 @@ def run_installation(
     # until configure, where `build_render_inputs` resolves the attached
     # provider.
     prerendered_openclaw_config_json = ""
+    prerendered_openclaw_env = ""
     if claw_name == "openclaw":
         # R2 (#756 ATX iter-2 W2): every other failure path in
         # run_installation wraps its raw cause in `InstallationError`
@@ -945,10 +1060,26 @@ def run_installation(
         # consistently. The pre-render call can raise FileNotFoundError
         # (baseline shipped missing) or JSONDecodeError (baseline
         # malformed) — wrap it for parity.
+        #
+        # Provider handoff (fix #1 to Phase 4's premature-strip regression):
+        # when the operator passed --provider at create time (mandate
+        # enforced at CLI + validated at top of run_installation), we have
+        # `provider_record` + `provider_api_key` in local scope from the
+        # nemoclaw_provider_env resolution block. Threading them into the
+        # stub so the initial `.openclaw/env` + `openclaw.json` land with
+        # the provider bearer + model already wired — no post-install
+        # configure step required for chat to work.
+        _stub_provider_record = provider_record if openclaw_provider_canonical else None
+        _stub_provider_api_key = provider_api_key if openclaw_provider_canonical else None
         try:
-            prerendered_openclaw_config_json = _prerender_openclaw_install_stub(
-                openclaw_port=openclaw_port,
-                gateway_auth_token=gateway_auth_token,
+            prerendered_openclaw_config_json, prerendered_openclaw_env = (
+                _prerender_openclaw_install_stub(
+                    openclaw_port=openclaw_port,
+                    gateway_auth_token=gateway_auth_token,
+                    provider_record=_stub_provider_record,
+                    provider_api_key=_stub_provider_api_key,
+                    agent_name=agent_name,
+                )
             )
         except Exception as exc:
             raise InstallationError(f"openclaw pre-render failed: {exc}") from exc
@@ -1096,6 +1227,15 @@ def run_installation(
                 # invariant as config.gateway.auth.token (pre-existing)
                 # and the hermes/zeroclaw bearers.
                 "prerendered_openclaw_config_json": prerendered_openclaw_config_json,
+                # Fix #1: install-time provider env for the sandbox. Body
+                # rendered by `_prerender_openclaw_install_stub` above with
+                # the provider bearer + model already wired. install.yaml
+                # writes it to `.openclaw/env` (instead of the previous
+                # empty stub) so a freshly-created sandboxed openclaw is
+                # chattable on first `systemctl start` without any
+                # configure step. Empty string for non-openclaw and
+                # provider-less bootstrap paths.
+                "prerendered_openclaw_env": prerendered_openclaw_env,
                 **secret_vars,  # Inject secrets as ansible vars
             },
         }
@@ -1181,6 +1321,13 @@ def run_installation(
         claw_data_dir = install_log_dir / "claw"
         claw_data_dir.mkdir(exist_ok=True)
 
+        claw_envvars = {"ANSIBLE_BECOME_TIMEOUT": "120"}
+        if claw_name == "openclaw" and nemoclaw_provider_env:
+            claw_envvars.update(nemoclaw_provider_env)
+            # NemoClaw sandbox name = agent name so Phase 3's
+            # `nemoclaw <sandbox> <verb>` wrappers (see
+            # `core.nemoclaw:default_sandbox_name`) resolve to this sandbox.
+            claw_envvars["NEMOCLAW_SANDBOX_NAME"] = agent_name
         result = ansible_runner.run(
             private_data_dir=str(claw_data_dir),
             inventory=inventory,
@@ -1188,7 +1335,7 @@ def run_installation(
             quiet=False,  # Show output
             verbosity=1,  # Show task details (-v)
             timeout=1800,  # 30 min timeout for claw install
-            envvars={"ANSIBLE_BECOME_TIMEOUT": "120"},
+            envvars=claw_envvars,
         )
 
         if result.status != "successful":
@@ -1482,6 +1629,47 @@ def run_installation(
             return h
 
         update_host(host["hostname"], set_installed)
+
+        # Best-effort: auto-attach the provider in hosts.json so
+        # `clawctl agent provider get --agent <name>` immediately reflects
+        # the provider we just wired into the sandbox. If the write fails
+        # (concurrent registry mutation, hosts.json contention), log and
+        # continue — the sandbox is up on the host, and the operator can
+        # recover with `clawctl agent configure --stage providers`.
+        if (
+            claw_name == "openclaw"
+            and openclaw_provider_canonical is not None
+        ):
+            try:
+
+                def _attach_openclaw_provider(h: dict) -> dict:
+                    if "agents" in h and agent_name in h["agents"]:
+                        h["agents"][agent_name]["providers"] = [
+                            openclaw_provider_canonical
+                        ]
+                    return h
+
+                update_host(host["hostname"], _attach_openclaw_provider)
+                emit(
+                    "provider",
+                    f"attached {openclaw_provider_canonical!r} to {agent_name}",
+                )
+            except Exception as exc:  # noqa: BLE001 — best-effort by design
+                logger.warning(
+                    "post-install provider auto-attach failed for %s: %s. "
+                    "Run 'clawctl agent configure %s --stage providers "
+                    "--provider %s' to recover.",
+                    agent_name,
+                    exc,
+                    agent_name,
+                    openclaw_provider_canonical,
+                )
+                emit(
+                    "warn",
+                    f"provider auto-attach failed ({exc}); "
+                    f"run `clawctl agent configure {agent_name} "
+                    f"--stage providers --provider {openclaw_provider_canonical}`",
+                )
 
         # Step 11: Initialize onboarding record (non-fatal if it fails)
         try:
