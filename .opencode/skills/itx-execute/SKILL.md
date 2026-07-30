@@ -225,6 +225,58 @@ Selection rules:
 - You want manual control between every subtask — use regular mode
   with explicit handoffs.
 
+## ATX CLI surface
+
+Prefer ATX via MCP (`mcp__atx__request_review`) when it is available.
+When it is not, use the CLI. Verified against `atx` v26.07.09 — there
+is no `--pr` flag and no `--json` flag; JSON is `--format json`.
+
+Pick the variant by **who authored the changes**:
+
+| Situation | Command |
+|---|---|
+| A Claude Code session made the edits (hooks captured them) | `atx review --format json` |
+| Anything else — another agent's edits, a commit range, staged changes, CI | `atx review request -p "<scope>" --format json` |
+
+`atx review` is session-scoped: it reviews what ATX hooks captured. If
+the edits came from a non-Claude-Code agent, the hooks captured nothing
+and the review comes back empty — use `atx review request`, which is
+stateless and takes the scope in the prompt.
+
+```bash
+atx server status                       # Running: true
+atx project status                      # project registered + supervisor running
+
+atx review --format json                # session mode
+atx review request \
+  --prompt "Review the full diff of this branch against main (git diff main...HEAD)." \
+  --format json --timeout 15m           # stateless mode
+
+atx task list --format json --status running   # is a review still in flight
+atx task cancel <id>                           # recover a hung review
+```
+
+Both commands accept `--worktree <name>` to run in a worktree's
+working-directory context. The worktree name equals its branch name;
+resolve it with:
+
+```bash
+atx project worktrees list --format json \
+  | jq -r --arg b "$BRANCH" '.worktrees[] | select(.branch==$b) | .name'
+```
+
+Other flags: `--effort low|medium|high|xhigh|xtreme` (per-call tier
+override), `--agent <name>` (pin an on-demand specialist),
+`--review <id>` (join an existing Review group), `--timeout` (default
+15m). Output is the v2 envelope — `atx_review.*` plus
+`caller_instructions`.
+
+**Reading the rating.** The `.rating` field from
+`atx task list --format json` is a coarse aggregate that can disagree
+with the leader's `Rating: N/5` line inside `.result`. Trust the review
+body, not the JSON field. Never `tail -n` the CLI output — the full
+body is authoritative.
+
 ## Worktree Mode (Recommended for Parallel Execution)
 
 Triggered by `in a subtree` or `--worktree` in arguments. Enables working on multiple issues simultaneously.

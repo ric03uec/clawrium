@@ -241,14 +241,65 @@ user** waiting for ATX to become available.
    call it with the iteration body specified in
    [AGENTS.md](../../../AGENTS.md#if-mcp-review-enabled-atx).
 2. **ATX via CLI** (fallback). If MCP is not available, check
-   `command -v atx` on the host. If found, invoke
-   `atx review --pr <pr-number> --json` (or the project's documented
-   CLI invocation in `.claude/itx-config.json` if specified) and parse
-   the JSON output the same way you'd parse the MCP response.
+   `command -v atx` on the host, then `atx server status`
+   (expect `Running: true`). Pick the variant that matches who
+   authored the changes — see **ATX CLI surface** below. Parse the
+   JSON the same way you'd parse the MCP response.
 3. **Skip ATX** (last resort). If neither MCP nor CLI is available,
    **proceed with the work** — do not block, do not prompt the user.
    Record a Callout on the PR (see "Callouts" below) noting that ATX
    was unavailable so the reviewer knows to do a manual pass.
+
+### ATX CLI surface
+
+Verified against `atx` v26.07.09. There is no `--pr` flag and no
+`--json` flag; JSON is `--format json`.
+
+Pick the variant by **who authored the changes**:
+
+| Situation | Command |
+|---|---|
+| A Claude Code session made the edits (hooks captured them) | `atx review --format json` |
+| Anything else — another agent's edits, a commit range, staged changes, CI | `atx review request -p "<scope>" --format json` |
+
+`atx review` is session-scoped: it reviews what ATX hooks captured. If
+the edits came from a non-Claude-Code agent, the hooks captured nothing
+and the review comes back empty — use `atx review request`, which is
+stateless and takes the scope in the prompt.
+
+```bash
+atx server status                       # Running: true
+atx project status                      # project registered + supervisor running
+
+atx review --format json                # session mode
+atx review request \
+  --prompt "Review the full diff of this branch against main (git diff main...HEAD)." \
+  --format json --timeout 15m           # stateless mode
+
+atx task list --format json --status running   # is a review still in flight
+atx task cancel <id>                           # recover a hung review
+```
+
+Both commands accept `--worktree <name>` to run in a worktree's
+working-directory context. The worktree name equals its branch name;
+resolve it with:
+
+```bash
+atx project worktrees list --format json \
+  | jq -r --arg b "$BRANCH" '.worktrees[] | select(.branch==$b) | .name'
+```
+
+Other flags: `--effort low|medium|high|xhigh|xtreme` (per-call tier
+override), `--agent <name>` (pin an on-demand specialist),
+`--review <id>` (join an existing Review group), `--timeout` (default
+15m). Output is the v2 envelope — `atx_review.*` plus
+`caller_instructions`.
+
+**Reading the rating.** The `.rating` field from
+`atx task list --format json` is a coarse aggregate that can disagree
+with the leader's `Rating: N/5` line inside `.result`. Trust the review
+body, not the JSON field. Never `tail -n` the CLI output — the full
+body is authoritative.
 
 ### Session ID persistence
 
