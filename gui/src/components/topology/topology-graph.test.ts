@@ -204,7 +204,7 @@ describe("computeTopology", () => {
     );
   });
 
-  it("supports zeroclaw, openclaw and nemoclaw agent types", () => {
+  it("supports opaque agent_type strings (zeroclaw, openclaw, phantomclaw)", () => {
     const data = makeData([
       {
         hostname: "host-a",
@@ -219,7 +219,7 @@ describe("computeTopology", () => {
           }),
           makeAgent({
             agent_key: "n1",
-            agent_type: "nemoclaw",
+            agent_type: "phantomclaw",
             provider: "openrouter-1",
             provider_type: "openrouter",
             provider_endpoint: null,

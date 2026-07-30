@@ -17,6 +17,7 @@ from clawrium import format_version
 from clawrium.cli.clawctl.agent import agent_app
 from clawrium.cli.clawctl.audit import audit_app
 from clawrium.cli.clawctl.channel import channel_app
+from clawrium.cli.clawctl.doctor import doctor_app
 from clawrium.cli.clawctl.host import host_app
 from clawrium.cli.clawctl.integration import integration_app
 from clawrium.cli.clawctl.provider import provider_app
@@ -91,6 +92,7 @@ app.add_typer(channel_app, name="channel")
 app.add_typer(integration_app, name="integration")
 app.add_typer(skill_app, name="skill")
 app.add_typer(audit_app, name="audit")
+app.add_typer(doctor_app, name="doctor")
 
 # Declarative fleet management verbs: apply / diff / delete -f
 from clawrium.cli.clawctl.apply import apply as _apply_cmd  # noqa: E402

@@ -729,8 +729,8 @@ def _run_channels_stage(
     # Channel-type hint must mirror `_hydrate_channels_from_canonical`
     # in `core/lifecycle.py` (`if resolved_type in ("hermes", "zeroclaw",
     # "ethos"):`). Only those three types pull channels from the
-    # canonical store on configure; openclaw and nemoclaw have no
-    # canonical channel hydration today, so directing their operators
+    # canonical store on configure; openclaw has no
+    # canonical channel hydration today, so directing its operators
     # at `clawctl channel attach` would silently no-op on sync
     # (ATX #794 iter-4 W1). zeroclaw has no native Slack channel
     # (#422), so only discord is listed there. `cli` is an in-process
@@ -746,7 +746,7 @@ def _run_channels_stage(
         installed_name or "<agent-name>"
     )
     if channel_examples is None:
-        # openclaw / nemoclaw / unknown — no canonical hydration path.
+        # openclaw / unknown — no canonical hydration path.
         console.print(
             "[yellow]This wizard is deprecated.[/yellow] "
             f"`{claw_type}` does not currently support attaching "

@@ -33,7 +33,6 @@ $ clawctl agent registry get
 ┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
 │ zeroclaw   │ 0.1.0          │ Zero-config Claude assistant   │
 │ openclaw   │ 0.2.0          │ OpenAI-powered assistant       │
-│ nemoclaw   │ 0.1.0          │ Local Ollama-based assistant   │
 └────────────┴────────────────┴────────────────────────────────┘
 ```
 

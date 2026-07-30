@@ -18,9 +18,24 @@ cut. The `itx:release` skill archives this section into a new
   - **Migration**: none for operators — the first `clawctl agent sync` after upgrading materializes the fix. Existing hermes/openclaw agents that were provisioned before this release and never had `gh auth setup-git` run manually will get `~/.gitconfig` populated on their next sync.
   - **Playbook contract change**: the `Render ~/.gitconfig for each git integration` and `GitHub CLI authentication block` tasks are **removed** from every `configure.yaml` (hermes, openclaw Linux + macOS, zeroclaw, ethos). Any third-party fork that invoked those playbooks directly must move github wiring to their sync path.
   - The `src/clawrium/platform/templates/gitconfig.j2` template file and the `shared_template_path` Ansible extravar are **deleted** — no consumers remain.
+- **Removed the `nc` agent-type alias.** The alias was stale — no
+  `nemoclaw` agent type exists in the registry, so `clawctl agent
+  create --type nc <…>` was silently mapping to a nonexistent target
+  instead of failing loudly. Recovery: pass a real agent type
+  (`--type openclaw`, `--type zeroclaw`, `--type hermes`, `--type
+  ethos`). No automated migration — the alias had zero live use sites
+  in bundled Clawrium code. Part of Phase 1 groundwork for the
+  NemoClaw runtime substrate (#11 / #943).
 
 ### Added
 
+- `clawctl doctor nemoclaw` — read-only probe that verifies the pinned
+  NemoClaw upstream release
+  ([`NVIDIA/NemoClaw`](https://github.com/NVIDIA/NemoClaw)) is
+  reachable, the pinned tag exists, and the local architecture is
+  supported. The probe never downloads the tarball and never touches
+  any host. Phase 1 of the NemoClaw rollout (#11 / #943); Phase 2
+  wires the runtime into OpenClaw's install path.
 - `clawctl agent doctor <name>` — read-only health diagnostics command that
   runs five checks in dependency order (SSH reachable → unit running →
   gateway reachable → token stored → onboarding complete) and prints a

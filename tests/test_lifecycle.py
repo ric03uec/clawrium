@@ -33,6 +33,31 @@ from clawrium.core.lifecycle import (
 )
 
 
+class TestAliasToCanonical:
+    """Regression guards for `lifecycle.ALIAS_TO_CANONICAL`.
+
+    Any silent re-introduction of an alias pointing at a phantom agent
+    type (see #943 for the `nc → nemoclaw` removal) would cause
+    `--type <alias>` to map to a nonexistent registry entry without a
+    clean failure — the whole point of removing the alias.
+    """
+
+    def test_nc_alias_absent(self):
+        from clawrium.core import lifecycle
+
+        assert "nc" not in lifecycle.ALIAS_TO_CANONICAL
+        assert "nemoclaw" not in lifecycle.ALIAS_TO_CANONICAL.values()
+
+    def test_alias_targets_are_registered_types(self):
+        from clawrium.core import lifecycle
+
+        registered = {"openclaw", "zeroclaw", "hermes", "ethos"}
+        for alias, target in lifecycle.ALIAS_TO_CANONICAL.items():
+            assert target in registered, (
+                f"alias {alias!r} → {target!r} points at an unregistered type"
+            )
+
+
 class TestGetLifecyclePlaybookPath:
     """Tests for playbook path resolution."""
 
@@ -423,7 +448,7 @@ class TestRunLifecyclePlaybook:
         assert inventory["all"]["vars"]["dashboard_port"] == 45100
 
     def test_non_hermes_agent_does_not_get_dashboard_port(self, tmp_path: Path):
-        """ATX B2: zeroclaw / openclaw / nemoclaw must NOT receive a
+        """ATX B2: zeroclaw / openclaw must NOT receive a
         dashboard_port var. The agent-type guard is the only thing
         preventing future playbook tasks guarded by `when: dashboard_port
         is defined` from firing on the wrong claw."""

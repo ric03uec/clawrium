@@ -255,7 +255,7 @@ def test_install_422_on_unsupported_claw_type(monkeypatch):
     is reserved for the genuine apply-failure class.
     """
     _stub_resolved(monkeypatch)
-    detail = "Skills apply for 'nemoclaw' has no playbook"
+    detail = "Skills apply for 'phantomclaw' has no playbook"
     _stub_apply(monkeypatch, raises=SkillApplyNotSupported(detail))
     with pytest.raises(HTTPException) as exc:
         _run(agents_route.install_agent_skill("tdd-hermes", "clawrium", "tdd"))
@@ -266,7 +266,7 @@ def test_install_422_on_unsupported_claw_type(monkeypatch):
 
 def test_remove_422_on_unsupported_claw_type(monkeypatch):
     _stub_resolved(monkeypatch)
-    detail = "Skills apply for 'nemoclaw' has no playbook"
+    detail = "Skills apply for 'phantomclaw' has no playbook"
     _stub_apply(monkeypatch, raises=SkillApplyNotSupported(detail))
     with pytest.raises(HTTPException) as exc:
         _run(agents_route.remove_agent_skill("tdd-hermes", "clawrium", "tdd"))
@@ -452,7 +452,7 @@ def test_install_state_is_rolled_back_on_apply_failure(monkeypatch):
         ("clawrium", "tdd", "openclaw", True),
         ("clawrium", "tdd", "zeroclaw", True),
         # Unknown agent type fails closed via check_agent_compatibility.
-        ("clawrium", "tdd", "nemoclaw", False),
+        ("clawrium", "tdd", "phantomclaw", False),
         # Catalog row that doesn't exist fails closed at load_skill.
         ("clawrium", "missing-skill", "hermes", False),
     ],
