@@ -550,9 +550,19 @@ class TestRunLifecyclePlaybook:
 
         assert inventory["all"]["vars"]["sandbox_name"] == "oc-nemo"
 
-    def test_bare_openclaw_does_not_get_sandbox_name(self, tmp_path: Path):
-        """Bare openclaw records remain additive in phase 2: no
-        sandbox_name key means no extra var is injected."""
+    def test_bare_openclaw_start_returns_migration_error(self, tmp_path: Path):
+        """Phase 3 semi-soft cutover (#11 / #945): bare openclaw records
+        continue to sync + can be removed cleanly, but interactive
+        lifecycle verbs (start/stop/status/logs) short-circuit before
+        ansible-runner with a migration hint. This is intentionally
+        stricter than the sync path — operators who want to control the
+        agent must migrate; operators who just want it to keep running
+        can coast on sync.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from clawrium.core.lifecycle import _run_lifecycle_playbook
+
         host = {
             "hostname": "192.168.1.100",
             "key_id": "test",
@@ -560,12 +570,41 @@ class TestRunLifecyclePlaybook:
             "port": 22,
             "agents": {"oc-bare": {"type": "openclaw", "config": {}}},
         }
+        key_path = tmp_path / "key"
+        key_path.write_text("fake")
 
-        inventory = self._run_with_inventory_capture(
-            tmp_path, host, "openclaw", "oc-bare"
-        )
+        with (
+            patch(
+                "clawrium.core.lifecycle.get_host_private_key",
+                return_value=key_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle.ansible_runner.run",
+                return_value=MagicMock(status="successful"),
+            ) as mock_run,
+            patch(
+                "clawrium.core.lifecycle.get_config_dir",
+                return_value=tmp_path,
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_secrets",
+                return_value={},
+            ),
+            patch(
+                "clawrium.core.lifecycle.get_instance_key",
+                return_value="test-key",
+            ),
+        ):
+            success, err = _run_lifecycle_playbook(
+                "openclaw", "oc-bare", host["hostname"], "start", host
+            )
 
-        assert "sandbox_name" not in inventory["all"]["vars"]
+        assert success is False
+        assert err is not None
+        assert "sandbox_name" in err
+        assert "bare" in err
+        # Short-circuit MUST happen before ansible-runner spins up.
+        assert mock_run.call_count == 0
 
     def test_invalid_openclaw_sandbox_name_rejected_before_runner(
         self, tmp_path: Path
