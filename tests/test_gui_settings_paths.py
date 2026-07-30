@@ -17,6 +17,11 @@ def _make_client(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "clawrium.gui.services.usage_tracker.get_config_dir", lambda: tmp_path
     )
+    # Reset the usage tracker singleton so each test gets a fresh tracker
+    # bound to its own tmp_path rather than inheriting the prior test's.
+    monkeypatch.setattr(
+        "clawrium.gui.services.usage_tracker._tracker", None
+    )
     return TestClient(app, base_url="http://localhost:36000")
 
 

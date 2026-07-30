@@ -56,3 +56,17 @@ def test_dns_rebinding_simulation():
     client = TestClient(app, base_url="http://localhost:36000")
     response = client.get("/api/health", headers={"host": "attacker.example.com"})
     assert response.status_code == 400
+
+
+def test_options_preflight_bad_host_rejected():
+    """OPTIONS preflight with a foreign Host header is rejected by TrustedHostMiddleware.
+
+    Regression test: TrustedHostMiddleware must be outermost (added last) so
+    it intercepts OPTIONS requests before CORSMiddleware can short-circuit.
+    """
+    client = TestClient(app, base_url="http://localhost:36000")
+    response = client.options(
+        "/api/health",
+        headers={"host": "evil.com", "origin": "http://localhost:3000"},
+    )
+    assert response.status_code == 400
