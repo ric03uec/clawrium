@@ -2948,9 +2948,9 @@ def configure_agent(
     if resolved_type == "openclaw":
         from clawrium.core.lifecycle_canonical import (
             CanonicalSyncError,
-            _get_host_openclaw_version,
             _load_openclaw_brave_pin,
         )
+        from clawrium.core.openclaw_version import get_host_openclaw_version
 
         if any(
             (entry or {}).get("type") == "brave"
@@ -2980,7 +2980,7 @@ def configure_agent(
                     key_filename=str(_private_key),
                     timeout=10,
                 )
-                _ver = _get_host_openclaw_version(_client, unix_agent_name)
+                _ver = get_host_openclaw_version(_client, unix_agent_name, os_family=host.get("os_family", "linux"))
             except Exception as exc:
                 _client.close()
                 return False, (

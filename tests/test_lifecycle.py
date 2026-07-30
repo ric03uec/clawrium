@@ -3775,7 +3775,7 @@ class TestConfigureAgentBravePreflight:
                 side_effect=_fake_load_pin,
             ),
             patch(
-                "clawrium.core.lifecycle_canonical._get_host_openclaw_version",
+                "clawrium.core.openclaw_version.get_host_openclaw_version",
                 return_value=host_version,
             ),
             patch(

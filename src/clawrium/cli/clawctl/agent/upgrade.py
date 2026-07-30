@@ -102,7 +102,7 @@ def _get_live_openclaw_version(host: dict, agent_name: str) -> str | None:
     import paramiko
 
     from clawrium.core.keys import get_host_private_key
-    from clawrium.core.lifecycle_canonical import _get_host_openclaw_version
+    from clawrium.core.openclaw_version import get_host_openclaw_version
 
     key_id = host.get("key_id") or host.get("hostname") or ""
     private_key = get_host_private_key(key_id)
@@ -121,7 +121,7 @@ def _get_live_openclaw_version(host: dict, agent_name: str) -> str | None:
             timeout=10,
         )
         os_family = host.get("os_family", "linux")
-        version_tuple, _stderr = _get_host_openclaw_version(
+        version_tuple, _stderr = get_host_openclaw_version(
             client, agent_name, os_family=os_family
         )
     except Exception:
