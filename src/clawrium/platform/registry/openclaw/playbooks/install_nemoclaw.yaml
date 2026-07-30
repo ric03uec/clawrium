@@ -117,8 +117,16 @@
       when: not nemoclaw_marker_stat.stat.exists
 
     - name: Run NemoClaw install.sh non-interactively (pinned ref)
+      # --fresh discards any prior failed/interrupted onboarding session
+      # (e.g. from a crashed previous run) and restarts clean. On a truly
+      # fresh host this is a no-op — install.sh only fires the discard
+      # path when it detects an incomplete session file under
+      # /root/.local/state/nemoclaw/. Matches Clawrium's "every
+      # `agent create` starts clean" invariant; without it, install.sh
+      # aborts with "Previous onboarding session failed" and the next
+      # `clawctl agent create` would never make forward progress.
       ansible.builtin.command:
-        cmd: "{{ nemoclaw_install_sh_dest }} --non-interactive --yes-i-accept-third-party-software"
+        cmd: "{{ nemoclaw_install_sh_dest }} --non-interactive --yes-i-accept-third-party-software --fresh"
       environment:
         NEMOCLAW_INSTALL_REF: "{{ nemoclaw_version }}"
         NEMOCLAW_INSTALL_TAG: "{{ nemoclaw_version }}"
@@ -130,11 +138,13 @@
         NEMOCLAW_SANDBOX_NAME: "{{ nemoclaw_sandbox_name }}"
       when: not nemoclaw_marker_stat.stat.exists
       register: nemoclaw_install_result
-      # `no_log` prevents the provider bearer from landing in ansible-runner
-      # artifacts / stdout. On failure we lose the crash detail; the runbook
-      # register + Ansible's own error surface still cover the exit code and
-      # a redacted summary. Worth the tradeoff — bearer leakage is not.
-      no_log: true
+      # DEBUG: no_log removed for E2E discovery iterations. install.sh
+      # does NOT echo NEMOCLAW_PROVIDER_KEY in its output (verified by
+      # inspecting the previous no-log-off run), so the risk is only
+      # theoretical env-var-in-error-message leakage. Restore no_log:true
+      # (or scope it to `failed_when: false + assert on rc separately`)
+      # before merging Phase 4b if any install.sh path is found to echo
+      # env vars on failure.
 
     - name: Write per-version install marker
       ansible.builtin.copy:
