@@ -20,6 +20,16 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Fixed
 
+- **gui**: Harden static-file handler against path traversal — all candidate
+  paths in the catch-all frontend route are now resolved and verified to
+  stay inside the frontend directory via `Path.resolve()` +
+  `is_relative_to()` (issue #418).
+- **gui**: Add `TrustedHostMiddleware` to reject requests with foreign
+  `Host` headers, closing a DNS rebinding exposure (issue #418).
+- **gui**: Remove `secrets_file`, `hosts_file`, and `providers_file` from
+  the `/api/settings` response; replace with `secrets_configured` (bool)
+  to avoid leaking absolute filesystem paths (issue #418).
+
 ### Documentation
 
 ### Internal

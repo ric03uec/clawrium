@@ -64,7 +64,7 @@ def test_static_endpoint_does_not_call_check_claw_health(isolated_config: Path):
         "clawrium.cli.tui.data.check_claw_health",
         side_effect=AssertionError("probe must not run on static path"),
     ) as probe:
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo")
     assert resp.status_code == 200, resp.text
     probe.assert_not_called()
@@ -86,7 +86,7 @@ def test_static_endpoint_returns_fast_when_probe_would_hang(isolated_config: Pat
 
     with patch("clawrium.cli.tui.data.check_claw_health", side_effect=_slow_probe):
         start = time.monotonic()
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo")
         elapsed = time.monotonic() - start
     assert resp.status_code == 200
@@ -111,7 +111,7 @@ def test_health_endpoint_returns_runtime_fields(isolated_config: Path):
     with patch(
         "clawrium.cli.tui.data.check_claw_health", return_value=fake_result
     ) as probe:
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/health")
     assert resp.status_code == 200, resp.text
     probe.assert_called_once()
@@ -127,7 +127,7 @@ def test_health_endpoint_returns_runtime_fields(isolated_config: Path):
 
 def test_health_endpoint_404_for_unknown_agent(isolated_config: Path):
     _seed_hosts(isolated_config)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.get("/api/fleet/agents/nope/health")
     assert resp.status_code == 404
 
@@ -139,7 +139,7 @@ def test_health_endpoint_404_when_host_mismatch(isolated_config: Path):
     would let per-host runtime data leak across hosts (ATX W4).
     """
     _seed_hosts(isolated_config)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost:36000") as client:
         resp = client.get("/api/fleet/agents/demo/health?host=wronghost")
     assert resp.status_code == 404
     assert "demo" in resp.json()["detail"]
@@ -157,7 +157,7 @@ def test_health_endpoint_returns_degraded_on_probe_exception(isolated_config: Pa
         "clawrium.cli.tui.data.check_claw_health",
         side_effect=TimeoutError("ssh probe took too long"),
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/health")
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -191,7 +191,7 @@ def test_health_endpoint_response_shape_pinned(isolated_config: Path):
     with patch(
         "clawrium.cli.tui.data.check_claw_health", return_value=fake_result
     ):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost:36000") as client:
             resp = client.get("/api/fleet/agents/demo/health")
     assert resp.status_code == 200
     body = resp.json()

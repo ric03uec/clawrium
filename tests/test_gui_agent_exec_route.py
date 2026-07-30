@@ -42,7 +42,7 @@ def _seed_hosts(config_dir: Path, agent_type: str) -> None:
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return TestClient(app, base_url="http://localhost:36000")
 
 
 @pytest.mark.parametrize("agent_type", ["hermes", "zeroclaw", "openclaw"])

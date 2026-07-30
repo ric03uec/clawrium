@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -85,6 +86,11 @@ app = FastAPI(
     description="Local web dashboard for AI assistant fleet management",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts={"localhost", "127.0.0.1", "localhost:36000", "127.0.0.1:36000"},
 )
 
 app.add_middleware(

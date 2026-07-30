@@ -38,7 +38,7 @@ def _build_app_with_frontend(tmp_path: Path, monkeypatch) -> TestClient:
 
     app = FastAPI()
     server_mod.mount_frontend(app)
-    return TestClient(app)
+    return TestClient(app, base_url="http://localhost:36000")
 
 
 def test_serves_index_at_root(tmp_path, monkeypatch):

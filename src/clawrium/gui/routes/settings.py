@@ -10,6 +10,7 @@ import platform
 from fastapi import APIRouter
 
 from clawrium.core.config import get_config_dir
+from clawrium.core.secrets import SECRETS_FILE
 from clawrium.gui.services.usage_tracker import get_usage_tracker
 
 logger = logging.getLogger(__name__)
@@ -22,11 +23,10 @@ async def get_settings():
     """Get current application settings."""
     config_dir = get_config_dir()
     tracker = get_usage_tracker()
+    secrets_file = config_dir / SECRETS_FILE
     return {
         "config_dir": str(config_dir),
-        "hosts_file": str(config_dir / "hosts.json"),
-        "providers_file": str(config_dir / "providers.json"),
-        "secrets_file": str(config_dir / "secrets.json"),
+        "secrets_configured": secrets_file.exists(),
         "usage_db": tracker.get_db_path(),
     }
 
