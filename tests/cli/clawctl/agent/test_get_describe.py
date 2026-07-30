@@ -46,14 +46,14 @@ def test_get_runtime_column_shows_nemoclaw_for_openclaw(fleet_dir) -> None:
     def mutate(agent: dict) -> None:
         agent.setdefault("config", {})
         agent["config"]["runtime"] = "nemoclaw"
-        agent["config"]["nemoclaw_version"] = "v0.0.94"
+        agent["config"]["nemoclaw_version"] = "v0.0.97"
         agent["config"]["sandbox_name"] = "wise-hypatia"
 
     _patch_fleet_agent(fleet_dir, mutate)
 
     result = runner.invoke(app, ["agent", "get"])
     assert result.exit_code == 0
-    assert "nemoclaw@v0.0.94" in result.output
+    assert "nemoclaw@v0.0.97" in result.output
 
 
 def test_get_runtime_column_renders_dash_when_absent(fleet_dir) -> None:

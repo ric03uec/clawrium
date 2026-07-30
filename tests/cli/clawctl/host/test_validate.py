@@ -18,7 +18,7 @@ def _stamp_nemoclaw(fleet_dir: Path, *, sandbox_name: str = "wise-hypatia") -> N
     hosts = json.loads(hosts_path.read_text())
     config = hosts[0]["agents"]["openclaw"].setdefault("config", {})
     config["runtime"] = "nemoclaw"
-    config["nemoclaw_version"] = "v0.0.94"
+    config["nemoclaw_version"] = "v0.0.97"
     config["sandbox_name"] = sandbox_name
     hosts_path.write_text(json.dumps(hosts, indent=2))
 
