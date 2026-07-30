@@ -20,12 +20,42 @@ OPENCLAW_GATEWAY_AUTH_MODE=none
 {% endif %}
 {% endif %}
 OPENCLAW_DEFAULT_MODEL={{ default_model_id | shq }}
-{# Phase 4 (#946): provider credentials no longer land in the sandboxed
-   openclaw process env. api_key + base_url are handed to NemoClaw's
-   gateway registry (see core/nemoclaw.py:gateway_register_provider) and
-   the gateway substitutes the bearer transparently at egress. Any
-   scripts that previously read `*_API_KEY` from openclaw's environment
-   MUST route their calls through the gateway proxy instead. #}
+{# Provider bearer emission — restored after Phase 4's premature strip
+   left every sandboxed openclaw unable to reach any LLM. The long-term
+   design still routes provider bearers through a NemoClaw gateway
+   registry (see core/nemoclaw.py:gateway_register_provider); until that
+   §7.5 wire-up lands, openclaw needs its provider key in-process the
+   same way bare openclaw always did. This block emits one canonical
+   env var per known provider type. Unmapped types are intentionally
+   silent — the operator can attach a provider whose CLI wrapper reads
+   its own env var out-of-band. See tests/core/test_render.py for the
+   full coverage matrix. #}
+{% if provider is not none and provider.api_key %}
+{% if provider.type == 'openrouter' %}
+OPENROUTER_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'openai' %}
+OPENAI_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'anthropic' %}
+ANTHROPIC_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'anthropic-compatible' or provider.type == 'litellm-anthropic' %}
+ANTHROPIC_API_KEY={{ provider.api_key | shq }}
+{% if provider.endpoint %}
+ANTHROPIC_BASE_URL={{ provider.endpoint | shq }}
+{% endif %}
+{% elif provider.type == 'zai' %}
+ZAI_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'gemini' %}
+GEMINI_API_KEY={{ provider.api_key | shq }}
+{% elif provider.type == 'custom' %}
+OPENAI_API_KEY={{ provider.api_key | shq }}
+{% if provider.endpoint %}
+OPENAI_BASE_URL={{ provider.endpoint | shq }}
+{% endif %}
+{% endif %}
+{% endif %}
+{% if provider is not none and provider.type == 'ollama' and provider.endpoint %}
+OPENCLAW_OLLAMA_URL={{ provider.endpoint | shq }}
+{% endif %}
 {% for channel in channels %}
 {% if channel.type == 'discord' %}
 DISCORD_BOT_TOKEN={{ channel.bot_token | shq }}

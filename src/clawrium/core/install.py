@@ -274,33 +274,90 @@ def _openclaw_install_was_skipped(playbook_result: object) -> bool:
 
 
 def _prerender_openclaw_install_stub(
-    *, openclaw_port: int, gateway_auth_token: str
-) -> str:
-    """Pre-render `~/.openclaw/openclaw.json` for the install-time bootstrap.
+    *,
+    openclaw_port: int,
+    gateway_auth_token: str,
+    provider_record: dict | None = None,
+    provider_api_key: str | None = None,
+    agent_name: str = "",
+) -> tuple[str, str]:
+    """Pre-render `~/.openclaw/openclaw.json` + `~/.openclaw/env` for the
+    install-time bootstrap.
 
-    Issue #756: at install time no provider is attached yet, so this
-    delegates to `_render_openclaw_json` with `provider=None` — yielding
-    the baseline scaffold plus the install-minted gateway bearer. Model
-    selection (`agents.defaults.model.primary` +
-    `models.providers.<litellm-name>`) is deferred until configure, where
-    `build_render_inputs` resolves the attached provider.
+    Returns a `(openclaw_json_body, env_body)` tuple. Both bodies are
+    written by `install.yaml` via extravars so a freshly-installed openclaw
+    has provider + model configured from the first `systemctl start` —
+    without the operator running `configure` (which is broken standalone
+    for openclaw per #523).
+
+    Provider handling: if `provider_record` + `provider_api_key` are set,
+    `agents.defaults.model.primary` gets the record's `default_model`
+    (with any type-prefix magic applied) and the env body includes the
+    canonical bearer + endpoint for the provider's type. When not set,
+    both bodies render the baseline scaffold + gateway only (bootstrap
+    path used for retries where hosts.json no longer holds provider
+    context and the operator is expected to re-attach).
 
     Extracted from `run_installation` so the install-path render branch
-    is unit-testable without standing up the full installer (B3 ATX
-    iter-2).
+    is unit-testable without standing up the full installer.
     """
-    from clawrium.core.render import GatewayInputs, _render_openclaw_json
+    from clawrium.core.render import (
+        GatewayInputs,
+        ProviderInputs,
+        _OPENCLAW_DEFAULT_GATEWAY_PORT,
+        _render_openclaw_json,
+        _render_openclaw_template,
+    )
 
-    return _render_openclaw_json(
-        provider=None,
-        provider_default_model=None,
-        gateway=GatewayInputs(
-            port=openclaw_port,
-            bind="lan",
-            auth=gateway_auth_token,
-        ),
+    gateway = GatewayInputs(
+        port=openclaw_port,
+        bind="lan",
+        auth=gateway_auth_token,
+    )
+
+    provider_inputs: ProviderInputs | None = None
+    model_id = ""
+    if provider_record and provider_api_key:
+        default_model = provider_record.get("default_model", "") or ""
+        p_type = provider_record.get("type", "") or ""
+        # openrouter models must be prefixed `openrouter/` in the
+        # OPENCLAW_DEFAULT_MODEL string per openclaw's model dispatch
+        # convention. Mirrors the .env.j2 legacy template's rule so a
+        # cross-check against a configured bare openclaw matches.
+        if p_type == "openrouter" and default_model and not default_model.startswith("openrouter/"):
+            model_id = f"openrouter/{default_model}"
+        elif p_type == "bedrock" and default_model and not default_model.startswith("amazon-bedrock/"):
+            model_id = f"amazon-bedrock/{default_model}"
+        else:
+            model_id = default_model
+        provider_inputs = ProviderInputs(
+            name=provider_record.get("name", ""),
+            type=p_type,
+            endpoint=provider_record.get("endpoint", "") or "",
+            default_model=default_model,
+            api_key=provider_api_key,
+        )
+
+    json_body = _render_openclaw_json(
+        provider=provider_inputs,
+        provider_default_model=model_id or None,
+        gateway=gateway,
         discord_channel=None,
     )
+
+    env_body = _render_openclaw_template(
+        "openclaw-env.canonical.j2",
+        agent_name=agent_name,
+        provider=provider_inputs,
+        gateway=gateway,
+        default_gateway_port=_OPENCLAW_DEFAULT_GATEWAY_PORT,
+        default_model_id=model_id,
+        channels=[],
+        integrations=[],
+        last_github_token=None,
+    )
+
+    return json_body, env_body
 
 
 def run_installation(
@@ -995,6 +1052,7 @@ def run_installation(
     # until configure, where `build_render_inputs` resolves the attached
     # provider.
     prerendered_openclaw_config_json = ""
+    prerendered_openclaw_env = ""
     if claw_name == "openclaw":
         # R2 (#756 ATX iter-2 W2): every other failure path in
         # run_installation wraps its raw cause in `InstallationError`
@@ -1002,10 +1060,26 @@ def run_installation(
         # consistently. The pre-render call can raise FileNotFoundError
         # (baseline shipped missing) or JSONDecodeError (baseline
         # malformed) — wrap it for parity.
+        #
+        # Provider handoff (fix #1 to Phase 4's premature-strip regression):
+        # when the operator passed --provider at create time (mandate
+        # enforced at CLI + validated at top of run_installation), we have
+        # `provider_record` + `provider_api_key` in local scope from the
+        # nemoclaw_provider_env resolution block. Threading them into the
+        # stub so the initial `.openclaw/env` + `openclaw.json` land with
+        # the provider bearer + model already wired — no post-install
+        # configure step required for chat to work.
+        _stub_provider_record = provider_record if openclaw_provider_canonical else None
+        _stub_provider_api_key = provider_api_key if openclaw_provider_canonical else None
         try:
-            prerendered_openclaw_config_json = _prerender_openclaw_install_stub(
-                openclaw_port=openclaw_port,
-                gateway_auth_token=gateway_auth_token,
+            prerendered_openclaw_config_json, prerendered_openclaw_env = (
+                _prerender_openclaw_install_stub(
+                    openclaw_port=openclaw_port,
+                    gateway_auth_token=gateway_auth_token,
+                    provider_record=_stub_provider_record,
+                    provider_api_key=_stub_provider_api_key,
+                    agent_name=agent_name,
+                )
             )
         except Exception as exc:
             raise InstallationError(f"openclaw pre-render failed: {exc}") from exc
@@ -1153,6 +1227,15 @@ def run_installation(
                 # invariant as config.gateway.auth.token (pre-existing)
                 # and the hermes/zeroclaw bearers.
                 "prerendered_openclaw_config_json": prerendered_openclaw_config_json,
+                # Fix #1: install-time provider env for the sandbox. Body
+                # rendered by `_prerender_openclaw_install_stub` above with
+                # the provider bearer + model already wired. install.yaml
+                # writes it to `.openclaw/env` (instead of the previous
+                # empty stub) so a freshly-created sandboxed openclaw is
+                # chattable on first `systemctl start` without any
+                # configure step. Empty string for non-openclaw and
+                # provider-less bootstrap paths.
+                "prerendered_openclaw_env": prerendered_openclaw_env,
                 **secret_vars,  # Inject secrets as ansible vars
             },
         }

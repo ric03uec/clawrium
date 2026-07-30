@@ -1430,8 +1430,8 @@ def test_openclaw_openrouter_prefixes_model():
     )
     env = render_openclaw(inputs).files[".openclaw/env"]
     assert "OPENCLAW_DEFAULT_MODEL='openrouter/anthropic/claude-opus-4.7'" in env
-    # Phase 4 (#946): provider bearer no longer lands in openclaw env.
-    assert "OPENROUTER_API_KEY" not in env
+    # Fix #1: openclaw sandbox needs the provider bearer or it can't chat.
+    assert "OPENROUTER_API_KEY='sk-or-1'" in env
 
 
 def test_zeroclaw_opencode_renders_base_url_and_api_key():
@@ -2089,9 +2089,10 @@ def test_render_module_exports():
 
 
 def test_openclaw_zai_emits_zai_api_key():
-    """Phase 4 (#946): openclaw's zai provider no longer emits ZAI_API_KEY
-    to the sandbox env — the bearer is handed to the NemoClaw gateway
-    instead. Test kept (repurposed) to lock the non-emission."""
+    """Fix #1: openclaw's zai provider emits ZAI_API_KEY to the sandbox
+    env — Phase 4 stripped this prematurely and left every sandboxed
+    openclaw unable to chat. When §7.5's gateway-registration path
+    lands, this test reverts alongside the canonical template block."""
     inputs = RenderInputs(
         agent_name="alpha",
         agent_type="openclaw",
@@ -2099,8 +2100,7 @@ def test_openclaw_zai_emits_zai_api_key():
         gateway=GatewayInputs(host="0.0.0.0", port=40000, auth="tk", bind="lan"),
     )
     env = render_openclaw(inputs).files[".openclaw/env"]
-    assert "ZAI_API_KEY" not in env
-    assert "sk-zai-1" not in env
+    assert "ZAI_API_KEY='sk-zai-1'" in env
 
 
 def test_openclaw_atlassian_integration_emits_to_env():
@@ -3074,12 +3074,13 @@ def _openclaw_inputs(*, ptype: str) -> RenderInputs:
     )
 
 
-# Phase 4 (#946): the provider `*_API_KEY` / AWS_*_KEY / OPENCLAW_OLLAMA_URL
-# / OPENAI_BASE_URL block was deleted from the openclaw env template. The
-# sandboxed openclaw process must NOT see the raw bearer; credentials are
-# handed to the NemoClaw gateway instead. Byte-lock expectations updated
-# accordingly. Ollama URL is now also carried by the gateway, so its env
-# line disappeared alongside the credential lines.
+# Fix #1 (post-Phase-4 provider-strip regression): the sandboxed openclaw
+# needs the provider bearer in its env — Phase 4 stripped it prematurely
+# without wiring the substitute NemoClaw-gateway-forwarded auth. Byte-lock
+# expectations restored to include the canonical env var per type. When
+# the §7.5 gateway-registration path lands, these byte locks + the
+# openclaw-env.canonical.j2 provider block get reverted together in one
+# commit.
 _OPENCLAW_ENV_OPENROUTER = (
     "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
     "OPENCLAW_GATEWAY_BIND='lan'\n"
@@ -3087,6 +3088,7 @@ _OPENCLAW_ENV_OPENROUTER = (
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
     "OPENCLAW_DEFAULT_MODEL='openrouter/anthropic/claude-opus-4.7'\n"
+    "OPENROUTER_API_KEY='sk-or-1'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
@@ -3099,6 +3101,7 @@ _OPENCLAW_ENV_ANTHROPIC = (
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
     "OPENCLAW_DEFAULT_MODEL='claude-opus-4-7'\n"
+    "ANTHROPIC_API_KEY='sk-ant-1'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
@@ -3111,11 +3114,20 @@ _OPENCLAW_ENV_OPENAI = (
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
     "OPENCLAW_DEFAULT_MODEL='gpt-5'\n"
+    "OPENAI_API_KEY='sk-oa-1'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
 )
 
+# Bedrock's env vars (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY) are NOT
+# re-emitted by the canonical template's fix-#1 block — that block only
+# handles the `provider.api_key` single-bearer types. Bedrock support in
+# the sandbox needs a separate AWS-credentials pass that reads
+# `provider.aws_access_key` / `aws_secret_key`; left as follow-up so we
+# ship openrouter/openai/anthropic today and don't paint the bedrock code
+# path in without a real-host bedrock rig to validate. The byte lock
+# below matches the current (bedrock-not-supported) state.
 _OPENCLAW_ENV_BEDROCK = (
     "# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.\n"
     "OPENCLAW_GATEWAY_BIND='lan'\n"
@@ -3135,6 +3147,7 @@ _OPENCLAW_ENV_OLLAMA = (
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
     "OPENCLAW_DEFAULT_MODEL='llama3'\n"
+    "OPENCLAW_OLLAMA_URL='http://10.0.0.5:11434'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
@@ -3147,6 +3160,7 @@ _OPENCLAW_ENV_ZAI = (
     "OPENCLAW_GATEWAY_AUTH_MODE=token\n"
     "OPENCLAW_GATEWAY_AUTH_TOKEN='tkn'\n"
     "OPENCLAW_DEFAULT_MODEL='glm-4.5'\n"
+    "ZAI_API_KEY='sk-zai-1'\n"
     "DISCORD_BOT_TOKEN='discord-bot'\n"
     "GITHUB_TOKEN_GH_A='ghp_a'\n"
     "GITHUB_TOKEN='ghp_a'\n"
@@ -3196,35 +3210,70 @@ def test_openclaw_env_byte_lock(ptype, expected):
         ("anthropic", "ANTHROPIC_API_KEY", "sk-ant-1"),
         ("openai", "OPENAI_API_KEY", "sk-oa-1"),
         ("zai", "ZAI_API_KEY", "sk-zai-1"),
-        ("opencode", "OPENCODE_API_KEY", "sk-opencode-1"),
-        ("opencode-go", "OPENCODE_API_KEY", "sk-opencode-go-1"),
-        ("bedrock", "AWS_ACCESS_KEY_ID", "AKIA-1"),
-        ("bedrock", "AWS_SECRET_ACCESS_KEY", "secret-1"),
         ("ollama", "OPENCLAW_OLLAMA_URL", "http://10.0.0.5:11434"),
     ],
 )
-def test_openclaw_provider_credentials_absent_from_sandbox_env(
+def test_openclaw_provider_credentials_present_in_sandbox_env(
     ptype, expected_var, expected_secret
 ):
-    """Phase 4 (#946): the sandboxed openclaw process must NEVER receive
-    the raw provider bearer / AWS credentials / ollama URL via its
-    environment file. Every supported provider type is exercised.
+    """Fix #1: the sandboxed openclaw process needs the provider bearer
+    in its env — Phase 4 stripped it prematurely, leaving every sandboxed
+    openclaw unable to reach any LLM. Byte-lock tests above pin the exact
+    line; this test asserts the value is present per ptype so a future
+    accidental re-strip trips before the byte lock (clearer diagnostic).
 
-    Non-regression scope reminder: hermes / zeroclaw share `core/render.py`
-    but have separate `render_hermes` / `render_zeroclaw` templates that
-    still emit these vars — see the neighboring hermes/zeroclaw tests
-    which continue to assert positive presence.
+    Non-regression note: this test-name and the paired byte-lock updates
+    invert the Phase 4 "absent" contract intentionally. When §7.5's
+    gateway-registration path lands, both this test and the byte locks
+    revert together in a single commit — the openclaw process will then
+    read its bearer from a NemoClaw-forwarded env alias rather than the
+    raw provider bearer.
     """
     out = render_openclaw(_openclaw_inputs(ptype=ptype))
     env = out.files[".openclaw/env"]
-    assert expected_var not in env, (
-        f"Phase 4 leak: openclaw env for ptype={ptype!r} still contains "
-        f"{expected_var!r}. Credentials must be handed to NemoClaw's "
-        f"gateway (core/nemoclaw.py:gateway_register_provider) instead."
+    assert expected_var in env, (
+        f"fix #1 regression: openclaw env for ptype={ptype!r} is missing "
+        f"{expected_var!r}. Sandbox openclaw needs the provider bearer or "
+        f"chat fails at first LLM call with 'No API key found'."
     )
-    assert expected_secret not in env, (
-        f"Phase 4 leak: openclaw env for ptype={ptype!r} still contains "
-        "the raw provider credential/value even though the env var name was removed."
+    assert expected_secret in env, (
+        f"fix #1 regression: openclaw env for ptype={ptype!r} declares "
+        f"{expected_var!r} but the value doesn't match {expected_secret!r}."
+    )
+
+
+@pytest.mark.parametrize(
+    "ptype,leaked_var",
+    [
+        # Bedrock's AWS_* credentials are intentionally NOT re-emitted by
+        # fix #1's canonical template block (single-bearer path only). If
+        # a future fix-#1 extension adds bedrock support, delete this test
+        # and add a positive-presence entry above.
+        ("bedrock", "AWS_ACCESS_KEY_ID"),
+        ("bedrock", "AWS_SECRET_ACCESS_KEY"),
+        # opencode / opencode-go / vertex still route through the legacy
+        # .env.j2 configure template, not the canonical F3 template.
+        # Same deferral rationale as bedrock.
+        ("opencode", "OPENCODE_API_KEY"),
+        ("opencode-go", "OPENCODE_API_KEY"),
+    ],
+)
+def test_openclaw_unsupported_provider_types_stay_absent_from_sandbox_env(
+    ptype, leaked_var
+):
+    """Fix #1 scope guard: only openrouter/openai/anthropic/zai/gemini/
+    ollama/custom/anthropic-compatible are re-emitted by the canonical
+    template. Anything else must stay absent so we don't ship a partial
+    (broken) support path — extending coverage requires an intentional
+    template edit + this test moved into the presence-parametrize above.
+    """
+    out = render_openclaw(_openclaw_inputs(ptype=ptype))
+    env = out.files[".openclaw/env"]
+    assert leaked_var not in env, (
+        f"scope regression: fix #1's canonical template block leaked "
+        f"{leaked_var!r} for ptype={ptype!r}. Either add positive test "
+        f"coverage + a real-host validation for this ptype, or restore "
+        f"the strict absence guard."
     )
 
 
