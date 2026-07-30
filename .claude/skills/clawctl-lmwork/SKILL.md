@@ -62,7 +62,7 @@ Anthropic-side so it does not contend for the local stack.
 | 1 | Harvest candidates | orchestrator |
 | 2 | Staleness check → `DISPATCH` / `RESCOPE` / `CLOSE-REC` / `TRAP` | orchestrator |
 | 3 | Classify T1 / T2 / park; label `agent-ready` | orchestrator |
-| 4 | Create worktree + session + two windows | orchestrator |
+| 4 | Create worktree + session + two windows; stamp start time | orchestrator |
 | 5 | Write `<worktree>/.itx/<N>/lmwork-brief.md` | orchestrator |
 | 6 | Claim issue (`in-progress`); send brief to `lmworker` window | orchestrator |
 | 7 | Implement, commit locally | **lmworker** |
@@ -294,6 +294,7 @@ S="clawrium-${N}-lmwork"
 
 git worktree add "$WT" -b "$BRANCH" main
 mkdir -p "$WT/.itx/${N}"
+date -u +%Y-%m-%dT%H:%M:%SZ > "$WT/.itx/${N}/lmwork-started"
 
 tmux new-session -d -s "$S" -n lmworker -c "$WT"
 tmux send-keys -t "$S:lmworker" "pi --provider vllm-inx --model Qwen3.6-27B" Enter
@@ -303,6 +304,11 @@ tmux send-keys -t "$S:lmjudge" "claude --dangerously-skip-permissions" Enter
 ```
 
 Both sit idle at their prompts. Attach with `tmux attach -t clawrium-<N>-lmwork`.
+
+The start stamp goes in a file rather than being read back later from
+`tmux display-message -p '#{session_created}'`, because a session that has
+to be recreated mid-run resets its own creation clock and would silently
+undercount the run.
 
 `pi` resolves `VLLM_INX_KEY` from the env var, else from
 `~/.pi/agent/extensions/.env`. If neither is populated:
@@ -501,8 +507,24 @@ lmjudge opens the PR, not lmworker. The model that wrote the code is the
 wrong one to certify it — that is the precise failure that closed #883
 and #879.
 
+First work out how long the run took — session created to PR opened:
+
 ```bash
-tmux send-keys -t "$S:lmjudge" "Open the PR for #${N}. Use .github/PULL_REQUEST_TEMPLATE.md verbatim. Rebase on origin/main first. Include the ATX Review Summary and a Callouts section. Apply the existing label authored-by:local_qwen. Do not create any new labels." Enter
+N=<issue>
+WT="$(dirname "$(git rev-parse --show-toplevel)")/clawrium-issue-${N}"
+START="$(cat "$WT/.itx/${N}/lmwork-started")"
+MINS=$(( ( $(date -u +%s) - $(date -u -d "$START" +%s) ) / 60 ))
+ROUGH=$(( (MINS + 2) / 5 * 5 ))    # nearest 5 minutes
+```
+
+`WT` is re-derived here rather than reused from step 4 because the
+orchestrator's shell state does not survive between tool calls — an empty
+`$WT` would read a nonexistent stamp and hand lmjudge a fabricated number.
+If the stamp file is genuinely missing, report the wall time as `unknown`;
+do not estimate one.
+
+```bash
+tmux send-keys -t "$S:lmjudge" "Open the PR for #${N}. Use .github/PULL_REQUEST_TEMPLATE.md verbatim. Rebase on origin/main first. Include the ATX Review Summary and a Callouts section. Fill the Agent Execution table: wall time ~${ROUGH}m, judge rounds <n>, ATX rounds <n>, human interventions <n>. Apply the existing label authored-by:local_qwen. Do not create any new labels." Enter
 ```
 
 Requirements:
@@ -510,6 +532,7 @@ Requirements:
 - `.github/PULL_REQUEST_TEMPLATE.md` **verbatim** — not an ad-hoc shape.
 - **Rebase on `origin/main` before opening.** Long-lived branches drift and regress content; that is what closed #883 and #879. Same-day land or bounce.
 - ATX Review Summary table per AGENTS.md `<pr-format-atx>`.
+- Agent Execution table filled in, wall time included.
 - Callouts section, even if `_None._`
 - Apply the **existing** `authored-by:local_qwen` label to the PR. **Never create a new label.**
 
@@ -536,8 +559,16 @@ worktree — it never rides along in any one issue's PR. Append one line to
 `.itx/lmwork-ledger.jsonl`:
 
 ```json
-{"issue":123,"tier":"T1","shape":"doc-mirror-sync","judge_rounds":1,"atx_iterations":1,"atx_rating":4,"outcome":"pr-opened","pr":940,"ts":"2026-07-30T12:00:00Z"}
+{"issue":123,"tier":"T1","shape":"doc-mirror-sync","judge_rounds":1,"atx_iterations":1,"atx_rating":4,"outcome":"pr-opened","pr":940,"started":"2026-07-30T11:15:00Z","ended":"2026-07-30T12:00:00Z","wall_min":45,"interventions":0,"ts":"2026-07-30T12:00:00Z"}
 ```
+
+`started` is the step-4 stamp, `ended` is when the PR opened, and
+`wall_min` is the gap in whole minutes — the same number the PR reports,
+unrounded. `interventions` counts the times a human had to unstick the
+run. Together they answer the only question that decides whether this
+loop is worth running: is it cheaper than doing the issue yourself? A
+shape averaging 40 minutes at zero interventions is a win; the same shape
+at three interventions is a human doing the work with extra steps.
 
 `shape` is the task archetype (`doc-mirror-sync`, `dead-code-delete`,
 `guard-clause-widen`, `symbol-extract`, `middleware-add`,

@@ -93,6 +93,11 @@ When the orchestrator asks you to open the PR (after ATX clears):
 - Rebase on `origin/main` first.
 - Use `.github/PULL_REQUEST_TEMPLATE.md` **verbatim**.
 - Include the ATX Review Summary table per AGENTS.md `<pr-format-atx>`.
+- Fill the **Agent Execution** table. The orchestrator hands you the wall
+  time when it asks you to open the PR; do not try to derive it yourself.
+  Count your own judge rounds and lmworker's ATX rounds honestly — an
+  under-reported round count makes a run look cheaper than it was, which
+  is the whole reason the table exists.
 - Include a Callouts section, `_None._` if empty. Record real-host UAT
   as `[UNRESOLVED]` when the change needs it — that sign-off is the
   user's, not yours.
