@@ -214,9 +214,8 @@ Verify your fleet:
 clawctl agent get
 ```
 ```
-NAME           TYPE       HOST       PROVIDER       STATUS    AGE
-─────────────────────────────────────────────────────────────────
-my-assistant   openclaw   homelab    my-anthropic   ready     1m
+NAME           TYPE       HOST      PROVIDER       STATUS   AGE   RUNTIME
+my-assistant   openclaw   homelab   my-anthropic   ready    1m    nemoclaw@v0.0.97
 ```
 
 ## Step 9: Chat with Your Agent

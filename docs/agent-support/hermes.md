@@ -79,7 +79,7 @@ Hermes supports three channels managed by clawctl: a loopback OpenAI-compatible 
 ### 1. Install Hermes
 
 ```bash
-clawctl agent create --type hermes --host <host> --name <agent-name>
+clawctl agent create <agent-name> --type hermes --host <host>
 ```
 
 What happens:

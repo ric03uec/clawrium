@@ -31,7 +31,7 @@ clawctl host describe <host-alias>
 clawctl provider registry create anthropic --type anthropic
 
 # Install, configure, and start an agent
-clawctl agent create --type <agent-type> --host <host-alias> --name <agent-name>
+clawctl agent create <agent-name> --type <agent-type> --host <host-alias>
 clawctl agent configure <agent-name>
 clawctl agent start <agent-name>
 

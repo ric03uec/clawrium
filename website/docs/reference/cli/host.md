@@ -396,27 +396,39 @@ clawctl host validate <hostname> [options]
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--output` | `-o` | Output format: `table` (default), `json`, `yaml` |
+| `--no-headers` | | Omit the header row (table mode only) |
 
 ### Example
 
 ```bash
 $ clawctl host validate pi-lab
-Validating host 'pi-lab'...
-          Host Validation: pi-lab
-┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
-┃ Sandbox         ┃ Version          ┃ Status ┃
-┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━┩
-│ opc-work        │ nemoclaw@v0.0.94 │ healthy│
-└─────────────────┴──────────────────┴────────┘
-All openclaw sandboxes on 'pi-lab' are healthy.
+AGENT      SANDBOX        STATUS      DETAIL
+opc-work   opc-work-sbx   healthy
+opc-lab    opc-lab-sbx    unhealthy   sandbox not running
 ```
+
+When the host has no openclaw agents, nothing is probed:
+
+```bash
+$ clawctl host validate lab2
+host 'lab2': no openclaw agents to validate
+```
+
+### Status Values
+
+| Status | Meaning |
+|--------|---------|
+| `healthy` | `nemoclaw status <sandbox>` succeeded |
+| `unhealthy` | The status probe failed; `DETAIL` carries the error |
+| `legacy` | The agent record has no `sandbox_name` — remove and re-create the agent |
+| `error` | The probe could not be dispatched at all |
 
 ### Exit Codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | All sandboxes healthy, or no openclaw agents on the host |
-| 1 | One or more sandboxes are unhealthy |
+| 1 | One or more sandboxes are not `healthy` |
 
 **Related:**
 - [OpenClaw — NemoClaw Substrate](../../agent-support/openclaw.md) — Understanding the sandbox runtime
