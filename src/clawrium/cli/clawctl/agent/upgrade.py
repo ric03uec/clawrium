@@ -151,7 +151,8 @@ def upgrade(
     skip_live_probe: bool = typer.Option(
         False,
         "--skip-live-probe",
-        help="Trust the hosts.json snapshot instead of probing the host.",
+        help="If the live version probe fails, trust the snapshot "
+        "rather than erroring out.",
         hidden=True,
     ),
     output: OutputFormat = typer.Option(

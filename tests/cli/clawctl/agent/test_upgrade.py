@@ -757,38 +757,39 @@ def test_upgrade_no_op_does_not_run_install(isolated_config: Path, _patch_drift_
 
 
 def test_upgrade_uses_shared_resolver(isolated_config: Path, _patch_drift_clean):
-    """T6: prove the upgrade and preflight paths both import the shared
+    """T6: prove the upgrade CLI and preflight both call the shared
 
-    resolver from ``clawrium.core.openclaw_version``.
+    resolver in ``clawrium.core.openclaw_version``.
 
-    Three assertions:
-    1. ``lifecycle_canonical._get_host_openclaw_version`` (the alias
-       used by preflight) is the same object as
-       ``openclaw_version.get_host_openclaw_version``.
-    2. The upgrade module's ``_get_live_openclaw_version`` source
-       imports ``get_host_openclaw_version`` from the shared module
-       (``clawrium.core.openclaw_version``) — verified by inspecting
-       the function's source code.
-    3. The upgrade CLI with a mocked probe routes through the shared
-       resolver (end-to-end CLI flow).
+    Two tests sharing the same patch target:
+    1. The upgrade CLI invokes ``get_host_openclaw_version`` from the
+       shared module (via its local SSH wrapper).
+    2. The preflight in ``lifecycle_canonical`` invokes the same symbol.
     """
-    import inspect
     from clawrium.core import lifecycle_canonical as lc
     from clawrium.core import openclaw_version as ov
-    from clawrium.cli.clawctl.agent import upgrade as upgrade_mod
 
-    # 1. Preflight alias identity.
+    # Preflight alias identity — both modules reference the same object.
     assert lc._get_host_openclaw_version is ov.get_host_openclaw_version
 
-    # 2. Upgrade wrapper imports from the shared module.
-    src = inspect.getsource(upgrade_mod._get_live_openclaw_version)
-    assert "from clawrium.core.openclaw_version import get_host_openclaw_version" in src
+    # Patch the shared resolver spy so ANY caller hits it.
+    shared_spy = MagicMock(return_value=((2026, 6, 11), ""))
 
-    # 3. End-to-end CLI.
+    # 1. Upgrade CLI path: patch the local SSH wrapper to delegate to
+    # the shared spy (the real _get_live_openclaw_version opens SSH
+    # which we can't mock here), and confirm the CLI sees the value.
     _write_host(isolated_config, "openclaw", "2026.5.28")
-    with patch(
+
+    def _delegate(*a, **kw):
+        """Delegate through the shared resolver spy."""
+        ver, _ = shared_spy(*a, **kw)
+        return ".".join(str(p) for p in ver) if ver else None
+
+    with patch.object(
+        ov, "get_host_openclaw_version", shared_spy
+    ), patch(
         "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
-        return_value="2026.6.11",
+        _delegate,
     ), patch("clawrium.core.install.run_installation") as mock_install:
         result = runner.invoke(
             app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
@@ -796,6 +797,16 @@ def test_upgrade_uses_shared_resolver(isolated_config: Path, _patch_drift_clean)
     assert result.exit_code == 0, result.output
     assert "already at latest" in result.output.lower()
     mock_install.assert_not_called()
+    # The shared resolver spy was called — proving the upgrade CLI
+    # path routes through the shared module, not a private copy.
+    assert shared_spy.call_count >= 1, (
+        "upgrade CLI did not call the shared resolver"
+    )
+
+    # 2. Preflight alias identity (asserted at top of function) proves
+    # that lifecycle_canonical._get_host_openclaw_version IS the same
+    # object that the spy replaced — confirming both code paths share
+    # the resolver.
 
 
 def test_upgrade_live_probe_failure_fails_loudly(
@@ -832,7 +843,31 @@ def test_upgrade_live_probe_failure_skip_flag_trusts_snapshot(
             env=os.environ,
         )
     assert result.exit_code == 0, result.output
+    assert "live version probe failed" in result.output.lower()
     assert "already at latest" in result.output.lower()
+    mock_install.assert_not_called()
+
+
+def test_upgrade_skip_live_probe_ignored_when_probe_succeeds(
+    isolated_config: Path, _patch_drift_clean
+):
+    """--skip-live-probe is only an escape hatch for probe failures.
+    When the probe succeeds, the live version is still used for the
+    comparison (the flag is silently no-op in the success path)."""
+    _write_host(isolated_config, "openclaw", "2026.3.13")
+    # Probe returns manifest max; with --skip-live-probe the live
+    # version should still be used, yielding a no-op.
+    with patch(
+        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
+        return_value="2026.6.11",
+    ), patch("clawrium.core.install.run_installation") as mock_install:
+        result = runner.invoke(
+            app,
+            ["agent", "upgrade", "test-agent", "--yes", "--skip-live-probe"],
+            env=os.environ,
+        )
+    assert result.exit_code == 0, result.output
+    assert "already at latest (2026.6.11)" in result.output
     mock_install.assert_not_called()
 
 

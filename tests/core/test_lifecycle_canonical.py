@@ -2251,7 +2251,7 @@ class TestOpenclawBraveVersionPreflight:
 
 
 class TestParseSemverTuple:
-    """`_parse_semver_tuple` is the security-relevant gate that decides
+    """`parse_semver_tuple` is the security-relevant gate that decides
     whether the brave plugin install proceeds. Direct tests rather than
     going through the SSH-mocked happy path so a parser regression
     surfaces on its own."""
@@ -2267,7 +2267,7 @@ class TestParseSemverTuple:
         ],
     )
     def test_parses_realistic_version_strings(self, raw, expected):
-        assert lc._parse_semver_tuple(raw) == expected
+        assert lc.parse_semver_tuple(raw) == expected
 
     @pytest.mark.parametrize(
         "raw",
@@ -2280,14 +2280,14 @@ class TestParseSemverTuple:
         ],
     )
     def test_returns_none_for_unparseable_input(self, raw):
-        assert lc._parse_semver_tuple(raw) is None
+        assert lc.parse_semver_tuple(raw) is None
 
     def test_picks_first_line_only(self):
         """If a future build prints a Node/Rust runtime version after
         the openclaw version, we want the openclaw line, not the
         runtime line. (W8 ATX iter 1)"""
         raw = "openclaw 2026.5.28\nnode v22.1.0\n"
-        assert lc._parse_semver_tuple(raw) == (2026, 5, 28)
+        assert lc.parse_semver_tuple(raw) == (2026, 5, 28)
 
 
 class _ProbeMockClient:

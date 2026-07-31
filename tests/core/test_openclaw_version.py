@@ -12,7 +12,7 @@ from io import BytesIO
 import pytest
 
 from clawrium.core.openclaw_version import (
-    _parse_semver_tuple,
+    parse_semver_tuple,
     _run_openclaw_version_probe,
     get_host_openclaw_version,
 )
@@ -62,7 +62,7 @@ class _FakeClient:
         pass
 
 
-# ─── _parse_semver_tuple ───────────────────────────────────────────────────
+# ─── parse_semver_tuple ───────────────────────────────────────────────────
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
@@ -74,25 +74,30 @@ class _FakeClient:
         ("garbage", None),
     ],
 )
-def test_parse_semver_tuple(raw: str, expected):
-    assert _parse_semver_tuple(raw) == expected
+def testparse_semver_tuple(raw: str, expected):
+    assert parse_semver_tuple(raw) == expected
 
 
-def test_parse_semver_tuple_empty_string():
+def testparse_semver_tuple_empty_string():
     """Empty string returns None (no crash)."""
-    assert _parse_semver_tuple("") is None
+    assert parse_semver_tuple("") is None
 
 
 # ─── Dispatcher: Linux ──────────────────────────────────────────────────────
 
 def test_dispatcher_linux():
     """Dispatcher selects linux when os_family is 'linux', '', or None."""
-    for os_family in ("linux", "", None):
+    for raw_os_family in ("linux", "", None):
         client = _FakeClient(version_output="2026.6.8")
-        version, _ = get_host_openclaw_version(
-            client, "test-agent", os_family=os_family or "linux"
-        )
-        assert version == (2026, 6, 8), f"Failed for os_family={os_family!r}"
+        if raw_os_family is None:
+            version, _ = get_host_openclaw_version(
+                client, "test-agent", os_family="linux"
+            )
+        else:
+            version, _ = get_host_openclaw_version(
+                client, "test-agent", os_family=raw_os_family
+            )
+        assert version == (2026, 6, 8), f"Failed for os_family={raw_os_family!r}"
         assert len(client.commands) == 1
         assert "/home/" in client.commands[0]
 

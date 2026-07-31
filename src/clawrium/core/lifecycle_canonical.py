@@ -51,8 +51,8 @@ import paramiko
 from clawrium.core.hosts import get_agent_by_name
 from clawrium.core.keys import get_host_private_key
 from clawrium.core.openclaw_version import (
-    _parse_semver_tuple,
     get_host_openclaw_version,
+    parse_semver_tuple,
 )
 from clawrium.core.playbook_resolver import home_root_for, unit_path_for
 from clawrium.core.render import (
@@ -159,7 +159,7 @@ def _load_openclaw_brave_pin() -> dict:
             "version, min_host_version} — clawrium build is corrupt; "
             "reinstall via `uv tool install clawrium`."
         )
-    minv_tuple = _parse_semver_tuple(minv)
+    minv_tuple = parse_semver_tuple(minv)
     if minv_tuple is None:
         raise CanonicalSyncError(
             f"openclaw manifest plugins.brave.min_host_version={minv!r} "

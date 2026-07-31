@@ -23,7 +23,7 @@ from clawrium.core.playbook_resolver import home_root_for
 if TYPE_CHECKING:
     pass
 
-__all__ = ["get_host_openclaw_version"]
+__all__ = ["get_host_openclaw_version", "parse_semver_tuple"]
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ _MACOS_OPENCLAW_PATH_SAFELIST: tuple[str, ...] = (
 
 # ─── Parsing ──────────────────────────────────────────────────────────────────
 
-def _parse_semver_tuple(raw: str) -> tuple[int, int, int] | None:
+def parse_semver_tuple(raw: str) -> tuple[int, int, int] | None:
     """Parse a leading ``X.Y.Z`` out of *raw*.
 
     Returns ``None`` when no triple is present (treated as unknown,
@@ -110,7 +110,7 @@ def _run_openclaw_version_probe(
     stderr_tail = err_bytes.decode("utf-8", errors="replace")[-512:].strip()
     if out.channel.recv_exit_status() != 0:
         return None, stderr_tail
-    return _parse_semver_tuple(body), stderr_tail
+    return parse_semver_tuple(body), stderr_tail
 
 
 # ─── Per-OS resolvers ────────────────────────────────────────────────────────
