@@ -120,8 +120,8 @@ nuc-01      oc-work        openclaw   anthropic  running   12h
 ```
 
 ```bash
-# Install an agent on a host (name is positional)
-clawctl agent create my-assistant --type openclaw --host homelab
+# Install an agent on a host (name is positional, --provider is mandatory for openclaw since v26.7.3)
+clawctl agent create my-assistant --type openclaw --host homelab --provider my-provider
 ```
 ```
 Installing openclaw on homelab...

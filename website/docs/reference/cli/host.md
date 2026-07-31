@@ -16,6 +16,7 @@ clawctl host <command> [options]
 | [`clawctl host delete`](#clawctl-host-delete) | Remove a host from the fleet |
 | [`clawctl host status`](#clawctl-host-status) | Check status of a host |
 | [`clawctl host reset`](#clawctl-host-reset) | Reset a host, removing all agents and users |
+| [`clawctl host validate`](#clawctl-host-validate) | Validate NemoClaw sandbox health on a host |
 | [`clawctl host address`](#address-subcommands) | Manage multiple addresses for a host |
 
 ---
@@ -373,6 +374,53 @@ Host removed from tracking.
 |------|---------|
 | 0 | Reset completed successfully |
 | 1 | Host not found, reset failed, or user aborted |
+
+---
+
+## clawctl host validate
+
+Read-only aggregation of NemoClaw sandbox health for every openclaw agent on the host. Since v26.7.3, every openclaw runs inside a NemoClaw sandbox — this command runs `nemoclaw status <sandbox>` for each one and reports the collective health.
+
+```bash
+clawctl host validate <hostname> [options]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `hostname` | Host hostname or alias to validate |
+
+### Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--output` | `-o` | Output format: `table` (default), `json`, `yaml` |
+
+### Example
+
+```bash
+$ clawctl host validate pi-lab
+Validating host 'pi-lab'...
+          Host Validation: pi-lab
+┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
+┃ Sandbox         ┃ Version          ┃ Status ┃
+┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━┩
+│ opc-work        │ nemoclaw@v0.0.94 │ healthy│
+└─────────────────┴──────────────────┴────────┘
+All openclaw sandboxes on 'pi-lab' are healthy.
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | All sandboxes healthy, or no openclaw agents on the host |
+| 1 | One or more sandboxes are unhealthy |
+
+**Related:**
+- [OpenClaw — NemoClaw Substrate](../../agent-support/openclaw.md) — Understanding the sandbox runtime
+- [`clawctl agent get`](./agent.md) — View the `RUNTIME` column per agent
 
 ---
 

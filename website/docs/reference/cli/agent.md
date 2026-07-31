@@ -25,26 +25,32 @@ clawctl agent create <agent-type> --host <host> --name <agent-name> [options]
 ```
 
 **Arguments:**
-- `agent-type` - Type of agent to install (e.g., `openclaw`, `zeroclaw`, `nanoclaw`)
+- `agent-type` - Type of agent to install (e.g., `openclaw`, `zeroclaw`, `hermes`)
 
 **Options:**
 - `--host <hostname>` - Target host (required)
 - `--name <name>` - Agent instance name (required)
 - `--version <version>` - Specific version to install (default: latest)
 - `--user <username>` - User to run the agent as (default: from manifest)
+- `--provider <name>` - Inference provider name (required for `openclaw` since v26.7.3; see below)
 
 **Examples:**
 
 ```bash
-# Install latest openclaw
-clawctl agent create openclaw --host lab1 --name opc-work
+# Install latest hermes
+clawctl agent create hermes --host lab1 --name maurice
+
+# Install openclaw — provider is mandatory (since v26.7.3)
+clawctl agent create openclaw --host lab1 --name opc-work --provider clm-openrouter
 
 # Install specific version
 clawctl agent create zeroclaw --host pi4 --name zc-edge --version 2026.3.0
 
 # Install with custom user
-clawctl agent create openclaw --host lab2 --name opc-dev --user alice
+clawctl agent create hermes --host lab2 --name alice --user alice
 ```
+
+> **`--provider` is mandatory for openclaw.** Since v26.7.3, every openclaw instance runs inside an NVIDIA NemoClaw sandbox, and the NemoClaw onboarding flow requires a provider at install time. Without `--provider`, the command exits with a hint to list available providers via `clawctl provider registry get`. Other agent types (hermes, zeroclaw) still use the split create → configure lifecycle where provider selection happens during `clawctl agent configure`.
 
 **What happens:**
 1. Verifies host compatibility
@@ -487,53 +493,51 @@ Use `--keep-data` to preserve these files for later reinstallation.
 
 ---
 
-### list
+### get
 
 List all installed agents across the fleet.
 
 ```bash
-clawctl agent list [options]
+clawctl agent get [options]
 ```
 
 **Options:**
 - `--host <hostname>` - Filter by host
 - `--type <agent-type>` - Filter by agent type
-- `--status <status>` - Filter by status (pending, onboarding, ready, running, stopped, error)
 - `--json` - Output in JSON format
 
 **Examples:**
 
 ```bash
 # List all agents
-clawctl agent list
+clawctl agent get
 
 # List agents on specific host
-clawctl agent list --host lab1
+clawctl agent get --host lab1
 
 # List all openclaw instances
-clawctl agent list --type openclaw
-
-# List running agents only
-clawctl agent list --status running
+clawctl agent get --type openclaw
 
 # JSON output
-clawctl agent list --json
+clawctl agent get --json
 ```
 
 **Output:**
+
 ```
 Installed Agents (4):
 
-┌──────────┬──────┬─────────┬─────────────┬────────────┐
-│ Name     │ Host │ Type    │ Version     │ Status     │
-├──────────┼──────┼─────────┼─────────────┼────────────┤
-│ opc-work │ lab1 │ openclaw│ 2026.4.2    │ RUNNING    │
-│ opc-home │ lab1 │ openclaw│ 2026.4.2    │ READY      │
-│ zc-edge  │ pi4  │ zeroclaw│ 2026.3.1    │ RUNNING    │
-│ nc-test  │ lab2 │ nanoclaw│ 2026.2.0    │ ONBOARDING │
-└──────────┴──────┴─────────┴─────────────┴────────────┘
+┌──────────┬──────┬─────────┬──────────────────┬────────────┐
+│ Name     │ Host │ Type    │ Runtime          │ Status     │
+├──────────┼──────┼─────────┼──────────────────┼────────────┤
+│ opc-work │ lab1 │ openclaw│ nemoclaw@v0.0.94 │ RUNNING    │
+│ opc-home │ lab1 │ openclaw│ nemoclaw@v0.0.94 │ READY      │
+│ zc-edge  │ pi4  │ zeroclaw│ -                │ RUNNING    │
+│ maurice  │ lab2 │ hermes  │ -                │ ONBOARDING │
+└──────────┴──────┴─────────┴──────────────────┴────────────┘
 ```
 
+> **RUNTIME column (since v26.7.3).** The `RUNTIME` column appears on all `clawctl agent get` output. For openclaw agents it shows `nemoclaw@<version>` — every openclaw now runs inside an NVIDIA NemoClaw sandbox. For other agent types it displays `-`.
 ---
 
 ### chat
@@ -685,6 +689,8 @@ clawctl agent upgrade opc-work -o json
    `--skip-drift-check` to bypass.
 4. **Drift bypass** — `--skip-drift-check` proceeds without comparing
    rendered vs. on-host files. The upgrade is force-installed in place.
+
+**Live version probing (since v26.7.3).** `clawctl agent upgrade` now probes the live binary version on the host instead of trusting the `hosts.json` snapshot. This closes the false-no-op trap: if the snapshot says v26.7.1 but the actual on-host binary is already v26.7.3, the command correctly reports "already at latest" instead of proceeding with an unnecessary reinstall.
 
 **Notes:**
 - Onboarding configuration, secrets, and identity files are preserved.

@@ -133,10 +133,10 @@ homelab    192.168.1.100   x86_64         4       16.0          -
 
 ## Step 5: Install the Agent
 
-Install OpenClaw on your host (the agent name is positional):
+Install OpenClaw on your host (the agent name is positional). Since v26.7.3, `--provider` is mandatory — NemoClaw onboarding requires a provider at install time:
 
 ```bash
-clawctl agent create my-assistant --type openclaw --host homelab
+clawctl agent create my-assistant --type openclaw --host homelab --provider my-provider
 ```
 ```
 Fetching openclaw manifest...
