@@ -368,7 +368,7 @@ Complete onboarding: clawctl agent configure opc-work
 **Fix:** Reinstall the agent:
 ```bash
 clawctl agent delete opc-work
-clawctl agent create openclaw --host lab1 --name opc-work
+clawctl agent create opc-work --type openclaw --host lab1 --provider my-provider
 clawctl agent configure opc-work
 ```
 

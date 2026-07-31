@@ -16,6 +16,7 @@ clawctl host <command> [options]
 | [`clawctl host delete`](#clawctl-host-delete) | Remove a host from the fleet |
 | [`clawctl host status`](#clawctl-host-status) | Check status of a host |
 | [`clawctl host reset`](#clawctl-host-reset) | Reset a host, removing all agents and users |
+| [`clawctl host validate`](#clawctl-host-validate) | Validate NemoClaw sandbox health on a host |
 | [`clawctl host address`](#address-subcommands) | Manage multiple addresses for a host |
 
 ---
@@ -373,6 +374,65 @@ Host removed from tracking.
 |------|---------|
 | 0 | Reset completed successfully |
 | 1 | Host not found, reset failed, or user aborted |
+
+---
+
+## clawctl host validate
+
+Read-only aggregation of NemoClaw sandbox health for every openclaw agent on the host. Since v26.7.3, every openclaw runs inside a NemoClaw sandbox — this command runs `nemoclaw status <sandbox>` for each one and reports the collective health.
+
+```bash
+clawctl host validate <hostname> [options]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `hostname` | Host hostname or alias to validate |
+
+### Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--output` | `-o` | Output format: `table` (default), `json`, `yaml` |
+| `--no-headers` | | Omit the header row (table mode only) |
+
+### Example
+
+```bash
+$ clawctl host validate pi-lab
+AGENT      SANDBOX        STATUS      DETAIL
+opc-work   opc-work-sbx   healthy
+opc-lab    opc-lab-sbx    unhealthy   sandbox not running
+```
+
+When the host has no openclaw agents, nothing is probed:
+
+```bash
+$ clawctl host validate lab2
+host 'lab2': no openclaw agents to validate
+```
+
+### Status Values
+
+| Status | Meaning |
+|--------|---------|
+| `healthy` | `nemoclaw status <sandbox>` succeeded |
+| `unhealthy` | The status probe failed; `DETAIL` carries the error |
+| `legacy` | The agent record has no `sandbox_name` — remove and re-create the agent |
+| `error` | The probe could not be dispatched at all |
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | All sandboxes healthy, or no openclaw agents on the host |
+| 1 | One or more sandboxes are not `healthy` |
+
+**Related:**
+- [OpenClaw — NemoClaw Substrate](../../agent-support/openclaw.md) — Understanding the sandbox runtime
+- [`clawctl agent get`](./agent.md) — View the `RUNTIME` column per agent
 
 ---
 

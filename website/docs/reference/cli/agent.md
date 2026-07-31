@@ -16,35 +16,42 @@ clawctl agent <command> [options]
 
 ## Commands
 
-### install
+### create
 
 Install an agent on a host.
 
 ```bash
-clawctl agent create <agent-type> --host <host> --name <agent-name> [options]
+clawctl agent create <agent-name> --type <agent-type> --host <host> [options]
 ```
 
 **Arguments:**
-- `agent-type` - Type of agent to install (e.g., `openclaw`, `zeroclaw`, `nanoclaw`)
+- `agent-name` - Name for the new agent instance (positional, required)
 
 **Options:**
-- `--host <hostname>` - Target host (required)
-- `--name <name>` - Agent instance name (required)
-- `--version <version>` - Specific version to install (default: latest)
-- `--user <username>` - User to run the agent as (default: from manifest)
+- `--type`, `-t <agent-type>` - Agent type, e.g. `openclaw`, `zeroclaw`, `hermes` (required)
+- `--host`, `-H <hostname>` - Target host, name or alias (required)
+- `--provider`, `-P <name>` - Initial provider to attach (required for `openclaw` since v26.7.3; see below)
+- `--yes`, `-y` - Skip confirmation prompts
+- `--force`, `-f` - Reinstall even if the same version is already present
+- `--cleanup-failed` - Remove a failed installation before retrying
 
 **Examples:**
 
 ```bash
-# Install latest openclaw
-clawctl agent create openclaw --host lab1 --name opc-work
+# Install hermes
+clawctl agent create maurice --type hermes --host lab1
 
-# Install specific version
-clawctl agent create zeroclaw --host pi4 --name zc-edge --version 2026.3.0
+# Install openclaw — provider is mandatory (since v26.7.3)
+clawctl agent create opc-work --type openclaw --host lab1 --provider clm-openrouter
 
-# Install with custom user
-clawctl agent create openclaw --host lab2 --name opc-dev --user alice
+# Install zeroclaw
+clawctl agent create zc-edge --type zeroclaw --host pi4
+
+# Retry after a failed install
+clawctl agent create opc-work --type openclaw --host lab1 --provider clm-openrouter --cleanup-failed
 ```
+
+> **`--provider` is mandatory for openclaw.** Since v26.7.3, every openclaw instance runs inside an NVIDIA NemoClaw sandbox, and the NemoClaw onboarding flow requires a provider at install time. Without `--provider`, the command exits with a hint to list available providers via `clawctl provider registry get`. Other agent types (hermes, zeroclaw) still use the split create → configure lifecycle where provider selection happens during `clawctl agent configure`.
 
 **What happens:**
 1. Verifies host compatibility
@@ -487,52 +494,46 @@ Use `--keep-data` to preserve these files for later reinstallation.
 
 ---
 
-### list
+### get
 
 List all installed agents across the fleet.
 
 ```bash
-clawctl agent list [options]
+clawctl agent get [options]
 ```
 
 **Options:**
-- `--host <hostname>` - Filter by host
-- `--type <agent-type>` - Filter by agent type
-- `--status <status>` - Filter by status (pending, onboarding, ready, running, stopped, error)
-- `--json` - Output in JSON format
+- `--output`, `-o <format>` - Output format: `table` (default), `json`, `yaml`, `wide`, `name`
+- `--selector`, `-l <KEY=VALUE>` - Filter by host label. Repeatable
+- `--no-headers` - Omit the header row (table mode only)
 
 **Examples:**
 
 ```bash
 # List all agents
-clawctl agent list
+clawctl agent get
 
-# List agents on specific host
-clawctl agent list --host lab1
+# Filter by host label
+clawctl agent get -l env=prod
 
-# List all openclaw instances
-clawctl agent list --type openclaw
-
-# List running agents only
-clawctl agent list --status running
+# Extra columns (address, port, version, install time)
+clawctl agent get -o wide
 
 # JSON output
-clawctl agent list --json
+clawctl agent get -o json
 ```
 
 **Output:**
-```
-Installed Agents (4):
 
-┌──────────┬──────┬─────────┬─────────────┬────────────┐
-│ Name     │ Host │ Type    │ Version     │ Status     │
-├──────────┼──────┼─────────┼─────────────┼────────────┤
-│ opc-work │ lab1 │ openclaw│ 2026.4.2    │ RUNNING    │
-│ opc-home │ lab1 │ openclaw│ 2026.4.2    │ READY      │
-│ zc-edge  │ pi4  │ zeroclaw│ 2026.3.1    │ RUNNING    │
-│ nc-test  │ lab2 │ nanoclaw│ 2026.2.0    │ ONBOARDING │
-└──────────┴──────┴─────────┴─────────────┴────────────┘
 ```
+NAME       TYPE       HOST   PROVIDER         STATUS       AGE   RUNTIME
+opc-work   openclaw   lab1   clm-openrouter   running      3d    nemoclaw@v0.0.97
+opc-home   openclaw   lab1   clm-openrouter   ready        3d    nemoclaw@v0.0.97
+zc-edge    zeroclaw   pi4    anthropic        running      12h   -
+maurice    hermes     lab2   openrouter       onboarding   1h    -
+```
+
+> **RUNTIME column (since v26.7.3).** The `RUNTIME` column appears in both the default and `-o wide` views. For openclaw agents it shows `nemoclaw@<version>` — every openclaw now runs inside an NVIDIA NemoClaw sandbox. For other agent types it displays `-`.
 
 ---
 
@@ -685,6 +686,8 @@ clawctl agent upgrade opc-work -o json
    `--skip-drift-check` to bypass.
 4. **Drift bypass** — `--skip-drift-check` proceeds without comparing
    rendered vs. on-host files. The upgrade is force-installed in place.
+
+**Live version probing (openclaw, since v26.7.3).** For openclaw agents, `clawctl agent upgrade` probes the on-host binary over SSH (`openclaw --version`) and compares that against the manifest's max supported version, instead of trusting the `hosts.json` snapshot. This closes the false-no-op trap in both directions: if the snapshot says `2026.6.1` but the binary is already `2026.6.8`, the command reports "already at latest" rather than reinstalling; if the snapshot is ahead of reality, the upgrade still runs. Other agent types continue to compare against the snapshot. If the probe itself fails, the command errors out rather than guessing.
 
 **Notes:**
 - Onboarding configuration, secrets, and identity files are preserved.

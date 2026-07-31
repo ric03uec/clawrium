@@ -140,8 +140,10 @@ Integrations allow the agent to interact with external tools and services:
 ### 1. Install OpenClaw
 
 ```bash
-clawctl agent create --type openclaw --host <host-alias> --name my-assistant
+clawctl agent create my-assistant --type openclaw --host <host-alias> --provider <provider-name>
 ```
+
+> **`--provider` is mandatory** since v26.7.3. NemoClaw onboarding requires a provider at install time. List available providers with `clawctl provider registry get`.
 
 ### 2. Configure the Agent
 

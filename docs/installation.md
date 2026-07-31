@@ -191,8 +191,8 @@ Both `hermes` and `openclaw` agent types are supported on macOS
 # hermes
 clawctl agent create <name> --type hermes --host <alias>
 
-# openclaw
-clawctl agent create <name> --type openclaw --host <alias>
+# openclaw (--provider is mandatory since v26.7.3)
+clawctl agent create <name> --type openclaw --host <alias> --provider <provider-name>
 ```
 
 Behind the scenes, clawrium installs Homebrew (if missing) and the

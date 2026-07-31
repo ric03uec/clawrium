@@ -101,7 +101,7 @@ ZeroClaw's only chat surface is the daemon's own WebSocket endpoint at `GET /ws/
 ### 1. Install ZeroClaw
 
 ```bash
-clawctl agent create --type zeroclaw --host <host-alias> --name <agent-name>
+clawctl agent create <agent-name> --type zeroclaw --host <host-alias>
 ```
 
 What happens:

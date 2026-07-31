@@ -33,4 +33,9 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Documentation
 
+- Document `clawctl host validate`, the `RUNTIME` column on `clawctl agent get`,
+  and openclaw's mandatory `--provider` flag; correct the `clawctl agent create`
+  and `clawctl agent get` reference sections, whose documented signatures and
+  options had drifted from the real CLI (#947-#950, #754).
+
 ### Internal

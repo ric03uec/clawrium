@@ -113,15 +113,14 @@ Detecting hardware capabilities...
 clawctl agent get
 ```
 ```
-HOST        AGENT          TYPE       PROVIDER   STATUS    UPTIME
-──────────────────────────────────────────────────────────────────
-homelab     oc-discord     openclaw   openai     running   3d 4h
-nuc-01      oc-work        openclaw   anthropic  running   12h
+NAME         TYPE       HOST      PROVIDER    STATUS    AGE   RUNTIME
+oc-discord   openclaw   homelab   openai      running   3d    nemoclaw@v0.0.97
+oc-work      openclaw   nuc-01    anthropic   running   12h   nemoclaw@v0.0.97
 ```
 
 ```bash
-# Install an agent on a host (name is positional)
-clawctl agent create my-assistant --type openclaw --host homelab
+# Install an agent on a host (name is positional, --provider is mandatory for openclaw since v26.7.3)
+clawctl agent create my-assistant --type openclaw --host homelab --provider my-provider
 ```
 ```
 Installing openclaw on homelab...
