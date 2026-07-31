@@ -19,6 +19,7 @@ def test_describe_text_format(fleet_dir) -> None:
     assert "Kind:" in result.output
     assert "Address:" in result.output
     assert "Description:" in result.output
+    assert "Description: -" in result.output
 
 
 def test_describe_json_format(fleet_dir) -> None:
