@@ -130,7 +130,7 @@ def test_edit_description_clear_with_empty_string(fleet_dir) -> None:
 
     host = get_host("wolf-i")
     assert host is not None
-    assert "description" not in host or not host["description"]
+    assert "description" not in host
 
 
 def test_edit_description_hint_lists_flag(fleet_dir) -> None:
