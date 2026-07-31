@@ -25,6 +25,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from clawrium.core import lifecycle_canonical as lc
+from clawrium.core import openclaw_version as ov
 from clawrium.core.lifecycle_canonical import (
     CanonicalSyncError,
     SecretRemovalRefused,
@@ -2250,7 +2251,7 @@ class TestOpenclawBraveVersionPreflight:
 
 
 class TestParseSemverTuple:
-    """`_parse_semver_tuple` is the security-relevant gate that decides
+    """`parse_semver_tuple` is the security-relevant gate that decides
     whether the brave plugin install proceeds. Direct tests rather than
     going through the SSH-mocked happy path so a parser regression
     surfaces on its own."""
@@ -2266,7 +2267,7 @@ class TestParseSemverTuple:
         ],
     )
     def test_parses_realistic_version_strings(self, raw, expected):
-        assert lc._parse_semver_tuple(raw) == expected
+        assert lc.parse_semver_tuple(raw) == expected
 
     @pytest.mark.parametrize(
         "raw",
@@ -2279,14 +2280,14 @@ class TestParseSemverTuple:
         ],
     )
     def test_returns_none_for_unparseable_input(self, raw):
-        assert lc._parse_semver_tuple(raw) is None
+        assert lc.parse_semver_tuple(raw) is None
 
     def test_picks_first_line_only(self):
         """If a future build prints a Node/Rust runtime version after
         the openclaw version, we want the openclaw line, not the
         runtime line. (W8 ATX iter 1)"""
         raw = "openclaw 2026.5.28\nnode v22.1.0\n"
-        assert lc._parse_semver_tuple(raw) == (2026, 5, 28)
+        assert lc.parse_semver_tuple(raw) == (2026, 5, 28)
 
 
 class _ProbeMockClient:
@@ -2330,7 +2331,7 @@ class TestGetHostOpenclawVersionLinux:
         fail the test rather than survive on generic substring
         matches."""
         probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
-        version, _ = lc._get_host_openclaw_version_linux(probe.as_client(), "wolf-i")
+        version, _ = ov._get_host_openclaw_version_linux(probe.as_client(), "wolf-i")
         assert version == (2026, 6, 8)
         cmd = probe.commands[0]
         # Per-agent path is Linux-rooted.
@@ -2361,7 +2362,7 @@ class TestGetHostOpenclawVersionLinux:
         probe = _ProbeMockClient(
             "", "openclaw on PATH is at unsafe path: /tmp/openclaw\n", 2
         )
-        version, stderr = lc._get_host_openclaw_version_linux(
+        version, stderr = ov._get_host_openclaw_version_linux(
             probe.as_client(), "wolf-i"
         )
         assert version is None
@@ -2372,7 +2373,7 @@ class TestGetHostOpenclawVersionLinux:
         the probe fails. Operator now sees sudo / pam errors instead
         of an opaque `<unknown>`."""
         probe = _ProbeMockClient("", "sudo: a password is required\n", 1)
-        version, stderr = lc._get_host_openclaw_version_linux(
+        version, stderr = ov._get_host_openclaw_version_linux(
             probe.as_client(), "wolf-i"
         )
         assert version is None
@@ -2380,7 +2381,7 @@ class TestGetHostOpenclawVersionLinux:
 
     def test_unparseable_output_returns_none(self):
         probe = _ProbeMockClient("garbage output\n", "", 0)
-        version, _ = lc._get_host_openclaw_version_linux(probe.as_client(), "wolf-i")
+        version, _ = ov._get_host_openclaw_version_linux(probe.as_client(), "wolf-i")
         assert version is None
 
     def test_agent_name_is_shell_quoted(self):
@@ -2390,7 +2391,7 @@ class TestGetHostOpenclawVersionLinux:
         per-agent path (which contains `agent_name`) flow through
         `shlex.quote` before reaching bash."""
         probe = _ProbeMockClient("0.0.0\n", "", 0)
-        lc._get_host_openclaw_version_linux(probe.as_client(), "a;rm -rf /")
+        ov._get_host_openclaw_version_linux(probe.as_client(), "a;rm -rf /")
         cmd = probe.commands[0]
         # The agent-name position is single-quoted at the sudo level.
         assert cmd.startswith("sudo -n -u 'a;rm -rf /' bash -lc '")
@@ -2413,7 +2414,7 @@ class TestGetHostOpenclawVersionMacos:
 
     def test_command_shape_includes_macos_per_agent_path_and_safelist(self):
         probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
-        version, _ = lc._get_host_openclaw_version_macos(probe.as_client(), "wolf-m")
+        version, _ = ov._get_host_openclaw_version_macos(probe.as_client(), "wolf-m")
         assert version == (2026, 6, 8)
         cmd = probe.commands[0]
         # Per-agent path is macOS-rooted.
@@ -2435,7 +2436,7 @@ class TestGetHostOpenclawVersionMacos:
         probe = _ProbeMockClient(
             "", "openclaw on PATH is at unsafe path: /tmp/openclaw\n", 2
         )
-        version, stderr = lc._get_host_openclaw_version_macos(
+        version, stderr = ov._get_host_openclaw_version_macos(
             probe.as_client(), "wolf-m"
         )
         assert version is None
@@ -2446,7 +2447,7 @@ class TestGetHostOpenclawVersionMacos:
         If anyone retrofits `if os_family ==` branching back into the
         Linux variant, this assertion fails immediately."""
         probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
-        lc._get_host_openclaw_version_macos(probe.as_client(), "wolf-m")
+        ov._get_host_openclaw_version_macos(probe.as_client(), "wolf-m")
         assert "/home/wolf-m" not in probe.commands[0]
 
 
@@ -2516,9 +2517,9 @@ class TestGetHostOpenclawVersionHomeRootSeam:
                 raise ValueError(f"expected linux, got {os_family!r}")
             return "/SENTINEL-LINUX"
 
-        monkeypatch.setattr(lc, "home_root_for", _fake_home_root_for)
+        monkeypatch.setattr(ov, "home_root_for", _fake_home_root_for)
         probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
-        lc._get_host_openclaw_version_linux(probe.as_client(), "wolf-i")
+        ov._get_host_openclaw_version_linux(probe.as_client(), "wolf-i")
         cmd = probe.commands[0]
         assert "/SENTINEL-LINUX/wolf-i/.openclaw/bin/openclaw" in cmd
         # And NOT the historical Linux literal — proves the variant
@@ -2533,9 +2534,9 @@ class TestGetHostOpenclawVersionHomeRootSeam:
                 raise ValueError(f"expected darwin, got {os_family!r}")
             return "/SENTINEL-DARWIN"
 
-        monkeypatch.setattr(lc, "home_root_for", _fake_home_root_for)
+        monkeypatch.setattr(ov, "home_root_for", _fake_home_root_for)
         probe = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
-        lc._get_host_openclaw_version_macos(probe.as_client(), "wolf-m")
+        ov._get_host_openclaw_version_macos(probe.as_client(), "wolf-m")
         cmd = probe.commands[0]
         assert "/SENTINEL-DARWIN/wolf-m/.openclaw/bin/openclaw" in cmd
         assert "/Users/wolf-m/.openclaw/bin/openclaw" not in cmd
@@ -2554,11 +2555,11 @@ class TestGetHostOpenclawVersionHomeRootSeam:
           macOS `/Users`).
         """
         probe_l = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
-        lc._get_host_openclaw_version_linux(probe_l.as_client(), "wolf-i")
+        ov._get_host_openclaw_version_linux(probe_l.as_client(), "wolf-i")
         assert "/home/wolf-i/.openclaw/bin/openclaw" in probe_l.commands[0]
 
         probe_m = _ProbeMockClient("openclaw 2026.6.8\n", "", 0)
-        lc._get_host_openclaw_version_macos(probe_m.as_client(), "wolf-m")
+        ov._get_host_openclaw_version_macos(probe_m.as_client(), "wolf-m")
         assert "/Users/wolf-m/.openclaw/bin/openclaw" in probe_m.commands[0]
 
 
@@ -2569,7 +2570,7 @@ class TestGetHostOpenclawVersionMacosInjection:
 
     def test_agent_name_is_shell_quoted_on_macos(self):
         probe = _ProbeMockClient("0.0.0\n", "", 0)
-        lc._get_host_openclaw_version_macos(probe.as_client(), "a;rm -rf /")
+        ov._get_host_openclaw_version_macos(probe.as_client(), "a;rm -rf /")
         cmd = probe.commands[0]
         assert cmd.startswith("sudo -n -u 'a;rm -rf /' bash -lc '")
         assert cmd.endswith("'")
@@ -2584,7 +2585,7 @@ class TestRunOpenclawVersionProbeStderr:
     def test_stderr_tail_capped_at_512_bytes(self):
         long_stderr = "ABCDEFGHIJ" * 200  # 2000 bytes
         probe = _ProbeMockClient("", long_stderr, 1)
-        _, stderr_tail = lc._get_host_openclaw_version_linux(
+        _, stderr_tail = ov._get_host_openclaw_version_linux(
             probe.as_client(), "wolf-i"
         )
         assert len(stderr_tail) <= 512
@@ -2640,7 +2641,7 @@ class TestOpenclawVersionProbeShellSemantics:
         (path_bin / "openclaw").write_text("#!/bin/bash\necho 'openclaw 1.0.0'\n")
         (path_bin / "openclaw").chmod(0o755)
 
-        script = lc._build_openclaw_version_inner_script(
+        script = ov._build_openclaw_version_inner_script(
             "x", home_root=str(agent_home), path_safelist=(str(path_bin) + "/",)
         )
         result = self._run(script, path_dirs=[path_bin])
@@ -2653,7 +2654,7 @@ class TestOpenclawVersionProbeShellSemantics:
         safelist_dir = tmp_path / "good"
         self._make_fake_openclaw(safelist_dir / "openclaw")
 
-        script = lc._build_openclaw_version_inner_script(
+        script = ov._build_openclaw_version_inner_script(
             "x",
             home_root=str(tmp_path / "missing"),
             path_safelist=(str(safelist_dir) + "/",),
@@ -2675,7 +2676,7 @@ class TestOpenclawVersionProbeShellSemantics:
             p.mkdir()
         self._make_fake_openclaw(prefix_c / "openclaw")
 
-        script = lc._build_openclaw_version_inner_script(
+        script = ov._build_openclaw_version_inner_script(
             "x",
             home_root=str(tmp_path / "missing"),
             path_safelist=(
@@ -2699,7 +2700,7 @@ class TestOpenclawVersionProbeShellSemantics:
         safelist_dir = tmp_path / "safe"
         safelist_dir.mkdir()  # exists, but binary is NOT here
 
-        script = lc._build_openclaw_version_inner_script(
+        script = ov._build_openclaw_version_inner_script(
             "x",
             home_root=str(tmp_path / "missing"),
             path_safelist=(str(safelist_dir) + "/",),
@@ -2713,7 +2714,7 @@ class TestOpenclawVersionProbeShellSemantics:
         """No per-agent binary, nothing on PATH → exit 1."""
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
-        script = lc._build_openclaw_version_inner_script(
+        script = ov._build_openclaw_version_inner_script(
             "x",
             home_root=str(tmp_path / "missing"),
             path_safelist=(str(empty_dir) + "/",),
@@ -2735,7 +2736,7 @@ class TestOpenclawVersionProbeShellSemantics:
         path_dir = tmp_path / "good"
         self._make_fake_openclaw(path_dir / "openclaw")
 
-        script = lc._build_openclaw_version_inner_script(
+        script = ov._build_openclaw_version_inner_script(
             "x",
             home_root=str(agent_home),
             path_safelist=(str(path_dir) + "/",),

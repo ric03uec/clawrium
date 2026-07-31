@@ -4,13 +4,22 @@ Bumps an installed agent to the highest manifest version compatible with
 its host hardware. No version pinning, no downgrade path: the manifest is
 the contract. Issue #592.
 
+Version comparison (#754): for openclaw agents the live on-host version is
+probed via SSH and compared against the manifest max, NOT the
+`hosts.json` snapshot. This closes the false-no-op trap in which the
+snapshot says the agent is at max but the per-agent binary on the host is
+actually older (manual rollback, half-completed prior upgrade, manually
+edited snapshot). For non-openclaw agents the snapshot is still trusted
+until parity lands.
+
 Pre-flight (hard fail on any rejection):
 
 1. Resolve agent + host from `hosts.json`.
 2. Compute `target = latest_supported_version(agent_type, host_hardware)`.
-3. **No-op** if `target == installed`. Exit 0; `run_installation` not called.
-4. **Reject downgrade** if `target < installed`. Cannot occur via normal
-   flow — surfaces as a hard error when a manifest is reordered/removed.
+3. **Live version probe** (openclaw): SSH into host, run `openclaw --version`.
+   Compare live version against manifest max.
+4. **No-op** if live (or snapshot for non-openclaw) >= target. Exit 0;
+   `run_installation` not called. Snapshot is NOT auto-corrected.
 5. **Drift check**: refuse if any rendered file differs from on-host state.
    `--skip-drift-check` bypasses (hidden escape hatch).
 6. Confirmation prompt unless `--yes` or `-o json`.
@@ -84,6 +93,50 @@ def _drift_files(host: dict, agent_name: str, agent_type: str) -> list[str]:
     return [d.path for d in results if d.unified_diff]
 
 
+def _get_live_openclaw_version(host: dict, agent_name: str) -> str | None:
+    """Probe the live openclaw version on the host via SSH.
+
+    Returns the version string (e.g. "2026.6.8") or None if the probe
+    fails (binary missing, SSH error, unparseable output).
+    """
+    import paramiko
+
+    from clawrium.core.keys import get_host_private_key
+    from clawrium.core.openclaw_version import get_host_openclaw_version
+
+    key_id = host.get("key_id") or host.get("hostname") or ""
+    private_key = get_host_private_key(key_id)
+    if not private_key:
+        return None
+
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.WarningPolicy())
+    try:
+        client.connect(
+            hostname=host.get("hostname", ""),
+            port=int(host.get("port", 22)),
+            username=host.get("user", "xclm"),
+            key_filename=str(private_key),
+            timeout=10,
+        )
+        os_family = host.get("os_family", "linux")
+        version_tuple, _stderr = get_host_openclaw_version(
+            client, agent_name, os_family=os_family
+        )
+    except Exception:
+        return None
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+    if version_tuple is None:
+        return None
+    return ".".join(str(p) for p in version_tuple)
+
+
 def upgrade(
     name: str = typer.Argument(..., help="Agent name."),
     yes: bool = typer.Option(
@@ -93,6 +146,13 @@ def upgrade(
         False,
         "--skip-drift-check",
         help="Bypass the drift pre-flight gate.",
+        hidden=True,
+    ),
+    skip_live_probe: bool = typer.Option(
+        False,
+        "--skip-live-probe",
+        help="If the live version probe fails, trust the snapshot "
+        "rather than erroring out.",
         hidden=True,
     ),
     output: OutputFormat = typer.Option(
@@ -137,6 +197,53 @@ def upgrade(
     resource = f"agent/{name}"
     hostname = host.get("hostname", "")
     on_host_name = claw_record.get("agent_name") or agent_key
+
+    # #754: for openclaw, probe the live version on the host instead of
+    # trusting the snapshot in hosts.json. This closes the false-no-op
+    # trap in which snapshot says max but the per-agent binary is older.
+    if agent_type == "openclaw" and not failed_retry:
+        live_version_str = _get_live_openclaw_version(host, on_host_name)
+        if live_version_str is not None:
+            live_v = _parse(live_version_str)
+            target_v = _parse(target)
+            if live_v >= target_v:
+                msg = f"already at latest ({live_version_str})"
+                if use_json:
+                    typer.echo(
+                        json.dumps(
+                            {
+                                "agent": name,
+                                "from_version": live_version_str,
+                                "to_version": live_version_str,
+                                "status": "no-op",
+                            }
+                        )
+                    )
+                else:
+                    stream_action(resource=resource, message=msg)
+                return
+            # Live version is below target — proceed with upgrade.
+            # Use live_version_str for the "from_version" display.
+            installed = live_version_str
+        else:
+            # Probe failed (SSH error, binary missing, unparseable output).
+            # Fail loudly rather than silently falling back to the snapshot
+            # comparison — that would re-open the wolf-i false-no-op trap
+            # (#754) when the snapshot says max but the on-host binary is
+            # actually older.
+            if skip_live_probe:
+                stream_action(
+                    resource=resource,
+                    message="live version probe failed; trusting snapshot "
+                    "(override by --skip-live-probe)",
+                )
+                # Fall through to snapshot-based comparison.
+            else:
+                emit_error(
+                    "live openclaw version probe failed",
+                    hint=f"check SSH connectivity to {hostname!r}, then re-run; "
+                    f"pass --skip-live-probe to trust the snapshot",
+                )
 
     installed_v = _parse(installed)
     target_v = _parse(target)

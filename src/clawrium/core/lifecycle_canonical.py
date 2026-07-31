@@ -50,6 +50,10 @@ import paramiko
 
 from clawrium.core.hosts import get_agent_by_name
 from clawrium.core.keys import get_host_private_key
+from clawrium.core.openclaw_version import (
+    get_host_openclaw_version,
+    parse_semver_tuple,
+)
 from clawrium.core.playbook_resolver import home_root_for, unit_path_for
 from clawrium.core.render import (
     build_render_inputs,
@@ -68,6 +72,7 @@ from clawrium.core.render_diff import (
 
 logger = logging.getLogger(__name__)
 
+# Backward-compat alias: lifecycle.py (line ~2951) imports this name
 __all__ = [
     "AgentInstallMissingError",
     "CanonicalSyncError",
@@ -77,6 +82,10 @@ __all__ = [
     "probe_host_install",
     "sync_agent_canonical",
 ]
+
+# Backward-compat alias: lifecycle.py (line ~2951) imports this name
+# directly. Keep the alias so callers need not change.
+_get_host_openclaw_version = get_host_openclaw_version
 
 
 _RENDERERS = {
@@ -150,7 +159,7 @@ def _load_openclaw_brave_pin() -> dict:
             "version, min_host_version} — clawrium build is corrupt; "
             "reinstall via `uv tool install clawrium`."
         )
-    minv_tuple = _parse_semver_tuple(minv)
+    minv_tuple = parse_semver_tuple(minv)
     if minv_tuple is None:
         raise CanonicalSyncError(
             f"openclaw manifest plugins.brave.min_host_version={minv!r} "
@@ -161,158 +170,6 @@ def _load_openclaw_brave_pin() -> dict:
         "version": ver,
         "min_host_version": minv_tuple,
     }
-
-
-def _parse_semver_tuple(raw: str) -> tuple[int, int, int] | None:
-    """Parse a leading `X.Y.Z` out of `raw`. Returns None when no triple
-    is present (treated as unknown, NOT zero — see preflight).
-
-    Anchors at line start to avoid picking up a runtime/Node version
-    that some future `openclaw --version` build might print first
-    (W8 ATX iter 1). Falls back to first-anywhere as a safety net so
-    operator-friendly output like `openclaw 2026.5.28` still parses.
-    """
-    if not raw:
-        return None
-    first_line = raw.splitlines()[0]
-    m = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", first_line)
-    if not m:
-        return None
-    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
-
-
-def _build_openclaw_version_inner_script(
-    agent_name: str, *, home_root: str, path_safelist: tuple[str, ...]
-) -> str:
-    """Return the bash body that resolves the openclaw binary (no
-    sudo wrap, no `bash -lc` shell quoting). Split out so tests can
-    execute the script directly via `subprocess.run(['bash', '-c',
-    ...])` against fixture binaries — mocked SSH cannot catch shell
-    semantics regressions like the one ATX iter 2 found.
-
-    Per-agent binary at `<home_root>/<agent>/.openclaw/bin/openclaw`
-    wins; PATH fallback is accepted only when `command -v openclaw`
-    resolves under one of `path_safelist` (matches install.yaml's
-    discovery gate).
-    """
-    per_agent = f"{home_root}/{agent_name}/.openclaw/bin/openclaw"
-    quoted_per_agent = shlex.quote(per_agent)
-    # IMPORTANT: a single `case` with `|` alternation is the only
-    # shape that actually enforces every prefix. A chain of separate
-    # `case ... esac || case ... esac` short-circuits on the first
-    # one because `case` always exits 0 regardless of whether a
-    # pattern matched (ATX iter 2 B4).
-    patterns = "|".join(f"{shlex.quote(prefix)}*" for prefix in path_safelist)
-    return (
-        f"if [ -x {quoted_per_agent} ] && [ -s {quoted_per_agent} ]; then "
-        f"  {quoted_per_agent} --version; "
-        f"elif resolved=$(command -v openclaw 2>/dev/null); then "
-        f"  ok=0; "
-        f'  case "$resolved" in {patterns}) ok=1 ;; esac; '
-        f'  if [ "$ok" = 1 ]; then "$resolved" --version; '
-        f'  else echo "openclaw on PATH is at unsafe path: $resolved" 1>&2; exit 2; fi; '
-        f"else exit 1; fi"
-    )
-
-
-def _build_openclaw_version_probe(
-    agent_name: str, *, home_root: str, path_safelist: tuple[str, ...]
-) -> str:
-    """Build the `sudo -n -u <agent> bash -lc '...'` command that
-    runs the inner version-probe script on the host."""
-    inner = _build_openclaw_version_inner_script(
-        agent_name, home_root=home_root, path_safelist=path_safelist
-    )
-    quoted_agent = shlex.quote(agent_name)
-    return f"sudo -n -u {quoted_agent} bash -lc {shlex.quote(inner)}"
-
-
-_LINUX_OPENCLAW_PATH_SAFELIST: tuple[str, ...] = (
-    "/usr/local/bin/",
-    "/usr/bin/",
-    "/home/",
-)
-_MACOS_OPENCLAW_PATH_SAFELIST: tuple[str, ...] = (
-    "/opt/homebrew/bin/",
-    "/usr/local/bin/",
-    "/usr/bin/",
-    "/Users/",
-)
-
-
-def _get_host_openclaw_version_linux(
-    client: paramiko.SSHClient, agent_name: str, *, timeout: int = 10
-) -> tuple[tuple[int, int, int] | None, str]:
-    """Linux variant: per-agent binary under `/home/<agent>/`, PATH
-    fallback safelist matches Linux install.yaml lines ~50-57.
-
-    The `/home` literal is sourced via `home_root_for("linux")` so the
-    OS→home-root mapping stays in a single seam (issue #752 invariant).
-
-    Returns `(version, stderr_tail)`. `version` is `None` when the
-    binary is missing, the output is unparseable, or the resolved
-    PATH binary is rejected by the safelist; `stderr_tail` is the
-    last ~512 bytes of stderr so the caller can surface a diagnostic
-    instead of an opaque `<unknown>`.
-    """
-    cmd = _build_openclaw_version_probe(
-        agent_name,
-        home_root=home_root_for("linux"),
-        path_safelist=_LINUX_OPENCLAW_PATH_SAFELIST,
-    )
-    return _run_openclaw_version_probe(client, cmd, timeout=timeout)
-
-
-def _get_host_openclaw_version_macos(
-    client: paramiko.SSHClient, agent_name: str, *, timeout: int = 10
-) -> tuple[tuple[int, int, int] | None, str]:
-    """macOS (arm64) variant: per-agent binary under `/Users/<agent>/`,
-    PATH fallback safelist matches install_macos.yaml line ~109.
-
-    The `/Users` literal is sourced via `home_root_for("darwin")` so
-    the OS→home-root mapping stays in a single seam (issue #752
-    invariant).
-
-    Forked completely from the Linux variant — when a future macOS
-    x86_64 platform is added, dispatch should fork further rather
-    than retrofitting an arch branch into either function.
-    """
-    cmd = _build_openclaw_version_probe(
-        agent_name,
-        home_root=home_root_for("darwin"),
-        path_safelist=_MACOS_OPENCLAW_PATH_SAFELIST,
-    )
-    return _run_openclaw_version_probe(client, cmd, timeout=timeout)
-
-
-def _run_openclaw_version_probe(
-    client: paramiko.SSHClient, cmd: str, *, timeout: int
-) -> tuple[tuple[int, int, int] | None, str]:
-    _, out, err = client.exec_command(cmd, timeout=timeout)
-    body = out.read().decode("utf-8", errors="replace").strip()
-    err_bytes = err.read()
-    stderr_tail = err_bytes.decode("utf-8", errors="replace")[-512:].strip()
-    if out.channel.recv_exit_status() != 0:
-        return None, stderr_tail
-    return _parse_semver_tuple(body), stderr_tail
-
-
-def _get_host_openclaw_version(
-    client: paramiko.SSHClient,
-    agent_name: str,
-    *,
-    os_family: str,
-    timeout: int = 10,
-) -> tuple[tuple[int, int, int] | None, str]:
-    """Dispatcher: routes to the Linux or macOS variant based on
-    `os_family` (the host record's `os_family` field). The Linux and
-    macOS resolvers are intentionally separate functions — the
-    dispatcher is the only place that knows about both, matching the
-    dispatcher-only-OS-fork convention in AGENTS.md.
-    """
-    if (os_family or "linux").lower() == "darwin":
-        return _get_host_openclaw_version_macos(client, agent_name, timeout=timeout)
-    return _get_host_openclaw_version_linux(client, agent_name, timeout=timeout)
 
 
 class CanonicalSyncError(Exception):

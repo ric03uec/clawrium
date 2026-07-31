@@ -29,6 +29,7 @@ cut. The `itx:release` skill archives this section into a new
 - **gui**: Remove `secrets_file`, `hosts_file`, and `providers_file` from
   the `/api/settings` response; replace with `secrets_configured` (bool)
   to avoid leaking absolute filesystem paths (issue #418).
+- `clawctl agent upgrade` now probes the live openclaw version on the host instead of trusting the hosts.json snapshot, closing the false-no-op trap when snapshot and live binary diverge (#754)
 
 ### Documentation
 
