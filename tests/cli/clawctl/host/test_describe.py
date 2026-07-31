@@ -18,6 +18,8 @@ def test_describe_text_format(fleet_dir) -> None:
     assert "wolf-i" in result.output
     assert "Kind:" in result.output
     assert "Address:" in result.output
+    assert "Description:" in result.output
+    assert "Description: -" in result.output
 
 
 def test_describe_json_format(fleet_dir) -> None:
@@ -26,6 +28,7 @@ def test_describe_json_format(fleet_dir) -> None:
     parsed = json.loads(result.output)
     assert len(parsed) == 1
     assert parsed[0]["name"] == "wolf-i"
+    assert "description" in parsed[0]
 
 
 def test_describe_unknown_host_errors(fleet_dir) -> None:

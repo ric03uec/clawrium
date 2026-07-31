@@ -49,6 +49,7 @@ def describe(
     lines.append(f"Address:    {_s(row['address'])}")
     lines.append(f"User:       {_s(row['user'] or '-')}")
     lines.append(f"Port:       {_s(row['port'] or '-')}")
+    lines.append(f"Description: {_s(row['description'] or '-')}")
     lines.append(f"Status:     {format_status(_s(row['status']))}")
     lines.append(f"Age:        {format_age(int(row['age_seconds']))}")
     lines.append(f"Added:      {_s(row['added_at'] or '-')}")

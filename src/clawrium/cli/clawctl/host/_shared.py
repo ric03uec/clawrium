@@ -97,6 +97,7 @@ def host_to_row(host: dict) -> dict:
         "aliases": host.get("aliases")
         or ([host["alias"]] if host.get("alias") else []),
         "addresses": host.get("addresses", []) or [],
+        "description": host.get("description", ""),
     }
 
 
