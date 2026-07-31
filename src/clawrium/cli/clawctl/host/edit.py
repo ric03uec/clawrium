@@ -30,16 +30,19 @@ def edit(
         "--hostname",
         help="New IP address or hostname (e.g. after DHCP renewal). key_id is preserved.",
     ),
+    description: Optional[str] = typer.Option(
+        None, "--description", "-d", help="New host description (free-form)."
+    ),
 ) -> None:
     """Edit a host record in place (flag-driven)."""
     host = safe_get_host(hostname)
     canonical = hostname_key(host)
     old_name = display_name(host)
 
-    if user is None and port is None and alias is None and hostname_new is None:
+    if user is None and port is None and alias is None and hostname_new is None and description is None:
         emit_error(
             "no edits requested",
-            hint="pass at least one of --user, --port, --alias, --hostname",
+            hint="pass at least one of --user, --port, --alias, --hostname, --description",
         )
 
     if alias is not None:
@@ -87,6 +90,11 @@ def edit(
                     if addr.get("is_primary"):
                         addr["address"] = new_ip
                         break
+        if description is not None:
+            if description == "":
+                h.pop("description", None)
+            else:
+                h["description"] = description
         return h
 
     if not update_host(canonical, apply):

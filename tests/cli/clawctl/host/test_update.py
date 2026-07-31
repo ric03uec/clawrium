@@ -109,3 +109,31 @@ def test_edit_hostname_describe_reflects_update(fleet_dir) -> None:
     assert data["hostname"] == "10.0.0.77"
     primary = next(a for a in data["addresses"] if a["is_primary"])
     assert primary["address"] == "10.0.0.77"
+
+
+def test_edit_description_success(fleet_dir) -> None:
+    result = runner.invoke(
+        app, ["host", "edit", "wolf-i", "--description", "primary lab box"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "updated" in result.output
+
+    host = get_host("wolf-i")
+    assert host is not None
+    assert host.get("description") == "primary lab box"
+
+
+def test_edit_description_clear_with_empty_string(fleet_dir) -> None:
+    runner.invoke(app, ["host", "edit", "wolf-i", "--description", "temp"])
+    result = runner.invoke(app, ["host", "edit", "wolf-i", "--description", ""])
+    assert result.exit_code == 0, result.output
+
+    host = get_host("wolf-i")
+    assert host is not None
+    assert "description" not in host or not host["description"]
+
+
+def test_edit_description_hint_lists_flag(fleet_dir) -> None:
+    result = runner.invoke(app, ["host", "edit", "wolf-i"])
+    assert result.exit_code != 0
+    assert "--description" in result.output

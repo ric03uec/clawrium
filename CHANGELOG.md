@@ -16,6 +16,8 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Added
 
+- `clawctl host edit --description <text>` sets or updates a free-form description on a host record; passing an empty string clears it (#122).
+
 ### Changed
 
 ### Fixed
