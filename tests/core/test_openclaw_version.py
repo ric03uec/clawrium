@@ -86,17 +86,12 @@ def testparse_semver_tuple_empty_string():
 # ─── Dispatcher: Linux ──────────────────────────────────────────────────────
 
 def test_dispatcher_linux():
-    """Dispatcher selects linux when os_family is 'linux', '', or None."""
-    for raw_os_family in ("linux", "", None):
+    """Dispatcher selects linux when os_family is 'linux' or ''."""
+    for raw_os_family in ("linux", "", "LINUX"):
         client = _FakeClient(version_output="2026.6.8")
-        if raw_os_family is None:
-            version, _ = get_host_openclaw_version(
-                client, "test-agent", os_family="linux"
-            )
-        else:
-            version, _ = get_host_openclaw_version(
-                client, "test-agent", os_family=raw_os_family
-            )
+        version, _ = get_host_openclaw_version(
+            client, "test-agent", os_family=raw_os_family
+        )
         assert version == (2026, 6, 8), f"Failed for os_family={raw_os_family!r}"
         assert len(client.commands) == 1
         assert "/home/" in client.commands[0]

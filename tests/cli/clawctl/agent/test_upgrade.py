@@ -760,53 +760,42 @@ def test_upgrade_uses_shared_resolver(isolated_config: Path, _patch_drift_clean)
     """T6: prove the upgrade CLI and preflight both call the shared
 
     resolver in ``clawrium.core.openclaw_version``.
-
-    Two tests sharing the same patch target:
-    1. The upgrade CLI invokes ``get_host_openclaw_version`` from the
-       shared module (via its local SSH wrapper).
-    2. The preflight in ``lifecycle_canonical`` invokes the same symbol.
     """
-    from clawrium.core import lifecycle_canonical as lc
     from clawrium.core import openclaw_version as ov
+    from clawrium.cli.clawctl.agent import upgrade as upgrade_mod
 
-    # Preflight alias identity — both modules reference the same object.
-    assert lc._get_host_openclaw_version is ov.get_host_openclaw_version
-
-    # Patch the shared resolver spy so ANY caller hits it.
     shared_spy = MagicMock(return_value=((2026, 6, 11), ""))
 
-    # 1. Upgrade CLI path: patch the local SSH wrapper to delegate to
-    # the shared spy (the real _get_live_openclaw_version opens SSH
-    # which we can't mock here), and confirm the CLI sees the value.
-    _write_host(isolated_config, "openclaw", "2026.5.28")
-
-    def _delegate(*a, **kw):
-        """Delegate through the shared resolver spy."""
-        ver, _ = shared_spy(*a, **kw)
-        return ".".join(str(p) for p in ver) if ver else None
-
-    with patch.object(
-        ov, "get_host_openclaw_version", shared_spy
+    # 1. Upgrade path: unit-test _get_live_openclaw_version without
+    # replacing it — patch only the shared resolver and the SSH layer,
+    # then call the production function and assert the spy was hit.
+    host = {
+        "hostname": "10.0.0.1",
+        "key_id": "10.0.0.1",
+        "port": 22,
+        "user": "xclm",
+        "os_family": "linux",
+    }
+    fake_key = MagicMock()
+    fake_client = MagicMock()
+    with patch.object(ov, "get_host_openclaw_version", shared_spy), patch(
+        "clawrium.core.keys.get_host_private_key", return_value=fake_key
     ), patch(
-        "clawrium.cli.clawctl.agent.upgrade._get_live_openclaw_version",
-        _delegate,
-    ), patch("clawrium.core.install.run_installation") as mock_install:
-        result = runner.invoke(
-            app, ["agent", "upgrade", "test-agent", "--yes"], env=os.environ
-        )
-    assert result.exit_code == 0, result.output
-    assert "already at latest" in result.output.lower()
-    mock_install.assert_not_called()
-    # The shared resolver spy was called — proving the upgrade CLI
-    # path routes through the shared module, not a private copy.
-    assert shared_spy.call_count >= 1, (
-        "upgrade CLI did not call the shared resolver"
-    )
+        "paramiko.SSHClient", return_value=fake_client
+    ):
+        result = upgrade_mod._get_live_openclaw_version(host, "test-agent")
+    assert result == "2026.6.11"
+    assert shared_spy.call_count == 1
+    call_args = shared_spy.call_args
+    assert call_args[0][1] == "test-agent"
+    assert call_args[1]["os_family"] == "linux"
 
-    # 2. Preflight alias identity (asserted at top of function) proves
-    # that lifecycle_canonical._get_host_openclaw_version IS the same
-    # object that the spy replaced — confirming both code paths share
-    # the resolver.
+    # 2. Preflight alias identity — the lifecycle_canonical alias is
+    # the same object the spy replaced (bound at import time). This is
+    # checked OUTSIDE the patch context manager where the spy lives;
+    # it proves both code paths reference the identical resolver object.
+    from clawrium.core import lifecycle_canonical as lc
+    assert lc._get_host_openclaw_version is ov.get_host_openclaw_version
 
 
 def test_upgrade_live_probe_failure_fails_loudly(
