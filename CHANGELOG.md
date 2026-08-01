@@ -20,6 +20,8 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Changed
 
+- `clawctl channel registry create/edit --home-channel <id>` now accepts Discord channels in addition to Slack; the Jinja `hermes-env.canonical.j2` template already emitted `DISCORD_HOME_CHANNEL` when the field was set, only the CLI guards blocked it (#642).
+
 ### Fixed
 
 - **gui**: Harden static-file handler against path traversal — all candidate

@@ -230,7 +230,7 @@ def create(
         None, "--allowed-guild", help="Allowed guild ID (Discord). Repeatable."
     ),
     home_channel: Optional[str] = typer.Option(
-        None, "--home-channel", help="Default channel ID (Slack)."
+        None, "--home-channel", help="Default channel ID (Slack or Discord)."
     ),
     require_mention: Optional[bool] = typer.Option(
         None,
@@ -272,11 +272,6 @@ def create(
 
     if app_token and channel_type != "slack":
         emit_error(f"--app-token only valid for slack channels (got {channel_type!r})")
-
-    if home_channel and channel_type != "slack":
-        emit_error(
-            f"--home-channel only valid for slack channels (got {channel_type!r})"
-        )
 
     cfg = _build_config(
         channel_type=channel_type,
@@ -483,7 +478,7 @@ def edit(
         None, "--allowed-guild", help="Replace allowed guild IDs (Discord). Repeatable."
     ),
     home_channel: Optional[str] = typer.Option(
-        None, "--home-channel", help="New default channel (Slack)."
+        None, "--home-channel", help="New default channel (Slack or Discord)."
     ),
     require_mention: Optional[bool] = typer.Option(
         None,
@@ -526,8 +521,6 @@ def edit(
 
     if app_token and ctype != "slack":
         emit_error(f"--app-token only valid for slack channels (got {ctype!r})")
-    if home_channel and ctype != "slack":
-        emit_error(f"--home-channel only valid for slack channels (got {ctype!r})")
     if allowed_guilds and ctype != "discord":
         emit_error(f"--allowed-guild only valid for discord channels (got {ctype!r})")
 

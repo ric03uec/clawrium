@@ -314,3 +314,94 @@ def test_delete_oserror_surfaces_zombie_hint(
     assert result.exit_code != 0
     assert "zombie" in result.output
     assert "--force" in result.output
+
+
+def test_create_discord_with_home_channel(fleet_dir, stdin_not_tty) -> None:
+    """--home-channel is now accepted for discord channels (was previously blocked)."""
+    result = runner.invoke(
+        app,
+        [
+            "channel",
+            "registry",
+            "create",
+            "myd",
+            "--type",
+            "discord",
+            "--token",
+            "d-tok-123",
+            "--home-channel",
+            "1234567890",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    describe = runner.invoke(app, ["channel", "registry", "describe", "myd"])
+    assert "Home channel:" in describe.output
+    assert "1234567890" in describe.output
+
+
+def test_edit_discord_home_channel(fleet_dir, stdin_not_tty) -> None:
+    """--home-channel edit works for discord channels."""
+    runner.invoke(
+        app,
+        [
+            "channel",
+            "registry",
+            "create",
+            "myd2",
+            "--type",
+            "discord",
+            "--token",
+            "d-tok-456",
+        ],
+    )
+    result = runner.invoke(
+        app, ["channel", "registry", "edit", "myd2", "--home-channel", "9999"]
+    )
+    assert result.exit_code == 0, result.output
+    describe = runner.invoke(app, ["channel", "registry", "describe", "myd2"])
+    assert "9999" in describe.output
+
+
+def test_create_home_channel_still_works_for_slack(fleet_dir, stdin_not_tty) -> None:
+    """Regression guard: --home-channel still works for slack (unchanged behavior)."""
+    result = runner.invoke(
+        app,
+        [
+            "channel",
+            "registry",
+            "create",
+            "mysl",
+            "--type",
+            "slack",
+            "--token",
+            "s-tok",
+            "--app-token",
+            "s-app",
+            "--home-channel",
+            "C123",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_edit_home_channel_still_works_for_slack(fleet_dir, stdin_not_tty) -> None:
+    """Regression guard: --home-channel edit still works for slack."""
+    runner.invoke(
+        app,
+        [
+            "channel",
+            "registry",
+            "create",
+            "mysl2",
+            "--type",
+            "slack",
+            "--token",
+            "s-tok",
+            "--app-token",
+            "s-app",
+        ],
+    )
+    result = runner.invoke(
+        app, ["channel", "registry", "edit", "mysl2", "--home-channel", "C456"]
+    )
+    assert result.exit_code == 0, result.output
