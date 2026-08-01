@@ -11,7 +11,7 @@ clawctl host <command> [options]
 | Command | Description |
 |---------|-------------|
 | [`clawctl host create`](#clawctl-host-create) | Register a new host with the fleet |
-| [`clawctl host edit`](#clawctl-host-edit) | Edit a host's properties (alias, IP address) |
+| [`clawctl host edit`](#clawctl-host-edit) | Edit a host's properties (alias, IP address, description) |
 | [`clawctl host get`](#clawctl-host-get) | List all registered hosts |
 | [`clawctl host delete`](#clawctl-host-delete) | Remove a host from the fleet |
 | [`clawctl host status`](#clawctl-host-status) | Check status of a host |
@@ -101,7 +101,7 @@ If the host key is unknown, the command surfaces a prompt and exits non-zero. Ru
 
 ## clawctl host edit
 
-Edit a host record in place — update the SSH user, SSH port, or alias.
+Edit a host record in place — update the SSH user, SSH port, alias, IP address, or description.
 
 ```bash
 clawctl host edit <hostname> [options]
@@ -124,6 +124,7 @@ The host is identified by its existing name or alias (the positional
 | `--port` | `-p` | New SSH port (1–65535) |
 | `--alias` | `-a` | New friendly name for this host |
 | `--hostname` | | New IP address or hostname (e.g. after a DHCP lease renewal). `key_id` is preserved. |
+| `--description` | `-d` | Free-form description for the host. Pass `""` to clear it. |
 
 ### Example — change SSH user
 
@@ -155,10 +156,16 @@ is preserved so per-agent secrets stored under the host remain valid.
 Confirm the public key is still present in `authorized_keys` on the new
 address.
 
+### Example — set description
+
+```bash
+$ clawctl host edit mybox --description "primary lab box"
+```
+
 ### Example — change several fields at once
 
 ```bash
-$ clawctl host edit mybox --user ops --port 2222 --alias lab-pi-4
+$ clawctl host edit mybox --user ops --port 2222 --alias lab-pi-4 --description "production server"
 ```
 
 ### Exit Codes
