@@ -19,6 +19,7 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const sendingRef = useRef(false);
 
   const { data: chatInfo } = useQuery({
     queryKey: ["chat-info", agentKey],
@@ -59,7 +60,9 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
   }, []);
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || sending) return;
+    // Sync ref guard prevents double-send race (ATX W2)
+    if (!input.trim() || sendingRef.current) return;
+    sendingRef.current = true;
 
     const userMsg: ChatMessage = {
       role: "user",
@@ -104,10 +107,11 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
       }
     } finally {
       setSending(false);
+      sendingRef.current = false;
       abortRef.current = null;
       focusTextarea();
     }
-  }, [input, sending, agentKey, focusTextarea]);
+  }, [input, agentKey, focusTextarea]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
