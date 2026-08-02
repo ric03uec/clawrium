@@ -139,17 +139,20 @@ describe("ChatTab", () => {
       fireEvent.keyDown(textarea, { key: "Enter" });
     });
 
+    // Grab the signal that was passed to the API call
+    const signal = sendChatMessage.mock.calls[0][2].signal as AbortSignal;
+    expect(signal.aborted).toBe(false);
+
     const stopBtn = screen.getByRole("button", { name: /Stop/i });
     expect(stopBtn).toBeInTheDocument();
 
     await act(async () => {
       fireEvent.click(stopBtn);
-      // Resolve the abort rejection on the same microtask
-      rejectFn!(
-        Object.assign(new DOMException("The operation was aborted", "AbortError")),
-      );
+      rejectFn!(new DOMException("The operation was aborted", "AbortError"));
     });
 
+    // Verify the signal was actually aborted by clicking Stop
+    expect(signal.aborted).toBe(true);
     expect(screen.getByText(/Stopped by user/)).toBeInTheDocument();
   });
 

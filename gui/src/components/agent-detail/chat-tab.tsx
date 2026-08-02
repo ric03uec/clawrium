@@ -184,7 +184,7 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
             rows={1}
-            className="flex-1 rounded-lg border border-default px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none overflow-y-auto max-h-[234px] min-h-[24px]"
+            className="flex-1 rounded-lg border border-default px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none overflow-y-auto max-h-[182px] min-h-[24px]"
           />
           {sending ? (
             <Button
