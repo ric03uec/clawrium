@@ -47,8 +47,7 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    const rows = Math.min(8, Math.max(1, Math.ceil(el.scrollHeight / 24)));
-    el.style.height = `${rows * 24}px`;
+    el.style.height = `${el.scrollHeight}px`;
   }, [input]);
 
   const focusTextarea = useCallback(() => textareaRef.current?.focus(), []);
@@ -113,10 +112,9 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       const isEnter = e.key === "Enter";
-      const isCmdCtrl = e.ctrlKey || e.metaKey;
       const isShift = e.shiftKey;
 
-      // Enter alone or Cmd/Ctrl+Enter submits; Shift+Enter inserts newline
+      // Enter submits; Shift+Enter inserts newline
       if (isEnter && !isShift) {
         e.preventDefault();
         handleSend();
@@ -135,7 +133,7 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-[calc(100vh-20rem)] min-h-[400px]">
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {messages.length === 0 && (
@@ -186,7 +184,7 @@ export function ChatTab({ agentKey, agentName }: ChatTabProps) {
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
             rows={1}
-            className="flex-1 rounded-lg border border-default px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none overflow-hidden min-h-[24px]"
+            className="flex-1 rounded-lg border border-default px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none overflow-y-auto max-h-[234px] min-h-[24px]"
           />
           {sending ? (
             <Button
