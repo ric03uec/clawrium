@@ -22,7 +22,7 @@ config:
   allowed_users:    [<id>, <id>]
   allowed_channels: [<id>]
   allowed_guilds:   [<id>]            # discord only
-  home_channel:     <id>              # slack only
+  home_channel:     <id>              # slack + discord
   require_mention:  true
   stream_mode:      replace | append
   stream_delay_ms:  100
