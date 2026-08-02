@@ -155,6 +155,7 @@ Hermes uses a simpler configuration model than OpenClaw — env vars rendered di
 clawctl channel registry create <channel-name> --type discord \
   --token-stdin <<<"$BOT_TOKEN" \
   --allowed-user 740723459344302120 \
+  --home-channel 800000000000000000 \
   --require-mention
 
 # 2. Attach the channel to the agent
@@ -172,6 +173,7 @@ Flags accepted by `clawctl channel registry create` (canonical fields, persisted
 | `--token` / `--token-stdin` | yes | Bot token. Stored in `secrets.json` under `channel:<channel-name>`, never in `channels.json`. |
 | `--allowed-user <id>` | yes (repeatable) | Discord user IDs (17–19 digits). Hermes silently drops messages from non-allowlisted users. |
 | `--allowed-channel <id>` | optional (repeatable) | Restrict the bot to specific channels. Empty = any channel the bot is invited to. |
+| `--home-channel <id>` | optional | Discord channel ID for cron/scheduled messages. Format: 17–19 digit snowflake ID. |
 | `--require-mention` / `--no-require-mention` | optional | Defaults to true. DMs always work regardless. |
 
 `clawctl agent sync` re-renders `~/.hermes/.env` with the `DISCORD_*` block from the attached channel's registry record and restarts `hermes-<name>.service`. Verification confirms the token + allowlist landed in the env file before sync reports success.
@@ -187,6 +189,7 @@ Flags accepted by `clawctl channel registry create` (canonical fields, persisted
     "type": "discord",
     "config": {
       "allowed_users": ["740723459344302120"],
+      "home_channel": "800000000000000000",
       "require_mention": true
     },
     "created_at": "..."
