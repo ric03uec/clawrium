@@ -192,11 +192,17 @@ export const api = {
 
   // Agent Chat
   getChatInfo: (key: string) => request<ChatInfo>(`/agents/${key}/chat/info`),
-  sendChatMessage: async (key: string, message: string, session = "main"): Promise<string> => {
+  sendChatMessage: async (
+    key: string,
+    message: string,
+    opts?: { session?: string; signal?: AbortSignal },
+  ): Promise<string> => {
+    const session = opts?.session ?? "main";
     const res = await fetch(`${API_BASE}/agents/${key}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, session }),
+      signal: opts?.signal,
     });
     if (!res.ok) throw new Error(`Chat error: ${res.status}`);
 
