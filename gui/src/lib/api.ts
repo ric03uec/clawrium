@@ -1,5 +1,18 @@
 const API_BASE = "/api";
 
+/**
+ * Strip absolute filesystem paths and internal hostnames from error
+ * messages before surfacing them to the browser. Mirrors the
+ * _sanitize_exception_text convention in the CLI.
+ */
+function sanitizeChatError(msg: string): string {
+  return msg
+    .replace(/\/home\/[^\s\/]+(\/[^\s]*)*/g, "[path]")
+    .replace(/\/Users\/[^\s\/]+(\/[^\s]*)*/g, "[path]")
+    .replace(/\/tmp\/[^\s]*/g, "[path]")
+    .replace(/\/root(\/[^\s]*)*/g, "[path]");
+}
+
 async function request<T>(
   path: string,
   options?: RequestInit
@@ -211,17 +224,20 @@ export const api = {
 
     const decoder = new TextDecoder();
     let fullText = "";
+    let buf = "";
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value);
-      for (const line of chunk.split("\n")) {
+      buf += decoder.decode(value);
+      const parts = buf.split("\n");
+      buf = parts.pop() ?? ""; // keep trailing partial in buf
+      for (const line of parts) {
         if (line.startsWith("data: ") && line !== "data: [DONE]") {
           try {
             const data = JSON.parse(line.slice(6));
             if (data.type === "content") fullText = data.text;
-            if (data.type === "error") throw new Error(data.message);
+            if (data.type === "error") throw new Error(sanitizeChatError(data.message));
           } catch (e) {
             if (e instanceof SyntaxError) continue;
             throw e;

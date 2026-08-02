@@ -48,6 +48,7 @@ describe("ChatTab", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -62,6 +63,15 @@ describe("ChatTab", () => {
     render(<ChatTab {...defaultProps} />);
     expect(document.querySelector("textarea")).toBeInTheDocument();
     expect(document.querySelector("input")).not.toBeInTheDocument();
+  });
+
+  it("shows unsupported message when chatInfo.supported is false", () => {
+    chatInfoState.data = { supported: false, type: "nemoclaw" };
+    render(<ChatTab {...defaultProps} />);
+    expect(
+      screen.getByText(/Chat is not supported for this agent type/),
+    ).toBeInTheDocument();
+    expect(document.querySelector("textarea")).not.toBeInTheDocument();
   });
 
   it("the textarea is NOT disabled while sending is true", async () => {
