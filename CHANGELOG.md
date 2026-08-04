@@ -17,6 +17,12 @@ cut. The `itx:release` skill archives this section into a new
 ### Added
 
 - `clawctl host edit --description <text>` sets or updates a free-form description on a host record; passing an empty string clears it (#122).
+- **gui**: The per-agent Chat tab input is now a multi-line textarea that grows
+  from 1 to 8 rows as you type. Enter sends, Shift+Enter inserts a newline, and
+  Cmd/Ctrl+Enter is an alias for Enter (#788).
+- **gui**: A Stop button cancels an in-flight chat response, and the typing
+  indicator now counts elapsed seconds instead of showing a static
+  "Thinking..." (#788).
 
 ### Changed
 
@@ -34,6 +40,16 @@ cut. The `itx:release` skill archives this section into a new
   the `/api/settings` response; replace with `secrets_configured` (bool)
   to avoid leaking absolute filesystem paths (issue #418).
 - `clawctl agent upgrade` now probes the live openclaw version on the host instead of trusting the hosts.json snapshot, closing the false-no-op trap when snapshot and live binary diverge (#754)
+- **gui**: The Chat tab input is no longer disabled while a response is in
+  flight — you can keep typing, and focus returns to the input after each send
+  and after each response arrives (#788).
+- **gui**: The Chat tab now fills the available pane height instead of a fixed
+  500px, so long conversations scroll inside the message list rather than
+  growing the page (#788).
+- **gui**: Chat SSE error messages are stripped of absolute filesystem paths
+  before rendering in the browser, and the SSE reader buffers partial lines
+  across chunk boundaries so a payload split mid-line is no longer dropped
+  (#788).
 
 ### Documentation
 
