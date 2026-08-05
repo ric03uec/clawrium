@@ -7,6 +7,7 @@ sidebar_position: 5
 <!-- Mirror of docs/local-skills.md in the engineering docs.
      Body must match the engineering docs (modulo this Docusaurus
      frontmatter). When updating, edit docs/local-skills.md first. -->
+> Documents the per-agent local skill lifecycle shipped via #411 (PRs #636, #637, #638).
 
 ## What it does
 

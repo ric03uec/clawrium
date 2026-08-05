@@ -37,6 +37,7 @@ cut. The `itx:release` skill archives this section into a new
 
 ### Documentation
 
+- **website**: Restore the missing summary blockquote in `website/docs/guides/local-skills.md` mirror so its body matches `docs/local-skills.md` verbatim (#965).
 - Document `clawctl host validate`, the `RUNTIME` column on `clawctl agent get`,
   and openclaw's mandatory `--provider` flag; correct the `clawctl agent create`
   and `clawctl agent get` reference sections, whose documented signatures and
