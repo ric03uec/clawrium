@@ -14,6 +14,26 @@
 - [ ] `make lint` passes
 - [ ] Manual verification completed
 
+## Agent Execution
+
+<!--
+Fill this in ONLY when an agent loop produced the PR (e.g. clawctl-lmwork).
+Delete the whole section for human-authored PRs.
+
+Wall time is measured session-created -> PR-opened, so it includes judge
+rounds, ATX rounds, and any time the run sat waiting on a human. Rough is
+fine - round to the nearest 5 minutes. It is a cost signal, not a benchmark.
+-->
+
+| Field | Value |
+|-------|-------|
+| Issue | # |
+| Executed by | <!-- e.g. lmworker (Qwen3.6-27B via vllm-inx), reviewed by lmjudge --> |
+| Wall time | <!-- session created -> PR opened, e.g. ~45m --> |
+| Judge rounds | <!-- n, of a 3 ceiling --> |
+| ATX rounds | <!-- n, of a 3 ceiling --> |
+| Human interventions | <!-- n, and what for; 0 if the run was hands-off --> |
+
 ## ATX Review
 
 <!--
