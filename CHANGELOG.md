@@ -6,13 +6,15 @@ the single place to read the full history of what shipped in each version.
 
 The project follows a `YY.M.PATCH` calendar versioning convention; the
 `## [Unreleased]` section below is the working log for the next release
-cut. The `itx:release` skill archives this section into a new
+cut. The `itx-release` skill archives this section into a new
 `docs/releases/<version>/CHANGELOG.md` and resets this file to an empty
 `[Unreleased]` template on every release.
 
 ## [Unreleased]
 
 ### BREAKING
+
+- **`/itx:<verb>` skills renamed to `/itx-<verb>`** to comply with Anthropic's documented `SKILL.md` `name:` charset (`[a-z0-9-]{1,64}`). All thirteen skills under `.claude/skills/itx-*/` now use hyphens instead of colons in their `name:` frontmatter and in every documented invocation. There is no compat shim — the Claude Code harness has no skill-alias mechanism. **Migration**: update any saved prompts, scripts, cron jobs, or muscle-memory invocations from `/itx:foo` to `/itx-foo` (e.g. `/itx-execute`, `/itx-plan-create`, `/itx-review-pr`). Directory names were already hyphenated, so no filesystem paths change. Historical records under `.itx/<n>/` are preserved verbatim — they document invocations that actually used the colon form at the time (#970).
 
 ### Added
 

@@ -1,9 +1,8 @@
 ---
-name: itx:verify
+name: itx-verify
 description: Run tests, lint, and validate current changes
 argument-hint: ""
 ---
-name: itx:verify
 
 # Verification
 

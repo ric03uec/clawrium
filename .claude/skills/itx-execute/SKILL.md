@@ -1,9 +1,8 @@
 ---
-name: itx:execute
+name: itx-execute
 description: Execute the plan for an issue (parent or subtask)
 argument-hint: "[orchestrate] <issue-number> [in a subtree|--worktree]"
 ---
-name: itx:execute
 
 # Issue Execution
 
@@ -12,7 +11,7 @@ Execute the implementation plan for a GitHub issue.
 ## Orchestrate Mode
 
 Triggered by `orchestrate` as the **first token** in arguments
-(e.g. `/itx:execute orchestrate 112`). Use when the issue is a **parent
+(e.g. `/itx-execute orchestrate 112`). Use when the issue is a **parent
 with linked subtasks** and you want a hands-off, stacked-PR pipeline
 across all subtasks.
 
@@ -33,7 +32,7 @@ across all subtasks.
 - `tmux` available on the host. If not, fail with a clear message —
   orchestrate mode requires tmux.
 - A plan file exists at `.itx/<parent>/00_PLAN.md` (created by
-  `/itx:plan-create`). Refuse to start otherwise.
+  `/itx-plan-create`). Refuse to start otherwise.
 
 ATX availability is **not** a precondition. Children use the
 fallback chain in **ATX Review** below. Handoff is still keyed on
@@ -48,7 +47,7 @@ The orchestrator (the claude session that runs orchestrate mode) does
 
 1. Creates worktrees + branches + tmux windows for each subtask.
 2. Spawns a child claude session per subtask via
-   `claude --dangerously-skip-permissions '/itx:execute <N>'` in the
+   `claude --dangerously-skip-permissions '/itx-execute <N>'` in the
    subtask's worktree.
 3. Polls subtask PR state every ~5 minutes.
 4. When a subtask's PR appears (the child's handoff signal), spawns
@@ -125,7 +124,7 @@ As predecessors merge, GitHub auto-updates downstream PR bases to main.
 
    tmux new-window -t "$SESSION" -n "issue-${A_NUM}" -c "$WORKTREE_A"
    tmux send-keys -t "${SESSION}:issue-${A_NUM}" \
-     "claude --dangerously-skip-permissions '/itx:execute ${A_NUM}'" Enter
+     "claude --dangerously-skip-permissions '/itx-execute ${A_NUM}'" Enter
    ```
 
 6. **Poll predecessor PR state every 5 minutes:**
@@ -149,7 +148,7 @@ As predecessors merge, GitHub auto-updates downstream PR bases to main.
      branch name in the prompt:
      ```bash
      claude --dangerously-skip-permissions \
-       "/itx:execute ${NEXT_NUM} --pr-base=${PREV_BRANCH}"
+       "/itx-execute ${NEXT_NUM} --pr-base=${PREV_BRANCH}"
      ```
      (Child sessions in standard mode must honor `--pr-base` — see
      "PR base override" below.)
@@ -201,7 +200,7 @@ gh pr edit <pr-num> --base "$PREV_BRANCH"
 ### Failure modes
 
 - **No subtasks found**: fail with "Issue #N has no linked sub-issues.
-  Use `/itx:execute <N>` (without orchestrate) for direct execution."
+  Use `/itx-execute <N>` (without orchestrate) for direct execution."
 - **Subtask already has merged PR**: skip and advance to next.
 - **Subtask already has open PR**: skip the spawn step; treat as
   "ATX-cleared, advance to next".
@@ -274,7 +273,7 @@ code changes — it's a planning artifact and helps the next run.
 
 ### On resume / re-entry
 
-When `/itx:execute <N>` starts and `.itx/<N>/atx-session.json` exists:
+When `/itx-execute <N>` starts and `.itx/<N>/atx-session.json` exists:
 
 1. Read the file.
 2. Compare `commit_sha` with current `git rev-parse HEAD`.
@@ -314,7 +313,7 @@ with the report.
 
 ## Callouts (required in every PR body)
 
-Every PR opened by `/itx:execute` MUST include a **Callouts** section
+Every PR opened by `/itx-execute` MUST include a **Callouts** section
 near the bottom of the body — even if empty. Format:
 
 ```markdown
@@ -395,7 +394,7 @@ Example:
    # Create window and run claude interactively (no -p flag so you can watch execution)
    tmux new-window -t "$SESSION" -n "issue-${NUMBER}" -c "${WORKTREE_PATH}"
    tmux send-keys -t "${SESSION}:issue-${NUMBER}" \
-     "claude --dangerously-skip-permissions '/itx:execute ${NUMBER}'" Enter
+     "claude --dangerously-skip-permissions '/itx-execute ${NUMBER}'" Enter
 
    echo "Spawned in tmux '${SESSION}:issue-${NUMBER}'"
    echo "Attach: tmux attach -t ${SESSION}"
@@ -404,7 +403,7 @@ Example:
    **If tmux not available** (fallback):
    Do **not** prompt the user. Spawn a Task subagent
    (`subagent_type="general-purpose"`) in the worktree with prompt
-   `/itx:execute ${NUMBER}`. Record this fallback in the PR's
+   `/itx-execute ${NUMBER}`. Record this fallback in the PR's
    **Callouts** section so the user knows the execution path differed
    from the default (tmux + interactive claude).
 
@@ -529,7 +528,7 @@ Always:
    <summary>Prompt Log</summary>
 
    **Stage**: execution
-   **Skill**: /itx:execute
+   **Skill**: /itx-execute
    **Timestamp**: <ISO timestamp>
    **Model**: <model>
 
@@ -705,7 +704,7 @@ Use the Task tool to spawn subagents:
 ```
 Task(
   subagent_type="general-purpose",
-  prompt="Execute /itx:execute <subtask-number>",
+  prompt="Execute /itx-execute <subtask-number>",
   description="Execute subtask #<number>"
 )
 ```

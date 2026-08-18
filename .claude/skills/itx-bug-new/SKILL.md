@@ -1,9 +1,8 @@
 ---
-name: itx:bug-new
+name: itx-bug-new
 description: Create a GitHub bug report from current context
 argument-hint: "[optional: brief description]"
 ---
-name: itx:bug-new
 
 # Bug Report Creation
 
@@ -88,7 +87,7 @@ Create a GitHub issue for a bug based on the current conversation context.
    <summary>Prompt Log</summary>
 
    **Stage**: bug-creation
-   **Skill**: /itx:bug-new
+   **Skill**: /itx-bug-new
    **Timestamp**: <ISO timestamp>
    **Model**: <model>
 

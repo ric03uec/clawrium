@@ -24,7 +24,7 @@ Customize test, lint, and coverage commands:
 
 **Default behavior**: Uses `make test`, `make lint`, `make test-cov`
 
-**Used by**: `/itx:verify`, `/itx:execute`
+**Used by**: `/itx-verify`, `/itx-execute`
 
 ### GitHub Project Board
 
@@ -56,7 +56,7 @@ Enable GitHub Projects V2 integration for automatic issue status updates:
 
 **Default behavior**: Skips all project board operations
 
-**Used by**: `/itx:execute`
+**Used by**: `/itx-execute`
 
 ### MCP Integration
 
@@ -73,7 +73,7 @@ Enable Model Context Protocol for automated code review:
 
 **Default behavior**: Falls back to manual review checklist
 
-**Used by**: `/itx:review-pr`
+**Used by**: `/itx-review-pr`
 
 ### Project Settings
 
@@ -92,7 +92,7 @@ Customize project name and version label:
 - Uses repository name from git remote
 - Uses "Version" as default label
 
-**Used by**: `/itx:bug-new`, `/itx:issue-new`
+**Used by**: `/itx-bug-new`, `/itx-issue-new`
 
 ## Default Behavior Summary
 

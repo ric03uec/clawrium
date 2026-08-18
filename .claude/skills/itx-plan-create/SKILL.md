@@ -1,9 +1,8 @@
 ---
-name: itx:plan-create
+name: itx-plan-create
 description: Create high-level implementation plan with product output and technical details
 argument-hint: "<issue-number>"
 ---
-name: itx:plan-create
 
 # Implementation Planning (Create Phase)
 
@@ -93,7 +92,7 @@ Create a high-level implementation plan for a GitHub issue with product output a
    <summary>Prompt Log</summary>
 
    **Stage**: planning
-   **Skill**: /itx:plan-create
+   **Skill**: /itx-plan-create
    **Timestamp**: <ISO timestamp>
    **Model**: <model>
 

@@ -1,9 +1,8 @@
 ---
-name: itx:release
+name: itx-release
 description: Cut a new clawrium release — bump version, sync docs, tag, trigger PyPI publish
 argument-hint: "[version]"
 ---
-name: itx:release
 
 # Release
 

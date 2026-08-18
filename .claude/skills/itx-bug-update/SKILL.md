@@ -1,9 +1,8 @@
 ---
-name: itx:bug-update
+name: itx-bug-update
 description: Add a comment to an existing bug issue
 argument-hint: "<issue-number> <comment text>"
 ---
-name: itx:bug-update
 
 # Bug Update
 
@@ -35,7 +34,7 @@ Add a comment to an existing GitHub bug issue.
    <summary>Prompt Log</summary>
 
    **Stage**: bug-update
-   **Skill**: /itx:bug-update
+   **Skill**: /itx-bug-update
    **Timestamp**: <ISO timestamp>
    **Model**: <model>
 
@@ -51,7 +50,7 @@ Add a comment to an existing GitHub bug issue.
 ## Examples
 
 ```
-/itx:bug-update 42 Added debug logging, the error occurs in registry.py line 156
+/itx-bug-update 42 Added debug logging, the error occurs in registry.py line 156
 ```
 
 ## Notes
