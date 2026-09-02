@@ -1,9 +1,8 @@
 ---
-name: itx:issue-update
+name: itx-issue-update
 description: Add a comment to an existing issue
 argument-hint: "<issue-number> <comment text>"
 ---
-name: itx:issue-update
 
 # Issue Update
 
@@ -35,7 +34,7 @@ Add a comment to an existing GitHub issue.
    <summary>Prompt Log</summary>
 
    **Stage**: issue-update
-   **Skill**: /itx:issue-update
+   **Skill**: /itx-issue-update
    **Timestamp**: <ISO timestamp>
    **Model**: <model>
 
@@ -51,7 +50,7 @@ Add a comment to an existing GitHub issue.
 ## Examples
 
 ```
-/itx:issue-update 28 Updated the plan to include prompt logging requirement
+/itx-issue-update 28 Updated the plan to include prompt logging requirement
 ```
 
 ## Notes

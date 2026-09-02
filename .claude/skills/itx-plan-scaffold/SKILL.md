@@ -1,9 +1,8 @@
 ---
-name: itx:plan-scaffold
+name: itx-plan-scaffold
 description: Create phased execution plan with entry/exit criteria
 argument-hint: "<issue-number>"
 ---
-name: itx:plan-scaffold
 
 # Execution Scaffolding
 
@@ -24,7 +23,7 @@ Create a phased execution plan from a plan-create output, defining entry/exit cr
    - **Complex** (8+ files, multiple concerns): Multi-phase with subtasks
 
 4. **Decide Execution Mode**:
-   - **Single-phase**: Direct to `/itx:execute`
+   - **Single-phase**: Direct to `/itx-execute`
    - **Multi-phase**: Create subtasks, execute in order
 
 5. **Create Scaffolding**: For each phase, define:
@@ -65,7 +64,7 @@ Create a phased execution plan from a plan-create output, defining entry/exit cr
    <summary>Prompt Log</summary>
 
    **Stage**: scaffolding
-   **Skill**: /itx:plan-scaffold
+   **Skill**: /itx-plan-scaffold
    **Timestamp**: <ISO timestamp>
    **Model**: <model>
 

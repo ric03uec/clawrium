@@ -1,9 +1,8 @@
 ---
-name: itx:issue-new
+name: itx-issue-new
 description: Create a feature or improvement issue
 argument-hint: "[optional: brief description]"
 ---
-name: itx:issue-new
 
 # Issue Creation
 
@@ -66,7 +65,7 @@ Create a GitHub issue for a feature request or improvement.
    <summary>Prompt Log</summary>
 
    **Stage**: issue-creation
-   **Skill**: /itx:issue-new
+   **Skill**: /itx-issue-new
    **Timestamp**: <ISO timestamp>
    **Model**: <model>
 

@@ -4,7 +4,7 @@ sidebar_position: 3
 
 # Contributing Workflow
 
-This guide explains how to contribute to Clawrium using the `/itx:*` workflow skills.
+This guide explains how to contribute to Clawrium using the `/itx-*` workflow skills.
 
 ## Workflow Overview
 
@@ -28,7 +28,7 @@ This guide explains how to contribute to Clawrium using the `/itx:*` workflow sk
   │ labels xs +     │ └────┬────┘                             │
   │ executing       │      │                                  │
   └───────┬─────────┘      │  ┌───────────────┐    ┌─────────┴─────────┐
-          │                │  │ s: /itx:execute│    │ /itx:amend plan   │
+          │                │  │ s: /itx-execute│    │ /itx-amend plan   │
           │                │  └──────┬────────┘    │ → back to planned │
           │                │         :             └───────────────────┘
           │                ▼         :
@@ -75,7 +75,7 @@ This guide explains how to contribute to Clawrium using the `/itx:*` workflow sk
 
 ## Planning Phases
 
-### Phase 1: Plan-Build (`/itx:plan-create`)
+### Phase 1: Plan-Build (`/itx-plan-create`)
 
 Creates a high-level implementation plan with:
 - Overview of the approach
@@ -86,7 +86,7 @@ Creates a high-level implementation plan with:
 
 **Transition**: `planning` → `planned`
 
-### Phase 2: Plan-Scaffold (`/itx:plan-scaffold`)
+### Phase 2: Plan-Scaffold (`/itx-plan-scaffold`)
 
 Creates phased execution with entry/exit criteria:
 
@@ -156,29 +156,29 @@ Phase 3: UI Integration
 
 | Skill | When to Use |
 |-------|-------------|
-| `/itx:bug-new` | Found a bug during development |
-| `/itx:issue-new` | Have a feature idea |
+| `/itx-bug-new` | Found a bug during development |
+| `/itx-issue-new` | Have a feature idea |
 
 ### Workflow
 
 | Skill | When to Use |
 |-------|-------------|
-| `/itx:triage` | Review issues without workflow labels |
-| `/itx:plan-create 42` | Create high-level implementation plan |
-| `/itx:plan-scaffold 42` | Create phased execution with entry/exit criteria |
-| `/itx:execute 42` | Start working on a ready issue |
-| `/itx:verify` | Before creating PR |
-| `/itx:review-pr` | Request code review |
+| `/itx-triage` | Review issues without workflow labels |
+| `/itx-plan-create 42` | Create high-level implementation plan |
+| `/itx-plan-scaffold 42` | Create phased execution with entry/exit criteria |
+| `/itx-execute 42` | Start working on a ready issue |
+| `/itx-verify` | Before creating PR |
+| `/itx-review-pr` | Request code review |
 
 ### Utilities
 
 | Skill | When to Use |
 |-------|-------------|
-| `/itx:note <text>` | Quick capture idea to NOTES.md |
+| `/itx-note <text>` | Quick capture idea to NOTES.md |
 
 ## Complex Issues: Parent/Subtask Pattern
 
-For large issues, `/itx:plan-create` may create subtasks:
+For large issues, `/itx-plan-create` may create subtasks:
 
 ```
 Parent Issue #100: "User can manage multiple hosts in batch"
@@ -192,10 +192,10 @@ Parent Issue #100: "User can manage multiple hosts in batch"
 
 ```bash
 # Execute parent (runs all subtasks sequentially)
-/itx:execute 100
+/itx-execute 100
 
 # Or execute individual subtask
-/itx:execute 101
+/itx-execute 101
 ```
 
 ### Completion Rules

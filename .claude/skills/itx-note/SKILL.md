@@ -1,9 +1,8 @@
 ---
-name: itx:note
+name: itx-note
 description: Quick capture of ideas or observations to NOTES.md
 argument-hint: "[text]"
 ---
-name: itx:note
 
 # Quick Note
 
@@ -37,7 +36,7 @@ Notes are saved to `NOTES.md` in the project root.
 
 ## Example
 
-Input: `/itx:note The registry validation should check semver compatibility`
+Input: `/itx-note The registry validation should check semver compatibility`
 
 Output in NOTES.md:
 ```markdown
@@ -46,7 +45,6 @@ Output in NOTES.md:
 The registry validation should check semver compatibility
 
 ---
-name: itx:note
 ```
 
 ## Notes

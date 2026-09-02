@@ -1,9 +1,8 @@
 ---
-name: itx:pr-status
+name: itx-pr-status
 description: Check status of open pull requests
 argument-hint: ""
 ---
-name: itx:pr-status
 
 # PR Status
 

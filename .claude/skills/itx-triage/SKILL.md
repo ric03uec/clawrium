@@ -1,9 +1,8 @@
 ---
-name: itx:triage
+name: itx-triage
 description: Review issues without workflow labels and assign appropriate labels
 argument-hint: ""
 ---
-name: itx:triage
 
 # Issue Triage
 
@@ -49,7 +48,7 @@ Find and triage issues that don't have workflow labels.
    <summary>Prompt Log</summary>
 
    **Stage**: triage
-   **Skill**: /itx:triage
+   **Skill**: /itx-triage
    **Timestamp**: <ISO timestamp>
    **Model**: <model>
 

@@ -61,6 +61,6 @@ gh issue list --repo ric03uec/clawrium \
 - Re-labeling issues that already have a `type:*` label — assume a
   human or earlier triage decided. Touch only the missing dimensions.
 - Drafting an `.itx/active/<n>/plan.md` that exceeds one page. The plan
-  is a starting point for `/itx:plan-create`, not a substitute for it.
+  is a starting point for `/itx-plan-create`, not a substitute for it.
 - Commenting on the issue with summaries of the body. The body is the
   source of truth; do not paraphrase it back.

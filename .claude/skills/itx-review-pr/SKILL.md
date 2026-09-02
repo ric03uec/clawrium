@@ -1,9 +1,8 @@
 ---
-name: itx:review-pr
+name: itx-review-pr
 description: Request code review for a pull request
 argument-hint: "[pr-number]"
 ---
-name: itx:review-pr
 
 # PR Review
 

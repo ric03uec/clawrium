@@ -82,7 +82,7 @@ Clawrium tracks every change across every release. There are two layers:
   it lands, under the `## [Unreleased]` heading.
 - **[`docs/releases/<version>/`](docs/releases/)** — one folder per shipped
   release, each containing a frozen `CHANGELOG.md`. On every release cut the
-  `itx:release` skill archives the root changelog into a new
+  `itx-release` skill archives the root changelog into a new
   `docs/releases/<version>/CHANGELOG.md` and then resets the root file to an
   empty `[Unreleased]` template. The per-version folder may also hold
   detailed migration instructions for that release.
@@ -107,7 +107,7 @@ change that introduces the behavior — not as an afterthought:
   an undocumented breaking change is a release blocker.
 - Documentation-only changes go under `### Documentation`.
 
-The `itx:release` skill handles archiving and resetting the changelog at cut
+The `itx-release` skill handles archiving and resetting the changelog at cut
 time; contributors only ever edit the root file's `[Unreleased]` section.
 
 ## Hermes Skills
@@ -430,12 +430,12 @@ Example:
 ~/projects/clawrium-issue-35/  # Worktree for issue 35
 ```
 
-Trigger with: `/itx:execute 35 in a subtree` or `/itx:execute 35 --worktree`
+Trigger with: `/itx-execute 35 in a subtree` or `/itx-execute 35 --worktree`
 
 ### Quick Reference
 
 ```
-New Issue → /itx:triage → /itx:plan-create → /itx:plan-scaffold → /itx:execute → /itx:verify → /itx:review-pr → Merge
+New Issue → /itx-triage → /itx-plan-create → /itx-plan-scaffold → /itx-execute → /itx-verify → /itx-review-pr → Merge
 ```
 
 ### Fleet Management
@@ -450,14 +450,14 @@ Use `/clawctl` to manage the Clawrium fleet from an AI assistant session. The sk
 
 | Command | Purpose |
 |---------|---------|
-| `/itx:bug-new` | Create bug issue (asks for customer outcome) |
-| `/itx:issue-new` | Create feature issue (asks for customer outcome) |
-| `/itx:triage` | Review unlabeled issues |
-| `/itx:plan-create <n>` | Create high-level implementation plan |
-| `/itx:plan-scaffold <n>` | Create phased execution with entry/exit criteria |
-| `/itx:execute <n>` | Execute issue (parent or subtask) |
-| `/itx:verify` | Run tests and lint |
-| `/itx:review-pr [n]` | Review PR (MCP or manual) |
+| `/itx-bug-new` | Create bug issue (asks for customer outcome) |
+| `/itx-issue-new` | Create feature issue (asks for customer outcome) |
+| `/itx-triage` | Review unlabeled issues |
+| `/itx-plan-create <n>` | Create high-level implementation plan |
+| `/itx-plan-scaffold <n>` | Create phased execution with entry/exit criteria |
+| `/itx-execute <n>` | Execute issue (parent or subtask) |
+| `/itx-verify` | Run tests and lint |
+| `/itx-review-pr [n]` | Review PR (MCP or manual) |
 
 ### Planning Artifacts Directory (`.itx/`)
 
@@ -466,8 +466,8 @@ The `.itx/` directory stores implementation plans and execution documentation fo
 ```
 .itx/
 └── <issue-number>/
-    ├── 00_PLAN.md           # High-level implementation plan (from /itx:plan-create)
-    └── 01_SCAFFOLD.md       # Phased execution plan (from /itx:plan-scaffold)
+    ├── 00_PLAN.md           # High-level implementation plan (from /itx-plan-create)
+    └── 01_SCAFFOLD.md       # Phased execution plan (from /itx-plan-scaffold)
 ```
 
 **IMPORTANT**: Always commit the `.itx/` directory with your changes. These files serve as:
@@ -479,7 +479,7 @@ When completing work on an issue, ensure `.itx/<issue-number>/` is included in y
 
 ### Task-Based Execution
 
-The `/itx:execute` skill uses a structured task checklist approach to prevent getting lost during execution:
+The `/itx-execute` skill uses a structured task checklist approach to prevent getting lost during execution:
 
 **Planning Phase (Mandatory)**:
 1. Read implementation plan from issue
