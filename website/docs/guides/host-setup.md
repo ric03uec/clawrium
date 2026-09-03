@@ -28,6 +28,106 @@ setup anyway. The flag was removed; the only supported path is below.
   [Installation](installation.md).
 - On the target host: Python 3 (used for hardware detection).
 
+## Step 0 — Pin the host's IP address
+
+Clawrium addresses hosts by IP in `~/.config/clawrium/hosts.json`. If the
+host's address changes — a router reboot, a DHCP lease expiring, moving
+between networks — `clawctl` can no longer reach it over SSH and every
+lifecycle command against its agents fails until the record is updated.
+Pin the address **before** registering the host.
+
+### Router DHCP reservation (preferred)
+
+A DHCP reservation keeps the host's networking configuration untouched: the
+router always hands the same lease to the same machine. Steps vary by
+vendor, but the shape is the same on every consumer router:
+
+1. Find the host's MAC address for the interface it uses:
+
+   ```bash
+   ip link show                  # Linux — MAC is the `link/ether` value
+   ipconfig getifaddr en0        # macOS — confirm the active interface
+   networksetup -getmacaddress en0   # macOS — MAC for that interface
+   ```
+
+2. Open the router's admin UI (typically `http://192.168.1.1` — check your
+   default gateway with `ip route | grep default` on Linux or
+   `route -n get default` on macOS).
+3. Find the DHCP settings — commonly under *LAN*, *Network*, or
+   *Advanced → DHCP Server*. The reservation list is labeled *DHCP
+   Reservation*, *Static Lease*, *Address Reservation*, or *DHCP Binding*.
+4. Add an entry mapping the MAC address from step 1 to the address you want.
+   Pick an address outside the router's dynamic DHCP pool where the router
+   allows it — some firmware requires the reservation to sit inside the pool
+   instead.
+5. Reboot the host (or renew its lease) and confirm it came back on the
+   reserved address.
+
+### OS-level static IP (fallback)
+
+Use this when you do not control the router. Configure the address on the
+host itself, and exclude it from the router's DHCP pool if you can so
+nothing else is handed the same address.
+
+**Linux (netplan — Ubuntu Server).** Edit the file under `/etc/netplan/`
+and apply:
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: false
+      addresses: [192.168.1.100/24]
+      routes:
+        - to: default
+          via: 192.168.1.1
+      nameservers:
+        addresses: [1.1.1.1, 8.8.8.8]
+```
+
+```bash
+sudo netplan apply
+```
+
+**Linux (NetworkManager — desktop distros):**
+
+```bash
+nmcli con mod "<connection-name>" \
+  ipv4.method manual \
+  ipv4.addresses 192.168.1.100/24 \
+  ipv4.gateway 192.168.1.1 \
+  ipv4.dns "1.1.1.1,8.8.8.8"
+nmcli con up "<connection-name>"
+```
+
+`nmcli con show` lists the connection names.
+
+**macOS.** System Settings → Network → select the interface → *Details…* →
+*TCP/IP* → set *Configure IPv4* to **Manually** and fill in the address,
+subnet mask, and router. The CLI equivalent:
+
+```bash
+sudo networksetup -setmanual "Wi-Fi" 192.168.1.100 255.255.255.0 192.168.1.1
+```
+
+:::warning Applying a static IP over SSH drops your session
+The connection breaks the moment the address changes. Run these commands
+from a local console where you can, and reconnect on the new address.
+:::
+
+### If the address already changed
+
+Point the existing host record at the new address — the `key_id`, and
+therefore every secret stored under it, is preserved:
+
+```bash
+clawctl host edit <alias> --hostname <new-ip>
+```
+
+`clawctl` will remind you to confirm that `xclm`'s `authorized_keys` is
+intact on the machine at the new address.
+
 ## Step 1 — Generate the keypair and surface the setup commands
 
 From your management machine, run:

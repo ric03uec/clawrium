@@ -43,5 +43,9 @@ cut. The `itx-release` skill archives this section into a new
   and openclaw's mandatory `--provider` flag; correct the `clawctl agent create`
   and `clawctl agent get` reference sections, whose documented signatures and
   options had drifted from the real CLI (#947-#950, #754).
+- Add a "Pin the host's IP address" step to host preparation covering router
+  DHCP reservation, OS-level static IP fallbacks (netplan, NetworkManager,
+  macOS), and recovery via `clawctl host edit --hostname` when a host's
+  address has already changed (#973).
 
 ### Internal
