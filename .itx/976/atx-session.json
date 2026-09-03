@@ -1,0 +1,15 @@
+{
+  "session_id": "e9355815-26b0-43f2-bae9-396860f06115",
+  "transport": "cli",
+  "commit_sha": "8681240",
+  "iteration": 3,
+  "last_rating": 4,
+  "last_blockers": [],
+  "iterations": [
+    {"iteration": 1, "session_id": "c67cece8-09d9-42e5-9a39-fb487fab8675", "rating": 4, "cost_usd": 3.6178, "time": "8m14s", "blockers": [], "warnings": ["W1: byte-lock gap for neighbor branches", "W2: opencode base_url vs uri on zeroclaw"], "actions": ["addressed W1 with 6 new byte-lock fixtures + parametrized test", "deferred W2 as TODO-FOLLOWUP"]},
+    {"iteration": 2, "session_id": "b53b25b5-...", "rating": 3, "cost_usd": 2.2562, "time": "8m25s", "blockers": ["31c21fa9: schema_version unannotated (prior 3rd pass)"], "warnings": ["acb6ca5f: opencode base_url still-present"], "actions": ["addressed both with Jinja annotations in template; regenerated 7 fixtures"]},
+    {"iteration": 3, "session_id": "e9355815-26b0-43f2-bae9-396860f06115", "rating": 4, "cost_usd": 4.8145, "time": "13m43s", "blockers": [], "warnings": ["W1: opencode base_url follow-up needs GH issue number in template"], "actions": ["accepted; [TODO-FOLLOWUP] in PR body already tracks this"]}
+  ],
+  "started_at": "2026-09-03T01:51:00Z",
+  "updated_at": "2026-09-03T02:30:00Z"
+}

@@ -1,4 +1,4 @@
-# Managed by clawrium (clawctl). Re-render with `clawctl agent configure {{ agent_name }}`.
+# Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.
 # This template is a FULL copy of the canonical zeroclaw config.toml — every section
 # zeroclaw expects is preserved verbatim. Only clawctl-managed values are templated.
 # #974: bumped 2 → 3 alongside the aliased-channels migration. Zeroclaw 0.8.2
@@ -11,9 +11,9 @@
 schema_version = 3
 
 [gateway]
-host = "{{ gateway.host | toq }}"
-port = {{ gateway.port }}
-allow_public_bind = {{ "true" if gateway.allow_public_bind else "false" }}
+host = "0.0.0.0"
+port = 40000
+allow_public_bind = true
 require_pairing = true
 idempotency_max_keys = 10000
 idempotency_ttl_secs = 300
@@ -38,7 +38,7 @@ max_failed_attempts = 5
 max_pending_codes = 3
 
 [providers]
-fallback = "{{ provider.type | toq }}"
+fallback = "openai"
 
 # #817: zeroclaw ≥0.8.2 requires the THREE-level provider table
 # `[providers.models.<type>.<alias>]`. The two-level shape used up
@@ -50,22 +50,10 @@ fallback = "{{ provider.type | toq }}"
 # (crates/zeroclaw-gateway/src/lib.rs line 708).
 # Alias key = agent_name so the `[agents.<alias>].model_provider`
 # reference below stays in lockstep.
-[providers.models.{{ provider.type }}.{{ agent_name }}]
-model = "{{ provider.default_model | toq }}"
-{# TODO: opencode/opencode-go emit `base_url` here, but zeroclaw v0.8.2's
-   OpenAI-compatible provider schema uses `uri` (verified live for litellm
-   in #976; see .itx/976/02_EXECUTE.md — `zeroclaw config list` on wolf-i
-   showed `providers.models.<type>.<alias>.uri`). `base_url` is silently
-   dropped by the daemon, which means opencode/opencode-go on zeroclaw may
-   have the same latent silent-fail. Deferred to a follow-up; verify on a
-   real opencode-on-zeroclaw agent before flipping. Cross-ref: #976 PR
-   [TODO-FOLLOWUP] callout. #}
-{% if provider.type == "ollama" %}base_url = "{{ provider.endpoint | toq }}"
-{% elif provider.type in ("opencode", "opencode-go") %}base_url = "{{ provider.endpoint | toq }}"
-api_key = "{{ provider.api_key | toq }}"
-{% elif provider.type == "litellm" %}uri = "{{ provider.endpoint | toq }}"
-api_key = "{{ provider.api_key | toq }}"
-{% else %}api_key = "{{ provider.api_key | toq }}"{% endif %}
+[providers.models.openai.alpha]
+model = "gpt-5"
+
+api_key = "sk-oa-1"
 
 [agent]
 max_tool_iterations = 200
@@ -124,35 +112,22 @@ session_ttl_hours = 0
 show_tool_calls = false
 
 
-{# #974: zeroclaw 0.8.2 (config schema v3) requires channels to live
-   under aliased sub-tables `[channels.discord.<alias>]` and be bound
-   per-agent via `[agents.<alias>].channels`. The pre-0.8.2 flat
-   `[channels.discord]` block is silently ignored by the daemon's
-   v3 schema — the daemon reports `no channels configured` and refuses
-   every inbound Discord message.
-   Alias is derived from `agent_name` (sanitized to `[a-z0-9_]+`) —
-   see `render_zeroclaw` in core/render.py. Emitted ONLY when a
-   discord channel is attached; absence of the section = disabled.
-   #}
-{% if discord_channel %}[channels.discord.{{ discord_alias }}]
+
+[channels.discord.alpha]
 enabled = true
-bot_token = "{{ discord_channel.bot_token | toq }}"
-allowed_users = [{% for u in discord_channel.allowed_users %}"{{ u | toq }}"{% if not loop.last %}, {% endif %}{% endfor %}]
-allowed_guilds = [{% for g in discord_channel.allowed_guilds %}"{{ g | toq }}"{% if not loop.last %}, {% endif %}{% endfor %}]
-{# B4 (ATX #555 polish): TOML key `mention_only` maps to the canonical
-   ChannelInputs.require_mention field. Upstream zeroclaw daemon's
-   serde struct uses `mention_only` (DiscordConfig::mention_only).
-   Names diverge intentionally; do not rename either side without
-   verifying against the on-disk config after `channels create`. #}
-mention_only = {{ "true" if discord_channel.require_mention else "false" }}
-stream_mode = "{{ (discord_channel.stream_mode if discord_channel.stream_mode else "off") | toq }}"
+bot_token = "discord-bot"
+allowed_users = ["u1", "u2"]
+allowed_guilds = ["g1"]
+
+mention_only = true
+stream_mode = "off"
 approval_timeout_secs = 300
 draft_update_interval_ms = 1000
 interrupt_on_new_message = false
 listen_to_bots = false
 multi_message_delay_ms = 800
 stall_timeout_secs = 0
-{% endif %}
+
 
 
 [autonomy]
@@ -192,7 +167,7 @@ forbidden_paths = [
   "/etc", "/sys", "/boot", "/proc",
   "~/.ssh", "~/.aws", "~/.gnupg", "~/.config/clawrium",
 ]
-shell_env_passthrough = [{% for entry in shell_env_passthrough %}"{{ entry | toq }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+shell_env_passthrough = ["PATH", "HOME", "USER", "LANG", "GITHUB_TOKEN_GH_A", "GITHUB_TOKEN"]
 auto_approve = ["file_read", "file_list", "content_search", "glob_search", "pdf_read", "image_info", "file_write", "file_edit", "http_request", "web_fetch", "web_search", "web_search_tool", "time", "weather", "memory_search", "memory_pin", "memory_recall", "memory_store", "memory_forget", "git_operations", "schedule", "cron_add", "cron_list", "cron_remove", "cron_run", "cron_runs", "cron_update", "ask_user", "escalate_to_human", "sessions_current", "sessions_list", "tool_search", "calculator", "browser", "browser_open"]
 allowed_roots = []
 always_ask = []
@@ -231,15 +206,15 @@ loop_ignore_tools = [
 # schema/v2.rs migration folds legacy settings into a
 # `[risk_profiles.default]` + `[runtime_profiles.default]` entry
 # that gets materialized when the config is first loaded on 0.8.2.
-[agents.{{ agent_name }}]
-model_provider = "{{ provider.type }}.{{ agent_name }}"
+[agents.alpha]
+model_provider = "openai.alpha"
 risk_profile = "default"
 runtime_profile = "default"
 # #974: bind the aliased discord sub-table above to this agent. Empty
 # list when no discord channel attached — the daemon reports `no
 # channels configured` in doctor without this binding, even if the
 # `[channels.discord.<alias>]` section is present.
-channels = [{% if discord_channel %}"channels.discord.{{ discord_alias }}"{% endif %}]
+channels = ["channels.discord.alpha"]
 
 # `[risk_profiles.<alias>]` and `[runtime_profiles.<alias>]` must exist
 # for the refs above to resolve — the daemon errors with "does not
@@ -449,7 +424,7 @@ timeout_secs = 30
 [knowledge]
 auto_capture = false
 cross_workspace_search = false
-db_path = "{{ home_root }}/{{ agent_name }}/.zeroclaw/knowledge.db"
+db_path = "/home/alpha/.zeroclaw/knowledge.db"
 enabled = false
 max_nodes = 100000
 suggest_on_query = true
@@ -498,23 +473,8 @@ model = "stable-diffusion-xl-1024-v1-0"
 
 [mcp]
 deferred_loading = true
-{% if slack_integrations %}enabled = true
-{% for entry in slack_integrations %}
-[[mcp.servers]]
-name = "{{ entry.slug }}"
-command = "{{ slack_mcp_binary | toq }}"
-args = ["--transport", "stdio"]
-{% if entry.auth == 'user' -%}
-[mcp.servers.env]
-SLACK_MCP_XOXP_TOKEN = "{{ entry.xoxp_token | toq }}"
-{%- else -%}
-[mcp.servers.env]
-SLACK_MCP_XOXC_TOKEN = "{{ entry.xoxc_token | toq }}"
-SLACK_MCP_XOXD_TOKEN = "{{ entry.xoxd_token | toq }}"
-{%- endif %}
-{% endfor -%}
-{% else %}enabled = false
-{% endif %}
+enabled = false
+
 
 [media_pipeline]
 describe_images = true
@@ -610,7 +570,7 @@ runtime_trace_mode = "none"
 runtime_trace_path = "state/runtime-trace.jsonl"
 
 [onboard_state]
-completed_sections = {{ onboard_completed_sections | tojson }}
+completed_sections = []
 
 [opencode_cli]
 enabled = false
@@ -631,7 +591,7 @@ max_steps = 20
 auto_discover = false
 enabled = false
 max_plugins = 50
-plugins_dir = "{{ home_root }}/{{ agent_name }}/.zeroclaw/plugins"
+plugins_dir = "/home/alpha/.zeroclaw/plugins"
 
 [plugins.security]
 signature_mode = "disabled"
@@ -642,7 +602,7 @@ default_language = "en"
 enabled = false
 include_git_data = true
 include_jira_data = false
-report_output_dir = "{{ home_root }}/{{ agent_name }}/.zeroclaw/project-reports"
+report_output_dir = "/home/alpha/.zeroclaw/project-reports"
 risk_sensitivity = "medium"
 
 [proxy]
@@ -698,7 +658,7 @@ sign_events = false
 [security.estop]
 enabled = false
 require_otp_to_resume = true
-state_file = "{{ home_root }}/{{ agent_name }}/.zeroclaw/estop-state.json"
+state_file = "/home/alpha/.zeroclaw/estop-state.json"
 
 [security.nevis]
 client_id = ""
@@ -740,8 +700,8 @@ rp_origin = "http://localhost:42617"
 auto_triage = false
 enabled = false
 max_auto_severity = "low"
-playbooks_dir = "{{ home_root }}/{{ agent_name }}/.zeroclaw/playbooks"
-report_output_dir = "{{ home_root }}/{{ agent_name }}/.zeroclaw/security-reports"
+playbooks_dir = "/home/alpha/.zeroclaw/playbooks"
+report_output_dir = "/home/alpha/.zeroclaw/security-reports"
 require_approval_for_actions = true
 
 [shell_tool]
@@ -837,4 +797,4 @@ enabled = false
 isolate_audit = true
 isolate_memory = true
 isolate_secrets = true
-workspaces_dir = "{{ home_root }}/{{ agent_name }}/.zeroclaw/workspaces"
+workspaces_dir = "/home/alpha/.zeroclaw/workspaces"

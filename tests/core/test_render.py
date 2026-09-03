@@ -524,6 +524,7 @@ def _ethos_inputs(*, ptype: str = "openrouter") -> RenderInputs:
         (render_zeroclaw, "anthropic"),
         (render_zeroclaw, "openai"),
         (render_zeroclaw, "ollama"),
+        (render_zeroclaw, "litellm"),
         (render_zeroclaw, "opencode"),
         (render_zeroclaw, "opencode-go"),
         (render_openclaw, "openrouter"),
@@ -1325,6 +1326,196 @@ def test_zeroclaw_requires_gateway():
     )
     with pytest.raises(AgentConfigError, match="requires gateway config"):
         render_zeroclaw(inputs)
+
+
+# ---------------------------------------------------------------------------
+# #976: zeroclaw + litellm provider type
+#
+# Extends `_AGENT_TYPE_PROVIDER_SUPPORT['zeroclaw']` and the config.toml
+# template so a zeroclaw agent can front a LiteLLM proxy directly. The
+# renderer normalizes the endpoint identically to the opencode branch:
+# strip trailing `/`, append `/v1` if missing. The `api_key` lives inline
+# in the three-level provider table (matching opencode on zeroclaw); no
+# systemd env var is emitted.
+# ---------------------------------------------------------------------------
+
+
+def test_zeroclaw_litellm_emits_three_level_provider_block():
+    """Renderer emits [providers.models.litellm.<alias>] with model,
+    uri, and api_key.
+
+    zeroclaw v0.8.2's litellm provider schema uses `uri`, not `base_url`
+    (verified via `zeroclaw config list` on a real host: the exposed
+    field is `providers.models.litellm.<alias>.uri`). This diverges from
+    the hermes template, which uses `base_url` because hermes' own YAML
+    schema uses that key. Emitting `base_url` here silently leaves
+    `uri = <unset>` and the daemon fails to route to the LiteLLM proxy.
+    """
+    inputs = _zeroclaw_inputs(ptype="litellm")
+    out = render_zeroclaw(inputs)
+    toml = out.files[".zeroclaw/config.toml"]
+
+    # Fallback + three-level provider table + agent alias reference all
+    # pin the litellm type.
+    assert '[providers]\nfallback = "litellm"' in toml
+    assert f"[providers.models.litellm.{inputs.agent_name}]" in toml
+    assert 'model = "gemma4:31b"' in toml
+    # Endpoint is normalized to /v1 (the baseline litellm endpoint is
+    # http://10.0.0.5:4000 without a suffix) and lives under `uri`.
+    assert 'uri = "http://10.0.0.5:4000/v1"' in toml
+    assert 'api_key = "sk-master-1"' in toml
+    # Belt-and-suspenders: `base_url` inside the litellm block is the
+    # wrong key. A regression that emitted it would leave `uri` unset
+    # and silently break routing.
+    litellm_block = toml.split(f"[providers.models.litellm.{inputs.agent_name}]", 1)[1]
+    litellm_block = litellm_block.split("[", 1)[0]
+    assert "base_url" not in litellm_block, (
+        "zeroclaw's litellm schema uses `uri`, not `base_url` — regressing "
+        "back to base_url would silently break routing"
+    )
+    # Agent alias references the litellm provider so /ws/chat resolves.
+    assert (
+        f'model_provider = "litellm.{inputs.agent_name}"' in toml
+    ), "agent alias must reference the three-level litellm provider table"
+    # No env-var path — the bearer stays inline in config.toml, mirroring
+    # the opencode branch.
+    env = out.files[".zeroclaw/zeroclaw-env.conf"]
+    assert "LITELLM_API_KEY" not in env
+    assert "sk-master-1" not in env
+
+
+def test_zeroclaw_litellm_endpoint_with_v1_suffix_not_double_appended():
+    """Endpoint already ending in /v1 must not be double-suffixed."""
+    base = _zeroclaw_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=base.provider.default_model,
+        endpoint="http://10.0.0.5:4000/v1",
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        gateway=base.gateway,
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    assert 'uri = "http://10.0.0.5:4000/v1"' in toml
+    assert "http://10.0.0.5:4000/v1/v1" not in toml
+
+
+def test_zeroclaw_litellm_endpoint_without_v1_gets_normalized():
+    """Endpoint missing trailing /v1 gets /v1 appended."""
+    base = _zeroclaw_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=base.provider.default_model,
+        endpoint="http://192.168.1.17:4000",
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        gateway=base.gateway,
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    assert 'uri = "http://192.168.1.17:4000/v1"' in toml
+
+
+def test_zeroclaw_litellm_endpoint_trailing_slash_stripped():
+    """Trailing slash on the endpoint gets stripped before /v1 is appended."""
+    base = _zeroclaw_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=base.provider.default_model,
+        endpoint="http://192.168.1.17:4000/",
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        gateway=base.gateway,
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    assert 'uri = "http://192.168.1.17:4000/v1"' in toml
+    # Double-slash between host and /v1 would indicate the strip did not
+    # run before the append.
+    assert "http://192.168.1.17:4000//v1" not in toml
+
+
+def test_zeroclaw_litellm_endpoint_trailing_slash_after_v1_stripped():
+    """Trailing slash after /v1 gets stripped without double-suffixing."""
+    base = _zeroclaw_inputs(ptype="litellm")
+    provider = ProviderInputs(
+        name=base.provider.name,
+        type=base.provider.type,
+        default_model=base.provider.default_model,
+        endpoint="http://192.168.1.17:4000/v1/",
+        api_key=base.provider.api_key,
+    )
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=provider,
+        channels=base.channels,
+        integrations=base.integrations,
+        gateway=base.gateway,
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    assert 'uri = "http://192.168.1.17:4000/v1"' in toml
+    assert "http://192.168.1.17:4000/v1/v1" not in toml
+
+
+@pytest.mark.parametrize(
+    "ptype,fixture_name",
+    [
+        ("openrouter", "zeroclaw_config_openrouter.toml"),
+        ("anthropic", "zeroclaw_config_anthropic.toml"),
+        ("openai", "zeroclaw_config_openai.toml"),
+        ("ollama", "zeroclaw_config_ollama.toml"),
+        ("opencode", "zeroclaw_config_opencode.toml"),
+        ("opencode-go", "zeroclaw_config_opencode_go.toml"),
+        ("litellm", "zeroclaw_config_litellm.toml"),
+    ],
+)
+def test_zeroclaw_render_is_byte_locked(ptype: str, fixture_name: str):
+    """Byte-lock: rendered TOML for every zeroclaw provider type must
+    match its frozen fixture exactly.
+
+    Locks both the new litellm branch AND every neighboring branch
+    (ollama / opencode / opencode-go / openrouter / anthropic /
+    openai). Any future template edit that shifts a byte of any
+    branch's output fails this test — the "existing branches
+    byte-identical" claim from #976's plan text becomes mechanically
+    enforceable rather than observational.
+
+    If a drift is intentional (e.g., a legitimate template change
+    that affects all providers), regenerate the affected fixtures
+    from the current render output.
+    """
+    from pathlib import Path
+
+    inputs = _zeroclaw_inputs(ptype=ptype)
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+
+    fixture_path = Path(__file__).parent / "fixtures" / fixture_name
+    expected = fixture_path.read_text()
+    assert toml == expected, (
+        f"zeroclaw {ptype} render drifted from frozen fixture at "
+        f"{fixture_path}. If this drift is intentional, regenerate the "
+        "fixture from the current render output."
+    )
 
 
 # #911: previously the zeroclaw config template hardcoded
