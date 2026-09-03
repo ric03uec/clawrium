@@ -236,3 +236,52 @@ Both belong in a follow-up issue targeting `render_zeroclaw` +
 - `uv run pytest tests -q` → 4822 passed, 2 skipped.
 - The 10 new tests + 40 existing zeroclaw render tests all green.
 
+
+## Post-merge re-UAT (after merging #974 from main)
+
+After merging origin/main into this branch, the `Quickstart` chat
+gate documented above was resolved by #974's aliased channels /
+schema-v3 fix. Re-verification on wolf-i / clawrium-d01:
+
+### Step 7 (post-merge) — sync
+
+```
+$ uv run clawctl agent sync clawrium-d01
+...
+agent/clawrium-d01: sync: synced clawrium-d01: 1 written, 1 unchanged
+agent/clawrium-d01: synced  (drift=0, took 5s, 1 written, 1 unchanged)
+```
+
+drift=0, config re-rendered on the schema-v3 template + litellm branch.
+
+### Step 8 — chat (now working)
+
+```
+$ uv run clawctl agent chat clawrium-d01 --once "one word reply so I know the LiteLLM proxy path works: alive?" --timeout 120
+ZeroClaw chat is using a non-TLS WebSocket (ws://) to a non-loopback host …
+Alive
+
+$ uv run clawctl agent chat clawrium-d01 --once "what model are you?" --timeout 60
+ZeroClaw chat is using a non-TLS WebSocket (ws://) to a non-loopback host …
+I'm Qwen, a large language model developed by Alibaba Group. For specific
+version details, you can check the official website or technical reports.
+
+What can I help you with today?
+```
+
+Exit 0. Reply routed via the LiteLLM proxy at
+`http://192.168.1.17:4000` fronting `Qwen3.8-27B-FP8`. Model identity
+in the second reply ("I'm Qwen") is what the LiteLLM proxy is
+configured to route to. **End-to-end litellm attach → sync → chat is
+green.**
+
+The two `[ENVIRONMENT]` / `[TODO-FOLLOWUP]` callouts in the PR body
+about the fleet-wide Quickstart gate are now stale — #974 fixed the
+root cause. Callouts were updated on the PR body to reflect this.
+
+## Local test + lint (post-merge)
+
+- `make lint` → clean.
+- `uv run pytest tests -q` → 4841 passed, 2 skipped.
+- 72 zeroclaw + litellm-attach tests all green (up from 59 pre-merge
+  as #974 also added zeroclaw discord-binding tests).
