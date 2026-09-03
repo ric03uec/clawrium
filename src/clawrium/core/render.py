@@ -1452,9 +1452,10 @@ def render_zeroclaw(
     # output — the daemon would then run without channel access and the
     # mistake would only show up on first @mention.
     # W1 (ATX round 3): a second `discord` channel is ALSO a silent-drop
-    # surface (zeroclaw daemon emits one [channels.discord] block, so two
-    # attached discord channels means the second is invisible). Raise so
-    # the operator detaches one rather than getting nondeterministic
+    # surface — the renderer emits exactly one [channels.discord.<alias>]
+    # sub-table per agent (#974: aliased since 0.8.2 schema v3), so a
+    # second attached discord channel would be invisible. Raise so the
+    # operator detaches one rather than getting nondeterministic
     # "which one won?" behavior.
     discord_channel = None
     for channel in inputs.channels:
@@ -1464,7 +1465,8 @@ def render_zeroclaw(
                     f"render_zeroclaw: agent {inputs.agent_name!r} has "
                     f"multiple discord channels attached "
                     f"({discord_channel.name!r}, {channel.name!r}); "
-                    f"zeroclaw renders exactly one [channels.discord] block. "
+                    f"zeroclaw renders exactly one "
+                    f"[channels.discord.<alias>] block. "
                     f"Detach one with `clawctl channel detach`."
                 )
             discord_channel = channel
@@ -1562,12 +1564,19 @@ def render_zeroclaw(
     slack_mcp_binary = (
         f"{home_root}/{inputs.agent_name}/.local/bin/slack-mcp-server"
     )
+    # #974: zeroclaw 0.8.2's schema v3 keys discord channels by alias
+    # (`channels.discord.<alias>`) and requires `[a-z0-9_]+`. Derive the
+    # alias deterministically from `agent_name` — exactly one discord
+    # channel per zeroclaw agent is enforced upstream in this function,
+    # so a per-agent alias is sufficient and stable across renders.
+    discord_alias = _sanitize_zeroclaw_alias(inputs.agent_name)
     toml_body = _render_zeroclaw_config_template(
         agent_name=inputs.agent_name,
         home_root=home_root,
         gateway=inputs.gateway,
         provider=provider,
         discord_channel=discord_channel,
+        discord_alias=discord_alias,
         shell_env_passthrough=passthrough,
         slack_integrations=slack_views,
         slack_mcp_binary=slack_mcp_binary,
@@ -1678,6 +1687,31 @@ def _zeroclaw_template():
     return env.from_string(template_source)
 
 
+def _sanitize_zeroclaw_alias(name: str) -> str:
+    """Sanitize a clawctl name into a zeroclaw v3-compatible alias.
+
+    Zeroclaw ≥0.8.2 config schema v3 requires alias keys under
+    `[channels.<type>.<alias>]` and `[agents.<alias>]` to match
+    `[a-z0-9_]+`. clawctl channel/agent names permit hyphens
+    (e.g. `discord-clawrium-d01`, `clawrium-d01`) — sanitize them
+    to underscores so the daemon's `channels create` / `channels
+    rename` CLI validation would accept the alias.
+
+    Deterministic per input string; safe to call repeatedly.
+
+    Raises AgentConfigError on empty input, or input whose every
+    character is non-alphanumeric (would sanitize to an all-underscore
+    string, which is legal but conveys no operator intent and hints at
+    an upstream bug that let a garbage name through validation).
+    """
+    if not name:
+        raise AgentConfigError(
+            "_sanitize_zeroclaw_alias: empty name — an upstream "
+            "validator should have rejected this before render"
+        )
+    return re.sub(r"[^a-z0-9_]", "_", name.lower())
+
+
 def _render_zeroclaw_config_template(
     *,
     agent_name: str,
@@ -1685,6 +1719,7 @@ def _render_zeroclaw_config_template(
     gateway: "GatewayInputs",
     provider: "ProviderInputs",
     discord_channel: "ChannelInputs | None",
+    discord_alias: str,
     shell_env_passthrough: list[str],
     slack_integrations: list[dict] | tuple[dict, ...] = (),
     slack_mcp_binary: str = "",
@@ -1710,6 +1745,17 @@ def _render_zeroclaw_config_template(
     subsequent sync by `sync_agent_canonical` reading the on-host
     daemon state so re-render does not wipe it.
     """
+    # #974 W1: discord_alias must be non-empty whenever a discord channel
+    # is attached. Empty alias with a channel would emit
+    # `[channels.discord.]` — invalid TOML that only surfaces at daemon
+    # load time. Fail here so the corrupt render never touches disk.
+    if discord_channel is not None and not discord_alias:
+        raise AgentConfigError(
+            "_render_zeroclaw_config_template: discord_channel supplied "
+            "without a discord_alias — would render invalid TOML header "
+            "`[channels.discord.]`. This is a caller bug in "
+            "`render_zeroclaw`."
+        )
     template = _zeroclaw_template()
     return template.render(
         agent_name=agent_name,
@@ -1717,6 +1763,7 @@ def _render_zeroclaw_config_template(
         gateway=gateway,
         provider=provider,
         discord_channel=discord_channel,
+        discord_alias=discord_alias,
         shell_env_passthrough=shell_env_passthrough,
         slack_integrations=list(slack_integrations),
         slack_mcp_binary=slack_mcp_binary,

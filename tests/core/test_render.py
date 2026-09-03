@@ -1223,7 +1223,19 @@ def test_zeroclaw_renders_discord_channel_and_mandatory_blocks():
     # `[providers.models.<type>.<alias>]`. Alias key = agent name so
     # a single-provider agent has exactly one alias.
     assert f"[providers.models.openrouter.{inputs.agent_name}]" in toml
-    assert "[channels.discord]" in toml
+    # #974: zeroclaw ≥0.8.2 (config schema v3) requires discord config
+    # under aliased sub-table `[channels.discord.<alias>]`, NOT the
+    # pre-0.8.2 flat `[channels.discord]` block. Alias derives from
+    # agent_name sanitized to `[a-z0-9_]+`. Derive via the sanitizer
+    # so this test survives a future rename of the fixture agent_name
+    # to a hyphenated form (ATX #974 S2).
+    from clawrium.core.render import _sanitize_zeroclaw_alias
+    alias = _sanitize_zeroclaw_alias(inputs.agent_name)
+    assert f"[channels.discord.{alias}]" in toml
+    assert "\n[channels.discord]\n" not in toml, (
+        "legacy flat [channels.discord] block would be silently ignored "
+        "by zeroclaw 0.8.2's schema v3 parser"
+    )
     assert 'bot_token = "discord-bot"' in toml
     assert "mention_only = true" in toml
     # #817: zeroclaw ≥0.8.2 gateway /ws/chat rejects the WebSocket
@@ -1236,6 +1248,12 @@ def test_zeroclaw_renders_discord_channel_and_mandatory_blocks():
     ), "agent alias must reference the three-level provider table"
     assert 'risk_profile = "default"' in toml
     assert 'runtime_profile = "default"' in toml
+    # #974: `[agents.<alias>]` MUST bind its channels via
+    # `channels = ["channels.discord.<alias>"]`. Without this binding
+    # the daemon reports `no channels configured` in doctor and refuses
+    # every inbound Discord message, even with the aliased
+    # `[channels.discord.<alias>]` section above.
+    assert f'channels = ["channels.discord.{alias}"]' in toml
     # And the referenced profile stanzas must ship or the daemon
     # rejects the config with "does not name a configured
     # risk_profiles entry".
@@ -2553,11 +2571,20 @@ def test_zeroclaw_toml_string_interpolations_escape_special_chars():
         == 'sk-"]\\evil\n'
     )
 
-    # Discord values round-trip.
-    assert parsed["channels"]["discord"]["bot_token"] == 'token"\\\n'
-    assert parsed["channels"]["discord"]["allowed_users"] == ['u"1', "u\\2"]
-    assert parsed["channels"]["discord"]["allowed_guilds"] == ['g"\\1']
-    assert parsed["channels"]["discord"]["stream_mode"] == 'partial"\\'
+    # Discord values round-trip. #974: aliased sub-table under
+    # `channels.discord.<sanitized_agent_name>` since zeroclaw 0.8.2
+    # config schema v3. Look up via the same sanitizer the renderer uses
+    # so this test survives a future fixture rename to a hyphenated
+    # agent_name (which would need sanitization to match the emitted
+    # TOML key).
+    from clawrium.core.render import _sanitize_zeroclaw_alias
+    discord_sub = parsed["channels"]["discord"][
+        _sanitize_zeroclaw_alias(inputs.agent_name)
+    ]
+    assert discord_sub["bot_token"] == 'token"\\\n'
+    assert discord_sub["allowed_users"] == ['u"1', "u\\2"]
+    assert discord_sub["allowed_guilds"] == ['g"\\1']
+    assert discord_sub["stream_mode"] == 'partial"\\'
 
 
 def test_zeroclaw_rejects_non_discord_channel_b8():
@@ -2942,9 +2969,16 @@ def test_hermes_ollama_endpoint_with_v1_suffix_not_double_appended_w8():
 
 def test_zeroclaw_rejects_dual_discord_channels_w1_w9():
     """W1 + W9 (ATX round 3): two discord channels attached to one
-    zeroclaw agent is a silent-drop hazard — zeroclaw daemon emits a
-    single `[channels.discord]` block, so the second attachment would
-    be invisible. Raise so the operator detaches one."""
+    zeroclaw agent is a silent-drop hazard — the renderer emits exactly
+    one `[channels.discord.<alias>]` block per agent (#974: aliased
+    since 0.8.2), so the second attachment would be invisible. Raise
+    so the operator detaches one.
+
+    ATX #974 W4: pin the aliased-shape wording so a revert to the
+    pre-#974 `[channels.discord]` phrasing would fail this test — the
+    substring `multiple discord channels` alone would tolerate the
+    old message.
+    """
     base = _zeroclaw_inputs(ptype="openrouter")
     inputs = RenderInputs(
         agent_name=base.agent_name,
@@ -2956,7 +2990,10 @@ def test_zeroclaw_rejects_dual_discord_channels_w1_w9():
         ),
         gateway=base.gateway,
     )
-    with pytest.raises(AgentConfigError, match="multiple discord channels"):
+    with pytest.raises(
+        AgentConfigError,
+        match=r"channels\.discord\.<alias>",
+    ):
         render_zeroclaw(inputs)
 
 
@@ -6887,3 +6924,167 @@ def test_build_render_inputs_non_ethos_gateway_api_key_stays_empty(stores):
     assert inputs.gateway is not None
     assert inputs.gateway.api_key == ""
     assert inputs.gateway.internal_port == 0
+
+
+# ---------------------------------------------------------------------------
+# #974: zeroclaw 0.8.2 schema-v3 channel binding
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("clawrium-d01", "clawrium_d01"),
+        ("discord-clawrium-d01", "discord_clawrium_d01"),
+        ("simple", "simple"),
+        ("Foo-BAR-123", "foo_bar_123"),
+        ("a.b/c", "a_b_c"),
+        ("under_score_ok", "under_score_ok"),
+        # ATX #974 W3: all-special-chars input — every char collapses to
+        # underscore. Ugly but legal per zeroclaw's `[a-z0-9_]+` regex.
+        ("---", "___"),
+        ("...", "___"),
+    ],
+)
+def test_sanitize_zeroclaw_alias(raw, expected):
+    """Zeroclaw config schema v3 requires alias keys to match `[a-z0-9_]+`.
+    Hyphens, dots, slashes, and uppercase all collapse to underscore/lower."""
+    from clawrium.core.render import _sanitize_zeroclaw_alias
+    assert _sanitize_zeroclaw_alias(raw) == expected
+
+
+def test_sanitize_zeroclaw_alias_rejects_empty():
+    """ATX #974 W3: empty input is a caller bug — an upstream agent-name
+    validator should have rejected the empty string before render. Raising
+    surfaces the bug at render time rather than silently producing a
+    `[channels.discord.]` header that only fails at daemon load."""
+    from clawrium.core.render import _sanitize_zeroclaw_alias
+    with pytest.raises(AgentConfigError, match="empty name"):
+        _sanitize_zeroclaw_alias("")
+
+
+def test_render_zeroclaw_template_rejects_channel_without_alias():
+    """ATX #974 W1: `_render_zeroclaw_config_template` must reject a
+    `discord_channel` set with an empty `discord_alias` — the template
+    would otherwise emit invalid TOML `[channels.discord.]` that only
+    surfaces at daemon boot. Guard here fails at render time so a corrupt
+    config never touches disk."""
+    from clawrium.core.render import (
+        _render_zeroclaw_config_template,
+    )
+    with pytest.raises(AgentConfigError, match="discord_alias"):
+        _render_zeroclaw_config_template(
+            agent_name="alpha",
+            gateway=GatewayInputs(host="0.0.0.0", port=40000, allow_public_bind=True),
+            provider=ProviderInputs(name="p", type="openrouter", default_model="m", api_key="sk-1"),
+            discord_channel=ChannelInputs(name="d", type="discord", bot_token="t"),
+            discord_alias="",
+            shell_env_passthrough=[],
+        )
+
+
+def test_zeroclaw_agents_channels_empty_when_no_discord_attached():
+    """When no discord channel is attached, `[agents.<alias>].channels` MUST
+    render as an empty list (not be omitted). Absence of the key defaults to
+    `<unset>` on the daemon side, but an explicit `channels = []` makes the
+    zero-channel state visible in the config diff and prevents an operator
+    from misreading the config as "channels not yet rendered"."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name=base.agent_name,
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=(),  # no discord
+        integrations=(),
+        gateway=base.gateway,
+    )
+    import tomllib
+
+    body = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    data = tomllib.loads(body)
+    # No discord aliased sub-table rendered at all — a stale flat
+    # `[channels.discord]` section from pre-fix templates would parse
+    # into `channels.discord.enabled` (bool leaf) which is not a
+    # sub-table and would also fail this check.
+    assert "discord" not in data.get("channels", {}), (
+        "expected no channels.discord.* aliased sub-tables when no "
+        f"discord attached, got {data.get('channels', {}).get('discord')!r}"
+    )
+    # Explicit empty binding under [agents.<alias>].
+    assert data["agents"][inputs.agent_name]["channels"] == []
+
+
+def test_zeroclaw_agents_channels_bind_uses_sanitized_alias():
+    """Agent names with hyphens (e.g. `clawrium-d01`) must sanitize into a
+    valid v3 alias (`clawrium_d01`) — both in the `[channels.discord.<alias>]`
+    header AND in the `[agents.<agent_name>].channels` binding.
+
+    Note: `[agents.<agent_name>]` itself keeps the original agent_name (with
+    hyphens) — the daemon's TOML parser accepts hyphens for existing agent
+    entries even though `zeroclaw agents create` CLI validation rejects them
+    for new-agent creation. Only channel aliases need sanitization because
+    they are created fresh by clawrium and referenced by string."""
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="clawrium-d01",
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=(
+            ChannelInputs(
+                name="discord-clawrium-d01",
+                type="discord",
+                bot_token="tkn",
+                allowed_users=("u1",),
+                allowed_guilds=("g1",),
+                require_mention=True,
+                stream_mode="off",
+            ),
+        ),
+        integrations=(),
+        gateway=base.gateway,
+    )
+    toml = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    assert "[channels.discord.clawrium_d01]" in toml
+    assert "[agents.clawrium-d01]" in toml
+    assert 'channels = ["channels.discord.clawrium_d01"]' in toml
+
+
+def test_zeroclaw_config_toml_parses_as_valid_v3_shape():
+    """End-to-end TOML shape check — the rendered file must parse and expose
+    `channels.discord.<alias>` as a sub-table, and `agents.<name>.channels`
+    as a list containing the fully-qualified channel ref. Guards against
+    template-string regressions that only surface at daemon load time."""
+    import tomllib
+
+    base = _zeroclaw_inputs(ptype="openrouter")
+    inputs = RenderInputs(
+        agent_name="clawrium-d01",
+        agent_type=base.agent_type,
+        provider=base.provider,
+        channels=(
+            ChannelInputs(
+                name="discord-clawrium-d01",
+                type="discord",
+                bot_token="tkn",
+                allowed_users=("u1", "u2"),
+                allowed_guilds=("g1",),
+                require_mention=True,
+                stream_mode="off",
+            ),
+        ),
+        integrations=(),
+        gateway=base.gateway,
+    )
+    body = render_zeroclaw(inputs).files[".zeroclaw/config.toml"]
+    data = tomllib.loads(body)
+
+    sub = data["channels"]["discord"]["clawrium_d01"]
+    assert sub["enabled"] is True
+    assert sub["bot_token"] == "tkn"
+    assert sub["allowed_users"] == ["u1", "u2"]
+    assert sub["allowed_guilds"] == ["g1"]
+    assert sub["mention_only"] is True
+    assert sub["stream_mode"] == "off"
+
+    agent = data["agents"]["clawrium-d01"]
+    assert agent["channels"] == ["channels.discord.clawrium_d01"]
