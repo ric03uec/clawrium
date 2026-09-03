@@ -39,7 +39,7 @@ No GPU required. Python ≥ 3.9 is listed as a manifest dependency for parity wi
 
 ## Provider Support
 
-ZeroClaw upstream supports a long catalog of providers (anthropic, openai, ollama, bedrock, gemini, openrouter, openai-compatible, azure-openai, copilot, claude-code, telnyx, kilocli). clawctl exposes only the four that are wired end-to-end through `config.toml` rendering and validated by the configure playbook.
+ZeroClaw upstream supports a long catalog of providers (anthropic, openai, ollama, bedrock, gemini, openrouter, openai-compatible, azure-openai, copilot, claude-code, telnyx, kilocli). clawctl exposes the ones that are wired end-to-end through `config.toml` rendering and validated by the configure playbook.
 
 | Provider | Status | clawctl `provider.type` | `kind` discriminator | Rendered keys |
 |----------|:------:|---------------------|----------------------|---------------|
@@ -47,12 +47,13 @@ ZeroClaw upstream supports a long catalog of providers (anthropic, openai, ollam
 | **[OpenAI](providers/openai.md)** | ✅ | `openai` | `openai` | `api_key`, `model` |
 | **[Ollama / OpenAI-compatible](providers/ollama.md)** | ✅ | `ollama` | `ollama` | `base_url`, `model` (no api_key) |
 | **[OpenRouter](providers/openrouter.md)** | ✅ | `openrouter` | `openrouter` | `api_key`, `model` |
+| **LiteLLM / vLLM / custom OpenAI-compatible proxy** | ✅ | `litellm` | `litellm` | `uri` (auto-normalized to `/v1`), `api_key`, `model` |
 | **AWS Bedrock** | 📋 | — | — | Deferred (no follow-up issue yet) |
 | **Google Gemini / Vertex** | 📋 | — | — | Deferred |
 | **Azure OpenAI** | 📋 | — | — | Deferred |
 | **Copilot / Claude Code / Telnyx / Kilocli** | 📋 | — | — | Deferred |
 
-`config.toml` is rendered from a Jinja template that hard-allows only the four `kind` values above; any other `provider.type` causes the configure playbook to fail with a remediation message.
+`config.toml` is rendered from a Jinja template that hard-allows only the `kind` values above; any other `provider.type` causes the configure playbook to fail with a remediation message.
 
 ---
 
@@ -182,6 +183,7 @@ Per-provider rendering:
 | `openai` | `openai` | yes | — | — |
 | `ollama` | `ollama` | — | `<provider.endpoint>` (as-is) | No API key. Endpoint must be reachable from the **agent host**, not just your control machine. |
 | `openrouter` | `openrouter` | yes | — | — |
+| `litellm` | `litellm` | yes (bearer stays inline in `config.toml`, no env var) | rendered as `uri = "<provider.endpoint>"` normalized to end in `/v1` (trailing `/` stripped, `/v1` appended if missing) | Endpoint must be reachable from the **agent host**. Any OpenAI-compatible proxy works (LiteLLM, vLLM, KServe, etc.). Note that zeroclaw's litellm schema uses `uri`, not `base_url`. |
 
 #### `~/.zeroclaw/workspace/` (mode 0700, files mode 0600)
 

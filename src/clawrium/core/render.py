@@ -79,19 +79,14 @@ _DEVICE_AUTH_TYPES = frozenset({"codex"})
 # this so a hermes agent attached to a zai-only provider fails up-front
 # instead of crashing later inside `render_hermes`. The membership
 # matches the renderer dispatch tables further below.
-#
-# `litellm` on zeroclaw is still deferred — the zeroclaw renderer has no
-# `models.providers.<id>` writer and no env-var path for a free-form
-# OpenAI-compatible base_url + bearer pair. Openclaw gained litellm
-# support in #723: the renderer writes a `models.providers.<provider-name>`
-# block into `openclaw.json` with `api: "openai-completions"`, matching
-# upstream openclaw's custom-provider shape.
 _AGENT_TYPE_PROVIDER_SUPPORT: dict[str, frozenset[str]] = {
     "ethos": frozenset({"openrouter", "anthropic", "openai", "codex"}),
     "hermes": frozenset(
         {"openrouter", "anthropic", "openai", "bedrock", "ollama", "litellm", "opencode", "opencode-go"}
     ),
-    "zeroclaw": frozenset({"openrouter", "anthropic", "openai", "ollama", "opencode", "opencode-go"}),
+    "zeroclaw": frozenset(
+        {"openrouter", "anthropic", "openai", "ollama", "litellm", "opencode", "opencode-go"}
+    ),
     "openclaw": frozenset(
         {"openrouter", "anthropic", "openai", "bedrock", "ollama", "zai", "litellm", "opencode", "opencode-go"}
     ),
@@ -1379,7 +1374,7 @@ def _render_hermes_template(template_name: str, **context) -> str:
 
 # Zeroclaw provider section table. Each entry: (kind_string,)
 _ZEROCLAW_PROVIDER_KINDS = frozenset(
-    {"anthropic", "openai", "ollama", "openrouter", "opencode", "opencode-go"}
+    {"anthropic", "openai", "ollama", "openrouter", "litellm", "opencode", "opencode-go"}
 )
 _ZEROCLAW_SUPPORTED_INTEGRATIONS = frozenset(
     {"github", "git", "brave", "slack-user", "slack-cookie"}
@@ -1476,10 +1471,13 @@ def render_zeroclaw(
 
     # --- normalize provider endpoint for OpenAI-compatible gateways ------
     # zeroclaw's config.toml uses the endpoint verbatim as base_url. For
-    # opencode/opencode-go (and litellm/ollama), ensure the trailing `/v1`
-    # is present so the daemon hits the correct OpenAI-compatible path.
+    # opencode/opencode-go and litellm, ensure the trailing `/v1` is
+    # present so the daemon hits the correct OpenAI-compatible path.
+    # ollama is intentionally excluded — its native chat API lives at the
+    # bare base_url (no `/v1` suffix); the daemon appends `/api/chat`
+    # itself.
     provider = inputs.provider
-    if provider.type in ("opencode", "opencode-go"):
+    if provider.type in ("opencode", "opencode-go", "litellm"):
         endpoint = provider.endpoint.rstrip("/")
         if endpoint and not endpoint.endswith("/v1"):
             endpoint = endpoint + "/v1"

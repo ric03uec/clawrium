@@ -19,6 +19,7 @@ cut. The `itx-release` skill archives this section into a new
 ### Added
 
 - `clawctl host edit --description <text>` sets or updates a free-form description on a host record; passing an empty string clears it (#122).
+- **zeroclaw**: accept the `litellm` provider type so a zeroclaw agent can front a LiteLLM proxy (or any OpenAI-compatible gateway) directly. The renderer emits `uri` + `api_key` under `[providers.models.litellm.<alias>]` in `~/.zeroclaw/config.toml` (zeroclaw's litellm schema uses `uri`, not `base_url`) and normalizes the endpoint the same way as opencode (strip trailing `/`, append `/v1` if missing). Matches the existing openclaw (#723) and hermes (#705) litellm paths. Use with `clawctl provider registry create <name> --type litellm --litellm-url <proxy> --model <id> --api-key <bearer>` + `clawctl agent provider attach <name> --agent <zeroclaw-agent>` (#976).
 
 ### Changed
 
