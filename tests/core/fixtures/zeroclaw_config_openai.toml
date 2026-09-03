@@ -1,8 +1,14 @@
 # Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.
 # This template is a FULL copy of the canonical zeroclaw config.toml — every section
 # zeroclaw expects is preserved verbatim. Only clawctl-managed values are templated.
-
-schema_version = 2
+# #974: bumped 2 → 3 alongside the aliased-channels migration. Zeroclaw 0.8.2
+# does auto-migrate `schema_version = 2` on load, but rendering `= 3`
+# eliminates any risk that a future daemon version picks a v2 parser code
+# path and silently ignores the new `[channels.discord.<alias>]` shape.
+# Any future bump requires regenerating every fixture under
+# tests/core/fixtures/zeroclaw_config_*.toml alongside the daemon-side
+# migration path in `crates/zeroclaw-config/src/schema/vN.rs`.
+schema_version = 3
 
 [gateway]
 host = "0.0.0.0"
@@ -106,7 +112,8 @@ session_ttl_hours = 0
 show_tool_calls = false
 
 
-[channels.discord]
+
+[channels.discord.alpha]
 enabled = true
 bot_token = "discord-bot"
 allowed_users = ["u1", "u2"]
@@ -120,6 +127,7 @@ interrupt_on_new_message = false
 listen_to_bots = false
 multi_message_delay_ms = 800
 stall_timeout_secs = 0
+
 
 
 [autonomy]
@@ -202,6 +210,11 @@ loop_ignore_tools = [
 model_provider = "openai.alpha"
 risk_profile = "default"
 runtime_profile = "default"
+# #974: bind the aliased discord sub-table above to this agent. Empty
+# list when no discord channel attached — the daemon reports `no
+# channels configured` in doctor without this binding, even if the
+# `[channels.discord.<alias>]` section is present.
+channels = ["channels.discord.alpha"]
 
 # `[risk_profiles.<alias>]` and `[runtime_profiles.<alias>]` must exist
 # for the refs above to resolve — the daemon errors with "does not
