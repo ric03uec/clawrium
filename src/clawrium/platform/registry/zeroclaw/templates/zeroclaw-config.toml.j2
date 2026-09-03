@@ -1,6 +1,11 @@
 # Managed by clawrium (clawctl). Re-render with `clawctl agent configure {{ agent_name }}`.
 # This template is a FULL copy of the canonical zeroclaw config.toml — every section
 # zeroclaw expects is preserved verbatim. Only clawctl-managed values are templated.
+{# schema_version 2 is retained intentionally. The zeroclaw v0.8.2 daemon migrates
+   config on load (crates/zeroclaw-config/src/schema/v2.rs) — folding legacy 0.7.5
+   settings into the current shape. Any bump requires updating the migration path
+   in-daemon AND regenerating every fixture under
+   tests/core/fixtures/zeroclaw_config_*.toml. Do not bump without both. #}
 schema_version = 2
 
 [gateway]
@@ -45,6 +50,14 @@ fallback = "{{ provider.type | toq }}"
 # reference below stays in lockstep.
 [providers.models.{{ provider.type }}.{{ agent_name }}]
 model = "{{ provider.default_model | toq }}"
+{# TODO: opencode/opencode-go emit `base_url` here, but zeroclaw v0.8.2's
+   OpenAI-compatible provider schema uses `uri` (verified live for litellm
+   in #976; see .itx/976/02_EXECUTE.md — `zeroclaw config list` on wolf-i
+   showed `providers.models.<type>.<alias>.uri`). `base_url` is silently
+   dropped by the daemon, which means opencode/opencode-go on zeroclaw may
+   have the same latent silent-fail. Deferred to a follow-up; verify on a
+   real opencode-on-zeroclaw agent before flipping. Cross-ref: #976 PR
+   [TODO-FOLLOWUP] callout. #}
 {% if provider.type == "ollama" %}base_url = "{{ provider.endpoint | toq }}"
 {% elif provider.type in ("opencode", "opencode-go") %}base_url = "{{ provider.endpoint | toq }}"
 api_key = "{{ provider.api_key | toq }}"

@@ -1,6 +1,7 @@
 # Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.
 # This template is a FULL copy of the canonical zeroclaw config.toml — every section
 # zeroclaw expects is preserved verbatim. Only clawctl-managed values are templated.
+
 schema_version = 2
 
 [gateway]
@@ -45,6 +46,7 @@ fallback = "opencode-go"
 # reference below stays in lockstep.
 [providers.models.opencode-go.alpha]
 model = "kimi-k2.5"
+
 base_url = "https://opencode.ai/zen/go/v1"
 api_key = "sk-opencode-go-1"
 

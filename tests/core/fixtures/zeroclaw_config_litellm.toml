@@ -1,6 +1,7 @@
 # Managed by clawrium (clawctl). Re-render with `clawctl agent configure alpha`.
 # This template is a FULL copy of the canonical zeroclaw config.toml — every section
 # zeroclaw expects is preserved verbatim. Only clawctl-managed values are templated.
+
 schema_version = 2
 
 [gateway]
@@ -45,6 +46,7 @@ fallback = "litellm"
 # reference below stays in lockstep.
 [providers.models.litellm.alpha]
 model = "gemma4:31b"
+
 uri = "http://10.0.0.5:4000/v1"
 api_key = "sk-master-1"
 
